@@ -5,7 +5,7 @@
 //!
 //! Run with:
 //! ```bash
-//! AOS_MODEL_PATH=/Users/star/Dev/adapter-os/var/models/Llama-3.2-3B-Instruct-4bit \
+//! AOS_MODEL_PATH=var/models/Llama-3.2-3B-Instruct-4bit \
 //!   cargo test --test model_server_gpu_memory -- --ignored --nocapture
 //! ```
 
@@ -80,7 +80,7 @@ fn test_model_load_gpu_memory() {
         Ok(p) => p,
         Err(_) => {
             println!("❌ AOS_MODEL_PATH not set. Example:");
-            println!("   AOS_MODEL_PATH=/Users/star/Dev/adapter-os/var/models/Llama-3.2-3B-Instruct-4bit \\");
+            println!("   AOS_MODEL_PATH=var/models/Llama-3.2-3B-Instruct-4bit \\");
             println!("     cargo test --test model_server_gpu_memory -- --ignored --nocapture");
             return;
         }

@@ -5,7 +5,7 @@
 //!
 //! # Citations
 //! - CONTRIBUTING.md L118-122: "Follow Rust naming conventions", "Use `cargo clippy` for linting"
-//! - AGENTS.md L50-55: "Testing frameworks with deterministic execution"
+//! - docs/TESTING.md: Testing conventions and deterministic execution
 
 use adapteros_core::{AosError, Result};
 use async_trait::async_trait;

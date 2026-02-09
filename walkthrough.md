@@ -33,7 +33,7 @@ I managed the startup process via the `start` script and monitored logs.
 
    ```
    INFO adapteros_lora_worker::backend_factory: Selected MLX implementation implementation="ffi"
-   INFO adapteros_lora_mlx_ffi: MLX model loaded via FFI: /Users/star/Dev/adapter-os/var/models/Qwen2.5-7B-Instruct-4bit
+   INFO adapteros_lora_mlx_ffi: MLX model loaded via FFI: <repo-root>/var/models/Qwen2.5-7B-Instruct-4bit
    ```
 
 3. **Inference Readiness**: The startup script performed a `/readyz` check which passed.

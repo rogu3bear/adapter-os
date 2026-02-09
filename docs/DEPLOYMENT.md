@@ -1699,7 +1699,8 @@ curl http://localhost:8080/healthz
 ## References
 
 - [README.md](../README.md) - Quick start and feature overview
-- [AGENTS.md](../AGENTS.md) - Development guide
+- [AGENTS.md](../AGENTS.md) - Developer quick reference (commands + invariants index)
+- [CLAUDE.md](../CLAUDE.md) - Extended developer guide
 - [docs/AUTHENTICATION.md](AUTHENTICATION.md) - Authentication details
 - [docs/POLICIES.md](POLICIES.md) - 25 policy packs
 - [docs/DETERMINISM.md](DETERMINISM.md) - Determinism and replay guarantees

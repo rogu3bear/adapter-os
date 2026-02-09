@@ -151,7 +151,7 @@ async fn main() -> Result<()> {
     let app = Router::new()
         .route("/spawn_worker", post(spawn_worker))
         .route("/workers", get(list_workers))
-        .route("/workers/:pid", delete(stop_worker))
+        .route("/workers/{pid}", delete(stop_worker))
         .route("/health", get(health))
         // Tier 6: Cluster management endpoints
         .route("/status", get(node_status))
@@ -263,7 +263,7 @@ async fn list_workers(State(state): State<AppState>) -> impl IntoResponse {
     }
 }
 
-/// DELETE /workers/:pid - Stop a worker by PID
+/// DELETE /workers/{pid} - Stop a worker by PID
 async fn stop_worker(State(state): State<AppState>, Path(pid): Path<u32>) -> impl IntoResponse {
     info!("Received stop_worker request for PID {}", pid);
 

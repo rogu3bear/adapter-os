@@ -11,12 +11,12 @@ This document describes the comprehensive test suite for MLX backend KV cache an
 ## Test Files Created
 
 ### 1. `kv_cache_attention_verification.rs` (Main Test Suite)
-**Location:** `/Users/star/Dev/aos/crates/adapteros-lora-mlx-ffi/tests/kv_cache_attention_verification.rs`
+**Location:** `crates/adapteros-lora-mlx-ffi/tests/kv_cache_attention_verification.rs`
 **Lines of Code:** 800+
 **Test Count:** 45+ tests
 
 ### 2. `attention_debug_utilities.rs` (Debugging Tools)
-**Location:** `/Users/star/Dev/aos/crates/adapteros-lora-mlx-ffi/tests/attention_debug_utilities.rs`
+**Location:** `crates/adapteros-lora-mlx-ffi/tests/attention_debug_utilities.rs`
 **Lines of Code:** 500+
 **Utility Functions:** 15+
 
@@ -510,10 +510,10 @@ println!("Frequency decay mean ratio: {}", freq_analysis.mean_ratio);
 
 ## References
 
-- **MLX Header:** `/Users/star/Dev/aos/crates/adapteros-lora-mlx-ffi/wrapper.h`
-- **KV Cache Implementation:** `/Users/star/Dev/aos/crates/adapteros-lora-mlx-ffi/src/kv_cache.rs`
-- **Attention Implementation:** `/Users/star/Dev/aos/crates/adapteros-lora-mlx-ffi/src/attention.rs`
-- **Tensor Operations:** `/Users/star/Dev/aos/crates/adapteros-lora-mlx-ffi/src/tensor.rs`
+- **MLX Header:** `crates/adapteros-lora-mlx-ffi/wrapper.h`
+- **KV Cache Implementation:** `crates/adapteros-lora-mlx-ffi/src/kv_cache.rs`
+- **Attention Implementation:** `crates/adapteros-lora-mlx-ffi/src/attention.rs`
+- **Tensor Operations:** `crates/adapteros-lora-mlx-ffi/src/tensor.rs`
 
 ---
 

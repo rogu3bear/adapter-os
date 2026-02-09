@@ -1879,7 +1879,8 @@ For critical lookups, covering indexes include all selected columns to avoid pri
 
 ## Additional Resources
 
-- **AGENTS.md:** `/AGENTS.md` - Developer quick reference (source of truth)
+- **AGENTS.md:** `/AGENTS.md` - Developer quick reference (commands + invariants index)
+- **CLAUDE.md:** `/CLAUDE.md` - Extended developer guide (CLI workflows, feature flags, UI build/serve)
 - **Migration Documentation:** `/docs/PRD-05_MIGRATION_CONSOLIDATION.md`
 - **Database Abstraction Code:** `/crates/adapteros-db/src/traits.rs`
 - **SQLite Backend:** `/crates/adapteros-db/src/sqlite_backend.rs`

@@ -45,7 +45,7 @@ services:
     description: "adapterOS inference server"
     command: "cargo"
     args: ["run", "-p", "adapteros-server", "--bin", "adapteros-server", "--", "--config", "configs/cp.toml", "--skip-pf-check", "--single-writer"]
-    working_directory: "/Users/star/Dev/adapter-os"
+    working_directory: "."
     environment: {}
     port: 3300
     category: "core"
@@ -105,7 +105,7 @@ services:
     description: "Legacy supervisor process (for compatibility)"
     command: "aos-supervisor"
     args: ["--config", "scripts/supervisor.toml"]
-    working_directory: "/Users/star/Dev/adapter-os"
+    working_directory: "."
     environment: {}
     category: "core"
     essential: false

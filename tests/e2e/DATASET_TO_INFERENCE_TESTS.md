@@ -8,7 +8,7 @@ The `dataset_to_inference.rs` test suite provides comprehensive end-to-end testi
 
 ### Main Test Module: `DatasetToInferenceTest`
 
-Located in: `/Users/star/Dev/aos/tests/e2e/dataset_to_inference.rs`
+Located in: `tests/e2e/dataset_to_inference.rs`
 
 This test class orchestrates the complete workflow and error scenario testing.
 
@@ -277,7 +277,7 @@ This test is part of the broader E2E testing framework and uses:
 - **TestConfig**: Configuration for test execution
 - **TelemetryWriter**: Records all test events for analysis
 
-The test is registered in `/Users/star/Dev/aos/tests/e2e/mod.rs` and exported as `DatasetToInferenceTest`.
+The test is registered in `tests/e2e/mod.rs` and exported as `DatasetToInferenceTest`.
 
 ## Key Testing Patterns Used
 

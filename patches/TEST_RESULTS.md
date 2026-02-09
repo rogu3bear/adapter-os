@@ -24,7 +24,7 @@ Zero warnings, zero errors.
 **Result: PASS**
 ```
 trunk build --release
-Compiling wasm-bindgen-futures v0.4.58 (/Users/star/Dev/adapter-os/patches/wasm-bindgen-futures)
+Compiling wasm-bindgen-futures v0.4.58 (patches/wasm-bindgen-futures)
 ...
 Finished `release` profile [optimized] target(s) in 1m 41s
 success

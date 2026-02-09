@@ -26,7 +26,7 @@ Main test suite containing:
 
 ### 1. Run All Load Tests
 ```bash
-cd /Users/mln-dev/Dev/adapter-os
+cd <repo-root>
 ./scripts/run_load_tests.sh --all
 ```
 

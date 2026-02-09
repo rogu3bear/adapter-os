@@ -6,7 +6,7 @@ This document summarizes the complete implementation of wiring the memory pressu
 
 ## Files Modified
 
-### 1. `/Users/star/Dev/aos/crates/adapteros-memory/src/k_reduction_integration.rs` (NEW)
+### 1. `crates/adapteros-memory/src/k_reduction_integration.rs` (NEW)
 
 **Purpose:** Channel-based communication layer for K reduction requests
 
@@ -29,7 +29,7 @@ This document summarizes the complete implementation of wiring the memory pressu
 
 **Lines of Code:** 585 (including tests and documentation)
 
-### 2. `/Users/star/Dev/aos/crates/adapteros-memory/src/pressure_manager.rs` (MODIFIED)
+### 2. `crates/adapteros-memory/src/pressure_manager.rs` (MODIFIED)
 
 **Changes:**
 - Added `k_reduction_sender: Option<KReductionRequestSender>` field
@@ -44,7 +44,7 @@ This document summarizes the complete implementation of wiring the memory pressu
 
 **Backward Compatibility:** All existing methods preserved, no breaking changes
 
-### 3. `/Users/star/Dev/aos/crates/adapteros-memory/src/lib.rs` (MODIFIED)
+### 3. `crates/adapteros-memory/src/lib.rs` (MODIFIED)
 
 **Changes:**
 - Added module: `pub mod k_reduction_integration`
@@ -386,18 +386,18 @@ $ cargo check -p adapteros-memory
 
 ## Related Documentation
 
-- **Architecture:** `/Users/star/Dev/aos/AGENTS.md` - Multi-backend strategy
+- **Architecture:** `../../AGENTS.md` - Multi-backend strategy
 - **Lifecycle Management:** `docs/LIFECYCLE.md` - State machine details
 - **Memory Management:** `docs/ARCHITECTURE.md#architecture-components` - Memory management patterns
-- **K Routing:** `docs/MULTI_ADAPTER_ROUTING.md` - K-sparse routing details
+- **K Routing:** `../../AGENTS.md#k-sparse-routing` - K-sparse routing details
 
 ## References
 
-- K Reduction Protocol: `/Users/star/Dev/aos/crates/adapteros-memory/src/k_reduction_protocol.rs`
-- Pressure Manager: `/Users/star/Dev/aos/crates/adapteros-memory/src/pressure_manager.rs`
-- Integration Module: `/Users/star/Dev/aos/crates/adapteros-memory/src/k_reduction_integration.rs`
-- Integration Guide: `/Users/star/Dev/aos/crates/adapteros-memory/K_REDUCTION_INTEGRATION_GUIDE.md`
-- Consumer Example: `/Users/star/Dev/aos/crates/adapteros-memory/K_REDUCTION_CONSUMER_EXAMPLE.rs`
+- K Reduction Protocol: `crates/adapteros-memory/src/k_reduction_protocol.rs`
+- Pressure Manager: `crates/adapteros-memory/src/pressure_manager.rs`
+- Integration Module: `crates/adapteros-memory/src/k_reduction_integration.rs`
+- Integration Guide: `crates/adapteros-memory/INTEGRATION_K_REDUCTION.md`
+- Consumer Example: `crates/adapteros-memory/K_REDUCTION_CONSUMER_EXAMPLE.rs`
 
 ## Summary
 

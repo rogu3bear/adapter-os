@@ -4297,7 +4297,8 @@ All responses include:
 ### Related Documentation
 
 - [ADAPTER_API_EXAMPLES.md](ADAPTER_API_EXAMPLES.md) - Comprehensive adapter API examples with curl commands
-- [AGENTS.md](../AGENTS.md) - Development guide
+- [AGENTS.md](../AGENTS.md) - Developer quick reference (commands + invariants index)
+- [CLAUDE.md](../CLAUDE.md) - Extended developer guide
 - [ACCESS_CONTROL.md](ACCESS_CONTROL.md) - Access control (RBAC + tenant isolation)
 - [POLICIES.md](POLICIES.md) - Policy enforcement
 - See [SECURITY.md](SECURITY.md) for event tracking and telemetry

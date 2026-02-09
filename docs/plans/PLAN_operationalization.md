@@ -113,7 +113,7 @@ Design:
   - `AOS_MODEL_PATH` (dev legacy).
   - `AOS_TOKENIZER_PATH`.
   - `AOS_MODEL_CACHE_MAX_MB`.
-- Add a CI guard to reject absolute user paths (e.g., `/Users/`) in `configs/`.
+- Add a CI guard to reject absolute user paths (e.g., `$HOME/...`) in `configs/`.
 
 Acceptance:
 - Dev config is single source of truth.

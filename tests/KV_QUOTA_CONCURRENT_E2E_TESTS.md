@@ -4,7 +4,7 @@
 
 This document describes the comprehensive concurrent end-to-end tests for KV quota enforcement in adapterOS. These tests verify that the quota management system works correctly under concurrent load, with no race conditions or state corruption.
 
-**Test File**: `/Users/mln-dev/Dev/adapter-os/tests/kv_quota_concurrent_e2e.rs`
+**Test File**: `tests/kv_quota_concurrent_e2e.rs`
 
 ## Test Suite Coverage
 
@@ -566,7 +566,7 @@ All critical invariants are verified, and the test suite runs quickly enough for
 
 **Created**: 2025-12-12
 **Last Updated**: 2025-12-12
-**File**: `/Users/mln-dev/Dev/adapter-os/tests/kv_quota_concurrent_e2e.rs`
+**File**: `tests/kv_quota_concurrent_e2e.rs`
 **Lines of Code**: 1,234
 **Test Count**: 10
 **Coverage**: Comprehensive concurrent scenarios

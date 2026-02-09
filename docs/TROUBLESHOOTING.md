@@ -1191,7 +1191,7 @@ curl -s http://localhost:8080/api/v1/training/jobs | jq '.[] | {id, status}'
 ### Support Channels
 
 - **GitHub Issues:** https://github.com/mlnavigator/adapter-os/issues
-- **Documentation:** `/Users/mln-dev/Dev/adapter-os/docs/`
+- **Documentation:** `docs/`
 - **In-App Help:** Navigate to `/help` in UI
 
 ---

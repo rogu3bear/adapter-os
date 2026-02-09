@@ -4,7 +4,7 @@ Determinism baseline configurations and manifests for golden run validation.
 
 ## Contents
 
-- [`manifest.toml`](file:///Users/star/Dev/adapter-os/baselines/manifest.toml) - Baseline test manifest defining expected outputs
+- [`manifest.toml`](manifest.toml) - Baseline test manifest defining expected outputs
 
 ## Purpose
 
@@ -12,8 +12,8 @@ This directory stores baseline configurations used in determinism validation. Th
 
 ## Related
 
-- [`golden_runs/`](file:///Users/star/Dev/adapter-os/golden_runs) - Determinism verification test results
-- [`docs/DETERMINISM.md`](file:///Users/star/Dev/adapter-os/docs/DETERMINISM.md) - Determinism architecture documentation
+- [`golden_runs/`](../golden_runs/) - Determinism verification test results
+- [`docs/DETERMINISM.md`](../docs/DETERMINISM.md) - Determinism architecture documentation
 
 ## Usage
 

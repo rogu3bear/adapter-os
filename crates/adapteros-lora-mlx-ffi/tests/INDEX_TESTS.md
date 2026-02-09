@@ -201,7 +201,7 @@ cargo test test_name -- --nocapture
 ## Implementation Reference
 
 ### KV Cache Module
-**File:** `/Users/star/Dev/aos/crates/adapteros-lora-mlx-ffi/src/kv_cache.rs` (450+ lines)
+**File:** `crates/adapteros-lora-mlx-ffi/src/kv_cache.rs` (450+ lines)
 
 Key structs:
 - `MLXKVCache` - Main cache
@@ -210,7 +210,7 @@ Key structs:
 - `CacheStats` - Statistics
 
 ### Attention Module
-**File:** `/Users/star/Dev/aos/crates/adapteros-lora-mlx-ffi/src/attention.rs` (550+ lines)
+**File:** `crates/adapteros-lora-mlx-ffi/src/attention.rs` (550+ lines)
 
 Key functions:
 - `mlx_rope()` - Rotary embeddings
@@ -218,7 +218,7 @@ Key functions:
 - `mlx_multihead_attention()` - Multi-head wrapper
 
 ### Tensor Operations
-**File:** `/Users/star/Dev/aos/crates/adapteros-lora-mlx-ffi/src/tensor.rs`
+**File:** `crates/adapteros-lora-mlx-ffi/src/tensor.rs`
 
 Key struct:
 - `MLXFFITensor` - Tensor wrapper with shape tracking
@@ -318,9 +318,9 @@ finished in 2.35s
 ## Related Documentation
 
 See also:
-- `/Users/star/Dev/aos/docs/ARCHITECTURE_INDEX.md` - System architecture
-- `/Users/star/Dev/aos/AGENTS.md` - Developer guide
-- `/Users/star/Dev/aos/crates/adapteros-lora-mlx-ffi/wrapper.h` - FFI definitions
+- `docs/ARCHITECTURE.md` - System architecture
+- `../../../AGENTS.md` - Developer guide
+- `crates/adapteros-lora-mlx-ffi/wrapper.h` - FFI definitions
 
 ---
 
@@ -334,7 +334,7 @@ See the main project LICENSE file for details.
 ## Document Index
 
 ```
-Root: /Users/star/Dev/aos/crates/adapteros-lora-mlx-ffi/tests/
+Root: crates/adapteros-lora-mlx-ffi/tests/
 
 Start Here:
   ├── INDEX_TESTS.md (you are here)

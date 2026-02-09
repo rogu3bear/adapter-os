@@ -123,7 +123,7 @@ pip install coremltools>=9.0.0
 ### "ModuleNotFoundError: No module named 'coreml_moe_ops'"
 ```bash
 # Run from project root
-cd /Users/mln-dev/Dev/adapter-os
+cd /path/to/adapter-os
 python scripts/convert_mlx_to_coreml.py ...
 ```
 

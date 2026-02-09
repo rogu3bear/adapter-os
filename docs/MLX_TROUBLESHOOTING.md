@@ -536,7 +536,7 @@ codesign --force --sign - --entitlements metal-entitlements.plist "$TEST_BINARY"
 open -a Terminal.app
 
 # Navigate to project
-cd /Users/mln-dev/Dev/adapter-os
+cd /path/to/adapter-os
 
 # Run tests
 cargo test -p adapteros-lora-mlx-ffi --features mlx --lib
@@ -551,7 +551,7 @@ For immediate testing:
 open -a Terminal.app
 
 # 2. Navigate to project
-cd /Users/mln-dev/Dev/adapter-os
+cd /path/to/adapter-os
 
 # 3. Verify Metal access
 swift -e 'import Metal; print(MTLCreateSystemDefaultDevice() != nil ? "✅ Metal OK" : "❌ No Metal")'

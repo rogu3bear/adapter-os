@@ -299,10 +299,10 @@ Test files (source code with inline comments)
 
 ---
 
-## File Locations (Absolute Paths)
+## File Locations (Repo-Relative Paths)
 
 ```
-/Users/star/Dev/aos/crates/adapteros-lora-mlx-ffi/tests/
+crates/adapteros-lora-mlx-ffi/tests/
 ├── kv_cache_attention_verification.rs
 ├── attention_debug_utilities.rs
 ├── ffi_verification_examples.rs
@@ -310,7 +310,7 @@ Test files (source code with inline comments)
 ├── STATUS_VERIFICATION_SUMMARY.md
 └── REFERENCE_TESTS_QUICK.md (this file)
 
-/Users/star/Dev/aos/crates/adapteros-lora-mlx-ffi/src/
+crates/adapteros-lora-mlx-ffi/src/
 ├── kv_cache.rs
 ├── attention.rs
 ├── tensor.rs

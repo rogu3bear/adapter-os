@@ -1,7 +1,7 @@
 # Migration Rollbacks Directory Index
 
 **Created**: 2025-11-19
-**Location**: `/Users/star/Dev/aos/migrations/rollbacks/`
+**Location**: `migrations/rollbacks/`
 
 ## Table of Contents
 
@@ -117,28 +117,28 @@ sqlite3 aos.db "PRAGMA integrity_check;"
 ### Migration Details at a Glance
 
 #### 0064: Adapter Stacks
-- **Forward Migration**: `/Users/star/Dev/aos/migrations/0064_adapter_stacks.sql`
+- **Forward Migration**: `migrations/0064_adapter_stacks.sql`
 - **What It Creates**: Table for named adapter workflow grouping
 - **Why Rollback**: Remove adapter stack infrastructure
 - **Safety Level**: HIGH
 - **Data Impact**: Destroys stack configurations
 
 #### 0070: Routing Decisions
-- **Forward Migration**: `/Users/star/Dev/aos/migrations/0070_routing_decisions.sql`
+- **Forward Migration**: `migrations/0070_routing_decisions.sql`
 - **What It Creates**: Router decision tracking with telemetry
 - **Why Rollback**: Remove routing decision history
 - **Safety Level**: MEDIUM
 - **Data Impact**: Destroys routing telemetry and decision logs
 
 #### 0048: Workspaces and Messaging
-- **Forward Migration**: `/Users/star/Dev/aos/migrations/0048_workspaces_and_messaging.sql`
+- **Forward Migration**: `migrations/0048_workspaces_and_messaging.sql`
 - **What It Creates**: Workspace, messaging, notifications, activity tracking
 - **Why Rollback**: Remove workspace collaboration features
 - **Safety Level**: HIGH
 - **Data Impact**: Destroys all workspace data and user activity logs
 
 #### 0021: Process Security Compliance
-- **Forward Migration**: `/Users/star/Dev/aos/migrations/0021_process_security_compliance.sql`
+- **Forward Migration**: `migrations/0021_process_security_compliance.sql`
 - **What It Creates**: Security policies, compliance standards, access controls, audit logs
 - **Why Rollback**: Remove security and compliance infrastructure
 - **Safety Level**: HIGH
@@ -178,9 +178,9 @@ All documentation includes:
 
 ### Support References
 
-- **Main Migrations**: `/Users/star/Dev/aos/migrations/`
-- **Database Docs**: `/Users/star/Dev/aos/docs/`
-- **PostgreSQL Migrations**: `/Users/star/Dev/aos/migrations/postgres/`
+- **Main Migrations**: `migrations/`
+- **Database Docs**: `docs/`
+- **PostgreSQL Migrations**: `migrations/postgres/`
 
 ### Safety Reminders
 

@@ -319,13 +319,13 @@ pip install coremltools>=9.0.0
 
 **Solution**: Run from project root:
 ```bash
-cd /Users/mln-dev/Dev/adapter-os
+cd /path/to/adapter-os
 python scripts/convert_mlx_to_coreml.py ...
 ```
 
 Or add to PYTHONPATH:
 ```bash
-export PYTHONPATH="${PYTHONPATH}:/Users/mln-dev/Dev/adapter-os/scripts"
+export PYTHONPATH="${PYTHONPATH}:$PWD/scripts"
 ```
 
 ### ANE Warnings

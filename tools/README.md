@@ -4,7 +4,7 @@ Development and operational tooling.
 
 ## Contents
 
-- [`inventory/`](file:///Users/star/Dev/adapter-os/tools/inventory) - Tool inventory and registry
+- [`inventory/`](inventory/) - Tool inventory and registry
 
 ## Purpose
 
@@ -21,8 +21,8 @@ Tools are organized by functional area. The `inventory/` subdirectory maintains 
 
 ## Related
 
-- [`scripts/`](file:///Users/star/Dev/adapter-os/scripts) - Executable automation scripts
-- [`xtask/`](file:///Users/star/Dev/adapter-os/xtask) - Cargo xtask build utilities
+- [`scripts/`](../scripts/) - Executable automation scripts
+- [`xtask/`](../xtask/) - Cargo xtask build utilities
 
 ## Usage
 

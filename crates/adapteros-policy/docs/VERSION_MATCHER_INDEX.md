@@ -27,9 +27,9 @@
 
 ## Module Location
 
-**Source Code:** `/Users/star/Dev/aos/crates/adapteros-policy/src/packs/version_matcher.rs` (960 lines)
+**Source Code:** `crates/adapteros-policy/src/packs/version_matcher.rs` (960 lines)
 
-**Tests:** `/Users/star/Dev/aos/crates/adapteros-policy/tests/version_matcher_tests.rs` (432 lines)
+**Tests:** `crates/adapteros-policy/tests/version_matcher_tests.rs` (432 lines)
 
 ## What's Implemented
 

@@ -17,7 +17,7 @@ The codebase has 20+ different list/pagination response types with inconsistent 
 
 ### Canonical Generic Type
 
-Located in `/Users/star/Dev/adapter-os/crates/adapteros-api-types/src/lib.rs:340`
+Located in `crates/adapteros-api-types/src/lib.rs:340`
 
 ```rust
 pub struct PaginatedResponse<T> {

@@ -8,8 +8,8 @@
 //! - Verify tenant isolation
 //!
 //! Citations:
-//! - RBAC: [source: docs/RBAC.md]
-//! - Permissions: [source: AGENTS.md L250-L280]
+//! - RBAC: [source: docs/ACCESS_CONTROL.md]
+//! - Permissions: [source: docs/ACCESS_CONTROL.md]
 //! - ApiTestHarness: [source: tests/common/test_harness.rs]
 
 #![allow(clippy::unnecessary_unwrap)]

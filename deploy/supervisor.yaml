@@ -47,7 +47,7 @@ services:
     description: "adapterOS inference server"
     command: "cargo"
     args: ["run", "-p", "adapteros-server", "--bin", "adapteros-server", "--", "--config", "configs/cp.toml", "--skip-pf-check", "--single-writer"]
-    working_directory: "/Users/star/Dev/adapter-os"
+    working_directory: "."
     environment: {}
     port: 3300
     category: "core"
@@ -107,7 +107,7 @@ services:
     description: "Legacy supervisor process (for compatibility)"
     command: "aos-supervisor"
     args: ["--config", "scripts/supervisor.toml"]
-    working_directory: "/Users/star/Dev/adapter-os"
+    working_directory: "."
     environment: {}
     category: "core"
     essential: false
@@ -136,7 +136,7 @@ services:
     description: "Manages training job scheduling and execution"
     command: "cargo"
     args: ["run", "-p", "adapteros-orchestrator"]
-    working_directory: "/Users/star/Dev/adapter-os"
+    working_directory: "."
     environment:
       RUST_LOG: "adapteros_orchestrator=info"
     port: 3302
@@ -167,7 +167,7 @@ services:
     description: "GPU worker for LoRA fine-tuning"
     command: "cargo"
     args: ["run", "-p", "adapteros-lora-worker", "--", "--worker-id", "worker-1"]
-    working_directory: "/Users/star/Dev/adapter-os"
+    working_directory: "."
     environment:
       RUST_LOG: "adapteros_lora_worker=info"
       GPU_DEVICE: "0"
@@ -198,7 +198,7 @@ services:
     description: "Collects system and application metrics"
     command: "cargo"
     args: ["run", "-p", "adapteros-metrics-collector"]
-    working_directory: "/Users/star/Dev/adapter-os"
+    working_directory: "."
     environment:
       RUST_LOG: "adapteros_metrics_collector=info"
     port: 9090
@@ -229,7 +229,7 @@ services:
     description: "Aggregates and processes telemetry events"
     command: "cargo"
     args: ["run", "-p", "adapteros-telemetry"]
-    working_directory: "/Users/star/Dev/adapter-os"
+    working_directory: "."
     environment:
       RUST_LOG: "adapteros_telemetry=info"
     category: "monitoring"
@@ -259,7 +259,7 @@ services:
     description: "Distributed node agent for federation"
     command: "cargo"
     args: ["run", "-p", "adapteros-node"]
-    working_directory: "/Users/star/Dev/adapter-os"
+    working_directory: "."
     environment:
       RUST_LOG: "adapteros_node=info"
     port: 3303

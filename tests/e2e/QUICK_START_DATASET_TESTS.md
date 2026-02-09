@@ -2,16 +2,16 @@
 
 ## Files Location
 ```
-/Users/star/Dev/aos/tests/e2e/dataset_to_inference.rs       [Main test file - 574 lines]
-/Users/star/Dev/aos/tests/e2e/DATASET_TO_INFERENCE_TESTS.md  [Detailed documentation]
-/Users/star/Dev/aos/DATASET_TO_INFERENCE_TEST_SUMMARY.md     [Implementation summary]
+tests/e2e/dataset_to_inference.rs        [Main test file - 574 lines]
+tests/e2e/DATASET_TO_INFERENCE_TESTS.md  [Detailed documentation]
+tests/e2e/README_DATASET_TESTS.md        [Implementation summary / navigation]
 ```
 
 ## Run Tests
 
 ### Quick Run (All Tests)
 ```bash
-cd /Users/star/Dev/aos
+cd <repo-root>
 cargo test --test dataset_to_inference -- --ignored --nocapture
 ```
 
@@ -241,4 +241,4 @@ test.test_error_scenarios().await?;
 
 ---
 
-**For detailed documentation, see**: `/Users/star/Dev/aos/tests/e2e/DATASET_TO_INFERENCE_TESTS.md`
+**For detailed documentation, see**: `DATASET_TO_INFERENCE_TESTS.md`

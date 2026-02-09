@@ -28,7 +28,7 @@ crates/adapteros-lora-mlx-ffi/tests/
 
 ```bash
 # Step 1: Navigate to crate
-cd /Users/star/Dev/aos/crates/adapteros-lora-mlx-ffi
+cd <repo-root>/crates/adapteros-lora-mlx-ffi
 
 # Step 2: Compile tests
 cargo test --test kv_cache_attention_verification --no-run

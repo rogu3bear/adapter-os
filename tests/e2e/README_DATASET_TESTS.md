@@ -11,14 +11,14 @@ Comprehensive end-to-end test suite for the complete dataset-to-inference workfl
 | **This File** | `README_DATASET_TESTS.md` | Navigation and overview |
 | **Quick Start** | `QUICK_START_DATASET_TESTS.md` | Quick reference, commands, basics |
 | **Full Docs** | `DATASET_TO_INFERENCE_TESTS.md` | Detailed test descriptions, phases, events |
-| **Summary** | `../DATASET_TO_INFERENCE_TEST_SUMMARY.md` | Implementation details, architecture |
+| **Summary** | `README.md` | Shared E2E harness architecture and utilities |
 | **Test Code** | `dataset_to_inference.rs` | Main test implementation (574 lines) |
 
 ## Quick Start
 
 ### Run All Tests
 ```bash
-cd /Users/star/Dev/aos
+cd <repo-root>
 cargo test --test dataset_to_inference -- --ignored --nocapture
 ```
 
@@ -230,11 +230,10 @@ Running test suite...
 - Debugging tips
 - Future enhancements
 
-**Summary**: `../DATASET_TO_INFERENCE_TEST_SUMMARY.md`
-- Architecture details
-- Design patterns
-- Integration points
-- Code metrics
+**Summary**: `README.md`
+- E2E harness architecture
+- Orchestration patterns
+- Shared utilities and environment setup
 
 ## Integration Points
 
@@ -378,7 +377,7 @@ if start_time.elapsed() > timeout {
 2. **Review documentation**
    - Start with `QUICK_START_DATASET_TESTS.md`
    - Read `DATASET_TO_INFERENCE_TESTS.md` for details
-   - Review `../DATASET_TO_INFERENCE_TEST_SUMMARY.md` for architecture
+   - Review `README.md` for shared E2E harness architecture
 
 3. **Check telemetry**
    ```bash
@@ -396,10 +395,10 @@ For questions or issues:
 1. Check `DATASET_TO_INFERENCE_TESTS.md` for detailed documentation
 2. Review test output and telemetry logs
 3. Check implementation in `dataset_to_inference.rs`
-4. Review architecture in `DATASET_TO_INFERENCE_TEST_SUMMARY.md`
+4. Review shared harness architecture in `README.md`
 
 ---
 
 **Created**: November 19, 2025
-**Location**: `/Users/star/Dev/aos/tests/e2e/`
+**Location**: `tests/e2e/`
 **Test File**: `dataset_to_inference.rs`

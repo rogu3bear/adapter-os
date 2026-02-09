@@ -223,7 +223,7 @@ Breakdown by category:
 
 ## Integration with AGENTS.md
 
-This dataset directly tests the patterns documented in `/home/user/adapter-os/AGENTS.md`:
+This dataset directly tests the patterns documented in `../../../AGENTS.md`:
 
 ### Deterministic Executor Seeding
 From `AGENTS.md#deterministic-executor-seeding`:

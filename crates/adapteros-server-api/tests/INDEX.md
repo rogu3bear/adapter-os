@@ -217,7 +217,7 @@ Step 4: Review test output for any failures
 
 ## File Locations
 
-All test files are in: `/Users/star/Dev/aos/crates/adapteros-server-api/tests/`
+All test files are in: `crates/adapteros-server-api/tests/`
 
 ```
 tests/

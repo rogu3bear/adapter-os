@@ -2,7 +2,7 @@
 
 ## Files Created
 ```
-/Users/star/Dev/aos/migrations/rollbacks/
+migrations/rollbacks/
 ├── 0021_process_security_compliance_rollback.sql
 ├── 0048_workspaces_and_messaging_rollback.sql
 ├── 0064_adapter_stacks_rollback.sql
@@ -83,12 +83,12 @@ PRAGMA integrity_check;
 
 ## Emergency Contacts & References
 
-- Migration files: `/Users/star/Dev/aos/migrations/`
+- Migration files: `migrations/`
 - Forward migration: `0064_adapter_stacks.sql`
 - Forward migration: `0070_routing_decisions.sql`
 - Forward migration: `0048_workspaces_and_messaging.sql`
 - Forward migration: `0021_process_security_compliance.sql`
-- Comprehensive docs: `/Users/star/Dev/aos/migrations/rollbacks/README.md`
+- Comprehensive docs: `migrations/rollbacks/README.md`
 
 ## Common Issues & Solutions
 
@@ -132,4 +132,4 @@ For detailed information including:
 - Testing procedures
 - Compliance considerations
 
-See: `/Users/star/Dev/aos/migrations/rollbacks/README.md`
+See: `migrations/rollbacks/README.md`
