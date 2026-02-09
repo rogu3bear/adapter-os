@@ -7,11 +7,13 @@
   "progress": true,
   "ignore": [
     "**/.git/**",
+    "**/.codex/**",
     "**/.venv/**",
     "**/node_modules/**",
     "**/target/**",
     "**/var/**",
     "**/dist/**",
+    "**/crates/adapteros-server/static/**",
     "**/.cache/**",
     "**/.next/**",
     "**/.turbo/**",
