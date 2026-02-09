@@ -146,8 +146,8 @@ impl SecureEnclaveConnection {
             alias
         );
 
-        let master_key = self.ensure_encryption_master_key(alias)?;
-        self.derive_chacha_key_from_master(alias, &master_key)
+        let root_key = self.ensure_encryption_root_key(alias)?;
+        self.derive_chacha_key_from_root(alias, &root_key)
     }
 
     /// Get hardware attestation for key
@@ -298,7 +298,7 @@ impl SecureEnclaveConnection {
         }
     }
 
-    fn ensure_encryption_master_key(&mut self, alias: &str) -> Result<SecKey> {
+    fn ensure_encryption_root_key(&mut self, alias: &str) -> Result<SecKey> {
         let cache_key = format!("{}_encryption", alias);
 
         if let Some(sec_key) = self.key_cache.get(&cache_key) {
@@ -372,7 +372,7 @@ impl SecureEnclaveConnection {
             .map_err(|e| AosError::Crypto(format!("Secure Enclave key generation failed: {}", e)))
     }
 
-    /// Create encryption master key in Secure Enclave
+    /// Create encryption root key in Secure Enclave
     ///
     /// Implements hardware-backed encryption key generation per Secrets Ruleset #14.
     /// Note: Full hardware integration requires direct CoreFoundation SecKeyCreateRandomKey.
@@ -401,11 +401,11 @@ impl SecureEnclaveConnection {
             .map_err(|e| AosError::Crypto(format!("Secure Enclave key generation failed: {}", e)))
     }
 
-    /// Derive ChaCha20Poly1305 key from Secure Enclave master key
-    fn derive_chacha_key_from_master(&self, alias: &str, master_key: &SecKey) -> Result<[u8; 32]> {
+    /// Derive ChaCha20Poly1305 key from Secure Enclave root key
+    fn derive_chacha_key_from_root(&self, alias: &str, root_key: &SecKey) -> Result<[u8; 32]> {
         let context = format!("adapteros::secure_enclave::chacha20::{}", alias);
 
-        let signature = master_key
+        let signature = root_key
             .create_signature(
                 Algorithm::ECDSASignatureMessageX962SHA256,
                 context.as_bytes(),
