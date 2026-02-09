@@ -53,7 +53,7 @@ fn blocker_reason(blocker: &InferenceBlocker) -> &'static str {
         InferenceBlocker::DatabaseUnavailable => "Database is unavailable",
         InferenceBlocker::WorkerMissing => "No workers are connected",
         InferenceBlocker::NoModelLoaded => "No model is loaded on any worker",
-        InferenceBlocker::ActiveModelMismatch => "Active model does not match the loaded runtime",
+        InferenceBlocker::ActiveModelMismatch => "Active model is not loaded on any worker",
         InferenceBlocker::TelemetryDegraded => "Telemetry degraded",
         InferenceBlocker::SystemBooting => "System booting",
         InferenceBlocker::BootFailed => "Boot failed",
