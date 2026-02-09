@@ -498,6 +498,7 @@ The following items are acknowledged gaps, not yet implemented:
 - Tokenizer identity bound via `tokenizer_hash_b3`, `tokenizer_version`, `tokenizer_normalization`
 - Model/adapters provenance bound via `model_build_hash_b3`, `adapter_build_hash_b3`
 - Routing policy **code constants** (e.g. `PINNED_BOOST`, router scoring weights) are not individually receipt-bound; they are anchored via `model_build_hash_b3` (build provenance) and a trusted allowlist of builds.
+- Pins are preference; pinned degradation (unavailable pins + fallback) is **evidence-only** and is not receipt-bound.
 - Decoder determinism bound via `decode_algo`, `temperature_q15`, `top_p_q15`, `top_k`, `seed_digest_b3`, `sampling_backend`
 - Concurrency determinism bound via `thread_count`, `reduction_strategy`
 - Stop controller bound via `stop_eos_q15`, `stop_window_digest_b3`

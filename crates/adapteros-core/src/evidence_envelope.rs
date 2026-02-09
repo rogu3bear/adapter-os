@@ -39,7 +39,8 @@ use std::convert::TryFrom;
 /// - v3: Added seed_lineage_hash to InferenceReceiptRef (PRD-DET-001: determinism hardening)
 /// - v4: Added adapter_training_lineage_digest for training data provenance (patent rectification)
 /// - v5: Added cross-run lineage (Patent 3535886.0002 Claims 7-8)
-pub const EVIDENCE_ENVELOPE_SCHEMA_VERSION: u8 = 5;
+/// - v6: Added pinned degradation evidence (counts + digest, no raw IDs) to telemetry scope
+pub const EVIDENCE_ENVELOPE_SCHEMA_VERSION: u8 = 6;
 
 /// Evidence scope discriminator
 #[derive(Debug, Clone, Copy, PartialEq, Eq, Serialize, Deserialize)]
@@ -83,6 +84,73 @@ impl EvidenceScope {
     }
 }
 
+/// Evidence-bound pinned degradation (counts + digest, no raw IDs).
+///
+/// This records *degradation outcomes* when pinned adapters are unavailable at execution time.
+/// It intentionally does not store raw adapter IDs.
+///
+/// Deterministic sentinels:
+/// - If pins are absent entirely: counts are 0 and optional fields are None.
+/// - If pins are present but no pins are unavailable: this struct should generally be omitted.
+#[cfg_attr(feature = "utoipa", derive(utoipa::ToSchema))]
+#[derive(Debug, Clone, Serialize, Deserialize, PartialEq, Eq, Default)]
+pub struct PinnedDegradationEvidence {
+    /// Total pinned adapter count requested.
+    pub pinned_total_count: u32,
+    /// Number of pinned adapters that were unavailable on the worker.
+    pub unavailable_pinned_count: u32,
+    /// BLAKE3 digest of the sorted unavailable pin IDs (domain separated, length-prefixed).
+    pub unavailable_pinned_set_digest_b3: Option<B3Hash>,
+    /// Routing fallback mode triggered by pinned unavailability.
+    ///
+    /// Expected values: "partial" | "stack_only"
+    pub pinned_fallback_mode: Option<String>,
+}
+
+/// Compute the BLAKE3 digest for a set of unavailable pinned adapter IDs.
+///
+/// Digest rules:
+/// - Sort IDs lexicographically (byte order) for determinism.
+/// - Hash domain-separated bytes with unambiguous separators (length prefix + NUL).
+pub fn compute_unavailable_pinned_set_digest_b3(unavailable_pin_ids: &[String]) -> B3Hash {
+    let mut ids: Vec<&str> = unavailable_pin_ids.iter().map(|s| s.as_str()).collect();
+    ids.sort_unstable();
+
+    let mut hasher = blake3::Hasher::new();
+    hasher.update(b"adapteros:pinned_unavailable_set_digest:v1\0");
+    for id in ids {
+        let id_bytes = id.as_bytes();
+        let len_u32 = u32::try_from(id_bytes.len()).unwrap_or(u32::MAX);
+        hasher.update(&len_u32.to_be_bytes());
+        hasher.update(id_bytes);
+        hasher.update(b"\0");
+    }
+
+    B3Hash::new(*hasher.finalize().as_bytes())
+}
+
+/// Deterministic telemetry-scope identifiers for pinned degradation envelopes.
+///
+/// Derived from tenant + inference_id; used for retrieval/export without storing raw IDs.
+pub fn pinned_degradation_telemetry_ref_ids(
+    tenant_id: &str,
+    inference_id: &str,
+) -> (B3Hash, B3Hash) {
+    let bundle_hash = B3Hash::hash_multi(&[
+        b"adapteros:pinned_degradation:bundle_hash:v1\0",
+        tenant_id.as_bytes(),
+        b"\0",
+        inference_id.as_bytes(),
+    ]);
+    let merkle_root = B3Hash::hash_multi(&[
+        b"adapteros:pinned_degradation:merkle_root:v1\0",
+        tenant_id.as_bytes(),
+        b"\0",
+        inference_id.as_bytes(),
+    ]);
+    (bundle_hash, merkle_root)
+}
+
 /// Reference to telemetry bundle (digest-only)
 #[derive(Debug, Clone, Serialize, Deserialize, PartialEq, Eq)]
 pub struct BundleMetadataRef {
@@ -96,6 +164,9 @@ pub struct BundleMetadataRef {
     pub cpid: Option<String>,
     /// Bundle sequence number within the CPID
     pub sequence_no: Option<u64>,
+    /// Optional pinned degradation evidence (counts + digest, no raw IDs).
+    #[serde(default)]
+    pub pinned_degradation_evidence: Option<PinnedDegradationEvidence>,
 }
 
 /// Reference to policy audit decision (digest-only)
@@ -502,6 +573,23 @@ impl EvidenceEnvelope {
                     encode_u32(bytes, r.event_count);
                     encode_str(bytes, r.cpid.as_deref().unwrap_or(""));
                     encode_u64(bytes, r.sequence_no.unwrap_or(0));
+
+                    // v6: pinned degradation evidence (counts + digest, no raw IDs)
+                    if let Some(ref ev) = r.pinned_degradation_evidence {
+                        encode_u32(bytes, ev.pinned_total_count);
+                        encode_u32(bytes, ev.unavailable_pinned_count);
+                        match &ev.unavailable_pinned_set_digest_b3 {
+                            Some(h) => bytes.extend_from_slice(h.as_bytes()),
+                            None => bytes.extend_from_slice(&[0u8; 32]),
+                        }
+                        encode_str(bytes, ev.pinned_fallback_mode.as_deref().unwrap_or(""));
+                    } else {
+                        // Deterministic sentinels.
+                        encode_u32(bytes, 0);
+                        encode_u32(bytes, 0);
+                        bytes.extend_from_slice(&[0u8; 32]);
+                        encode_str(bytes, "");
+                    }
                 }
             }
             EvidenceScope::Policy => {
@@ -867,6 +955,7 @@ mod tests {
             event_count: 100,
             cpid: Some("cp-001".to_string()),
             sequence_no: Some(42),
+            pinned_degradation_evidence: None,
         }
     }
 

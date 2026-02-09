@@ -151,7 +151,9 @@ use adapteros_api_types::inference::ReplayGuarantee;
 use adapteros_api_types::{RunActor, RunEnvelope};
 use adapteros_config::PlacementConfig;
 use adapteros_core::{
-    identity::IdentityEnvelope, B3Hash, BackendKind, GuardLogLevel, SeedScopeGuard,
+    compute_key_id, identity::IdentityEnvelope, pinned_degradation_telemetry_ref_ids,
+    BundleMetadataRef, EvidenceEnvelope, EvidenceScope, PinnedDegradationEvidence, B3Hash,
+    BackendKind, GuardLogLevel, SeedScopeGuard,
 };
 use adapteros_db::workers::WorkerWithBinding;
 use adapteros_db::{chat_sessions::ChatSession, CreateReplayMetadataParams};
@@ -1382,34 +1384,59 @@ impl<'a> InferenceCore<'a> {
             .clone()
             .or(pinned_routing_fallback);
 
-        // Log warning (not debug) when pinned adapters are missing for observability
-        if let Some(ref unavailable) = unavailable_pinned {
-            let fallback = pinned_routing_fallback.as_deref().unwrap_or("none");
+        // Evidence-bound pinned degradation (counts + digest, no raw IDs) is computed on the worker.
+        let pinned_degradation_evidence = worker_response.pinned_degradation_evidence.clone();
+
+        // Log and persist evidence only when there is actual degradation (some pins unavailable).
+        if let Some(ref ev) = pinned_degradation_evidence {
+            let fallback = ev
+                .pinned_fallback_mode
+                .as_deref()
+                .or(pinned_routing_fallback.as_deref())
+                .unwrap_or("none");
+
+            // Persist as a signed, chain-linked evidence envelope (Telemetry scope).
+            if let Err(e) = persist_pinned_degradation_evidence_envelope(
+                self.state,
+                &request.cpid,
+                &request.request_id,
+                ev.clone(),
+            )
+            .await
+            {
+                warn!(
+                    request_id = %request.request_id,
+                    cpid = %request.cpid,
+                    error = %e,
+                    "Failed to persist pinned degradation evidence envelope"
+                );
+            }
+
+            // Observability warning without raw adapter IDs.
             warn!(
                 request_id = %request.request_id,
                 cpid = %request.cpid,
-                missing_pins = ?unavailable,
+                pinned_total_count = ev.pinned_total_count,
+                unavailable_pinned_count = ev.unavailable_pinned_count,
+                unavailable_pinned_set_digest_b3 = ?ev.unavailable_pinned_set_digest_b3,
                 fallback = %fallback,
-                pinned_count = pinned_adapter_ids.as_ref().map(|p| p.len()).unwrap_or(0),
-                missing_count = unavailable.len(),
                 "Pinned adapters unavailable - using fallback routing"
             );
 
-            // Emit structured telemetry event for missing pinned adapters
+            // Emit structured telemetry event for missing pinned adapters (no raw IDs).
             let identity = IdentityEnvelope::new(
                 request.cpid.clone(),
                 "inference_core".to_string(),
                 "pinned_adapters_unavailable".to_string(),
                 env!("CARGO_PKG_VERSION").to_string(),
             );
-            let pinned_count = pinned_adapter_ids.as_ref().map(|p| p.len()).unwrap_or(0);
             let event_result = TelemetryEventBuilder::new(
                 EventType::Custom("inference.pinned_adapters_unavailable".to_string()),
                 LogLevel::Warn,
                 format!(
                     "{} of {} pinned adapters unavailable - fallback: {}",
-                    unavailable.len(),
-                    pinned_count,
+                    ev.unavailable_pinned_count,
+                    ev.pinned_total_count,
                     fallback
                 ),
                 identity,
@@ -1419,14 +1446,15 @@ impl<'a> InferenceCore<'a> {
                 "request_id": request.request_id,
                 "cpid": request.cpid,
                 "session_id": request.session_id,
-                "pinned_adapter_ids": pinned_adapter_ids,
-                "unavailable_pinned_adapters": unavailable,
+                "pinned_total_count": ev.pinned_total_count,
+                "unavailable_pinned_count": ev.unavailable_pinned_count,
+                "unavailable_pinned_set_digest_b3": ev.unavailable_pinned_set_digest_b3.as_ref().map(|h| h.to_hex()),
                 "fallback_mode": fallback,
                 "latency_ms": latency_ms,
             }))
             .build();
 
-            // Push to telemetry buffer (fire-and-forget, don't block inference)
+            // Push to telemetry buffer (fire-and-forget, don't block inference).
             if let Ok(event) = event_result {
                 let telemetry_buffer = self.state.telemetry_buffer.clone();
                 tokio::spawn(async move {
@@ -3634,4 +3662,66 @@ impl<'a> InferenceCore<'a> {
             );
         }
     }
+}
+
+async fn persist_pinned_degradation_evidence_envelope(
+    state: &AppState,
+    tenant_id: &str,
+    inference_id: &str,
+    evidence: PinnedDegradationEvidence,
+) -> adapteros_core::Result<()> {
+    let (bundle_hash, merkle_root) = pinned_degradation_telemetry_ref_ids(tenant_id, inference_id);
+    let root = B3Hash::hash_multi(&[bundle_hash.as_bytes(), merkle_root.as_bytes()]);
+
+    // Idempotency: if this evidence envelope is already present, don't insert again.
+    if state
+        .db
+        .get_evidence_envelope_by_root(tenant_id, EvidenceScope::Telemetry, &root)
+        .await?
+        .is_some()
+    {
+        return Ok(());
+    }
+
+    let bundle_ref = BundleMetadataRef {
+        bundle_hash,
+        merkle_root,
+        event_count: 1,
+        cpid: Some(tenant_id.to_string()),
+        sequence_no: None,
+        pinned_degradation_evidence: Some(evidence),
+    };
+
+    // Retry once if the telemetry evidence chain tail moves concurrently.
+    for attempt in 0..=1 {
+        let previous_root = state
+            .db
+            .get_evidence_chain_tail(tenant_id, EvidenceScope::Telemetry)
+            .await?
+            .map(|(root, _seq)| root);
+
+        let mut envelope =
+            EvidenceEnvelope::new_telemetry(tenant_id.to_string(), bundle_ref.clone(), previous_root);
+
+        // Sign the envelope under the existing server signing key.
+        // NOTE: signed_at_us is part of canonical bytes; set it before signing.
+        envelope.signed_at_us = std::time::SystemTime::now()
+            .duration_since(std::time::UNIX_EPOCH)
+            .unwrap_or_default()
+            .as_micros() as u64;
+        let canonical_bytes = envelope.to_canonical_bytes();
+        let signature = state.crypto.signing_keypair.sign(&canonical_bytes);
+        let pubkey_bytes = state.crypto.signing_keypair.public_key().to_bytes();
+        envelope.signature = hex::encode(signature.to_bytes());
+        envelope.public_key = hex::encode(pubkey_bytes);
+        envelope.key_id = compute_key_id(&pubkey_bytes);
+
+        match state.db.store_evidence_envelope(&envelope).await {
+            Ok(_id) => return Ok(()),
+            Err(e) if attempt == 0 && adapteros_core::is_evidence_chain_divergence(&e) => continue,
+            Err(e) => return Err(e),
+        }
+    }
+
+    Ok(())
 }

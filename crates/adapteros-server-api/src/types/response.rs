@@ -616,6 +616,11 @@ pub struct WorkerInferResponse {
     /// - `Some("stack_only")`: All pinned adapters unavailable, routing uses stack only
     #[serde(default, skip_serializing_if = "Option::is_none")]
     pub pinned_routing_fallback: Option<String>,
+    /// Evidence-bound pinned degradation (counts + digest, no raw IDs).
+    ///
+    /// This is computed on the worker and only populated when pinned adapters are unavailable.
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub pinned_degradation_evidence: Option<adapteros_core::PinnedDegradationEvidence>,
     /// Placement trace emitted by the worker (optional)
     #[serde(default, skip_serializing_if = "Option::is_none")]
     pub placement_trace: Option<Vec<PlacementTraceEntry>>,

@@ -172,6 +172,11 @@ pub struct InferenceResponse {
     /// - `Some("stack_only")`: All pinned adapters unavailable, routing uses stack only
     #[serde(default, skip_serializing_if = "Option::is_none")]
     pub pinned_routing_fallback: Option<String>,
+    /// Evidence-bound pinned degradation (counts + digest, no raw IDs).
+    ///
+    /// Only populated when pinned adapters are unavailable at execution time.
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub pinned_degradation_evidence: Option<adapteros_core::PinnedDegradationEvidence>,
     /// Placement decisions per token (optional)
     #[serde(default, skip_serializing_if = "Option::is_none")]
     pub placement_trace: Option<Vec<PlacementTraceEntry>>,

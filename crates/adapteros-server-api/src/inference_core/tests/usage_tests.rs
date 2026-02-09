@@ -97,6 +97,7 @@ fn token_usage_prefers_run_receipt_over_worker_usage() {
         determinism_mode_applied: None,
         unavailable_pinned_adapters: None,
         pinned_routing_fallback: None,
+        pinned_degradation_evidence: None,
         placement_trace: None,
         stop_reason_code: None,
         stop_reason_token_index: None,

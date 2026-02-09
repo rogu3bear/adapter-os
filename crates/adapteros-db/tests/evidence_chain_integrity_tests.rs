@@ -37,6 +37,7 @@ fn create_telemetry_envelope(
         event_count: 100,
         cpid: Some("cp-001".to_string()),
         sequence_no: Some(1),
+        pinned_degradation_evidence: None,
     };
 
     EvidenceEnvelope::new_telemetry(tenant_id, bundle_ref, previous_root)

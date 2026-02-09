@@ -175,6 +175,7 @@ async fn evidence_bundle_contains_required_files() -> anyhow::Result<()> {
     }
     for required in [
         "run_envelope.json",
+        "pinned_degradation_evidence.json",
         "replay_metadata.json",
         "policy_digest.json",
         "manifest_ref.json",

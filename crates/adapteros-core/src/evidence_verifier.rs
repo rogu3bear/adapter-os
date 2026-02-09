@@ -841,6 +841,7 @@ mod tests {
             event_count: 100,
             cpid: Some("cp-001".to_string()),
             sequence_no: Some(42),
+            pinned_degradation_evidence: None,
         }
     }
 
@@ -961,6 +962,7 @@ mod tests {
                 event_count: 50,
                 cpid: Some("cp-001".to_string()),
                 sequence_no: Some(43),
+                pinned_degradation_evidence: None,
             },
             Some(env1.root),
         );
@@ -974,6 +976,7 @@ mod tests {
                 event_count: 25,
                 cpid: Some("cp-001".to_string()),
                 sequence_no: Some(44),
+                pinned_degradation_evidence: None,
             },
             Some(B3Hash::hash(b"wrong-previous")), // Wrong!
         );
