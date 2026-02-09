@@ -89,3 +89,55 @@ async fn latest_trusted_version_skips_blocked_head() -> Result<()> {
 
     Ok(())
 }
+
+#[tokio::test]
+async fn version_storage_path_prefers_single_file_match() -> Result<()> {
+    let db = Db::new_in_memory().await?;
+
+    let dataset_id = db
+        .create_training_dataset(
+            "ds-single-file",
+            None,
+            "jsonl",
+            "hash-file",
+            "var/ds-single-file",
+            None,
+            None,
+            Some("ready"),
+            Some("hash-file"),
+            None,
+        )
+        .await?;
+
+    db.add_dataset_file(
+        &dataset_id,
+        "data.jsonl",
+        "var/ds-single-file/data.jsonl",
+        123,
+        "hash-file",
+        Some("application/jsonl"),
+    )
+    .await?;
+
+    let version_id = db
+        .create_training_dataset_version(
+            &dataset_id,
+            None,
+            None,
+            "var/ds-single-file",
+            "hash-file",
+            None,
+            None,
+            None,
+        )
+        .await?;
+
+    let version = db
+        .get_training_dataset_version(&version_id)
+        .await?
+        .expect("version should exist");
+
+    assert_eq!(version.storage_path, "var/ds-single-file/data.jsonl");
+
+    Ok(())
+}

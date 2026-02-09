@@ -1784,6 +1784,18 @@ impl Db {
         manifest_json: Option<&str>,
         created_by: Option<&str>,
     ) -> Result<String> {
+        let mut resolved_storage_path = storage_path.to_string();
+        if !storage_path.trim().is_empty() {
+            if let Ok(files) = self.get_dataset_files(dataset_id).await {
+                if files.len() == 1 {
+                    let file = &files[0];
+                    if file.hash_b3 == hash_b3 && !file.file_path.trim().is_empty() {
+                        resolved_storage_path = file.file_path.clone();
+                    }
+                }
+            }
+        }
+
         let next_version: (i64,) = sqlx::query_as(
             "SELECT COALESCE(MAX(version_number), 0) + 1 FROM training_dataset_versions WHERE dataset_id = ?",
         )
@@ -1805,7 +1817,7 @@ impl Db {
         .bind(tenant_id)
         .bind(next_version.0)
         .bind(version_label)
-        .bind(storage_path)
+        .bind(&resolved_storage_path)
         .bind(hash_b3)
         .bind(manifest_path)
         .bind(manifest_json)
