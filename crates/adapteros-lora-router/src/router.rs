@@ -1105,7 +1105,7 @@ impl Router {
     /// Returns `RoutingDecision::Abstain` when no adapter qualifies or configuration is empty.
     #[deprecated(
         since = "0.1.1",
-        note = "Use route_with_adapter_info() for per-adapter scoring"
+        note = "Use route_with_adapter_info() (canonical tie-break: score DESC, stable_id ASC)"
     )]
     pub fn route(&mut self, features: &[f32], priors: &[f32]) -> RoutingDecision {
         tracing::warn!(
@@ -1255,6 +1255,28 @@ impl Router {
         });
     }
 
+    /// Canonical candidate ordering for deterministic routing decisions.
+    ///
+    /// Orders by quantized gate (desc), then raw score (desc), then stable_id (asc).
+    /// This ensures tie-breaks are stable across filtering/reordering and match
+    /// the router invariant: score DESC, stable_id ASC.
+    fn sort_candidates_by_quantized_gate_canonical(
+        candidates: &mut Vec<DecisionCandidate>,
+        adapter_info: &[AdapterInfo],
+    ) {
+        candidates.sort_by(|a, b| {
+            b.gate_q15
+                .cmp(&a.gate_q15)
+                .then_with(|| b.raw_score.total_cmp(&a.raw_score))
+                .then_with(|| {
+                    adapter_info[a.adapter_idx as usize]
+                        .stable_id
+                        .cmp(&adapter_info[b.adapter_idx as usize].stable_id)
+                })
+                .then_with(|| a.adapter_idx.cmp(&b.adapter_idx))
+        });
+    }
+
     /// Deterministic softmax using f64 intermediate precision and Kahan summation
     ///
     /// This implementation provides IEEE 754 deterministic behavior by:
@@ -1273,40 +1295,12 @@ impl Router {
             return Vec::new();
         }
         if tau == 0.0 {
-            // Hard routing: pick top score, tie-break by adapter index ASC.
-            let mut best: Option<(usize, f32)> = None;
-            for (adapter_idx, score) in logits.iter() {
-                match best {
-                    None => best = Some((*adapter_idx, *score)),
-                    Some((best_idx, best_score)) => {
-                        // Use total_cmp() for strict determinism with floating-point comparison.
-                        // This ensures consistent tie-breaking behavior regardless of NaN or ordering edge cases.
-                        if score.total_cmp(&best_score) == std::cmp::Ordering::Greater
-                            || (score.total_cmp(&best_score) == std::cmp::Ordering::Equal
-                                && *adapter_idx < best_idx)
-                        {
-                            best = Some((*adapter_idx, *score));
-                        }
-                    }
-                }
-            }
-            // SAFETY: `best` is always Some here because:
-            // 1. We check `logits.is_empty()` at the start and return early
-            // 2. The loop above always sets `best = Some(...)` on the first iteration
-            // Using unwrap_or_else with a uniform fallback as defensive coding,
-            // though this branch is unreachable in practice.
-            let winner = match best {
-                Some(w) => w,
-                None => {
-                    // Unreachable: logits was already confirmed non-empty
-                    debug_assert!(false, "best should always be Some for non-empty logits");
-                    return vec![1.0 / logits.len() as f32; logits.len()];
-                }
-            };
-            return logits
-                .iter()
-                .map(|(idx, _)| if *idx == winner.0 { 1.0 } else { 0.0 })
-                .collect();
+            // Hard routing: pick the first candidate. Callers MUST provide `logits`
+            // already sorted by the canonical ordering (score DESC, stable_id ASC)
+            // so that the first entry is the deterministic winner.
+            let mut hard = vec![0.0; logits.len()];
+            hard[0] = 1.0;
+            return hard;
         }
 
         let tau = sanitize_tau(tau);
@@ -1791,7 +1785,7 @@ impl Router {
             })
             .collect();
 
-        Self::sort_candidates_by_quantized_gate(&mut candidate_entries);
+        Self::sort_candidates_by_quantized_gate_canonical(&mut candidate_entries, adapter_info);
 
         let gates_q15: SmallVec<[i16; 8]> = candidate_entries
             .iter()
@@ -2020,7 +2014,7 @@ impl Router {
     /// See [ROUTER_MIGRATION.md](../../docs/ROUTER_MIGRATION.md) for migration steps.
     #[deprecated(
         since = "0.1.1",
-        note = "Use route_with_adapter_info() for proper k0 detection"
+        note = "Use route_with_adapter_info() (canonical tie-break: score DESC, stable_id ASC)"
     )]
     pub fn route_with_k0_detection(&mut self, features: &[f32], priors: &[f32]) -> Decision {
         tracing::warn!(
@@ -2249,7 +2243,7 @@ impl Router {
     ///
     /// This extracts code features from the provided text and runs the
     /// canonical router selection without mutating adapter state. It shares
-    /// the same determinism guarantees (score DESC, index ASC) as the
+    /// the same determinism guarantees (score DESC, stable_id ASC) as the
     /// production routing path.
     pub fn dry_run(
         &mut self,
