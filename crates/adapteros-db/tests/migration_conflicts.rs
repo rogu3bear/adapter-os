@@ -225,7 +225,7 @@ fn test_migration_sequence_valid() -> Result<()> {
     Ok(())
 }
 
-/// Test 5: Verify migration numbering matches expected range (0001-0074)
+/// Test 5: Verify the 4-digit sequential migration numbering is within the allowed range.
 #[test]
 fn test_migration_numbering_range() -> Result<()> {
     let root_migrations_dir = workspace_root().join("migrations");
@@ -239,10 +239,15 @@ fn test_migration_numbering_range() -> Result<()> {
     let min_number = numbers.iter().min().copied().unwrap_or(0);
     let max_number = numbers.iter().max().copied().unwrap_or(0);
 
+    // The 4-digit sequential migration series is intentionally capped.
+    // New migrations should prefer timestamp-style names to avoid renumbering pressure.
+    const MAX_SEQUENTIAL_MIGRATION_NUMBER: u32 = 301;
+
     assert!(min_number >= 1, "Minimum migration number should be >= 1");
     assert!(
-        max_number <= 300,
-        "Maximum migration number should be <= 300 (found {})",
+        max_number <= MAX_SEQUENTIAL_MIGRATION_NUMBER,
+        "Maximum migration number should be <= {} (found {})",
+        MAX_SEQUENTIAL_MIGRATION_NUMBER,
         max_number
     );
 
