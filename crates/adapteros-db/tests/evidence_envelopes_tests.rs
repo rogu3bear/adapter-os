@@ -45,6 +45,7 @@ fn sample_bundle_ref(sequence: u64) -> BundleMetadataRef {
         event_count: 100 + sequence as u32,
         cpid: Some(format!("cp-{:03}", sequence)),
         sequence_no: Some(sequence),
+        pinned_degradation_evidence: None,
     }
 }
 
@@ -905,6 +906,7 @@ async fn test_envelope_json_roundtrip_all_scopes() {
             event_count: 999,
             cpid: Some("test-cpid".to_string()),
             sequence_no: Some(123),
+            pinned_degradation_evidence: None,
         },
         None,
     );

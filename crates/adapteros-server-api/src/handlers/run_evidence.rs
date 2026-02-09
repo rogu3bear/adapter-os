@@ -5,6 +5,9 @@ use crate::security::validate_tenant_isolation;
 use crate::state::AppState;
 use crate::types::ErrorResponse;
 use adapteros_core::evidence_envelope::{EvidenceEnvelope, InferenceReceiptRef};
+use adapteros_core::{
+    pinned_degradation_telemetry_ref_ids, B3Hash, EvidenceScope, PinnedDegradationEvidence,
+};
 use adapteros_db::inference_trace::{recompute_receipt, TraceReceipt};
 // UmaStats import removed - live runtime metrics excluded for deterministic exports
 use axum::{
@@ -407,9 +410,41 @@ pub async fn download_run_evidence(
     }
     warnings.extend(envelope_warnings.clone());
 
+    // Pinned degradation evidence (evidence-only; not receipt-bound).
+    //
+    // If no envelope exists for this run (pins absent or all pins available), export deterministic
+    // sentinels: counts=0 and optional fields=None.
+    let pinned_degradation_evidence = {
+        let (bundle_hash, merkle_root) =
+            pinned_degradation_telemetry_ref_ids(&metadata.tenant_id, &run_id);
+        let root = B3Hash::hash_multi(&[bundle_hash.as_bytes(), merkle_root.as_bytes()]);
+
+        match state
+            .db
+            .get_evidence_envelope_by_root(&metadata.tenant_id, EvidenceScope::Telemetry, &root)
+            .await
+        {
+            Ok(Some(envelope)) => envelope
+                .bundle_metadata_ref
+                .and_then(|r| r.pinned_degradation_evidence)
+                .unwrap_or_default(),
+            Ok(None) => PinnedDegradationEvidence::default(),
+            Err(e) => {
+                warnings.push(format!(
+                    "failed to load pinned degradation evidence envelope: {}",
+                    e
+                ));
+                PinnedDegradationEvidence::default()
+            }
+        }
+    };
+    let pinned_degradation_evidence_json = serde_json::to_vec_pretty(&pinned_degradation_evidence)
+        .map_err(|e| ApiError::internal(e.to_string()))?;
+
     // README summary
     let file_names = vec![
         "run_envelope.json".to_string(),
+        "pinned_degradation_evidence.json".to_string(),
         "replay_metadata.json".to_string(),
         "policy_digest.json".to_string(),
         "manifest_ref.json".to_string(),
@@ -445,6 +480,10 @@ pub async fn download_run_evidence(
     files.push(("manifest_ref.json".to_string(), manifest_ref_json));
     files.push(("policy_digest.json".to_string(), policy_digest_json));
     files.push(("model_status.json".to_string(), model_status_json));
+    files.push((
+        "pinned_degradation_evidence.json".to_string(),
+        pinned_degradation_evidence_json,
+    ));
     files.push((
         "boot_state.json".to_string(),
         boot_state_json.unwrap_or_else(|| {

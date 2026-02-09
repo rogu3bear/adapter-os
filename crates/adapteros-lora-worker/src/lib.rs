@@ -956,6 +956,11 @@ pub struct InferenceResponse {
     /// - `Some("stack_only")`: All pinned adapters unavailable, routing uses stack only
     #[serde(default, skip_serializing_if = "Option::is_none")]
     pub pinned_routing_fallback: Option<String>,
+    /// Evidence-bound pinned degradation (counts + digest, no raw IDs).
+    ///
+    /// Only populated when pinned adapters are unavailable at execution time.
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub pinned_degradation_evidence: Option<adapteros_core::PinnedDegradationEvidence>,
     /// Placement decisions per token (optional)
     #[serde(default, skip_serializing_if = "Option::is_none")]
     pub placement_trace: Option<Vec<PlacementTraceEntry>>,
@@ -2644,6 +2649,24 @@ impl<K: FusedKernels + StrictnessControl + Send + Sync + 'static> Worker<K> {
                 _ => None,
             };
 
+        // Evidence-bound pinned degradation (counts + digest, no raw IDs).
+        // Only emitted when there is actual degradation (some pins unavailable).
+        let pinned_degradation_evidence = match (&request.pinned_adapter_ids, &unavailable_pinned_adapters) {
+            (Some(pinned), Some(unavailable))
+                if !pinned.is_empty() && !unavailable.is_empty() =>
+            {
+                Some(adapteros_core::PinnedDegradationEvidence {
+                    pinned_total_count: pinned.len() as u32,
+                    unavailable_pinned_count: unavailable.len() as u32,
+                    unavailable_pinned_set_digest_b3: Some(
+                        adapteros_core::compute_unavailable_pinned_set_digest_b3(unavailable),
+                    ),
+                    pinned_fallback_mode: pinned_routing_fallback.clone(),
+                })
+            }
+            _ => None,
+        };
+
         let validator = RequestValidator::new(self.tokenizer.as_ref(), self.max_seq_len);
         let validated_prompt = validator.validate(&request.prompt)?;
 
@@ -2729,6 +2752,7 @@ impl<K: FusedKernels + StrictnessControl + Send + Sync + 'static> Worker<K> {
                         determinism_mode_applied: Some(request.determinism_mode.clone()),
                         unavailable_pinned_adapters: unavailable_pinned_adapters.clone(),
                         pinned_routing_fallback: pinned_routing_fallback.clone(),
+                        pinned_degradation_evidence: pinned_degradation_evidence.clone(),
                         placement_trace: None,
                         stop_reason_code: None,
                         stop_reason_token_index: None,
@@ -2946,6 +2970,7 @@ impl<K: FusedKernels + StrictnessControl + Send + Sync + 'static> Worker<K> {
                 determinism_mode_applied: Some(request.determinism_mode.clone()),
                 unavailable_pinned_adapters: None,
                 pinned_routing_fallback: None,
+                pinned_degradation_evidence: None,
                 placement_trace: None,
                 stop_reason_code: Some(
                     adapteros_api_types::inference::StopReasonCode::CompletionConfident,
@@ -3849,6 +3874,7 @@ impl<K: FusedKernels + StrictnessControl + Send + Sync + 'static> Worker<K> {
                 determinism_mode_applied: Some(request.determinism_mode.clone()),
                 unavailable_pinned_adapters,
                 pinned_routing_fallback,
+                pinned_degradation_evidence,
                 placement_trace: None, // No placement for text-gen mode
                 stop_reason_code,
                 stop_reason_token_index: stop_reason_token_index
@@ -4740,6 +4766,7 @@ impl<K: FusedKernels + StrictnessControl + Send + Sync + 'static> Worker<K> {
             determinism_mode_applied: Some(request.determinism_mode.clone()),
             unavailable_pinned_adapters,
             pinned_routing_fallback,
+            pinned_degradation_evidence,
             placement_trace: if placement_trace.is_empty() {
                 None
             } else {

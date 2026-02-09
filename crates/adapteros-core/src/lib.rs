@@ -161,8 +161,9 @@ pub use errors::{
     AosValidationError, CacheBudgetExceededInfo,
 };
 pub use evidence_envelope::{
-    compute_key_id, BundleMetadataRef, EvidenceEnvelope, EvidenceScope, InferenceReceiptRef,
-    PolicyAuditRef, EVIDENCE_ENVELOPE_SCHEMA_VERSION,
+    compute_key_id, compute_unavailable_pinned_set_digest_b3, pinned_degradation_telemetry_ref_ids,
+    BundleMetadataRef, EvidenceEnvelope, EvidenceScope, InferenceReceiptRef,
+    PinnedDegradationEvidence, PolicyAuditRef, EVIDENCE_ENVELOPE_SCHEMA_VERSION,
 };
 pub use evidence_verifier::{
     evidence_chain_divergence, is_evidence_chain_divergence, ChainVerificationResult,

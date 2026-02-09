@@ -195,6 +195,24 @@ impl<K: FusedKernels + crate::StrictnessControl + Send + Sync + 'static> Worker<
                 _ => None,
             };
 
+        // Evidence-bound pinned degradation (counts + digest, no raw IDs).
+        // Only emitted when there is actual degradation (some pins unavailable).
+        let pinned_degradation_evidence = match (&request.pinned_adapter_ids, &unavailable_pinned_adapters) {
+            (Some(pinned), Some(unavailable))
+                if !pinned.is_empty() && !unavailable.is_empty() =>
+            {
+                Some(adapteros_core::PinnedDegradationEvidence {
+                    pinned_total_count: pinned.len() as u32,
+                    unavailable_pinned_count: unavailable.len() as u32,
+                    unavailable_pinned_set_digest_b3: Some(
+                        adapteros_core::compute_unavailable_pinned_set_digest_b3(unavailable),
+                    ),
+                    pinned_fallback_mode: pinned_routing_fallback.clone(),
+                })
+            }
+            _ => None,
+        };
+
         // Initialize telemetry
         let mut telemetry = PatchTelemetry::new();
 
@@ -429,6 +447,7 @@ impl<K: FusedKernels + crate::StrictnessControl + Send + Sync + 'static> Worker<
             determinism_mode_applied: Some(request.determinism_mode.clone()),
             unavailable_pinned_adapters,
             pinned_routing_fallback,
+            pinned_degradation_evidence,
             placement_trace: None,
             stop_reason_code: None,
             stop_reason_token_index: None,

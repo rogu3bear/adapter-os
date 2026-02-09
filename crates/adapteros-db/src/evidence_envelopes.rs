@@ -25,6 +25,7 @@
 //!     event_count: 100,
 //!     cpid: Some("cp-001".to_string()),
 //!     sequence_no: Some(1),
+//!     pinned_degradation_evidence: None,
 //! };
 //!
 //! let envelope = EvidenceEnvelope::new_telemetry(
@@ -329,6 +330,51 @@ impl Db {
         .fetch_optional(self.pool())
         .await
         .db_err("fetch evidence envelope by id")?;
+
+        match row {
+            Some(r) => {
+                let mut envelope: EvidenceEnvelope = serde_json::from_str(&r.payload_json)?;
+                envelope.root = B3Hash::from_hex(&r.root)?;
+                envelope.previous_root = r
+                    .previous_root
+                    .as_ref()
+                    .map(|h| B3Hash::from_hex(h))
+                    .transpose()?;
+                Ok(Some(envelope))
+            }
+            None => Ok(None),
+        }
+    }
+
+    /// Get the most recent evidence envelope matching a given root (tenant + scope scoped).
+    ///
+    /// Note: `root` is not globally unique; scope the lookup by tenant+scope to avoid ambiguity.
+    pub async fn get_evidence_envelope_by_root(
+        &self,
+        tenant_id: &str,
+        scope: EvidenceScope,
+        root: &B3Hash,
+    ) -> Result<Option<EvidenceEnvelope>> {
+        let scope_str = scope.as_str();
+        let root_hex = root.to_hex();
+
+        let row = sqlx::query_as::<_, EvidenceEnvelopeRow>(
+            r#"
+            SELECT id, schema_version, tenant_id, scope, previous_root, root,
+                   signature, public_key, key_id, attestation_ref,
+                   created_at, signed_at_us, payload_json, chain_sequence
+            FROM evidence_envelopes
+            WHERE tenant_id = ? AND scope = ? AND root = ?
+            ORDER BY chain_sequence DESC
+            LIMIT 1
+            "#,
+        )
+        .bind(tenant_id)
+        .bind(scope_str)
+        .bind(&root_hex)
+        .fetch_optional(self.pool())
+        .await
+        .db_err("fetch evidence envelope by root")?;
 
         match row {
             Some(r) => {
