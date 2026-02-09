@@ -411,6 +411,7 @@ pub fn WorkerDetail() -> impl IntoView {
 
     view! {
         <div class="space-y-6">
+            <h1 class="sr-only">"Worker Detail"</h1>
             // Breadcrumb navigation
             <BreadcrumbTrail items=vec![
                 BreadcrumbItem::link("Workers", "/workers"),
