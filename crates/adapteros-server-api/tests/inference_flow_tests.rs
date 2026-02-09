@@ -178,6 +178,7 @@ async fn ready_model_happy_path_inference_and_routing() {
         determinism_mode_applied: Some("strict".to_string()),
         unavailable_pinned_adapters: Some(vec!["missing-pin".to_string()]),
         pinned_routing_fallback: Some("stack_only".to_string()),
+        pinned_degradation_evidence: None,
         placement_trace: None,
         stop_reason_code: None,
         stop_reason_token_index: None,
