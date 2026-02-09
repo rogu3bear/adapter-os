@@ -6,7 +6,7 @@ Repository: AdapterOS (`/Users/star/Dev/adapter-os`)
 
 Authoritative anchor:
 - Branch: `main`
-- Commit: `4df3dab0ea6a11c299038b4ba6b3a8480c839c2e`
+- Commit: `6859fd95f0efb75f59c7d705fe59e2a9c9e632bb`
 - Generation date (local): 2026-02-09
 
 Scope statement: This report reconciles and unifies the determinism substrate, token-level auditability, receipt verifiability, and cache attribution correctness into a single canonical system description. The report is falsifiable by direct code inspection at the anchor commit and by the verification commands listed below.
