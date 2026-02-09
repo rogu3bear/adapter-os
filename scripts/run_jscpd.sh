@@ -49,27 +49,49 @@ fi
 
 "${NPX_CMD[@]}" "${ARGS[@]}" "$ROOT_DIR"
 
-JSON_REPORT="$OUT_DIR/report.json"
-MD_REPORT="$OUT_DIR/report.md"
+JSON_REPORT=""
+MD_REPORT=""
+for cand in "$OUT_DIR"/jscpd-report.json "$OUT_DIR"/report.json "$OUT_DIR"/*report.json; do
+  if [[ -f "$cand" ]]; then
+    JSON_REPORT="$cand"
+    break
+  fi
+done
+for cand in "$OUT_DIR"/jscpd-report.md "$OUT_DIR"/report.md "$OUT_DIR"/*report.md; do
+  if [[ -f "$cand" ]]; then
+    MD_REPORT="$cand"
+    break
+  fi
+done
 
-if [[ -f "$JSON_REPORT" ]] && command -v node >/dev/null 2>&1; then
+HTML_REPORT=""
+if [[ -f "$OUT_DIR/html/index.html" ]]; then
+  HTML_REPORT="$OUT_DIR/html/index.html"
+elif [[ -f "$OUT_DIR/index.html" ]]; then
+  HTML_REPORT="$OUT_DIR/index.html"
+fi
+
+if [[ -n "$JSON_REPORT" ]] && command -v node >/dev/null 2>&1; then
   # Extract summary statistics
-  node - <<'NODE'
+  node - "$JSON_REPORT" <<'NODE'
 const fs = require('fs');
 const p = process.argv[1];
 try {
   const r = JSON.parse(fs.readFileSync(p, 'utf8'));
   const stat = r.statistics || {};
-  const dup = (stat.duplicated && stat.duplicated.percentage) || (stat.duplication && stat.duplication.percentage) || 0;
-  const clones = (r.clones && r.clones.length) || 0;
-  const files = (stat.sources && stat.sources.length) || 0;
-  const tokens = (stat.tokens && stat.tokens.length) || 0;
+  const total = stat.total || {};
+  const dupPct = total.percentage ?? stat.duplication?.percentage ?? stat.duplicated?.percentage ?? 0;
+  const clones = total.clones ?? (r.clones && r.clones.length) ?? 0;
+  const dupLines = total.duplicatedLines ?? stat.duplicated?.lines ?? 0;
+  const files = total.sources ?? (stat.sources && stat.sources.length) ?? 0;
+  const tokens = total.tokens ?? (stat.tokens && stat.tokens.length) ?? 0;
 
   console.log(`✅ [jscpd] Scan complete!`);
   console.log(`   📊 Files scanned: ${files.toLocaleString()}`);
   console.log(`   🔍 Code tokens analyzed: ${tokens.toLocaleString()}`);
-  console.log(`   📋 Duplication clones found: ${clones}`);
-  console.log(`   📈 Duplication percentage: ${dup}%`);
+  console.log(`   📋 Duplication clones found: ${clones.toLocaleString()}`);
+  console.log(`   📝 Duplicated lines: ${dupLines.toLocaleString()}`);
+  console.log(`   📈 Duplication percentage: ${dupPct}%`);
 
   if (clones > 0) {
     console.log(`   ⚠️  Review the HTML report for detailed clone locations`);
@@ -87,9 +109,15 @@ fi
 if [[ "${1:-}" != "--ci" ]]; then
   echo ""
   echo "📁 Reports generated:"
-  echo "   📄 JSON:     $JSON_REPORT"
-  echo "   📝 Markdown: $MD_REPORT"
-  echo "   🌐 HTML:     $OUT_DIR/index.html"
+  if [[ -n "$JSON_REPORT" ]]; then
+    echo "   📄 JSON:     $JSON_REPORT"
+  fi
+  if [[ -n "$MD_REPORT" ]]; then
+    echo "   📝 Markdown: $MD_REPORT"
+  fi
+  if [[ -n "$HTML_REPORT" ]]; then
+    echo "   🌐 HTML:     $HTML_REPORT"
+  fi
   echo ""
   echo "💡 Tip: Open the HTML report in your browser for interactive clone exploration"
 fi
