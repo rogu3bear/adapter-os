@@ -237,15 +237,24 @@ fn find_best_boundary(content: &str, pos: usize) -> usize {
     let window = 120;
     let search_start = pos.saturating_sub(window);
     let search_area = &content[search_start..=pos];
+    // Don't prefer structural boundaries that are far away from the target position,
+    // otherwise a single early paragraph break can dominate all later chunking.
+    let max_structural_distance = 24;
 
     // 1. Try paragraph boundary (\n\n)
     if let Some(offset) = search_area.rfind("\n\n") {
-        return search_start + offset + 2;
+        let boundary = search_start + offset + 2;
+        if pos.saturating_sub(boundary) <= max_structural_distance {
+            return boundary;
+        }
     }
 
     // 2. Try single newline (at least preserves line context)
     if let Some(offset) = search_area.rfind('\n') {
-        return search_start + offset + 1;
+        let boundary = search_start + offset + 1;
+        if pos.saturating_sub(boundary) <= max_structural_distance {
+            return boundary;
+        }
     }
 
     // 3. Try sentence endings (heuristic: punctuation followed by space)

@@ -684,7 +684,8 @@ mod tests {
     use tempfile::TempDir;
 
     fn new_test_tempdir() -> TempDir {
-        TempDir::with_prefix("aos-test-").expect("Test temp directory creation should succeed")
+        adapteros_core::tempdir_in_var("aos-test-")
+            .expect("Test temp directory creation should succeed")
     }
 
     #[test]
