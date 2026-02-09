@@ -439,7 +439,7 @@ pub struct GeneralConfig {
     pub determinism_mode: Option<DeterminismMode>,
 }
 
-#[derive(Debug, Clone, Serialize, Deserialize, Default)]
+#[derive(Debug, Clone, Serialize, Deserialize)]
 pub struct ServerConfigApi {
     #[serde(default)]
     pub http_port: Option<u16>,
@@ -454,6 +454,14 @@ pub struct ServerConfigApi {
     /// This is a best-effort notification mechanism (fire-and-forget).
     #[serde(default)]
     pub review_webhook_url: Option<String>,
+    /// Enable SSRF protection on outbound HTTP requests (default: true).
+    ///
+    /// When true, the shared HTTP client rejects connections to private/reserved
+    /// IP ranges (127.0.0.0/8, 10.0.0.0/8, 172.16.0.0/12, 192.168.0.0/16,
+    /// 169.254.0.0/16, ::1, fc00::/7). Set to false for air-gapped deployments
+    /// where webhook targets are legitimately on a private network.
+    #[serde(default = "default_ssrf_protection")]
+    pub ssrf_protection: bool,
     /// Timeout in milliseconds for health check database probe (default: 2000)
     #[serde(default = "default_health_check_db_timeout_ms")]
     pub health_check_db_timeout_ms: u64,
@@ -472,6 +480,10 @@ pub struct ServerConfigApi {
     pub worker_heartbeat_interval_secs: u64,
 }
 
+fn default_ssrf_protection() -> bool {
+    true
+}
+
 fn default_health_check_db_timeout_ms() -> u64 {
     2000
 }
@@ -486,6 +498,24 @@ fn default_health_check_models_timeout_ms() -> u64 {
 
 fn default_worker_heartbeat_interval_secs() -> u64 {
     30
+}
+
+impl Default for ServerConfigApi {
+    fn default() -> Self {
+        Self {
+            http_port: None,
+            https_port: None,
+            uds_socket: None,
+            production_mode: false,
+            review_webhook_url: None,
+            ssrf_protection: true,
+            health_check_db_timeout_ms: default_health_check_db_timeout_ms(),
+            health_check_worker_timeout_ms: default_health_check_worker_timeout_ms(),
+            health_check_models_timeout_ms: default_health_check_models_timeout_ms(),
+            skip_worker_check: false,
+            worker_heartbeat_interval_secs: default_worker_heartbeat_interval_secs(),
+        }
+    }
 }
 
 #[derive(Debug, Clone, Serialize, Deserialize, Default)]
@@ -567,6 +597,11 @@ pub struct StreamingConfig {
     /// Token buffer capacity for streaming inference
     #[serde(default = "default_streaming_token_buffer_capacity")]
     pub inference_token_buffer_capacity: usize,
+    /// Maximum duration in seconds that a paused stream may hold a connection open.
+    /// After this duration the pause expires and normal idle-timeout behaviour resumes.
+    /// Defaults to 1800 (30 minutes) when `None`.
+    #[serde(default)]
+    pub max_pause_duration_secs: Option<u64>,
 }
 
 fn default_streaming_heartbeat_interval_secs() -> u64 {
@@ -587,6 +622,7 @@ impl Default for StreamingConfig {
             inference_heartbeat_interval_secs: default_streaming_heartbeat_interval_secs(),
             inference_idle_timeout_secs: default_streaming_idle_timeout_secs(),
             inference_token_buffer_capacity: default_streaming_token_buffer_capacity(),
+            max_pause_duration_secs: None,
         }
     }
 }

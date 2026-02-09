@@ -424,20 +424,24 @@ impl Policy for EgressPolicy {
         Severity::Critical
     }
 
-    fn enforce(&self, ctx: &dyn PolicyContext) -> Result<Audit> {
+    fn enforce(&self, _ctx: &dyn PolicyContext) -> Result<Audit> {
         let mut violations = Vec::new();
         let mut warnings = Vec::new();
 
-        // Extract runtime mode from context metadata
-        let runtime_mode = ctx
-            .metadata()
-            .get("runtime_mode")
-            .and_then(|s| match s.as_str() {
-                "dev" | "development" => Some(RuntimeMode::Dev),
-                "staging" | "stage" => Some(RuntimeMode::Staging),
-                "prod" | "production" => Some(RuntimeMode::Prod),
-                _ => None,
-            });
+        // SECURITY: runtime_mode MUST be sourced from server configuration, NOT from
+        // context metadata. PolicyContext::metadata() could carry caller-controlled data,
+        // which would allow an attacker to inject runtime_mode: "dev" and bypass egress
+        // blocking in production. We read from AOS_RUNTIME_MODE (operator-controlled env
+        // var) and default to None (which triggers fail-closed blocking via should_block).
+        let runtime_mode =
+            std::env::var("AOS_RUNTIME_MODE")
+                .ok()
+                .and_then(|s| match s.to_lowercase().as_str() {
+                    "dev" | "development" => Some(RuntimeMode::Dev),
+                    "staging" | "stage" => Some(RuntimeMode::Staging),
+                    "prod" | "production" => Some(RuntimeMode::Prod),
+                    _ => None,
+                });
 
         let should_block = self.should_block(runtime_mode);
 

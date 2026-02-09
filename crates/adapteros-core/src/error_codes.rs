@@ -159,6 +159,9 @@ pub const DETERMINISM_VIOLATION: &str = "DETERMINISM_VIOLATION";
 /// Network egress policy violated
 pub const EGRESS_VIOLATION: &str = "EGRESS_VIOLATION";
 
+/// Outbound request resolved to a private/reserved IP range (SSRF protection)
+pub const SSRF_BLOCKED: &str = "SSRF_BLOCKED";
+
 /// Tenant isolation boundary violated
 pub const ISOLATION_VIOLATION: &str = "ISOLATION_VIOLATION";
 

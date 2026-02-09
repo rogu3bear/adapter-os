@@ -8,8 +8,7 @@
 use axum::{
     extract::{Path, Query, State},
     http::StatusCode,
-    Extension,
-    Json,
+    Extension, Json,
 };
 use serde::Deserialize;
 use std::sync::Arc;
@@ -176,15 +175,17 @@ pub async fn submit_review(
     let tracker = get_pause_tracker(&state)?;
 
     // Validate pause exists and belongs to the inference_id in the path.
-    let pause_info = tracker.get_state_by_pause_id(&request.pause_id).ok_or_else(|| {
-        (
-            StatusCode::NOT_FOUND,
-            Json(
-                ErrorResponse::new(format!("Pause ID not found: {}", request.pause_id))
-                    .with_code("PAUSE_NOT_FOUND"),
-            ),
-        )
-    })?;
+    let pause_info = tracker
+        .get_state_by_pause_id(&request.pause_id)
+        .ok_or_else(|| {
+            (
+                StatusCode::NOT_FOUND,
+                Json(
+                    ErrorResponse::new(format!("Pause ID not found: {}", request.pause_id))
+                        .with_code("PAUSE_NOT_FOUND"),
+                ),
+            )
+        })?;
     validate_tenant_isolation(&claims, &pause_info.tenant_id)?;
     if pause_info.inference_id != inference_id {
         return Err((
@@ -267,7 +268,12 @@ pub async fn list_paused(
         .list_paused()
         .into_iter()
         .filter(|info| check_tenant_access(&claims, &info.tenant_id))
-        .filter(|info| kind_filter.as_ref().map(|k| &info.kind == k).unwrap_or(true))
+        .filter(|info| {
+            kind_filter
+                .as_ref()
+                .map(|k| &info.kind == k)
+                .unwrap_or(true)
+        })
         .collect();
     let total = paused_list.len();
 
@@ -472,15 +478,17 @@ pub async fn submit_review_response(
     );
 
     // Get inference_id before submit (for state tracker update)
-    let pause_info = tracker.get_state_by_pause_id(&request.pause_id).ok_or_else(|| {
-        (
-            StatusCode::NOT_FOUND,
-            Json(
-                ErrorResponse::new(format!("Pause ID not found: {}", request.pause_id))
-                    .with_code("PAUSE_NOT_FOUND"),
-            ),
-        )
-    })?;
+    let pause_info = tracker
+        .get_state_by_pause_id(&request.pause_id)
+        .ok_or_else(|| {
+            (
+                StatusCode::NOT_FOUND,
+                Json(
+                    ErrorResponse::new(format!("Pause ID not found: {}", request.pause_id))
+                        .with_code("PAUSE_NOT_FOUND"),
+                ),
+            )
+        })?;
     validate_tenant_isolation(&claims, &pause_info.tenant_id)?;
     let inference_id = Some(pause_info.inference_id.clone());
 
@@ -561,12 +569,16 @@ fn spawn_review_webhook_if_configured(
     inference_id: String,
     request: SubmitReviewRequest,
 ) {
-    let webhook_url = state
-        .config
-        .read()
-        .ok()
-        .and_then(|cfg| cfg.server.review_webhook_url.clone())
-        .filter(|url| !url.trim().is_empty());
+    let (webhook_url, ssrf_protection) = match state.config.read().ok() {
+        Some(cfg) => (
+            cfg.server
+                .review_webhook_url
+                .clone()
+                .filter(|url| !url.trim().is_empty()),
+            cfg.server.ssrf_protection,
+        ),
+        None => return,
+    };
 
     let Some(webhook_url) = webhook_url else {
         return;
@@ -589,7 +601,11 @@ fn spawn_review_webhook_if_configured(
     });
 
     tokio::spawn(async move {
-        let client = match build_reqwest_client(DEFAULT_CONNECT_TIMEOUT, DEFAULT_TOTAL_TIMEOUT) {
+        let client = match build_reqwest_client(
+            DEFAULT_CONNECT_TIMEOUT,
+            DEFAULT_TOTAL_TIMEOUT,
+            ssrf_protection,
+        ) {
             Ok(client) => client,
             Err(e) => {
                 warn!(error = %e, "Failed to build reqwest client for review webhook");

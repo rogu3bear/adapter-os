@@ -1007,21 +1007,23 @@ impl PolicyPackValidator for EgressValidator {
         let mut violations = Vec::new();
         let mut warnings = Vec::new();
 
-        // Extract runtime mode from request metadata
-        let runtime_mode = request
-            .metadata
-            .as_ref()
-            .and_then(|m| m.get("runtime_mode"))
-            .and_then(|v| v.as_str())
-            .and_then(|s| match s {
+        // SECURITY: runtime_mode MUST be sourced from server configuration, NOT from
+        // request metadata. Reading it from request.metadata would allow a caller to
+        // inject "runtime_mode": "dev" and bypass egress blocking in production.
+        // We read from AOS_RUNTIME_MODE (operator-controlled env var) and default to
+        // "prod" (fail-closed) if unset.
+        let runtime_mode = std::env::var("AOS_RUNTIME_MODE").ok().and_then(|s| {
+            match s.to_lowercase().as_str() {
                 "dev" | "development" => Some("dev"),
                 "staging" | "stage" => Some("staging"),
                 "prod" | "production" => Some("prod"),
                 _ => None,
-            });
+            }
+        });
 
         // Determine if we should block based on runtime mode
         // In Auto mode (default): block in prod, warn in dev/staging
+        // Fail-closed: if runtime_mode is None (env var unset or invalid), default to blocking
         let should_block = match runtime_mode {
             Some("dev") | Some("staging") => false,
             Some("prod") | None => true,
