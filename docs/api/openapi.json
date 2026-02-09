@@ -1165,6 +1165,13 @@
               "null"
             ]
           },
+          "display_name": {
+            "description": "Human-readable display name derived from the repository's typed ID word alias.\nExample: \"rep-warm-stone\". Populated when the ID uses the TypedId format.",
+            "type": [
+              "string",
+              "null"
+            ]
+          },
           "id": {
             "type": "string"
           },
@@ -1250,6 +1257,13 @@
             "description": "Whether the adapter was deduplicated (found existing instead of creating new)",
             "type": [
               "boolean",
+              "null"
+            ]
+          },
+          "display_name": {
+            "description": "Human-readable display name derived from the adapter's typed ID word alias.\nExample: \"adp-calm-river\". Populated when the ID uses the TypedId format.",
+            "type": [
+              "string",
               "null"
             ]
           },
@@ -2008,6 +2022,13 @@
             },
             "type": [
               "array",
+              "null"
+            ]
+          },
+          "display_name": {
+            "description": "Human-readable display name derived from the version's typed ID word alias.\nPopulated when the ID uses the TypedId format.",
+            "type": [
+              "string",
               "null"
             ]
           },
@@ -5000,6 +5021,15 @@
         ],
         "type": "object"
       },
+      "ChatDatasetFormat": {
+        "description": "Format for chat-based dataset creation.\n\nDetermines how chat messages are transformed into training samples.",
+        "enum": [
+          "conversation",
+          "instruction_response",
+          "raw"
+        ],
+        "type": "string"
+      },
       "ChatMessage": {
         "description": "Chat message record",
         "properties": {
@@ -5046,6 +5076,31 @@
           "content",
           "created_at",
           "sequence"
+        ],
+        "type": "object"
+      },
+      "ChatMessageInput": {
+        "description": "A single chat message for dataset creation.\n\nRepresents one turn in a conversation with role, content, and optional timestamp.",
+        "properties": {
+          "content": {
+            "description": "Content of the message.",
+            "type": "string"
+          },
+          "role": {
+            "description": "Role of the message sender (system, user, assistant).",
+            "type": "string"
+          },
+          "timestamp": {
+            "description": "Optional ISO 8601 timestamp of when the message was sent.",
+            "type": [
+              "string",
+              "null"
+            ]
+          }
+        },
+        "required": [
+          "role",
+          "content"
         ],
         "type": "object"
       },
@@ -5852,6 +5907,13 @@
           },
           "description": {
             "type": "string"
+          },
+          "display_name": {
+            "description": "Human-readable display name derived from the cluster's typed ID word alias.\nPopulated when the ID uses the TypedId format.",
+            "type": [
+              "string",
+              "null"
+            ]
           },
           "id": {
             "type": "string"
@@ -7511,6 +7573,116 @@
         ],
         "type": "object"
       },
+      "CreateDatasetFromChatRequest": {
+        "description": "Request to create a dataset from selected chat messages.\n\nUsed by the UI when users select a range of messages from a chat session\nto convert into training data.",
+        "properties": {
+          "description": {
+            "description": "Optional description for the dataset.",
+            "type": [
+              "string",
+              "null"
+            ]
+          },
+          "format": {
+            "$ref": "#/components/schemas/ChatDatasetFormat",
+            "description": "Format for processing the chat messages."
+          },
+          "include_system_messages": {
+            "description": "Whether to include system messages in the output.",
+            "type": "boolean"
+          },
+          "messages": {
+            "description": "The chat messages to include in the dataset.",
+            "items": {
+              "$ref": "#/components/schemas/ChatMessageInput"
+            },
+            "type": "array"
+          },
+          "name": {
+            "description": "Name for the dataset (auto-generated if not provided).",
+            "type": [
+              "string",
+              "null"
+            ]
+          },
+          "session_id": {
+            "description": "Optional session ID for provenance (links to original chat session).",
+            "type": [
+              "string",
+              "null"
+            ]
+          }
+        },
+        "required": [
+          "messages"
+        ],
+        "type": "object"
+      },
+      "CreateDatasetFromChatResponse": {
+        "description": "Response after creating a dataset from chat messages.",
+        "properties": {
+          "dataset_hash_b3": {
+            "description": "BLAKE3 hash of the dataset.",
+            "type": [
+              "string",
+              "null"
+            ]
+          },
+          "dataset_id": {
+            "description": "ID of the created dataset.",
+            "type": "string"
+          },
+          "dataset_version_id": {
+            "description": "Dataset version ID.",
+            "type": [
+              "string",
+              "null"
+            ]
+          },
+          "format": {
+            "$ref": "#/components/schemas/ChatDatasetFormat",
+            "description": "Format used for processing."
+          },
+          "message_count": {
+            "description": "Number of messages processed.",
+            "minimum": 0,
+            "type": "integer"
+          },
+          "name": {
+            "description": "Name of the dataset.",
+            "type": "string"
+          },
+          "sample_count": {
+            "description": "Number of training samples created.",
+            "minimum": 0,
+            "type": "integer"
+          },
+          "schema_version": {
+            "type": "string"
+          },
+          "session_id": {
+            "description": "Session ID if provided (for provenance).",
+            "type": [
+              "string",
+              "null"
+            ]
+          },
+          "turn_count": {
+            "description": "Number of conversation turns (user+assistant pairs).",
+            "minimum": 0,
+            "type": "integer"
+          }
+        },
+        "required": [
+          "dataset_id",
+          "name",
+          "sample_count",
+          "message_count",
+          "turn_count",
+          "format"
+        ],
+        "type": "object"
+      },
       "CreateDatasetFromDocumentsRequest": {
         "description": "Request to create a dataset from existing documents or a collection",
         "properties": {
@@ -7553,6 +7725,118 @@
             ]
           }
         },
+        "type": "object"
+      },
+      "CreateDatasetFromTextRequest": {
+        "description": "Request to create a dataset from pasted or extracted text.\n\nUsed by the UI when users paste text content directly or when text\nis extracted from uploaded documents.",
+        "properties": {
+          "auto_generate": {
+            "description": "Whether to auto-generate QA pairs from the content.\nWhen true, uses the generation pipeline to create instruction-response pairs.",
+            "type": "boolean"
+          },
+          "content": {
+            "description": "The text content to process into a dataset.",
+            "type": "string"
+          },
+          "description": {
+            "description": "Optional description for the dataset.",
+            "type": [
+              "string",
+              "null"
+            ]
+          },
+          "format": {
+            "$ref": "#/components/schemas/TextDatasetFormat",
+            "description": "Format for processing the text content."
+          },
+          "generation_strategy": {
+            "oneOf": [
+              {
+                "type": "null"
+              },
+              {
+                "$ref": "#/components/schemas/GenerationStrategy",
+                "description": "Generation strategy when auto_generate is true (defaults to qa)."
+              }
+            ]
+          },
+          "name": {
+            "description": "Name for the dataset (auto-generated if not provided).",
+            "type": [
+              "string",
+              "null"
+            ]
+          },
+          "source_type": {
+            "$ref": "#/components/schemas/TextDatasetSourceType",
+            "description": "Source type for provenance tracking."
+          }
+        },
+        "required": [
+          "content"
+        ],
+        "type": "object"
+      },
+      "CreateDatasetFromTextResponse": {
+        "description": "Response after creating a dataset from text content.",
+        "properties": {
+          "auto_generated": {
+            "description": "Whether auto-generation was used.",
+            "type": "boolean"
+          },
+          "dataset_hash_b3": {
+            "description": "BLAKE3 hash of the dataset.",
+            "type": [
+              "string",
+              "null"
+            ]
+          },
+          "dataset_id": {
+            "description": "ID of the created dataset.",
+            "type": "string"
+          },
+          "dataset_version_id": {
+            "description": "Dataset version ID.",
+            "type": [
+              "string",
+              "null"
+            ]
+          },
+          "format": {
+            "$ref": "#/components/schemas/TextDatasetFormat",
+            "description": "Format used for processing."
+          },
+          "input_char_count": {
+            "description": "Total character count of the input text.",
+            "minimum": 0,
+            "type": "integer"
+          },
+          "name": {
+            "description": "Name of the dataset.",
+            "type": "string"
+          },
+          "sample_count": {
+            "description": "Number of training samples created.",
+            "minimum": 0,
+            "type": "integer"
+          },
+          "schema_version": {
+            "type": "string"
+          },
+          "source_type": {
+            "$ref": "#/components/schemas/TextDatasetSourceType",
+            "description": "Source type for provenance."
+          }
+        },
+        "required": [
+          "dataset_id",
+          "name",
+          "sample_count",
+          "input_char_count",
+          "format",
+          "source_type",
+          "auto_generated"
+        ],
         "type": "object"
       },
       "CreateDatasetVersionRequest": {
@@ -7601,6 +7885,79 @@
           "version_number",
           "trust_state",
           "created_at"
+        ],
+        "type": "object"
+      },
+      "CreateDiscrepancyRequest": {
+        "description": "Request to create a discrepancy case",
+        "properties": {
+          "chunk_hash_b3": {
+            "description": "BLAKE3 hash of the chunk used",
+            "type": [
+              "string",
+              "null"
+            ]
+          },
+          "discrepancy_type": {
+            "description": "Type of discrepancy (incorrect_answer, incomplete_answer, hallucination, etc.)",
+            "type": "string"
+          },
+          "document_id": {
+            "description": "Document ID referenced during inference",
+            "type": [
+              "string",
+              "null"
+            ]
+          },
+          "ground_truth": {
+            "description": "The correct/expected answer",
+            "type": [
+              "string",
+              "null"
+            ]
+          },
+          "inference_id": {
+            "description": "Inference run ID that produced the discrepancy",
+            "type": "string"
+          },
+          "model_answer": {
+            "description": "The model's answer",
+            "type": [
+              "string",
+              "null"
+            ]
+          },
+          "notes": {
+            "description": "Additional notes",
+            "type": [
+              "string",
+              "null"
+            ]
+          },
+          "page_number": {
+            "description": "Page number in source document",
+            "format": "int32",
+            "minimum": 0,
+            "type": [
+              "integer",
+              "null"
+            ]
+          },
+          "store_content": {
+            "description": "Whether to store plaintext content (requires explicit opt-in)",
+            "type": "boolean"
+          },
+          "user_question": {
+            "description": "The user's original question",
+            "type": [
+              "string",
+              "null"
+            ]
+          }
+        },
+        "required": [
+          "inference_id",
+          "discrepancy_type"
         ],
         "type": "object"
       },
@@ -8230,6 +8587,13 @@
               "null"
             ]
           },
+          "adapter_type": {
+            "description": "Adapter type hint (identify/behavior)",
+            "type": [
+              "string",
+              "null"
+            ]
+          },
           "base_model_id": {
             "description": "Base model to tune against",
             "type": "string"
@@ -8293,6 +8657,60 @@
           "base_model_id",
           "dataset_id",
           "params"
+        ],
+        "type": "object"
+      },
+      "CreateVerdictRequest": {
+        "description": "Request to create or update an inference verdict",
+        "properties": {
+          "confidence": {
+            "description": "Confidence score (0.0 - 1.0)",
+            "format": "double",
+            "type": "number"
+          },
+          "evaluator_id": {
+            "description": "Optional evaluator identifier (e.g., rule name, reviewer ID, model name)",
+            "type": [
+              "string",
+              "null"
+            ]
+          },
+          "evaluator_type": {
+            "description": "Evaluator type: rule, human, model",
+            "type": "string"
+          },
+          "extraction_confidence_score": {
+            "description": "Optional extraction confidence score from upstream processing",
+            "format": "double",
+            "type": [
+              "number",
+              "null"
+            ]
+          },
+          "inference_id": {
+            "description": "The inference ID this verdict applies to",
+            "type": "string"
+          },
+          "trust_state": {
+            "description": "Optional trust state (e.g., \"needs_approval\", \"approved\", \"rejected\")",
+            "type": [
+              "string",
+              "null"
+            ]
+          },
+          "verdict": {
+            "description": "Verdict level: high, medium, low, paused",
+            "type": "string"
+          },
+          "warnings_json": {
+            "description": "Optional JSON warnings/notes"
+          }
+        },
+        "required": [
+          "inference_id",
+          "verdict",
+          "confidence",
+          "evaluator_type"
         ],
         "type": "object"
       },
@@ -8567,6 +8985,13 @@
             ]
           },
           "description": {
+            "type": [
+              "string",
+              "null"
+            ]
+          },
+          "display_name": {
+            "description": "Human-readable display name derived from the dataset's typed ID word alias.\nExample: \"dst-quiet-lake\". Populated when the ID uses the TypedId format.",
             "type": [
               "string",
               "null"
@@ -9003,6 +9428,70 @@
             ]
           }
         },
+        "type": "object"
+      },
+      "DeriveVerdictRequest": {
+        "description": "Request to derive a verdict using rules",
+        "properties": {
+          "extraction_confidence_score": {
+            "description": "Extraction confidence score from upstream processing",
+            "format": "double",
+            "type": [
+              "number",
+              "null"
+            ]
+          },
+          "inference_id": {
+            "description": "Optional inference ID (required if store=true)",
+            "type": [
+              "string",
+              "null"
+            ]
+          },
+          "store": {
+            "description": "Whether to store the derived verdict (default: false)",
+            "type": [
+              "boolean",
+              "null"
+            ]
+          },
+          "trust_state": {
+            "description": "Trust state",
+            "type": [
+              "string",
+              "null"
+            ]
+          }
+        },
+        "type": "object"
+      },
+      "DeriveVerdictResponse": {
+        "description": "Response from verdict derivation",
+        "properties": {
+          "confidence": {
+            "description": "Confidence score",
+            "format": "double",
+            "type": "number"
+          },
+          "verdict": {
+            "description": "Derived verdict level",
+            "type": "string"
+          },
+          "warning": {
+            "description": "Warning message if rules triggered",
+            "type": [
+              "string",
+              "null"
+            ]
+          },
+          "warnings_json": {
+            "description": "Structured warnings as JSON"
+          }
+        },
+        "required": [
+          "verdict",
+          "confidence"
+        ],
         "type": "object"
       },
       "DeterminismPolicy": {
@@ -9742,6 +10231,158 @@
         },
         "required": [
           "tenant"
+        ],
+        "type": "object"
+      },
+      "DiscrepancyExportRow": {
+        "description": "Export format for training data",
+        "properties": {
+          "chunk_hash_b3": {
+            "type": [
+              "string",
+              "null"
+            ]
+          },
+          "confirmed_at": {
+            "type": "string"
+          },
+          "discrepancy_type": {
+            "type": "string"
+          },
+          "document_id": {
+            "type": [
+              "string",
+              "null"
+            ]
+          },
+          "ground_truth": {
+            "type": [
+              "string",
+              "null"
+            ]
+          },
+          "id": {
+            "type": "string"
+          },
+          "inference_id": {
+            "type": "string"
+          },
+          "model_answer": {
+            "type": [
+              "string",
+              "null"
+            ]
+          },
+          "user_question": {
+            "type": [
+              "string",
+              "null"
+            ]
+          }
+        },
+        "required": [
+          "id",
+          "inference_id",
+          "discrepancy_type",
+          "confirmed_at"
+        ],
+        "type": "object"
+      },
+      "DiscrepancyResponse": {
+        "description": "Response containing a discrepancy case",
+        "properties": {
+          "chunk_hash_b3": {
+            "type": [
+              "string",
+              "null"
+            ]
+          },
+          "created_at": {
+            "type": "string"
+          },
+          "created_by": {
+            "type": [
+              "string",
+              "null"
+            ]
+          },
+          "discrepancy_type": {
+            "type": "string"
+          },
+          "document_id": {
+            "type": [
+              "string",
+              "null"
+            ]
+          },
+          "ground_truth": {
+            "type": [
+              "string",
+              "null"
+            ]
+          },
+          "id": {
+            "type": "string"
+          },
+          "inference_id": {
+            "type": "string"
+          },
+          "model_answer": {
+            "type": [
+              "string",
+              "null"
+            ]
+          },
+          "notes": {
+            "type": [
+              "string",
+              "null"
+            ]
+          },
+          "page_number": {
+            "format": "int32",
+            "minimum": 0,
+            "type": [
+              "integer",
+              "null"
+            ]
+          },
+          "resolution_status": {
+            "type": "string"
+          },
+          "resolved_at": {
+            "type": [
+              "string",
+              "null"
+            ]
+          },
+          "resolved_by": {
+            "type": [
+              "string",
+              "null"
+            ]
+          },
+          "tenant_id": {
+            "type": "string"
+          },
+          "updated_at": {
+            "type": "string"
+          },
+          "user_question": {
+            "type": [
+              "string",
+              "null"
+            ]
+          }
+        },
+        "required": [
+          "id",
+          "tenant_id",
+          "inference_id",
+          "discrepancy_type",
+          "resolution_status",
+          "created_at",
+          "updated_at"
         ],
         "type": "object"
       },
@@ -10769,6 +11410,15 @@
         ],
         "type": "object"
       },
+      "EvaluatorType": {
+        "description": "Evaluator type - who/what produced the verdict",
+        "enum": [
+          "rule",
+          "human",
+          "model"
+        ],
+        "type": "string"
+      },
       "EventApplicationError": {
         "description": "Details about a failed event application.",
         "properties": {
@@ -11717,6 +12367,14 @@
         ],
         "type": "object"
       },
+      "GenerationStrategy": {
+        "description": "Strategy for generating training samples from raw text",
+        "enum": [
+          "qa",
+          "summary"
+        ],
+        "type": "string"
+      },
       "GetCodePolicyResponse": {
         "properties": {
           "policy": {
@@ -12067,6 +12725,26 @@
         "properties": {
           "build_id": {
             "description": "Build identifier (git hash + timestamp, e.g., \"a6922d2-20260122153045\")",
+            "type": [
+              "string",
+              "null"
+            ]
+          },
+          "crate_manifest": {
+            "additionalProperties": {
+              "type": "string"
+            },
+            "description": "Per-crate version manifest (inference-critical crates)",
+            "propertyNames": {
+              "type": "string"
+            },
+            "type": [
+              "object",
+              "null"
+            ]
+          },
+          "crate_manifest_digest": {
+            "description": "BLAKE3 digest of the canonical crate manifest JSON",
             "type": [
               "string",
               "null"
@@ -14196,6 +14874,56 @@
         ],
         "type": "object"
       },
+      "ListDiscrepanciesQuery": {
+        "description": "Query parameters for listing discrepancies",
+        "properties": {
+          "discrepancy_type": {
+            "description": "Filter by discrepancy type",
+            "type": [
+              "string",
+              "null"
+            ]
+          },
+          "document_id": {
+            "description": "Filter by document ID",
+            "type": [
+              "string",
+              "null"
+            ]
+          },
+          "inference_id": {
+            "description": "Filter by inference ID",
+            "type": [
+              "string",
+              "null"
+            ]
+          },
+          "limit": {
+            "description": "Maximum number of results (default: 50)",
+            "format": "int64",
+            "type": [
+              "integer",
+              "null"
+            ]
+          },
+          "offset": {
+            "description": "Offset for pagination",
+            "format": "int64",
+            "type": [
+              "integer",
+              "null"
+            ]
+          },
+          "status": {
+            "description": "Filter by resolution status",
+            "type": [
+              "string",
+              "null"
+            ]
+          }
+        },
+        "type": "object"
+      },
       "ListEvidenceQuery": {
         "description": "Query parameters for listing evidence",
         "properties": {
@@ -14364,6 +15092,56 @@
           "page",
           "page_size"
         ],
+        "type": "object"
+      },
+      "ListVerdictsQuery": {
+        "description": "Query parameters for listing verdicts",
+        "properties": {
+          "evaluator_type": {
+            "description": "Filter by evaluator type",
+            "type": [
+              "string",
+              "null"
+            ]
+          },
+          "inference_id": {
+            "description": "Filter by inference ID",
+            "type": [
+              "string",
+              "null"
+            ]
+          },
+          "limit": {
+            "description": "Maximum number of results (default: 100)",
+            "format": "int64",
+            "type": [
+              "integer",
+              "null"
+            ]
+          },
+          "offset": {
+            "description": "Offset for pagination",
+            "format": "int64",
+            "type": [
+              "integer",
+              "null"
+            ]
+          },
+          "trust_state": {
+            "description": "Filter by trust state",
+            "type": [
+              "string",
+              "null"
+            ]
+          },
+          "verdict": {
+            "description": "Filter by verdict level",
+            "type": [
+              "string",
+              "null"
+            ]
+          }
+        },
         "type": "object"
       },
       "LoadAverageInfo": {
@@ -18466,6 +19244,16 @@
         ],
         "type": "string"
       },
+      "PreprocessStatus": {
+        "description": "Status of a preprocessing job",
+        "enum": [
+          "pending",
+          "running",
+          "completed",
+          "failed"
+        ],
+        "type": "string"
+      },
       "PreprocessStatusRequest": {
         "description": "Request cache status for CoreML preprocessing.",
         "properties": {
@@ -20158,6 +20946,15 @@
           "POLICY_MISMATCH",
           "BACKEND_MISMATCH",
           "SIGNATURE_INVALID",
+          "BACKEND_ATTESTATION_MISMATCH",
+          "SCHEMA_VERSION_UNSUPPORTED",
+          "SEED_DIGEST_MISMATCH",
+          "SEED_MODE_VIOLATION",
+          "SEED_DIGEST_MISSING",
+          "EXPECTED_DIGEST_INVALID",
+          "PAYLOAD_PARSE_ERROR",
+          "NON_CANONICAL_PAYLOAD",
+          "RECEIPT_DIGEST_MISMATCH",
           "MISSING_RECEIPT",
           "TRACE_NOT_FOUND"
         ],
@@ -21504,6 +22301,26 @@
             ]
           }
         },
+        "type": "object"
+      },
+      "ResolveDiscrepancyRequest": {
+        "description": "Request to resolve/update a discrepancy case",
+        "properties": {
+          "notes": {
+            "description": "Additional notes about the resolution",
+            "type": [
+              "string",
+              "null"
+            ]
+          },
+          "resolution_status": {
+            "description": "New resolution status (confirmed_error, not_an_error, model_limitation, needs_review)",
+            "type": "string"
+          }
+        },
+        "required": [
+          "resolution_status"
+        ],
         "type": "object"
       },
       "ResolveVersionRequest": {
@@ -23352,6 +24169,17 @@
       "RunReceipt": {
         "description": "Verifiable run receipt (hash chain over per-token decisions)",
         "properties": {
+          "adapter_build_hash_b3": {
+            "oneOf": [
+              {
+                "type": "null"
+              },
+              {
+                "$ref": "#/components/schemas/B3Hash",
+                "description": "BLAKE3 hash of the adapter build artifact"
+              }
+            ]
+          },
           "attestation": {
             "description": "Optional attestation payload.",
             "type": [
@@ -23370,6 +24198,58 @@
             "format": "int32",
             "minimum": 0,
             "type": "integer"
+          },
+          "cache_key_b3": {
+            "oneOf": [
+              {
+                "type": "null"
+              },
+              {
+                "$ref": "#/components/schemas/B3Hash",
+                "description": "BLAKE3 cache key used for prefix lookup"
+              }
+            ]
+          },
+          "cache_scope": {
+            "description": "Scope of the KV cache entry (e.g. \"tenant\", \"global\")",
+            "type": [
+              "string",
+              "null"
+            ]
+          },
+          "cached_prefix_digest_b3": {
+            "oneOf": [
+              {
+                "type": "null"
+              },
+              {
+                "$ref": "#/components/schemas/B3Hash",
+                "description": "BLAKE3 digest of the cached prefix KV tensors"
+              }
+            ]
+          },
+          "cached_prefix_len": {
+            "description": "Length of the cached prefix in tokens",
+            "format": "int32",
+            "minimum": 0,
+            "type": [
+              "integer",
+              "null"
+            ]
+          },
+          "decode_algo": {
+            "description": "Decoding algorithm used (e.g. \"greedy\", \"sample\", \"beam\")",
+            "type": [
+              "string",
+              "null"
+            ]
+          },
+          "disclosure_level": {
+            "description": "Disclosure level controlling receipt field visibility (e.g. \"full\", \"redacted\")",
+            "type": [
+              "string",
+              "null"
+            ]
           },
           "kv_evictions": {
             "description": "Number of KV cache evictions that occurred during inference",
@@ -23399,6 +24279,17 @@
             "format": "int32",
             "minimum": 0,
             "type": "integer"
+          },
+          "model_build_hash_b3": {
+            "oneOf": [
+              {
+                "type": "null"
+              },
+              {
+                "$ref": "#/components/schemas/B3Hash",
+                "description": "BLAKE3 hash of the base model build artifact"
+              }
+            ]
           },
           "model_cache_identity_v2_digest_b3": {
             "description": "BLAKE3 digest of ModelCacheIdentityV2 canonical bytes.\nBinds the receipt to the exact kernel/quant/fusion/tokenizer/tenant/worker combination.",
@@ -23445,9 +24336,70 @@
             "description": "Digest over receipt contents.",
             "type": "string"
           },
+          "receipt_signed_at": {
+            "description": "ISO 8601 timestamp when the receipt was signed",
+            "type": [
+              "string",
+              "null"
+            ]
+          },
+          "receipt_signing_kid": {
+            "description": "Key ID of the signing key used for this receipt",
+            "type": [
+              "string",
+              "null"
+            ]
+          },
+          "reduction_strategy": {
+            "description": "Reduction strategy for deterministic multi-thread aggregation",
+            "type": [
+              "string",
+              "null"
+            ]
+          },
+          "retrieval_merkle_root_b3": {
+            "oneOf": [
+              {
+                "type": "null"
+              },
+              {
+                "$ref": "#/components/schemas/B3Hash",
+                "description": "Merkle root of retrieved context documents"
+              }
+            ]
+          },
+          "retrieval_order_digest_b3": {
+            "oneOf": [
+              {
+                "type": "null"
+              },
+              {
+                "$ref": "#/components/schemas/B3Hash",
+                "description": "BLAKE3 digest of the retrieval ordering"
+              }
+            ]
+          },
           "run_head_hash": {
             "description": "Head hash for the run's trace chain.",
             "type": "string"
+          },
+          "sampling_backend": {
+            "description": "Sampling backend identifier (e.g. \"mlx\", \"metal\")",
+            "type": [
+              "string",
+              "null"
+            ]
+          },
+          "seed_digest_b3": {
+            "oneOf": [
+              {
+                "type": "null"
+              },
+              {
+                "$ref": "#/components/schemas/B3Hash",
+                "description": "BLAKE3 digest of the seed used for sampling randomness"
+              }
+            ]
           },
           "session_sequence": {
             "description": "Session sequence number for temporal ordering.\n\nMonotonically increasing counter within a session, starting at 0.\nCombined with previous_receipt_digest, enables verification of\ninference ordering without access to the full trace.",
@@ -23459,6 +24411,14 @@
             "description": "Optional signature covering the receipt.",
             "type": [
               "string",
+              "null"
+            ]
+          },
+          "stop_eos_q15": {
+            "description": "EOS token probability threshold in Q15 fixed-point",
+            "format": "int32",
+            "type": [
+              "integer",
               "null"
             ]
           },
@@ -23489,6 +24449,25 @@
               "null"
             ]
           },
+          "stop_window_digest_b3": {
+            "oneOf": [
+              {
+                "type": "null"
+              },
+              {
+                "$ref": "#/components/schemas/B3Hash",
+                "description": "BLAKE3 digest of the stop-sequence sliding window state"
+              }
+            ]
+          },
+          "temperature_q15": {
+            "description": "Temperature in Q15 fixed-point representation",
+            "format": "int32",
+            "type": [
+              "integer",
+              "null"
+            ]
+          },
           "tenant_kv_bytes_used": {
             "description": "Actual KV cache bytes used for this inference",
             "format": "int64",
@@ -23500,6 +24479,79 @@
             "format": "int64",
             "minimum": 0,
             "type": "integer"
+          },
+          "thread_count": {
+            "description": "Number of threads used for inference compute",
+            "format": "int32",
+            "minimum": 0,
+            "type": [
+              "integer",
+              "null"
+            ]
+          },
+          "tokenizer_hash_b3": {
+            "oneOf": [
+              {
+                "type": "null"
+              },
+              {
+                "$ref": "#/components/schemas/B3Hash",
+                "description": "BLAKE3 hash of the tokenizer binary used for this inference"
+              }
+            ]
+          },
+          "tokenizer_normalization": {
+            "description": "Normalization scheme applied by the tokenizer (e.g. \"NFC\", \"NFKC\")",
+            "type": [
+              "string",
+              "null"
+            ]
+          },
+          "tokenizer_version": {
+            "description": "Version string of the tokenizer (e.g. \"3.2\")",
+            "type": [
+              "string",
+              "null"
+            ]
+          },
+          "tool_call_inputs_digest_b3": {
+            "oneOf": [
+              {
+                "type": "null"
+              },
+              {
+                "$ref": "#/components/schemas/B3Hash",
+                "description": "BLAKE3 digest of tool call input payloads"
+              }
+            ]
+          },
+          "tool_call_outputs_digest_b3": {
+            "oneOf": [
+              {
+                "type": "null"
+              },
+              {
+                "$ref": "#/components/schemas/B3Hash",
+                "description": "BLAKE3 digest of tool call output payloads"
+              }
+            ]
+          },
+          "top_k": {
+            "description": "Top-k token count for sampling",
+            "format": "int32",
+            "minimum": 0,
+            "type": [
+              "integer",
+              "null"
+            ]
+          },
+          "top_p_q15": {
+            "description": "Top-p (nucleus) threshold in Q15 fixed-point representation",
+            "format": "int32",
+            "type": [
+              "integer",
+              "null"
+            ]
           },
           "trace_id": {
             "description": "Unique trace identifier for this run.",
@@ -24989,11 +26041,60 @@
         ],
         "type": "object"
       },
+      "StartPreprocessRequest": {
+        "description": "Request to start preprocessing on a dataset",
+        "properties": {
+          "dedupe": {
+            "description": "Whether to deduplicate the dataset",
+            "type": "boolean"
+          },
+          "pii_scrub": {
+            "description": "Whether to scrub PII from the dataset",
+            "type": "boolean"
+          }
+        },
+        "type": "object"
+      },
+      "StartPreprocessResponse": {
+        "description": "Response from starting a preprocessing job",
+        "properties": {
+          "dataset_id": {
+            "description": "Dataset ID being preprocessed",
+            "type": "string"
+          },
+          "job_id": {
+            "description": "Unique job ID for tracking progress",
+            "type": "string"
+          },
+          "message": {
+            "description": "Message describing the job",
+            "type": "string"
+          },
+          "status": {
+            "$ref": "#/components/schemas/PreprocessStatus",
+            "description": "Initial status"
+          }
+        },
+        "required": [
+          "job_id",
+          "dataset_id",
+          "status",
+          "message"
+        ],
+        "type": "object"
+      },
       "StartTrainingRequest": {
         "description": "Start training request",
         "properties": {
           "adapter_name": {
             "type": "string"
+          },
+          "adapter_type": {
+            "description": "Adapter type hint (identify/behavior)",
+            "type": [
+              "string",
+              "null"
+            ]
           },
           "api_patterns": {
             "description": "API patterns to focus on (for framework adapters)",
@@ -27033,6 +28134,24 @@
         ],
         "type": "object"
       },
+      "TextDatasetFormat": {
+        "description": "Format for text-based dataset creation.\n\nDetermines how the input text is processed into training samples.",
+        "enum": [
+          "lines",
+          "qa",
+          "raw"
+        ],
+        "type": "string"
+      },
+      "TextDatasetSourceType": {
+        "description": "Source type for text-based dataset creation.\n\nIndicates the origin of the text content for provenance tracking.",
+        "enum": [
+          "pasted",
+          "extracted",
+          "external"
+        ],
+        "type": "string"
+      },
       "TimeRange": {
         "description": "Time range",
         "properties": {
@@ -28375,6 +29494,13 @@
             ]
           },
           "determinism_mode": {
+            "type": [
+              "string",
+              "null"
+            ]
+          },
+          "display_name": {
+            "description": "Human-readable display name derived from the job's typed ID word alias.\nExample: \"job-swift-moon\". Populated when the ID uses the TypedId format.",
             "type": [
               "string",
               "null"
@@ -30923,6 +32049,80 @@
         ],
         "type": "object"
       },
+      "Verdict": {
+        "description": "Verdict confidence level",
+        "enum": [
+          "high",
+          "medium",
+          "low",
+          "paused"
+        ],
+        "type": "string"
+      },
+      "VerdictResponse": {
+        "description": "Response containing verdict details",
+        "properties": {
+          "confidence": {
+            "description": "Confidence score",
+            "format": "double",
+            "type": "number"
+          },
+          "created_at": {
+            "description": "Creation timestamp (ISO 8601)",
+            "type": "string"
+          },
+          "evaluator_id": {
+            "description": "Evaluator identifier",
+            "type": [
+              "string",
+              "null"
+            ]
+          },
+          "evaluator_type": {
+            "description": "Evaluator type",
+            "type": "string"
+          },
+          "extraction_confidence_score": {
+            "description": "Extraction confidence score",
+            "format": "double",
+            "type": [
+              "number",
+              "null"
+            ]
+          },
+          "id": {
+            "description": "Unique verdict ID",
+            "type": "string"
+          },
+          "inference_id": {
+            "description": "The inference ID this verdict applies to",
+            "type": "string"
+          },
+          "trust_state": {
+            "description": "Trust state",
+            "type": [
+              "string",
+              "null"
+            ]
+          },
+          "verdict": {
+            "description": "Verdict level",
+            "type": "string"
+          },
+          "warnings_json": {
+            "description": "Warnings/notes as JSON"
+          }
+        },
+        "required": [
+          "id",
+          "inference_id",
+          "verdict",
+          "confidence",
+          "evaluator_type",
+          "created_at"
+        ],
+        "type": "object"
+      },
       "VerificationResult": {
         "description": "Detailed verification result.",
         "properties": {
@@ -31789,6 +32989,13 @@
               "null"
             ]
           },
+          "display_name": {
+            "description": "Human-readable display name derived from the worker's typed ID word alias.\nExample: \"wrk-brave-falcon\". Populated when the ID uses the TypedId format.",
+            "type": [
+              "string",
+              "null"
+            ]
+          },
           "id": {
             "type": "string"
           },
@@ -32203,7 +33410,7 @@
       "name": ""
     },
     "title": "adapteros-server-api",
-    "version": "0.0.1"
+    "version": "0.5.0"
   },
   "openapi": "3.1.0",
   "paths": {
@@ -38492,7 +39699,7 @@
     },
     "/v1/cli/owner-run": {
       "post": {
-        "description": "**Permissions:** Requires `admin` role (highest privilege level).\n\n**Security:**\n- Commands are validated against a strict whitelist\n- Shell metacharacters are rejected (pipes, redirects, semicolons, etc.)\n- All executions are audit logged\n\n**Audit Events:**\n- Success: `cli.owner_run` with command details\n- Failure: `cli.owner_run` with error message\n\n# Example\n```json\nPOST /v1/cli/owner-run\n{\n  \"command\": \"aosctl status\",\n  \"session_id\": \"session-123\"\n}\n```\n\n**Response:**\n```json\n{\n  \"stdout\": \"Status: Running\\nVersion: 0.3-alpha\\n\",\n  \"stderr\": \"\",\n  \"exit_code\": 0,\n  \"duration_ms\": 42\n}\n```",
+        "description": "**Permissions:** Requires `admin` role (highest privilege level).\n\n**Security:**\n- Commands are validated against a strict allowlist\n- Shell metacharacters are rejected (pipes, redirects, semicolons, etc.)\n- All executions are audit logged\n\n**Audit Events:**\n- Success: `cli.owner_run` with command details\n- Failure: `cli.owner_run` with error message\n\n# Example\n```json\nPOST /v1/cli/owner-run\n{\n  \"command\": \"aosctl status\",\n  \"session_id\": \"session-123\"\n}\n```\n\n**Response:**\n```json\n{\n  \"stdout\": \"Status: Running\\nVersion: 0.3-alpha\\n\",\n  \"stderr\": \"\",\n  \"exit_code\": 0,\n  \"duration_ms\": 42\n}\n```",
         "operationId": "run_owner_cli_command",
         "requestBody": {
           "content": {
@@ -38546,7 +39753,7 @@
             "description": "Command execution failed"
           }
         },
-        "summary": "Execute a whitelisted CLI command",
+        "summary": "Execute an allowlisted CLI command",
         "tags": [
           "cli"
         ]
@@ -40453,6 +41660,47 @@
         ]
       }
     },
+    "/v1/datasets/from-chat": {
+      "post": {
+        "description": "Converts chat messages into JSONL training format based on the specified format.\nSupports multi-turn conversation format, instruction-response extraction, and raw preservation.\n\nThe JSONL format depends on the `format` field:\n- `conversation`: Multi-turn format with `{\"messages\": [{\"role\": \"...\", \"content\": \"...\"}]}`\n- `instruction_response`: Extract user/assistant pairs as `{\"prompt\": \"...\", \"completion\": \"...\"}`\n- `raw`: Each message as `{\"role\": \"...\", \"content\": \"...\"}`",
+        "operationId": "create_dataset_from_chat",
+        "requestBody": {
+          "content": {
+            "application/json": {
+              "schema": {
+                "$ref": "#/components/schemas/CreateDatasetFromChatRequest"
+              }
+            }
+          },
+          "required": true
+        },
+        "responses": {
+          "200": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/CreateDatasetFromChatResponse"
+                }
+              }
+            },
+            "description": "Dataset created successfully"
+          },
+          "400": {
+            "description": "Invalid request - no messages provided"
+          },
+          "403": {
+            "description": "Permission denied or quota exceeded"
+          },
+          "500": {
+            "description": "Internal server error"
+          }
+        },
+        "summary": "Create a training dataset from selected chat messages",
+        "tags": [
+          "datasets"
+        ]
+      }
+    },
     "/v1/datasets/from-documents": {
       "post": {
         "description": "Converts RAG documents into JSONL training format. Either `document_id` or\n`collection_id` must be provided (mutually exclusive). The resulting dataset\nis immediately marked as valid since the source documents are already indexed.\n\nThe JSONL format is: `{\"text\": \"<chunk_text>\"}` for each chunk, ordered\ndeterministically by (document_id ASC, chunk_index ASC) for reproducibility.",
@@ -40492,6 +41740,47 @@
           }
         },
         "summary": "Create a training dataset from existing documents or a document collection",
+        "tags": [
+          "datasets"
+        ]
+      }
+    },
+    "/v1/datasets/from-text": {
+      "post": {
+        "description": "Converts raw text content into JSONL training format based on the specified format.\nSupports line-by-line processing, Q&A extraction, and raw text preservation.\n\nThe JSONL format depends on the `format` field:\n- `lines`: Each non-empty line becomes `{\"text\": \"<line>\"}`\n- `qa`: Attempts to parse Q:/A: pairs into `{\"prompt\": \"...\", \"completion\": \"...\"}`\n- `raw`: Single entry with full content as `{\"text\": \"<content>\"}`",
+        "operationId": "create_dataset_from_text",
+        "requestBody": {
+          "content": {
+            "application/json": {
+              "schema": {
+                "$ref": "#/components/schemas/CreateDatasetFromTextRequest"
+              }
+            }
+          },
+          "required": true
+        },
+        "responses": {
+          "200": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/CreateDatasetFromTextResponse"
+                }
+              }
+            },
+            "description": "Dataset created successfully"
+          },
+          "400": {
+            "description": "Invalid request - content is empty"
+          },
+          "403": {
+            "description": "Permission denied or quota exceeded"
+          },
+          "500": {
+            "description": "Internal server error"
+          }
+        },
+        "summary": "Create a training dataset from pasted or extracted text",
         "tags": [
           "datasets"
         ]
@@ -40678,6 +41967,106 @@
           }
         },
         "summary": "Get files in a dataset",
+        "tags": [
+          "datasets"
+        ]
+      }
+    },
+    "/v1/datasets/{dataset_id}/preprocess": {
+      "post": {
+        "description": "Initiates a background job to preprocess the dataset with the requested options.\nReturns immediately with a job_id for status polling.",
+        "operationId": "start_preprocess",
+        "parameters": [
+          {
+            "description": "Dataset ID to preprocess",
+            "in": "path",
+            "name": "dataset_id",
+            "required": true,
+            "schema": {
+              "type": "string"
+            }
+          }
+        ],
+        "requestBody": {
+          "content": {
+            "application/json": {
+              "schema": {
+                "$ref": "#/components/schemas/StartPreprocessRequest"
+              }
+            }
+          },
+          "required": true
+        },
+        "responses": {
+          "202": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/StartPreprocessResponse"
+                }
+              }
+            },
+            "description": "Preprocessing job started"
+          },
+          "400": {
+            "description": "Invalid request - no preprocessing options selected"
+          },
+          "403": {
+            "description": "Tenant isolation violation or insufficient permissions"
+          },
+          "404": {
+            "description": "Dataset not found"
+          },
+          "409": {
+            "description": "Preprocessing already in progress for this dataset"
+          },
+          "500": {
+            "description": "Internal server error"
+          }
+        },
+        "summary": "Start preprocessing on a dataset",
+        "tags": [
+          "datasets"
+        ]
+      }
+    },
+    "/v1/datasets/{dataset_id}/preprocess/status": {
+      "get": {
+        "description": "Returns the current status of a preprocessing job.",
+        "operationId": "get_preprocess_status",
+        "parameters": [
+          {
+            "description": "Dataset ID",
+            "in": "path",
+            "name": "dataset_id",
+            "required": true,
+            "schema": {
+              "type": "string"
+            }
+          }
+        ],
+        "responses": {
+          "200": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/PreprocessStatusResponse"
+                }
+              }
+            },
+            "description": "Preprocessing status"
+          },
+          "403": {
+            "description": "Tenant isolation violation or insufficient permissions"
+          },
+          "404": {
+            "description": "No preprocessing job found for this dataset"
+          },
+          "500": {
+            "description": "Internal server error"
+          }
+        },
+        "summary": "Get preprocessing job status",
         "tags": [
           "datasets"
         ]
@@ -41732,6 +43121,287 @@
         ]
       }
     },
+    "/v1/discrepancies": {
+      "get": {
+        "operationId": "list_discrepancies",
+        "parameters": [
+          {
+            "description": "Filter by resolution status",
+            "in": "query",
+            "name": "status",
+            "required": false,
+            "schema": {
+              "type": [
+                "string",
+                "null"
+              ]
+            }
+          },
+          {
+            "description": "Filter by discrepancy type",
+            "in": "query",
+            "name": "discrepancy_type",
+            "required": false,
+            "schema": {
+              "type": [
+                "string",
+                "null"
+              ]
+            }
+          },
+          {
+            "description": "Filter by inference ID",
+            "in": "query",
+            "name": "inference_id",
+            "required": false,
+            "schema": {
+              "type": [
+                "string",
+                "null"
+              ]
+            }
+          },
+          {
+            "description": "Filter by document ID",
+            "in": "query",
+            "name": "document_id",
+            "required": false,
+            "schema": {
+              "type": [
+                "string",
+                "null"
+              ]
+            }
+          },
+          {
+            "description": "Maximum number of results (default: 50)",
+            "in": "query",
+            "name": "limit",
+            "required": false,
+            "schema": {
+              "format": "int64",
+              "type": [
+                "integer",
+                "null"
+              ]
+            }
+          },
+          {
+            "description": "Offset for pagination",
+            "in": "query",
+            "name": "offset",
+            "required": false,
+            "schema": {
+              "format": "int64",
+              "type": [
+                "integer",
+                "null"
+              ]
+            }
+          }
+        ],
+        "responses": {
+          "200": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "items": {
+                    "$ref": "#/components/schemas/DiscrepancyResponse"
+                  },
+                  "type": "array"
+                }
+              }
+            },
+            "description": "List of discrepancy cases"
+          },
+          "500": {
+            "description": "Internal server error"
+          }
+        },
+        "security": [
+          {
+            "bearer_auth": []
+          }
+        ],
+        "summary": "List discrepancy cases with optional filters",
+        "tags": [
+          "discrepancies"
+        ]
+      },
+      "post": {
+        "operationId": "create_discrepancy",
+        "requestBody": {
+          "content": {
+            "application/json": {
+              "schema": {
+                "$ref": "#/components/schemas/CreateDiscrepancyRequest"
+              }
+            }
+          },
+          "required": true
+        },
+        "responses": {
+          "201": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/DiscrepancyResponse"
+                }
+              }
+            },
+            "description": "Discrepancy case created"
+          },
+          "400": {
+            "description": "Invalid request"
+          },
+          "403": {
+            "description": "Permission denied"
+          },
+          "500": {
+            "description": "Internal server error"
+          }
+        },
+        "security": [
+          {
+            "bearer_auth": []
+          }
+        ],
+        "summary": "Create a new discrepancy case",
+        "tags": [
+          "discrepancies"
+        ]
+      }
+    },
+    "/v1/discrepancies/export": {
+      "get": {
+        "operationId": "export_discrepancies",
+        "responses": {
+          "200": {
+            "content": {
+              "application/x-ndjson": {}
+            },
+            "description": "JSONL export of confirmed errors"
+          },
+          "403": {
+            "description": "Permission denied"
+          },
+          "500": {
+            "description": "Internal server error"
+          }
+        },
+        "security": [
+          {
+            "bearer_auth": []
+          }
+        ],
+        "summary": "Export confirmed errors as JSONL for training",
+        "tags": [
+          "discrepancies"
+        ]
+      }
+    },
+    "/v1/discrepancies/{id}": {
+      "get": {
+        "operationId": "get_discrepancy",
+        "parameters": [
+          {
+            "description": "Discrepancy case ID",
+            "in": "path",
+            "name": "id",
+            "required": true,
+            "schema": {
+              "type": "string"
+            }
+          }
+        ],
+        "responses": {
+          "200": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/DiscrepancyResponse"
+                }
+              }
+            },
+            "description": "Discrepancy case details"
+          },
+          "404": {
+            "description": "Discrepancy case not found"
+          },
+          "500": {
+            "description": "Internal server error"
+          }
+        },
+        "security": [
+          {
+            "bearer_auth": []
+          }
+        ],
+        "summary": "Get a single discrepancy case by ID",
+        "tags": [
+          "discrepancies"
+        ]
+      }
+    },
+    "/v1/discrepancies/{id}/resolve": {
+      "patch": {
+        "operationId": "resolve_discrepancy",
+        "parameters": [
+          {
+            "description": "Discrepancy case ID",
+            "in": "path",
+            "name": "id",
+            "required": true,
+            "schema": {
+              "type": "string"
+            }
+          }
+        ],
+        "requestBody": {
+          "content": {
+            "application/json": {
+              "schema": {
+                "$ref": "#/components/schemas/ResolveDiscrepancyRequest"
+              }
+            }
+          },
+          "required": true
+        },
+        "responses": {
+          "200": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/DiscrepancyResponse"
+                }
+              }
+            },
+            "description": "Discrepancy case resolved"
+          },
+          "400": {
+            "description": "Invalid request"
+          },
+          "403": {
+            "description": "Permission denied"
+          },
+          "404": {
+            "description": "Discrepancy case not found"
+          },
+          "500": {
+            "description": "Internal server error"
+          }
+        },
+        "security": [
+          {
+            "bearer_auth": []
+          }
+        ],
+        "summary": "Update resolution status of a discrepancy case",
+        "tags": [
+          "discrepancies"
+        ]
+      }
+    },
     "/v1/documents": {
       "get": {
         "operationId": "list_documents",
@@ -41854,7 +43524,7 @@
             "description": "Internal server error"
           }
         },
-        "summary": "Upload document request (multipart form)\nExpected fields:\n- file: PDF file (required)\n- name: Document name (optional, defaults to filename)",
+        "summary": "Upload document request (multipart form)\nExpected fields:\n- file: Document file (required, .pdf/.md/.txt)\n- name: Document name (optional, defaults to filename)",
         "tags": [
           "documents"
         ]
@@ -44222,6 +45892,20 @@
     "/v1/infer/paused": {
       "get": {
         "operationId": "list_paused",
+        "parameters": [
+          {
+            "description": "Filter by pause kind. Accepted values include:\n- ReviewNeeded / review_needed / review-needed\n- PolicyApproval / policy_approval / policy-approval\n- ResourceWait / resource_wait / resource-wait\n- UserRequested / user_requested / user-requested\n- ThreatEscalation / threat_escalation / threat-escalation",
+            "in": "query",
+            "name": "kind",
+            "required": false,
+            "schema": {
+              "type": [
+                "string",
+                "null"
+              ]
+            }
+          }
+        ],
         "responses": {
           "200": {
             "content": {
@@ -49100,6 +50784,20 @@
     "/v1/reviews/paused": {
       "get": {
         "operationId": "list_paused_reviews",
+        "parameters": [
+          {
+            "description": "Filter by pause kind. Accepted values include:\n- ReviewNeeded / review_needed / review-needed\n- PolicyApproval / policy_approval / policy-approval\n- ResourceWait / resource_wait / resource-wait\n- UserRequested / user_requested / user-requested\n- ThreatEscalation / threat_escalation / threat-escalation",
+            "in": "query",
+            "name": "kind",
+            "required": false,
+            "schema": {
+              "type": [
+                "string",
+                "null"
+              ]
+            }
+          }
+        ],
         "responses": {
           "200": {
             "content": {
@@ -54863,8 +56561,256 @@
         ]
       }
     },
+    "/v1/verdicts": {
+      "get": {
+        "operationId": "list_verdicts",
+        "parameters": [
+          {
+            "description": "Filter by inference ID",
+            "in": "query",
+            "name": "inference_id",
+            "required": false,
+            "schema": {
+              "type": [
+                "string",
+                "null"
+              ]
+            }
+          },
+          {
+            "description": "Filter by verdict level",
+            "in": "query",
+            "name": "verdict",
+            "required": false,
+            "schema": {
+              "type": [
+                "string",
+                "null"
+              ]
+            }
+          },
+          {
+            "description": "Filter by evaluator type",
+            "in": "query",
+            "name": "evaluator_type",
+            "required": false,
+            "schema": {
+              "type": [
+                "string",
+                "null"
+              ]
+            }
+          },
+          {
+            "description": "Filter by trust state",
+            "in": "query",
+            "name": "trust_state",
+            "required": false,
+            "schema": {
+              "type": [
+                "string",
+                "null"
+              ]
+            }
+          },
+          {
+            "description": "Maximum number of results (default: 100)",
+            "in": "query",
+            "name": "limit",
+            "required": false,
+            "schema": {
+              "format": "int64",
+              "type": [
+                "integer",
+                "null"
+              ]
+            }
+          },
+          {
+            "description": "Offset for pagination",
+            "in": "query",
+            "name": "offset",
+            "required": false,
+            "schema": {
+              "format": "int64",
+              "type": [
+                "integer",
+                "null"
+              ]
+            }
+          }
+        ],
+        "responses": {
+          "200": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "items": {
+                    "$ref": "#/components/schemas/VerdictResponse"
+                  },
+                  "type": "array"
+                }
+              }
+            },
+            "description": "List of verdicts"
+          },
+          "403": {
+            "description": "Permission denied"
+          },
+          "500": {
+            "description": "Internal server error"
+          }
+        },
+        "security": [
+          {
+            "bearer_auth": []
+          }
+        ],
+        "summary": "List verdicts with optional filters",
+        "tags": [
+          "verdicts"
+        ]
+      },
+      "post": {
+        "description": "If a verdict already exists for the (inference_id, evaluator_type) pair,\nit will be updated. Otherwise, a new verdict is created.",
+        "operationId": "create_verdict",
+        "requestBody": {
+          "content": {
+            "application/json": {
+              "schema": {
+                "$ref": "#/components/schemas/CreateVerdictRequest"
+              }
+            }
+          },
+          "required": true
+        },
+        "responses": {
+          "201": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/VerdictResponse"
+                }
+              }
+            },
+            "description": "Verdict created/updated"
+          },
+          "400": {
+            "description": "Invalid request"
+          },
+          "403": {
+            "description": "Permission denied"
+          },
+          "500": {
+            "description": "Internal server error"
+          }
+        },
+        "security": [
+          {
+            "bearer_auth": []
+          }
+        ],
+        "summary": "Create or update an inference verdict",
+        "tags": [
+          "verdicts"
+        ]
+      }
+    },
+    "/v1/verdicts/derive": {
+      "post": {
+        "description": "This endpoint derives a verdict using the v1 rule engine and optionally\nstores it in the database.",
+        "operationId": "derive_verdict",
+        "requestBody": {
+          "content": {
+            "application/json": {
+              "schema": {
+                "$ref": "#/components/schemas/DeriveVerdictRequest"
+              }
+            }
+          },
+          "required": true
+        },
+        "responses": {
+          "200": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/DeriveVerdictResponse"
+                }
+              }
+            },
+            "description": "Derived verdict"
+          },
+          "400": {
+            "description": "Invalid request"
+          },
+          "403": {
+            "description": "Permission denied"
+          },
+          "500": {
+            "description": "Internal server error"
+          }
+        },
+        "security": [
+          {
+            "bearer_auth": []
+          }
+        ],
+        "summary": "Derive and optionally store a rule-based verdict for an inference",
+        "tags": [
+          "verdicts"
+        ]
+      }
+    },
+    "/v1/verdicts/{inference_id}": {
+      "get": {
+        "operationId": "get_verdict",
+        "parameters": [
+          {
+            "description": "Inference ID to get verdict for",
+            "in": "path",
+            "name": "inference_id",
+            "required": true,
+            "schema": {
+              "type": "string"
+            }
+          }
+        ],
+        "responses": {
+          "200": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/VerdictResponse"
+                }
+              }
+            },
+            "description": "Verdict details"
+          },
+          "403": {
+            "description": "Permission denied"
+          },
+          "404": {
+            "description": "Verdict not found"
+          },
+          "500": {
+            "description": "Internal server error"
+          }
+        },
+        "security": [
+          {
+            "bearer_auth": []
+          }
+        ],
+        "summary": "Get verdict for an inference by inference ID",
+        "tags": [
+          "verdicts"
+        ]
+      }
+    },
     "/v1/workers": {
       "get": {
+        "description": "PRD-RECT-002: Non-admin users can only list workers from their own tenant.\nAdmins can list workers from any tenant or list all workers.",
         "operationId": "list_workers",
         "parameters": [
           {
@@ -55057,6 +57003,16 @@
             },
             "description": "Worker spawned"
           },
+          "403": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ErrorResponse"
+                }
+              }
+            },
+            "description": "Forbidden - tenant mismatch"
+          },
           "404": {
             "content": {
               "application/json": {
@@ -55243,6 +57199,69 @@
           }
         },
         "summary": "Get worker detail",
+        "tags": [
+          "workers"
+        ]
+      }
+    },
+    "/v1/workers/{worker_id}/drain": {
+      "post": {
+        "description": "Gracefully drains a worker by transitioning it to the 'draining' state.\nUnlike `stop_worker`, this does NOT send SIGTERM to the process.\nThe worker continues processing in-flight requests and should eventually\ntransition to 'stopped' via the status notification endpoint.\n\n**Use case:** UI-initiated drain where the operator wants to stop new requests\nbut allow current work to complete before deciding whether to stop the process.\n\n**Permissions:** Requires `WorkerManage` permission (Operator or Admin role).\n\n**Telemetry:** Emits `worker.drain` event.\n\n# Example\n```\nPOST /v1/workers/{worker_id}/drain\n```",
+        "operationId": "drain_worker",
+        "parameters": [
+          {
+            "description": "Worker ID",
+            "in": "path",
+            "name": "worker_id",
+            "required": true,
+            "schema": {
+              "type": "string"
+            }
+          }
+        ],
+        "responses": {
+          "200": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/WorkerStopResponse"
+                }
+              }
+            },
+            "description": "Worker drain initiated"
+          },
+          "404": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ErrorResponse"
+                }
+              }
+            },
+            "description": "Worker not found"
+          },
+          "409": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ErrorResponse"
+                }
+              }
+            },
+            "description": "Invalid state transition"
+          },
+          "500": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ErrorResponse"
+                }
+              }
+            },
+            "description": "Failed to drain worker"
+          }
+        },
+        "summary": "Drain a worker (transition to draining state without SIGTERM)",
         "tags": [
           "workers"
         ]
@@ -56313,6 +58332,14 @@
     {
       "description": "Model inference endpoints",
       "name": "inference"
+    },
+    {
+      "description": "Discrepancy case management for training feedback",
+      "name": "discrepancies"
+    },
+    {
+      "description": "Inference verdict quality assessment",
+      "name": "verdicts"
     },
     {
       "description": "Golden run promotion workflow",
