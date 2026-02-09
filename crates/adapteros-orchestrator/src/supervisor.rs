@@ -608,9 +608,9 @@ impl SupervisorDaemon {
             workers.get(tenant_id).and_then(|w| w.pid)
         };
 
-        // Kill existing process if still running
+        // Terminate existing process if still running
         if let Some(pid) = old_pid {
-            debug!("Killing existing worker process {}", pid);
+            debug!("Terminating existing worker process {}", pid);
             #[cfg(unix)]
             {
                 use std::process::Command;
