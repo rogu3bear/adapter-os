@@ -101,6 +101,10 @@ pub fn Collections() -> impl IntoView {
         <PageScaffold
             title="Collections"
             subtitle="Organize documents into collections for RAG-enabled inference"
+            breadcrumbs=vec![
+                PageBreadcrumbItem::new("Data", "/collections"),
+                PageBreadcrumbItem::current("Collections"),
+            ]
         >
             <PageScaffoldActions slot>
                 <RefreshButton

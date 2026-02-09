@@ -4,7 +4,7 @@
 //!
 //! This module is structured for future extraction into sub-modules:
 //! - users.rs: UsersSection
-//! - roles.rs: RolesSection  
+//! - roles.rs: RolesSection
 //! - api_keys.rs: ApiKeysSection
 //! - org.rs: OrgSection
 
@@ -13,7 +13,9 @@ mod org;
 mod roles;
 mod users;
 
-use crate::components::{Badge, TabButton};
+use crate::components::{
+    Badge, PageBreadcrumbItem, PageScaffold, PageScaffoldActions, TabNav, TabPanel,
+};
 use crate::signals::use_auth;
 use api_keys::ApiKeysSection;
 use leptos::prelude::*;
@@ -31,65 +33,55 @@ pub fn Admin() -> impl IntoView {
     let active_tab = RwSignal::new("users");
 
     view! {
-        <div class="p-6 space-y-6">
-                <div class="flex items-center justify-between">
-                    <div>
-                        <h1 class="heading-1">"Administration"</h1>
-                        <p class="text-muted-foreground mt-1">"Manage users, roles, and organization settings"</p>
-                    </div>
-                    {move || {
-                        let state = auth_state.get();
-                        if let Some(user) = state.user() {
-                            let tenant = user.tenant_id.clone();
-                            view! {
-                                <Badge variant=crate::components::BadgeVariant::Outline>
-                                    "Tenant: "{tenant}
-                                </Badge>
-                            }.into_any()
-                        } else {
-                            view! {}.into_any()
-                        }
-                    }}
-                </div>
+        <PageScaffold
+            title="Administration"
+            subtitle="Manage users, roles, and organization settings"
+            breadcrumbs=vec![
+                PageBreadcrumbItem::new("Org", "/admin"),
+                PageBreadcrumbItem::current("Administration"),
+            ]
+        >
+            <PageScaffoldActions slot>
+                {move || {
+                    let state = auth_state.get();
+                    if let Some(user) = state.user() {
+                        let tenant = user.tenant_id.clone();
+                        view! {
+                            <Badge variant=crate::components::BadgeVariant::Outline>
+                                "Tenant: "{tenant}
+                            </Badge>
+                        }.into_any()
+                    } else {
+                        view! {}.into_any()
+                    }
+                }}
+            </PageScaffoldActions>
 
-                // Tab navigation
-                <div class="border-b">
-                    <nav class="-mb-px flex space-x-8">
-                        <TabButton
-                            tab="users"
-                            label="Users".to_string()
-                            active=active_tab
-                        />
-                        <TabButton
-                            tab="roles"
-                            label="Roles".to_string()
-                            active=active_tab
-                        />
-                        <TabButton
-                            tab="keys"
-                            label="API Keys".to_string()
-                            active=active_tab
-                        />
-                        <TabButton
-                            tab="org"
-                            label="Organization".to_string()
-                            active=active_tab
-                        />
-                    </nav>
-                </div>
+            <TabNav
+                tabs=vec![
+                    ("users", "Users"),
+                    ("roles", "Roles"),
+                    ("keys", "API Keys"),
+                    ("org", "Organization"),
+                ]
+                active=active_tab
+            />
 
-                // Tab content
-                <div class="py-4">
-                    {move || {
-                        match active_tab.get() {
-                            "users" => view! { <UsersSection/> }.into_any(),
-                            "roles" => view! { <RolesSection/> }.into_any(),
-                            "keys" => view! { <ApiKeysSection/> }.into_any(),
-                            "org" => view! { <OrgSection/> }.into_any(),
-                            _ => view! { <UsersSection/> }.into_any(),
-                        }
-                    }}
-                </div>
-        </div>
+            <TabPanel tab="users" active=active_tab>
+                <UsersSection/>
+            </TabPanel>
+
+            <TabPanel tab="roles" active=active_tab>
+                <RolesSection/>
+            </TabPanel>
+
+            <TabPanel tab="keys" active=active_tab>
+                <ApiKeysSection/>
+            </TabPanel>
+
+            <TabPanel tab="org" active=active_tab>
+                <OrgSection/>
+            </TabPanel>
+        </PageScaffold>
     }
 }

@@ -5,8 +5,8 @@
 use crate::api::client::{ApiClient, PolicyPackResponse, PolicyValidationResponse};
 use crate::components::{
     Badge, BadgeVariant, Button, ButtonVariant, Card, EmptyState, EmptyStateVariant, ErrorDisplay,
-    Input, PageScaffold, PageScaffoldActions, Spinner, SplitPanel, Table, TableBody, TableCell,
-    TableHead, TableHeader, TableRow, Textarea,
+    Input, PageBreadcrumbItem, PageScaffold, PageScaffoldActions, Spinner, SplitPanel, Table,
+    TableBody, TableCell, TableHead, TableHeader, TableRow, Textarea,
 };
 use crate::constants::urls::docs_link;
 use crate::hooks::{use_api_resource, use_scope_alive, LoadingState};
@@ -53,6 +53,10 @@ pub fn Policies() -> impl IntoView {
         <PageScaffold
             title="Policy Packs"
             subtitle="Manage inference policies and enforcement rules".to_string()
+            breadcrumbs=vec![
+                PageBreadcrumbItem::new("Govern", "/policies"),
+                PageBreadcrumbItem::current("Policy Packs"),
+            ]
         >
             <PageScaffoldActions slot>
                 <Button

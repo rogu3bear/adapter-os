@@ -18,11 +18,10 @@
 
 use crate::api::ApiClient;
 use crate::components::{
-    AdapterDetailPanel, AsyncBoundary, AsyncBoundaryWithErrorRender, Badge, BadgeVariant,
-    BreadcrumbItem, BreadcrumbTrail, Button, ButtonSize, ButtonVariant, Card, CopyableId,
-    EmptyState, EmptyStateVariant, ErrorDisplay, Link, PageBreadcrumbItem, PageScaffold,
-    PageScaffoldActions, SplitPanel, SplitRatio, Table, TableBody, TableCell, TableHead,
-    TableHeader, TableRow,
+    AdapterDetailPanel, AsyncBoundary, AsyncBoundaryWithErrorRender, Badge, BadgeVariant, Button,
+    ButtonSize, ButtonVariant, Card, CopyableId, EmptyState, EmptyStateVariant, ErrorDisplay, Link,
+    PageBreadcrumbItem, PageScaffold, PageScaffoldActions, SplitPanel, SplitRatio, Table, TableBody,
+    TableCell, TableHead, TableHeader, TableRow,
 };
 use crate::constants::urls::docs_link;
 use crate::contexts::use_in_flight;
@@ -436,39 +435,37 @@ pub fn AdapterDetail() -> impl IntoView {
     let adapter_name_for_breadcrumb = Signal::derive(move || adapter_id.get());
 
     view! {
-        <div class="shell-page space-y-6">
-            // Breadcrumb navigation
-            <BreadcrumbTrail items=vec![
-                BreadcrumbItem::link("Adapters", "/adapters"),
-                BreadcrumbItem::current(adapter_name_for_breadcrumb.get()),
-            ]/>
-
-            <div class="flex items-center justify-between">
-                <h1 class="heading-1">"Adapter Details"</h1>
-                <div class="flex items-center gap-2">
-                    {
-                        let navigate = use_navigate();
-                        let id_for_chat = adapter_id;
-                        view! {
-                            <Button
-                                variant=ButtonVariant::Primary
-                                on_click=Callback::new(move |_| {
-                                    let path = chat_path_with_adapter(&id_for_chat.get_untracked());
-                                    navigate(&path, Default::default());
-                                })
-                            >
-                                "Open Chat"
-                            </Button>
-                        }
+        <PageScaffold
+            title="Adapter Details"
+            breadcrumbs=vec![
+                PageBreadcrumbItem::new("Deploy", "/adapters"),
+                PageBreadcrumbItem::new("Adapters", "/adapters"),
+                PageBreadcrumbItem::current(adapter_name_for_breadcrumb.get()),
+            ]
+        >
+            <PageScaffoldActions slot>
+                {
+                    let navigate = use_navigate();
+                    let id_for_chat = adapter_id;
+                    view! {
+                        <Button
+                            variant=ButtonVariant::Primary
+                            on_click=Callback::new(move |_| {
+                                let path = chat_path_with_adapter(&id_for_chat.get_untracked());
+                                navigate(&path, Default::default());
+                            })
+                        >
+                            "Open Chat"
+                        </Button>
                     }
-                    <Button
-                        variant=ButtonVariant::Secondary
-                        on_click=Callback::new(move |_| refetch.run(()))
-                    >
-                        "Refresh"
-                    </Button>
-                </div>
-            </div>
+                }
+                <Button
+                    variant=ButtonVariant::Secondary
+                    on_click=Callback::new(move |_| refetch.run(()))
+                >
+                    "Refresh"
+                </Button>
+            </PageScaffoldActions>
 
             <AsyncBoundaryWithErrorRender
                 state=adapter
@@ -495,7 +492,7 @@ pub fn AdapterDetail() -> impl IntoView {
                     }
                 }
             />
-        </div>
+        </PageScaffold>
     }
 }
 

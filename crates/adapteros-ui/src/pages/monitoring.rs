@@ -9,8 +9,8 @@ use crate::api::{
 };
 use crate::components::{
     Badge, BadgeVariant, Button, ButtonSize, ButtonVariant, Card, EmptyState, EmptyStateVariant,
-    ErrorDisplay, LoadingDisplay, PageScaffold, PageScaffoldActions, Spinner, TabButton, Table,
-    TableBody, TableCell, TableHead, TableHeader, TableRow,
+    ErrorDisplay, LoadingDisplay, PageBreadcrumbItem, PageScaffold, PageScaffoldActions, Spinner,
+    TabButton, Table, TableBody, TableCell, TableHead, TableHeader, TableRow,
 };
 use crate::hooks::{use_api_resource, use_polling, LoadingState};
 use adapteros_api_types::HealthResponse;
@@ -92,6 +92,10 @@ pub fn Monitoring() -> impl IntoView {
         <PageScaffold
             title="Monitoring"
             subtitle="Process health, alerts, and anomalies across workers."
+            breadcrumbs=vec![
+                PageBreadcrumbItem::new("Observe", "/monitoring"),
+                PageBreadcrumbItem::current("Monitoring"),
+            ]
         >
             <PageScaffoldActions slot>
                 <Button
@@ -160,13 +164,11 @@ pub fn Monitoring() -> impl IntoView {
             />
 
             // Tab navigation
-            <div class="border-b">
-                <nav class="-mb-px flex space-x-8">
-                    <TabButton tab="alerts" label="Alerts" active=active_tab badge_count=active_alert_count/>
-                    <TabButton tab="anomalies" label="Anomalies" active=active_tab badge_count=unresolved_anomaly_count/>
-                    <TabButton tab="health" label="Health Metrics" active=active_tab badge_count=Signal::derive(|| 0)/>
-                </nav>
-            </div>
+            <nav role="tablist" class="tab-nav" aria-label="Monitoring tabs">
+                <TabButton tab="alerts" label="Alerts" active=active_tab tab_id="alerts" badge_count=active_alert_count/>
+                <TabButton tab="anomalies" label="Anomalies" active=active_tab tab_id="anomalies" badge_count=unresolved_anomaly_count/>
+                <TabButton tab="health" label="Health Metrics" active=active_tab tab_id="health"/>
+            </nav>
 
             // Tab content
             <div class="py-4">

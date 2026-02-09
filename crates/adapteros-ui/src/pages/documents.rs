@@ -5,10 +5,10 @@
 use crate::api::client::{ChunkListResponse, DocumentListParams, DocumentResponse};
 use crate::api::ApiClient;
 use crate::components::{
-    Badge, BadgeVariant, BreadcrumbItem, BreadcrumbTrail, Button, ButtonSize, ButtonVariant, Card,
-    ConfirmationDialog, ConfirmationSeverity, CopyableId, Dialog, IconExternalLink, InlineProgress,
-    LoadingDisplay, ProgressStage, ProgressStages, RefreshButton, Select, Table, TableBody,
-    TableCell, TableHead, TableHeader, TableRow,
+    Badge, BadgeVariant, Button, ButtonSize, ButtonVariant, Card, ConfirmationDialog,
+    ConfirmationSeverity, CopyableId, Dialog, IconExternalLink, InlineProgress, LoadingDisplay,
+    PageBreadcrumbItem, PageScaffold, PageScaffoldActions, ProgressStage, ProgressStages,
+    RefreshButton, Select, Table, TableBody, TableCell, TableHead, TableHeader, TableRow,
 };
 use crate::hooks::{
     use_api, use_api_resource, use_conditional_polling, use_delete_dialog, LoadingState,
@@ -103,6 +103,7 @@ pub fn Documents() -> impl IntoView {
     let (refetch_trigger, set_refetch_trigger) = signal(0u32);
     let show_upload_dialog = RwSignal::new(false);
     let navigate = use_navigate();
+    let navigate_upload = navigate.clone();
     let seeded_demo_fixtures = RwSignal::new(false);
 
     let refetch = move || set_refetch_trigger.update(|t| *t += 1);
@@ -224,42 +225,44 @@ pub fn Documents() -> impl IntoView {
     });
 
     view! {
-        <div class="shell-page space-y-6">
-            <div class="flex items-center justify-between">
-                <h1 class="heading-1">"Documents"</h1>
-                <div class="flex items-center gap-4">
-                    // Status filter
-                    <Select
-                        value=status_filter
-                        options=vec![
-                            ("".to_string(), "All Statuses".to_string()),
-                            ("indexed".to_string(), "Ready/Indexed".to_string()),
-                            ("processing".to_string(), "Processing".to_string()),
-                            ("failed".to_string(), "Failed".to_string()),
-                        ]
-                        class="w-40".to_string()
-                    />
-                    <Button
-                        variant=ButtonVariant::Ghost
-                        size=ButtonSize::Sm
-                        on_click=Callback::new({
-                            let navigate = navigate.clone();
-                            move |_| navigate("/training", Default::default())
-                        })
-                    >
-                        "Go to Training"
-                    </Button>
-                    <RefreshButton
-                        on_click=Callback::new(move |_| refetch())
-                    />
-                    <Button
-                        variant=ButtonVariant::Primary
-                        on_click=Callback::new(move |_| show_upload_dialog.set(true))
-                    >
-                        "Upload Document"
-                    </Button>
-                </div>
-            </div>
+        <PageScaffold
+            title="Documents"
+            breadcrumbs=vec![
+                PageBreadcrumbItem::new("Data", "/documents"),
+                PageBreadcrumbItem::current("Documents"),
+            ]
+        >
+            <PageScaffoldActions slot>
+                <Select
+                    value=status_filter
+                    options=vec![
+                        ("".to_string(), "All Statuses".to_string()),
+                        ("indexed".to_string(), "Ready/Indexed".to_string()),
+                        ("processing".to_string(), "Processing".to_string()),
+                        ("failed".to_string(), "Failed".to_string()),
+                    ]
+                    class="w-40".to_string()
+                />
+                <Button
+                    variant=ButtonVariant::Ghost
+                    size=ButtonSize::Sm
+                    on_click=Callback::new({
+                        let navigate = navigate.clone();
+                        move |_| navigate("/training", Default::default())
+                    })
+                >
+                    "Go to Training"
+                </Button>
+                <RefreshButton
+                    on_click=Callback::new(move |_| refetch())
+                />
+                <Button
+                    variant=ButtonVariant::Primary
+                    on_click=Callback::new(move |_| show_upload_dialog.set(true))
+                >
+                    "Upload Document"
+                </Button>
+            </PageScaffoldActions>
 
             {move || {
                 match documents.get() {
@@ -366,10 +369,10 @@ pub fn Documents() -> impl IntoView {
                 open=show_upload_dialog
                 on_success=Callback::new(move |doc_id| {
                     refetch();
-                    navigate(&format!("/documents/{}", doc_id), Default::default());
+                    navigate_upload(&format!("/documents/{}", doc_id), Default::default());
                 })
             />
-        </div>
+        </PageScaffold>
     }
 }
 
@@ -898,21 +901,19 @@ pub fn DocumentDetail() -> impl IntoView {
     }
 
     view! {
-        <div class="space-y-6">
-            // Breadcrumb navigation
-            <BreadcrumbTrail items=vec![
-                BreadcrumbItem::link("Documents", "/documents"),
-                BreadcrumbItem::current(document_id.get()),
-            ]/>
-
-            <div class="flex items-center justify-between">
-                <h1 class="heading-1">"Document Details"</h1>
-                <div class="flex items-center gap-2">
-                    <RefreshButton
-                        on_click=Callback::new(move |_| refetch())
-                    />
-                </div>
-            </div>
+        <PageScaffold
+            title="Document Details"
+            breadcrumbs=vec![
+                PageBreadcrumbItem::new("Data", "/documents"),
+                PageBreadcrumbItem::new("Documents", "/documents"),
+                PageBreadcrumbItem::current(document_id.get()),
+            ]
+        >
+            <PageScaffoldActions slot>
+                <RefreshButton
+                    on_click=Callback::new(move |_| refetch())
+                />
+            </PageScaffoldActions>
 
             // Action error message
             {move || action_error.get().map(|err| view! {
@@ -955,7 +956,7 @@ pub fn DocumentDetail() -> impl IntoView {
                     }
                 }
             }}
-        </div>
+        </PageScaffold>
     }
 }
 

@@ -10,8 +10,8 @@ use crate::api::{
 };
 use crate::components::{
     AsyncBoundary, Badge, BadgeVariant, Button, ButtonSize, ButtonVariant, Card, Dialog,
-    EmptyState, Input, LoadingDisplay, Select, TabButton, Table, TableBody, TableCell, TableHead,
-    TableHeader, TableRow,
+    EmptyState, Input, LoadingDisplay, PageBreadcrumbItem, PageScaffold, Select, TabNav, TabPanel,
+    Table, TableBody, TableCell, TableHead, TableHeader, TableRow,
 };
 use crate::hooks::{use_api_resource, use_scope_alive, LoadingState};
 use adapteros_api_types::telemetry::{ClientErrorItem, ClientErrorStatsResponse};
@@ -29,59 +29,45 @@ pub fn Errors() -> impl IntoView {
     let active_tab = RwSignal::new("live");
 
     view! {
-        <div class="p-6 space-y-6">
-            <div class="flex items-center justify-between">
-                <div>
-                    <h1 class="heading-1">"Incidents"</h1>
-                    <p class="text-muted-foreground mt-1">"Real-time error monitoring and analysis"</p>
-                </div>
-            </div>
+        <PageScaffold
+            title="Incidents"
+            subtitle="Real-time error monitoring and analysis"
+            breadcrumbs=vec![
+                PageBreadcrumbItem::new("Observe", "/errors"),
+                PageBreadcrumbItem::current("Incidents"),
+            ]
+        >
+            <TabNav
+                tabs=vec![
+                    ("live", "Live Feed"),
+                    ("history", "History"),
+                    ("analytics", "Analytics"),
+                    ("alerts", "Alerts"),
+                    ("crashes", "Crashes"),
+                ]
+                active=active_tab
+            />
 
-            // Tab navigation
-            <div class="border-b">
-                <nav class="-mb-px flex space-x-8" role="tablist">
-                    <TabButton
-                        tab="live"
-                        label="Live Feed".to_string()
-                        active=active_tab
-                    />
-                    <TabButton
-                        tab="history"
-                        label="History".to_string()
-                        active=active_tab
-                    />
-                    <TabButton
-                        tab="analytics"
-                        label="Analytics".to_string()
-                        active=active_tab
-                    />
-                    <TabButton
-                        tab="alerts"
-                        label="Alerts".to_string()
-                        active=active_tab
-                    />
-                    <TabButton
-                        tab="crashes"
-                        label="Crashes".to_string()
-                        active=active_tab
-                    />
-                </nav>
-            </div>
+            <TabPanel tab="live" active=active_tab>
+                <LiveFeedSection/>
+            </TabPanel>
 
-            // Tab content
-            <div class="py-4">
-                {move || {
-                    match active_tab.get() {
-                        "live" => view! { <LiveFeedSection/> }.into_any(),
-                        "history" => view! { <HistorySection/> }.into_any(),
-                        "analytics" => view! { <AnalyticsSection/> }.into_any(),
-                        "alerts" => view! { <AlertsSection/> }.into_any(),
-                        "crashes" => view! { <CrashesSection/> }.into_any(),
-                        _ => view! { <LiveFeedSection/> }.into_any(),
-                    }
-                }}
-            </div>
-        </div>
+            <TabPanel tab="history" active=active_tab>
+                <HistorySection/>
+            </TabPanel>
+
+            <TabPanel tab="analytics" active=active_tab>
+                <AnalyticsSection/>
+            </TabPanel>
+
+            <TabPanel tab="alerts" active=active_tab>
+                <AlertsSection/>
+            </TabPanel>
+
+            <TabPanel tab="crashes" active=active_tab>
+                <CrashesSection/>
+            </TabPanel>
+        </PageScaffold>
     }
 }
 

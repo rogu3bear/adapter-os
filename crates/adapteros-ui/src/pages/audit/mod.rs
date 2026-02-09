@@ -6,10 +6,13 @@ mod components;
 mod tabs;
 
 use crate::api::{ApiClient, AuditLogsQuery};
-use crate::components::{Button, ButtonVariant, Spinner, TabButton};
+use crate::components::{
+    Button, ButtonVariant, PageBreadcrumbItem, PageScaffold, PageScaffoldActions, Spinner, TabNav,
+};
 use crate::hooks::use_api_resource;
 use crate::hooks::LoadingState;
 use leptos::prelude::*;
+use std::fmt;
 use std::sync::Arc;
 
 use components::{ChainStatusSummary, FilterSection};
@@ -26,6 +29,18 @@ pub enum AuditTab {
     MerkleTree,
     Compliance,
     Embeddings,
+}
+
+impl fmt::Display for AuditTab {
+    fn fmt(&self, f: &mut fmt::Formatter<'_>) -> fmt::Result {
+        match self {
+            AuditTab::Timeline => write!(f, "timeline"),
+            AuditTab::HashChain => write!(f, "hashchain"),
+            AuditTab::MerkleTree => write!(f, "merkletree"),
+            AuditTab::Compliance => write!(f, "compliance"),
+            AuditTab::Embeddings => write!(f, "embeddings"),
+        }
+    }
 }
 
 // ============================================================================
@@ -146,81 +161,80 @@ pub fn Audit() -> impl IntoView {
     };
 
     view! {
-        <div class="p-6 space-y-6">
-                // Header
-                <div class="flex items-center justify-between">
-                    <div>
-                        <h1 class="heading-1">"Audit Log"</h1>
-                        <p class="text-muted-foreground mt-1">
-                            "Immutable record of all system events with cryptographic verification"
-                        </p>
-                    </div>
-                    <div class="flex items-center gap-2">
-                        <Button variant=ButtonVariant::Outline on:click=move |_| refetch_all()>
-                            "Refresh"
-                        </Button>
-                        <Button
-                            variant=ButtonVariant::Outline
-                            on:click=on_export
-                            disabled=Signal::derive(move || exporting.get())
-                        >
-                            {move || if exporting.get() {
-                                view! { <Spinner/> }.into_any()
-                            } else {
-                                view! { "Export" }.into_any()
-                            }}
-                        </Button>
-                    </div>
-                </div>
+        <PageScaffold
+            title="Audit Log"
+            subtitle="Immutable record of all system events with cryptographic verification"
+            breadcrumbs=vec![
+                PageBreadcrumbItem::new("Govern", "/audit"),
+                PageBreadcrumbItem::current("Audit Log"),
+            ]
+        >
+            <PageScaffoldActions slot>
+                <Button variant=ButtonVariant::Outline on:click=move |_| refetch_all()>
+                    "Refresh"
+                </Button>
+                <Button
+                    variant=ButtonVariant::Outline
+                    on:click=on_export
+                    disabled=Signal::derive(move || exporting.get())
+                >
+                    {move || if exporting.get() {
+                        view! { <Spinner/> }.into_any()
+                    } else {
+                        view! { "Export" }.into_any()
+                    }}
+                </Button>
+            </PageScaffoldActions>
 
-                // Chain status summary
-                <ChainStatusSummary
-                    verification=verification
-                    chain=chain
-                    compliance=compliance
-                />
+            // Chain status summary
+            <ChainStatusSummary
+                verification=verification
+                chain=chain
+                compliance=compliance
+            />
 
-                // Tab navigation
-                <div class="border-b border-border">
-                    <nav class="-mb-px flex space-x-8">
-                        <TabButton label="Event Timeline" tab=AuditTab::Timeline active=active_tab/>
-                        <TabButton label="Hash Chain" tab=AuditTab::HashChain active=active_tab/>
-                        <TabButton label="Merkle Tree" tab=AuditTab::MerkleTree active=active_tab/>
-                        <TabButton label="Compliance" tab=AuditTab::Compliance active=active_tab/>
-                        <TabButton label="Embeddings" tab=AuditTab::Embeddings active=active_tab/>
-                    </nav>
-                </div>
+            // Tab navigation
+            <TabNav
+                tabs=vec![
+                    (AuditTab::Timeline, "Event Timeline"),
+                    (AuditTab::HashChain, "Hash Chain"),
+                    (AuditTab::MerkleTree, "Merkle Tree"),
+                    (AuditTab::Compliance, "Compliance"),
+                    (AuditTab::Embeddings, "Embeddings"),
+                ]
+                active=active_tab
+            />
 
-                // Filters section
-                <FilterSection
-                    active_tab=active_tab
-                    action_filter=action_filter
-                    status_filter=status_filter
-                    resource_filter=resource_filter
-                    on_filters_changed=refetch_logs.as_callback()
-                />
+            // Filters section
+            <FilterSection
+                active_tab=active_tab
+                action_filter=action_filter
+                status_filter=status_filter
+                resource_filter=resource_filter
+                on_filters_changed=refetch_logs.as_callback()
+            />
 
-                // Tab content
-                {move || {
-                    match active_tab.get() {
-                        AuditTab::Timeline => {
-                            view! { <TimelineTab logs=logs on_retry=Callback::new(move |_| refetch_logs.run(()))/> }.into_any()
-                        }
-                        AuditTab::HashChain => {
-                            view! { <HashChainTab chain=chain on_retry=Callback::new(move |_| refetch_chain.run(()))/> }.into_any()
-                        }
-                        AuditTab::MerkleTree => {
-                            view! { <MerkleTreeTab chain=chain verification=verification /> }.into_any()
-                        }
-                        AuditTab::Compliance => {
-                            view! { <ComplianceTab compliance=compliance on_retry=Callback::new(move |_| refetch_compliance.run(()))/> }.into_any()
-                        }
-                        AuditTab::Embeddings => {
-                            view! { <EmbeddingsTab/> }.into_any()
-                        }
+            // Tab content
+            {move || {
+                match active_tab.get() {
+                    AuditTab::Timeline => {
+                        view! { <TimelineTab logs=logs on_retry=Callback::new(move |_| refetch_logs.run(()))/> }.into_any()
                     }
-                }}
-        </div>
+                    AuditTab::HashChain => {
+                        view! { <HashChainTab chain=chain on_retry=Callback::new(move |_| refetch_chain.run(()))/> }.into_any()
+                    }
+                    AuditTab::MerkleTree => {
+                        view! { <MerkleTreeTab chain=chain verification=verification /> }.into_any()
+                    }
+                    AuditTab::Compliance => {
+                        view! { <ComplianceTab compliance=compliance on_retry=Callback::new(move |_| refetch_compliance.run(()))/> }.into_any()
+                    }
+                    AuditTab::Embeddings => {
+                        view! { <EmbeddingsTab/> }.into_any()
+                    }
+                }
+            }}
+        </PageScaffold>
     }
 }
 
