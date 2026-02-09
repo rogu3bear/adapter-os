@@ -76,6 +76,7 @@ grafana-*/
 
 # UI build artifacts
 /ui/dist/
+/crates/adapteros-codegraph-viewer/frontend/dist/
 /ui/.env.local
 /ui/.env.development.local
 /ui/.env.production.local
