@@ -168,7 +168,8 @@ Rules (`crates/adapteros-core/src/receipt_digest.rs`):
 - Optional/sentinel encoding MUST be stable:
   - `Option<u32>`: `None` encodes as `0xFFFFFFFF`.
   - `Option<i16>`: `None` encodes as `i16::MIN`.
-  - `Option<[u8; 32]>`: `None` encodes as 32 zero bytes.
+  - Fixed-width 32-byte hash slots: `None` encodes as 32 zero bytes.
+  - `backend_attestation_b3`: encoded as `u32_le(len) + bytes`; `None` encodes as `len=0` (empty).
 
 ### 6.2 EvidenceEnvelope (v6) Canonicalization
 
@@ -197,4 +198,3 @@ Commands:
 
 CI:
 - Minimal determinism gate job: `.github/workflows/ci.yml` (`determinism-gate`)
-
