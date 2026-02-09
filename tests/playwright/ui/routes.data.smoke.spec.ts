@@ -9,7 +9,7 @@ const dataRoutes: RouteCheck[] = [
   { path: '/documents', heading: 'Documents' },
   { path: `/documents/${seeded.documentId}`, heading: 'Document Details' },
   { path: '/datasets', heading: 'Datasets' },
-  { path: `/datasets/${seeded.datasetId}`, heading: 'Dataset Details' },
+  { path: `/datasets/${seeded.datasetId}`, heading: 'Test Dataset' },
   { path: '/repositories', heading: 'Repositories' },
   { path: `/repositories/${seeded.repoId}`, heading: 'Repository Details' },
 ];
