@@ -57,6 +57,14 @@ struct Cli {
     /// Plan configuration path
     #[arg(long, env = "AOS_PLAN_PATH", default_value = "/etc/aos/plans")]
     plan_path: String,
+
+    /// Directory containing peer public keys ({node_id}.pub files, 32 bytes raw Ed25519)
+    #[arg(
+        long,
+        env = "AOS_PEER_KEYS_DIR",
+        default_value = "/var/lib/aos/peers"
+    )]
+    peer_keys_dir: String,
 }
 
 /// Component hashes tracked by the node
@@ -74,6 +82,8 @@ struct AppState {
     agent: Arc<NodeAgent>,
     cas_store: Arc<CasStore>,
     component_hashes: Arc<RwLock<ComponentHashes>>,
+    /// Directory containing known peer public keys ({node_id}.pub, 32 bytes raw Ed25519)
+    peer_keys_dir: PathBuf,
 }
 
 #[derive(Debug, Serialize, Deserialize)]
@@ -141,10 +151,19 @@ async fn main() -> Result<()> {
 
     // Initialize node agent
     let agent = Arc::new(NodeAgent::new());
+    let peer_keys_dir = PathBuf::from(&cli.peer_keys_dir);
+    if !peer_keys_dir.exists() {
+        info!(
+            path = %peer_keys_dir.display(),
+            "Peer keys directory does not exist, creating it"
+        );
+        std::fs::create_dir_all(&peer_keys_dir)?;
+    }
     let state = AppState {
         agent,
         cas_store,
         component_hashes,
+        peer_keys_dir,
     };
 
     // Build application router
@@ -189,7 +208,18 @@ async fn main() -> Result<()> {
             "Node agent running in DEVELOPMENT mode with TCP binding - not suitable for production"
         );
 
-        let addr = format!("0.0.0.0:{}", cli.port);
+        let bind_all = std::env::var("AOS_NODE_DEV_BIND_ALL")
+            .map(|v| v == "1")
+            .unwrap_or(false);
+
+        let bind_host = if bind_all {
+            warn!("Node agent bound to 0.0.0.0 in dev mode \u{2014} all endpoints are unauthenticated");
+            "0.0.0.0"
+        } else {
+            "127.0.0.1"
+        };
+
+        let addr = format!("{}:{}", bind_host, cli.port);
         let listener = tokio::net::TcpListener::bind(&addr).await?;
 
         info!("Node agent listening on TCP: {}", addr);
@@ -425,7 +455,10 @@ async fn node_hashes(State(state): State<AppState>) -> impl IntoResponse {
 #[derive(Debug, Deserialize, Serialize)]
 struct ReplicationManifest {
     session_id: String,
+    /// Node ID of the sender (hex-encoded BLAKE3 hash of the sender's Ed25519 public key)
+    sender_node_id: String,
     artifacts: Vec<ArtifactInfo>,
+    /// Hex-encoded Ed25519 signature over `serde_json::to_vec(&artifacts)`
     signature: String,
 }
 
@@ -438,18 +471,39 @@ struct ArtifactInfo {
 
 /// POST /sync/manifest - Receive replication manifest
 async fn sync_receive_manifest(
-    State(_state): State<AppState>,
+    State(state): State<AppState>,
     Json(manifest): Json<ReplicationManifest>,
 ) -> impl IntoResponse {
     info!(
-        "Received replication manifest: session_id={}",
-        manifest.session_id
+        session_id = %manifest.session_id,
+        sender_node_id = %manifest.sender_node_id,
+        artifacts_count = manifest.artifacts.len(),
+        "Received replication manifest"
     );
 
-    // In production, would:
-    // 1. Verify signature
-    // 2. Check available space
-    // 3. Prepare to receive artifacts
+    // 1. Verify Ed25519 signature against sender's known public key
+    if let Err(e) = verify_manifest_signature(&manifest, &state.peer_keys_dir) {
+        warn!(
+            session_id = %manifest.session_id,
+            sender_node_id = %manifest.sender_node_id,
+            error = %e,
+            "Manifest signature verification failed"
+        );
+        return (
+            StatusCode::UNAUTHORIZED,
+            Json(serde_json::json!({
+                "error": format!("Signature verification failed: {}", e),
+                "session_id": manifest.session_id,
+            })),
+        )
+            .into_response();
+    }
+
+    info!(
+        session_id = %manifest.session_id,
+        sender_node_id = %manifest.sender_node_id,
+        "Manifest signature verified successfully"
+    );
 
     (
         StatusCode::OK,
@@ -519,18 +573,19 @@ async fn sync_create_manifest(
     // Generate session ID with UUID v7 for time-ordering
     let session_id = adapteros_id::TypedId::new(adapteros_id::IdPrefix::Ses).to_string();
 
-    // Sign manifest with node's signing key
+    // Sign manifest with node's signing key and derive node ID from public key
     let manifest_data = serde_json::to_vec(&artifacts).unwrap_or_default();
-    let signature = match sign_manifest(&manifest_data) {
-        Ok(sig) => sig,
+    let (signature, sender_node_id) = match sign_manifest_with_identity(&manifest_data) {
+        Ok((sig, node_id)) => (sig, node_id),
         Err(e) => {
             warn!(error = %e, "Failed to sign manifest, using placeholder");
-            "unsigned".to_string()
+            ("unsigned".to_string(), "unknown".to_string())
         }
     };
 
     let manifest = ReplicationManifest {
         session_id,
+        sender_node_id,
         artifacts,
         signature,
     };
@@ -617,18 +672,40 @@ fn compute_kernel_hash(kernel_path: &std::path::Path) -> B3Hash {
     B3Hash::new(*hasher.finalize().as_bytes())
 }
 
-/// Sign manifest data with node's Ed25519 key
-fn sign_manifest(data: &[u8]) -> Result<String> {
-    // Load or generate node signing key
+/// Derive a node ID from an Ed25519 public key (hex-encoded BLAKE3 hash, truncated to 16 bytes)
+fn node_id_from_public_key(public_key: &ed25519_dalek::VerifyingKey) -> String {
+    let hash = blake3::hash(&public_key.to_bytes());
+    // Use first 16 bytes (32 hex chars) for a compact but collision-resistant ID
+    hex::encode(&hash.as_bytes()[..16])
+}
+
+/// Load the node's Ed25519 signing key, generating one if it doesn't exist.
+/// Returns the signing key.
+fn load_or_generate_node_key() -> Result<SigningKey> {
     let key_path = std::path::Path::new("/var/lib/aos/node.key");
 
-    let signing_key = if key_path.exists() {
-        // Load existing key
+    if key_path.exists() {
+        // Warn if permissions are loose (do not auto-fix -- operator should know)
+        #[cfg(unix)]
+        {
+            use std::os::unix::fs::PermissionsExt;
+            if let Ok(metadata) = std::fs::metadata(key_path) {
+                let mode = metadata.permissions().mode();
+                if mode & 0o077 != 0 {
+                    warn!(
+                        path = %key_path.display(),
+                        mode = format!("{:o}", mode & 0o777),
+                        "Node signing key has loose permissions (should be 0600). \
+                         This is a security risk -- the key may be readable by other users."
+                    );
+                }
+            }
+        }
         let key_bytes = std::fs::read(key_path)?;
         let key_array: [u8; 32] = key_bytes
             .try_into()
             .map_err(|_| anyhow::anyhow!("Invalid key length"))?;
-        SigningKey::from_bytes(&key_array)
+        Ok(SigningKey::from_bytes(&key_array))
     } else {
         // Generate new key for this node
         let mut csprng = rand::rngs::OsRng;
@@ -637,9 +714,106 @@ fn sign_manifest(data: &[u8]) -> Result<String> {
             std::fs::create_dir_all(parent)?;
         }
         std::fs::write(key_path, key.to_bytes())?;
-        key
-    };
+        // Restrict to owner-only permissions immediately after creation
+        #[cfg(unix)]
+        {
+            use std::os::unix::fs::PermissionsExt;
+            let mut perms = std::fs::metadata(key_path)?.permissions();
+            perms.set_mode(0o600);
+            std::fs::set_permissions(key_path, perms)?;
+        }
+        #[cfg(not(unix))]
+        {
+            warn!(
+                path = %key_path.display(),
+                "Cannot restrict key file permissions on non-Unix platform"
+            );
+        }
 
+        let node_id = node_id_from_public_key(&key.verifying_key());
+        info!(
+            node_id = %node_id,
+            key_path = %key_path.display(),
+            "Generated new node signing key"
+        );
+        Ok(key)
+    }
+}
+
+/// Sign manifest data with node's Ed25519 key and return (hex_signature, node_id)
+fn sign_manifest_with_identity(data: &[u8]) -> Result<(String, String)> {
+    let signing_key = load_or_generate_node_key()?;
+    let node_id = node_id_from_public_key(&signing_key.verifying_key());
     let signature = signing_key.sign(data);
-    Ok(hex::encode(signature.to_bytes()))
+    Ok((hex::encode(signature.to_bytes()), node_id))
+}
+
+/// Verify a received manifest's Ed25519 signature against the sender's known public key.
+///
+/// Peer keys are looked up as `{peer_keys_dir}/{sender_node_id}.pub` files containing
+/// 32 bytes of raw Ed25519 public key. The signed payload is the JSON-serialized
+/// artifacts array, matching what `sign_manifest_with_identity` signs.
+fn verify_manifest_signature(
+    manifest: &ReplicationManifest,
+    peer_keys_dir: &std::path::Path,
+) -> std::result::Result<(), String> {
+    // Reconstruct the signed payload (must match what sign_manifest_with_identity signs)
+    let signed_payload = serde_json::to_vec(&manifest.artifacts)
+        .map_err(|e| format!("Failed to serialize artifacts for verification: {}", e))?;
+
+    // Decode the hex signature
+    let sig_bytes = hex::decode(&manifest.signature)
+        .map_err(|e| format!("Invalid hex signature: {}", e))?;
+    if sig_bytes.len() != 64 {
+        return Err(format!(
+            "Invalid signature length: expected 64 bytes, got {}",
+            sig_bytes.len()
+        ));
+    }
+    let sig_array: [u8; 64] = sig_bytes
+        .try_into()
+        .map_err(|_| "Signature byte conversion failed".to_string())?;
+    let signature = ed25519_dalek::Signature::from_bytes(&sig_array);
+
+    // Load the sender's public key from the peer keys directory
+    let peer_key_path = peer_keys_dir.join(format!("{}.pub", manifest.sender_node_id));
+    if !peer_key_path.exists() {
+        return Err(format!(
+            "Unknown peer: no public key file at {}",
+            peer_key_path.display()
+        ));
+    }
+
+    let key_bytes = std::fs::read(&peer_key_path)
+        .map_err(|e| format!("Failed to read peer key {}: {}", peer_key_path.display(), e))?;
+    if key_bytes.len() != 32 {
+        return Err(format!(
+            "Invalid peer key length in {}: expected 32 bytes, got {}",
+            peer_key_path.display(),
+            key_bytes.len()
+        ));
+    }
+    let key_array: [u8; 32] = key_bytes
+        .try_into()
+        .map_err(|_| "Peer key byte conversion failed".to_string())?;
+
+    let verifying_key = ed25519_dalek::VerifyingKey::from_bytes(&key_array)
+        .map_err(|e| format!("Invalid Ed25519 public key in {}: {}", peer_key_path.display(), e))?;
+
+    // Verify that the node_id matches the public key (prevents key substitution)
+    let expected_node_id = node_id_from_public_key(&verifying_key);
+    if expected_node_id != manifest.sender_node_id {
+        return Err(format!(
+            "Node ID mismatch: file {} contains key with ID {}, but manifest claims {}",
+            peer_key_path.display(),
+            expected_node_id,
+            manifest.sender_node_id
+        ));
+    }
+
+    // Verify the Ed25519 signature (constant-time via ed25519-dalek)
+    use ed25519_dalek::Verifier;
+    verifying_key
+        .verify(&signed_payload, &signature)
+        .map_err(|e| format!("Ed25519 signature invalid: {}", e))
 }
