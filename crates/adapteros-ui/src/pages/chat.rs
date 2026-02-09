@@ -99,13 +99,16 @@ pub fn Chat() -> impl IntoView {
     .forget();
 
     view! {
-        <Show when=move || mounted.try_get().unwrap_or(false) fallback=|| view! {
-            <div class="chat-loading-placeholder" style="display:flex;align-items:center;justify-content:center;height:100%;opacity:0.5;">
-                <Spinner />
-            </div>
-        }>
-            <ChatWorkspace selected_session_id=selected_signal />
-        </Show>
+        <>
+            <h1 class="sr-only">"Chat"</h1>
+            <Show when=move || mounted.try_get().unwrap_or(false) fallback=|| view! {
+                <div class="chat-loading-placeholder" style="display:flex;align-items:center;justify-content:center;height:100%;opacity:0.5;">
+                    <Spinner />
+                </div>
+            }>
+                <ChatWorkspace selected_session_id=selected_signal />
+            </Show>
+        </>
     }
     .into_any()
 }
@@ -138,13 +141,16 @@ pub fn ChatSession() -> impl IntoView {
     .forget();
 
     view! {
-        <Show when=move || mounted.try_get().unwrap_or(false) fallback=|| view! {
-            <div class="chat-loading-placeholder" style="display:flex;align-items:center;justify-content:center;height:100%;opacity:0.5;">
-                <Spinner />
-            </div>
-        }>
-            <ChatWorkspace selected_session_id=selected_id handle_query_params=true />
-        </Show>
+        <>
+            <h1 class="sr-only">"Chat Session"</h1>
+            <Show when=move || mounted.try_get().unwrap_or(false) fallback=|| view! {
+                <div class="chat-loading-placeholder" style="display:flex;align-items:center;justify-content:center;height:100%;opacity:0.5;">
+                    <Spinner />
+                </div>
+            }>
+                <ChatWorkspace selected_session_id=selected_id handle_query_params=true />
+            </Show>
+        </>
     }
 }
 

@@ -5,11 +5,11 @@ const dataRoutes: RouteCheck[] = [
   { path: '/stacks', heading: 'Runtime Stacks' },
   { path: `/stacks/${seeded.stackId}`, heading: 'Stack Details' },
   { path: '/collections', heading: 'Collections' },
-  { path: '/collections/collection-missing', heading: 'Collection Details' },
+  { path: `/collections/${seeded.collectionId}`, heading: 'Collection Details' },
   { path: '/documents', heading: 'Documents' },
   { path: `/documents/${seeded.documentId}`, heading: 'Document Details' },
   { path: '/datasets', heading: 'Datasets' },
-  { path: '/datasets/dataset-missing', text: 'Dataset not found' },
+  { path: `/datasets/${seeded.datasetId}`, heading: 'Dataset Details' },
   { path: '/repositories', heading: 'Repositories' },
   { path: `/repositories/${seeded.repoId}`, heading: 'Repository Details' },
 ];

@@ -224,7 +224,8 @@ pub fn Agents() -> impl IntoView {
                                         <EmptyState
                                             title="No Active Sessions"
                                             description="Multi-agent inference sessions will appear here when active."
-                                            icon="activity"
+                                            // Use the default SVG path for the selected EmptyStateVariant.
+                                            // The `icon` prop expects SVG path data, not an icon name.
                                         />
                                     }.into_any()
                                 } else {

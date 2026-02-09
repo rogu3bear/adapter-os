@@ -76,6 +76,27 @@ async function seedBackend(): Promise<void> {
   await post('/testkit/reset');
   beat('seed_backend:seed_minimal');
   await post('/testkit/seed_minimal');
+  beat('seed_backend:create_document_fixture');
+  await post('/testkit/create_document_fixture', {
+    document_id: 'doc-fixture',
+    status: 'ready',
+    name: 'Fixture Document',
+  });
+  beat('seed_backend:create_collection_fixture');
+  await post('/testkit/create_collection_fixture', {
+    collection_id: 'collection-test',
+    document_id: 'doc-fixture',
+    name: 'Test Collection',
+  });
+  beat('seed_backend:create_dataset_fixture');
+  await post('/testkit/create_dataset_fixture', {
+    dataset_id: 'dataset-test',
+    name: 'Test Dataset',
+  });
+  beat('seed_backend:create_worker_fixture');
+  await post('/testkit/create_worker_fixture', {
+    worker_id: 'worker-test',
+  });
   beat('seed_backend:create_repo');
   await post('/testkit/create_repo', {
     repo_id: 'repo-e2e',
