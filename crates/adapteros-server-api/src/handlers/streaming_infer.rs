@@ -1469,6 +1469,12 @@ struct LoadingStreamState {
     /// Worker pause events (human-in-the-loop review)
     pause_rx: Option<mpsc::Receiver<WorkerStreamPaused>>,
     pause_rx_closed: bool,
+    pause_active: bool,
+    /// Pause ID of the currently active pause (if any), for server-side review verification
+    active_pause_id: Option<String>,
+    /// Whether the currently active pause is a safety-triggered pause requiring review
+    /// before tokens can resume (policy_violation, threat_escalation, safety_gate, etc.)
+    active_pause_is_safety: bool,
     done_rx: Option<oneshot::Receiver<Result<InferenceResult, InferenceError>>>,
     /// Stop reason code (PRD: Hard Deterministic Stop Controller)
     stop_reason_code: Option<adapteros_api_types::inference::StopReasonCode>,
@@ -1524,8 +1530,38 @@ impl LoadingStreamState {
             token_rx: None,
             pause_rx: None,
             pause_rx_closed: false,
+            pause_active: false,
+            active_pause_id: None,
+            active_pause_is_safety: false,
             done_rx: None,
         }
+    }
+
+    /// Check whether an active safety pause has been reviewed.
+    ///
+    /// Returns `true` if resume is allowed (pause was reviewed or no tracker configured).
+    /// Returns `false` if the pause is still pending review — tokens must be dropped.
+    fn is_safety_pause_reviewed(&self) -> bool {
+        let pause_id = match self.active_pause_id.as_deref() {
+            Some(id) => id,
+            None => return true, // No active pause — allow
+        };
+
+        let tracker = match self.state.pause_tracker.as_ref() {
+            Some(t) => t,
+            None => return true, // No tracker configured — allow (non-production path)
+        };
+
+        // If the pause_id is still in the tracker, the review has NOT been submitted.
+        // submit_review() removes the entry on success.
+        tracker.get_state_by_pause_id(pause_id).is_none()
+    }
+
+    /// Clear pause tracking state when a pause ends (reviewed, done, or error).
+    fn clear_pause_state(&mut self) {
+        self.pause_active = false;
+        self.active_pause_id = None;
+        self.active_pause_is_safety = false;
     }
 
     async fn next_loading_event(&mut self) -> Option<InferenceEvent> {
@@ -1643,12 +1679,24 @@ impl LoadingStreamState {
 
                     match selected {
                         LoadingSelect::Paused(Some(paused)) => {
+                            self.pause_active = true;
+                            self.active_pause_id = Some(paused.pause_id.clone());
+                            self.active_pause_is_safety = is_safety_trigger(&paused.trigger_kind);
+
+                            // Redact partial text for safety-triggered pauses to avoid leaking
+                            // the exact content that was flagged as unsafe to the client.
+                            let text_so_far = if self.active_pause_is_safety {
+                                None
+                            } else {
+                                paused.text_so_far
+                            };
+
                             return Some(InferenceEvent::Paused {
                                 pause_id: paused.pause_id,
                                 inference_id: paused.inference_id,
                                 trigger_kind: paused.trigger_kind,
                                 context: paused.context,
-                                text_so_far: paused.text_so_far,
+                                text_so_far,
                                 token_count: paused.token_count,
                             });
                         }
@@ -1659,6 +1707,24 @@ impl LoadingStreamState {
                             continue;
                         }
                         LoadingSelect::Token(Some(token)) => {
+                            // Server-side review gate: if a safety-triggered pause is active
+                            // and the review has NOT been submitted yet, drop the token.
+                            // This prevents a compromised or buggy worker from resuming
+                            // inference without human approval for safety-critical pauses.
+                            if self.pause_active && self.active_pause_is_safety {
+                                if !self.is_safety_pause_reviewed() {
+                                    warn!(
+                                        request_id = %self.request_id,
+                                        pause_id = ?self.active_pause_id,
+                                        "Dropping token: safety pause active but review not yet submitted \
+                                         (possible worker bug or compromise)"
+                                    );
+                                    continue;
+                                }
+                            }
+                            if self.pause_active {
+                                self.clear_pause_state();
+                            }
                             self.token_count += 1;
                             return Some(InferenceEvent::Token {
                                 text: token.text,
@@ -2870,7 +2936,7 @@ mod tests {
         let req: StreamingInferRequest = serde_json::from_str(json).unwrap();
         assert_eq!(req.prompt, "Hello");
         assert_eq!(req.max_tokens, 512);
-        assert!((req.temperature - 0.0).abs() < 0.01);
+        assert!((req.temperature - default_temperature()).abs() < 0.01);
     }
 
     #[test]
@@ -3957,6 +4023,145 @@ mod tests {
         assert_eq!(
             parsed["text_so_far"], "partial output that is fine",
             "text_so_far must be preserved for non-safety triggers, got: {json}"
+        );
+    }
+
+    #[tokio::test]
+    async fn loading_stream_redacts_and_gates_safety_pause() {
+        let state = build_test_state().await;
+        let tracker = Arc::new(crate::pause_tracker::ServerPauseTracker::new());
+        let state = state.with_pause_tracker(tracker.clone());
+
+        let (token_tx, token_rx) = mpsc::channel(8);
+        let (pause_tx, pause_rx) = mpsc::channel(8);
+        let (_done_tx, done_rx) = oneshot::channel();
+
+        let run_id = "chatcmpl-loading-pause";
+        let pause_id = "pause-loading-001";
+
+        // Register the pause in the tracker so it starts "unreviewed".
+        tracker.register_server_pause(
+            "tenant-1".to_string(),
+            pause_id.to_string(),
+            run_id.to_string(),
+            "policy_violation",
+            Some("needs review".to_string()),
+            None,
+        );
+
+        let request = StreamingInferRequest {
+            prompt: "hello".to_string(),
+            model: None,
+            backend: None,
+            coreml_mode: None,
+            routing_determinism_mode: None,
+            stack_id: None,
+            domain: None,
+            max_tokens: 16,
+            temperature: 0.7,
+            top_p: None,
+            top_k: None,
+            stop: Vec::new(),
+            adapter_stack: None,
+            adapters: None,
+            seed: None,
+            adapter_strength_overrides: None,
+            require_evidence: false,
+            reasoning_mode: false,
+            collection_id: None,
+            session_id: None,
+            effective_adapter_ids: None,
+            stop_policy: None,
+            context: None,
+        };
+
+        let mut stream = LoadingStreamState::new(
+            state,
+            request,
+            test_run_envelope(run_id, "tenant-1"),
+            "adapter-1".to_string(),
+            "tenant-1".to_string(),
+            "user-1".to_string(),
+            None,
+            None,
+        );
+        stream.phase = LoadingPhase::Inferring;
+        stream.token_rx = Some(token_rx);
+        stream.pause_rx = Some(pause_rx);
+        stream.done_rx = Some(done_rx);
+
+        pause_tx
+            .send(WorkerStreamPaused {
+                pause_id: pause_id.to_string(),
+                inference_id: run_id.to_string(),
+                trigger_kind: "policy_violation".to_string(),
+                context: Some("needs review".to_string()),
+                text_so_far: Some("unsafe partial that must not leak".to_string()),
+                token_count: 3,
+            })
+            .await
+            .unwrap();
+
+        let paused_event = stream
+            .next_loading_event()
+            .await
+            .expect("paused event");
+        match &paused_event {
+            InferenceEvent::Paused {
+                pause_id: got_pause_id,
+                trigger_kind,
+                text_so_far,
+                ..
+            } => {
+                assert_eq!(got_pause_id, pause_id);
+                assert_eq!(trigger_kind, "policy_violation");
+                assert!(text_so_far.is_none(), "text_so_far must be redacted");
+            }
+            other => panic!("expected paused event, got: {other:?}"),
+        }
+
+        let json = serde_json::to_string(&paused_event).unwrap();
+        let parsed: serde_json::Value = serde_json::from_str(&json).unwrap();
+        assert!(
+            parsed.get("text_so_far").is_none(),
+            "text_so_far must be absent (skip_serializing_if) for policy_violation, got: {json}"
+        );
+
+        // While the safety pause is unreviewed, tokens must be dropped.
+        token_tx
+            .send(WorkerStreamToken {
+                text: "should_drop".to_string(),
+                token_id: Some(1),
+            })
+            .await
+            .unwrap();
+
+        let dropped = tokio::time::timeout(Duration::from_millis(50), stream.next_loading_event())
+            .await;
+        assert!(
+            dropped.is_err(),
+            "expected token to be dropped (no event returned), but got: {dropped:?}"
+        );
+
+        // Simulate review submission by removing the pause from the tracker.
+        tracker.remove(pause_id);
+
+        token_tx
+            .send(WorkerStreamToken {
+                text: "allowed".to_string(),
+                token_id: Some(2),
+            })
+            .await
+            .unwrap();
+
+        let resumed =
+            tokio::time::timeout(Duration::from_millis(100), stream.next_loading_event()).await;
+        let event = resumed
+            .expect("expected token after review removal")
+            .expect("event");
+        assert!(
+            matches!(event, InferenceEvent::Token { ref text, .. } if text == "allowed"),
+            "expected allowed token after review removal, got: {event:?}"
         );
     }
 }
