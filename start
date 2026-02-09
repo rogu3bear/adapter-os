@@ -101,6 +101,8 @@ fi
 : "${AOS_QUICK_BOOT:=0}"
 : "${AOS_VERIFY_CHAT:=0}"
 : "${AOS_LOG_PROFILE:=json}"
+: "${AOS_DEV_LOG_RETENTION_DAYS:=7}"
+: "${AOS_DEV_CLIENT_ERROR_RETENTION_DAYS:=30}"
 
 # Align control plane URL for worker registration if not set
 : "${AOS_CP_URL:=http://127.0.0.1:$AOS_SERVER_PORT}"
@@ -518,6 +520,73 @@ check_aosctl_installation() {
 ensure_var_dirs() {
     mkdir -p "$AOS_VAR_DIR/run"
     mkdir -p "$AOS_LOG_DIR"
+}
+
+run_dev_log_hygiene() {
+    ensure_var_dirs
+
+    local log_retention_days="${AOS_DEV_LOG_RETENTION_DAYS:-7}"
+    local db_retention_days="${AOS_DEV_CLIENT_ERROR_RETENTION_DAYS:-30}"
+
+    if ! [[ "$log_retention_days" =~ ^[0-9]+$ ]]; then
+        log_line WARN "hygiene:invalid_log_retention '$log_retention_days' (using 7)"
+        log_retention_days=7
+    fi
+    if ! [[ "$db_retention_days" =~ ^[0-9]+$ ]]; then
+        log_line WARN "hygiene:invalid_db_retention '$db_retention_days' (using 30)"
+        db_retention_days=30
+    fi
+
+    local logs_pruned=0
+    if [ -d "$AOS_LOG_DIR" ]; then
+        while IFS= read -r stale_log; do
+            [ -z "$stale_log" ] && continue
+            if rm -f "$stale_log"; then
+                logs_pruned=$((logs_pruned + 1))
+            fi
+        done < <(
+            find "$AOS_LOG_DIR" \
+                -maxdepth 1 \
+                -type f \
+                \( \
+                    -name "*.log" \
+                    -o -name "*.err" \
+                    -o -name "*.out" \
+                    -o -name "*.json" \
+                    -o -name "*.jsonl" \
+                    -o -name "*.ndjson" \
+                    -o -name "aos-cp.*" \
+                    -o -name "aos-worker.*" \
+                    -o -name "worker-demo.*" \
+                \) \
+                -mtime +"$log_retention_days" \
+                -print 2>/dev/null || true
+        )
+    fi
+
+    local client_errors_pruned="skip-no-db"
+    local db_path="$AOS_VAR_DIR/aos-cp.sqlite3"
+    if [ -f "$db_path" ]; then
+        if command -v sqlite3 >/dev/null 2>&1; then
+            local sql_output=""
+            if sql_output=$(
+                sqlite3 "$db_path" \
+                    "DELETE FROM client_errors WHERE created_at < datetime('now', '-${db_retention_days} days'); SELECT changes();" \
+                    2>/dev/null
+            ); then
+                client_errors_pruned="$(printf '%s\n' "$sql_output" | tail -n1 | tr -d '[:space:]')"
+                [ -z "$client_errors_pruned" ] && client_errors_pruned=0
+            else
+                client_errors_pruned="error"
+                log_line WARN "hygiene:sqlite_prune_failed db=$db_path"
+            fi
+        else
+            client_errors_pruned="skip-no-sqlite3"
+            log_line WARN "hygiene:sqlite3_missing client_errors_prune_skipped"
+        fi
+    fi
+
+    log_line INFO "hygiene:retention log_days=$log_retention_days db_days=$db_retention_days logs_pruned=$logs_pruned client_errors_pruned=$client_errors_pruned"
 }
 
 now_ms() {
@@ -1451,6 +1520,7 @@ main() {
 
     case "$cmd" in
         up|start|"")
+            run_dev_log_hygiene
             start_all
             ;;
         down|stop)
@@ -1460,9 +1530,11 @@ main() {
             show_status
             ;;
         backend)
+            run_dev_log_hygiene
             start_backend
             ;;
         worker)
+            run_dev_log_hygiene
             if [ -x scripts/service-manager.sh ]; then
                 scripts/service-manager.sh start worker
             else
@@ -1471,6 +1543,7 @@ main() {
             fi
             ;;
         secd)
+            run_dev_log_hygiene
             if [ -x scripts/service-manager.sh ]; then
                 scripts/service-manager.sh start secd
             else
@@ -1479,6 +1552,7 @@ main() {
             fi
             ;;
         node)
+            run_dev_log_hygiene
             if [ -x scripts/service-manager.sh ]; then
                 scripts/service-manager.sh start node
             else
