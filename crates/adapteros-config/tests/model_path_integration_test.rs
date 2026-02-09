@@ -16,11 +16,10 @@ use adapteros_config::{
 };
 use adapteros_core::rebase_var_path;
 mod test_env;
-use tempfile::TempDir;
 use test_env::TestEnvGuard;
 
-fn new_test_tempdir() -> TempDir {
-    TempDir::with_prefix("aos-test-").expect("create temp dir")
+fn new_test_tempdir() -> tempfile::TempDir {
+    adapteros_core::tempdir_in_var("aos-test-").expect("create temp dir")
 }
 
 /// Guard that ensures env vars are cleaned up even on panic

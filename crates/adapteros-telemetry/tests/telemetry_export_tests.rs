@@ -15,9 +15,8 @@ use std::collections::HashMap;
 use std::sync::Arc;
 use tempfile::TempDir;
 
-// Helper to create test temp directory using OS temp
 fn new_test_tempdir() -> TempDir {
-    TempDir::with_prefix("aos-test-").expect("create temp dir")
+    adapteros_core::tempdir_in_var("aos-test-").expect("create temp dir")
 }
 
 #[cfg(test)]
