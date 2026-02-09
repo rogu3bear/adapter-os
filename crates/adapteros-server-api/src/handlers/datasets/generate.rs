@@ -354,7 +354,7 @@ pub async fn generate_dataset_from_file(
         }
 
         match core
-            .route_and_infer(internal_request, None, None, None)
+            .route_and_infer(internal_request, None, None, None, None)
             .await
         {
             Ok(result) => {

@@ -321,7 +321,7 @@ pub async fn batch_infer(
                 // Execute inference via InferenceCore with timeout
                 match timeout(
                     remaining,
-                    inference_core.route_and_infer(internal_request, None, None, None),
+                    inference_core.route_and_infer(internal_request, None, None, None, None),
                 )
                 .await
                 {
@@ -1055,7 +1055,7 @@ async fn process_batch_job(
                 // Execute inference via InferenceCore with timeout
                 let start = Instant::now();
                 let result =
-                    timeout(remaining, core.route_and_infer(internal_request, None, None, None))
+                    timeout(remaining, core.route_and_infer(internal_request, None, None, None, None))
                         .await;
                 let latency_ms = start.elapsed().as_millis() as i32;
 

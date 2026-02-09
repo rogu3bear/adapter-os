@@ -449,6 +449,11 @@ pub struct ServerConfigApi {
     pub uds_socket: Option<String>,
     #[serde(default)]
     pub production_mode: bool,
+    /// Optional webhook URL invoked after a review is successfully submitted.
+    ///
+    /// This is a best-effort notification mechanism (fire-and-forget).
+    #[serde(default)]
+    pub review_webhook_url: Option<String>,
     /// Timeout in milliseconds for health check database probe (default: 2000)
     #[serde(default = "default_health_check_db_timeout_ms")]
     pub health_check_db_timeout_ms: u64,

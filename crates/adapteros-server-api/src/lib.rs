@@ -102,6 +102,7 @@ pub mod load_coordinator;
 pub mod mfa;
 pub mod middleware;
 pub mod middleware_security;
+pub mod net;
 pub mod model_status;
 pub mod operation_tracker;
 pub mod pause_tracker;

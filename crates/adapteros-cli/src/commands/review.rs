@@ -155,6 +155,8 @@ pub enum PauseKindFilter {
     ResourceWait,
     /// User-initiated pauses
     UserRequested,
+    /// High-severity threat detected, requires human review before continuing
+    ThreatEscalation,
 }
 
 impl std::fmt::Display for PauseKindFilter {
@@ -164,6 +166,7 @@ impl std::fmt::Display for PauseKindFilter {
             Self::PolicyApproval => write!(f, "PolicyApproval"),
             Self::ResourceWait => write!(f, "ResourceWait"),
             Self::UserRequested => write!(f, "UserRequested"),
+            Self::ThreatEscalation => write!(f, "ThreatEscalation"),
         }
     }
 }

@@ -750,7 +750,7 @@ pub async fn execute_replay_session(
                 .await
         } else {
             // Fallback to standard inference (manifest enforcement not possible)
-            core.route_and_infer(inference_request, None, None, None)
+            core.route_and_infer(inference_request, None, None, None, None)
                 .await
         };
 

@@ -321,7 +321,7 @@ pub async fn infer(
     let state_for_task = state.clone();
     let inference_task = tokio::spawn(async move {
         let core = InferenceCore::new(&state_for_task);
-        core.route_and_infer(internal, None, Some(cancel_token), None)
+        core.route_and_infer(internal, None, Some(cancel_token), None, None)
             .await
     });
 
