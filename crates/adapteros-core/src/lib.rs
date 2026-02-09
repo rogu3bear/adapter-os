@@ -34,6 +34,7 @@ pub mod circuit_breaker;
 pub mod circuit_breaker_registry;
 pub mod clock;
 pub mod codebase_versioning;
+pub mod context_digest;
 pub mod context_hash;
 pub mod context_manifest;
 pub mod crypto_receipt;

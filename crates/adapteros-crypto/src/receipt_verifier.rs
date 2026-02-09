@@ -180,29 +180,25 @@ fn update_head(prev: &B3Hash, token_index: u32, decision_hash: &B3Hash) -> B3Has
 fn compute_context_digest(ctx: &ReceiptContext) -> Result<B3Hash> {
     let stack_bytes =
         hex::decode(&ctx.stack_hash_hex).with_context(|| "Failed to decode stack_hash_hex")?;
-    let mut buf = Vec::with_capacity(
-        ctx.tenant_namespace.len() + stack_bytes.len() + 4 + ctx.prompt_tokens.len() * 4 + 96,
-    );
-    buf.extend_from_slice(ctx.tenant_namespace.as_bytes());
-    buf.extend_from_slice(&stack_bytes);
-    if let Some(ref hex) = ctx.tokenizer_hash_b3_hex {
-        if let Ok(bytes) = hex::decode(hex) {
-            buf.extend_from_slice(&bytes);
-        }
-        if let Some(ref version) = ctx.tokenizer_version {
-            buf.extend_from_slice(&(version.len() as u32).to_le_bytes());
-            buf.extend_from_slice(version.as_bytes());
-        }
-        if let Some(ref norm) = ctx.tokenizer_normalization {
-            buf.extend_from_slice(&(norm.len() as u32).to_le_bytes());
-            buf.extend_from_slice(norm.as_bytes());
-        }
-    }
-    buf.extend_from_slice(&(ctx.prompt_tokens.len() as u32).to_le_bytes());
-    for t in &ctx.prompt_tokens {
-        buf.extend_from_slice(&t.to_le_bytes());
-    }
-    Ok(B3Hash::hash(&buf))
+
+    // Preserve historical behavior: tokenizer_version/normalization are only included when the
+    // tokenizer hash field is present (even if the hash itself fails to decode).
+    let tokenizer_hash_bytes = match ctx.tokenizer_hash_b3_hex.as_deref() {
+        None => None,
+        Some(hex) => match hex::decode(hex) {
+            Ok(bytes) => Some(bytes),
+            Err(_) => Some(Vec::new()),
+        },
+    };
+
+    Ok(adapteros_core::context_digest::compute_context_digest(
+        &ctx.tenant_namespace,
+        &stack_bytes,
+        tokenizer_hash_bytes.as_deref(),
+        ctx.tokenizer_version.as_deref(),
+        ctx.tokenizer_normalization.as_deref(),
+        &ctx.prompt_tokens,
+    ))
 }
 
 fn verify_signature(

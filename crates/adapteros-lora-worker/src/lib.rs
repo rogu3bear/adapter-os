@@ -2996,20 +2996,19 @@ impl<K: FusedKernels + StrictnessControl + Send + Sync + 'static> Worker<K> {
 
         // Build deterministic active adapter view for routing (no per-token attach/detach)
         let stack_hash = pinned_request.stack_hash();
-        let mut context_bytes =
-            Vec::with_capacity(self.tenant_namespace.len() + 32 + (prompt_tokens.len() * 4) + 4);
-        context_bytes.extend_from_slice(self.tenant_namespace.as_bytes());
-        context_bytes.extend_from_slice(stack_hash.as_bytes());
-        context_bytes.extend_from_slice(self.manifest.base.tokenizer_hash.as_bytes());
-        context_bytes.extend_from_slice(&(prompt_tokens.len() as u32).to_le_bytes());
-        for t in &prompt_tokens {
-            context_bytes.extend_from_slice(&t.to_le_bytes());
-        }
-        let context_digest = B3Hash::hash(&context_bytes).to_bytes();
+        let tokenizer_hash_bytes: &[u8] = self.manifest.base.tokenizer_hash.as_bytes();
+        let context_digest_hash = adapteros_core::context_digest::compute_context_digest(
+            &self.tenant_namespace,
+            stack_hash.as_bytes(),
+            Some(tokenizer_hash_bytes),
+            None,
+            None,
+            &prompt_tokens,
+        );
+        let context_digest = context_digest_hash.to_bytes();
 
         // PRD-01: Compute prefix KV cache lookup using PRD-compliant key
         // Key = BLAKE3(context_digest || tokens || tokenizer_hash || model_identity)
-        let context_digest_hash = B3Hash::from_bytes(context_digest);
         let tokenizer_manifest_hash = compute_tokenizer_manifest_hash(
             &self.manifest.base.tokenizer_hash,
             &self.manifest.base.tokenizer_cfg_hash,
