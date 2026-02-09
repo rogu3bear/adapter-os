@@ -438,7 +438,7 @@ fn WorkerRow(worker: WorkerResponse) -> impl IntoView {
                     // Show animated indicator for transitional states
                     {is_transitional.then(|| view! {
                         <span class="relative flex h-2 w-2">
-                            <span class="animate-ping absolute inline-flex h-full w-full rounded-full bg-status-warning opacity-75"></span>
+                            <span class="animate-ping absolute inline-flex h-full w-full rounded-full bg-status-warning opacity-75 pointer-events-none"></span>
                             <span class="relative inline-flex rounded-full h-2 w-2 bg-status-warning"></span>
                         </span>
                     })}

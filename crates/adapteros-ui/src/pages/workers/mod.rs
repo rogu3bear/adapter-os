@@ -29,11 +29,13 @@ use std::sync::Arc;
 use crate::components::{IconPlus, IconRefresh, IconX};
 use components::{WorkerDetailPanel, WorkerDetailView, WorkersList, WorkersSummary};
 use dialogs::{PlanOption, SpawnWorkerDialog};
-use utils::{WorkerHealthRecord, WorkerHealthSummary};
+use utils::{is_recent_timestamp, is_terminal_worker_status, WorkerHealthRecord, WorkerHealthSummary};
 
 /// Workers management page
 #[component]
 pub fn Workers() -> impl IntoView {
+    const ACTIVE_WINDOW_SECS: u64 = 5 * 60;
+
     // Fetch workers list
     let (workers, refetch_workers) =
         use_api_resource(|client: Arc<ApiClient>| async move { client.list_workers().await });
@@ -58,6 +60,7 @@ pub fn Workers() -> impl IntoView {
     // Dialog state
     let show_spawn_dialog = RwSignal::new(false);
     let selected_worker = RwSignal::new(Option::<String>::None);
+    let show_history = RwSignal::new(false);
     let action_loading = RwSignal::new(false);
     let action_error = RwSignal::new(Option::<String>::None);
 
@@ -102,6 +105,57 @@ pub fn Workers() -> impl IntoView {
                 >
                     <IconRefresh/>
                     "Refresh"
+                </Button>
+                <Button
+                    variant=ButtonVariant::Secondary
+                    on_click=Callback::new(move |_| {
+                        let new_show = !show_history.get_untracked();
+                        show_history.set(new_show);
+                        if !new_show {
+                            // If we just hid history, selection may no longer be visible.
+                            selected_worker.set(None);
+                        }
+                    })
+                >
+                    {move || {
+                        let (active, total, hidden) = match workers.get() {
+                            LoadingState::Loaded(ref ws) => {
+                                let total = ws.len();
+                                let active = ws
+                                    .iter()
+                                    .filter(|w| {
+                                        if is_terminal_worker_status(&w.status) {
+                                            return false;
+                                        }
+                                        let recent_seen = w
+                                            .last_seen_at
+                                            .as_deref()
+                                            .is_some_and(|ts| is_recent_timestamp(ts, ACTIVE_WINDOW_SECS));
+                                        let recent_start =
+                                            is_recent_timestamp(&w.started_at, ACTIVE_WINDOW_SECS);
+                                        recent_seen || recent_start
+                                    })
+                                    .count();
+                                let hidden = total.saturating_sub(active);
+                                (active, total, hidden)
+                            }
+                            _ => (0, 0, 0),
+                        };
+
+                        if show_history.get() {
+                            if total > 0 {
+                                format!("Hide History ({})", total)
+                            } else {
+                                "Hide History".to_string()
+                            }
+                        } else if hidden > 0 {
+                            format!("Show History (+{})", hidden)
+                        } else if active > 0 {
+                            "Show History".to_string()
+                        } else {
+                            "Show History".to_string()
+                        }
+                    }}
                 </Button>
                 <Button
                     variant=ButtonVariant::Primary
@@ -160,15 +214,56 @@ pub fn Workers() -> impl IntoView {
                             LoadingState::Loaded(ref summary) => Some(summary.clone()),
                             _ => None,
                         };
-                        let workers_for_list = workers_data.clone();
-                        let workers_for_detail = workers_data.clone();
+                        let total_all = workers_data.len();
+                        let active_workers: Vec<_> = workers_data
+                            .iter()
+                            .cloned()
+                            .filter(|w| {
+                                if is_terminal_worker_status(&w.status) {
+                                    return false;
+                                }
+                                let recent_seen = w
+                                    .last_seen_at
+                                    .as_deref()
+                                    .is_some_and(|ts| is_recent_timestamp(ts, ACTIVE_WINDOW_SECS));
+                                let recent_start =
+                                    is_recent_timestamp(&w.started_at, ACTIVE_WINDOW_SECS);
+                                recent_seen || recent_start
+                            })
+                            .collect();
+                        let hidden_count = total_all.saturating_sub(active_workers.len());
+
+                        let visible_workers = if show_history.get() {
+                            workers_data.clone()
+                        } else {
+                            active_workers.clone()
+                        };
+
+                        let workers_for_list = visible_workers.clone();
+                        let workers_for_detail = visible_workers.clone();
                         let health_map_for_detail = health_map.clone();
                         view! {
                             // Summary cards (above the split panel)
                             <WorkersSummary
-                                workers=workers_data.clone()
+                                workers=visible_workers.clone()
                                 health_summary=health_summary
                             />
+
+                            <div class="text-xs text-muted-foreground mt-2">
+                                {move || {
+                                    if show_history.get() {
+                                        format!("Showing all {} workers (including stopped/error).", total_all)
+                                    } else if hidden_count > 0 {
+                                        format!(
+                                            "Showing {} active workers (recent) ({} hidden).",
+                                            active_workers.len(),
+                                            hidden_count
+                                        )
+                                    } else {
+                                        format!("Showing {} active workers (recent).", active_workers.len())
+                                    }
+                                }}
+                            </div>
 
                             // Split panel: Workers list (left) + Detail panel (right)
                             <SplitPanel

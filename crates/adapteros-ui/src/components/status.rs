@@ -113,7 +113,10 @@ pub fn StatusIndicator(
                     if pulsing {
                         view! {
                             <span
-                                class=format!("animate-ping absolute inline-flex h-full w-full rounded-full opacity-75 {}", color.pulse_class())
+                                class=format!(
+                                    "animate-ping absolute inline-flex h-full w-full rounded-full opacity-75 pointer-events-none {}",
+                                    color.pulse_class()
+                                )
                                 aria-hidden="true"
                             ></span>
                         }.into_any()

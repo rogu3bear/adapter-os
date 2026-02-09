@@ -49,7 +49,7 @@ pub fn SystemTray() -> impl IntoView {
     });
 
     view! {
-        <div class="flex items-center gap-3">
+        <div class="flex items-center gap-3 shrink-0">
             {move || {
                 let (color, label, pulsing, title) = match system_status.get() {
                     LoadingState::Loaded(status) => {
