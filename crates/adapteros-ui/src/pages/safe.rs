@@ -13,7 +13,8 @@ pub fn Safe() -> impl IntoView {
     };
 
     view! {
-        <div class="min-h-screen flex items-center justify-center bg-muted/40 p-6">
+        <main class="min-h-screen flex items-center justify-center bg-muted/40 p-6">
+            <h1 class="sr-only">"Safety Mode"</h1>
             <Card
                 title="Safety Mode".to_string()
                 description="Minimal UI with no API calls. Use this if the main app fails to load.".to_string()
@@ -40,6 +41,6 @@ pub fn Safe() -> impl IntoView {
                     </div>
                 </div>
             </Card>
-        </div>
+        </main>
     }
 }

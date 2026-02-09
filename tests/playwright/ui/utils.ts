@@ -12,6 +12,9 @@ export const seeded = {
   documentChunkId: 'chunk-fixture',
   evidenceId: 'evidence-fixture',
   stackId: 'stack-test',
+  collectionId: 'collection-test',
+  datasetId: 'dataset-test',
+  workerId: 'worker-test',
 };
 
 export async function disableAnimations(page: Page): Promise<void> {

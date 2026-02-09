@@ -59,6 +59,19 @@ const DOCUMENT_ID: &str = "doc-fixture";
 const DOCUMENT_CHUNK_ID: &str = "chunk-fixture";
 const EVIDENCE_ID: &str = "evidence-fixture";
 
+// Additional deterministic fixtures for UI route coverage.
+const COLLECTION_ID: &str = "collection-test";
+const COLLECTION_NAME: &str = "Test Collection";
+const DATASET_ID: &str = "dataset-test";
+const DATASET_NAME: &str = "Test Dataset";
+const WORKER_ID: &str = "worker-test";
+const NODE_ID: &str = "node-test";
+const PLAN_ID: &str = "plan-test";
+const MANIFEST_ID: &str = "manifest-test";
+const MANIFEST_HASH_B3: &str = "b3_manifest_testkit";
+const PLAN_ID_B3: &str = "b3_plan_testkit";
+const LAYOUT_HASH_B3: &str = "b3_layout_testkit";
+
 fn flag_enabled(env: &str) -> bool {
     matches!(
         std::env::var(env)
@@ -1487,6 +1500,296 @@ pub async fn create_document_fixture(
 }
 
 #[derive(Debug, Deserialize)]
+pub struct CollectionFixtureRequest {
+    pub tenant_id: Option<String>,
+    pub collection_id: Option<String>,
+    pub name: Option<String>,
+    pub description: Option<String>,
+    pub document_id: Option<String>,
+}
+
+#[derive(Debug, Serialize)]
+pub struct CollectionFixtureResponse {
+    pub tenant_id: String,
+    pub collection_id: String,
+    pub document_id: String,
+}
+
+#[axum::debug_handler]
+pub async fn create_collection_fixture(
+    State(state): State<AppState>,
+    Json(req): Json<CollectionFixtureRequest>,
+) -> Result<Json<CollectionFixtureResponse>, (StatusCode, Json<ErrorResponse>)> {
+    ensure_e2e_mode()?;
+
+    let tenant_id = req.tenant_id.unwrap_or_else(|| TENANT_ID.to_string());
+    let collection_id = req
+        .collection_id
+        .unwrap_or_else(|| COLLECTION_ID.to_string());
+    let name = req.name.unwrap_or_else(|| COLLECTION_NAME.to_string());
+    let description = req.description.unwrap_or_else(|| "Seeded collection fixture".to_string());
+    let document_id = req.document_id.unwrap_or_else(|| DOCUMENT_ID.to_string());
+
+    sqlx::query(
+        r#"
+        INSERT INTO document_collections (id, tenant_id, name, description, created_at, updated_at)
+        VALUES (?, ?, ?, ?, ?, ?)
+        ON CONFLICT(id) DO UPDATE SET
+            tenant_id = excluded.tenant_id,
+            name = excluded.name,
+            description = excluded.description,
+            updated_at = excluded.updated_at
+        "#,
+    )
+    .bind(&collection_id)
+    .bind(&tenant_id)
+    .bind(&name)
+    .bind(&description)
+    .bind(FIXED_TS)
+    .bind(FIXED_TS)
+    .execute(state.db.pool())
+    .await
+    .map_err(map_err)?;
+
+    sqlx::query(
+        r#"
+        INSERT INTO collection_documents (collection_id, document_id, added_at)
+        VALUES (?, ?, ?)
+        ON CONFLICT(collection_id, document_id) DO NOTHING
+        "#,
+    )
+    .bind(&collection_id)
+    .bind(&document_id)
+    .bind(FIXED_TS)
+    .execute(state.db.pool())
+    .await
+    .map_err(map_err)?;
+
+    Ok(Json(CollectionFixtureResponse {
+        tenant_id,
+        collection_id,
+        document_id,
+    }))
+}
+
+#[derive(Debug, Deserialize)]
+pub struct DatasetFixtureRequest {
+    pub tenant_id: Option<String>,
+    pub dataset_id: Option<String>,
+    pub name: Option<String>,
+}
+
+#[derive(Debug, Serialize)]
+pub struct DatasetFixtureResponse {
+    pub tenant_id: String,
+    pub dataset_id: String,
+}
+
+#[axum::debug_handler]
+pub async fn create_dataset_fixture(
+    State(state): State<AppState>,
+    Json(req): Json<DatasetFixtureRequest>,
+) -> Result<Json<DatasetFixtureResponse>, (StatusCode, Json<ErrorResponse>)> {
+    ensure_e2e_mode()?;
+
+    let tenant_id = req.tenant_id.unwrap_or_else(|| TENANT_ID.to_string());
+    let dataset_id = req.dataset_id.unwrap_or_else(|| DATASET_ID.to_string());
+    let name = req.name.unwrap_or_else(|| DATASET_NAME.to_string());
+
+    // Keep fixture paths under var/testkit to satisfy path hygiene rules.
+    let storage_path = format!("var/testkit/datasets/{}", dataset_id);
+    let hash_b3 = format!(
+        "b3_testkit_{}",
+        B3Hash::hash(format!("testkit-dataset:{tenant_id}:{dataset_id}").as_bytes()).to_hex()
+    );
+
+    sqlx::query(
+        r#"
+        INSERT INTO training_datasets (
+            id, name, description, file_count, total_size_bytes, format, hash_b3, storage_path,
+            validation_status, metadata_json, created_by, created_at, updated_at,
+            tenant_id, status, dataset_hash_b3
+        )
+        VALUES (
+            ?, ?, ?, 1, 1024, 'jsonl', ?, ?,
+            'valid', ?, ?, ?, ?,
+            ?, 'ready', ?
+        )
+        ON CONFLICT(id) DO UPDATE SET
+            name = excluded.name,
+            description = excluded.description,
+            file_count = excluded.file_count,
+            total_size_bytes = excluded.total_size_bytes,
+            format = excluded.format,
+            hash_b3 = excluded.hash_b3,
+            storage_path = excluded.storage_path,
+            validation_status = excluded.validation_status,
+            metadata_json = excluded.metadata_json,
+            updated_at = excluded.updated_at,
+            tenant_id = excluded.tenant_id,
+            status = excluded.status,
+            dataset_hash_b3 = excluded.dataset_hash_b3
+        "#,
+    )
+    .bind(&dataset_id)
+    .bind(&name)
+    .bind("Seeded dataset fixture")
+    .bind(&hash_b3)
+    .bind(&storage_path)
+    .bind(r#"{"source":"testkit","fixture":"dataset"}"#)
+    .bind(E2E_USER_ID)
+    .bind(FIXED_TS)
+    .bind(FIXED_TS)
+    .bind(&tenant_id)
+    .bind(&hash_b3)
+    .execute(state.db.pool())
+    .await
+    .map_err(map_err)?;
+
+    Ok(Json(DatasetFixtureResponse { tenant_id, dataset_id }))
+}
+
+#[derive(Debug, Deserialize)]
+pub struct WorkerFixtureRequest {
+    pub tenant_id: Option<String>,
+    pub worker_id: Option<String>,
+}
+
+#[derive(Debug, Serialize)]
+pub struct WorkerFixtureResponse {
+    pub tenant_id: String,
+    pub worker_id: String,
+    pub node_id: String,
+    pub plan_id: String,
+}
+
+#[axum::debug_handler]
+pub async fn create_worker_fixture(
+    State(state): State<AppState>,
+    Json(req): Json<WorkerFixtureRequest>,
+) -> Result<Json<WorkerFixtureResponse>, (StatusCode, Json<ErrorResponse>)> {
+    ensure_e2e_mode()?;
+
+    let tenant_id = req.tenant_id.unwrap_or_else(|| TENANT_ID.to_string());
+    let worker_id = req.worker_id.unwrap_or_else(|| WORKER_ID.to_string());
+
+    // Node
+    sqlx::query(
+        r#"
+        INSERT INTO nodes (id, hostname, agent_endpoint, status, last_seen_at, labels_json, created_at)
+        VALUES (?, ?, ?, 'active', ?, ?, ?)
+        ON CONFLICT(id) DO UPDATE SET
+            hostname = excluded.hostname,
+            agent_endpoint = excluded.agent_endpoint,
+            status = excluded.status,
+            last_seen_at = excluded.last_seen_at,
+            labels_json = excluded.labels_json
+        "#,
+    )
+    .bind(NODE_ID)
+    .bind(NODE_ID)
+    .bind("http://127.0.0.1:1")
+    .bind(FIXED_TS)
+    .bind(r#"{"source":"testkit"}"#)
+    .bind(FIXED_TS)
+    .execute(state.db.pool())
+    .await
+    .map_err(map_err)?;
+
+    // Manifest + plan: only needs to satisfy FKs for worker rows and basic worker detail views.
+    sqlx::query(
+        r#"
+        INSERT INTO manifests (id, tenant_id, hash_b3, body_json, created_at)
+        VALUES (?, ?, ?, ?, ?)
+        ON CONFLICT(hash_b3) DO UPDATE SET
+            tenant_id = excluded.tenant_id,
+            body_json = excluded.body_json
+        "#,
+    )
+    .bind(MANIFEST_ID)
+    .bind(&tenant_id)
+    .bind(MANIFEST_HASH_B3)
+    .bind(r#"{"source":"testkit","fixture":"manifest"}"#)
+    .bind(FIXED_TS)
+    .execute(state.db.pool())
+    .await
+    .map_err(map_err)?;
+
+    sqlx::query(
+        r#"
+        INSERT INTO plans (
+            id, tenant_id, plan_id_b3, manifest_hash_b3, kernel_hashes_json, layout_hash_b3, metadata_json, created_at
+        )
+        VALUES (?, ?, ?, ?, ?, ?, ?, ?)
+        ON CONFLICT(id) DO UPDATE SET
+            tenant_id = excluded.tenant_id,
+            plan_id_b3 = excluded.plan_id_b3,
+            manifest_hash_b3 = excluded.manifest_hash_b3,
+            kernel_hashes_json = excluded.kernel_hashes_json,
+            layout_hash_b3 = excluded.layout_hash_b3,
+            metadata_json = excluded.metadata_json
+        "#,
+    )
+    .bind(PLAN_ID)
+    .bind(&tenant_id)
+    .bind(PLAN_ID_B3)
+    .bind(MANIFEST_HASH_B3)
+    .bind(r#"["b3_kernel_testkit"]"#)
+    .bind(LAYOUT_HASH_B3)
+    .bind(r#"{"source":"testkit","fixture":"plan"}"#)
+    .bind(FIXED_TS)
+    .execute(state.db.pool())
+    .await
+    .map_err(map_err)?;
+
+    let uds_path = format!("/var/run/aos/{}/{}.sock", tenant_id, worker_id);
+
+    // Worker row
+    sqlx::query(
+        r#"
+        INSERT INTO workers (
+            id, tenant_id, node_id, plan_id, uds_path, pid, status, started_at, last_seen_at,
+            adapters_loaded_json, health_status, last_transition_at, last_transition_reason
+        )
+        VALUES (?, ?, ?, ?, ?, ?, 'healthy', ?, ?, ?, 'healthy', ?, ?)
+        ON CONFLICT(id) DO UPDATE SET
+            tenant_id = excluded.tenant_id,
+            node_id = excluded.node_id,
+            plan_id = excluded.plan_id,
+            uds_path = excluded.uds_path,
+            pid = excluded.pid,
+            status = excluded.status,
+            last_seen_at = excluded.last_seen_at,
+            adapters_loaded_json = excluded.adapters_loaded_json,
+            health_status = excluded.health_status,
+            last_transition_at = excluded.last_transition_at,
+            last_transition_reason = excluded.last_transition_reason
+        "#,
+    )
+    .bind(&worker_id)
+    .bind(&tenant_id)
+    .bind(NODE_ID)
+    .bind(PLAN_ID)
+    .bind(&uds_path)
+    .bind(12345_i64)
+    .bind(FIXED_TS)
+    .bind(FIXED_TS)
+    .bind(r#"["adapter-test"]"#)
+    .bind(FIXED_TS)
+    .bind("testkit-worker-fixture")
+    .execute(state.db.pool())
+    .await
+    .map_err(map_err)?;
+
+    Ok(Json(WorkerFixtureResponse {
+        tenant_id,
+        worker_id,
+        node_id: NODE_ID.to_string(),
+        plan_id: PLAN_ID.to_string(),
+    }))
+}
+
+#[derive(Debug, Deserialize)]
 pub struct InferenceStubRequest {
     pub prompt: Option<String>,
 }
@@ -1772,6 +2075,18 @@ pub fn register_routes() -> axum::Router<AppState> {
         .route(
             "/testkit/create_document_fixture",
             post(create_document_fixture),
+        )
+        .route(
+            "/testkit/create_collection_fixture",
+            post(create_collection_fixture),
+        )
+        .route(
+            "/testkit/create_dataset_fixture",
+            post(create_dataset_fixture),
+        )
+        .route(
+            "/testkit/create_worker_fixture",
+            post(create_worker_fixture),
         )
         .route("/testkit/inference_stub", post(inference_stub))
         .route("/testkit/audit/diverge", post(diverge_policy_audit_chain))
