@@ -1057,6 +1057,7 @@ version = "0.14.1"
 dependencies = [
  "adapteros-chat",
  "adapteros-core",
+ "adapteros-lora-quant",
  "adapteros-manifest",
  "adapteros-model-hub",
  "adapteros-registry",
@@ -1285,6 +1286,7 @@ version = "0.14.1"
 dependencies = [
  "adapteros-core",
  "adapteros-manifest",
+ "adapteros-registry",
  "adapteros-storage",
  "adapteros-types",
  "anyhow",
@@ -1440,12 +1442,7 @@ dependencies = [
 name = "adapteros-platform"
 version = "0.14.1"
 dependencies = [
- "adapteros-core",
- "dirs",
- "serde",
- "tempfile",
- "tokio-test",
- "tracing",
+ "adapteros-storage",
 ]
 
 [[package]]
@@ -1471,6 +1468,7 @@ dependencies = [
  "adapteros-crypto",
  "adapteros-db",
  "adapteros-deterministic-exec",
+ "adapteros-domain",
  "adapteros-id",
  "adapteros-lora-kernel-api",
  "adapteros-manifest",
@@ -1995,21 +1993,6 @@ name = "adapteros-single-file-adapter"
 version = "0.14.1"
 dependencies = [
  "adapteros-aos",
- "adapteros-core",
- "adapteros-crypto",
- "adapteros-types",
- "anyhow",
- "chrono",
- "half 2.7.1",
- "hex",
- "safetensors",
- "serde",
- "serde_json",
- "tempfile",
- "tokio",
- "tokio-test",
- "toml 0.8.23",
- "tracing",
 ]
 
 [[package]]
