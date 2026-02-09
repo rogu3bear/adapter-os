@@ -33,6 +33,7 @@ chrono = { workspace = true }
 uuid = { workspace = true }
 # Manifest and registry
 adapteros-manifest = { path = "../adapteros-manifest" }
+adapteros-registry = { path = "../adapteros-registry" }
 rusqlite = { workspace = true }
 zeroize = { version = "1.7", features = ["derive"] }
 schemars = { workspace = true }
