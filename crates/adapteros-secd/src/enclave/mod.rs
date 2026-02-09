@@ -32,7 +32,7 @@
 //! |-----------|-----------|-------------------|
 //! | Signing | ECDSA (Secure Enclave) | Ed25519 (software) |
 //! | Encryption | ChaCha20-Poly1305 | ChaCha20-Poly1305 |
-//! | Key Derivation | Keychain + master key | HKDF (SHA256) |
+//! | Key Derivation | Keychain + root key | HKDF (SHA256) |
 //! | Nonce Generation | Deterministic (data-derived) | Deterministic (data-derived) |
 //! | Key Storage | Tamper-resistant hardware | Ephemeral (process memory) |
 //! | Key Extraction | Impossible | Possible (keys in memory) |

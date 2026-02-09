@@ -258,7 +258,7 @@ struct PasswordFallbackKeyring {
     service_name: String,
     keys: std::sync::Mutex<HashMap<String, KeyHandle>>,
     keystore_path: std::path::PathBuf,
-    master_key: [u8; 32], // Derived from password
+    root_key: [u8; 32], // Derived from password
 }
 
 #[cfg(feature = "password-fallback")]
@@ -267,9 +267,9 @@ impl PasswordFallbackKeyring {
         use argon2::{Argon2, Params};
         use std::path::PathBuf;
 
-        // Derive master key from password using Argon2id
+        // Derive root key from password using Argon2id
         let salt = format!("adapteros-{}", service_name);
-        let mut master_key = [0u8; 32];
+        let mut root_key = [0u8; 32];
         let argon2 = Argon2::new(
             argon2::Algorithm::Argon2id,
             argon2::Version::V0x13,
@@ -280,9 +280,9 @@ impl PasswordFallbackKeyring {
         );
 
         argon2
-            .hash_password_into(password.as_bytes(), salt.as_bytes(), &mut master_key)
+            .hash_password_into(password.as_bytes(), salt.as_bytes(), &mut root_key)
             .map_err(|e| {
-                error!(error = %e, "Failed to derive master key from password");
+                error!(error = %e, "Failed to derive root key from password");
                 AosError::Crypto("Failed to derive encryption key".to_string())
             })?;
 
@@ -307,7 +307,7 @@ impl PasswordFallbackKeyring {
             service_name,
             keys: std::sync::Mutex::new(HashMap::new()),
             keystore_path,
-            master_key,
+            root_key,
         })
     }
 
@@ -338,11 +338,11 @@ impl PasswordFallbackKeyring {
             let encrypted_data = &ciphertext[12..];
 
             // Try AES-256-GCM first, then ChaCha20-Poly1305 as fallback
-            let plaintext = if let Ok(cipher) = Aes256Gcm::new_from_slice(&self.master_key) {
+            let plaintext = if let Ok(cipher) = Aes256Gcm::new_from_slice(&self.root_key) {
                 let nonce = Nonce::from_slice(nonce_bytes);
                 let mut data = encrypted_data.to_vec();
                 cipher.decrypt_in_place(nonce, &[], &mut data).map(|_| data)
-            } else if let Ok(cipher) = ChaCha20Poly1305::new_from_slice(&self.master_key) {
+            } else if let Ok(cipher) = ChaCha20Poly1305::new_from_slice(&self.root_key) {
                 let nonce = ChaChaNonce::from_slice(nonce_bytes);
                 let mut data = encrypted_data.to_vec();
                 ChaChaAeadInPlace::decrypt_in_place(&cipher, nonce, &[], &mut data).map(|_| data)
@@ -384,8 +384,8 @@ impl PasswordFallbackKeyring {
             })?;
 
             // Derive deterministic nonce using HKDF with domain separation
-            // Use master_key hash and data hash as entropy sources
-            let key_hash = B3Hash::hash(&self.master_key);
+            // Use root_key hash and data hash as entropy sources
+            let key_hash = B3Hash::hash(&self.root_key);
             let data_hash = B3Hash::hash(&json_data);
             let nonce_label = format!("keychain-seal-nonce:{}", data_hash.to_hex());
             let nonce_seed = derive_seed(&key_hash, &nonce_label);
@@ -393,7 +393,7 @@ impl PasswordFallbackKeyring {
             nonce_bytes.copy_from_slice(&nonce_seed[..12]);
 
             // Encrypt with AES-256-GCM
-            let cipher = Aes256Gcm::new_from_slice(&self.master_key).map_err(|e| {
+            let cipher = Aes256Gcm::new_from_slice(&self.root_key).map_err(|e| {
                 error!(error = %e, "Failed to create AES cipher");
                 AosError::Crypto("Failed to initialize encryption".to_string())
             })?;

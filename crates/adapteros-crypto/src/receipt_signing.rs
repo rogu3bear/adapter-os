@@ -325,13 +325,13 @@ fn compute_tenant_binding_mac(digest: &B3Hash, tenant_id: &str, tenant_key: &[u8
     output
 }
 
-/// Derive a tenant-specific key from a master key.
+/// Derive a tenant-specific key from a root key.
 ///
 /// Uses HKDF-SHA256 with the tenant ID as the info parameter.
-/// This ensures each tenant has a unique key derived from the master.
+/// This ensures each tenant has a unique key derived from the root key.
 ///
 /// # Arguments
-/// * `master_key` - 32-byte master key
+/// * `root_key` - 32-byte root key
 /// * `tenant_id` - Tenant identifier
 ///
 /// # Returns
@@ -339,11 +339,11 @@ fn compute_tenant_binding_mac(digest: &B3Hash, tenant_id: &str, tenant_key: &[u8
 ///
 /// # Panics
 /// This function will never panic as 32 bytes is a valid HKDF-SHA256 output length.
-pub fn derive_tenant_key(master_key: &[u8; 32], tenant_id: &str) -> [u8; 32] {
+pub fn derive_tenant_key(root_key: &[u8; 32], tenant_id: &str) -> [u8; 32] {
     use hkdf::Hkdf;
     use sha2::Sha256;
 
-    let hkdf = Hkdf::<Sha256>::new(None, master_key);
+    let hkdf = Hkdf::<Sha256>::new(None, root_key);
     let mut tenant_key = [0u8; 32];
     // 32 bytes is always valid for HKDF-SHA256 (max is 255 * hash_len = 255 * 32 = 8160 bytes)
     hkdf.expand(tenant_id.as_bytes(), &mut tenant_key)
@@ -362,7 +362,7 @@ pub fn derive_tenant_key(master_key: &[u8; 32], tenant_id: &str) -> [u8; 32] {
 /// Derive a tenant-specific key with additional context.
 ///
 /// # Arguments
-/// * `master_key` - 32-byte master key
+/// * `root_key` - 32-byte root key
 /// * `tenant_id` - Tenant identifier
 /// * `purpose` - Key purpose (e.g., "receipts", "adapters")
 ///
@@ -372,7 +372,7 @@ pub fn derive_tenant_key(master_key: &[u8; 32], tenant_id: &str) -> [u8; 32] {
 /// # Panics
 /// This function will never panic as 32 bytes is a valid HKDF-SHA256 output length.
 pub fn derive_tenant_key_with_purpose(
-    master_key: &[u8; 32],
+    root_key: &[u8; 32],
     tenant_id: &str,
     purpose: &str,
 ) -> [u8; 32] {
@@ -382,7 +382,7 @@ pub fn derive_tenant_key_with_purpose(
     // Combine tenant_id and purpose
     let info = format!("{}:{}", tenant_id, purpose);
 
-    let hkdf = Hkdf::<Sha256>::new(None, master_key);
+    let hkdf = Hkdf::<Sha256>::new(None, root_key);
     let mut derived_key = [0u8; 32];
     // 32 bytes is always valid for HKDF-SHA256 (max is 255 * hash_len = 255 * 32 = 8160 bytes)
     hkdf.expand(info.as_bytes(), &mut derived_key)

@@ -2780,7 +2780,7 @@ impl<K: FusedKernels + StrictnessControl + Send + Sync + 'static> Worker<K> {
 
         if let Some(seed_bytes) = request.request_seed {
             self.generator.set_seed_bytes(seed_bytes)?;
-            // Avoid overriding master request seed with low-entropy seed
+            // Avoid overriding request seed bytes with low-entropy seed
             self.generator.apply_request_params(
                 request.temperature,
                 request.top_k,

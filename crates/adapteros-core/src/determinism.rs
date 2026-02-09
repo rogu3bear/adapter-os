@@ -87,12 +87,12 @@ impl DeterminismContext {
         }
     }
 
-    /// Get master request seed bytes.
+    /// Get request seed bytes.
     pub fn request_seed(&self) -> [u8; 32] {
         self.request_seed
     }
 
-    /// Lower 64 bits of the master seed (for API compatibility).
+    /// Lower 64 bits of the request seed (for API compatibility).
     pub fn request_seed_low64(&self) -> u64 {
         self.request_seed_low64
     }
