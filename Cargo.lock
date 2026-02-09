@@ -191,6 +191,7 @@ version = "0.14.1"
 dependencies = [
  "adapteros-core",
  "adapteros-crypto",
+ "adapteros-sbom",
  "adapteros-storage",
  "base64 0.22.1",
  "core-foundation 0.10.1",
@@ -1587,6 +1588,16 @@ dependencies = [
  "tree-sitter-typescript",
  "uuid",
  "walkdir",
+]
+
+[[package]]
+name = "adapteros-sbom"
+version = "0.14.1"
+dependencies = [
+ "adapteros-core",
+ "serde",
+ "serde_json",
+ "thiserror 2.0.18",
 ]
 
 [[package]]
