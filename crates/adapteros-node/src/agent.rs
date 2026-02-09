@@ -283,12 +283,40 @@ impl NodeAgent {
                         ));
                     }
 
-                    // If aos-worker binary not found, log and create simulated worker for testing
+                    // In release builds, a missing worker binary is a broken deployment.
+                    // Fail hard so the operator knows immediately.
+                    if !cfg!(debug_assertions) {
+                        error!(
+                            error = %e,
+                            binary = "aos-worker",
+                            uid = uid,
+                            gid = gid,
+                            tenant_id = tenant_id,
+                            "aos-worker binary not found at expected PATH location; \
+                             cannot spawn worker in production mode"
+                        );
+                        drop(warning_write);
+                        if can_read_warnings {
+                            drain_pre_exec_warnings(warning_read, tenant_id, plan_id);
+                        } else {
+                            drop(warning_read);
+                        }
+                        return Err(anyhow::anyhow!(
+                            "aos-worker binary not found (spawn error: {}). \
+                             In production mode, simulated workers are disabled. \
+                             Ensure the aos-worker binary is installed and available on PATH.",
+                            e
+                        ));
+                    }
+
+                    // Dev/test mode: create a simulated worker so integration tests
+                    // and local development can proceed without the real binary.
                     warn!(
                         error = %e,
                         uid = uid,
                         gid = gid,
-                        "Failed to spawn aos-worker, creating simulated worker for testing"
+                        tenant_id = tenant_id,
+                        "Using simulated worker (dev mode) \u{2014} inference results are not real"
                     );
                     drop(warning_write);
                     if can_read_warnings {
@@ -317,7 +345,7 @@ impl NodeAgent {
                         .write()
                         .await
                         .insert(simulated_pid, worker_info);
-                    info!(pid = simulated_pid, "Simulated worker created");
+                    info!(pid = simulated_pid, "Simulated worker created (dev mode)");
                     return Ok(simulated_pid);
                 }
             };
@@ -479,10 +507,27 @@ impl NodeAgent {
                     Ok(pid)
                 }
                 Err(e) => {
-                    // If aos-model-srv binary not found, create simulated server for testing
+                    // In release builds, a missing binary is a broken deployment.
+                    if !cfg!(debug_assertions) {
+                        error!(
+                            error = %e,
+                            binary = "aos-model-srv",
+                            "aos-model-srv binary not found at expected PATH location; \
+                             cannot spawn model server in production mode"
+                        );
+                        return Err(anyhow::anyhow!(
+                            "aos-model-srv binary not found (spawn error: {}). \
+                             In production mode, simulated servers are disabled. \
+                             Ensure the aos-model-srv binary is installed and available on PATH.",
+                            e
+                        ));
+                    }
+
+                    // Dev/test mode: create a simulated server so integration tests
+                    // and local development can proceed without the real binary.
                     warn!(
                         error = %e,
-                        "Failed to spawn aos-model-srv, creating simulated server for testing"
+                        "Using simulated model server (dev mode) \u{2014} inference results are not real"
                     );
 
                     // Generate a simulated PID for development/testing
@@ -505,7 +550,7 @@ impl NodeAgent {
                     };
 
                     *self.model_server.write().await = Some(model_server_info);
-                    info!(pid = simulated_pid, "Simulated Model Server created");
+                    info!(pid = simulated_pid, "Simulated Model Server created (dev mode)");
                     Ok(simulated_pid)
                 }
             }

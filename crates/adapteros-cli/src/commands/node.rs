@@ -543,7 +543,10 @@ async fn query_node_hashes(endpoint: &str) -> Result<ComponentHashes> {
 #[derive(Debug, serde::Serialize, serde::Deserialize)]
 struct ReplicationManifest {
     session_id: String,
+    /// Node ID of the sender (hex-encoded BLAKE3 hash of the sender's Ed25519 public key)
+    sender_node_id: String,
     artifacts: Vec<ArtifactInfo>,
+    /// Hex-encoded Ed25519 signature over `serde_json::to_vec(&artifacts)`
     signature: String,
 }
 
@@ -796,8 +799,30 @@ async fn create_replication_manifest(
         }
     };
 
+    // Derive sender node ID from the signing key
+    let sender_node_id = match std::env::var("AOS_SIGNING_KEY") {
+        Ok(key_hex) => {
+            if let Ok(key_bytes) = hex::decode(&key_hex) {
+                if key_bytes.len() == 32 {
+                    let mut arr = [0u8; 32];
+                    arr.copy_from_slice(&key_bytes);
+                    let sk = ed25519_dalek::SigningKey::from_bytes(&arr);
+                    let pk = sk.verifying_key();
+                    let hash = blake3::hash(&pk.to_bytes());
+                    hex::encode(&hash.as_bytes()[..16])
+                } else {
+                    "unknown".to_string()
+                }
+            } else {
+                "unknown".to_string()
+            }
+        }
+        Err(_) => "ephemeral".to_string(),
+    };
+
     Ok(ReplicationManifest {
         session_id,
+        sender_node_id,
         artifacts,
         signature,
     })
@@ -946,6 +971,7 @@ mod tests {
     fn test_replication_manifest_serialization() {
         let manifest = ReplicationManifest {
             session_id: "test-session".to_string(),
+            sender_node_id: "test-node-id".to_string(),
             artifacts: vec![ArtifactInfo {
                 adapter_id: "adapter1".to_string(),
                 hash: "hash1".to_string(),
@@ -957,6 +983,7 @@ mod tests {
         let json = serde_json::to_string(&manifest).unwrap();
         let deserialized: ReplicationManifest = serde_json::from_str(&json).unwrap();
         assert_eq!(manifest.session_id, deserialized.session_id);
+        assert_eq!(manifest.sender_node_id, deserialized.sender_node_id);
         assert_eq!(manifest.artifacts.len(), deserialized.artifacts.len());
         assert_eq!(manifest.signature, deserialized.signature);
     }
