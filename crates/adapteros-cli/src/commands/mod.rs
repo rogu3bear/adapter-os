@@ -108,8 +108,6 @@ pub mod storage;
 pub mod telemetry;
 pub mod telemetry_show;
 #[cfg(feature = "trace")]
-pub mod trace;
-#[cfg(feature = "trace")]
 pub mod trace_validate;
 pub mod train;
 pub mod train_base_adapter;
