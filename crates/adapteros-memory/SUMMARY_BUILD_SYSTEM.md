@@ -3,14 +3,14 @@
 ## Files Created
 
 ### 1. Build Script
-**File:** `/Users/star/Dev/aos/crates/adapteros-memory/build.rs`
+**File:** `crates/adapteros-memory/build.rs`
 - Orchestrates Objective-C++ compilation via `cc` crate
 - Platform-aware: macOS compiles ObjC++, other platforms use stubs
 - Links against Metal, Foundation, IOKit, CoreFoundation frameworks
 - Uses C++17, Objective-C ARC, -O3 optimization
 
 ### 2. Header File (FFI Interface)
-**File:** `/Users/star/Dev/aos/crates/adapteros-memory/include/heap_observer.h`
+**File:** `crates/adapteros-memory/include/heap_observer.h`
 - C-compatible FFI declarations
 - 5 FFI-safe structures (all repr(C)):
   - `FFIHeapAllocation`: Individual buffer tracking
@@ -21,7 +21,7 @@
 - 10 FFI functions for heap observation
 
 ### 3. Objective-C++ Implementation
-**File:** `/Users/star/Dev/aos/crates/adapteros-memory/src/heap_observer_impl.mm`
+**File:** `crates/adapteros-memory/src/heap_observer_impl.mm`
 - Thread-safe implementation using std::mutex
 - Global singleton state pattern
 - Error handling with thread-local buffers
@@ -30,7 +30,7 @@
 - Metrics aggregation
 
 ### 4. Updated Cargo.toml
-**File:** `/Users/star/Dev/aos/crates/adapteros-memory/Cargo.toml`
+**File:** `crates/adapteros-memory/Cargo.toml`
 - Added `cc = "1.0"` to [build-dependencies]
 - macOS platform-specific dependencies already present:
   - metal 0.30
@@ -39,7 +39,7 @@
   - libc 0.2
 
 ### 5. Documentation
-**File:** `/Users/star/Dev/aos/crates/adapteros-memory/METAL_BUILD_INTEGRATION.md`
+**File:** `crates/adapteros-memory/INTEGRATION_METAL_BUILD.md`
 - Comprehensive build system reference
 - Architecture overview
 - Compilation flow
@@ -85,7 +85,7 @@ libc = "0.2"
 
 ### Basic Build
 ```bash
-cd /Users/star/Dev/aos
+cd <repo-root>
 cargo build -p adapteros-memory
 ```
 
@@ -175,9 +175,8 @@ ls -la target/debug/build/adapteros-memory-*/out/
 
 ## References
 
-- Build System: `/Users/star/Dev/aos/crates/adapteros-memory/METAL_BUILD_INTEGRATION.md`
-- Rust FFI Bindings: `/Users/star/Dev/aos/crates/adapteros-memory/src/heap_observer.rs`
-- FFI Patterns: `/Users/star/Dev/aos/docs/OBJECTIVE_CPP_FFI_PATTERNS.md`
+- Build System: `crates/adapteros-memory/INTEGRATION_METAL_BUILD.md`
+- Rust FFI Bindings: `crates/adapteros-memory/src/heap_observer.rs`
+- FFI Patterns: `docs/OBJECTIVE_CPP_FFI_PATTERNS.md`
 - Cargo Build Scripts: https://doc.rust-lang.org/cargo/build-scripts/
 - cc crate: https://docs.rs/cc/
-

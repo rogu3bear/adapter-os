@@ -3,7 +3,7 @@ KV QUOTA CONCURRENT E2E TESTS - SUMMARY
 ================================================================================
 
 Created: 2025-12-12
-File: /Users/mln-dev/Dev/adapter-os/tests/kv_quota_concurrent_e2e.rs
+File: tests/kv_quota_concurrent_e2e.rs
 Lines: 1,234
 Tests: 10
 
@@ -125,22 +125,22 @@ Scalability: Linear up to 100 workers, stable to 500 workers
 FILES CREATED
 ================================================================================
 
-1. /Users/mln-dev/Dev/adapter-os/tests/kv_quota_concurrent_e2e.rs
+1. tests/kv_quota_concurrent_e2e.rs
    - 1,234 lines
    - 10 comprehensive concurrent E2E tests
    - Production-ready, compilable code
 
-2. /Users/mln-dev/Dev/adapter-os/tests/KV_QUOTA_CONCURRENT_E2E_TESTS.md
+2. tests/KV_QUOTA_CONCURRENT_E2E_TESTS.md
    - Detailed documentation for all 10 tests
    - Coverage matrix, debugging guide
    - CI/CD integration instructions
 
-3. /Users/mln-dev/Dev/adapter-os/tests/KV_QUOTA_TEST_QUICK_REFERENCE.md
+3. tests/KV_QUOTA_TEST_QUICK_REFERENCE.md
    - Quick reference guide
    - Common commands and patterns
    - Performance benchmarks
 
-4. /Users/mln-dev/Dev/adapter-os/tests/KV_QUOTA_TESTS_SUMMARY.txt
+4. tests/KV_QUOTA_TESTS_SUMMARY.txt
    - This file
    - Executive summary
 

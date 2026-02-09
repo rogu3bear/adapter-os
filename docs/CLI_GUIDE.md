@@ -3308,6 +3308,7 @@ Draft → Training → Ready → Active → Deprecated → Retired
 - [Architecture Overview](ARCHITECTURE.md) - System architecture
 - [Control Plane](ARCHITECTURE.md#architecture-components) - Control plane architecture
 - [API Reference](API_REFERENCE.md) - REST API documentation
-- [AGENTS.md](../AGENTS.md) - Complete developer reference
+- [AGENTS.md](../AGENTS.md) - Developer quick reference (commands + invariants index)
+- [CLAUDE.md](../CLAUDE.md) - Extended developer guide
 
 MLNavigator Inc January 2026.

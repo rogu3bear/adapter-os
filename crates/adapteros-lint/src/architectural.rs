@@ -256,7 +256,7 @@ pub fn check_file(file_path: &Path) -> Vec<ArchitecturalViolation> {
     }
 
     // Fallback to pattern matching for line numbers and additional checks
-    // Check for lifecycle manager bypasses per AGENTS.md lines 333-377
+    // Check for lifecycle manager bypasses (see crates/adapteros-lint/README.md)
     //
     // AGENTS.md Pattern:
     // - Always use lifecycle manager methods first if available
@@ -272,7 +272,7 @@ pub fn check_file(file_path: &Path) -> Vec<ArchitecturalViolation> {
                     || l.contains("manager.update_adapter_state")
             });
 
-            // Check if lifecycle manager is checked before this line (per AGENTS.md line 336)
+            // Check if lifecycle manager is checked before this line
             let previous_lines = &lines[..i];
             let has_lifecycle_before = previous_lines.iter().any(|l| {
                 l.contains("lifecycle_manager")
@@ -280,11 +280,11 @@ pub fn check_file(file_path: &Path) -> Vec<ArchitecturalViolation> {
                     || l.contains("lifecycle.lock()")
             });
 
-            // Check if this is in an else branch (fallback - acceptable per AGENTS.md line 348)
+            // Check if this is in an else branch (fallback - acceptable)
             let is_fallback = previous_lines.iter().any(|l| l.contains("} else {"));
 
-            // Violation per AGENTS.md line 376: "Never update database before lifecycle manager operations"
-            // But acceptable if in fallback (AGENTS.md line 348-351)
+            // Violation: Never update DB before lifecycle manager operations.
+            // Acceptable if in fallback.
             if !has_lifecycle_before && !has_lifecycle_after && !is_fallback {
                 // Check if this is in a handler file
                 if file_str.contains("handlers") {
@@ -311,7 +311,7 @@ pub fn check_file(file_path: &Path) -> Vec<ArchitecturalViolation> {
             });
         }
 
-        // Check for direct SQL queries in handlers per AGENTS.md lines 628-663
+        // Check for direct SQL queries in handlers (see crates/adapteros-lint/README.md)
         // Pattern: sqlx::query in handler files
         // Context-aware: Only flag if not acceptable per AGENTS.md
         if line.contains("sqlx::query") && file_str.contains("handlers") {
@@ -340,7 +340,7 @@ pub fn check_file(file_path: &Path) -> Vec<ArchitecturalViolation> {
                 let context_end = (i + 8).min(lines.len());
                 let context: String = lines[context_start..context_end].join("\n").to_lowercase();
 
-                // Per AGENTS.md line 630: SELECT queries are acceptable
+                // SELECT queries are acceptable
                 // Check if this is a SELECT query by looking at context
                 if context.contains("select")
                     || context.contains("determinism_checks")
@@ -366,7 +366,7 @@ pub fn check_file(file_path: &Path) -> Vec<ArchitecturalViolation> {
             }
         }
 
-        // Check for non-deterministic spawns per AGENTS.md lines 398-427
+        // Check for non-deterministic spawns (see crates/adapteros-lint/README.md)
         //
         // AGENTS.md Requirements:
         // - REQUIRED: Deterministic execution for inference, training, router decisions
@@ -377,7 +377,7 @@ pub fn check_file(file_path: &Path) -> Vec<ArchitecturalViolation> {
             let context_end = (i + 5).min(lines.len());
             let context: String = lines[context_start..context_end].join("\n").to_lowercase();
 
-            // REQUIRED contexts per AGENTS.md line 399-402
+            // REQUIRED contexts
             let is_deterministic_context = context.contains("training")
                 || context.contains("inference")
                 || context.contains("router")
@@ -385,7 +385,7 @@ pub fn check_file(file_path: &Path) -> Vec<ArchitecturalViolation> {
                 || context.contains("infer(")
                 || context.contains("router_decision");
 
-            // ACCEPTABLE contexts per AGENTS.md line 404-409
+            // ACCEPTABLE contexts
             let is_acceptable_context = context.contains("background")
                 || context.contains("monitoring")
                 || context.contains("signal")

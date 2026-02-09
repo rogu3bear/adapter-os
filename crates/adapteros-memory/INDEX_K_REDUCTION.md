@@ -7,17 +7,18 @@ This document provides a complete index of the K reduction integration implement
 ## File Structure
 
 ```
-/Users/star/Dev/aos/crates/adapteros-memory/
+crates/adapteros-memory/
 ├── src/
 │   ├── k_reduction_integration.rs (NEW - 585 lines)
 │   ├── k_reduction_protocol.rs (existing - protocol definitions)
 │   ├── pressure_manager.rs (MODIFIED - integration points)
 │   └── lib.rs (MODIFIED - exports)
-├── K_REDUCTION_INDEX.md (THIS FILE)
-├── K_REDUCTION_INTEGRATION_GUIDE.md (detailed guide)
+├── INDEX_K_REDUCTION.md (this file)
+├── INTEGRATION_K_REDUCTION.md (integration guide)
 ├── K_REDUCTION_CONSUMER_EXAMPLE.rs (consumer implementation)
-├── K_REDUCTION_WIRING_SUMMARY.md (technical summary)
-└── K_REDUCTION_QUICK_REFERENCE.md (quick API reference)
+├── SUMMARY_K_REDUCTION_WIRING.md (implementation summary)
+├── REFERENCE_K_REDUCTION.md (API reference)
+└── REFERENCE_QUICK_START.md (quick start)
 ```
 
 ## Core Implementation Files
@@ -573,12 +574,12 @@ crates/adapteros-memory/K_REDUCTION_INDEX.md (this file)
 
 | Document | Purpose | Location |
 |----------|---------|----------|
-| Integration Guide | Detailed how-to | K_REDUCTION_INTEGRATION_GUIDE.md |
+| Integration Guide | Detailed how-to | INTEGRATION_K_REDUCTION.md |
 | Consumer Example | Implementation reference | K_REDUCTION_CONSUMER_EXAMPLE.rs |
-| Wiring Summary | Technical details | K_REDUCTION_WIRING_SUMMARY.md |
-| Quick Reference | API cheat sheet | K_REDUCTION_QUICK_REFERENCE.md |
-| AGENTS.md | Project guidelines | /Users/star/Dev/aos/AGENTS.md |
-| ARCHITECTURE.md | System architecture | docs/ARCHITECTURE_INDEX.md |
+| Wiring Summary | Technical details | SUMMARY_K_REDUCTION_WIRING.md |
+| Quick Reference | API cheat sheet | REFERENCE_K_REDUCTION.md |
+| AGENTS.md | Project guidelines | ../../AGENTS.md |
+| ARCHITECTURE.md | System architecture | docs/ARCHITECTURE.md |
 | LIFECYCLE.md | Lifecycle state machine | docs/LIFECYCLE.md |
 
 ---
@@ -601,8 +602,8 @@ crates/adapteros-memory/K_REDUCTION_INDEX.md (this file)
 
 ### Getting Help
 
-1. Check **K_REDUCTION_QUICK_REFERENCE.md** for API
-2. See **K_REDUCTION_INTEGRATION_GUIDE.md** for patterns
+1. Check **REFERENCE_K_REDUCTION.md** for API
+2. See **INTEGRATION_K_REDUCTION.md** for patterns
 3. Review **K_REDUCTION_CONSUMER_EXAMPLE.rs** for implementation
 4. Search logs for "k_reduction" with tracing
 

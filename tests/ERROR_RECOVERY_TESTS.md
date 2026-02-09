@@ -1,6 +1,6 @@
 # Error Recovery and Fault Tolerance Test Suite
 
-**Location:** `/Users/star/Dev/aos/tests/error_recovery_integration.rs`
+**Location:** `tests/error_recovery_integration.rs`
 
 ## Overview
 

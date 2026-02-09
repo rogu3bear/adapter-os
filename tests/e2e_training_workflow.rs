@@ -13,7 +13,7 @@
 //! Citations:
 //! - Training pipeline: [source: docs/TRAINING_PIPELINE.md]
 //! - ApiTestHarness: [source: tests/common/test_harness.rs]
-//! - REST API: [source: AGENTS.md L395-L600]
+//! - REST API: [source: docs/api/openapi.json]
 
 mod common;
 

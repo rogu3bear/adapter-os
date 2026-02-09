@@ -32,7 +32,7 @@ adapterOS implements a **multi-backend architecture** that dynamically selects t
 - **User preferences** (explicit backend selection or auto-detection)
 - **Execution profile** (power efficiency vs. performance)
 
-The backend selection system is implemented in `/Users/mln-dev/Dev/adapter-os/crates/adapteros-lora-worker/src/backend_factory.rs` and uses the canonical `BackendKind` enum from `adapteros-core`.
+The backend selection system is implemented in `crates/adapteros-lora-worker/src/backend_factory.rs` and uses the canonical `BackendKind` enum from `adapteros-core`.
 
 ### Key Design Principles
 
@@ -1650,7 +1650,7 @@ Model cache budget validated: budget_mb=8192, source=AOS_MODEL_CACHE_MAX_MB
 
 **Primary Module:**
 
-- `/Users/mln-dev/Dev/adapter-os/crates/adapteros-lora-worker/src/backend_factory.rs`
+- `crates/adapteros-lora-worker/src/backend_factory.rs`
 
 **Key Types:**
 

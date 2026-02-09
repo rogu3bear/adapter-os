@@ -13,7 +13,7 @@ Production-grade rate limiting and backpressure have been added to the adapterOS
 
 ### 1. Token Bucket Rate Limiting (Per-Tenant)
 
-**File**: `/Users/star/Dev/aos/crates/adapteros-server-api/src/telemetry/mod.rs`
+**File**: `crates/adapteros-server-api/src/telemetry/mod.rs`
 
 **Key Components**:
 - `TokenBucket` struct: Implements token-based rate limiting

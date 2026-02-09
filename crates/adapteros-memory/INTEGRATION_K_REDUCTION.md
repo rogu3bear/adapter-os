@@ -494,7 +494,7 @@ tokio::spawn(async move {
 
 ## See Also
 
-- `/Users/star/Dev/aos/crates/adapteros-memory/src/k_reduction_integration.rs` - Implementation
-- `/Users/star/Dev/aos/crates/adapteros-memory/src/pressure_manager.rs` - Integration points
-- `/Users/star/Dev/aos/crates/adapteros-memory/src/k_reduction_protocol.rs` - Protocol definitions
-- `/Users/star/Dev/aos/crates/adapteros-lora-lifecycle/` - Lifecycle manager (consumer)
+- `crates/adapteros-memory/src/k_reduction_integration.rs` - Implementation
+- `crates/adapteros-memory/src/pressure_manager.rs` - Integration points
+- `crates/adapteros-memory/src/k_reduction_protocol.rs` - Protocol definitions
+- `crates/adapteros-lora-lifecycle/` - Lifecycle manager (consumer)

@@ -16,7 +16,7 @@
 
 ### 1.1 CAS Store Architecture
 
-**File:** `/Users/mln-dev/Dev/adapter-os/crates/adapteros-artifacts/src/cas.rs`
+**File:** `crates/adapteros-artifacts/src/cas.rs`
 
 The `CasStore` implements a content-addressed storage system with:
 
@@ -58,7 +58,7 @@ impl CasStore {
 
 ### 1.2 BLAKE3 Hash Implementation
 
-**File:** `/Users/mln-dev/Dev/adapter-os/crates/adapteros-core/src/hash.rs`
+**File:** `crates/adapteros-core/src/hash.rs`
 
 ```rust
 pub struct B3Hash([u8; 32]);
@@ -121,7 +121,7 @@ Every load operation verifies integrity:
 
 ### 2.3 Single-File Adapter (.aos) Verification
 
-**File:** `/Users/mln-dev/Dev/adapter-os/crates/adapteros-single-file-adapter/src/mmap_loader.rs`
+**File:** `crates/adapteros-single-file-adapter/src/mmap_loader.rs`
 
 The mmap loader verifies signatures for .aos files:
 
@@ -150,7 +150,7 @@ pub fn verify_signature(&self) -> Result<bool> {
 
 ### 3.1 Implementation
 
-**File:** `/Users/mln-dev/Dev/adapter-os/crates/adapteros-crypto/src/signature.rs`
+**File:** `crates/adapteros-crypto/src/signature.rs`
 
 adapterOS uses Ed25519 for digital signatures:
 
@@ -176,7 +176,7 @@ impl PublicKey {
 
 ### 3.2 Bundle Signing Integration
 
-**File:** `/Users/mln-dev/Dev/adapter-os/crates/adapteros-artifacts/src/lib.rs`
+**File:** `crates/adapteros-artifacts/src/lib.rs`
 
 ```rust
 pub struct SignatureMetadata {
@@ -251,7 +251,7 @@ fn test_cas_different_content_different_hash() {
 
 ### 5.1 Test Implementation
 
-**File:** `/Users/mln-dev/Dev/adapter-os/tests/content_addressing_integrity.rs`
+**File:** `tests/content_addressing_integrity.rs`
 
 Comprehensive test suite created to verify tamper detection:
 
@@ -509,25 +509,25 @@ All tests should pass, confirming:
 ### Key Files
 
 1. **Content-Addressed Store**
-   - `/Users/mln-dev/Dev/adapter-os/crates/adapteros-artifacts/src/cas.rs`
+   - `crates/adapteros-artifacts/src/cas.rs`
 
 2. **BLAKE3 Hash Implementation**
-   - `/Users/mln-dev/Dev/adapter-os/crates/adapteros-core/src/hash.rs`
+   - `crates/adapteros-core/src/hash.rs`
 
 3. **Ed25519 Signatures**
-   - `/Users/mln-dev/Dev/adapter-os/crates/adapteros-crypto/src/signature.rs`
+   - `crates/adapteros-crypto/src/signature.rs`
 
 4. **Signature Metadata**
-   - `/Users/mln-dev/Dev/adapter-os/crates/adapteros-artifacts/src/lib.rs`
+   - `crates/adapteros-artifacts/src/lib.rs`
 
 5. **Single-File Adapter Verification**
-   - `/Users/mln-dev/Dev/adapter-os/crates/adapteros-single-file-adapter/src/mmap_loader.rs`
-   - `/Users/mln-dev/Dev/adapter-os/crates/adapteros-single-file-adapter/src/format.rs`
+   - `crates/adapteros-single-file-adapter/src/mmap_loader.rs`
+   - `crates/adapteros-single-file-adapter/src/format.rs`
 
 6. **Test Suites**
-   - `/Users/mln-dev/Dev/adapter-os/tests/content_addressing_integrity.rs` (NEW)
-   - `/Users/mln-dev/Dev/adapter-os/crates/adapteros-artifacts/tests/bundle_format_tests.rs`
-   - `/Users/mln-dev/Dev/adapter-os/crates/adapteros-server-api/tests/artifact_portability_tests.rs`
+   - `tests/content_addressing_integrity.rs` (NEW)
+   - `crates/adapteros-artifacts/tests/bundle_format_tests.rs`
+   - `crates/adapteros-server-api/tests/artifact_portability_tests.rs`
 
 ---
 

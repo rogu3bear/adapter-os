@@ -1,7 +1,7 @@
 # Notification Integration Tests
 
 This document describes the comprehensive integration tests for the notification handlers located at:
-`/Users/star/Dev/aos/crates/adapteros-server-api/tests/notifications_integration.rs`
+`crates/adapteros-server-api/tests/notifications_integration.rs`
 
 ## Test Coverage
 

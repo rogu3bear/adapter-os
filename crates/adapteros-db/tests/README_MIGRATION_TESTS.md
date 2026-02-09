@@ -287,10 +287,10 @@ async fn test_migration_XXXX_data_insertion() -> Result<()> {
 
 ## References
 
-- **Migration Files**: `/Users/mln-dev/Dev/adapter-os/migrations/`
-- **Test File**: `/Users/mln-dev/Dev/adapter-os/crates/adapteros-db/tests/migration_validation_tests.rs`
-- **Detailed Report**: `/Users/mln-dev/Dev/adapter-os/MIGRATION_VALIDATION_REPORT.md`
-- **Issues Summary**: `/Users/mln-dev/Dev/adapter-os/MIGRATION_ISSUES_SUMMARY.md`
+- **Migration Files**: `migrations/`
+- **Test File**: `crates/adapteros-db/tests/migration_validation_tests.rs`
+- **Detailed Report**: `MIGRATION_VALIDATION_REPORT.md`
+- **Issues Summary**: `MIGRATION_ISSUES_SUMMARY.md`
 
 ---
 

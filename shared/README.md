@@ -4,7 +4,7 @@ Shared tutorials, examples, and educational content.
 
 ## Contents
 
-- [`tutorials.json`](file:///Users/star/Dev/adapter-os/shared/tutorials.json) - Tutorial definitions and metadata (4.8KB)
+- [`tutorials.json`](tutorials.json) - Tutorial definitions and metadata (4.8KB)
 
 ## Purpose
 
@@ -16,8 +16,8 @@ This directory contains shared resources referenced across multiple components:
 
 ## Related
 
-- [`examples/`](file:///Users/star/Dev/adapter-os/examples) - Runnable code examples
-- [`docs/`](file:///Users/star/Dev/adapter-os/docs) - Comprehensive documentation
+- [`examples/`](../examples/) - Runnable code examples
+- [`docs/`](../docs/) - Comprehensive documentation
 
 ## Usage
 

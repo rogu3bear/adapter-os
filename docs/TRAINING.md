@@ -1616,7 +1616,8 @@ Subcode: trust_blocked
 
 ### Documentation
 
-- [AGENTS.md](../AGENTS.md) - Main developer guide
+- [AGENTS.md](../AGENTS.md) - Developer quick reference (commands + invariants index)
+- [CLAUDE.md](../CLAUDE.md) - Extended developer guide
 - [TRAINING_METRICS.md](TRAINING_METRICS.md) - Detailed metrics system
 - See [LIFECYCLE.md](LIFECYCLE.md) for .aos archive specification
 - [DATABASE.md](DATABASE.md) - Complete schema

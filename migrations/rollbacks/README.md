@@ -318,9 +318,9 @@ diff <(sqlite3 aos.db ".schema") <(sqlite3 aos_rollback_test.db ".schema")
 
 ## References
 
-- Main migrations directory: `/Users/star/Dev/aos/migrations/`
+- Main migrations directory: `migrations/`
 - Forward migration files for reference schema
-- Database schema documentation in `/Users/star/Dev/aos/docs/`
+- Database schema documentation in `docs/`
 - Foreign key constraint tracking in SQLite: `PRAGMA foreign_key_list(table_name);`
 
 ---

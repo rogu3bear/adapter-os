@@ -4,7 +4,7 @@ This directory enables workspace-level integration test discovery by Cargo.
 
 ## Purpose
 
-The [`lib.rs`](file:///Users/star/Dev/adapter-os/src/lib.rs) file re-exports key modules needed by integration tests located in [`tests/`](file:///Users/star/Dev/adapter-os/tests).
+The [`lib.rs`](lib.rs) file re-exports key modules needed by integration tests located in [`tests/`](../tests/).
 
 ## Why This Exists
 
@@ -16,14 +16,14 @@ Cargo's test discovery mechanism looks for a `src/lib.rs` file at the workspace 
 
 ## Relationship to Crates
 
-This is NOT a crate itself. It's a test support file. All actual crates are in [`crates/`](file:///Users/star/Dev/adapter-os/crates).
+This is NOT a crate itself. It's a test support file. All actual crates are in [`crates/`](../crates/).
 
 ## Actual Tests
 
 Integration tests are located in:
 
-- [`tests/`](file:///Users/star/Dev/adapter-os/tests) - Workspace integration tests
-- [`fuzz/`](file:///Users/star/Dev/adapter-os/fuzz) - Fuzzing targets
+- [`tests/`](../tests/) - Workspace integration tests
+- [`fuzz/`](../fuzz/) - Fuzzing targets
 - `crates/*/tests/` - Per-crate unit tests
 
 ## Usage

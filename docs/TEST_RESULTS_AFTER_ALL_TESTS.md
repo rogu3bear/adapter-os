@@ -4,7 +4,7 @@
 - Host: MacBook Pro (Mac16,5) — Apple M4 Max, 16 cores (12P+4E)
 - Memory: 48 GB
 - OS: macOS 26.2 (Build 25C56), Darwin 25.2.0 (arm64)
-- Repo: `/Users/star/Dev/adapter-os` @ `f6f3e1548d1ebcba95573c97d85b94de4f75d6b4`
+- Repo: `<repo-root>` @ `f6f3e1548d1ebcba95573c97d85b94de4f75d6b4`
 - MLX-LM: 0.30.5
 
 ## Model Inventory (var/models)

@@ -8,7 +8,7 @@
 //!
 //! Citations:
 //! - ApiTestHarness: [source: tests/common/test_harness.rs]
-//! - Streaming API: [source: AGENTS.md L535-L560]
+//! - Streaming API: [source: docs/api/openapi.json]
 //! - Hot-swap: [source: docs/ARCHITECTURE.md#adapter-lifecycle]
 
 #![allow(unused_variables)]

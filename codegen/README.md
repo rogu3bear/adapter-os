@@ -4,7 +4,7 @@ Configuration files for code generation tools and templates.
 
 ## Contents
 
-- [`python.json`](file:///Users/star/Dev/adapter-os/codegen/python.json) - Python code generation templates and configuration
+- [`python.json`](python.json) - Python code generation templates and configuration
 
 ## Purpose
 

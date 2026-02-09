@@ -65,7 +65,7 @@ services:
       - "configs/cp.toml"
       - "--skip-pf-check"
       - "--single-writer"
-    working_directory: "/Users/star/Dev/adapter-os"
+    working_directory: "."
     environment:
       AOS_SERVER_PORT: "8080"
     port: 8080
@@ -128,7 +128,7 @@ services:
     description: "Manages training job scheduling and execution"
     command: "cargo"
     args: ["run", "-p", "adapteros-orchestrator"]
-    working_directory: "/Users/star/Dev/adapter-os"
+    working_directory: "."
     environment:
       RUST_LOG: "adapteros_orchestrator=info"
     port: 3302
@@ -159,7 +159,7 @@ services:
     description: "Collects system and application metrics"
     command: "cargo"
     args: ["run", "-p", "adapteros-metrics-collector"]
-    working_directory: "/Users/star/Dev/adapter-os"
+    working_directory: "."
     environment:
       RUST_LOG: "adapteros_metrics_collector=info"
     port: 9090
@@ -190,7 +190,7 @@ services:
     description: "Distributed node agent for federation"
     command: "cargo"
     args: ["run", "-p", "adapteros-node", "--", "--port", "9443"]
-    working_directory: "/Users/star/Dev/adapter-os"
+    working_directory: "."
     environment:
       RUST_LOG: "adapteros_node=info"
       AOS_NODE_PORT: "9443"

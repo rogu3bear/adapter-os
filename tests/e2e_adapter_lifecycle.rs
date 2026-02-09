@@ -12,7 +12,7 @@
 //! Citations:
 //! - ApiTestHarness: [source: tests/common/test_harness.rs]
 //! - Adapter lifecycle: [source: docs/LIFECYCLE.md]
-//! - REST API reference: [source: AGENTS.md L395-L600]
+//! - REST API reference: [source: docs/api/openapi.json]
 
 mod common;
 

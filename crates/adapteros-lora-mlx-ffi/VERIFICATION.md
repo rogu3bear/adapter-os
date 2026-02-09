@@ -91,7 +91,7 @@ The KV cache implementation in model.rs is complete and correct.
 
 ## Files Modified
 
-- `/Users/mln-dev/Dev/adapter-os/crates/adapteros-lora-mlx-ffi/src/model.rs`
+- `crates/adapteros-lora-mlx-ffi/src/model.rs`
 
 ## Files Created
 

@@ -29,7 +29,7 @@ jwt_secret = ""
 jwt_mode = "hmac"
 
 [paths]
-# All paths relative to repo root - no /Users/... paths allowed
+# All paths relative to repo root - no absolute user paths allowed
 artifacts_root = "var/artifacts"
 bundles_root = "var/bundles"
 adapters_root = "var/adapters"

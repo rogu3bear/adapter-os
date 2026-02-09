@@ -1487,8 +1487,6 @@ start_secd() {
         > "$SECD_LOG" 2>&1 &
     local pid=$!
 
-    echo "$pid" > "$SECD_PID_FILE"
-
     # Wait for socket to be created
     local waited=0
     while [ $waited -lt "$SECD_TIMEOUT" ]; do

@@ -1134,7 +1134,8 @@ The promotion workflow enforces the following policies:
 ## Related Documentation
 
 - [API_REFERENCE.md](API_REFERENCE.md) - Complete API reference
-- [AGENTS.md](../AGENTS.md) - Development guide
+- [AGENTS.md](../AGENTS.md) - Developer quick reference (commands + invariants index)
+- [CLAUDE.md](../CLAUDE.md) - Extended developer guide
 - [ACCESS_CONTROL.md](ACCESS_CONTROL.md) - Access control (RBAC + tenant isolation)
 - [POLICIES.md](POLICIES.md) - Policy enforcement
 - See [SECURITY.md](SECURITY.md) for event tracking and telemetry
