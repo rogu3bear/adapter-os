@@ -543,6 +543,28 @@ fn serialize_safe<T: Serialize>(value: &T, context: &str) -> String {
     }
 }
 
+/// Returns `true` if the trigger kind indicates a content-safety pause where
+/// partial generated text must be redacted from the client-facing SSE event.
+///
+/// Safety triggers are those where the system flagged the generated content itself
+/// as problematic. Leaking `text_so_far` for these defeats the purpose of the pause.
+///
+/// Non-safety triggers (human review, quality check, rate limit, etc.) are operational
+/// pauses where the client seeing partial text is expected and useful.
+///
+/// The recognised values mirror `parse_trigger_kind` in `pause_tracker.rs`.
+fn is_safety_trigger(trigger_kind: &str) -> bool {
+    matches!(
+        trigger_kind.to_lowercase().as_str(),
+        "policy_violation"
+            | "policy"
+            | "policy_approval"
+            | "safety_gate"
+            | "threat"
+            | "threat_escalation"
+    )
+}
+
 fn run_envelope_event(envelope: &adapteros_api_types::RunEnvelope) -> Event {
     Event::default()
         .event("aos.run_envelope")
@@ -1319,6 +1341,7 @@ pub async fn streaming_infer(
                 Duration::from_secs(stream_config.inference_heartbeat_interval_secs),
                 pending_evidence_ids, // Pass evidence IDs for message binding
                 idempotency_key,      // Pass idempotency key for stream recovery
+                Duration::from_secs(stream_config.max_pause_duration_secs.unwrap_or(1800)),
             ),
             Some(drop_guard), // Keep guard alive while stream is active
         ),
@@ -1443,6 +1466,9 @@ struct LoadingStreamState {
     /// Session token adapter lock (if present)
     session_lock: Option<ResolvedSessionTokenLock>,
     token_rx: Option<mpsc::Receiver<WorkerStreamToken>>,
+    /// Worker pause events (human-in-the-loop review)
+    pause_rx: Option<mpsc::Receiver<WorkerStreamPaused>>,
+    pause_rx_closed: bool,
     done_rx: Option<oneshot::Receiver<Result<InferenceResult, InferenceError>>>,
     /// Stop reason code (PRD: Hard Deterministic Stop Controller)
     stop_reason_code: Option<adapteros_api_types::inference::StopReasonCode>,
@@ -1496,6 +1522,8 @@ impl LoadingStreamState {
             stop_policy_digest_b3: None,
             pending_evidence_ids: Vec::new(), // Initialized empty, populated during RAG retrieval
             token_rx: None,
+            pause_rx: None,
+            pause_rx_closed: false,
             done_rx: None,
         }
     }
@@ -1581,19 +1609,68 @@ impl LoadingStreamState {
                     }
                 }
 
-                let token = if let Some(rx) = self.token_rx.as_mut() {
-                    rx.recv().await
-                } else {
-                    None
-                };
+                // Select across both pause and token channels, matching StreamState's
+                // pattern. A pause during loading/early-inference is safety-relevant
+                // and must not be dropped.
+                //
+                // The loop handles the case where pause_rx closes (sender dropped):
+                // we set pause_rx_closed and re-enter the select on token_rx only,
+                // avoiding a recursive async call that would require boxing.
+                loop {
+                    let pause_closed = self.pause_rx_closed;
 
-                if let Some(token) = token {
-                    self.token_count += 1;
-                    return Some(InferenceEvent::Token {
-                        text: token.text,
-                        token_id: token.token_id,
-                    });
-                }
+                    enum LoadingSelect {
+                        Paused(Option<WorkerStreamPaused>),
+                        Token(Option<WorkerStreamToken>),
+                    }
+
+                    let selected = if let Some(token_rx) = self.token_rx.as_mut() {
+                        if let Some(pause_rx) = self.pause_rx.as_mut() {
+                            tokio::select! {
+                                paused = pause_rx.recv(), if !pause_closed => {
+                                    LoadingSelect::Paused(paused)
+                                }
+                                token = token_rx.recv() => {
+                                    LoadingSelect::Token(token)
+                                }
+                            }
+                        } else {
+                            LoadingSelect::Token(token_rx.recv().await)
+                        }
+                    } else {
+                        LoadingSelect::Token(None)
+                    };
+
+                    match selected {
+                        LoadingSelect::Paused(Some(paused)) => {
+                            return Some(InferenceEvent::Paused {
+                                pause_id: paused.pause_id,
+                                inference_id: paused.inference_id,
+                                trigger_kind: paused.trigger_kind,
+                                context: paused.context,
+                                text_so_far: paused.text_so_far,
+                                token_count: paused.token_count,
+                            });
+                        }
+                        LoadingSelect::Paused(None) => {
+                            // Sender dropped; stop selecting to avoid a tight loop.
+                            self.pause_rx_closed = true;
+                            // Re-enter to select on token_rx only.
+                            continue;
+                        }
+                        LoadingSelect::Token(Some(token)) => {
+                            self.token_count += 1;
+                            return Some(InferenceEvent::Token {
+                                text: token.text,
+                                token_id: token.token_id,
+                            });
+                        }
+                        LoadingSelect::Token(None) => {
+                            // token_rx closed; fall through to done_rx handling below.
+                            break;
+                        }
+                    }
+                } // end loop
 
                 let done_rx = self.done_rx.take();
                 let result = if let Some(done_rx) = done_rx {
@@ -1945,7 +2022,7 @@ impl LoadingStreamState {
             })
             .streaming
             .clone();
-        let (token_rx, _pause_rx, done_rx) = spawn_streaming_inference(
+        let (token_rx, pause_rx, done_rx) = spawn_streaming_inference(
             self.state.clone(),
             internal_request,
             self.cancellation_token.clone(),
@@ -1953,6 +2030,7 @@ impl LoadingStreamState {
         );
 
         self.token_rx = Some(token_rx);
+        self.pause_rx = Some(pause_rx);
         self.done_rx = Some(done_rx);
         Ok(())
     }
@@ -1988,6 +2066,15 @@ struct StreamState {
     pause_rx: mpsc::Receiver<WorkerStreamPaused>,
     pause_rx_closed: bool,
     pause_active: bool,
+    /// When the current pause started (set on pause entry, cleared on resume).
+    pause_started_at: Option<Instant>,
+    /// Maximum duration a pause may hold the connection open before expiring.
+    max_pause_duration: Duration,
+    /// Pause ID of the currently active pause (if any), for server-side review verification
+    active_pause_id: Option<String>,
+    /// Whether the currently active pause is a safety-triggered pause requiring review
+    /// before tokens can resume (policy_violation, threat_escalation, safety_gate, etc.)
+    active_pause_is_safety: bool,
     done_rx: Option<oneshot::Receiver<Result<InferenceResult, InferenceError>>>,
     // Idle timeout tracking
     last_token_at: Instant,
@@ -2079,6 +2166,7 @@ impl StreamState {
         heartbeat_interval: Duration,
         pending_evidence_ids: Vec<String>,
         idempotency_key: Option<String>,
+        max_pause_duration: Duration,
     ) -> Self {
         let canonical_request_id = run_envelope.run_id.clone();
         if request_id != canonical_request_id {
@@ -2105,6 +2193,10 @@ impl StreamState {
             pause_rx,
             pause_rx_closed: false,
             pause_active: false,
+            pause_started_at: None,
+            max_pause_duration,
+            active_pause_id: None,
+            active_pause_is_safety: false,
             done_rx: Some(done_rx),
             last_token_at: Instant::now(),
             idle_timeout,
@@ -2126,18 +2218,76 @@ impl StreamState {
         }
     }
 
-    /// Check if stream has been idle for too long
-    fn is_idle(&self) -> bool {
-        // When the worker pauses inference for review, the stream must remain open
-        // indefinitely to allow resume on the same UDS stream.
+    /// Check if stream has been idle for too long.
+    ///
+    /// When the worker pauses inference for review, the stream remains open
+    /// to allow resume on the same UDS stream -- but only up to
+    /// `max_pause_duration`. After that the pause is considered expired and
+    /// the normal idle-timeout check resumes.
+    fn is_idle(&mut self) -> bool {
         if self.pause_active {
-            return false;
+            if let Some(started) = self.pause_started_at {
+                if started.elapsed() >= self.max_pause_duration {
+                    warn!(
+                        request_id = %self.request_id,
+                        pause_secs = started.elapsed().as_secs(),
+                        max_secs = self.max_pause_duration.as_secs(),
+                        "Pause exceeded max_pause_duration, expiring"
+                    );
+                    self.clear_pause_state();
+                    // Fall through to the normal idle check below.
+                } else {
+                    return false;
+                }
+            } else {
+                return false;
+            }
         }
         self.last_token_at.elapsed() > self.idle_timeout
     }
 
     fn mark_token_activity(&mut self) {
         self.last_token_at = Instant::now();
+    }
+
+    /// Returns true if the given trigger kind represents a safety-critical pause
+    /// that requires human review before tokens may resume.
+    ///
+    /// Delegates to the module-level `is_safety_trigger` function which is the
+    /// canonical implementation shared with `format_event` for SSE redaction.
+    fn is_safety_trigger(trigger_kind: &str) -> bool {
+        is_safety_trigger(trigger_kind)
+    }
+
+    /// Check whether an active safety pause has been reviewed.
+    ///
+    /// Returns `true` if resume is allowed (pause was reviewed or no tracker configured).
+    /// Returns `false` if the pause is still pending review — tokens must be dropped.
+    ///
+    /// This is a non-blocking read lock on the pause tracker; it will never deadlock
+    /// the token receive path.
+    fn is_safety_pause_reviewed(&self) -> bool {
+        let pause_id = match self.active_pause_id.as_deref() {
+            Some(id) => id,
+            None => return true, // No active pause — allow
+        };
+
+        let tracker = match self.state.pause_tracker.as_ref() {
+            Some(t) => t,
+            None => return true, // No tracker configured — allow (non-production path)
+        };
+
+        // If the pause_id is still in the tracker, the review has NOT been submitted.
+        // submit_review() removes the entry on success.
+        tracker.get_state_by_pause_id(pause_id).is_none()
+    }
+
+    /// Clear pause tracking state when a pause ends (reviewed, done, or error).
+    fn clear_pause_state(&mut self) {
+        self.pause_active = false;
+        self.pause_started_at = None;
+        self.active_pause_id = None;
+        self.active_pause_is_safety = false;
     }
 
     fn error_event(&self, code: &str, message: impl Into<String>, retryable: bool) -> StreamEvent {
@@ -2231,6 +2381,17 @@ impl StreamState {
                         match paused {
                             Some(paused) => {
                                 self.pause_active = true;
+                                self.pause_started_at = Some(Instant::now());
+                                self.active_pause_id = Some(paused.pause_id.clone());
+                                self.active_pause_is_safety = Self::is_safety_trigger(&paused.trigger_kind);
+                                if self.active_pause_is_safety {
+                                    info!(
+                                        request_id = %self.request_id,
+                                        pause_id = %paused.pause_id,
+                                        trigger_kind = %paused.trigger_kind,
+                                        "Safety pause activated — tokens gated until review submitted"
+                                    );
+                                }
                                 return Some(StreamEvent::Paused(paused));
                             }
                             None => {
@@ -2243,8 +2404,31 @@ impl StreamState {
                     token = self.token_rx.recv() => {
                         match token {
                             Some(token) => {
+                                // Server-side review gate: if a safety-triggered pause is active
+                                // and the review has NOT been submitted yet, drop the token.
+                                // This prevents a compromised or buggy worker from resuming
+                                // inference without human approval for safety-critical pauses.
+                                if self.pause_active && self.active_pause_is_safety {
+                                    if !self.is_safety_pause_reviewed() {
+                                        warn!(
+                                            request_id = %self.request_id,
+                                            pause_id = ?self.active_pause_id,
+                                            "Dropping token: safety pause active but review not yet submitted \
+                                             (possible worker bug or compromise)"
+                                        );
+                                        // Do NOT clear pause_active, do NOT emit the token.
+                                        // Continue the loop to wait for more events.
+                                        continue;
+                                    }
+                                    // Review was submitted — allow resume and clear pause state.
+                                    info!(
+                                        request_id = %self.request_id,
+                                        pause_id = ?self.active_pause_id,
+                                        "Safety pause review verified — resuming token flow"
+                                    );
+                                }
                                 self.mark_token_activity();
-                                self.pause_active = false;
+                                self.clear_pause_state();
                                 self.token_count += 1;
                                 return Some(StreamEvent::Token(token.text));
                             }
@@ -2261,7 +2445,7 @@ impl StreamState {
                                         self.stop_reason_code = result.stop_reason_code;
                                         self.stop_reason_token_index = result.stop_reason_token_index;
                                         self.stop_policy_digest_b3 = result.stop_policy_digest_b3.clone();
-                                        self.pause_active = false;
+                                        self.clear_pause_state();
                                         // Capture finish_reason for stream_finished event
                                         self.captured_finish_reason = Some(result.finish_reason.clone());
                                         // Transition to lifecycle finish phase instead of Done
@@ -2296,12 +2480,12 @@ impl StreamState {
                                             ));
                                         }
                                         self.phase = StreamPhase::Done;
-                                        self.pause_active = false;
+                                        self.clear_pause_state();
                                         return Some(self.map_inference_error(err));
                                     }
                                     None => {
                                         self.phase = StreamPhase::Done;
-                                        self.pause_active = false;
+                                        self.clear_pause_state();
                                         return Some(self.error_event(
                                             "STREAM_ENDED",
                                             "Stream ended without completion",
@@ -2416,12 +2600,19 @@ impl StreamState {
                 Event::default().data(serialize_safe(&chunk, "stream_token"))
             }
             StreamEvent::Paused(paused) => {
+                // Redact partial text for safety-triggered pauses to avoid leaking
+                // the exact content that was flagged as unsafe to the client.
+                let text_so_far = if is_safety_trigger(&paused.trigger_kind) {
+                    None
+                } else {
+                    paused.text_so_far
+                };
                 let payload = InferenceEvent::Paused {
                     pause_id: paused.pause_id,
                     inference_id: paused.inference_id,
                     trigger_kind: paused.trigger_kind,
                     context: paused.context,
-                    text_so_far: paused.text_so_far,
+                    text_so_far,
                     token_count: paused.token_count,
                 };
                 Event::default()
@@ -2926,8 +3117,9 @@ mod tests {
             cancellation,
             Duration::from_secs(5),
             Duration::from_millis(10),
-            Vec::new(), // No pending evidence IDs in test
-            None,       // idempotency_key
+            Vec::new(),                // No pending evidence IDs in test
+            None,                      // idempotency_key
+            Duration::from_secs(1800), // max_pause_duration (default)
         );
 
         // First event is now StreamLifecycleStart -> StreamStarted
@@ -2995,13 +3187,17 @@ mod tests {
             Duration::from_secs(0),    // disable StreamEvent heartbeats
             Vec::new(),
             None,
+            Duration::from_secs(1800), // large max_pause_duration (won't expire in this test)
         );
 
         assert!(matches!(
             stream.next_event().await,
             Some(StreamEvent::StreamStarted { .. })
         ));
-        assert!(matches!(stream.next_event().await, Some(StreamEvent::Start)));
+        assert!(matches!(
+            stream.next_event().await,
+            Some(StreamEvent::Start)
+        ));
 
         pause_tx
             .send(WorkerStreamPaused {
@@ -3030,6 +3226,79 @@ mod tests {
     }
 
     #[tokio::test]
+    async fn stream_pause_expires_after_max_duration() {
+        let state = build_test_state().await;
+        let (_token_tx, token_rx) = mpsc::channel(1);
+        let (pause_tx, pause_rx) = mpsc::channel(1);
+        let (_done_tx, done_rx) = oneshot::channel();
+        let cancellation = CancellationToken::new();
+        let run_id = "chatcmpl-paused-expire";
+
+        let mut stream = StreamState::new(
+            state,
+            run_id.to_string(),
+            test_run_envelope(run_id, "tenant-1"),
+            "test-model".to_string(),
+            token_rx,
+            pause_rx,
+            done_rx,
+            None,
+            None,
+            "tenant-1".to_string(),
+            "user-1".to_string(),
+            None,
+            cancellation,
+            Duration::from_millis(10), // very small idle timeout
+            Duration::from_secs(0),    // disable heartbeats
+            Vec::new(),
+            None,
+            Duration::from_millis(30), // very short max_pause_duration for test
+        );
+
+        assert!(matches!(
+            stream.next_event().await,
+            Some(StreamEvent::StreamStarted { .. })
+        ));
+        assert!(matches!(
+            stream.next_event().await,
+            Some(StreamEvent::Start)
+        ));
+
+        pause_tx
+            .send(WorkerStreamPaused {
+                pause_id: "pause-expire-1".to_string(),
+                inference_id: run_id.to_string(),
+                trigger_kind: "uncertainty".to_string(),
+                context: Some("needs review".to_string()),
+                text_so_far: Some("partial".to_string()),
+                token_count: 3,
+            })
+            .await
+            .unwrap();
+
+        assert!(matches!(
+            stream.next_event().await,
+            Some(StreamEvent::Paused(_))
+        ));
+
+        // Wait longer than the max_pause_duration (30ms) AND the idle_timeout (10ms).
+        tokio::time::sleep(Duration::from_millis(50)).await;
+
+        // The pause should have expired, re-enabling idle-timeout detection.
+        // next_event should now return STREAM_IDLE_TIMEOUT instead of blocking.
+        let res = tokio::time::timeout(Duration::from_millis(100), stream.next_event()).await;
+        assert!(
+            res.is_ok(),
+            "expected next_event() to return (pause expired + idle timeout), but it blocked"
+        );
+        let event = res.unwrap();
+        assert!(
+            matches!(&event, Some(StreamEvent::Error { code, .. }) if code == "STREAM_IDLE_TIMEOUT"),
+            "expected STREAM_IDLE_TIMEOUT after pause expiry, got: {event:?}"
+        );
+    }
+
+    #[tokio::test]
     async fn backpressure_keeps_stream_responsive() {
         let state = build_test_state().await;
         let (token_tx, token_rx) = mpsc::channel(1);
@@ -3053,8 +3322,9 @@ mod tests {
             cancellation,
             Duration::from_secs(2),
             Duration::from_millis(25),
-            Vec::new(), // No pending evidence IDs in test
-            None,       // idempotency_key
+            Vec::new(),                // No pending evidence IDs in test
+            None,                      // idempotency_key
+            Duration::from_secs(1800), // max_pause_duration (default)
         );
 
         let producer = tokio::spawn(async move {
@@ -3139,8 +3409,9 @@ mod tests {
             cancellation,
             Duration::from_secs(5),
             Duration::from_secs(0),
-            Vec::new(), // No pending evidence IDs in test
-            None,       // idempotency_key
+            Vec::new(),                // No pending evidence IDs in test
+            None,                      // idempotency_key
+            Duration::from_secs(1800), // max_pause_duration (default)
         );
 
         let event = stream.format_event(StreamEvent::Error {
@@ -3198,8 +3469,9 @@ mod tests {
             cancellation,
             Duration::from_secs(5),
             Duration::from_secs(0),
-            Vec::new(), // No pending evidence IDs in test
-            None,       // idempotency_key
+            Vec::new(),                // No pending evidence IDs in test
+            None,                      // idempotency_key
+            Duration::from_secs(1800), // max_pause_duration (default)
         );
 
         // First event is now StreamLifecycleStart -> StreamStarted
@@ -3515,5 +3787,176 @@ mod tests {
         // RAG should be disabled when no collection_id
         assert!(!internal.rag_enabled);
         assert!(internal.rag_collection_id.is_none());
+    }
+
+    #[test]
+    fn is_safety_trigger_classifies_correctly() {
+        // Safety triggers: text_so_far must be redacted
+        assert!(is_safety_trigger("policy_violation"));
+        assert!(is_safety_trigger("policy"));
+        assert!(is_safety_trigger("policy_approval"));
+        assert!(is_safety_trigger("safety_gate"));
+        assert!(is_safety_trigger("threat"));
+        assert!(is_safety_trigger("threat_escalation"));
+
+        // Case-insensitive
+        assert!(is_safety_trigger("Policy_Violation"));
+        assert!(is_safety_trigger("THREAT_ESCALATION"));
+        assert!(is_safety_trigger("Safety_Gate"));
+
+        // Non-safety triggers: text_so_far is preserved
+        assert!(!is_safety_trigger("uncertainty"));
+        assert!(!is_safety_trigger("ExplicitTag"));
+        assert!(!is_safety_trigger("explicit_tag"));
+        assert!(!is_safety_trigger("review"));
+        assert!(!is_safety_trigger("manual"));
+        assert!(!is_safety_trigger("user_requested"));
+        assert!(!is_safety_trigger("resource"));
+        assert!(!is_safety_trigger("resource_wait"));
+        assert!(!is_safety_trigger("complexity_threshold"));
+        assert!(!is_safety_trigger("unknown"));
+    }
+
+    #[test]
+    fn paused_event_redacts_text_for_safety_trigger() {
+        let paused = WorkerStreamPaused {
+            pause_id: "pause-safety-001".to_string(),
+            inference_id: "inf-safety-001".to_string(),
+            trigger_kind: "policy_violation".to_string(),
+            context: Some("Content flagged by safety policy".to_string()),
+            text_so_far: Some("bad content that should not leak".to_string()),
+            token_count: 7,
+        };
+
+        // Simulate what format_event does for Paused
+        let text_so_far = if is_safety_trigger(&paused.trigger_kind) {
+            None
+        } else {
+            paused.text_so_far.clone()
+        };
+
+        let payload = InferenceEvent::Paused {
+            pause_id: paused.pause_id,
+            inference_id: paused.inference_id,
+            trigger_kind: paused.trigger_kind,
+            context: paused.context,
+            text_so_far,
+            token_count: paused.token_count,
+        };
+
+        let json = serde_json::to_string(&payload).unwrap();
+        let parsed: serde_json::Value = serde_json::from_str(&json).unwrap();
+
+        assert!(
+            parsed.get("text_so_far").is_none(),
+            "text_so_far must be absent (skip_serializing_if = None) for policy_violation, got: {json}"
+        );
+        assert_eq!(parsed["trigger_kind"], "policy_violation");
+        assert_eq!(parsed["pause_id"], "pause-safety-001");
+    }
+
+    #[test]
+    fn paused_event_redacts_text_for_threat_escalation() {
+        let paused = WorkerStreamPaused {
+            pause_id: "pause-threat-001".to_string(),
+            inference_id: "inf-threat-001".to_string(),
+            trigger_kind: "threat_escalation".to_string(),
+            context: Some("Threat detected".to_string()),
+            text_so_far: Some("dangerous content".to_string()),
+            token_count: 3,
+        };
+
+        let text_so_far = if is_safety_trigger(&paused.trigger_kind) {
+            None
+        } else {
+            paused.text_so_far.clone()
+        };
+
+        let payload = InferenceEvent::Paused {
+            pause_id: paused.pause_id,
+            inference_id: paused.inference_id,
+            trigger_kind: paused.trigger_kind,
+            context: paused.context,
+            text_so_far,
+            token_count: paused.token_count,
+        };
+
+        let json = serde_json::to_string(&payload).unwrap();
+        let parsed: serde_json::Value = serde_json::from_str(&json).unwrap();
+
+        assert!(
+            parsed.get("text_so_far").is_none(),
+            "text_so_far must be absent for threat_escalation, got: {json}"
+        );
+    }
+
+    #[test]
+    fn paused_event_redacts_text_for_safety_gate() {
+        let paused = WorkerStreamPaused {
+            pause_id: "pause-gate-001".to_string(),
+            inference_id: "inf-gate-001".to_string(),
+            trigger_kind: "safety_gate".to_string(),
+            context: None,
+            text_so_far: Some("unsafe output".to_string()),
+            token_count: 2,
+        };
+
+        let text_so_far = if is_safety_trigger(&paused.trigger_kind) {
+            None
+        } else {
+            paused.text_so_far.clone()
+        };
+
+        let payload = InferenceEvent::Paused {
+            pause_id: paused.pause_id,
+            inference_id: paused.inference_id,
+            trigger_kind: paused.trigger_kind,
+            context: paused.context,
+            text_so_far,
+            token_count: paused.token_count,
+        };
+
+        let json = serde_json::to_string(&payload).unwrap();
+        let parsed: serde_json::Value = serde_json::from_str(&json).unwrap();
+
+        assert!(
+            parsed.get("text_so_far").is_none(),
+            "text_so_far must be absent for safety_gate, got: {json}"
+        );
+    }
+
+    #[test]
+    fn paused_event_preserves_text_for_non_safety_trigger() {
+        let paused = WorkerStreamPaused {
+            pause_id: "pause-review-001".to_string(),
+            inference_id: "inf-review-001".to_string(),
+            trigger_kind: "uncertainty".to_string(),
+            context: Some("needs human review".to_string()),
+            text_so_far: Some("partial output that is fine".to_string()),
+            token_count: 5,
+        };
+
+        let text_so_far = if is_safety_trigger(&paused.trigger_kind) {
+            None
+        } else {
+            paused.text_so_far.clone()
+        };
+
+        let payload = InferenceEvent::Paused {
+            pause_id: paused.pause_id,
+            inference_id: paused.inference_id,
+            trigger_kind: paused.trigger_kind,
+            context: paused.context,
+            text_so_far,
+            token_count: paused.token_count,
+        };
+
+        let json = serde_json::to_string(&payload).unwrap();
+        let parsed: serde_json::Value = serde_json::from_str(&json).unwrap();
+
+        assert_eq!(
+            parsed["text_so_far"], "partial output that is fine",
+            "text_so_far must be preserved for non-safety triggers, got: {json}"
+        );
     }
 }
