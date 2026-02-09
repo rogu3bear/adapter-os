@@ -1,0 +1,59 @@
+{
+  "global_expected_order": [
+    "TraceLayer::new_for_http",
+    "ErrorCodeEnforcementLayer",
+    "idempotency_middleware",
+    "cors_layer",
+    "rate_limiting_middleware",
+    "request_size_limit_middleware",
+    "security_headers_middleware",
+    "caching::caching_middleware",
+    "versioning::versioning_middleware",
+    "trace_context_middleware",
+    "request_id::request_id_middleware",
+    "seed_isolation_middleware",
+    "client_ip_middleware",
+    "request_tracking_middleware",
+    "lifecycle_gate",
+    "drain_middleware",
+    "observability_middleware",
+    "CompressionLayer::new"
+  ],
+  "global_present_order": [
+    "TraceLayer::new_for_http",
+    "ErrorCodeEnforcementLayer",
+    "idempotency_middleware",
+    "cors_layer",
+    "rate_limiting_middleware",
+    "request_size_limit_middleware",
+    "security_headers_middleware",
+    "caching::caching_middleware",
+    "versioning::versioning_middleware",
+    "trace_context_middleware",
+    "request_id::request_id_middleware",
+    "seed_isolation_middleware",
+    "client_ip_middleware",
+    "request_tracking_middleware",
+    "lifecycle_gate",
+    "drain_middleware",
+    "observability_middleware",
+    "CompressionLayer::new"
+  ],
+  "protected_expected_order": [
+    "auth_middleware",
+    "tenant_route_guard_middleware",
+    "csrf_middleware",
+    "context_middleware",
+    "policy_enforcement_middleware",
+    "audit_middleware"
+  ],
+  "protected_present_order": [
+    "auth_middleware",
+    "tenant_route_guard_middleware",
+    "csrf_middleware",
+    "context_middleware",
+    "policy_enforcement_middleware",
+    "audit_middleware"
+  ],
+  "source": "crates/adapteros-server-api/src/routes/mod.rs"
+}

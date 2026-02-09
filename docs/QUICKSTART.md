@@ -59,10 +59,10 @@ ln -sf target/release/aosctl ./aosctl
 # Option 1: Full stack (backend + worker, recommended)
 ./start
 
-# Option 2: Dev server only (control plane)
-cargo run -p adapteros-server -- --config configs/cp.toml
+# Option 2: Backend only (canonical helper)
+./start backend
 
-# Option 3: Dev server with auth disabled (for testing)
+# Option 3: Backend only via cargo (advanced/manual)
 AOS_DEV_NO_AUTH=1 cargo run -p adapteros-server -- --config configs/cp.toml
 ```
 
@@ -108,22 +108,19 @@ cd crates/adapteros-ui
 trunk serve
 
 # Terminal 2: Backend server
-cargo run --release --bin adapteros-server -- --config configs/cp.toml
+AOS_DEV_NO_AUTH=1 ./start backend
 ```
 
-Visit http://127.0.0.1:8080 (UI served from static/) and http://127.0.0.1:8080/api (API)
+Visit http://127.0.0.1:3200 for the hot-reload UI. API calls proxy to backend at http://127.0.0.1:8080.
 
 ### Production Build (Single Binary)
 
 ```bash
-# 1. Build UI
-cd crates/adapteros-ui && trunk build --release
+# 1. Build backend + static UI assets
+./scripts/build-ui.sh
 
-# 2. Build control plane with embedded UI
-cargo build --release --bin adapteros-server
-
-# 3. Run single binary
-./target/release/adapteros-server --config configs/cp.toml
+# 2. Start backend with embedded static UI
+./start backend
 ```
 
 Visit http://127.0.0.1:8080
@@ -190,7 +187,7 @@ cargo test test_patch_lifecycle
 ./aosctl metrics show <cpid>
 
 # Via API
-curl http://localhost:9443/api/v1/code/metrics/<cpid> \
+curl http://localhost:8080/v1/code/metrics/<cpid> \
   -H "Authorization: Bearer $TOKEN"
 ```
 

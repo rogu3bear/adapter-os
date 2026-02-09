@@ -107,7 +107,7 @@ export AOS_MLX_FFI_MODEL=./models/qwen2.5-7b-instruct-4bit-mlx
 export DATABASE_URL=sqlite://var/aos-cp.sqlite3
 export RUST_LOG=info
 
-cargo run --release -p adapteros-server-api
+cargo run --release -p adapteros-server -- --config configs/cp.toml
 ```
 
 Terminal 2 - UI (Development):
@@ -147,11 +147,11 @@ Use these scripts for the verified end-to-end loop:
 
 | Page | URL | Purpose |
 |------|-----|---------|
-| Dashboard | `/dashboard` | System overview |
-| Inference | `/inference` | Run inference |
+| Dashboard | `/` | System overview |
+| Chat | `/chat` | Run inference and stream responses |
 | Adapters | `/adapters` | Manage adapters |
 | Training | `/training` | Train new adapters |
-| Metrics | `/metrics` | Performance monitoring |
+| Monitoring | `/monitoring` | Performance and health monitoring |
 
 ---
 
@@ -171,7 +171,7 @@ Or via UI: Navigate to the Dashboard to see system health status.
 ## 8. Run Inference
 
 **Via UI:**
-1. Go to `/inference`
+1. Go to `/chat`
 2. Enter a prompt (e.g., "Write a hello world function in Rust:")
 3. Configure options (temperature, max tokens)
 4. Click "Generate"

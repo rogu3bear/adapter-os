@@ -15,6 +15,7 @@
 |----------|-------|
 | **Getting Started** | [Quickstart](getting-started.md) • [Authentication](AUTHENTICATION.md) • [Configuration](CONFIGURATION.md) |
 | **Development** | [CLI Guide](CLI_GUIDE.md) • [API Reference](API_REFERENCE.md) • [Testing](TESTING.md) |
+| **Contracts** | [Canonical Sources](CANONICAL_SOURCES.md) • [Startup Contract](STARTUP_CONTRACT.md) • [Execution Contract](EXECUTION_CONTRACT.md) • [Rectification Contracts](contracts/RECTIFICATION_CONTRACTS.md) |
 | **Operations** | [Deployment](DEPLOYMENT.md) • [Troubleshooting](TROUBLESHOOTING.md) • [Operations](OPERATIONS.md) |
 | **Security** | [Security Guide](SECURITY.md) • [Policies](POLICIES.md) • [Access Control](ACCESS_CONTROL.md) |
 | **Backends** | [Backend Selection](BACKEND_SELECTION.md) • [MLX](MLX_GUIDE.md) • [CoreML](COREML_BACKEND.md) • [Metal](METAL_BACKEND.md) |
