@@ -81,6 +81,9 @@ fn extra_context(blocker: Option<&InferenceBlocker>) -> Option<&'static str> {
         Some(InferenceBlocker::WorkerMissing) => {
             Some("A worker is the process that hosts models and runs inference for requests.")
         }
+        Some(InferenceBlocker::ActiveModelMismatch) => Some(
+            "The workspace has an active base model recorded, but it is not currently loaded/ready on any worker. Load the active model (or unload it to clear active state) from Models.",
+        ),
         _ => None,
     }
 }
