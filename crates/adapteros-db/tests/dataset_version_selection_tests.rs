@@ -93,6 +93,7 @@ async fn latest_trusted_version_skips_blocked_head() -> Result<()> {
 #[tokio::test]
 async fn version_storage_path_prefers_single_file_match() -> Result<()> {
     let db = Db::new_in_memory().await?;
+    let tenant_id = db.create_tenant("Tenant 1", false).await?;
 
     let dataset_id = db
         .create_training_dataset(
@@ -109,6 +110,12 @@ async fn version_storage_path_prefers_single_file_match() -> Result<()> {
         )
         .await?;
 
+    sqlx::query("UPDATE training_datasets SET tenant_id = ? WHERE id = ?")
+        .bind(&tenant_id)
+        .bind(&dataset_id)
+        .execute(db.pool())
+        .await?;
+
     db.add_dataset_file(
         &dataset_id,
         "data.jsonl",
@@ -122,7 +129,7 @@ async fn version_storage_path_prefers_single_file_match() -> Result<()> {
     let version_id = db
         .create_training_dataset_version(
             &dataset_id,
-            None,
+            Some(&tenant_id),
             None,
             "var/ds-single-file",
             "hash-file",
