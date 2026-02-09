@@ -3,7 +3,7 @@
 //! Automatic key rotation system with configurable intervals and comprehensive audit logging.
 //!
 //! ## Architecture
-//! - **KEK (Key Encryption Key)**: Master key that encrypts DEKs
+//! - **KEK (Key Encryption Key)**: Root key that encrypts DEKs
 //! - **DEK (Data Encryption Key)**: Keys that encrypt actual data
 //! - **Rotation Process**: Generate new KEK → Re-encrypt all DEKs with new KEK → Archive old KEK
 //!

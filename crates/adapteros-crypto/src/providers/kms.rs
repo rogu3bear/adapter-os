@@ -432,7 +432,7 @@ impl KmsProvider for AwsKmsProvider {
                 let alg = alg_clone.clone();
 
                 Box::pin(async move {
-                    // Create CMK (Customer Master Key) in AWS KMS
+                    // Create customer-managed KMS key (CMK) in AWS KMS
                     let response = client
                         .create_key()
                         .key_usage(aws_sdk_kms::types::KeyUsageType::SignVerify)
