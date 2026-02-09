@@ -14,7 +14,8 @@ use tokio::time::sleep;
 use walkdir::WalkDir;
 
 use crate::handlers::datasets::{
-    resolve_dataset_root, resolve_dataset_root_lenient_from_strings, ENV_DATASETS_DIR,
+    hash_dataset_manifest, resolve_dataset_root, resolve_dataset_root_lenient_from_strings,
+    DatasetHashInput, ENV_DATASETS_DIR,
 };
 use crate::state::AppState;
 
@@ -87,40 +88,198 @@ impl StorageReconciler {
                 } else {
                     "error"
                 };
-                self.record_issue(NewStorageIssue {
-                    tenant_id: tenant_id.as_deref(),
-                    owner_type: "dataset_version",
-                    owner_id: &v.dataset_id,
-                    version_id: Some(&v.id),
-                    issue_type: "missing_bytes",
-                    severity,
-                    location: path.to_string_lossy().as_ref(),
-                    details: Some("Dataset version file missing"),
-                })
-                .await?;
+                let location = path.to_string_lossy().to_string();
+                if let Err(e) = self
+                    .record_issue(NewStorageIssue {
+                        tenant_id: tenant_id.as_deref(),
+                        owner_type: "dataset_version",
+                        owner_id: &v.dataset_id,
+                        version_id: Some(&v.id),
+                        issue_type: "missing_bytes",
+                        severity,
+                        location: location.as_str(),
+                        details: Some("Dataset version path missing"),
+                    })
+                    .await
+                {
+                    error!(
+                        error = %e,
+                        dataset_id = %v.dataset_id,
+                        version_id = %v.id,
+                        path = %location,
+                        "Failed to record missing dataset version bytes issue"
+                    );
+                }
                 continue;
             }
 
-            let bytes = fs::read(&path).await.map_err(|e| {
-                adapteros_core::AosError::Io(format!(
-                    "Failed to read dataset {}: {}",
-                    path.display(),
-                    e
-                ))
-            })?;
+            let metadata = match fs::metadata(&path).await {
+                Ok(m) => m,
+                Err(e) => {
+                    let location = path.to_string_lossy().to_string();
+                    let details = format!("Dataset version path inaccessible: {}", e);
+                    if let Err(e) = self
+                        .record_issue(NewStorageIssue {
+                            tenant_id: tenant_id.as_deref(),
+                            owner_type: "dataset_version",
+                            owner_id: &v.dataset_id,
+                            version_id: Some(&v.id),
+                            issue_type: "inaccessible_bytes",
+                            severity: "error",
+                            location: location.as_str(),
+                            details: Some(details.as_str()),
+                        })
+                        .await
+                    {
+                        error!(
+                            error = %e,
+                            dataset_id = %v.dataset_id,
+                            version_id = %v.id,
+                            path = %location,
+                            "Failed to record inaccessible dataset version bytes issue"
+                        );
+                    }
+                    continue;
+                }
+            };
+
+            if metadata.is_dir() {
+                // Some dataset versions are directory-backed (e.g., canonical multi-file uploads).
+                // For those, the version hash is the manifest hash derived from dataset_files.
+                let files = match self.state.db.get_dataset_files(&v.dataset_id).await {
+                    Ok(v) => v,
+                    Err(e) => {
+                        error!(
+                            error = %e,
+                            dataset_id = %v.dataset_id,
+                            version_id = %v.id,
+                            path = %path.display(),
+                            "Failed to load dataset_files for directory-backed dataset version"
+                        );
+                        continue;
+                    }
+                };
+                if files.is_empty() {
+                    let location = path.to_string_lossy().to_string();
+                    if let Err(e) = self
+                        .record_issue(NewStorageIssue {
+                            tenant_id: tenant_id.as_deref(),
+                            owner_type: "dataset_version",
+                            owner_id: &v.dataset_id,
+                            version_id: Some(&v.id),
+                            issue_type: "missing_db_files",
+                            severity: "error",
+                            location: location.as_str(),
+                            details: Some(
+                                "Dataset version storage_path is a directory but dataset has no dataset_files rows",
+                            ),
+                        })
+                        .await
+                    {
+                        error!(
+                            error = %e,
+                            dataset_id = %v.dataset_id,
+                            version_id = %v.id,
+                            path = %location,
+                            "Failed to record missing dataset_files issue for directory-backed dataset version"
+                        );
+                    }
+                    continue;
+                }
+
+                let inputs: Vec<DatasetHashInput> = files
+                    .into_iter()
+                    .map(|f| DatasetHashInput {
+                        file_name: f.file_name,
+                        size_bytes: f.size_bytes.max(0) as u64,
+                        file_hash_b3: f.hash_b3,
+                    })
+                    .collect();
+                let computed = hash_dataset_manifest(&inputs);
+                if computed != v.hash_b3 {
+                    let location = path.to_string_lossy().to_string();
+                    if let Err(e) = self
+                        .record_issue(NewStorageIssue {
+                            tenant_id: tenant_id.as_deref(),
+                            owner_type: "dataset_version",
+                            owner_id: &v.dataset_id,
+                            version_id: Some(&v.id),
+                            issue_type: "hash_mismatch",
+                            severity: "error",
+                            location: location.as_str(),
+                            details: Some(
+                                "Dataset version hash mismatch (directory-backed; expected manifest hash)",
+                            ),
+                        })
+                        .await
+                    {
+                        error!(
+                            error = %e,
+                            dataset_id = %v.dataset_id,
+                            version_id = %v.id,
+                            path = %location,
+                            "Failed to record dataset version hash mismatch issue"
+                        );
+                    }
+                }
+
+                continue;
+            }
+
+            let bytes = match fs::read(&path).await {
+                Ok(b) => b,
+                Err(e) => {
+                    let location = path.to_string_lossy().to_string();
+                    let details = format!("Failed to read dataset version bytes: {}", e);
+                    if let Err(e) = self
+                        .record_issue(NewStorageIssue {
+                            tenant_id: tenant_id.as_deref(),
+                            owner_type: "dataset_version",
+                            owner_id: &v.dataset_id,
+                            version_id: Some(&v.id),
+                            issue_type: "unreadable_bytes",
+                            severity: "error",
+                            location: location.as_str(),
+                            details: Some(details.as_str()),
+                        })
+                        .await
+                    {
+                        error!(
+                            error = %e,
+                            dataset_id = %v.dataset_id,
+                            version_id = %v.id,
+                            path = %location,
+                            "Failed to record unreadable dataset version bytes issue"
+                        );
+                    }
+                    continue;
+                }
+            };
+
             let hash = B3Hash::hash(&bytes).to_hex();
             if hash != v.hash_b3 {
-                self.record_issue(NewStorageIssue {
-                    tenant_id: tenant_id.as_deref(),
-                    owner_type: "dataset_version",
-                    owner_id: &v.dataset_id,
-                    version_id: Some(&v.id),
-                    issue_type: "hash_mismatch",
-                    severity: "error",
-                    location: path.to_string_lossy().as_ref(),
-                    details: Some("Dataset version hash mismatch"),
-                })
-                .await?;
+                let location = path.to_string_lossy().to_string();
+                if let Err(e) = self
+                    .record_issue(NewStorageIssue {
+                        tenant_id: tenant_id.as_deref(),
+                        owner_type: "dataset_version",
+                        owner_id: &v.dataset_id,
+                        version_id: Some(&v.id),
+                        issue_type: "hash_mismatch",
+                        severity: "error",
+                        location: location.as_str(),
+                        details: Some("Dataset version hash mismatch"),
+                    })
+                    .await
+                {
+                    error!(
+                        error = %e,
+                        dataset_id = %v.dataset_id,
+                        version_id = %v.id,
+                        path = %location,
+                        "Failed to record dataset version hash mismatch issue"
+                    );
+                }
             }
         }
 
