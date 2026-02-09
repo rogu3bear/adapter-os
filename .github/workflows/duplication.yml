@@ -15,7 +15,10 @@ jobs:
     name: jscpd duplication check
     runs-on: ubuntu-latest
     env:
-      ENFORCE: ${{ vars.JSCPD_ENFORCE || 'true' }}
+      # Strict mode: fail if any clones are present (ignores baseline).
+      # Defaults to baseline-ratchet mode unless overridden.
+      ENFORCE: ${{ (github.event_name == 'workflow_dispatch' && github.event.inputs.enforce) || vars.JSCPD_ENFORCE || 'false' }}
+      JSCPD_BASELINE: configs/jscpd.baseline.json
     permissions:
       contents: read
       pull-requests: write
@@ -41,10 +44,32 @@ jobs:
         id: locate
         shell: bash
         run: |
-          latest_dir=$(ls -1t var/reports/jscpd | head -n1)
-          echo "dir=$latest_dir" >> $GITHUB_OUTPUT
-          echo "md=var/reports/jscpd/$latest_dir/report.md" >> $GITHUB_OUTPUT
-          echo "json=var/reports/jscpd/$latest_dir/report.json" >> $GITHUB_OUTPUT
+          set -euo pipefail
+
+          if [[ ! -d "var/reports/jscpd" ]]; then
+            echo "::error::Missing var/reports/jscpd. Did the scan step run?"
+            exit 1
+          fi
+
+          latest_path="$(ls -1dt var/reports/jscpd/*/ | head -n1)"
+          latest_dir="$(basename "$latest_path")"
+          base="var/reports/jscpd/$latest_dir"
+
+          # Modern jscpd (v4+) filenames
+          json="$base/jscpd-report.json"
+          md="$base/jscpd-report.md"
+          html="$base/html/index.html"
+
+          # Back-compat for older wrappers/configs
+          [[ -f "$json" ]] || json="$base/report.json"
+          [[ -f "$md" ]] || md="$base/report.md"
+          [[ -f "$html" ]] || html="$base/index.html"
+
+          echo "dir=$latest_dir" >> "$GITHUB_OUTPUT"
+          echo "base=$base" >> "$GITHUB_OUTPUT"
+          echo "md=$md" >> "$GITHUB_OUTPUT"
+          echo "json=$json" >> "$GITHUB_OUTPUT"
+          echo "html=$html" >> "$GITHUB_OUTPUT"
 
       - name: Upload jscpd reports
         uses: actions/upload-artifact@v4
@@ -61,13 +86,36 @@ jobs:
             const fs = require('fs');
             const mdPath = '${{ steps.locate.outputs.md }}';
             const jsonPath = '${{ steps.locate.outputs.json }}';
+            const baselinePath = process.env.JSCPD_BASELINE || 'configs/jscpd.baseline.json';
 
             let body = '## 🔍 Duplication Scan Results\n\n';
 
             if (fs.existsSync(jsonPath)) {
               const report = JSON.parse(fs.readFileSync(jsonPath, 'utf8'));
-              const clones = report.clones || [];
-              body += `Found **${clones.length}** duplicate code blocks.\n\n`;
+              const total = (report.statistics && report.statistics.total) || {};
+              const clones = Number(total.clones || 0);
+              const duplicatedLines = Number(total.duplicatedLines || 0);
+              const percentage = Number(total.percentage || 0);
+              const sources = Number(total.sources || 0);
+
+              body += `- **Clones:** ${clones.toLocaleString()}\n`;
+              body += `- **Duplicated lines:** ${duplicatedLines.toLocaleString()}\n`;
+              body += `- **Duplication:** ${percentage}%\n`;
+              body += `- **Sources scanned:** ${sources.toLocaleString()}\n\n`;
+
+              if (fs.existsSync(baselinePath)) {
+                try {
+                  const baseline = JSON.parse(fs.readFileSync(baselinePath, 'utf8'));
+                  const bTotal = (baseline.statistics && baseline.statistics.total) || baseline || {};
+                  const bClones = Number(bTotal.clones || 0);
+                  const bDupLines = Number(bTotal.duplicatedLines || 0);
+                  body += `Baseline (\\`${baselinePath}\\`): clones=${bClones.toLocaleString()}, duplicatedLines=${bDupLines.toLocaleString()}\n\n`;
+                } catch (_) {
+                  body += `Baseline (\\`${baselinePath}\\`): unreadable\n\n`;
+                }
+              } else {
+                body += `Baseline (\\`${baselinePath}\\`): missing\n\n`;
+              }
 
               if (fs.existsSync(mdPath)) {
                 const md = fs.readFileSync(mdPath, 'utf8');
@@ -84,20 +132,67 @@ jobs:
               body: body
             });
 
-      - name: Check enforcement
+      - name: Enforce baseline / strict mode
         if: always()
         shell: bash
         run: |
+          set -euo pipefail
+
           json="${{ steps.locate.outputs.json }}"
-          if [[ ! -f "$json" ]]; then
+          baseline="${JSCPD_BASELINE}"
+
+          if [[ -z "${json}" || ! -f "${json}" ]]; then
             echo "::warning::jscpd report not found"
             exit 0
           fi
-
-          clones=$(node -e 'const fs=require("fs");try{const j=JSON.parse(fs.readFileSync(process.argv[1],"utf8"));console.log((j.clones&&j.clones.length)||0)}catch{console.log(0)}' "$json")
-          echo "Found $clones duplicate code blocks"
-
-          if [[ "${ENFORCE}" == "true" && "$clones" -gt 0 ]]; then
-            echo "::error::Duplication found and JSCPD_ENFORCE is enabled"
+          if [[ ! -f "${baseline}" ]]; then
+            echo "::error::Missing baseline file: ${baseline}"
             exit 1
           fi
+
+          node - <<'NODE' "$json" "$baseline" "${ENFORCE}"
+          const fs = require('fs');
+
+          const reportPath = process.argv[1];
+          const baselinePath = process.argv[2];
+          const enforce = String(process.argv[3] || '').toLowerCase() === 'true';
+
+          const report = JSON.parse(fs.readFileSync(reportPath, 'utf8'));
+          const total = report.statistics?.total || {};
+
+          const current = {
+            clones: Number(total.clones || 0),
+            duplicatedLines: Number(total.duplicatedLines || 0),
+            percentage: Number(total.percentage || 0),
+            sources: Number(total.sources || 0),
+          };
+
+          const baselineRaw = JSON.parse(fs.readFileSync(baselinePath, 'utf8'));
+          const bTotal = baselineRaw.statistics?.total || baselineRaw || {};
+          const baseline = {
+            clones: Number(bTotal.clones || 0),
+            duplicatedLines: Number(bTotal.duplicatedLines || 0),
+          };
+
+          const fmt = (n) => (Number.isFinite(n) ? n.toLocaleString() : String(n));
+          console.log(`jscpd current: clones=${fmt(current.clones)} duplicatedLines=${fmt(current.duplicatedLines)} (${current.percentage}%) sources=${fmt(current.sources)}`);
+          console.log(`jscpd baseline (${baselinePath}): clones=${fmt(baseline.clones)} duplicatedLines=${fmt(baseline.duplicatedLines)}`);
+
+          if (enforce && current.clones > 0) {
+            console.log(`::error::Strict ENFORCE=true: duplication found (${current.clones} clones)`);
+            process.exit(1);
+          }
+
+          const regressions = [];
+          if (current.clones > baseline.clones) {
+            regressions.push(`clones ${current.clones} > baseline ${baseline.clones}`);
+          }
+          if (current.duplicatedLines > baseline.duplicatedLines) {
+            regressions.push(`duplicatedLines ${current.duplicatedLines} > baseline ${baseline.duplicatedLines}`);
+          }
+
+          if (regressions.length) {
+            console.log(`::error::Duplication regression vs baseline: ${regressions.join(', ')}`);
+            process.exit(1);
+          }
+          NODE
