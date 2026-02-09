@@ -333,6 +333,7 @@ pub async fn initialize_database(
                 bind: String::new(), // Unused
                 production_mode,
                 uds_socket: None,
+                review_webhook_url: None,
                 drain_timeout_secs: 30,
                 boot_timeout_secs: 300,
                 health_check_db_timeout_ms: 2000,

@@ -59,6 +59,7 @@ pub fn build_api_config(server_config: Arc<RwLock<Config>>) -> Result<Arc<RwLock
             https_port: None,
             uds_socket: cfg.server.uds_socket.clone(),
             production_mode: cfg.server.production_mode,
+            review_webhook_url: cfg.server.review_webhook_url.clone(),
             health_check_db_timeout_ms: cfg.server.health_check_db_timeout_ms,
             health_check_worker_timeout_ms: 5000,
             health_check_models_timeout_ms: 15000,

@@ -246,6 +246,7 @@ pub async fn initialize_runtime(
                 bind: String::new(), // Unused
                 production_mode,
                 uds_socket: None,
+                review_webhook_url: None,
                 drain_timeout_secs: 30,
                 boot_timeout_secs: 300,
                 health_check_db_timeout_ms: 2000,
@@ -376,6 +377,7 @@ pub async fn initialize_runtime(
                     bind: cfg.server.bind.clone(),
                     production_mode,
                     uds_socket: cfg.server.uds_socket.clone(),
+                    review_webhook_url: cfg.server.review_webhook_url.clone(),
                     drain_timeout_secs: cfg.server.drain_timeout_secs,
                     boot_timeout_secs: cfg.server.boot_timeout_secs,
                     health_check_db_timeout_ms: 2000,
