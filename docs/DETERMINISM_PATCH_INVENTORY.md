@@ -14,6 +14,8 @@ binding, and associated documentation updates.
   identical digests), with a golden test locking the output.
 - Strict-mode receipt completeness (EP-5) is enforced at evidence export and replay verification;
   incomplete receipts fail closed with a deterministic `DETERMINISM_VIOLATION`.
+- A deterministic regression harness exists and CI gates on it, preventing drift in critical
+  determinism invariants (seed binding, cache attestation, receipt completeness).
 - DB migration policy is consistent with shipped migrations: legacy sequential migrations are
   capped at `0301` and `adapters.stable_id` semantics/backfill ordering are preserved.
 - Only the explicitly intended deletions are present: `crates/adapteros-cli/src/commands/trace.rs`
@@ -131,7 +133,47 @@ Invariant enforced:
 - The exact `context_digest` byte layout is defined in a single canonical function, and reused by
   the worker and verifier paths. A golden test locks the digest output for fixed inputs.
 
-### 8) `core/server: enforce strict receipt completeness (EP-5)`
+### 8) `evidence: add pinned degradation envelope evidence`
+
+Files changed:
+
+- `crates/adapteros-core/src/evidence_envelope.rs`
+- `crates/adapteros-core/src/evidence_verifier.rs`
+- `crates/adapteros-core/src/lib.rs`
+- `crates/adapteros-db/src/evidence_envelopes.rs`
+- `crates/adapteros-db/tests/evidence_chain_integrity_tests.rs`
+- `crates/adapteros-db/tests/evidence_envelope_integration.rs`
+- `crates/adapteros-db/tests/evidence_envelopes_tests.rs`
+- `crates/adapteros-lora-worker/src/lib.rs`
+- `crates/adapteros-lora-worker/src/patch_generation.rs`
+- `crates/adapteros-lora-worker/src/response_types.rs`
+- `crates/adapteros-server-api/src/handlers/run_evidence.rs`
+- `crates/adapteros-server-api/src/inference_core/core.rs`
+- `crates/adapteros-server-api/src/types/response.rs`
+- `crates/adapteros-server-api/tests/run_evidence_tests.rs`
+- `docs/EXECUTION_CONTRACT.md`
+
+Invariant enforced:
+
+- Evidence bundles include pinned degradation telemetry as evidence-only metadata (deterministic
+  sentinels when absent). Pinned degradation remains explicitly not receipt-bound.
+
+### 9) `determinism: add regression harness + CI gate`
+
+Files changed:
+
+- `.github/workflows/ci.yml`
+- `crates/adapteros-core/src/lib.rs`
+- `crates/adapteros-core/tests/determinism_regression_harness.rs`
+- `crates/adapteros-db/tests/cache_attestation_enforcement.rs`
+- `docs/DETERMINISM_REGRESSION.md`
+
+Invariant enforced:
+
+- A deterministic regression harness locks critical determinism invariants and CI enforces it to
+  prevent accidental drift.
+
+### 10) `core/server: enforce strict receipt completeness (EP-5)`
 
 Files changed:
 
@@ -171,6 +213,10 @@ cargo test -p adapteros-core third_party_verification
 cargo test -p adapteros-crypto --test receipt_payload_vectors
 cargo test -p adapteros-cli --test verify_receipt_tests
 
+# Determinism regression gates
+cargo test -p adapteros-core --test determinism_regression_harness
+cargo test -p adapteros-db --test cache_attestation_enforcement
+
 # Strict completeness (EP-5)
 cargo test -p adapteros-core test_strict_mode_validation_fails_on_missing_fields
 cargo test -p adapteros-server-api --test run_evidence_tests
@@ -187,5 +233,7 @@ Tests run:
 - `cargo test -p adapteros-core third_party_verification`
 - `cargo test -p adapteros-crypto --test receipt_payload_vectors`
 - `cargo test -p adapteros-cli --test verify_receipt_tests`
+- `cargo test -p adapteros-core --test determinism_regression_harness`
+- `cargo test -p adapteros-db --test cache_attestation_enforcement`
 - `cargo test -p adapteros-core test_strict_mode_validation_fails_on_missing_fields`
 - `cargo test -p adapteros-server-api --test run_evidence_tests`
