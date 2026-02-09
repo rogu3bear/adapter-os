@@ -97,11 +97,22 @@ pub struct BuildInfo {
     /// Combined build identifier ({hash}-{timestamp}).
     #[serde(skip_serializing_if = "Option::is_none")]
     pub build_id: Option<String>,
+
+    /// Per-crate version manifest for inference-critical crates.
+    #[serde(skip_serializing_if = "Option::is_none")]
+    pub crate_manifest: Option<std::collections::BTreeMap<String, String>>,
+
+    /// BLAKE3 digest of the canonical crate manifest JSON.
+    #[serde(skip_serializing_if = "Option::is_none")]
+    pub crate_manifest_digest: Option<String>,
 }
 
 impl Default for BuildInfo {
     fn default() -> Self {
         use adapteros_core::version;
+
+        let provenance = version::BuildProvenance::cached();
+        let manifest = &provenance.crate_manifest;
 
         Self {
             git_sha: Some(version::GIT_COMMIT_HASH.to_string()).filter(|s| s != "unknown"),
@@ -110,6 +121,12 @@ impl Default for BuildInfo {
             rustc_version: Some(version::RUSTC_VERSION.to_string()).filter(|s| s != "unknown"),
             target: Some(format!("{}-{}", version::TARGET_ARCH, version::TARGET_OS)),
             build_id: Some(version::BUILD_ID.to_string()).filter(|s| s != "unknown"),
+            crate_manifest: if manifest.crates.is_empty() {
+                None
+            } else {
+                Some(manifest.crates.clone())
+            },
+            crate_manifest_digest: manifest.digest.as_ref().map(|d| d.to_hex()),
         }
     }
 }

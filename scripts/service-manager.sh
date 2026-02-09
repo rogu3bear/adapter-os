@@ -386,9 +386,18 @@ run_preflight_checks() {
 # Check if process is running by PID file
 is_running() {
     local pid_file="$1"
+    local expected_name="${2:-}"
     if [ -f "$pid_file" ]; then
         local pid=$(cat "$pid_file" 2>/dev/null)
         if [ -n "$pid" ] && kill -0 "$pid" 2>/dev/null; then
+            if [ -n "$expected_name" ]; then
+                local actual
+                actual=$(ps -p "$pid" -o comm= 2>/dev/null | xargs basename 2>/dev/null || echo "")
+                if [ -n "$actual" ] && [[ "$actual" != *"$expected_name"* ]]; then
+                    rm -f "$pid_file"
+                    return 1
+                fi
+            fi
             return 0
         else
             # Stale PID file, clean up
@@ -620,7 +629,7 @@ start_backend() {
         warning_msg "Preflight checks bypassed (AOS_SKIP_PREFLIGHT is set)"
     fi
 
-    if is_running "$BACKEND_PID_FILE"; then
+    if is_running "$BACKEND_PID_FILE" "aos-server"; then
         local pid=$(get_pid "$BACKEND_PID_FILE")
         warning_msg "Backend is already running (PID: $pid)"
         return 0
@@ -738,7 +747,7 @@ restart_backend() {
 stop_backend() {
     local mode="${1:-graceful}"
 
-    if ! is_running "$BACKEND_PID_FILE"; then
+    if ! is_running "$BACKEND_PID_FILE" "aos-server"; then
         status_msg "Backend is not running"
         return 0
     fi
@@ -1073,8 +1082,8 @@ cleanup_stale_workers() {
         return 1
     fi
 
-    # Find workers with status created/registered/healthy but PID no longer exists
-    local stale_workers=$(sqlite3 "$DATABASE_PATH" "SELECT id, pid FROM workers WHERE status IN ('created', 'registered', 'healthy') AND pid IS NOT NULL;" 2>&1)
+    # Find workers in non-terminal status whose PID no longer exists
+    local stale_workers=$(sqlite3 "$DATABASE_PATH" "SELECT id, pid FROM workers WHERE status NOT IN ('stopped', 'error') AND pid IS NOT NULL;" 2>&1)
     
     if [ $? -ne 0 ]; then
         warning_msg "Failed to query stale workers: $stale_workers"
@@ -1131,7 +1140,7 @@ start_worker() {
         fi
     fi
 
-    if is_running "$WORKER_PID_FILE"; then
+    if is_running "$WORKER_PID_FILE" "aos-worker"; then
         local pid=$(get_pid "$WORKER_PID_FILE")
         warning_msg "Worker is already running (PID: $pid)"
         return 0
@@ -1287,7 +1296,7 @@ stop_worker() {
     fi
 
     local pid=""
-    if is_running "$WORKER_PID_FILE"; then
+    if is_running "$WORKER_PID_FILE" "aos-worker"; then
         pid=$(get_pid "$WORKER_PID_FILE")
     elif [ -n "$socket_pid" ]; then
         pid="$socket_pid"
@@ -1329,9 +1338,18 @@ start_worker_with_restart() {
             # Worker started successfully, monitor it
             local pid=$(get_pid "$WORKER_PID_FILE")
 
-            # Wait for worker to exit
-            wait "$pid" 2>/dev/null
-            local exit_code=$?
+            # Poll for worker exit (can't use wait on disowned process)
+            while kill -0 "$pid" 2>/dev/null; do
+                sleep 1
+            done
+
+            # Read exit code from worker's exit file (written on shutdown)
+            local exit_code=2  # Default to transient/restart if file missing (e.g. SIGKILL)
+            local exit_file="$AOS_VAR_DIR/worker.exit"
+            if [ -f "$exit_file" ]; then
+                exit_code=$(cat "$exit_file" 2>/dev/null || echo "2")
+                rm -f "$exit_file"
+            fi
 
             # Exit code meanings (from aos_worker.rs):
             # 0: Graceful shutdown (don't restart)
@@ -1440,7 +1458,7 @@ start_secd() {
         fi
     fi
 
-    if is_running "$SECD_PID_FILE"; then
+    if is_running "$SECD_PID_FILE" "aos-secd"; then
         local pid=$(get_pid "$SECD_PID_FILE")
         warning_msg "SecD is already running (PID: $pid)"
         return 0
@@ -1510,7 +1528,7 @@ stop_secd() {
     fi
 
     local pid=""
-    if is_running "$SECD_PID_FILE"; then
+    if is_running "$SECD_PID_FILE" "aos-secd"; then
         pid=$(get_pid "$SECD_PID_FILE")
     elif [ -n "$socket_pid" ]; then
         pid="$socket_pid"
@@ -1573,7 +1591,7 @@ select_node_binary() {
 start_node() {
     ensure_dirs
 
-    if is_running "$NODE_PID_FILE"; then
+    if is_running "$NODE_PID_FILE" "aos-node"; then
         local pid=$(get_pid "$NODE_PID_FILE")
         warning_msg "Node agent is already running (PID: $pid)"
         return 0
@@ -1645,7 +1663,7 @@ start_node() {
 stop_node() {
     local mode="${1:-graceful}"
 
-    if ! is_running "$NODE_PID_FILE"; then
+    if ! is_running "$NODE_PID_FILE" "aos-node"; then
         # Try to find by port
         local port_pid=$(lsof -nP -i :"$NODE_PORT" -sTCP:LISTEN -t 2>/dev/null | head -1)
         if [ -n "$port_pid" ]; then
@@ -1683,7 +1701,7 @@ show_status() {
     echo ""
 
     # Backend status
-    if is_running "$BACKEND_PID_FILE"; then
+    if is_running "$BACKEND_PID_FILE" "aos-server"; then
         local pid=$(get_pid "$BACKEND_PID_FILE")
         echo -e "${GREEN}[RUNNING]${NC} Backend Server (PID: $pid, Port: $BACKEND_PORT)"
 
@@ -1745,7 +1763,7 @@ show_status() {
         else
             echo -e "${YELLOW}[STALE]${NC} Worker socket exists but process not found"
         fi
-    elif is_running "$WORKER_PID_FILE"; then
+    elif is_running "$WORKER_PID_FILE" "aos-worker"; then
         local pid=$(get_pid "$WORKER_PID_FILE")
         local status_line="${YELLOW}[STARTING]${NC} Inference Worker (PID: $pid, socket not ready)"
         if [ -n "$db_status" ]; then
@@ -1768,7 +1786,7 @@ show_status() {
         else
             echo -e "${YELLOW}[STALE]${NC} SecD socket exists but process not found"
         fi
-    elif is_running "$SECD_PID_FILE"; then
+    elif is_running "$SECD_PID_FILE" "aos-secd"; then
         local pid=$(get_pid "$SECD_PID_FILE")
         echo -e "${YELLOW}[STARTING]${NC} SecD (PID: $pid, socket not ready)"
     else
@@ -1776,7 +1794,7 @@ show_status() {
     fi
 
     # Node agent status
-    if is_running "$NODE_PID_FILE"; then
+    if is_running "$NODE_PID_FILE" "aos-node"; then
         local pid=$(get_pid "$NODE_PID_FILE")
         if curl -sf --max-time 2 "http://localhost:$NODE_PORT/health" >/dev/null 2>&1; then
             echo -e "${GREEN}[RUNNING]${NC} Node Agent (PID: $pid, Port: $NODE_PORT)"

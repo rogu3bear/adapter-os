@@ -207,8 +207,9 @@ impl MLXTokenizer {
 
     /// Apply chat template for instruction-following models
     ///
-    /// Default implementation for Qwen2.5-Instruct format.
-    /// Can be overridden for other model families.
+    /// Selects template based on available special tokens:
+    /// - ChatML (`<|im_start|>` / `<|im_end|>`) for Qwen, Yi, etc.
+    /// - Mistral (`[INST]` / `[/INST]`) when BOS is available but no im_start
     ///
     /// # Arguments
     /// * `prompt` - User prompt text
@@ -216,10 +217,19 @@ impl MLXTokenizer {
     /// # Returns
     /// Formatted prompt ready for encoding
     pub fn apply_chat_template(&self, prompt: &str) -> String {
-        format!(
-            "<|im_start|>system\nYou are a helpful assistant.<|im_end|>\n<|im_start|>user\n{}<|im_end|>\n<|im_start|>assistant\n",
-            prompt
-        )
+        if self.special_tokens.im_start_id.is_some() {
+            // ChatML format (Qwen, Yi, etc.)
+            format!(
+                "<|im_start|>system\nYou are a helpful assistant.<|im_end|>\n<|im_start|>user\n{}<|im_end|>\n<|im_start|>assistant\n",
+                prompt
+            )
+        } else if self.special_tokens.bos_token_id.is_some() {
+            // Mistral/Llama instruct format
+            format!("<s> [INST] {} [/INST]", prompt)
+        } else {
+            // Fallback: raw prompt
+            prompt.to_string()
+        }
     }
 
     /// Apply chat template for models using chat_template in tokenizer.json

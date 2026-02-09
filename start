@@ -1296,32 +1296,7 @@ do_shutdown() {
     echo ""
 
     if [ -x scripts/service-manager.sh ]; then
-        local backend_pid=""
-        if [ -f "$AOS_VAR_DIR/backend.pid" ]; then
-            backend_pid=$(cat "$AOS_VAR_DIR/backend.pid" 2>/dev/null)
-        fi
-
-        if [ -n "$backend_pid" ] && kill -0 "$backend_pid" 2>/dev/null; then
-            print_step "running" "Stopping Backend (PID $backend_pid)..."
-            scripts/service-manager.sh stop backend >/dev/null 2>&1 || true
-
-            local waited=0
-            local shutdown_timeout=15
-            while kill -0 "$backend_pid" 2>/dev/null && [ $waited -lt $shutdown_timeout ]; do
-                print_progress_animated $waited $shutdown_timeout "Shutting down..."
-                sleep 1
-                ((waited++))
-            done
-            term_clear_row
-
-            if ! kill -0 "$backend_pid" 2>/dev/null; then
-                update_step "success" "Backend stopped"
-            else
-                update_step "error" "Backend did not stop cleanly"
-            fi
-        else
-            print_step "pending" "Backend         (not running)"
-        fi
+        scripts/service-manager.sh stop-all
     else
         fg_error "service-manager.sh not found"
         return 1

@@ -1,3 +1,6 @@
+use std::sync::atomic::{AtomicBool, Ordering};
+use std::sync::Arc;
+
 use adapteros_api_types::workers::WorkerCapabilities;
 use tracing::{error, info, warn};
 
@@ -359,4 +362,63 @@ fn notify_cp_status_inner(
             }
         }
     }
+}
+
+/// Spawn a background heartbeat loop that periodically notifies the control plane.
+///
+/// Uses `std::thread::spawn` + `ureq` to match the existing blocking convention
+/// in this module (registration and status notifications are all blocking).
+///
+/// The loop runs until `drain_flag` is set to `true`, at which point it exits.
+pub fn spawn_heartbeat_loop(
+    cp_url: String,
+    worker_id: String,
+    heartbeat_interval_secs: u32,
+    drain_flag: Arc<AtomicBool>,
+) -> std::thread::JoinHandle<()> {
+    std::thread::Builder::new()
+        .name("worker-heartbeat".into())
+        .spawn(move || {
+            let url = format!("{}/v1/workers/heartbeat", cp_url);
+            let body = serde_json::json!({ "worker_id": worker_id }).to_string();
+            let interval = std::time::Duration::from_secs(heartbeat_interval_secs as u64);
+
+            info!(
+                worker_id = %worker_id,
+                interval_secs = heartbeat_interval_secs,
+                "Heartbeat loop started"
+            );
+
+            loop {
+                std::thread::sleep(interval);
+
+                if drain_flag.load(Ordering::Relaxed) {
+                    info!(worker_id = %worker_id, "Heartbeat loop exiting: drain flag set");
+                    break;
+                }
+
+                let agent = ureq::Agent::config_builder()
+                    .timeout_global(Some(std::time::Duration::from_secs(5)))
+                    .build()
+                    .new_agent();
+
+                match agent
+                    .post(&url)
+                    .header("Content-Type", "application/json")
+                    .send(body.as_bytes())
+                {
+                    Ok(_) => {
+                        // Heartbeat acknowledged
+                    }
+                    Err(e) => {
+                        warn!(
+                            worker_id = %worker_id,
+                            error = %e,
+                            "Heartbeat failed (will retry next interval)"
+                        );
+                    }
+                }
+            }
+        })
+        .expect("failed to spawn heartbeat thread")
 }

@@ -145,25 +145,30 @@ pub fn use_status_data() -> (ReadSignal<StatusLoadingState>, impl Fn() + Clone) 
     let client_clone = Arc::clone(&client);
     let refetch = move || {
         let client = Arc::clone(&client_clone);
-        set_state.set(StatusLoadingState::Loading);
+        let _ = set_state.try_set(StatusLoadingState::Loading);
 
-        wasm_bindgen_futures::spawn_local(async move {
-            // Fetch both endpoints concurrently
-            let status_future = client.system_status();
-            let state_future = fetch_system_state(&client);
+        // Defer spawn_local via Timeout to avoid RefCell re-entrancy panic
+        // in wasm-bindgen-futures when called from within a reactive Effect body.
+        gloo_timers::callback::Timeout::new(0, move || {
+            wasm_bindgen_futures::spawn_local(async move {
+                // Fetch both endpoints concurrently
+                let status_future = client.system_status();
+                let state_future = fetch_system_state(&client);
 
-            match futures::future::join(status_future, state_future).await {
-                (Ok(status), Ok(state)) => {
-                    set_state.set(StatusLoadingState::Loaded(Box::new(CombinedStatus {
-                        status,
-                        state,
-                    })));
+                match futures::future::join(status_future, state_future).await {
+                    (Ok(status), Ok(state)) => {
+                        let _ = set_state.try_set(StatusLoadingState::Loaded(Box::new(CombinedStatus {
+                            status,
+                            state,
+                        })));
+                    }
+                    (Err(e), _) | (_, Err(e)) => {
+                        let _ = set_state.try_set(StatusLoadingState::Error(e));
+                    }
                 }
-                (Err(e), _) | (_, Err(e)) => {
-                    set_state.set(StatusLoadingState::Error(e));
-                }
-            }
-        });
+            });
+        })
+        .forget();
     };
 
     // Initial fetch

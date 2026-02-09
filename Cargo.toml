@@ -1,6 +1,6 @@
 [package]
 name = "adapter-os"
-version = "0.0.2"
+version = "0.14.0"
 edition = "2021"
 authors = ["James KC Auchterlonie <vats-springs0m@icloud.com>"]
 license = "MIT OR Apache-2.0"
@@ -98,7 +98,7 @@ members = [
 ]
 
 [workspace.package]
-version = "0.0.2"
+version = "0.14.0"
 edition = "2021"
 authors = ["James KC Auchterlonie <vats-springs0m@icloud.com>"]
 license = "MIT OR Apache-2.0"
@@ -498,3 +498,8 @@ incremental = true
 
 # Debug profile with higher optimization for faster testing
 # Note: "debug" is reserved, so we configure "dev" profile directly above
+
+# Vendored patches: re-entrancy fix for wasm-bindgen-futures
+# See patches/wasm-bindgen-futures/PATCH_DESIGN.md for details
+[patch.crates-io]
+wasm-bindgen-futures = { path = "patches/wasm-bindgen-futures" }

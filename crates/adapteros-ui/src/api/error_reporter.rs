@@ -5,7 +5,7 @@
 
 use super::{api_base_url, csrf_token_from_cookie, ApiError, DiagnosticBundle};
 use crate::redact_sensitive_info;
-use crate::signals::notifications::try_use_notifications;
+use crate::signals::notifications::{try_emit_global_error_with_details, try_use_notifications};
 use gloo_net::http::Request;
 use serde::Serialize;
 
@@ -55,6 +55,65 @@ pub fn report_error(error: &ApiError, page: Option<&str>, is_authenticated: bool
             req = req.header("X-CSRF-Token", &token);
         }
         let _ = req.json(&report).ok().map(|req| req.send());
+    });
+}
+
+/// Report a UI panic to telemetry so it appears in the shared client error stream.
+///
+/// This is intended for fatal UI failures (panic hook, boot/runtime panics).
+/// The reporter attempts the authenticated endpoint first, then falls back to
+/// the anonymous endpoint on auth failures.
+pub fn report_ui_panic(message: &str, page: Option<&str>, stack_trace: Option<&str>) {
+    let sanitized_message = redact_sensitive_info(message);
+    let sanitized_stack = stack_trace.map(redact_sensitive_info);
+    let fallback_page = current_page_path();
+    let panic_details = sanitized_stack
+        .clone()
+        .unwrap_or_else(|| "No stack trace available".to_string());
+
+    // Best-effort panic surfacing in error history/toasts. Any failure is ignored.
+    let _ = std::panic::catch_unwind({
+        let message = sanitized_message.clone();
+        let details = panic_details.clone();
+        move || {
+            let _ = try_emit_global_error_with_details("UI Panic", &message, &details);
+        }
+    });
+
+    let report = ClientErrorReport {
+        error_type: "Panic".to_string(),
+        message: sanitized_message,
+        code: Some("UI_PANIC".to_string()),
+        failure_code: None,
+        http_status: None,
+        page: page
+            .map(|p| p.to_string())
+            .or(fallback_page)
+            .filter(|p| !p.trim().is_empty()),
+        user_agent: get_user_agent(),
+        timestamp: current_timestamp(),
+        details: Some(serde_json::json!({
+            "source": "ui.panic_hook",
+            "stack_trace": sanitized_stack,
+        })),
+    };
+
+    let base_url = api_base_url();
+    let csrf_token = csrf_token_from_cookie();
+
+    wasm_bindgen_futures::spawn_local(async move {
+        let auth_endpoint = format!("{}/v1/telemetry/client-errors", base_url);
+        let anonymous_endpoint = format!("{}/v1/telemetry/client-errors/anonymous", base_url);
+
+        let auth_status = send_client_error_report(&auth_endpoint, &report, csrf_token.as_deref())
+            .await
+            .ok();
+        let should_fallback = matches!(auth_status, None | Some(401) | Some(403));
+
+        if should_fallback {
+            let _ =
+                send_client_error_report(&anonymous_endpoint, &report, csrf_token.as_deref()).await;
+        }
     });
 }
 
@@ -171,6 +230,19 @@ fn build_report(error: &ApiError, page: Option<&str>) -> ClientErrorReport {
     }
 }
 
+async fn send_client_error_report(
+    endpoint: &str,
+    report: &ClientErrorReport,
+    csrf_token: Option<&str>,
+) -> Result<u16, ()> {
+    let mut req = Request::post(endpoint).header("Content-Type", "application/json");
+    if let Some(token) = csrf_token {
+        req = req.header("X-CSRF-Token", token);
+    }
+    let req = req.json(report).map_err(|_| ())?;
+    req.send().await.map(|resp| resp.status()).map_err(|_| ())
+}
+
 /// Get the current user agent string
 fn get_user_agent() -> String {
     #[cfg(target_arch = "wasm32")]
@@ -194,6 +266,18 @@ fn current_timestamp() -> String {
     #[cfg(not(target_arch = "wasm32"))]
     {
         chrono::Utc::now().to_rfc3339()
+    }
+}
+
+/// Get current page path from browser location.
+fn current_page_path() -> Option<String> {
+    #[cfg(target_arch = "wasm32")]
+    {
+        web_sys::window().and_then(|w| w.location().pathname().ok())
+    }
+    #[cfg(not(target_arch = "wasm32"))]
+    {
+        None
     }
 }
 

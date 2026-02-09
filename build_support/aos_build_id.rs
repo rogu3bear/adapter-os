@@ -10,6 +10,7 @@
 //! This module is intended to be `#[path = "../../build_support/aos_build_id.rs"] mod aos_build_id;`
 //! from individual `build.rs` files.
 
+use std::collections::BTreeMap;
 use std::fs;
 use std::io;
 use std::path::{Path, PathBuf};
@@ -420,4 +421,97 @@ pub fn resolve_workspace_build_id() -> Result<BuildIdInfo, String> {
     drop(guard);
 
     Ok(BuildIdInfo { build_id })
+}
+
+// =============================================================================
+// Crate Version Manifest (Cargo.lock parser)
+// =============================================================================
+
+/// Parse crate versions from Cargo.lock for a given set of crate names.
+///
+/// Uses line-based parsing of the TOML `[[package]]` entries (supports v3/v4 format).
+/// Returns a sorted list of (name, version) pairs for crates that were found.
+pub fn parse_crate_versions(
+    workspace_root: &Path,
+    crate_names: &[&str],
+) -> Result<Vec<(String, String)>, String> {
+    let lock_path = workspace_root.join("Cargo.lock");
+    let content = fs::read_to_string(&lock_path).map_err(|e| {
+        format!("Failed to read Cargo.lock at {}: {}", lock_path.display(), e)
+    })?;
+
+    let mut results = BTreeMap::new();
+    let mut current_name: Option<String> = None;
+    let mut current_version: Option<String> = None;
+    let mut in_package = false;
+
+    for line in content.lines() {
+        let trimmed = line.trim();
+
+        if trimmed == "[[package]]" {
+            // Flush previous package
+            if let (Some(name), Some(version)) = (current_name.take(), current_version.take()) {
+                if crate_names.iter().any(|&n| n == name) {
+                    results.insert(name, version);
+                }
+            }
+            in_package = true;
+            continue;
+        }
+
+        if !in_package {
+            continue;
+        }
+
+        // Blank line or new section ends the current package
+        if trimmed.is_empty() || (trimmed.starts_with('[') && trimmed != "[[package]]") {
+            if let (Some(name), Some(version)) = (current_name.take(), current_version.take()) {
+                if crate_names.iter().any(|&n| n == name) {
+                    results.insert(name, version);
+                }
+            }
+            in_package = trimmed == "[[package]]";
+            continue;
+        }
+
+        if let Some(rest) = trimmed.strip_prefix("name = ") {
+            current_name = Some(unquote(rest));
+        } else if let Some(rest) = trimmed.strip_prefix("version = ") {
+            current_version = Some(unquote(rest));
+        }
+    }
+
+    // Flush last package
+    if let (Some(name), Some(version)) = (current_name, current_version) {
+        if crate_names.iter().any(|&n| n == name) {
+            results.insert(name, version);
+        }
+    }
+
+    Ok(results.into_iter().collect())
+}
+
+/// Serialize crate version entries into canonical JSON format.
+///
+/// Format: `{"format":1,"crates":{"adapteros-core":"0.14.0",...}}`
+/// Keys are sorted alphabetically (guaranteed by BTreeMap input).
+pub fn serialize_crate_manifest(entries: &[(String, String)]) -> String {
+    let mut json = String::from("{\"format\":1,\"crates\":{");
+    for (i, (name, version)) in entries.iter().enumerate() {
+        if i > 0 {
+            json.push(',');
+        }
+        json.push('"');
+        json.push_str(name);
+        json.push_str("\":\"");
+        json.push_str(version);
+        json.push('"');
+    }
+    json.push_str("}}");
+    json
+}
+
+/// Remove surrounding double quotes from a TOML string value.
+fn unquote(s: &str) -> String {
+    s.trim_matches('"').to_string()
 }

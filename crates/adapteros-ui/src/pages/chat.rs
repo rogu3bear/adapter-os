@@ -65,23 +65,52 @@ pub fn Chat() -> impl IntoView {
             .and_then(|w| w.location().search().ok())
             .unwrap_or_default();
         let path = format!("/chat/{}{}", recent.id, search);
-        // Replace (not push) so /chat doesn't sit in the back-button stack.
-        navigate(
-            &path,
-            leptos_router::NavigateOptions {
-                replace: true,
-                ..Default::default()
-            },
-        );
+        // Defer navigate to avoid RefCell re-entrancy: component creation runs
+        // inside the wasm-bindgen-futures task queue, and navigate() internally
+        // uses spawn_local, causing a double-borrow panic.
+        gloo_timers::callback::Timeout::new(0, move || {
+            navigate(
+                &path,
+                leptos_router::NavigateOptions {
+                    replace: true,
+                    ..Default::default()
+                },
+            );
+        })
+        .forget();
+        // Return empty view during redirect to avoid creating signals/effects
+        // that would panic when this component is disposed by the route change.
+        return view! { <div class="chat-redirect" /> }.into_any();
     }
 
-    // Render empty-state workspace while redirect fires (or if no sessions exist).
+    // No sessions exist — render empty-state workspace.
+    // Also defer mounting to avoid the same wasm-bindgen-futures re-entrancy.
     let selected_signal = Signal::derive(|| None);
-    view! { <ChatWorkspace selected_session_id=selected_signal /> }
+    let mounted = RwSignal::new(false);
+    gloo_timers::callback::Timeout::new(0, move || {
+        mounted.set(true);
+    })
+    .forget();
+
+    view! {
+        <Show when=move || mounted.get() fallback=|| view! {
+            <div class="chat-loading-placeholder" style="display:flex;align-items:center;justify-content:center;height:100%;opacity:0.5;">
+                <Spinner />
+            </div>
+        }>
+            <ChatWorkspace selected_session_id=selected_signal />
+        </Show>
+    }
+    .into_any()
 }
 
 /// Chat session page - renders workspace with session from route param.
 /// Route: /chat/:session_id
+///
+/// Uses deferred mounting: renders a lightweight placeholder first, then mounts
+/// the full ChatWorkspace on the next tick. This avoids a wasm-bindgen-futures
+/// RefCell re-entrancy panic (#2562) that occurs when Leptos builds the complex
+/// ChatWorkspace component tree inside the task queue during SPA navigation.
 #[component]
 pub fn ChatSession() -> impl IntoView {
     let params = use_params_map();
@@ -94,7 +123,23 @@ pub fn ChatSession() -> impl IntoView {
         }
     });
 
-    view! { <ChatWorkspace selected_session_id=selected_id handle_query_params=true /> }
+    // Defer heavy component tree construction to next tick to break out of the
+    // wasm-bindgen-futures task queue context and avoid RefCell re-entrancy.
+    let mounted = RwSignal::new(false);
+    gloo_timers::callback::Timeout::new(0, move || {
+        mounted.set(true);
+    })
+    .forget();
+
+    view! {
+        <Show when=move || mounted.get() fallback=|| view! {
+            <div class="chat-loading-placeholder" style="display:flex;align-items:center;justify-content:center;height:100%;opacity:0.5;">
+                <Spinner />
+            </div>
+        }>
+            <ChatWorkspace selected_session_id=selected_id handle_query_params=true />
+        </Show>
+    }
 }
 
 // ---------------------------------------------------------------------------
@@ -203,21 +248,22 @@ fn ChatWorkspace(
                     }
                 }}
 
-                // Conversation panel or empty state
+                // Conversation panel or empty state.
+                // IMPORTANT: Use <Show> instead of reactive `if` — a bare reactive
+                // closure (`{move || if ... { view_a } else { view_b }}`) tears down
+                // and rebuilds children on EVERY dependency re-emission, even when the
+                // branch is unchanged.  Show caches and only swaps on actual changes.
                 <div class="flex-1 min-h-0">
-                    {move || {
-                        if has_selection.get() {
-                            view! {
-                                <ChatConversationPanel
-                                    session_id_signal=session_id_for_panel
-                                    handle_query_params=handle_query_params
-                                    refresh_sessions=refresh_sessions
-                                />
-                            }.into_any()
-                        } else {
-                            view! { <ChatEmptyWorkspace/> }.into_any()
-                        }
-                    }}
+                    <Show
+                        when=move || has_selection.get()
+                        fallback=|| view! { <ChatEmptyWorkspace/> }
+                    >
+                        <ChatConversationPanel
+                            session_id_signal=session_id_for_panel
+                            handle_query_params=handle_query_params
+                            refresh_sessions=refresh_sessions
+                        />
+                    </Show>
                 </div>
             </div>
 
@@ -651,7 +697,7 @@ fn ChatConversationPanel(
     // Auto-prune untouched placeholder sessions if the conversation panel unmounts.
     {
         on_cleanup(move || {
-            let id = current_session_id.get_untracked();
+            let id = current_session_id.try_get_untracked().unwrap_or_default();
             if !id.is_empty() {
                 ChatSessionsManager::prune_placeholder_session(&id);
                 refresh_sessions.run(());
@@ -751,7 +797,7 @@ fn ChatConversationPanel(
 
             // Check for ?prompt= and ?adapter= query parameters once per session ID.
             if handle_query_params
-                && query_params_consumed_for_session.get_untracked().as_deref() != Some(&id)
+                && query_params_consumed_for_session.try_get_untracked().flatten().as_deref() != Some(&id)
             {
                 let mut consumed_any = false;
                 #[cfg(target_arch = "wasm32")]
@@ -769,7 +815,7 @@ fn ChatConversationPanel(
                                     // Session-only pin (does not persist to localStorage)
                                     action.set_session_pinned_adapters(vec![adapter.clone()]);
                                     // Also set one-shot selected adapter so the first send definitely uses it.
-                                    let state = chat_state.get_untracked();
+                                    let Some(state) = chat_state.try_get_untracked() else { return id };
                                     if state.selected_adapter.as_deref() != Some(adapter.as_str()) {
                                         action.select_next_adapter(&adapter);
                                     }
@@ -846,7 +892,7 @@ fn ChatConversationPanel(
             let is_streaming = state.streaming;
             let verified_mode = state.verified_mode;
             // Get session ID untracked since we only care about state changes, not ID changes
-            let id = current_session_id.get_untracked();
+            let id = current_session_id.try_get_untracked().unwrap_or_default();
 
             // Only save if:
             // 1. We have a session ID and messages
@@ -1013,14 +1059,16 @@ fn ChatConversationPanel(
             let text = message.get();
             // Update version to invalidate pending previews
             preview_version.update(|v| *v += 1);
-            let current_version = preview_version.get_untracked();
+            let current_version = preview_version.try_get_untracked().unwrap_or(0);
 
             // Debounce: 300ms delay before calling preview
             let action = action.clone();
             set_timeout_simple(
                 move || {
                     // Only proceed if this is still the latest version
-                    if preview_version.get_untracked() != current_version {
+                    // (bail if signal is disposed — component was unmounted)
+                    let Some(v) = preview_version.try_get_untracked() else { return };
+                    if v != current_version {
                         return;
                     }
                     action.preview_adapters(text);
@@ -1142,7 +1190,7 @@ fn ChatConversationPanel(
 
                         wasm_bindgen_futures::spawn_local(async move {
                             // Check cancellation before starting
-                            if upload_cancelled.get_untracked() {
+                            if upload_cancelled.try_get_untracked().unwrap_or(true) {
                                 return;
                             }
 
@@ -1150,7 +1198,7 @@ fn ChatConversationPanel(
                             match client.upload_document(&file).await {
                                 Ok(doc) => {
                                     // Check cancellation before updating UI
-                                    if upload_cancelled.get_untracked() {
+                                    if upload_cancelled.try_get_untracked().unwrap_or(true) {
                                         return;
                                     }
 
@@ -1169,19 +1217,19 @@ fn ChatConversationPanel(
 
                                     for _ in 0..60 {
                                         // Check cancellation before each poll
-                                        if upload_cancelled.get_untracked() {
+                                        if upload_cancelled.try_get_untracked().unwrap_or(true) {
                                             return;
                                         }
                                         gloo_timers::future::TimeoutFuture::new(1000).await;
                                         // Check cancellation after sleep
-                                        if upload_cancelled.get_untracked() {
+                                        if upload_cancelled.try_get_untracked().unwrap_or(true) {
                                             return;
                                         }
                                         match client.get_document(&doc_id).await {
                                             Ok(status) => match status.status.as_str() {
                                                 "indexed" => {
                                                     // Check cancellation before navigation
-                                                    if upload_cancelled.get_untracked() {
+                                                    if upload_cancelled.try_get_untracked().unwrap_or(true) {
                                                         return;
                                                     }
                                                     if let Some(count) = status.chunk_count {
@@ -1205,7 +1253,7 @@ fn ChatConversationPanel(
                                                     return;
                                                 }
                                                 "failed" => {
-                                                    if upload_cancelled.get_untracked() {
+                                                    if upload_cancelled.try_get_untracked().unwrap_or(true) {
                                                         return;
                                                     }
                                                     attach_error.set(Some(format!(
@@ -1217,7 +1265,7 @@ fn ChatConversationPanel(
                                                     return;
                                                 }
                                                 _ => {
-                                                    if upload_cancelled.get_untracked() {
+                                                    if upload_cancelled.try_get_untracked().unwrap_or(true) {
                                                         return;
                                                     }
                                                     attach_status.set(Some(format!(
@@ -1227,7 +1275,7 @@ fn ChatConversationPanel(
                                                 }
                                             },
                                             Err(e) => {
-                                                if upload_cancelled.get_untracked() {
+                                                if upload_cancelled.try_get_untracked().unwrap_or(true) {
                                                     return;
                                                 }
                                                 attach_error.set(Some(format!(
@@ -1241,7 +1289,7 @@ fn ChatConversationPanel(
                                         }
                                     }
 
-                                    if upload_cancelled.get_untracked() {
+                                    if upload_cancelled.try_get_untracked().unwrap_or(true) {
                                         return;
                                     }
                                     attach_error
@@ -1250,7 +1298,7 @@ fn ChatConversationPanel(
                                     attach_status.set(None);
                                 }
                                 Err(e) => {
-                                    if upload_cancelled.get_untracked() {
+                                    if upload_cancelled.try_get_untracked().unwrap_or(true) {
                                         return;
                                     }
                                     attach_error.set(Some(format!("Upload failed: {}", e)));
@@ -1294,7 +1342,7 @@ fn ChatConversationPanel(
 
                         wasm_bindgen_futures::spawn_local(async move {
                             // Check cancellation before starting
-                            if upload_cancelled.get_untracked() {
+                            if upload_cancelled.try_get_untracked().unwrap_or(true) {
                                 return;
                             }
 
@@ -1309,7 +1357,7 @@ fn ChatConversationPanel(
                             {
                                 Ok(resp) => {
                                     // Check cancellation before navigation
-                                    if upload_cancelled.get_untracked() {
+                                    if upload_cancelled.try_get_untracked().unwrap_or(true) {
                                         return;
                                     }
                                     let path = format!(
@@ -1322,7 +1370,7 @@ fn ChatConversationPanel(
                                     attach_status.set(None);
                                 }
                                 Err(e) => {
-                                    if upload_cancelled.get_untracked() {
+                                    if upload_cancelled.try_get_untracked().unwrap_or(true) {
                                         return;
                                     }
                                     attach_error
@@ -1390,7 +1438,7 @@ fn ChatConversationPanel(
 
                         wasm_bindgen_futures::spawn_local(async move {
                             // Check cancellation before starting
-                            if upload_cancelled.get_untracked() {
+                            if upload_cancelled.try_get_untracked().unwrap_or(true) {
                                 return;
                             }
 
@@ -1405,7 +1453,7 @@ fn ChatConversationPanel(
                             {
                                 Ok(resp) => {
                                     // Check cancellation before navigation
-                                    if upload_cancelled.get_untracked() {
+                                    if upload_cancelled.try_get_untracked().unwrap_or(true) {
                                         return;
                                     }
                                     let path = format!(
@@ -1418,7 +1466,7 @@ fn ChatConversationPanel(
                                     attach_status.set(None);
                                 }
                                 Err(e) => {
-                                    if upload_cancelled.get_untracked() {
+                                    if upload_cancelled.try_get_untracked().unwrap_or(true) {
                                         return;
                                     }
                                     attach_error
@@ -1459,7 +1507,7 @@ fn ChatConversationPanel(
                     // Target selector for choosing model, stack, or policy pack
                     <ChatTargetSelector/>
                     <Badge variant=BadgeVariant::Outline>
-                        {move || format!("Base model: {}", base_model_label.get())}
+                        {move || format!("Base model: {}", base_model_label.try_get().unwrap_or_default())}
                     </Badge>
                     <div class="flex items-center rounded-full border border-border bg-muted/30 p-0.5 text-xs">
                         {

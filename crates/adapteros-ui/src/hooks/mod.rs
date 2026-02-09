@@ -282,11 +282,15 @@ where
         let fetch = fetch.clone();
         let interval_id = Arc::clone(&interval_id);
 
-        // Initial fetch
+        // Initial fetch - deferred via Timeout to avoid RefCell re-entrancy
+        // panic in wasm-bindgen-futures when spawn_local is called from Effect body
         let fetch_init = fetch.clone();
-        wasm_bindgen_futures::spawn_local(async move {
-            fetch_init().await;
-        });
+        gloo_timers::callback::Timeout::new(0, move || {
+            wasm_bindgen_futures::spawn_local(async move {
+                fetch_init().await;
+            });
+        })
+        .forget();
 
         // Set up interval using web_sys for cleanup capability
         let callback = Closure::wrap(Box::new(move || {
@@ -403,11 +407,15 @@ where
             return;
         }
 
-        // Initial fetch when polling starts
+        // Initial fetch when polling starts - deferred via Timeout to avoid
+        // RefCell re-entrancy in wasm-bindgen-futures when called from Effect body
         let fetch_init = fetch.clone();
-        wasm_bindgen_futures::spawn_local(async move {
-            fetch_init().await;
-        });
+        gloo_timers::callback::Timeout::new(0, move || {
+            wasm_bindgen_futures::spawn_local(async move {
+                fetch_init().await;
+            });
+        })
+        .forget();
 
         // Set up interval using web_sys for cleanup capability
         let callback = Closure::wrap(Box::new(move || {

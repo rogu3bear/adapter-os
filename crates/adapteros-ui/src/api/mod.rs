@@ -60,7 +60,7 @@ pub use client::{
 
 pub use diagnostic_bundle::DiagnosticBundle;
 pub use error::{ApiError, ApiResult};
-pub use error_reporter::{report_error, report_error_with_toast};
+pub use error_reporter::{report_error, report_error_with_toast, report_ui_panic};
 pub use sse::{
     use_sse, use_sse_json, use_sse_json_events, use_sse_json_with_config, use_sse_with_config,
     CircuitBreakerConfig, SseConnection, SseEvent, SseState,

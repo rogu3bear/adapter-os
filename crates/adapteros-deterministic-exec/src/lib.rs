@@ -43,7 +43,7 @@ use rand_chacha::ChaCha20Rng;
 use serde::{Deserialize, Serialize};
 use std::io;
 use thiserror::Error;
-use tracing::{debug, error, info, warn};
+use tracing::{debug, error, info, trace, warn};
 
 /// Global sequence counter for deterministic task ID generation
 ///
@@ -611,7 +611,7 @@ impl DeterministicExecutor {
     /// Run in normal mode for a bounded number of task polls.
     async fn run_normal_mode_with_limit(&self, max_steps: Option<u64>) -> Result<()> {
         self.running.store(1, Ordering::Relaxed);
-        info!(mode = "normal", "Starting deterministic executor");
+        trace!(mode = "normal", "Starting deterministic executor");
 
         // Pin current thread if thread pinning is enabled
         if self.config.enable_thread_pinning {
@@ -757,7 +757,7 @@ impl DeterministicExecutor {
         }
 
         self.running.store(0, Ordering::Relaxed);
-        info!(mode = "normal", "Deterministic executor completed");
+        trace!(mode = "normal", "Deterministic executor completed");
         Ok(())
     }
 
@@ -774,7 +774,7 @@ impl DeterministicExecutor {
     /// Run in replay mode using recorded events
     async fn run_replay_mode(&self) -> Result<()> {
         self.running.store(1, Ordering::Relaxed);
-        info!(mode = "replay", "Starting deterministic executor");
+        trace!(mode = "replay", "Starting deterministic executor");
 
         let mut replay_index = self.replay_index.lock();
         let replay_events = &self.config.replay_events;
@@ -886,7 +886,7 @@ impl DeterministicExecutor {
         }
 
         self.running.store(0, Ordering::Relaxed);
-        info!(mode = "replay", "Deterministic executor completed");
+        trace!(mode = "replay", "Deterministic executor completed");
         Ok(())
     }
 

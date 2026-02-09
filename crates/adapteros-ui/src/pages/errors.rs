@@ -180,6 +180,8 @@ fn ErrorRow(error: ClientErrorItem) -> impl IntoView {
         "Network" => BadgeVariant::Destructive,
         "Http" => BadgeVariant::Warning,
         "Server" => BadgeVariant::Destructive,
+        "Panic" => BadgeVariant::Destructive,
+        "JsBootError" => BadgeVariant::Warning,
         "Validation" => BadgeVariant::Secondary,
         _ => BadgeVariant::Outline,
     };
@@ -277,6 +279,8 @@ fn HistorySection() -> impl IntoView {
                         ("Network".to_string(), "Network".to_string()),
                         ("Http".to_string(), "HTTP".to_string()),
                         ("Server".to_string(), "Server".to_string()),
+                        ("Panic".to_string(), "Panic".to_string()),
+                        ("JsBootError".to_string(), "JS Boot".to_string()),
                         ("Validation".to_string(), "Validation".to_string()),
                     ]
                     class="w-32".to_string()

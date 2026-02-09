@@ -88,12 +88,21 @@ impl QwenTokenizer {
             .map_err(|e| AosError::Worker(format!("Decoding failed: {}", e)))
     }
 
-    /// Apply chat template for Qwen2.5-Instruct
+    /// Apply chat template based on model's special tokens
     pub fn apply_chat_template(&self, prompt: &str) -> String {
-        format!(
-            "<|im_start|>system\nYou are a helpful assistant.<|im_end|>\n<|im_start|>user\n{}<|im_end|>\n<|im_start|>assistant\n",
-            prompt
-        )
+        if self.special_tokens.im_start_id.is_some() {
+            // ChatML format (Qwen, Yi, etc.)
+            format!(
+                "<|im_start|>system\nYou are a helpful assistant.<|im_end|>\n<|im_start|>user\n{}<|im_end|>\n<|im_start|>assistant\n",
+                prompt
+            )
+        } else if self.special_tokens.bos_token_id.is_some() {
+            // Mistral/Llama instruct format
+            format!("<s> [INST] {} [/INST]", prompt)
+        } else {
+            // Fallback: raw prompt
+            prompt.to_string()
+        }
     }
 
     /// Get EOS token ID

@@ -10,6 +10,11 @@ const WARNING_TOAST_DURATION_MS: u32 = 15000;
 #[cfg(target_arch = "wasm32")]
 const ERROR_TOAST_DURATION_MS: u32 = 20000;
 
+thread_local! {
+    static GLOBAL_NOTIFICATION_ACTION: std::cell::RefCell<Option<NotificationAction>> =
+        std::cell::RefCell::new(None);
+}
+
 fn readable_id(_prefix: &str, _slug_source: &str) -> String {
     adapteros_id::TypedId::new(adapteros_id::IdPrefix::Evt).to_string()
 }
@@ -357,10 +362,32 @@ impl NotificationAction {
 /// Notification context type.
 pub type NotificationContext = (ReadSignal<NotificationState>, NotificationAction);
 
+fn set_global_notification_action(action: NotificationAction) {
+    GLOBAL_NOTIFICATION_ACTION.with(|slot| {
+        *slot.borrow_mut() = Some(action);
+    });
+}
+
+/// Emit an error notification outside reactive context (best-effort).
+///
+/// Returns `true` if a notification action was available and invoked.
+pub fn try_emit_global_error_with_details(title: &str, message: &str, details: &str) -> bool {
+    GLOBAL_NOTIFICATION_ACTION.with(|slot| {
+        let action = slot.borrow().clone();
+        if let Some(action) = action {
+            action.error_with_details(title, message, details);
+            true
+        } else {
+            false
+        }
+    })
+}
+
 /// Provide notifications context.
 pub fn provide_notifications_context() {
     let state = RwSignal::new(NotificationState::default());
     let action = NotificationAction::new(state);
+    set_global_notification_action(action.clone());
     provide_context((state.read_only(), action));
 }
 

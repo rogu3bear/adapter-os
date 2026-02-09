@@ -78,7 +78,9 @@ pub fn Taskbar() -> impl IntoView {
                                     is_active=move || {
                                         let path = location.pathname.get();
                                         // Check if current path matches any route in this module
-                                        routes.with_value(|routes| {
+                                        // Use try_with_value to avoid panic when StoredValue is
+                                        // disposed during SPA navigation re-renders
+                                        routes.try_with_value(|routes| {
                                             routes.iter().any(|r| {
                                                 if *r == "/" {
                                                     path == "/" || path == "/dashboard"
@@ -89,7 +91,7 @@ pub fn Taskbar() -> impl IntoView {
                                                     path == *r || path.starts_with(&format!("{}/", r))
                                                 }
                                             })
-                                        })
+                                        }).unwrap_or(false)
                                     }
                                 />
                             }

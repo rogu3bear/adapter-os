@@ -472,6 +472,8 @@ impl adapterOSClient for UdsClient {
             version: "1.0.0".to_string(),
             build_id: option_env!("AOS_BUILD_ID").map(|s| s.to_string()),
             models: None,
+            crate_manifest: None,
+            crate_manifest_digest: None,
         })
     }
 

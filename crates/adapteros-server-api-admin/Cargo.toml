@@ -1,6 +1,6 @@
 [package]
 name = "adapteros-server-api-admin"
-version = "0.0.2"
+version = "0.2.0"
 edition = "2021"
 description = "Admin and policy endpoints for AdapterOS control plane"
 

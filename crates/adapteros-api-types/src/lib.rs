@@ -317,6 +317,12 @@ pub struct HealthResponse {
     pub build_id: Option<String>,
     /// Model runtime health information
     pub models: Option<ModelRuntimeHealth>,
+    /// Per-crate version manifest (inference-critical crates)
+    #[serde(skip_serializing_if = "Option::is_none")]
+    pub crate_manifest: Option<std::collections::BTreeMap<String, String>>,
+    /// BLAKE3 digest of the canonical crate manifest JSON
+    #[serde(skip_serializing_if = "Option::is_none")]
+    pub crate_manifest_digest: Option<String>,
 }
 
 /// Model runtime health summary

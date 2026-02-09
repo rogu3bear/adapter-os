@@ -13,8 +13,8 @@ use super::helpers::{
 };
 use super::manifest::{cache_manifest, fetch_manifest_from_cp, parse_manifest, LoadedManifest};
 use super::registration::{
-    notify_cp_status, notify_cp_status_with_retry, register_with_cp_with_retry, RegistrationParams,
-    RegistrationResult,
+    notify_cp_status, notify_cp_status_with_retry, register_with_cp_with_retry,
+    spawn_heartbeat_loop, RegistrationParams, RegistrationResult,
 };
 use adapteros_boot::jti_cache::JtiCacheStore;
 use adapteros_config::{
@@ -1323,6 +1323,18 @@ pub async fn run_worker() -> Result<()> {
     }
     log_boot_phase("uds-listening");
 
+    // Spawn heartbeat loop after successful registration + healthy notification
+    let _heartbeat_handle = if cp_enabled {
+        Some(spawn_heartbeat_loop(
+            args.cp_url.clone(),
+            worker_id.clone(),
+            heartbeat_interval,
+            drain_flag.clone(),
+        ))
+    } else {
+        None
+    };
+
     // Spawn health monitor loop with telemetry + shutdown hook
     let (health_monitor, telemetry_for_health) = {
         let guard = worker.lock().await;
@@ -1387,7 +1399,26 @@ pub async fn run_worker() -> Result<()> {
     let _serve_span_guard = serve_span.enter();
 
     // Run server with drain handling
-    let shutdown_signal = signal::ctrl_c();
+    let shutdown_signal = async {
+        let ctrl_c = signal::ctrl_c();
+        #[cfg(unix)]
+        let terminate = async {
+            match signal::unix::signal(signal::unix::SignalKind::terminate()) {
+                Ok(mut sig) => { sig.recv().await; }
+                Err(e) => { warn!(error = %e, "Failed to install SIGTERM handler"); }
+            }
+        };
+        #[cfg(not(unix))]
+        let terminate = std::future::pending::<()>();
+        tokio::select! {
+            result = ctrl_c => {
+                if let Err(e) = result {
+                    error!(error = %e, "ctrl_c handler failed");
+                }
+            }
+            _ = terminate => {}
+        }
+    };
     tokio::pin!(shutdown_signal);
     let serve_fut = server.serve_with_listener(listener);
     tokio::pin!(serve_fut);

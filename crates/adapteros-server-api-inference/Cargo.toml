@@ -1,6 +1,6 @@
 [package]
 name = "adapteros-server-api-inference"
-version = "0.0.2"
+version = "0.2.0"
 edition = "2021"
 description = "Inference and streaming endpoints for AdapterOS server"
 
