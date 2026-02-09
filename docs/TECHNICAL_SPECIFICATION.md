@@ -1084,6 +1084,9 @@ If `server.review_webhook_url` is configured, the control plane emits a best-eff
 `review_submitted` HTTP POST after successful submission (`crates/adapteros-server-api/src/handlers/review.rs`).
 This is intended for lightweight notifications and is not a durable delivery mechanism.
 
+Outbound webhook requests are protected by SSRF guards by default. If you need to send webhooks
+to private-network targets, set `server.ssrf_protection = false`.
+
 #### Field-Level Reference (Review Protocol Types)
 
 This subsection is an *authoritative field reference* for the review protocol payloads as they
@@ -2510,7 +2513,7 @@ The 14 ordered regex patterns in `redact_sensitive()`:
 take priority over later generic patterns (hex secrets) to ensure the most specific redaction
 applies.
 
-**Kill switch**: Set `ADAPTEROS_DISABLE_ERROR_REDACTION=1` to disable all redaction. **Never
+**Disable switch**: Set `ADAPTEROS_DISABLE_ERROR_REDACTION=1` to disable all redaction. **Never
 use in production.**
 
 ## Appendix D: Configuration Reference
@@ -2539,6 +2542,9 @@ production_mode = false
 # Optional: invoked (best-effort) after successful review submission.
 # See: `crates/adapteros-server-api/src/state.rs` and `crates/adapteros-server-api/src/handlers/review.rs`
 review_webhook_url = ""
+# Optional: SSRF protection for outbound HTTP requests (default: true).
+# Set to false only if you need webhook targets on a private network.
+ssrf_protection = true
 
 [security]
 dev_bypass = false  # Enable auth bypass (debug builds only)
