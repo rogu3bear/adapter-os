@@ -11,7 +11,7 @@ pub mod rules;
 pub use decisions::RoutingDecisions;
 pub use rules::RoutingRules;
 
-use crate::components::{TabNav, TabPanel};
+use crate::components::{PageBreadcrumbItem, PageScaffold, TabNav, TabPanel};
 use leptos::prelude::*;
 
 #[component]
@@ -19,13 +19,14 @@ pub fn Routing() -> impl IntoView {
     let active_tab = RwSignal::new("rules");
 
     view! {
-        <div class="shell-page space-y-6">
-            <div>
-                <h1 class="heading-1">"Routing Debug"</h1>
-                <p class="text-sm text-muted-foreground">
-                    "Inspect and manage how requests are routed across adapters."
-                </p>
-            </div>
+        <PageScaffold
+            title="Routing Debug"
+            subtitle="Inspect and manage how requests are routed across adapters."
+            breadcrumbs=vec![
+                PageBreadcrumbItem::new("Route", "/routing"),
+                PageBreadcrumbItem::current("Routing"),
+            ]
+        >
             <TabNav
                 tabs=vec![
                     ("rules", "Management"),
@@ -41,6 +42,6 @@ pub fn Routing() -> impl IntoView {
             <TabPanel tab="decisions" active=active_tab>
                 <RoutingDecisions/>
             </TabPanel>
-        </div>
+        </PageScaffold>
     }
 }

@@ -30,56 +30,6 @@ pub fn Welcome() -> impl IntoView {
                     </div>
                 </div>
             </div>
-
-            <style>
-                "
-                .welcome-container {
-                    display: flex;
-                    justify-content: center;
-                    align-items: flex-start;
-                    padding-top: 4rem;
-                }
-                .welcome-card {
-                    max-width: 32rem;
-                    width: 100%;
-                    padding: 2.5rem;
-                    border-radius: 1rem;
-                    text-align: center;
-
-                    /* Liquid Glass Tier 2: cards, panels */
-                    backdrop-filter: blur(12px);
-                    -webkit-backdrop-filter: blur(12px);
-                    background: hsla(var(--card-hsl, 0 0% 100%), 0.78);
-                    border: 1px solid hsla(0, 0%, 100%, 0.30);
-                }
-                .welcome-title {
-                    font-size: 1.5rem;
-                    font-weight: 700;
-                    color: var(--foreground);
-                    margin: 0 0 0.5rem 0;
-                }
-                .welcome-subtitle {
-                    font-size: 0.95rem;
-                    color: var(--muted-foreground);
-                    margin: 0 0 2rem 0;
-                }
-                .welcome-skip {
-                    margin-top: 2rem;
-                    padding-top: 1.5rem;
-                    border-top: 1px solid hsla(0, 0%, 100%, 0.15);
-                }
-                .welcome-skip-link {
-                    font-size: 0.8125rem;
-                    color: var(--muted-foreground);
-                    text-decoration: none;
-                    transition: color 0.15s ease;
-                }
-                .welcome-skip-link:hover {
-                    color: var(--foreground);
-                    text-decoration: underline;
-                }
-                "
-            </style>
         </PageScaffold>
     }
 }

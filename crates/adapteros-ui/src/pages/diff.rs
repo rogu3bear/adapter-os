@@ -3,7 +3,10 @@
 //! Shows deterministic anchor comparison and first divergence point.
 
 use crate::api::ApiClient;
-use crate::components::{Button, ButtonVariant, Card, DiffResults, Link, Spinner};
+use crate::components::{
+    Button, ButtonVariant, Card, DiffResults, Link, PageBreadcrumbItem, PageScaffold,
+    PageScaffoldActions, Spinner,
+};
 use crate::hooks::{use_api_resource, LoadingState};
 use adapteros_api_types::diagnostics::{
     DiagDiffRequest, DiagDiffResponse, ListDiagRunsQuery, ListDiagRunsResponse,
@@ -98,19 +101,19 @@ pub fn Diff() -> impl IntoView {
     };
 
     view! {
-        <div class="p-6 space-y-6">
-            // Header
-            <div class="flex items-center justify-between">
-                <div>
-                    <h1 class="heading-1">"Run Diff"</h1>
-                    <p class="text-muted-foreground mt-1">
-                        "Compare diagnostic runs and launch into the Run Detail diff tab"
-                    </p>
-                </div>
+        <PageScaffold
+            title="Run Diff"
+            subtitle="Compare diagnostic runs and launch into the Run Detail diff tab"
+            breadcrumbs=vec![
+                PageBreadcrumbItem::new("Observe", "/runs"),
+                PageBreadcrumbItem::current("Run Diff"),
+            ]
+        >
+            <PageScaffoldActions slot>
                 <Button variant=ButtonVariant::Outline on:click=move |_| refetch_runs.run(())>
                     "Refresh Runs"
                 </Button>
-            </div>
+            </PageScaffoldActions>
 
             // Run selectors
             <Card>
@@ -187,7 +190,7 @@ pub fn Diff() -> impl IntoView {
                     }.into_any()
                 }
             }}
-        </div>
+        </PageScaffold>
     }.into_any()
 }
 

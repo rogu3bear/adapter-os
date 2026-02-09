@@ -17,8 +17,8 @@ pub use detail::StackDetail;
 
 use crate::api::ApiClient;
 use crate::components::{
-    Button, ButtonVariant, ErrorDisplay, LoadingDisplay, PageScaffold, PageScaffoldActions,
-    RefreshButton,
+    Button, ButtonVariant, ErrorDisplay, LoadingDisplay, PageBreadcrumbItem, PageScaffold,
+    PageScaffoldActions, RefreshButton,
 };
 use crate::hooks::{use_api_resource, LoadingState};
 use crate::signals::refetch::{use_refetch_signal, RefetchTopic};
@@ -51,6 +51,10 @@ pub fn Stacks() -> impl IntoView {
         <PageScaffold
             title="Runtime Stacks"
             subtitle="Compose adapter stacks for inference"
+            breadcrumbs=vec![
+                PageBreadcrumbItem::new("Deploy", "/stacks"),
+                PageBreadcrumbItem::current("Runtime Stacks"),
+            ]
         >
             <PageScaffoldActions slot>
                 <RefreshButton on_click=Callback::new(move |_| refetch.run(()))/>

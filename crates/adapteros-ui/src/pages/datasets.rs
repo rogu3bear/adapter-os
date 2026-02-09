@@ -2560,6 +2560,11 @@ fn DatasetDraftView(
         <PageScaffold
             title="Dataset Draft"
             subtitle="Review draft data before training an adapter."
+            breadcrumbs=vec![
+                PageBreadcrumbItem::new("Data", "/datasets"),
+                PageBreadcrumbItem::new("Datasets", "/datasets"),
+                PageBreadcrumbItem::current("Draft"),
+            ]
         >
             <PageScaffoldActions slot>
                 <div>

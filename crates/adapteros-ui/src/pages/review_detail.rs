@@ -5,8 +5,8 @@
 
 use crate::api::ApiClient;
 use crate::components::{
-    Badge, BadgeVariant, BreadcrumbItem, BreadcrumbTrail, Button, ButtonSize, ButtonVariant, Card,
-    ErrorDisplay, Input, LoadingDisplay, PageScaffold, PageScaffoldActions, RefreshButton, Select,
+    Badge, BadgeVariant, Button, ButtonSize, ButtonVariant, Card, ErrorDisplay, Input,
+    LoadingDisplay, PageBreadcrumbItem, PageScaffold, PageScaffoldActions, RefreshButton, Select,
     Textarea,
 };
 use crate::hooks::{use_api_resource, use_scope_alive, LoadingState};
@@ -33,15 +33,15 @@ pub fn ReviewDetail() -> impl IntoView {
         <PageScaffold
             title="Review Detail"
             subtitle="Inspect pause context and submit a review".to_string()
+            breadcrumbs=vec![
+                PageBreadcrumbItem::new("Operate", "/reviews"),
+                PageBreadcrumbItem::new("Reviews", "/reviews"),
+                PageBreadcrumbItem::current(pause_id()),
+            ]
         >
             <PageScaffoldActions slot>
                 <RefreshButton on_click=Callback::new(move |_| refetch.run(()))/>
             </PageScaffoldActions>
-
-            <BreadcrumbTrail items=vec![
-                BreadcrumbItem::link("Reviews", "/reviews"),
-                BreadcrumbItem::current(pause_id()),
-            ]/>
 
             {move || match pause_state.get() {
                 LoadingState::Idle | LoadingState::Loading => {

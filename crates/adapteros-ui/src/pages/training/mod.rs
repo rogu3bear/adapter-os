@@ -27,7 +27,10 @@ mod utils;
 mod wizard;
 
 use crate::api::ApiClient;
-use crate::components::{AsyncBoundary, Button, ButtonVariant, SplitPanel};
+use crate::components::{
+    AsyncBoundary, Button, ButtonVariant, PageBreadcrumbItem, PageScaffold, PageScaffoldActions,
+    SplitPanel,
+};
 use crate::hooks::{use_api_resource, use_conditional_polling, LoadingState};
 use crate::signals::{try_use_route_context, SelectedEntity};
 use adapteros_api_types::TrainingListParams;
@@ -212,7 +215,25 @@ pub fn Training() -> impl IntoView {
     }
 
     view! {
-        <div class="shell-page space-y-6">
+        <PageScaffold
+            title="Training Jobs"
+            subtitle="Launch, monitor, and validate training runs for adapter builds."
+            breadcrumbs=vec![
+                PageBreadcrumbItem::new("Deploy", "/training"),
+                PageBreadcrumbItem::current("Training Jobs"),
+            ]
+        >
+            <PageScaffoldActions slot>
+                <StatusFilter filter=status_filter/>
+                <CoremlFilters filter=coreml_filter/>
+                <Button
+                    variant=ButtonVariant::Primary
+                    on_click=Callback::new(move |_| create_dialog_open.set(true))
+                >
+                    "New Training Job"
+                </Button>
+            </PageScaffoldActions>
+
             <BackendReadinessPanel/>
             <SplitPanel
                 has_selection=has_selection
@@ -220,27 +241,7 @@ pub fn Training() -> impl IntoView {
                 back_label="Back to Training Jobs"
                 list_panel=move || {
                     view! {
-                        <div class="space-y-6">
-                            // Header
-                            <div class="flex items-center justify-between">
-                                <h1 class="heading-1">"Training Jobs"</h1>
-                                <div class="flex items-center gap-2">
-                                    <StatusFilter filter=status_filter/>
-                                    <CoremlFilters filter=coreml_filter/>
-                                    <Button
-                                        variant=ButtonVariant::Primary
-                                        on_click=Callback::new(move |_| create_dialog_open.set(true))
-                                    >
-                                        "New Training Job"
-                                    </Button>
-                                </div>
-                            </div>
-                            <p class="text-sm text-muted-foreground">
-                                "Launch, monitor, and validate training runs for adapter builds."
-                            </p>
-
-                            // Job list
-                            <AsyncBoundary
+                        <AsyncBoundary
                                 state=jobs
                                 on_retry=Callback::new(move |_| refetch_jobs.run(()))
                                 render=move |data| {
@@ -262,8 +263,7 @@ pub fn Training() -> impl IntoView {
                                         />
                                     }
                                 }
-                            />
-                        </div>
+                        />
                     }
                 }
                 detail_panel=move || {
@@ -288,6 +288,6 @@ pub fn Training() -> impl IntoView {
                 initial_dataset_id=initial_dataset_id
                 source_document_id=source_document_id
             />
-        </div>
+        </PageScaffold>
     }
 }

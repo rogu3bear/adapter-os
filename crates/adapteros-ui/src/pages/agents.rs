@@ -5,9 +5,9 @@
 
 use crate::api::{ApiClient, ApiError};
 use crate::components::{
-    Card, EmptyState, EmptyStateVariant, ErrorDisplay, LoadingDisplay, PageScaffold,
-    PageScaffoldActions, RefreshButton, Table, TableBody, TableCell, TableHead, TableHeader,
-    TableRow,
+    Card, EmptyState, EmptyStateVariant, ErrorDisplay, LoadingDisplay, PageBreadcrumbItem,
+    PageScaffold, PageScaffoldActions, RefreshButton, Table, TableBody, TableCell, TableHead,
+    TableHeader, TableRow,
 };
 use crate::hooks::{use_api_resource, LoadingState};
 use adapteros_api_types::orchestration::OrchestrationConfig;
@@ -73,6 +73,10 @@ pub fn Agents() -> impl IntoView {
         <PageScaffold
             title="Agent Orchestration"
             subtitle="Manage multi-agent sessions and worker executors"
+            breadcrumbs=vec![
+                PageBreadcrumbItem::new("Operate", "/agents"),
+                PageBreadcrumbItem::current("Agents"),
+            ]
         >
             <PageScaffoldActions slot>
                 <RefreshButton on_click=refetch_all/>

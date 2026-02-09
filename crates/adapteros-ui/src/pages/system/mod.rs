@@ -12,7 +12,10 @@ use crate::api::{
     use_sse_json_events, ApiClient, ReadyzResponse, SseState, SystemHealthResponse,
     SystemReadyResponse,
 };
-use crate::components::{Button, ButtonVariant, ErrorDisplay, Spinner};
+use crate::components::{
+    Button, ButtonVariant, ErrorDisplay, PageBreadcrumbItem, PageScaffold, PageScaffoldActions,
+    Spinner,
+};
 use crate::hooks::{use_api_resource, use_polling, use_sse_notifications, LoadingState};
 use crate::pages::workers::dialogs::{PlanOption, SpawnWorkerDialog};
 use adapteros_api_types::{
@@ -185,41 +188,41 @@ pub fn System() -> impl IntoView {
     });
 
     view! {
-        <div class="p-6 space-y-6">
-            // Header with title and action buttons
-                <div class="flex items-center justify-between">
-                    <div class="flex items-center gap-4">
-                        <h1 class="heading-1">"Infrastructure"</h1>
-                        <SseIndicator state=sse_status/>
-                    </div>
-                    <div class="flex items-center gap-2">
-                        <Button
-                            variant=ButtonVariant::Secondary
-                            on_click=Callback::new(move |_| {
-                                refetch_status.run(());
-                                refetch_workers.run(());
-                                refetch_nodes.run(());
-                                refetch_metrics.run(());
-                                refetch_state.run(());
-                                refetch_models_status.run(());
-                                refetch_healthz.run(());
-                                refetch_readyz.run(());
-                                refetch_healthz_all.run(());
-                                refetch_system_ready.run(());
-                            })
-                        >
-                            <IconRefresh/>
-                            "Refresh"
-                        </Button>
-                        <Button
-                            variant=ButtonVariant::Primary
-                            on_click=Callback::new(move |_| show_spawn_dialog.set(true))
-                        >
-                            <IconPlus/>
-                            "Spawn Worker"
-                        </Button>
-                    </div>
-                </div>
+        <PageScaffold
+            title="Infrastructure"
+            breadcrumbs=vec![
+                PageBreadcrumbItem::new("Observe", "/system"),
+                PageBreadcrumbItem::current("Infrastructure"),
+            ]
+        >
+            <PageScaffoldActions slot>
+                <SseIndicator state=sse_status/>
+                <Button
+                    variant=ButtonVariant::Secondary
+                    on_click=Callback::new(move |_| {
+                        refetch_status.run(());
+                        refetch_workers.run(());
+                        refetch_nodes.run(());
+                        refetch_metrics.run(());
+                        refetch_state.run(());
+                        refetch_models_status.run(());
+                        refetch_healthz.run(());
+                        refetch_readyz.run(());
+                        refetch_healthz_all.run(());
+                        refetch_system_ready.run(());
+                    })
+                >
+                    <IconRefresh/>
+                    "Refresh"
+                </Button>
+                <Button
+                    variant=ButtonVariant::Primary
+                    on_click=Callback::new(move |_| show_spawn_dialog.set(true))
+                >
+                    <IconPlus/>
+                    "Spawn Worker"
+                </Button>
+            </PageScaffoldActions>
 
                 // Error banner for spawn errors
                 {move || spawn_error.get().map(|e| view! {
@@ -338,6 +341,6 @@ pub fn System() -> impl IntoView {
                         />
                     }
                 }}
-        </div>
+        </PageScaffold>
     }
 }

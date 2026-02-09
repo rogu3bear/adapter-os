@@ -7,9 +7,9 @@ use crate::api::{
     ModelStatusResponse,
 };
 use crate::components::{
-    Badge, BadgeVariant, Button, ButtonVariant, Card, CopyableId, ErrorDisplay, PageScaffold,
-    PageScaffoldActions, Spinner, SplitPanel, Table, TableBody, TableCell, TableHead, TableHeader,
-    TableRow,
+    Badge, BadgeVariant, Button, ButtonVariant, Card, CopyableId, ErrorDisplay, PageBreadcrumbItem,
+    PageScaffold, PageScaffoldActions, Spinner, SplitPanel, Table, TableBody, TableCell, TableHead,
+    TableHeader, TableRow,
 };
 use crate::hooks::{use_api_resource, LoadingState, Refetch};
 use crate::utils::format_datetime;
@@ -40,7 +40,13 @@ pub fn Models() -> impl IntoView {
     let has_selection = Signal::derive(move || selected_model_id.get().is_some());
 
     view! {
-        <PageScaffold title="Models">
+        <PageScaffold
+            title="Models"
+            breadcrumbs=vec![
+                PageBreadcrumbItem::new("Deploy", "/models"),
+                PageBreadcrumbItem::current("Models"),
+            ]
+        >
             <PageScaffoldActions slot>
                 <Button
                     variant=ButtonVariant::Outline

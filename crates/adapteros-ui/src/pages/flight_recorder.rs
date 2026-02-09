@@ -10,10 +10,11 @@
 
 use crate::api::{ApiClient, UiInferenceTraceDetailResponse};
 use crate::components::{
-    ActionCard, ActionCardVariant, AsyncBoundary, Badge, BadgeVariant, BreadcrumbItem,
-    BreadcrumbTrail, Button, ButtonVariant, Card, CopyableId, DiffResults, Link, PageScaffold,
-    PageScaffoldActions, Select, Spinner, Table, TableBody, TableCell, TableHead, TableHeader,
-    TableRow, TokenDecisionsPaged, TraceViewerWithData,
+    ActionCard, ActionCardVariant, AsyncBoundary, Badge, BadgeVariant, Button, ButtonVariant, Card,
+    CopyableId, DiffResults, Link, PageBreadcrumbItem, PageScaffold, PageScaffoldActions, Select,
+    Spinner, SplitPanel, SplitRatio,
+    Table, TableBody, TableCell, TableHead, TableHeader, TableRow, TokenDecisionsPaged,
+    TraceViewerWithData,
 };
 use crate::constants::pagination::TOKEN_DECISIONS_PAGE_SIZE;
 use crate::hooks::{use_api_resource, use_polling, LoadingState};
@@ -68,66 +69,66 @@ pub fn FlightRecorder() -> impl IntoView {
         selected_run_id.set(None);
     };
 
-    // Dynamic class for left panel width
-    let left_panel_class = move || {
-        if selected_run_id.get().is_some() {
-            "w-1/2 space-y-6 pr-4 overflow-auto"
-        } else {
-            "flex-1 space-y-6 pr-4 overflow-auto"
-        }
-    };
-
     view! {
         <PageScaffold
             title="Flight Recorder"
             subtitle="Inference run history and diagnostics"
+            breadcrumbs=vec![
+                PageBreadcrumbItem::new("Observe", "/runs"),
+                PageBreadcrumbItem::current("Flight Recorder"),
+            ]
         >
             <PageScaffoldActions slot>
                 <StatusFilter filter=status_filter/>
             </PageScaffoldActions>
 
-            <div class="flex h-full">
-                // Left panel: Run list
-                <div class=left_panel_class>
-                    <AsyncBoundary
-                        state=runs
-                        on_retry=Callback::new(move |_| refetch_runs.run(()))
-                        render=move |response: ListDiagRunsResponse| {
-                            if response.runs.is_empty() {
-                                view! {
-                                    <Card>
-                                        <div class="text-center py-8 text-muted-foreground">
-                                            "No runs found"
-                                        </div>
-                                    </Card>
-                                }.into_any()
-                            } else {
-                                view! {
-                                    <RunsTable
-                                        runs=response.runs
-                                        selected_id=selected_run_id
-                                        on_select=Callback::new(on_run_select)
-                                    />
-                                }.into_any()
+            <SplitPanel
+                has_selection=Signal::derive(move || selected_run_id.get().is_some())
+                on_close=Callback::new(move |_| on_close_detail())
+                back_label="Back to Runs"
+                ratio=SplitRatio::Half
+                list_panel=move || {
+                    view! {
+                        <AsyncBoundary
+                            state=runs
+                            on_retry=Callback::new(move |_| refetch_runs.run(()))
+                            render=move |response: ListDiagRunsResponse| {
+                                if response.runs.is_empty() {
+                                    view! {
+                                        <Card>
+                                            <div class="text-center py-8 text-muted-foreground">
+                                                "No runs found"
+                                            </div>
+                                        </Card>
+                                    }.into_any()
+                                } else {
+                                    view! {
+                                        <RunsTable
+                                            runs=response.runs
+                                            selected_id=selected_run_id
+                                            on_select=Callback::new(on_run_select)
+                                        />
+                                    }.into_any()
+                                }
                             }
-                        }
-                    />
-                </div>
-
-                // Right panel: Run detail (when selected)
-                {move || {
-                    selected_run_id.get().map(|run_id| {
-                        view! {
-                            <div class="w-1/2 border-l border-border pl-4 overflow-auto h-full">
-                                <RunDetailHub
-                                    run_id=run_id
-                                    on_close=Callback::new(move |_| on_close_detail())
-                                />
-                            </div>
-                        }
-                    })
-                }}
-            </div>
+                        />
+                    }
+                }
+                detail_panel=move || {
+                    view! {
+                        {move || {
+                            selected_run_id.get().map(|run_id| {
+                                view! {
+                                    <RunDetailHub
+                                        run_id=run_id
+                                        on_close=Callback::new(move |_| on_close_detail())
+                                    />
+                                }
+                            })
+                        }}
+                    }
+                }
+            />
         </PageScaffold>
     }
 }
@@ -140,13 +141,14 @@ pub fn FlightRecorderDetail() -> impl IntoView {
     let run_id = move || params.get().get("id").unwrap_or_default();
 
     view! {
-        <div class="p-6 h-full overflow-auto space-y-4">
-            // Breadcrumb navigation
-            <BreadcrumbTrail items=vec![
-                BreadcrumbItem::link("Runs", "/runs"),
-                BreadcrumbItem::current(run_id()),
-            ]/>
-
+        <PageScaffold
+            title="Run Detail"
+            breadcrumbs=vec![
+                PageBreadcrumbItem::new("Observe", "/runs"),
+                PageBreadcrumbItem::new("Runs", "/runs"),
+                PageBreadcrumbItem::current(run_id()),
+            ]
+        >
             <RunDetailHub
                 run_id=run_id()
                 on_close=Callback::new(|_| {
@@ -156,7 +158,7 @@ pub fn FlightRecorderDetail() -> impl IntoView {
                     }
                 })
             />
-        </div>
+        </PageScaffold>
     }
 }
 

@@ -7,7 +7,10 @@ mod dialogs;
 mod list;
 
 use crate::api::ApiClient;
-use crate::components::{BreadcrumbItem, BreadcrumbTrail, Button, ButtonVariant, Select, Spinner};
+use crate::components::{
+    BreadcrumbItem, BreadcrumbTrail, Button, ButtonVariant, PageBreadcrumbItem, PageScaffold,
+    PageScaffoldActions, Select, Spinner, SplitPanel, SplitRatio,
+};
 use crate::hooks::{use_api_resource, LoadingState};
 use detail::{RepositoryDetailPanel, RepositoryDetailStandalone};
 use dialogs::RegisterRepositoryDialog;
@@ -46,86 +49,82 @@ pub fn Repositories() -> impl IntoView {
         }
     });
 
-    // Dynamic class for left panel width
-    let left_panel_class = move || {
-        if selected_repo_id.get().is_some() {
-            "w-1/2 space-y-6 pr-4 overflow-auto"
-        } else {
-            "flex-1 space-y-6 overflow-auto"
-        }
-    };
-
     view! {
-        <div class="p-6 flex h-full">
-            // Left panel: Repository list
-            <div class=left_panel_class>
-                <div class="flex items-center justify-between">
-                    <div>
-                        <h1 class="heading-1">"Repositories"</h1>
-                        <p class="text-sm text-muted-foreground">
-                            "Register and scan codebases to power code intelligence."
-                        </p>
-                    </div>
-                    <div class="flex items-center gap-2">
-                        <StatusFilter filter=status_filter/>
-                        <Button
-                            variant=ButtonVariant::Primary
-                            on_click=Callback::new(move |_| register_dialog_open.set(true))
-                        >
-                            "Register Repository"
-                        </Button>
-                        <Button
-                            variant=ButtonVariant::Secondary
-                            on_click=Callback::new(move |_| refetch_repos.run(()))
-                        >
-                            "Refresh"
-                        </Button>
-                    </div>
-                </div>
+        <PageScaffold
+            title="Repositories"
+            subtitle="Register and scan codebases to power code intelligence."
+            breadcrumbs=vec![
+                PageBreadcrumbItem::new("Data", "/repositories"),
+                PageBreadcrumbItem::current("Repositories"),
+            ]
+        >
+            <PageScaffoldActions slot>
+                <StatusFilter filter=status_filter/>
+                <Button
+                    variant=ButtonVariant::Primary
+                    on_click=Callback::new(move |_| register_dialog_open.set(true))
+                >
+                    "Register Repository"
+                </Button>
+                <Button
+                    variant=ButtonVariant::Secondary
+                    on_click=Callback::new(move |_| refetch_repos.run(()))
+                >
+                    "Refresh"
+                </Button>
+            </PageScaffoldActions>
 
-                {move || {
-                    match repos.get() {
-                        LoadingState::Idle | LoadingState::Loading => {
-                            view! {
-                                <div class="flex items-center justify-center py-12">
-                                    <Spinner/>
-                                </div>
-                            }.into_any()
-                        }
-                        LoadingState::Loaded(data) => {
-                            // Repositories are already filtered server-side
-                            view! {
-                                <RepositoryList
-                                    repos=data.repos.clone()
-                                    selected_id=selected_repo_id
-                                />
-                            }.into_any()
-                        }
-                        LoadingState::Error(e) => {
-                            view! {
-                                <div class="rounded-lg border border-destructive bg-destructive/10 p-4">
-                                    <p class="text-destructive">{e.to_string()}</p>
-                                </div>
-                            }.into_any()
-                        }
-                    }
-                }}
-            </div>
-
-            // Right panel: Repository detail (when selected)
-            {move || {
-                selected_repo_id.get().map(|repo_id| {
+            <SplitPanel
+                has_selection=Signal::derive(move || selected_repo_id.get().is_some())
+                on_close=Callback::new(move |_| selected_repo_id.set(None))
+                back_label="Back to Repositories"
+                ratio=SplitRatio::Half
+                list_panel=move || {
                     view! {
-                        <div class="w-1/2 h-full overflow-auto border-l pl-4">
-                            <RepositoryDetailPanel
-                                repo_id=repo_id.clone()
-                                selected_repo_id=selected_repo_id
-                            />
-                        </div>
+                        {move || {
+                            match repos.get() {
+                                LoadingState::Idle | LoadingState::Loading => {
+                                    view! {
+                                        <div class="flex items-center justify-center py-12">
+                                            <Spinner/>
+                                        </div>
+                                    }.into_any()
+                                }
+                                LoadingState::Loaded(data) => {
+                                    view! {
+                                        <RepositoryList
+                                            repos=data.repos.clone()
+                                            selected_id=selected_repo_id
+                                        />
+                                    }.into_any()
+                                }
+                                LoadingState::Error(e) => {
+                                    view! {
+                                        <div class="rounded-lg border border-destructive bg-destructive/10 p-4">
+                                            <p class="text-destructive">{e.to_string()}</p>
+                                        </div>
+                                    }.into_any()
+                                }
+                            }
+                        }}
                     }
-                })
-            }}
-        </div>
+                }
+                detail_panel=move || {
+                    view! {
+                        {move || {
+                            selected_repo_id.get().map(|repo_id| {
+                                view! {
+                                    <RepositoryDetailPanel
+                                        repo_id=repo_id.clone()
+                                        selected_repo_id=selected_repo_id
+                                    />
+                                }
+                            })
+                        }}
+                    }
+                }
+            />
+        </PageScaffold>
 
         // Register repository dialog
         <RegisterRepositoryDialog
