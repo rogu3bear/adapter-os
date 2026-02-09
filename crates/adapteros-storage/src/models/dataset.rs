@@ -18,7 +18,6 @@ pub struct TrainingDatasetKv {
     pub description: Option<String>,
     pub format: String,
     pub hash_b3: String,
-    #[serde(skip_serializing_if = "Option::is_none")]
     pub dataset_hash_b3: Option<String>,
     pub storage_path: String,
     pub status: String,
@@ -53,21 +52,21 @@ pub struct TrainingDatasetKv {
     pub commit_sha: Option<String>,
 
     // Session lineage fields (migration 0256)
-    #[serde(default, skip_serializing_if = "Option::is_none")]
+    #[serde(default)]
     pub session_id: Option<String>,
-    #[serde(default, skip_serializing_if = "Option::is_none")]
+    #[serde(default)]
     pub session_name: Option<String>,
-    #[serde(default, skip_serializing_if = "Option::is_none")]
+    #[serde(default)]
     pub session_tags: Option<String>,
 
     // Scope metadata fields (migration 0257)
-    #[serde(default, skip_serializing_if = "Option::is_none")]
+    #[serde(default)]
     pub scope_repo_id: Option<String>,
-    #[serde(default, skip_serializing_if = "Option::is_none")]
+    #[serde(default)]
     pub scope_repo: Option<String>,
-    #[serde(default, skip_serializing_if = "Option::is_none")]
+    #[serde(default)]
     pub scope_scan_root: Option<String>,
-    #[serde(default, skip_serializing_if = "Option::is_none")]
+    #[serde(default)]
     pub scope_remote_url: Option<String>,
 
     // Aggregate metrics (migration 0259)
@@ -77,9 +76,9 @@ pub struct TrainingDatasetKv {
     pub total_scan_root_files: Option<i64>,
     #[serde(default)]
     pub total_scan_root_bytes: Option<i64>,
-    #[serde(default, skip_serializing_if = "Option::is_none")]
+    #[serde(default)]
     pub scan_roots_content_hash: Option<String>,
-    #[serde(default, skip_serializing_if = "Option::is_none")]
+    #[serde(default)]
     pub scan_roots_updated_at: Option<String>,
 }
 

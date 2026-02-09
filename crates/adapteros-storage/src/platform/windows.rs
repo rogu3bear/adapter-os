@@ -270,6 +270,9 @@ mod tests {
 
     #[test]
     fn test_windows_handler() -> Result<()> {
+        if !cfg!(target_os = "windows") {
+            return Ok(());
+        }
         let handler = WindowsHandler::new(None)?;
 
         assert_eq!(handler.platform_name(), "Windows");
@@ -283,6 +286,9 @@ mod tests {
 
     #[test]
     fn test_windows_path_normalization() -> Result<()> {
+        if !cfg!(target_os = "windows") {
+            return Ok(());
+        }
         let handler = WindowsHandler::new(None)?;
         let temp_dir = new_test_tempdir()?;
         let test_path = temp_dir.path().join("test.txt");
@@ -295,6 +301,9 @@ mod tests {
 
     #[test]
     fn test_windows_file_metadata() -> Result<()> {
+        if !cfg!(target_os = "windows") {
+            return Ok(());
+        }
         let handler = WindowsHandler::new(None)?;
         let temp_dir = new_test_tempdir()?;
         let test_file = temp_dir.path().join("test.txt");

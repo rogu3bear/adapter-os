@@ -506,7 +506,12 @@ mod tests {
         let config = EgressConfig::default();
         let policy = EgressPolicy::new(config);
 
-        let allowed_path = PathBuf::from("var/run/aos/test.sock");
+        let allowed_prefix = policy
+            .config
+            .uds_paths
+            .first()
+            .expect("default config should include at least one allowed UDS path");
+        let allowed_path = allowed_prefix.join("test.sock");
         assert!(policy.validate_uds_paths(&allowed_path).is_ok());
 
         let disallowed_path = PathBuf::from("/tmp/test.sock");

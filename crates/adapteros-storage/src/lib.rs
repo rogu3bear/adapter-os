@@ -280,7 +280,11 @@ impl StorageManager {
 
     /// Run cleanup if needed
     pub async fn cleanup_if_needed(&self) -> Result<()> {
-        self.cleanup_manager.cleanup_if_needed().await
+        self.cleanup_manager.cleanup_if_needed().await?;
+        // Cleanup can remove files and free space; ensure subsequent quota checks
+        // see fresh usage rather than cached values.
+        self.quota_manager.invalidate_usage_cache();
+        Ok(())
     }
 
     /// Get current storage usage

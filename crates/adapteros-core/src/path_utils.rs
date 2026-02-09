@@ -19,22 +19,43 @@ fn var_dir_override_raw() -> Option<String> {
         .filter(|v| !v.is_empty())
 }
 
+fn repo_root_from(start: &Path) -> Option<PathBuf> {
+    // Best-effort: when running inside the AdapterOS repo, prefer anchoring
+    // runtime paths under the workspace root to avoid crate-local `var/`.
+    for dir in start.ancestors() {
+        if dir.join("Cargo.lock").exists() || dir.join(".git").exists() {
+            return Some(dir.to_path_buf());
+        }
+    }
+    None
+}
+
+fn runtime_base_dir() -> PathBuf {
+    let cwd = std::env::current_dir().unwrap_or_else(|_| PathBuf::from("/"));
+    repo_root_from(&cwd).unwrap_or(cwd)
+}
+
 /// Resolve AOS_VAR_DIR (or default) as an absolute path, rejecting forbidden tmp paths.
 pub fn resolve_var_dir() -> PathBuf {
     if let Some(raw) = var_dir_override_raw() {
-        let candidate = absolutize_path(PathBuf::from(&raw));
+        let raw_path = PathBuf::from(&raw);
+        let candidate = if raw_path.is_absolute() {
+            raw_path
+        } else {
+            runtime_base_dir().join(raw_path)
+        };
         if is_forbidden_tmp_path(&candidate) {
             tracing::warn!(
                 path = %candidate.display(),
                 env = %"AOS_VAR_DIR",
                 "Refusing to use forbidden temp directory for runtime state; falling back to default"
             );
-            return absolutize_path(PathBuf::from("var"));
+            return runtime_base_dir().join("var");
         }
         return candidate;
     }
 
-    absolutize_path(PathBuf::from("var"))
+    runtime_base_dir().join("var")
 }
 
 fn strip_var_prefix(path: &Path) -> Option<PathBuf> {
@@ -66,17 +87,15 @@ pub fn rebase_var_path<P: AsRef<Path>>(path: P) -> PathBuf {
         return path.to_path_buf();
     }
 
-    if let Some(raw) = var_dir_override_raw() {
-        let candidate = absolutize_path(PathBuf::from(&raw));
-        if !is_forbidden_tmp_path(&candidate) {
-            if let Some(rest) = strip_var_prefix(path) {
-                return if rest.as_os_str().is_empty() {
-                    candidate
-                } else {
-                    candidate.join(rest)
-                };
-            }
-        }
+    // For relative `var/...` inputs, always rebase under the resolved runtime var dir,
+    // so tests/binaries invoked from subdirectories don't create `crates/*/var`.
+    if let Some(rest) = strip_var_prefix(path) {
+        let base = resolve_var_dir();
+        return if rest.as_os_str().is_empty() {
+            base
+        } else {
+            base.join(rest)
+        };
     }
 
     absolutize_path(path)

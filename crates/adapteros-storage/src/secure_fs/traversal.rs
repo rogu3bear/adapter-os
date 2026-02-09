@@ -749,10 +749,13 @@ pub fn validate_file_streaming(
 #[cfg(test)]
 mod tests {
     use super::*;
-    use tempfile::TempDir;
+    use crate::platform::common::PlatformUtils;
+    use tempfile::{Builder, TempDir};
 
     fn new_test_tempdir() -> Result<TempDir> {
-        Ok(TempDir::with_prefix("aos-test-")?)
+        let root = PlatformUtils::temp_dir();
+        std::fs::create_dir_all(&root)?;
+        Ok(Builder::new().prefix("aos-test-").tempdir_in(&root)?)
     }
 
     #[test]

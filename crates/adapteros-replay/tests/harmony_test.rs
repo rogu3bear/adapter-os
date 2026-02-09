@@ -14,10 +14,15 @@ use adapteros_trace::{
 };
 use serde_json::{json, Value};
 use std::collections::{HashMap, HashSet};
-use tempfile::TempDir;
+use tempfile::{Builder, TempDir};
 
 fn new_test_tempdir() -> TempDir {
-    TempDir::with_prefix("aos-test-").expect("create temp dir")
+    let root = adapteros_core::resolve_var_dir().join("tmp");
+    std::fs::create_dir_all(&root).expect("create var tmp");
+    Builder::new()
+        .prefix("aos-test-")
+        .tempdir_in(&root)
+        .expect("create temp dir")
 }
 
 fn base_metadata() -> EventMetadata {

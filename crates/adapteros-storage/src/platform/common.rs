@@ -163,7 +163,7 @@ impl PlatformUtils {
     ///
     /// Returns the directory where LoRA adapter weights are stored.
     /// Delegates to `AdapterPaths` for consistent path resolution.
-    /// Respects `AOS_ADAPTERS_DIR` env var, defaults to `var/adapters/repo`.
+    /// Respects `AOS_ADAPTERS_DIR` env var, defaults to `var/adapters/`.
     ///
     /// Note: For config-aware path resolution, use `AdapterPaths::from_config()` directly.
     pub fn aos_adapters_dir() -> PathBuf {
@@ -540,7 +540,7 @@ mod tests {
         assert_eq!(model_cache_dir, expected_var.join("model-cache"));
 
         let adapters_dir = PlatformUtils::aos_adapters_dir();
-        assert_eq!(adapters_dir, expected_var.join("adapters/repo"));
+        assert_eq!(adapters_dir, expected_var.join("adapters"));
 
         let artifacts_dir = PlatformUtils::aos_artifacts_dir();
         assert_eq!(artifacts_dir, expected_var.join("artifacts"));

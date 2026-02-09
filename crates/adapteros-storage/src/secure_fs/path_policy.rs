@@ -115,10 +115,16 @@ pub fn canonicalize_strict_in_allowed_roots<P: AsRef<Path>, R: AsRef<Path>>(
 #[cfg(test)]
 mod tests {
     use super::*;
-    use tempfile::TempDir;
+    use crate::platform::common::PlatformUtils;
+    use tempfile::{Builder, TempDir};
 
     fn new_temp_dir() -> TempDir {
-        tempfile::tempdir().expect("tempdir")
+        let root = PlatformUtils::temp_dir();
+        std::fs::create_dir_all(&root).expect("create var tmp");
+        Builder::new()
+            .prefix("aos-test-")
+            .tempdir_in(&root)
+            .expect("tempdir")
     }
 
     #[test]

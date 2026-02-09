@@ -610,10 +610,15 @@ impl StateManager {
 #[cfg(test)]
 mod tests {
     use super::*;
-    use tempfile::TempDir;
+    use tempfile::{Builder, TempDir};
 
     fn new_test_tempdir() -> TempDir {
-        TempDir::with_prefix("aos-test-").expect("tempdir")
+        let root = adapteros_core::resolve_var_dir().join("tmp");
+        std::fs::create_dir_all(&root).expect("create var tmp");
+        Builder::new()
+            .prefix("aos-test-")
+            .tempdir_in(&root)
+            .expect("tempdir")
     }
 
     #[tokio::test]

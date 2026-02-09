@@ -6,7 +6,7 @@
 
 use crate::{StorageConfig, StorageUsage};
 use adapteros_core::{AosError, Result};
-use glob::glob;
+use glob::Pattern;
 use std::path::{Path, PathBuf};
 use std::time::{Duration, SystemTime};
 use tokio::fs;
@@ -106,10 +106,15 @@ impl CleanupManager {
         // Check current usage
         let usage = self.get_current_usage().await?;
 
-        if usage.exceeds_threshold(self.config.cleanup_policy.usage_threshold_pct) {
+        let should_run = usage.exceeds_threshold(self.config.cleanup_policy.usage_threshold_pct)
+            || self.config.cleanup_policy.age_threshold == Duration::ZERO;
+
+        if should_run {
             info!(
-                "Storage usage {:.1}% exceeds threshold {:.1}%, running cleanup",
-                usage.usage_pct, self.config.cleanup_policy.usage_threshold_pct
+                "Running cleanup (usage {:.1}%, threshold {:.1}%, age_threshold {:?})",
+                usage.usage_pct,
+                self.config.cleanup_policy.usage_threshold_pct,
+                self.config.cleanup_policy.age_threshold
             );
             Self::run_cleanup(&self.config, &self.root_path).await?;
         }
@@ -122,57 +127,24 @@ impl CleanupManager {
         let mut cleaned_bytes = 0u64;
         let mut cleaned_files = 0u32;
 
-        // Clean up files matching patterns
-        for pattern in &config.cleanup_policy.patterns {
-            let glob_pattern = root_path
-                .join("**")
-                .join(pattern)
-                .to_string_lossy()
-                .to_string();
-
-            match glob(&glob_pattern) {
-                Ok(paths) => {
-                    for path in paths {
-                        match path {
-                            Ok(file_path) => {
-                                if let Ok(metadata) = fs::metadata(&file_path).await {
-                                    // Check file age
-                                    if let Ok(created) = metadata.created() {
-                                        if SystemTime::now()
-                                            .duration_since(created)
-                                            .unwrap_or(Duration::MAX)
-                                            > config.cleanup_policy.age_threshold
-                                        {
-                                            if let Err(e) = fs::remove_file(&file_path).await {
-                                                warn!(
-                                                    "Failed to remove file {}: {}",
-                                                    file_path.display(),
-                                                    e
-                                                );
-                                            } else {
-                                                cleaned_bytes += metadata.len();
-                                                cleaned_files += 1;
-                                                debug!("Cleaned up file: {}", file_path.display());
-                                            }
-                                        }
-                                    }
-                                }
-                            }
-                            Err(e) => {
-                                warn!("Glob pattern error: {}", e);
-                            }
-                        }
-                    }
-                }
-                Err(e) => {
-                    warn!("Invalid glob pattern {}: {}", pattern, e);
-                }
+        let mut patterns = Vec::new();
+        for raw in &config.cleanup_policy.patterns {
+            match Pattern::new(raw) {
+                Ok(pat) => patterns.push(pat),
+                Err(e) => warn!("Invalid cleanup pattern {}: {}", raw, e),
             }
         }
+        // Also clean up stale adapter artifacts.
+        patterns.push(Pattern::new("*.aos").expect("static pattern"));
 
-        // Clean up old .aos files
-        Self::cleanup_old_aos_files(config, root_path, &mut cleaned_bytes, &mut cleaned_files)
-            .await?;
+        Self::walk_and_cleanup(
+            root_path,
+            &patterns,
+            config.cleanup_policy.age_threshold,
+            &mut cleaned_bytes,
+            &mut cleaned_files,
+        )
+        .await?;
 
         if cleaned_files > 0 {
             info!(
@@ -184,55 +156,73 @@ impl CleanupManager {
         Ok(())
     }
 
-    /// Clean up old .aos files
-    async fn cleanup_old_aos_files(
-        config: &StorageConfig,
-        root_path: &Path,
+    async fn walk_and_cleanup(
+        root: &Path,
+        patterns: &[Pattern],
+        age_threshold: Duration,
         cleaned_bytes: &mut u64,
         cleaned_files: &mut u32,
     ) -> Result<()> {
-        let aos_pattern = root_path
-            .join("**")
-            .join("*.aos")
-            .to_string_lossy()
-            .to_string();
+        // Async recursion would require boxing; use an explicit stack instead.
+        let mut stack: Vec<PathBuf> = vec![root.to_path_buf()];
+        while let Some(dir) = stack.pop() {
+            let mut entries = fs::read_dir(&dir).await.map_err(|e| {
+                AosError::Io(format!("Failed to read directory {}: {}", dir.display(), e))
+            })?;
 
-        match glob(&aos_pattern) {
-            Ok(paths) => {
-                for path in paths {
-                    match path {
-                        Ok(file_path) => {
-                            if let Ok(metadata) = fs::metadata(&file_path).await {
-                                // Check file age
-                                if let Ok(created) = metadata.created() {
-                                    if SystemTime::now()
-                                        .duration_since(created)
-                                        .unwrap_or(Duration::MAX)
-                                        > config.cleanup_policy.age_threshold
-                                    {
-                                        if let Err(e) = fs::remove_file(&file_path).await {
-                                            warn!(
-                                                "Failed to remove .aos file {}: {}",
-                                                file_path.display(),
-                                                e
-                                            );
-                                        } else {
-                                            *cleaned_bytes += metadata.len();
-                                            *cleaned_files += 1;
-                                            debug!("Cleaned up .aos file: {}", file_path.display());
-                                        }
-                                    }
-                                }
-                            }
-                        }
-                        Err(e) => {
-                            warn!("Glob pattern error: {}", e);
-                        }
+            while let Some(entry) = entries.next_entry().await.map_err(|e| {
+                AosError::Io(format!(
+                    "Failed to read directory entry under {}: {}",
+                    dir.display(),
+                    e
+                ))
+            })? {
+                let path = entry.path();
+                let ty = entry.file_type().await.map_err(|e| {
+                    AosError::Io(format!("Failed to read file type for {}: {}", path.display(), e))
+                })?;
+
+                if ty.is_dir() {
+                    stack.push(path);
+                    continue;
+                }
+
+                if !ty.is_file() {
+                    continue;
+                }
+
+                let file_name = match path.file_name().and_then(|s| s.to_str()) {
+                    Some(name) => name,
+                    None => continue,
+                };
+                if !patterns.iter().any(|pat| pat.matches(file_name)) {
+                    continue;
+                }
+
+                let metadata = entry.metadata().await.map_err(|e| {
+                    AosError::Io(format!("Failed to read metadata for {}: {}", path.display(), e))
+                })?;
+                let ts = metadata.created().or_else(|_| metadata.modified());
+                let age_ok = ts
+                    .ok()
+                    .and_then(|ts| SystemTime::now().duration_since(ts).ok())
+                    .map(|age| age >= age_threshold)
+                    .unwrap_or(true);
+
+                if !age_ok {
+                    continue;
+                }
+
+                match fs::remove_file(&path).await {
+                    Ok(()) => {
+                        *cleaned_bytes += metadata.len();
+                        *cleaned_files += 1;
+                        debug!("Cleaned up file: {}", path.display());
+                    }
+                    Err(e) => {
+                        warn!("Failed to remove file {}: {}", path.display(), e);
                     }
                 }
-            }
-            Err(e) => {
-                warn!("Invalid .aos glob pattern: {}", e);
             }
         }
 
