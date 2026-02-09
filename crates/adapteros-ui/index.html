@@ -614,15 +614,104 @@
                 return msg;
             }
 
+            function redactSensitiveInfo(raw) {
+                var text = String(raw || '');
+                text = text.replace(/Bearer\s+[A-Za-z0-9\-_.]+/gi, 'Bearer [REDACTED]');
+                text = text.replace(/eyJ[A-Za-z0-9\-_]+\.[A-Za-z0-9\-_]+\.[A-Za-z0-9\-_]+/g, '[REDACTED_JWT]');
+                text = text.replace(/(jwt|auth_token|password|api_key|secret|access_token|refresh_token)\s*=\s*[^\s&]+/gi, '$1=[REDACTED]');
+                text = text.replace(/Authorization:\s*[^\r\n]+/gi, 'Authorization: [REDACTED]');
+                return text;
+            }
+
+            function getCookieValue(name) {
+                var cookieStr = document.cookie || '';
+                var cookies = cookieStr.split(';');
+                for (var i = 0; i < cookies.length; i++) {
+                    var cookie = cookies[i].trim();
+                    var prefix = name + '=';
+                    if (cookie.indexOf(prefix) === 0) {
+                        return decodeURIComponent(cookie.substring(prefix.length));
+                    }
+                }
+                return null;
+            }
+
+            function shouldReportBootClientError() {
+                return !!window.aosBoot &&
+                    !!window.aosBoot.stages &&
+                    window.aosBoot.stages.mount &&
+                    window.aosBoot.stages.mount.status !== 'done';
+            }
+
+            function sanitizeDetails(details) {
+                if (!details) return null;
+                try {
+                    return JSON.parse(JSON.stringify(details, function (_key, value) {
+                        if (typeof value === 'string') {
+                            return redactSensitiveInfo(value).slice(0, 1500);
+                        }
+                        return value;
+                    }));
+                } catch (_err) {
+                    return { note: 'details_unavailable' };
+                }
+            }
+
+            function reportBootClientError(errorType, message, details, code) {
+                if (!shouldReportBootClientError()) return;
+
+                try {
+                    var payload = {
+                        error_type: errorType,
+                        message: redactSensitiveInfo(message).slice(0, 1900),
+                        code: code || null,
+                        failure_code: null,
+                        http_status: null,
+                        page: window.location.pathname || '/',
+                        user_agent: (navigator && navigator.userAgent) ? navigator.userAgent : 'Unknown',
+                        timestamp: new Date().toISOString(),
+                        details: sanitizeDetails(details)
+                    };
+
+                    var headers = { 'Content-Type': 'application/json' };
+                    var csrf = getCookieValue('csrf_token');
+                    if (csrf) {
+                        headers['X-CSRF-Token'] = csrf;
+                    }
+
+                    fetch('/v1/telemetry/client-errors/anonymous', {
+                        method: 'POST',
+                        credentials: 'same-origin',
+                        keepalive: true,
+                        headers: headers,
+                        body: JSON.stringify(payload)
+                    }).catch(function () { });
+                } catch (_err) {
+                    // Best-effort telemetry only.
+                }
+            }
+
             // Error handlers
             window.addEventListener('error', function (e) {
-                window.aosBoot.errors.push(e.message || 'Unknown error');
+                var message = e.message || 'Unknown error';
+                window.aosBoot.errors.push(message);
                 var probe = document.getElementById('aos-boot-probe');
-                if (probe) { probe.textContent = 'ERROR: ' + (e.message || 'Unknown'); probe.classList.add('error'); }
+                if (probe) { probe.textContent = 'ERROR: ' + message; probe.classList.add('error'); }
 
                 // If we haven't mounted yet, this is likely a boot error
                 if (window.aosBoot.stages.mount.status !== 'done') {
-                    showBootError(e.message || 'Unknown JavaScript error during boot');
+                    reportBootClientError(
+                        'JsBootError',
+                        message,
+                        {
+                            source: 'window.error',
+                            filename: e.filename || null,
+                            lineno: e.lineno || null,
+                            colno: e.colno || null
+                        },
+                        'JS_BOOT_ERROR'
+                    );
+                    showBootError(message || 'Unknown JavaScript error during boot');
                 }
             });
 
@@ -643,15 +732,35 @@
                     updateStage('runtime', 'error', 'failed');
                 }
 
+                reportBootClientError(
+                    'JsBootError',
+                    rawMsg,
+                    {
+                        source: 'window.unhandledrejection',
+                        parsed_message: msg
+                    },
+                    'JS_BOOT_UNHANDLED_REJECTION'
+                );
                 showBootError(msg);
             });
 
             // PRD-UI-000: Direct WASM instantiation error handler
             window.aosWasmInstantiateError = function (error, method) {
                 var msg = parseWasmError(error);
-                window.aosBoot.errors.push('WASM ' + method + ': ' + (error.message || String(error)));
+                var rawWasmError = 'WASM ' + method + ': ' + (error.message || String(error));
+                window.aosBoot.errors.push(rawWasmError);
 
                 updateStage('wasm-compile', 'error', method + ' failed');
+                reportBootClientError(
+                    'JsBootError',
+                    rawWasmError,
+                    {
+                        source: 'window.aosWasmInstantiateError',
+                        method: method,
+                        stack: error && error.stack ? String(error.stack) : null
+                    },
+                    'WASM_INSTANTIATE_ERROR'
+                );
                 showBootError(msg);
 
                 // Log detailed error for debugging
