@@ -674,7 +674,6 @@ impl Clone for AnomalyDetector {
 mod tests {
     use super::*;
     use adapteros_telemetry::TelemetryWriter;
-    use tempfile::TempDir;
 
     #[tokio::test]
     async fn test_anomaly_config_defaults() {
@@ -694,7 +693,7 @@ mod tests {
 
     #[tokio::test]
     async fn test_statistical_calculations() {
-        let temp_dir = TempDir::with_prefix("aos-test-").unwrap();
+        let temp_dir = adapteros_core::tempdir_in_var("aos-test-").unwrap();
         let telemetry_writer =
             Arc::new(TelemetryWriter::new(temp_dir.path(), 1000, 1024 * 1024).unwrap());
         let detector = AnomalyDetector::new(
@@ -720,7 +719,7 @@ mod tests {
 
     #[tokio::test]
     async fn test_zscore_detection() {
-        let temp_dir = TempDir::with_prefix("aos-test-").unwrap();
+        let temp_dir = adapteros_core::tempdir_in_var("aos-test-").unwrap();
         let telemetry_writer =
             Arc::new(TelemetryWriter::new(temp_dir.path(), 1000, 1024 * 1024).unwrap());
         let detector = AnomalyDetector::new(
@@ -764,7 +763,7 @@ mod tests {
 
     #[tokio::test]
     async fn test_iqr_detection() {
-        let temp_dir = TempDir::with_prefix("aos-test-").unwrap();
+        let temp_dir = adapteros_core::tempdir_in_var("aos-test-").unwrap();
         let telemetry_writer =
             Arc::new(TelemetryWriter::new(temp_dir.path(), 1000, 1024 * 1024).unwrap());
         let detector = AnomalyDetector::new(

@@ -726,7 +726,6 @@ pub struct NotificationStatus {
 mod tests {
     use super::*;
     use adapteros_telemetry::TelemetryWriter;
-    use tempfile::TempDir;
 
     #[tokio::test]
     async fn test_notification_config_defaults() {
@@ -780,7 +779,7 @@ mod tests {
                 .expect("Failed to create test database"),
         );
 
-        let temp_dir = TempDir::with_prefix("aos-test-").unwrap();
+        let temp_dir = adapteros_core::tempdir_in_var("aos-test-").unwrap();
         let telemetry_writer = Arc::new(
             TelemetryWriter::new(temp_dir.path(), 1000, 1024 * 1024)
                 .expect("Failed to create telemetry writer"),
@@ -804,9 +803,10 @@ mod tests {
 
     #[tokio::test]
     async fn test_alert_severity() {
+        // `AlertSeverity` comes from `adapteros-db`. Display maps to DB constraint values.
         assert_eq!(AlertSeverity::Critical.to_string(), "critical");
-        assert_eq!(AlertSeverity::Error.to_string(), "error");
-        assert_eq!(AlertSeverity::Warning.to_string(), "warning");
-        assert_eq!(AlertSeverity::Info.to_string(), "info");
+        assert_eq!(AlertSeverity::Error.to_string(), "high");
+        assert_eq!(AlertSeverity::Warning.to_string(), "medium");
+        assert_eq!(AlertSeverity::Info.to_string(), "low");
     }
 }
