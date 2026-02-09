@@ -19,10 +19,13 @@ Non-goals:
 
 Run the minimal set of regression tests (serial execution):
 
-```bash
-cargo test -p adapteros-core --test determinism_regression_harness -- --test-threads=1
+Note: SQLx macros may attempt to connect to `DATABASE_URL` if it is set. For deterministic,
+DB-free verification, run the commands with `env -u DATABASE_URL` (or set `SQLX_OFFLINE=1`).
 
-cargo test -p adapteros-db --test cache_attestation_enforcement -- --test-threads=1
+```bash
+env -u DATABASE_URL cargo test -p adapteros-core --test determinism_regression_harness -- --test-threads=1
+
+env -u DATABASE_URL cargo test -p adapteros-db --test cache_attestation_enforcement -- --test-threads=1
 ```
 
 ## CI
