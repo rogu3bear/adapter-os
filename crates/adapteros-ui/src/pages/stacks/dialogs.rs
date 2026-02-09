@@ -68,16 +68,16 @@ pub fn CreateStackDialog(open: RwSignal<bool>, refetch: Refetch) -> impl IntoVie
 
                 match client.create_stack(&request).await {
                     Ok(_) => {
-                        creating.set(false);
-                        name.set(String::new());
-                        description.set(String::new());
-                        selected_adapter_ids.set(vec![]);
-                        open.set(false);
+                        let _ = creating.try_set(false);
+                        let _ = name.try_set(String::new());
+                        let _ = description.try_set(String::new());
+                        let _ = selected_adapter_ids.try_set(vec![]);
+                        let _ = open.try_set(false);
                         refetch.run(());
                     }
                     Err(e) => {
-                        creating.set(false);
-                        error.set(Some(e.to_string()));
+                        let _ = creating.try_set(false);
+                        let _ = error.try_set(Some(e.to_string()));
                     }
                 }
             });
@@ -282,13 +282,13 @@ pub fn EditStackDialog(
 
                 match client.update_stack(&id, &request).await {
                     Ok(_) => {
-                        updating.set(false);
-                        open.set(false);
+                        let _ = updating.try_set(false);
+                        let _ = open.try_set(false);
                         refetch.run(());
                     }
                     Err(e) => {
-                        updating.set(false);
-                        error.set(Some(e.to_string()));
+                        let _ = updating.try_set(false);
+                        let _ = error.try_set(Some(e.to_string()));
                     }
                 }
             });

@@ -358,7 +358,7 @@ fn ModelDetailContent(
                     report_error_with_toast(&e, "Failed to load model", Some("/models"), true);
                 }
             }
-            set_loading.set(false);
+            let _ = set_loading.try_set(false);
         });
     };
 
@@ -377,7 +377,7 @@ fn ModelDetailContent(
                     report_error_with_toast(&e, "Failed to unload model", Some("/models"), true);
                 }
             }
-            set_loading.set(false);
+            let _ = set_loading.try_set(false);
         });
     };
 

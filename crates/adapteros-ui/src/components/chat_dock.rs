@@ -253,7 +253,7 @@ fn TargetSelector() -> impl IntoView {
                 // Track errors for display
                 let mut errors: Vec<String> = Vec::new();
 
-                options.update(|o| {
+                let _ = options.try_update(|o| {
                     o.loading = false;
 
                     // Parse models

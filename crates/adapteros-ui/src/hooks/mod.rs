@@ -571,13 +571,13 @@ where
             match update_fn(new_value).await {
                 Ok(()) => {
                     // Success - update is already applied
-                    state.pending.set(false);
+                    let _ = state.pending.try_set(false);
                 }
                 Err(e) => {
                     // Failure - rollback to previous value
-                    state.value.set(old_value);
-                    state.pending.set(false);
-                    state.error.set(Some(e.clone()));
+                    let _ = state.value.try_set(old_value);
+                    let _ = state.pending.try_set(false);
+                    let _ = state.error.try_set(Some(e.clone()));
 
                     // Show error toast if notifications context is available
                     if let Some(notifications) =
@@ -629,13 +629,13 @@ where
             match update_fn(new_value).await {
                 Ok(_response) => {
                     // Success - update is already applied
-                    state.pending.set(false);
+                    let _ = state.pending.try_set(false);
                 }
                 Err(e) => {
                     // Failure - rollback to previous value
-                    state.value.set(old_value);
-                    state.pending.set(false);
-                    state.error.set(Some(e.clone()));
+                    let _ = state.value.try_set(old_value);
+                    let _ = state.pending.try_set(false);
+                    let _ = state.error.try_set(Some(e.clone()));
 
                     // Show error toast if notifications context is available
                     if let Some(notifications) =

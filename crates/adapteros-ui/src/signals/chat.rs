@@ -823,7 +823,7 @@ impl ChatAction {
         // Check queue limit
         let can_queue = self.state.get_untracked().can_queue();
         if !can_queue {
-            self.state.update(|s| {
+            let _ = self.state.try_update(|s| {
                 s.error =
                     Some("Queue full. Please wait for pending messages to complete.".to_string());
             });
@@ -832,7 +832,7 @@ impl ChatAction {
 
         // Add queued user message
         let user_message = ChatMessage::user_queued(content);
-        self.state.update(|s| {
+        let _ = self.state.try_update(|s| {
             s.messages.push(user_message);
             evict_old_messages(&mut s.messages, MAX_MESSAGES);
         });
@@ -858,7 +858,7 @@ impl ChatAction {
             let msg_id = msg.id.clone();
 
             // Update message status to sending
-            self.state.update(|s| {
+            let _ = self.state.try_update(|s| {
                 if let Some(m) = s.messages.iter_mut().find(|m| m.id == msg_id) {
                     m.status = MessageStatus::Sending;
                 }
@@ -878,7 +878,7 @@ impl ChatAction {
 
     /// Update pending phases for queued messages (call periodically)
     pub fn tick_pending_phases(&self, blocker_reason: Option<&str>) {
-        self.state.update(|s| {
+        let _ = self.state.try_update(|s| {
             s.update_pending_phases(blocker_reason);
             s.expire_old_queued_messages();
         });
@@ -886,7 +886,7 @@ impl ChatAction {
 
     /// Cancel a specific queued message
     pub fn cancel_queued_message(&self, message_id: &str) {
-        self.state.update(|s| {
+        let _ = self.state.try_update(|s| {
             s.messages
                 .retain(|m| !(m.id == message_id && m.status == MessageStatus::Queued));
         });
@@ -899,7 +899,7 @@ impl ChatAction {
 
     /// Set or clear the current chat session ID used for streaming requests.
     pub fn set_session_id(&self, session_id: Option<String>) {
-        self.state.update(|s| {
+        let _ = self.state.try_update(|s| {
             s.session_id = session_id;
         });
     }
@@ -978,14 +978,14 @@ impl ChatAction {
         if include_user_message {
             let user_message = ChatMessage::user(content.clone());
             user_message_id = Some(user_message.id.clone());
-            self.state.update(|s| {
+            let _ = self.state.try_update(|s| {
                 s.messages.push(user_message);
                 evict_old_messages(&mut s.messages, MAX_MESSAGES);
             });
         }
 
         // Mark request start + notice
-        self.state.update(|s| {
+        let _ = self.state.try_update(|s| {
             s.loading = true;
             s.streaming = true;
             s.error = None;
@@ -1008,7 +1008,7 @@ impl ChatAction {
                 .find(|m| m.role == "user")
                 .map(|m| m.id.clone())
         });
-        self.state.update(|s| {
+        let _ = self.state.try_update(|s| {
             s.messages.push(assistant_message);
             evict_old_messages(&mut s.messages, MAX_MESSAGES);
             s.stream_recovery = Some(StreamRecovery {
@@ -1219,7 +1219,7 @@ impl ChatAction {
         let request_started_at = Instant::now();
 
         // Add user message with FIFO eviction
-        self.state.update(|s| {
+        let _ = self.state.try_update(|s| {
             s.messages.push(ChatMessage::user(content.clone()));
             evict_old_messages(&mut s.messages, MAX_MESSAGES);
             s.loading = true;
@@ -1239,7 +1239,7 @@ impl ChatAction {
 
         match self.client.infer(&request).await {
             Ok(response) => {
-                self.state.update(|s| {
+                let _ = self.state.try_update(|s| {
                     s.messages.push(ChatMessage::assistant(response.text));
                     evict_old_messages(&mut s.messages, MAX_MESSAGES);
                     s.loading = false;
@@ -1257,7 +1257,7 @@ impl ChatAction {
                 Ok(())
             }
             Err(e) => {
-                self.state.update(|s| {
+                let _ = self.state.try_update(|s| {
                     s.loading = false;
                     s.error = Some(e.to_string());
                 });
@@ -1316,7 +1316,7 @@ impl ChatAction {
 
     /// Set dock state
     pub fn set_dock_state(&self, dock_state: DockState) {
-        self.state.update(|s| {
+        let _ = self.state.try_update(|s| {
             s.dock_state = dock_state;
             // Mark messages as read when dock is opened
             if dock_state == DockState::Docked {
@@ -1327,7 +1327,7 @@ impl ChatAction {
 
     /// Toggle dock between docked and narrow
     pub fn toggle_dock(&self) {
-        self.state.update(|s| {
+        let _ = self.state.try_update(|s| {
             s.dock_state = match s.dock_state {
                 DockState::Docked => DockState::Narrow,
                 DockState::Narrow => DockState::Docked,
@@ -1342,14 +1342,14 @@ impl ChatAction {
 
     /// Set the chat target
     pub fn set_target(&self, target: ChatTarget) {
-        self.state.update(|s| {
+        let _ = self.state.try_update(|s| {
             s.target = target;
         });
     }
 
     /// Set session-local mode (Fast/Verified)
     pub fn set_verified_mode(&self, verified: bool) {
-        self.state.update(|s| {
+        let _ = self.state.try_update(|s| {
             s.verified_mode = verified;
         });
         let state = self.state.get_untracked();
@@ -1364,7 +1364,7 @@ impl ChatAction {
     /// Select an adapter for the next message (one-shot override).
     pub fn select_next_adapter(&self, adapter_id: &str) {
         let id = adapter_id.to_string();
-        self.state.update(|s| {
+        let _ = self.state.try_update(|s| {
             if s.selected_adapter.as_deref() == Some(&id) {
                 s.selected_adapter = None;
             } else {
@@ -1375,7 +1375,7 @@ impl ChatAction {
 
     /// Toggle a context option
     pub fn toggle_context(&self, toggle: ContextToggle) {
-        self.state.update(|s| match toggle {
+        let _ = self.state.try_update(|s| match toggle {
             ContextToggle::CurrentPage => s.context.current_page = !s.context.current_page,
             ContextToggle::RecentLogs => s.context.recent_logs = !s.context.recent_logs,
             ContextToggle::SystemSnapshot => s.context.system_snapshot = !s.context.system_snapshot,
@@ -1388,14 +1388,14 @@ impl ChatAction {
 
     /// Update page context
     pub fn set_page_context(&self, context: PageContext) {
-        self.state.update(|s| {
+        let _ = self.state.try_update(|s| {
             s.page_context = Some(context);
         });
     }
 
     /// Clear all messages
     pub fn clear_messages(&self) {
-        self.state.update(|s| {
+        let _ = self.state.try_update(|s| {
             s.messages.clear();
             s.error = None;
             s.last_read_message_id = None;
@@ -1420,7 +1420,7 @@ impl ChatAction {
     /// This is used for deep links like `/chat/<id>?adapter=<adapter_id>`.
     /// It does not persist to localStorage.
     pub fn set_session_pinned_adapters(&self, adapter_ids: Vec<String>) {
-        self.state.update(|s| {
+        let _ = self.state.try_update(|s| {
             s.session_pinned_adapters = adapter_ids;
             // Sync pinned flags on suggestions (effective pin set).
             for adapter in &mut s.suggested_adapters {
@@ -1434,7 +1434,7 @@ impl ChatAction {
 
     /// Clear session-only pins (called on session change).
     pub fn clear_session_pins(&self) {
-        self.state.update(|s| {
+        let _ = self.state.try_update(|s| {
             if s.session_pinned_adapters.is_empty() {
                 return;
             }
@@ -1453,7 +1453,7 @@ impl ChatAction {
     /// Clears error, notice, and recovery state to reset the chat to a clean state.
     /// The user can then send a new message without the previous error context.
     pub fn clear_error(&self) {
-        self.state.update(|s| {
+        let _ = self.state.try_update(|s| {
             s.error = None;
             s.stream_notice = None;
             // Clear recovery state since user dismissed the error
@@ -1472,7 +1472,7 @@ impl ChatAction {
     pub fn restore_session(&self, session: StoredChatSession) {
         use chrono::{DateTime, Utc};
 
-        self.state.update(|s| {
+        let _ = self.state.try_update(|s| {
             // Convert stored messages back to ChatMessages, including trace info
             s.messages = session
                 .messages
@@ -1619,7 +1619,7 @@ impl ChatAction {
     /// When pinned, the adapter will be included in the next inference request.
     pub fn toggle_pin_adapter(&self, adapter_id: &str) {
         let id = adapter_id.to_string();
-        self.state.update(|s| {
+        let _ = self.state.try_update(|s| {
             if let Some(pos) = s.pinned_adapters.iter().position(|a| a == &id) {
                 // Unpin persistent
                 s.pinned_adapters.remove(pos);
@@ -1646,7 +1646,7 @@ impl ChatAction {
 
     /// Clear all pinned adapters
     pub fn clear_pinned_adapters(&self) {
-        self.state.update(|s| {
+        let _ = self.state.try_update(|s| {
             s.pinned_adapters.clear();
             for adapter in &mut s.suggested_adapters {
                 adapter.is_pinned = s.session_pinned_adapters.contains(&adapter.adapter_id);
@@ -1658,7 +1658,7 @@ impl ChatAction {
 
     /// Replace the full pinned adapter set (from manage dialog)
     pub fn set_pinned_adapters(&self, adapter_ids: Vec<String>) {
-        self.state.update(|s| {
+        let _ = self.state.try_update(|s| {
             s.pinned_adapters = adapter_ids;
             // Sync is_pinned on suggested adapters
             for adapter in &mut s.suggested_adapters {
@@ -1676,7 +1676,7 @@ impl ChatAction {
 
     /// Clear suggested adapters
     pub fn clear_suggested_adapters(&self) {
-        self.state.update(|s| {
+        let _ = self.state.try_update(|s| {
             s.suggested_adapters.clear();
         });
     }
@@ -2867,6 +2867,7 @@ mod tests {
                 session_pinned_adapters: Vec::new(),
                 verified_mode: false,
                 stream_notice: None,
+                paused_inference: None,
                 stream_recovery: None,
                 partial_assistant_ids: Vec::new(),
                 adapter_selection_pending: false,
