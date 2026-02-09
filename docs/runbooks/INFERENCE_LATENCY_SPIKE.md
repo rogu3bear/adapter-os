@@ -78,7 +78,7 @@ FROM adapters;"
 grep -E "k_sparse|max_adapters" configs/cp.toml
 
 # Look for router errors
-grep -i "router.*error\|gate.*error" var/aos-cp.log | tail -20
+grep -i "router.*error\|gate.*error" var/logs/backend.log | tail -20
 ```
 
 **Common Causes:**
@@ -90,7 +90,7 @@ grep -i "router.*error\|gate.*error" var/aos-cp.log | tail -20
 
 ```bash
 # Check if stub backend is active (CRITICAL)
-grep -i "stub\|fallback" var/aos-cp.log | grep -i "mlx\|metal\|coreml" | tail -10
+grep -i "stub\|fallback" var/logs/backend.log | grep -i "mlx\|metal\|coreml" | tail -10
 
 # Check GPU/ANE utilization (macOS)
 sudo powermetrics --samplers gpu_power -n 3 | grep "GPU Active"
@@ -99,7 +99,7 @@ sudo powermetrics --samplers gpu_power -n 3 | grep "GPU Active"
 aosctl metrics show --json | jq '.memory.pressure_level'
 
 # Look for backend errors
-grep -i "backend.*error\|kernel.*panic\|metal.*error" var/aos-cp.log | tail -20
+grep -i "backend.*error\|kernel.*panic\|metal.*error" var/logs/backend.log | tail -20
 ```
 
 **Common Causes:**
@@ -143,7 +143,7 @@ lsof var/aos-cp.sqlite3
 curl -w "@curl-format.txt" -o /dev/null -s http://localhost:8080/healthz
 
 # Look for database errors
-grep -i "database.*error\|sqlite.*lock" var/aos-cp.log | tail -20
+grep -i "database.*error\|sqlite.*lock" var/logs/backend.log | tail -20
 ```
 
 ---
@@ -282,7 +282,7 @@ watch -n 60 'aosctl metrics show | grep -E "latency|queue"'
 curl -s 'http://localhost:9090/api/v1/query?query=histogram_quantile(0.99, rate(inference_latency_ms_bucket[5m]))' | jq .
 
 # 4. Verify no error spikes
-grep ERROR var/aos-cp.log | tail -20
+grep ERROR var/logs/backend.log | tail -20
 
 # 5. Test end-to-end latency
 time curl -X POST http://localhost:8080/api/v1/infer \

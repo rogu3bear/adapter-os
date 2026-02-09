@@ -72,7 +72,7 @@ ORDER BY created_at DESC
 LIMIT 10;"
 
 # Review violation logs
-grep -i "determinism.*violation\|hash.*mismatch\|replay.*fail" var/aos-cp.log | tail -50
+grep -i "determinism.*violation\|hash.*mismatch\|replay.*fail" var/logs/backend.log | tail -50
 ```
 
 **Violation Types:**
@@ -207,7 +207,7 @@ for adapter in $AFFECTED_ADAPTERS; do
 done
 
 # 4. Recent logs
-tail -1000 var/aos-cp.log > "$FORENSICS_DIR/aos-cp.log"
+tail -1000 var/logs/backend.log > "$FORENSICS_DIR/aos-cp.log"
 tail -1000 var/aos-worker.log > "$FORENSICS_DIR/aos-worker.log"
 
 # 5. Violation details
@@ -376,7 +376,7 @@ grep -r "thread_rng\|OsRng\|random" crates/adapteros-lora-router/ crates/adapter
 echo "Non-deterministic RNG detected - emergency hotfix required"
 
 # 4. Verify global seed is set
-grep "BLAKE3_GLOBAL_SEED" var/aos-cp.log | head -5
+grep "BLAKE3_GLOBAL_SEED" var/logs/backend.log | head -5
 
 # 5. Check for seed corruption in database
 sqlite3 var/aos-cp.sqlite3 "

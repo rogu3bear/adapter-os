@@ -64,7 +64,7 @@ lsof var/run/aos/*/worker.sock
 free -h 2>/dev/null || vm_stat
 
 # Recent logs
-tail -100 var/aos-cp.log | grep ERROR
+tail -100 var/logs/backend.log | grep ERROR
 tail -100 var/aos-worker.log | grep -i "panic\|fatal"
 
 # Database status
@@ -184,16 +184,16 @@ aosctl metrics show
 ### Log Analysis
 ```bash
 # Errors in last hour
-grep ERROR var/aos-cp.log | tail -100
+grep ERROR var/logs/backend.log | tail -100
 
 # Worker crashes
 grep -i "panic\|fatal\|crashed" var/aos-worker.log
 
 # Memory warnings
-grep -i "memory\|eviction\|headroom" var/aos-cp.log
+grep -i "memory\|eviction\|headroom" var/logs/backend.log
 
 # Determinism violations
-grep -i "determinism\|hash.*mismatch\|replay.*fail" var/aos-cp.log
+grep -i "determinism\|hash.*mismatch\|replay.*fail" var/logs/backend.log
 ```
 
 ### Metrics Queries
