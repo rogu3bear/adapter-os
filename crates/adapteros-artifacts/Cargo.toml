@@ -9,6 +9,7 @@ license.workspace = true
 adapteros-core = { path = "../adapteros-core" }
 adapteros-crypto = { path = "../adapteros-crypto" }
 adapteros-storage = { path = "../adapteros-storage" }
+adapteros-sbom = { path = "../adapteros-sbom" }
 serde = { workspace = true }
 serde_json = { workspace = true }
 tar = { workspace = true }
