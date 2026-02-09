@@ -2320,6 +2320,7 @@ mod tests {
             strict_mode: false,
             adapter_strength_overrides: None,
             effective_adapter_ids: None,
+            adapter_stable_ids: None,
             placement: None,
             routing_policy: None,
             stop_policy: None,

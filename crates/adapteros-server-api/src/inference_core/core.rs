@@ -38,7 +38,7 @@
 //! ┌─────────────────────────────────────────────────────────────────────────────┐
 //! │  Stage 5: Router Decision                                                   │
 //! │  - K-sparse top-K selection with Q15 gates                                  │
-//! │  - Deterministic tie-breaking (score DESC, index ASC)                       │
+//! │  - Deterministic tie-breaking (score DESC, stable_id ASC)                   │
 //! │  - Entropy floor enforcement                                                │
 //! └────────────────────────────────────────────────────────────────────────────┘
 //!                                  ▼
@@ -115,7 +115,7 @@
 //! ## Deterministic Replay
 //!
 //! Replay uses the same inference path as normal requests. Routing is deterministic
-//! by design (sorted by score DESC, then by index ASC for ties). The `router_seed`
+//! by design (sorted by score DESC, then by stable_id ASC for ties). The `router_seed`
 //! field is stored for **audit purposes only** - it does not affect routing decisions.
 //!
 //! For replay, pass a `ReplayContext` to enforce manifest/backend compatibility
@@ -812,6 +812,22 @@ impl<'a> InferenceCore<'a> {
 
         // MLX main driver; CoreML for reasoning (inference) and optional preferred training backend.
         // 3. Create worker request with full sampling parameters
+        let routing_mode = request
+            .routing_determinism_mode
+            .unwrap_or(RoutingDeterminismMode::Deterministic);
+        let adapter_stable_ids = if routing_mode == RoutingDeterminismMode::Deterministic {
+            match request.effective_adapter_ids.as_ref() {
+                Some(effective_ids) if effective_ids.is_empty() => None,
+                Some(effective_ids) => Some(
+                    self.resolve_stable_ids_for_adapters(&request.cpid, effective_ids)
+                        .await?,
+                ),
+                None => Some(self.resolve_stable_ids_for_tenant(&request.cpid).await?),
+            }
+        } else {
+            None
+        };
+
         let worker_request = WorkerInferRequest {
             cpid: request.cpid.clone(),
             prompt: augmented_prompt.clone(),
@@ -840,6 +856,7 @@ impl<'a> InferenceCore<'a> {
             determinism_mode: request.determinism_mode.clone(),
             routing_determinism_mode: request.routing_determinism_mode,
             effective_adapter_ids: request.effective_adapter_ids.clone(),
+            adapter_stable_ids,
             routing_policy,
             placement: None,
             adapter_strength_overrides: request.adapter_strength_overrides.clone(),
@@ -1822,6 +1839,87 @@ impl<'a> InferenceCore<'a> {
         correlation_ids.sort();
         correlation_ids.dedup();
         correlation_ids
+    }
+
+    async fn resolve_stable_ids_for_adapters(
+        &self,
+        tenant_id: &str,
+        adapter_ids: &[String],
+    ) -> Result<std::collections::HashMap<String, u64>, InferenceError> {
+        let mut stable_ids =
+            std::collections::HashMap::with_capacity(adapter_ids.len().saturating_mul(2));
+        let mut seen = std::collections::HashSet::with_capacity(adapter_ids.len());
+
+        for requested in adapter_ids {
+            // Avoid duplicate DB lookups when effective_adapter_ids contains repeats.
+            if !seen.insert(requested.as_str()) {
+                continue;
+            }
+
+            let adapter = self
+                .state
+                .db
+                .get_adapter_for_tenant(tenant_id, requested)
+                .await
+                .map_err(|e| {
+                    InferenceError::DatabaseError(format!(
+                        "Failed to resolve stable_id for adapter '{}': {}",
+                        requested, e
+                    ))
+                })?
+                .ok_or_else(|| {
+                    InferenceError::AdapterNotFound(format!(
+                        "Adapter '{}' not found for tenant {}",
+                        requested, tenant_id
+                    ))
+                })?;
+
+            let stable_id = adapter
+                .stable_id
+                .and_then(|v| (v > 0).then_some(v as u64))
+                .unwrap_or(0);
+
+            // Insert for the requested key and all canonical forms so the worker can
+            // look up by either internal UUID (`id`) or external adapter ID (`adapter_id`).
+            stable_ids.insert(requested.clone(), stable_id);
+            stable_ids.insert(adapter.id.clone(), stable_id);
+            if let Some(adapter_id) = adapter.adapter_id.clone() {
+                stable_ids.insert(adapter_id, stable_id);
+            }
+        }
+
+        Ok(stable_ids)
+    }
+
+    async fn resolve_stable_ids_for_tenant(
+        &self,
+        tenant_id: &str,
+    ) -> Result<std::collections::HashMap<String, u64>, InferenceError> {
+        let adapters = self
+            .state
+            .db
+            .list_adapters_for_tenant(tenant_id)
+            .await
+            .map_err(|e| {
+                InferenceError::DatabaseError(format!(
+                    "Failed to list adapters for tenant '{}' stable_id resolution: {}",
+                    tenant_id, e
+                ))
+            })?;
+
+        let mut stable_ids = std::collections::HashMap::with_capacity(adapters.len().saturating_mul(2));
+        for adapter in adapters {
+            let stable_id = adapter
+                .stable_id
+                .and_then(|v| (v > 0).then_some(v as u64))
+                .unwrap_or(0);
+            stable_ids.insert(adapter.id.clone(), stable_id);
+            if let Some(adapter_id) = adapter.adapter_id.clone() {
+                stable_ids.insert(adapter_id, stable_id);
+            }
+        }
+
+        Ok(stable_ids)
     }
 
     /// Validate pinned adapters belong to the requesting tenant.
@@ -3294,7 +3392,7 @@ impl<'a> InferenceCore<'a> {
     ///
     /// # Routing Determinism Note
     ///
-    /// The router uses a deterministic algorithm (sorted by score, then by index
+    /// The router uses a deterministic algorithm (sorted by score, then by stable_id
     /// for tie-breaking). The `router_seed` is stored for audit purposes but
     /// does not currently affect routing decisions. This means replays will
     /// produce identical routing given identical inputs and model state.

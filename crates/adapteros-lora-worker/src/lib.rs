@@ -3250,16 +3250,24 @@ impl<K: FusedKernels + StrictnessControl + Send + Sync + 'static> Worker<K> {
             None
         };
 
+        let stable_id_lookup = request.adapter_stable_ids.as_ref();
         let adapter_info: Vec<AdapterInfo> = active_entries
             .iter()
-            .map(|(_, adapter)| AdapterInfo {
-                id: adapter.id.clone(),
-                framework: None,    // Manifest adapters don't have framework info
-                languages: vec![0], // Default language
-                tier: format!("{:?}", adapter.tier).to_lowercase(),
-                base_model: None, // Base model info not available in this context
-                recommended_for_moe: adapter.recommended_for_moe,
-                ..Default::default()
+            .map(|(_, adapter)| {
+                let stable_id = stable_id_lookup
+                    .and_then(|m| m.get(adapter.id.as_str()).copied())
+                    .unwrap_or(0);
+
+                AdapterInfo {
+                    id: adapter.id.clone(),
+                    stable_id,
+                    framework: None,    // Manifest adapters don't have framework info
+                    languages: vec![0], // Default language
+                    tier: format!("{:?}", adapter.tier).to_lowercase(),
+                    base_model: None, // Base model info not available in this context
+                    recommended_for_moe: adapter.recommended_for_moe,
+                    ..Default::default()
+                }
             })
             .collect();
 
@@ -3315,6 +3323,42 @@ impl<K: FusedKernels + StrictnessControl + Send + Sync + 'static> Worker<K> {
             None,
             policy_mask_digest_seed,
         );
+
+        #[cfg(debug_assertions)]
+        if !base_only_request
+            && routing_mode == RoutingDeterminismMode::Deterministic
+            && policy_mask.allowed.iter().any(|&allowed| allowed)
+        {
+            match request.adapter_stable_ids.as_ref() {
+                Some(stable_ids) => {
+                    for (idx, info) in adapter_info.iter().enumerate() {
+                        if !policy_mask.allowed.get(idx).copied().unwrap_or(false) {
+                            continue;
+                        }
+                        match stable_ids.get(info.id.as_str()).copied() {
+                            Some(0) => {
+                                // Legacy adapter: stable_id may be 0 (missing at registration time).
+                            }
+                            Some(expected) => debug_assert!(
+                                info.stable_id == expected && info.stable_id != 0,
+                                "deterministic routing requires non-zero stable_id for adapter_id='{}' (expected stable_id={})",
+                                info.id,
+                                expected
+                            ),
+                            None => debug_assert!(
+                                false,
+                                "deterministic routing missing stable_id for adapter_id='{}' (allowed adapter); control-plane must supply adapter_stable_ids",
+                                info.id
+                            ),
+                        }
+                    }
+                }
+                None => debug_assert!(
+                    false,
+                    "deterministic routing requires adapter_stable_ids for stable tie-breaking (score DESC, stable_id ASC)"
+                ),
+            }
+        }
 
         let mut generated_tokens = free_token_ids.clone();
         let free_token_offset = generated_tokens.len();
@@ -3595,7 +3639,10 @@ impl<K: FusedKernels + StrictnessControl + Send + Sync + 'static> Worker<K> {
             let tokenizer_hash_b3 = Some(self.manifest.base.tokenizer_hash);
             let tokenizer_version = None;
             let tokenizer_normalization = None;
-            let model_build_hash_b3 = None;
+            // Bind routing-affecting constants (e.g. PINNED_BOOST) via build provenance.
+            // This avoids per-constant receipt fields while still allowing third-party
+            // verifiers to pin policy semantics to a trusted build allowlist.
+            let model_build_hash_b3 = Some(adapteros_core::version::BuildProvenance::cached().digest);
             let adapter_build_hash_b3 = None;
             let decode_algo = Some(if request.temperature.unwrap_or(1.0) <= 0.0 {
                 "greedy".to_string()
@@ -4427,7 +4474,10 @@ impl<K: FusedKernels + StrictnessControl + Send + Sync + 'static> Worker<K> {
         let tokenizer_hash_b3 = Some(self.manifest.base.tokenizer_hash);
         let tokenizer_version = None;
         let tokenizer_normalization = None;
-        let model_build_hash_b3 = None;
+        // Bind routing-affecting constants (e.g. PINNED_BOOST) via build provenance.
+        // This avoids per-constant receipt fields while still allowing third-party
+        // verifiers to pin policy semantics to a trusted build allowlist.
+        let model_build_hash_b3 = Some(adapteros_core::version::BuildProvenance::cached().digest);
         let adapter_build_hash_b3 = None;
         let decode_algo = Some(if request.temperature.unwrap_or(1.0) <= 0.0 {
             "greedy".to_string()

@@ -125,7 +125,7 @@ pub struct InferenceRequestInternal {
     /// Router seed for audit purposes (PRD-02: replay)
     ///
     /// **Note:** The router uses a deterministic algorithm (sorted by score,
-    /// then by index for tie-breaking). This seed is stored for audit trail
+    /// then by stable_id for tie-breaking). This seed is stored for audit trail
     /// purposes but does NOT currently affect routing decisions. Replays
     /// produce identical routing given identical inputs.
     pub router_seed: Option<String>,

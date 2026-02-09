@@ -107,6 +107,13 @@ pub struct InferenceRequest {
     /// Effective adapter IDs (control-plane gate)
     #[serde(default)]
     pub effective_adapter_ids: Option<Vec<String>>,
+    /// Per-adapter stable IDs for deterministic tie-breaking (score DESC, stable_id ASC).
+    ///
+    /// Keys may be either internal adapter UUIDs (`id`) or external adapter IDs (`adapter_id`).
+    /// Values are DB-issued, per-tenant monotonic sequences. A value of `0` indicates a
+    /// legacy adapter that predates stable_id assignment.
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub adapter_stable_ids: Option<std::collections::HashMap<String, u64>>,
     /// Placement override for replay
     #[serde(default)]
     pub placement: Option<PlacementReplay>,
