@@ -28,15 +28,16 @@
 pub mod adapter_repo_paths;
 pub mod adapter_store;
 pub mod adapter_type;
+pub mod archive;
 pub mod backend;
 pub mod build_info;
 pub mod circuit_breaker;
 pub mod circuit_breaker_registry;
 pub mod clock;
 pub mod codebase_versioning;
-pub mod context_id;
 pub mod context_digest;
 pub mod context_hash;
+pub mod context_id;
 pub mod context_manifest;
 pub mod crypto_receipt;
 pub mod debug_bypass;
@@ -57,8 +58,8 @@ pub mod guard_common;
 pub mod identity;
 pub mod ids;
 pub mod index_snapshot;
+pub mod integrity_mode;
 pub mod io_utils;
-pub mod archive;
 pub mod jitter;
 pub mod json;
 pub mod lifecycle;
@@ -155,6 +156,7 @@ pub use determinism::{
 };
 pub use determinism_mode::DeterminismMode;
 pub use error::{AosError, Result, ResultExt};
+pub use integrity_mode::IntegrityMode;
 // Re-export categorical error types for structured error handling
 pub use crypto_receipt::compute_input_digest as compute_input_digest_v2;
 pub use errors::{

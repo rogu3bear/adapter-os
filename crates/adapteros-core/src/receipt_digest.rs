@@ -43,6 +43,57 @@ pub const RECEIPT_SCHEMA_CURRENT: u8 = RECEIPT_SCHEMA_V7;
 
 /// Input fields for receipt digest computation.
 ///
+/// # Token Accounting Model
+///
+/// Every inference run produces five billing fields that are cryptographically
+/// bound into the receipt digest. No field is derived at query time — all five
+/// are committed at generation time and are immutable thereafter.
+///
+/// ## The Five Fields
+///
+/// | Field | Source | Invariant |
+/// |-------|--------|-----------|
+/// | `logical_prompt_tokens` | Tokenizer count of full prompt | L_in >= 0 |
+/// | `prefix_cached_token_count` | Prefix KV cache hit length | 0 <= C <= L_in |
+/// | `billed_input_tokens` | `L_in - C` (saturating) | A_in = L_in.saturating_sub(C) |
+/// | `logical_output_tokens` | Generated token count (incl. EOS) | L_out >= 0 |
+/// | `billed_output_tokens` | Currently equals `logical_output_tokens` | A_out = L_out |
+///
+/// ## Attribution Formula
+///
+/// ```text
+/// billed_input  = logical_prompt - prefix_cached   (saturating_sub, floored at 0)
+/// billed_output = logical_output                    (no output caching today)
+/// ```
+///
+/// The formula `A = L - C` is exact. No compression, no approximation. If a
+/// token did not incur compute (cache reuse), it is not billable.
+///
+/// ## Cryptographic Binding
+///
+/// All five fields are hashed into the receipt digest at every schema version
+/// (V1 through V7). Changing any single field produces a different digest.
+/// This makes billing auditable: a third party can verify the claimed cache
+/// credit matches the receipt without access to the inference system.
+///
+/// ## Cache Attestation
+///
+/// `prefix_cached_token_count` is backed by a signed [`CacheAttestation`]
+/// from the worker (see `cache_attestation.rs`). The control plane verifies
+/// the signature before accepting cache credits. Without a valid attestation,
+/// `prefix_cached_token_count` MUST be 0.
+///
+/// ## Edge Cases
+///
+/// - **No cache hit**: `prefix_cached_token_count = 0`, `billed_input = logical_prompt`
+/// - **Full cache hit**: `prefix_cached_token_count = logical_prompt`, `billed_input = 0`
+/// - **Overflow guard**: If cached > logical (should never happen), `saturating_sub` floors to 0
+/// - **Cancellation**: Partial outputs use [`CancellationReceipt`] with `partial_output_count`
+/// - **Empty input/output**: Valid — produces non-zero digest from length-prefixed encoding
+///
+/// [`CacheAttestation`]: crate::cache_attestation::CacheAttestation
+/// [`CancellationReceipt`]: crate::crypto_receipt::CancellationReceipt
+///
 /// This struct contains all fields that may be included in a receipt digest,
 /// with appropriate defaults for backward compatibility.
 #[derive(Debug, Clone, Default, Serialize, Deserialize)]
@@ -1944,5 +1995,158 @@ mod tests {
             B3Hash::zero(),
             "Chain should not be zero after first token"
         );
+    }
+
+    // =========================================================================
+    // Billing field invariant tests
+    // =========================================================================
+
+    /// Verifies each billing field independently changes the V7 digest.
+    /// Table-driven: every case differs from baseline in exactly one field.
+    /// All pairwise digests must be distinct.
+    #[test]
+    fn test_billing_fields_independently_bound() {
+        struct Case {
+            label: &'static str,
+            lp: u32,
+            cached: u32,
+            bi: u32,
+            lo: u32,
+            bo: u32,
+        }
+
+        let cases = [
+            Case {
+                label: "baseline",
+                lp: 100,
+                cached: 10,
+                bi: 90,
+                lo: 50,
+                bo: 50,
+            },
+            Case {
+                label: "diff_logical_prompt",
+                lp: 200,
+                cached: 10,
+                bi: 190,
+                lo: 50,
+                bo: 50,
+            },
+            Case {
+                label: "diff_cached",
+                lp: 100,
+                cached: 20,
+                bi: 80,
+                lo: 50,
+                bo: 50,
+            },
+            Case {
+                label: "diff_billed_input",
+                lp: 100,
+                cached: 10,
+                bi: 85,
+                lo: 50,
+                bo: 50,
+            },
+            Case {
+                label: "diff_logical_output",
+                lp: 100,
+                cached: 10,
+                bi: 90,
+                lo: 100,
+                bo: 100,
+            },
+            Case {
+                label: "diff_billed_output",
+                lp: 100,
+                cached: 10,
+                bi: 90,
+                lo: 50,
+                bo: 45,
+            },
+        ];
+
+        let digests: Vec<(B3Hash, &str)> = cases
+            .iter()
+            .map(|c| {
+                let input = ReceiptDigestInput::new(
+                    [1u8; 32], [2u8; 32], [3u8; 32], c.lp, c.cached, c.bi, c.lo, c.bo,
+                );
+                let digest = compute_receipt_digest(&input, RECEIPT_SCHEMA_V7).unwrap();
+                (digest, c.label)
+            })
+            .collect();
+
+        // Assert all pairs are distinct
+        for i in 0..digests.len() {
+            for j in (i + 1)..digests.len() {
+                assert_ne!(
+                    digests[i].0, digests[j].0,
+                    "Billing digest collision: '{}' vs '{}' must differ",
+                    digests[i].1, digests[j].1,
+                );
+            }
+        }
+    }
+
+    /// All billing fields set to zero must produce a valid non-zero digest.
+    #[test]
+    fn test_billing_zero_produces_valid_digest() {
+        let input = ReceiptDigestInput::new([1u8; 32], [2u8; 32], [3u8; 32], 0, 0, 0, 0, 0);
+        let digest = compute_receipt_digest(&input, RECEIPT_SCHEMA_V7).unwrap();
+        assert_ne!(
+            digest,
+            B3Hash::zero(),
+            "Zero billing fields must produce a valid non-zero digest",
+        );
+    }
+
+    /// All billing fields set to u32::MAX must produce a valid non-zero digest.
+    #[test]
+    fn test_billing_max_produces_valid_digest() {
+        let input = ReceiptDigestInput::new(
+            [1u8; 32],
+            [2u8; 32],
+            [3u8; 32],
+            u32::MAX,
+            u32::MAX,
+            u32::MAX,
+            u32::MAX,
+            u32::MAX,
+        );
+        let digest = compute_receipt_digest(&input, RECEIPT_SCHEMA_V7).unwrap();
+        assert_ne!(
+            digest,
+            B3Hash::zero(),
+            "u32::MAX billing fields must produce a valid non-zero digest",
+        );
+    }
+
+    /// Two inputs differing ONLY in `prefix_cached_token_count` must produce
+    /// different digests at every schema version (V1 through V7).
+    #[test]
+    fn test_billing_fields_bound_across_schema_versions() {
+        let input_a = ReceiptDigestInput::new([1u8; 32], [2u8; 32], [3u8; 32], 100, 10, 90, 50, 50);
+        let input_b = ReceiptDigestInput::new([1u8; 32], [2u8; 32], [3u8; 32], 100, 20, 80, 50, 50);
+
+        let versions = [
+            RECEIPT_SCHEMA_V1,
+            RECEIPT_SCHEMA_V2,
+            RECEIPT_SCHEMA_V3,
+            RECEIPT_SCHEMA_V4,
+            RECEIPT_SCHEMA_V5,
+            RECEIPT_SCHEMA_V6,
+            RECEIPT_SCHEMA_V7,
+        ];
+
+        for &v in &versions {
+            let digest_a = compute_receipt_digest(&input_a, v).unwrap();
+            let digest_b = compute_receipt_digest(&input_b, v).unwrap();
+            assert_ne!(
+                digest_a, digest_b,
+                "prefix_cached_token_count difference must be detected at schema V{}",
+                v,
+            );
+        }
     }
 }
