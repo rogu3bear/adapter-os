@@ -169,12 +169,17 @@ pub fn Documents() -> impl IntoView {
         #[cfg(target_arch = "wasm32")]
         wasm_bindgen_futures::spawn_local(async move {
             let client = Arc::new(ApiClient::new());
+            let tenant_id = client
+                .me()
+                .await
+                .map(|me| me.tenant_id)
+                .unwrap_or_else(|_| "default".to_string());
 
             let _ = client
                 .post::<_, Value>(
                     "/testkit/create_document_fixture",
                     &serde_json::json!({
-                        "tenant_id": "default",
+                        "tenant_id": tenant_id.clone(),
                         "document_id": "doc-failed-keep",
                         "status": "failed",
                         "name": "Failed (keep)"
@@ -186,7 +191,7 @@ pub fn Documents() -> impl IntoView {
                 .post::<_, Value>(
                     "/testkit/create_document_fixture",
                     &serde_json::json!({
-                        "tenant_id": "default",
+                        "tenant_id": tenant_id,
                         "document_id": "doc-failed-demo",
                         "status": "failed",
                         "name": "Failed (reprocess)"
@@ -845,6 +850,7 @@ fn DocumentUploadDialog(open: RwSignal<bool>, on_success: Callback<String>) -> i
 #[component]
 pub fn DocumentDetail() -> impl IntoView {
     let params = use_params_map();
+    let navigate = use_navigate();
 
     // Get document ID from URL
     let document_id = Memo::new(move |_| params.get().get("id").unwrap_or_default());
@@ -909,6 +915,21 @@ pub fn DocumentDetail() -> impl IntoView {
                 <RefreshButton
                     on_click=Callback::new(move |_| refetch())
                 />
+                <Button
+                    variant=ButtonVariant::Secondary
+                    on_click=Callback::new(move |_| {
+                        // UI-only: synthesis from an already-uploaded document requires
+                        // either re-upload or a dedicated backend endpoint. We route the user
+                        // into the training flow with the document preselected.
+                        let doc_id = document_id.get();
+                        navigate(
+                            &format!("/training?source=document&document_id={}", doc_id),
+                            Default::default(),
+                        );
+                    })
+                >
+                    "Create synthesized dataset"
+                </Button>
             </PageScaffoldActions>
 
             // Action error message
