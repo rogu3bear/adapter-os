@@ -63,6 +63,6 @@ export default defineConfig({
     command: backendCommand,
     url: `${baseURL}/healthz`,
     reuseExistingServer,
-    timeout: 360_000,
+    timeout: 900_000,
   },
 });
