@@ -36,6 +36,13 @@ pub async fn index_document_with_provenance(
     ingested_doc: &IngestedDocument,
     embedding_model: &Arc<dyn EmbeddingModel>,
 ) -> Result<Vec<String>> {
+    if ingested_doc.chunks.is_empty() {
+        return Err(adapteros_core::AosError::Validation(format!(
+            "Cannot index document '{}' with zero chunks — ingestion may have silently produced no output",
+            ingested_doc.source_name
+        )));
+    }
+
     info!(
         "Indexing document {} ({} chunks) with provenance",
         ingested_doc.source_name,
@@ -124,6 +131,13 @@ pub async fn prepare_document_for_rag(
     embedding_model: &Arc<dyn EmbeddingModel>,
     rev: Option<&str>,
 ) -> Result<Vec<RagChunkParams>> {
+    if document.chunks.is_empty() {
+        return Err(adapteros_core::AosError::Validation(format!(
+            "Cannot prepare document '{}' for RAG with zero chunks — ingestion may have silently produced no output",
+            document.source_name
+        )));
+    }
+
     info!(
         "Preparing document {} ({} chunks) for RAG indexing",
         document.source_name,
@@ -285,5 +299,32 @@ mod tests {
         assert_eq!(sanitize_doc_id("document.pdf"), "document_pdf");
         assert_eq!(sanitize_doc_id("my-file_v2.txt"), "my-file_v2_txt");
         assert_eq!(sanitize_doc_id("file with spaces"), "file_with_spaces");
+    }
+
+    #[tokio::test]
+    async fn test_prepare_document_rejects_empty_chunks() {
+        let mock_model = Arc::new(MockEmbeddingModel { dimension: 384 }) as Arc<dyn EmbeddingModel>;
+
+        let document = IngestedDocument {
+            source: DocumentSource::Markdown,
+            source_name: "empty-doc.md".to_string(),
+            source_path: None,
+            doc_hash: B3Hash::hash(b"empty"),
+            ocr_fingerprint: None,
+            normalized_text_hash: None,
+            normalized_text_len: None,
+            byte_len: 0,
+            page_count: None,
+            chunks: vec![], // empty!
+        };
+
+        let result = prepare_document_for_rag("tenant-1", &document, &mock_model, None).await;
+        assert!(result.is_err(), "should reject document with zero chunks");
+        let err = format!("{}", result.unwrap_err());
+        assert!(
+            err.contains("zero chunks"),
+            "error should mention zero chunks, got: {}",
+            err
+        );
     }
 }

@@ -30,14 +30,14 @@ pub use rag_integration::{
     generate_revision, index_document_with_provenance, prepare_document_for_rag,
     prepare_documents_for_rag, RagChunkParams,
 };
-pub const INGESTION_VERSION: u32 = 1;
+pub const INGESTION_VERSION: u32 = 2;
 pub use training_gen::{
     generate_training_data, generate_training_data_from_documents, TrainingData, TrainingExample,
     TrainingGenConfig, TrainingStrategy,
 };
 pub use types::{
-    DocumentChunk, DocumentSource, ExtractedImage, IngestedDocument, IngestedDocumentWithErrors,
-    OcrFingerprint, OcrMode, OcrToolFingerprint, PageExtractionResult,
+    ChunkProvenance, DocumentChunk, DocumentSource, ExtractedImage, IngestedDocument,
+    IngestedDocumentWithErrors, OcrFingerprint, OcrMode, OcrToolFingerprint, PageExtractionResult,
 };
 
 /// High level entrypoint for document ingestion.
@@ -142,7 +142,7 @@ fn build_pdf_ocr_fingerprint(
         OcrMode::External => {
             #[cfg(not(feature = "ocr-external"))]
             {
-                return OcrFingerprint {
+                OcrFingerprint {
                     mode,
                     tool: OcrToolFingerprint {
                         mode,
@@ -153,7 +153,7 @@ fn build_pdf_ocr_fingerprint(
                         skipped_reason: Some("ocr_external_feature_not_enabled".to_string()),
                         args: Vec::new(),
                     },
-                };
+                }
             }
 
             #[cfg(feature = "ocr-external")]

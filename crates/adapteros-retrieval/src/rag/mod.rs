@@ -71,6 +71,9 @@ impl RagSystem {
     }
 
     /// Add document to tenant index
+    ///
+    /// Returns an error if text is empty or embedding is zero-length,
+    /// which would indicate silent data loss in the ingestion pipeline.
     pub fn add_document(
         &mut self,
         tenant_id: &IndexNamespaceId,
@@ -79,6 +82,18 @@ impl RagSystem {
         embedding: Vec<f32>,
         metadata: DocMetadata,
     ) -> Result<()> {
+        if text.trim().is_empty() {
+            return Err(AosError::Validation(format!(
+                "Cannot add document '{}' with empty text — content may have been silently dropped",
+                doc_id
+            )));
+        }
+        if embedding.is_empty() {
+            return Err(AosError::Validation(format!(
+                "Cannot add document '{}' with empty embedding vector",
+                doc_id
+            )));
+        }
         let index = self.get_tenant_index(tenant_id)?;
         index.add_document(doc_id, text, embedding, metadata)
     }
@@ -235,6 +250,65 @@ mod tests {
         assert!(tmp.path().join(&tenant_a).exists());
         assert!(tmp.path().join(&tenant_b).exists());
         assert_ne!(tmp.path().join(&tenant_a), tmp.path().join(&tenant_b));
+    }
+
+    #[test]
+    fn add_document_rejects_empty_text() {
+        let tmp = new_test_tempdir();
+        let hash = B3Hash::hash(b"test-hash");
+        let mut rag = RagSystem::new(tmp.path(), hash).expect("rag init");
+
+        let tenant: IndexNamespaceId = "tenant-test".to_string();
+        let metadata = DocMetadata {
+            doc_id: "doc-1".to_string(),
+            rev: "r1".to_string(),
+            effectivity: "current".to_string(),
+            source_type: "test".to_string(),
+            superseded_by: None,
+        };
+
+        let result = rag.add_document(
+            &tenant,
+            "doc-1".to_string(),
+            "".to_string(),
+            vec![1.0, 0.0],
+            metadata.clone(),
+        );
+        assert!(result.is_err(), "empty text should be rejected");
+
+        let result = rag.add_document(
+            &tenant,
+            "doc-2".to_string(),
+            "   \n\t  ".to_string(),
+            vec![1.0, 0.0],
+            metadata,
+        );
+        assert!(result.is_err(), "whitespace-only text should be rejected");
+    }
+
+    #[test]
+    fn add_document_rejects_empty_embedding() {
+        let tmp = new_test_tempdir();
+        let hash = B3Hash::hash(b"test-hash");
+        let mut rag = RagSystem::new(tmp.path(), hash).expect("rag init");
+
+        let tenant: IndexNamespaceId = "tenant-test".to_string();
+        let metadata = DocMetadata {
+            doc_id: "doc-1".to_string(),
+            rev: "r1".to_string(),
+            effectivity: "current".to_string(),
+            source_type: "test".to_string(),
+            superseded_by: None,
+        };
+
+        let result = rag.add_document(
+            &tenant,
+            "doc-1".to_string(),
+            "hello world".to_string(),
+            vec![],
+            metadata,
+        );
+        assert!(result.is_err(), "empty embedding should be rejected");
     }
 
     #[test]

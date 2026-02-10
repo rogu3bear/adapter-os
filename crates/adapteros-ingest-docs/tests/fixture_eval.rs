@@ -343,6 +343,10 @@ fn assert_documents_equal(
             assert_eq!(chunk_a.text, chunk_b.text);
             assert_eq!(chunk_a.start_offset, chunk_b.start_offset);
             assert_eq!(chunk_a.end_offset, chunk_b.end_offset);
+            assert_eq!(
+                chunk_a.provenance, chunk_b.provenance,
+                "Provenance diverged"
+            );
         }
     }
 }

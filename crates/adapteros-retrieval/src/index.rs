@@ -125,15 +125,9 @@ impl Default for FlatIndex {
 impl IndexBackend for FlatIndex {
     async fn build(&mut self, embeddings: &[(String, Vec<f32>)]) -> Result<IndexMetadata> {
         if embeddings.is_empty() {
-            self.embeddings = Vec::new();
-            self.metadata = IndexMetadata {
-                index_type: "flat".to_string(),
-                params_hash: B3Hash::hash(b"flat:empty"),
-                build_seed: None,
-                num_vectors: 0,
-                dimension: 0,
-            };
-            return Ok(self.metadata.clone());
+            return Err(AosError::Validation(
+                "Cannot build index with zero embeddings — corpus may be empty or embedding generation failed".to_string(),
+            ));
         }
 
         // Validate dimensions are consistent
@@ -261,15 +255,24 @@ mod tests {
     }
 
     #[tokio::test]
-    async fn test_flat_index_empty() {
+    async fn test_flat_index_empty_returns_error() {
         let mut index = FlatIndex::new();
         let embeddings: Vec<(String, Vec<f32>)> = vec![];
-        let metadata = index.build(&embeddings).await.unwrap();
+        let result = index.build(&embeddings).await;
 
-        assert_eq!(metadata.num_vectors, 0);
-        assert_eq!(metadata.dimension, 0);
-        assert_eq!(metadata.index_type, "flat");
+        assert!(result.is_err(), "building with zero embeddings should fail");
+        let err = result.unwrap_err();
+        let msg = format!("{}", err);
+        assert!(
+            msg.contains("zero embeddings"),
+            "error should mention zero embeddings, got: {}",
+            msg
+        );
+    }
 
+    #[tokio::test]
+    async fn test_flat_index_search_before_build() {
+        let index = FlatIndex::new();
         let query = vec![1.0, 0.0, 0.0];
         let results = index.search(&query, 5).await.unwrap();
         assert!(results.is_empty());
