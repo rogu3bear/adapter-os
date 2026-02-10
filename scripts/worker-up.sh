@@ -448,11 +448,11 @@ if [ "$backend" = "coreml" ]; then
 else
     WORKER_BIN="$ROOT_DIR/target/debug/aos-worker"
     if [ ! -x "$WORKER_BIN" ]; then
-        die "Worker binary not found: $WORKER_BIN. Build with: cargo build -p adapteros-lora-worker --features multi-backend,mlx"
+        die "Worker binary not found: $WORKER_BIN. Build with: cargo build -p adapteros-lora-worker --features mlx"
     fi
     if [ "$backend" = "mlx" ]; then
         if ! "$WORKER_BIN" --help 2>&1 | grep -qi "mlx"; then
-            die "Backend 'mlx' requested but worker binary likely built without MLX features. Rebuild with: cargo build -p adapteros-lora-worker --features multi-backend,mlx"
+            die "Backend 'mlx' requested but worker binary likely built without MLX features. Rebuild with: cargo build -p adapteros-lora-worker --features mlx"
         fi
     fi
 fi
@@ -714,7 +714,7 @@ while [ "$waited" -lt "$timeout" ]; do
                 echo "Worker process exited (pid $current_pid). Last 40 lines of $LOG_FILE:"
                 tail -n 40 "$LOG_FILE"
                 if grep -q "multi-backend" "$LOG_FILE"; then
-                    die "Worker exited: MLX backend requires multi-backend. Rebuild with: cargo build -p adapteros-lora-worker --features multi-backend,mlx"
+                    die "Worker exited: MLX backend requires the 'mlx' feature. Rebuild with: cargo build -p adapteros-lora-worker --features mlx"
                 fi
             fi
             die "Worker process exited. Check $LOG_FILE."
