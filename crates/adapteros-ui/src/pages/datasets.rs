@@ -2512,13 +2512,15 @@ fn DatasetDraftView(
                             "rank": rank_val,
                             "alpha": alpha_val,
                             "targets": ["q_proj", "v_proj"],
+                            "training_contract_version": adapteros_api_types::TRAINING_DATA_CONTRACT_VERSION,
+                            "pad_token_id": 0,
+                            "ignore_index": -100,
                             "epochs": epochs_val,
                             "learning_rate": learning_rate_val,
                             "batch_size": batch_size_val
                         },
                         "adapter_type": adapter_type_val,
                         "category": "docs",
-                        "synthetic_mode": false
                     });
 
                     match client
