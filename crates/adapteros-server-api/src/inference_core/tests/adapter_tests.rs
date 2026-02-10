@@ -11,6 +11,7 @@ use adapteros_api_types::workers::WorkerCapabilities;
 use adapteros_core::version::API_SCHEMA_VERSION;
 use adapteros_core::{determinism_mode::DeterminismMode, BackendKind, SeedMode};
 use adapteros_db::chat_sessions::CreateChatSessionParams;
+use adapteros_db::models::ModelRegistrationBuilder;
 use adapteros_db::traits::CreateStackRequest;
 use adapteros_db::workers::WorkerRegistrationParams;
 use adapteros_db::Db;
@@ -229,6 +230,149 @@ async fn register_worker_with_caps(
     db.transition_worker_status(worker_id, "healthy", "test", None)
         .await
         .expect("transition worker");
+}
+
+#[tokio::test]
+async fn test_base_model_readiness_prefers_active_model_over_latest_status() {
+    let state = build_test_state(false).await;
+    let core = InferenceCore::new(&state);
+
+    let tenant_id = "tenant-1";
+
+    let model_a = state
+        .db
+        .register_model(
+            ModelRegistrationBuilder::new()
+                .name("test-model-a")
+                .hash_b3("hash-a")
+                .config_hash_b3("cfg-a")
+                .tokenizer_hash_b3("tok-a")
+                .tokenizer_cfg_hash_b3("tokcfg-a")
+                .build()
+                .expect("model a params"),
+        )
+        .await
+        .expect("register model a");
+    let model_b = state
+        .db
+        .register_model(
+            ModelRegistrationBuilder::new()
+                .name("test-model-b")
+                .hash_b3("hash-b")
+                .config_hash_b3("cfg-b")
+                .tokenizer_hash_b3("tok-b")
+                .tokenizer_cfg_hash_b3("tokcfg-b")
+                .build()
+                .expect("model b params"),
+        )
+        .await
+        .expect("register model b");
+
+    // The UI persists base model selection via workspace_active_state (not per-request model pinning).
+    state
+        .db
+        .upsert_workspace_active_state(tenant_id, Some(&model_a), None, None, None)
+        .await
+        .expect("set workspace active model");
+
+    // Make the non-active model error more recently, which would trip the legacy gate that used
+    // the latest updated base_model_status row regardless of the active model.
+    state
+        .db
+        .update_base_model_status(tenant_id, &model_a, "loaded", None, None)
+        .await
+        .expect("model a loaded");
+    tokio::time::sleep(std::time::Duration::from_millis(1100)).await;
+    state
+        .db
+        .update_base_model_status(tenant_id, &model_b, "error", Some("boom"), None)
+        .await
+        .expect("model b error");
+
+    let manifest_hash = "test-manifest-hash";
+    let node_id = "node-base-model-gate";
+    let plan_id = "plan-base-model-gate";
+    seed_worker_fks(&state.db, tenant_id, manifest_hash, node_id, plan_id).await;
+
+    // Register a compatible worker but leave the UDS socket unserved so route_and_infer
+    // fails quickly after passing the base model readiness gate.
+    let worker_id = "worker-base-model-gate";
+    let uds_path = format!(
+        "var/run/test-uds/{}-{}/worker.sock",
+        worker_id,
+        TypedId::new(IdPrefix::Req).short()
+    );
+    let uds_parent = std::path::Path::new(&uds_path)
+        .parent()
+        .expect("uds_path should have a parent directory");
+    fs::create_dir_all(uds_parent).expect("create uds parent directory");
+
+    #[cfg(unix)]
+    {
+        let _ = std::fs::remove_file(&uds_path);
+        let listener =
+            std::os::unix::net::UnixListener::bind(&uds_path).expect("bind test UDS socket");
+        drop(listener);
+    }
+
+    #[cfg(not(unix))]
+    {
+        std::fs::write(&uds_path, b"").expect("create uds placeholder file");
+    }
+
+    let caps = WorkerCapabilities {
+        backend_kind: "mlx".to_string(),
+        implementation: None,
+        supports_step: true,
+        supports_bulk: true,
+        supports_logits: true,
+        supports_streaming: false,
+        gpu_backward: false,
+        multi_backend: true,
+    };
+    let params = WorkerRegistrationParams {
+        worker_id: worker_id.to_string(),
+        tenant_id: tenant_id.to_string(),
+        node_id: node_id.to_string(),
+        plan_id: plan_id.to_string(),
+        uds_path: uds_path.clone(),
+        pid: 1234,
+        manifest_hash: manifest_hash.to_string(),
+        backend: Some("mlx".to_string()),
+        model_hash_b3: None,
+        tokenizer_hash_b3: None,
+        tokenizer_vocab_size: None,
+        capabilities_json: Some(serde_json::to_string(&caps).expect("serialize capabilities")),
+        schema_version: API_SCHEMA_VERSION.to_string(),
+        api_version: API_SCHEMA_VERSION.to_string(),
+    };
+    state
+        .db
+        .register_worker(params)
+        .await
+        .expect("register worker");
+    state
+        .db
+        .transition_worker_status(worker_id, "healthy", "test", None)
+        .await
+        .expect("transition worker");
+
+    let request = InferenceRequestInternal::new(tenant_id.to_string(), "hi".to_string());
+    let result = tokio::time::timeout(
+        std::time::Duration::from_secs(3),
+        core.route_and_infer(request, None, None, None, None),
+    )
+    .await
+    .expect("route_and_infer should not hang");
+
+    let err = result.expect_err("no worker server should fail the request");
+    assert!(
+        !matches!(err, InferenceError::ModelNotReady(_)),
+        "expected base model readiness gate to pass for the active model"
+    );
+
+    // Keep the repo tidy if the test creates a socket file.
+    let _ = std::fs::remove_file(&uds_path);
 }
 
 #[tokio::test]
