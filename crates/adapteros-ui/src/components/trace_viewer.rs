@@ -15,7 +15,7 @@ use crate::constants::pagination::{TOKEN_DECISIONS_DOM_CAP, TOKEN_DECISIONS_PAGE
 use crate::hooks::LoadingState;
 use crate::signals::{perf_logging_enabled, try_use_notifications};
 use leptos::task::spawn_local;
-use std::time::Instant;
+use web_time::Instant;
 
 /// State for the trace viewer
 #[derive(Clone, Debug)]

@@ -15,11 +15,11 @@ use serde::{Deserialize, Serialize};
 use std::cell::RefCell;
 use std::rc::Rc;
 use std::sync::Arc;
-use std::time::Instant;
 use wasm_bindgen::prelude::*;
 use wasm_bindgen::JsCast;
 use wasm_bindgen_futures::JsFuture;
 use web_sys::{AbortController, AbortSignal, Request, RequestInit, RequestMode, Response};
+use web_time::Instant;
 
 /// Maximum number of messages to retain in chat history.
 /// Prevents unbounded memory growth in long sessions.
@@ -30,6 +30,11 @@ const DEFAULT_MAX_TOKENS: usize = 2048;
 
 /// Default temperature for inference requests.
 const DEFAULT_TEMPERATURE: f32 = 0.7;
+
+/// Verified mode uses deterministic-ish decoding defaults and shorter outputs to
+/// reduce policy-triggered pauses during demos and reviews.
+const VERIFIED_MAX_TOKENS: usize = 256;
+const VERIFIED_TEMPERATURE: f32 = 0.0;
 
 /// Maximum number of sessions to retain in localStorage.
 const MAX_SESSIONS: usize = 20;
@@ -73,8 +78,14 @@ fn readable_id(prefix: &str, _slug_source: &str) -> String {
 #[derive(Debug, Clone, Serialize)]
 pub struct StreamingInferRequest {
     pub prompt: String,
+    /// Optional model identifier.
+    #[serde(skip_serializing_if = "Option::is_none")]
+    pub model: Option<String>,
     #[serde(skip_serializing_if = "Option::is_none")]
     pub session_id: Option<String>,
+    /// Optional server-side adapter stack id.
+    #[serde(skip_serializing_if = "Option::is_none")]
+    pub stack_id: Option<String>,
     #[serde(skip_serializing_if = "Option::is_none")]
     pub max_tokens: Option<usize>,
     #[serde(skip_serializing_if = "Option::is_none")]
@@ -344,7 +355,7 @@ impl ChatMessage {
             id: readable_id("msg", "chat"),
             role: "user".to_string(),
             content,
-            timestamp: Utc::now(),
+            timestamp: crate::utils::now_utc(),
             is_streaming: false,
             status: MessageStatus::Complete,
             queued_at: None,
@@ -365,10 +376,10 @@ impl ChatMessage {
             id: readable_id("msg", "chat"),
             role: "user".to_string(),
             content,
-            timestamp: Utc::now(),
+            timestamp: crate::utils::now_utc(),
             is_streaming: false,
             status: MessageStatus::Queued,
-            queued_at: Some(Utc::now()),
+            queued_at: Some(crate::utils::now_utc()),
             pending_phase: PendingPhase::Calm,
             pending_reason: None,
             trace_id: None,
@@ -385,7 +396,7 @@ impl ChatMessage {
             id: readable_id("msg", "chat"),
             role: "assistant".to_string(),
             content,
-            timestamp: Utc::now(),
+            timestamp: crate::utils::now_utc(),
             is_streaming: false,
             status: MessageStatus::Complete,
             queued_at: None,
@@ -405,7 +416,7 @@ impl ChatMessage {
             id: readable_id("msg", "chat"),
             role: "assistant".to_string(),
             content: String::new(),
-            timestamp: Utc::now(),
+            timestamp: crate::utils::now_utc(),
             is_streaming: true,
             status: MessageStatus::Streaming,
             queued_at: None,
@@ -679,7 +690,7 @@ impl ChatState {
 
     /// Check if any messages have expired and mark them as failed
     pub fn expire_old_queued_messages(&mut self) {
-        let now = Utc::now();
+        let now = crate::utils::now_utc();
         for msg in &mut self.messages {
             if msg.status == MessageStatus::Queued {
                 if let Some(queued_at) = msg.queued_at {
@@ -700,7 +711,7 @@ impl ChatState {
     /// - Informative: 3-10 seconds
     /// - Estimated: >10 seconds
     pub fn update_pending_phases(&mut self, blocker_reason: Option<&str>) {
-        let now = Utc::now();
+        let now = crate::utils::now_utc();
         for msg in &mut self.messages {
             if msg.status == MessageStatus::Queued {
                 if let Some(queued_at) = msg.queued_at {
@@ -784,6 +795,18 @@ pub struct ChatAction {
     abort_controller: RwSignal<AbortControllerCell>,
 }
 
+#[derive(Debug, Clone, Serialize)]
+struct CreateChatSessionRequestUi {
+    name: String,
+    #[serde(skip_serializing_if = "Option::is_none")]
+    title: Option<String>,
+}
+
+#[derive(Debug, Clone, Deserialize)]
+struct CreateChatSessionResponseUi {
+    session_id: String,
+}
+
 impl ChatAction {
     pub fn new(client: Arc<ApiClient>, state: RwSignal<ChatState>) -> Self {
         Self {
@@ -811,6 +834,17 @@ impl ChatAction {
             None,
             StreamNotice::info("Waiting for server..."),
         );
+    }
+
+    /// Create a backend chat session and return the server-issued session_id.
+    pub async fn create_backend_session(
+        &self,
+        name: String,
+        title: Option<String>,
+    ) -> Result<String, ApiError> {
+        let req = CreateChatSessionRequestUi { name, title };
+        let resp: CreateChatSessionResponseUi = self.client.post("/v1/chat/sessions", &req).await?;
+        Ok(resp.session_id)
     }
 
     /// Queue a message for later delivery (when inference becomes ready)
@@ -1036,7 +1070,14 @@ impl ChatAction {
 
         // Build context request from current state (PRD-002 Phase 2)
         // Also capture pinned adapters (persistent + session), next-message override, and reasoning mode.
-        let (context_request, pinned_adapters, selected_adapter, reasoning_mode, session_id) = {
+        let (
+            context_request,
+            pinned_adapters,
+            selected_adapter,
+            reasoning_mode,
+            session_id,
+            verified_mode,
+        ) = {
             let current = self.state.get_untracked();
             let context = ContextRequest {
                 include_page_context: current.context.current_page,
@@ -1070,7 +1111,17 @@ impl ChatAction {
                 current.selected_adapter.clone(),
                 current.context.reasoning_mode,
                 current.session_id.clone(),
+                current.verified_mode,
             )
+        };
+
+        let (model, stack_id) = {
+            let current = self.state.get_untracked();
+            match current.target.clone() {
+                ChatTarget::Model(id) => (Some(id), None),
+                ChatTarget::Stack(id) => (None, Some(id)),
+                _ => (None, None),
+            }
         };
 
         // Clear one-shot selection and snapshot pin epoch so the SSE handler
@@ -1102,11 +1153,19 @@ impl ChatAction {
                 Some(adapters)
             };
 
+            let (max_tokens, temperature) = if verified_mode {
+                (Some(VERIFIED_MAX_TOKENS), Some(VERIFIED_TEMPERATURE))
+            } else {
+                (Some(DEFAULT_MAX_TOKENS), Some(DEFAULT_TEMPERATURE))
+            };
+
             let request = StreamingInferRequest {
                 prompt,
+                model,
                 session_id,
-                max_tokens: Some(DEFAULT_MAX_TOKENS),
-                temperature: Some(DEFAULT_TEMPERATURE),
+                stack_id,
+                max_tokens,
+                temperature,
                 adapters,
                 context: Some(context_request),
                 reasoning_mode: reasoning_mode_opt,
@@ -1489,7 +1548,7 @@ impl ChatAction {
                                 )
                                 .into(),
                             );
-                            Utc::now()
+                            crate::utils::now_utc()
                         }
                     };
 
@@ -2469,12 +2528,14 @@ impl ChatSessionsManager {
     /// Validate that a session id is safe to use.
     ///
     /// Accepted prefixes:
-    /// - `ses_`      — current format from `adapteros_id::TypedId`
+    /// - `ses_` / `ses-` — current formats from `adapteros_id::TypedId`
     /// - `session-`  — legacy format from earlier generate_readable_id
     ///
     /// After prefix, only `[A-Za-z0-9_-]` is allowed.
     pub fn is_valid_session_id(id: &str) -> bool {
         let rest = if let Some(r) = id.strip_prefix("ses_") {
+            r
+        } else if let Some(r) = id.strip_prefix("ses-") {
             r
         } else if let Some(r) = id.strip_prefix("session-") {
             r
@@ -2546,7 +2607,7 @@ impl ChatSessionsManager {
 
     /// Create a new placeholder session (empty conversation) for a known-good session id.
     pub fn create_placeholder_session(id: &str) -> StoredChatSession {
-        let now = chrono::Utc::now().to_rfc3339();
+        let now = crate::utils::now_utc().to_rfc3339();
         StoredChatSession {
             id: id.to_string(),
             title: "New Chat".to_string(),
@@ -2654,7 +2715,7 @@ impl ChatSessionsManager {
         state: &ChatState,
         created_at: Option<&str>,
     ) -> StoredChatSession {
-        let now = chrono::Utc::now().to_rfc3339();
+        let now = crate::utils::now_utc().to_rfc3339();
         let title = state
             .messages
             .iter()
@@ -2707,7 +2768,7 @@ impl ChatSessionsManager {
         ttl: chrono::Duration,
     ) {
         use chrono::{DateTime, Utc};
-        let now = Utc::now();
+        let now = crate::utils::now_utc();
         sessions.retain(|s| {
             if !s.placeholder || !s.messages.is_empty() {
                 return true;
@@ -2746,7 +2807,9 @@ mod tests {
     fn streaming_infer_request_serializes_session_id_and_reasoning_mode() {
         let req = StreamingInferRequest {
             prompt: "Test prompt".to_string(),
+            model: None,
             session_id: Some("session-123".to_string()),
+            stack_id: None,
             max_tokens: None,
             temperature: None,
             adapters: None,
@@ -2777,9 +2840,11 @@ mod tests {
 
     #[test]
     fn validates_session_id_format() {
-        // Current format (ses_ prefix)
+        // Current formats (ses_ / ses- prefix)
         assert!(ChatSessionsManager::is_valid_session_id("ses_abc123"));
         assert!(ChatSessionsManager::is_valid_session_id("ses_ABC_123-xyz"));
+        assert!(ChatSessionsManager::is_valid_session_id("ses-abc123"));
+        assert!(ChatSessionsManager::is_valid_session_id("ses-ABC_123-xyz"));
         // Legacy format (session- prefix)
         assert!(ChatSessionsManager::is_valid_session_id(
             "session-8d88cf1c-2654-4dcb-91ce-7ac7f2035975"
@@ -2788,6 +2853,7 @@ mod tests {
         // Invalid
         assert!(!ChatSessionsManager::is_valid_session_id(""));
         assert!(!ChatSessionsManager::is_valid_session_id("ses_"));
+        assert!(!ChatSessionsManager::is_valid_session_id("ses-"));
         assert!(!ChatSessionsManager::is_valid_session_id("session-"));
         assert!(!ChatSessionsManager::is_valid_session_id("foo"));
         assert!(!ChatSessionsManager::is_valid_session_id("ses_../evil"));
@@ -2883,7 +2949,7 @@ mod tests {
                 id: "test-user-msg".to_string(),
                 role: "user".to_string(),
                 content: content.to_string(),
-                timestamp: chrono::Utc::now(),
+                timestamp: crate::utils::now_utc(),
                 is_streaming: false,
                 status: MessageStatus::Complete,
                 queued_at: None,
@@ -2904,7 +2970,7 @@ mod tests {
                 id: "test-assistant-msg".to_string(),
                 role: "assistant".to_string(),
                 content: String::new(),
-                timestamp: chrono::Utc::now(),
+                timestamp: crate::utils::now_utc(),
                 is_streaming: true,
                 status: MessageStatus::Streaming,
                 queued_at: None,

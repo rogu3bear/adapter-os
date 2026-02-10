@@ -284,7 +284,9 @@ fi
 # Build with trunk
 cd "$UI_DIR"
 echo "Running: trunk build --release"
-trunk build --release
+# trunk treats NO_COLOR as a boolean; some environments set NO_COLOR=1 which is
+# rejected by newer trunk (expects true/false).
+NO_COLOR=true trunk build --release
 
 # Apply build metadata + versioned asset naming
 apply_asset_versioning

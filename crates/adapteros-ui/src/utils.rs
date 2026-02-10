@@ -6,6 +6,28 @@
 use wasm_bindgen::JsCast;
 use wasm_bindgen_futures::JsFuture;
 
+/// Returns the current UTC time in a WASM-safe way.
+///
+/// In `wasm32-unknown-unknown`, `std::time::SystemTime` is not available and
+/// can panic when transitively used by date/time libraries. Use JS `Date`.
+pub fn now_utc() -> chrono::DateTime<chrono::Utc> {
+    #[cfg(target_arch = "wasm32")]
+    {
+        let ms = js_sys::Date::new_0().get_time();
+        let secs = (ms / 1000.0).floor() as i64;
+        let sub_ms = ms - (secs as f64 * 1000.0);
+        let nsec = (sub_ms * 1_000_000.0).round().clamp(0.0, 999_999_999.0) as u32;
+
+        chrono::DateTime::<chrono::Utc>::from_timestamp(secs, nsec)
+            .unwrap_or_else(|| chrono::DateTime::<chrono::Utc>::MIN_UTC)
+    }
+
+    #[cfg(not(target_arch = "wasm32"))]
+    {
+        chrono::Utc::now()
+    }
+}
+
 /// Format an ISO 8601 date string for display, showing date and time in 12-hour AM/PM.
 ///
 /// Extracts the date (YYYY-MM-DD) and time (h:MM AM/PM) portions from an ISO timestamp.
@@ -183,7 +205,7 @@ pub fn format_relative_time(timestamp: &str) -> String {
         return timestamp.to_string();
     };
 
-    let now = Utc::now();
+    let now = crate::utils::now_utc();
     let diff = now.signed_duration_since(dt.with_timezone(&Utc));
 
     if diff.num_minutes() < 1 {

@@ -265,7 +265,7 @@ fn current_timestamp() -> String {
     }
     #[cfg(not(target_arch = "wasm32"))]
     {
-        chrono::Utc::now().to_rfc3339()
+        crate::utils::now_utc().to_rfc3339()
     }
 }
 

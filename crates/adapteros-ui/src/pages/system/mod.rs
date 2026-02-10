@@ -117,7 +117,7 @@ pub fn System() -> impl IntoView {
                     // When we receive a full list, clear overrides and trigger refetch
                     // to get the complete worker data
                     worker_status_overrides.set(HashMap::new());
-                    last_sse_update.set(Some(chrono::Utc::now().to_rfc3339()));
+                    last_sse_update.set(Some(crate::utils::now_utc().to_rfc3339()));
                     refetch_workers.run(());
                 }
                 WorkerStreamEvent::StatusUpdate(update) => {
