@@ -288,6 +288,25 @@ echo "Running: trunk build --release"
 # rejected by newer trunk (expects true/false).
 NO_COLOR=true trunk build --release
 
+# Ensure auxiliary static assets exist (service worker + fonts).
+#
+# Trunk does not reliably copy @font-face referenced font files into dist.
+# When missing, browsers fetch `/fonts/*.woff2` and receive HTML (SPA fallback),
+# triggering "Failed to decode downloaded font" warnings and degraded visuals.
+#
+# Service worker is also optional but expected by `index.html` boot code; keep it
+# present when `dist/sw.js` exists.
+if [[ -d "$UI_DIR/dist/fonts" ]]; then
+    mkdir -p "$STATIC_DIR/fonts"
+    for f in "$UI_DIR"/dist/fonts/*.woff2 "$UI_DIR"/dist/fonts/LICENSE.txt; do
+        [[ -f "$f" ]] || continue
+        cp -f "$f" "$STATIC_DIR/fonts/"
+    done
+fi
+if [[ -f "$UI_DIR/dist/sw.js" ]]; then
+    cp -f "$UI_DIR/dist/sw.js" "$STATIC_DIR/sw.js"
+fi
+
 # Apply build metadata + versioned asset naming
 apply_asset_versioning
 
