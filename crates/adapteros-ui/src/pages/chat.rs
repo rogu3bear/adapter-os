@@ -314,12 +314,32 @@ fn ChatWorkspace(
 #[component]
 fn ChatEmptyWorkspace() -> impl IntoView {
     let navigate = use_navigate();
+    let (_, chat_action) = use_chat();
     let create_session = {
         let navigate = navigate.clone();
+        let action = chat_action.clone();
         Callback::new(move |_: ()| {
-            let session_id = generate_readable_id("session", "chat");
-            let path = format!("/chat/{}", session_id);
-            navigate(&path, Default::default());
+            let navigate = navigate.clone();
+            let action = action.clone();
+            wasm_bindgen_futures::spawn_local(async move {
+                // Create the session in the backend first; inference streaming requires
+                // a server-issued session id.
+                let name = generate_readable_id("session", "chat");
+                match action
+                    .create_backend_session(name, Some("New Chat".to_string()))
+                    .await
+                {
+                    Ok(session_id) => {
+                        let path = format!("/chat/{}", session_id);
+                        navigate(&path, Default::default());
+                    }
+                    Err(e) => {
+                        web_sys::console::error_1(
+                            &format!("[Chat] Failed to create backend session: {}", e).into(),
+                        );
+                    }
+                }
+            });
         })
     };
     let go_to_training = {
@@ -420,10 +440,27 @@ fn SessionListPanel(
     // Create new session
     let create_session = {
         let navigate = navigate.clone();
+        let action = chat_action.clone();
         Callback::new(move |_: ()| {
-            let session_id = generate_readable_id("session", "chat");
-            let path = format!("/chat/{}", session_id);
-            navigate(&path, Default::default());
+            let navigate = navigate.clone();
+            let action = action.clone();
+            wasm_bindgen_futures::spawn_local(async move {
+                let name = generate_readable_id("session", "chat");
+                match action
+                    .create_backend_session(name, Some("New Chat".to_string()))
+                    .await
+                {
+                    Ok(session_id) => {
+                        let path = format!("/chat/{}", session_id);
+                        navigate(&path, Default::default());
+                    }
+                    Err(e) => {
+                        web_sys::console::error_1(
+                            &format!("[Chat] Failed to create backend session: {}", e).into(),
+                        );
+                    }
+                }
+            });
         })
     };
 
@@ -433,12 +470,28 @@ fn SessionListPanel(
         let navigate = navigate.clone();
         Callback::new(move |_: ()| {
             let state = chat_state.get_untracked();
-            let session_id = generate_readable_id("session", "chat");
-            let session = ChatSessionsManager::session_from_state(&session_id, &state);
-            ChatSessionsManager::save_session(&session);
-            action.clear_messages();
-            let path = format!("/chat/{}", session_id);
-            navigate(&path, Default::default());
+            let action = action.clone();
+            let navigate = navigate.clone();
+            wasm_bindgen_futures::spawn_local(async move {
+                let name = generate_readable_id("session", "chat");
+                match action
+                    .create_backend_session(name, Some("New Chat".to_string()))
+                    .await
+                {
+                    Ok(session_id) => {
+                        let session = ChatSessionsManager::session_from_state(&session_id, &state);
+                        ChatSessionsManager::save_session(&session);
+                        action.clear_messages();
+                        let path = format!("/chat/{}", session_id);
+                        navigate(&path, Default::default());
+                    }
+                    Err(e) => {
+                        web_sys::console::error_1(
+                            &format!("[Chat] Failed to create backend session: {}", e).into(),
+                        );
+                    }
+                }
+            });
         })
     };
 
@@ -645,7 +698,7 @@ fn format_relative_time(timestamp: &str) -> String {
         return timestamp.to_string();
     };
 
-    let now = Utc::now();
+    let now = crate::utils::now_utc();
     let diff = now.signed_duration_since(dt.with_timezone(&Utc));
 
     if diff.num_minutes() < 1 {
