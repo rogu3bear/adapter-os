@@ -84,7 +84,9 @@ async function main() {
   const serverPidPath = path.resolve(repoRoot, 'var/playwright/run/aos-server.pid');
 
   const hardTimeoutMs = Number.isFinite(hardMs) ? hardMs : 15 * 60_000;
-  const idleTimeoutMs = Number.isFinite(idleMs) ? idleMs : 3 * 60_000;
+  // Default idle timeout is intentionally generous: initial Rust+WASM builds can be quiet for
+  // several minutes on a cold cache, and we don't want spurious watchdog kills.
+  const idleTimeoutMs = Number.isFinite(idleMs) ? idleMs : 10 * 60_000;
 
   // Clean heartbeat from prior runs to make stall detection deterministic.
   try {
