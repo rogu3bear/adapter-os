@@ -243,27 +243,34 @@ pub async fn seed_minimal(State(state): State<AppState>) -> ApiResult<SeedMinima
 
     // Seed deterministic admin user.
     //
+    // NOTE: This endpoint may be hit multiple times (retries, local dev traffic). Prefer
+    // "create if missing" over delete+recreate to avoid UNIQUE(email) races.
+    //
     // IMPORTANT: Db::create_user dual-writes to KV depending on storage mode. Do not "rewrite" the
     // user id after creation (that can desync SQL/KV and break /v1/auth/me with USER_NOT_FOUND).
-    sqlx::query("DELETE FROM users WHERE email = ?")
-        .bind(E2E_USER_EMAIL)
-        .execute(pool)
-        .await
-        .map_err(map_err)?;
-
     let pw_hash = hash_password(E2E_USER_PASSWORD).map_err(map_err)?;
-    let created_user_id = state
-        .db
-        .create_user(
-            E2E_USER_EMAIL,
-            E2E_USER_NAME,
-            &pw_hash,
-            adapteros_db::users::Role::Admin,
-            TENANT_ID,
-        )
-        .await
-        .map_err(map_err)?;
-    let user_id = created_user_id.clone();
+    let existing_user_id: Option<String> =
+        sqlx::query_scalar("SELECT id FROM users WHERE email = ?")
+            .bind(E2E_USER_EMAIL)
+            .fetch_optional(pool)
+            .await
+            .map_err(map_err)?;
+
+    let user_id = if let Some(id) = existing_user_id {
+        id
+    } else {
+        state
+            .db
+            .create_user(
+                E2E_USER_EMAIL,
+                E2E_USER_NAME,
+                &pw_hash,
+                adapteros_db::users::Role::Admin,
+                TENANT_ID,
+            )
+            .await
+            .map_err(map_err)?
+    };
 
     sqlx::query(
         r#"
