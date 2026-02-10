@@ -5,10 +5,7 @@
 //! - Real workers/GPUs
 //! - Timing assertions
 
-use adapteros_core::{
-    cache_attestation::CacheAttestationBuilder,
-    B3Hash,
-};
+use adapteros_core::{cache_attestation::CacheAttestationBuilder, B3Hash};
 use adapteros_db::{
     inference_trace::{SqlTraceSink, TraceFinalization, TraceSink, TraceStart},
     Db,
@@ -110,7 +107,9 @@ fn ed25519_public_key_from_seed(seed: &[u8; 32]) -> [u8; 32] {
 #[tokio::test(flavor = "current_thread")]
 async fn missing_attestation_hard_fails_when_cached_tokens_gt_zero() {
     let db = new_test_db_with_tenant().await;
-    let mut sink = SqlTraceSink::new(db, test_trace_start(), 1024).await.unwrap();
+    let mut sink = SqlTraceSink::new(db, test_trace_start(), 1024)
+        .await
+        .unwrap();
 
     let out: [u32; 0] = [];
     let mut finalization = minimal_finalization(&out);
@@ -128,7 +127,9 @@ async fn missing_attestation_hard_fails_when_cached_tokens_gt_zero() {
 #[tokio::test(flavor = "current_thread")]
 async fn bad_signature_is_rejected_for_cached_tokens() {
     let db = new_test_db_with_tenant().await;
-    let mut sink = SqlTraceSink::new(db, test_trace_start(), 1024).await.unwrap();
+    let mut sink = SqlTraceSink::new(db, test_trace_start(), 1024)
+        .await
+        .unwrap();
 
     let cache_key = B3Hash::hash(b"cache-key-1");
 
@@ -166,7 +167,9 @@ async fn bad_signature_is_rejected_for_cached_tokens() {
 #[tokio::test(flavor = "current_thread")]
 async fn token_count_mismatch_is_rejected_for_cached_tokens() {
     let db = new_test_db_with_tenant().await;
-    let mut sink = SqlTraceSink::new(db, test_trace_start(), 1024).await.unwrap();
+    let mut sink = SqlTraceSink::new(db, test_trace_start(), 1024)
+        .await
+        .unwrap();
 
     let cache_key = B3Hash::hash(b"cache-key-1");
 
@@ -192,7 +195,9 @@ async fn token_count_mismatch_is_rejected_for_cached_tokens() {
     let err = sink.finalize(finalization).await.unwrap_err();
     let msg = err.to_string();
     assert!(
-        msg.contains("cache attestation token_count (9) does not match prefix_cached_token_count (10)"),
+        msg.contains(
+            "cache attestation token_count (9) does not match prefix_cached_token_count (10)"
+        ),
         "unexpected error: {msg}"
     );
 }
@@ -200,7 +205,9 @@ async fn token_count_mismatch_is_rejected_for_cached_tokens() {
 #[tokio::test(flavor = "current_thread")]
 async fn cache_key_mismatch_is_rejected_when_prefix_kv_key_present() {
     let db = new_test_db_with_tenant().await;
-    let mut sink = SqlTraceSink::new(db, test_trace_start(), 1024).await.unwrap();
+    let mut sink = SqlTraceSink::new(db, test_trace_start(), 1024)
+        .await
+        .unwrap();
 
     let prefix_kv_key = B3Hash::hash(b"cache-key-expected");
     let attested_key = B3Hash::hash(b"cache-key-attested");
@@ -236,7 +243,9 @@ async fn cache_key_mismatch_is_rejected_when_prefix_kv_key_present() {
 #[tokio::test(flavor = "current_thread")]
 async fn valid_attestation_allows_nonzero_cache_credits() {
     let db = new_test_db_with_tenant().await;
-    let mut sink = SqlTraceSink::new(db, test_trace_start(), 1024).await.unwrap();
+    let mut sink = SqlTraceSink::new(db, test_trace_start(), 1024)
+        .await
+        .unwrap();
 
     let cache_key = B3Hash::hash(b"cache-key-1");
 
