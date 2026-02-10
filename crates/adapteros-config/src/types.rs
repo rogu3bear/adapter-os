@@ -589,6 +589,21 @@ pub struct InvariantsConfig {
     /// Disable HYGIENE-003: Panic density check (warning only)
     #[serde(default)]
     pub disable_hygiene_003_panic_density: bool,
+    // =========================================================================
+    // Determinism Invariants
+    // =========================================================================
+    /// Disable DET-001: Canonical adapter sort ordering check (NOT RECOMMENDED)
+    #[serde(default)]
+    pub disable_det_001_adapter_sort: bool,
+    /// Disable DET-003: Q15 denominator canonical value check (NOT RECOMMENDED)
+    #[serde(default)]
+    pub disable_det_003_q15_denominator: bool,
+    /// Disable DET-005: HKDF output length check (NOT RECOMMENDED)
+    #[serde(default)]
+    pub disable_det_005_hkdf_length: bool,
+    /// Disable DET-008: RouterRing K bound check (NOT RECOMMENDED)
+    #[serde(default)]
+    pub disable_det_008_router_ring_k: bool,
 }
 
 // ============================================================================

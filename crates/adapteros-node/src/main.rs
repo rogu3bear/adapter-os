@@ -59,11 +59,7 @@ struct Cli {
     plan_path: String,
 
     /// Directory containing peer public keys ({node_id}.pub files, 32 bytes raw Ed25519)
-    #[arg(
-        long,
-        env = "AOS_PEER_KEYS_DIR",
-        default_value = "/var/lib/aos/peers"
-    )]
+    #[arg(long, env = "AOS_PEER_KEYS_DIR", default_value = "/var/lib/aos/peers")]
     peer_keys_dir: String,
 }
 
@@ -762,8 +758,8 @@ fn verify_manifest_signature(
         .map_err(|e| format!("Failed to serialize artifacts for verification: {}", e))?;
 
     // Decode the hex signature
-    let sig_bytes = hex::decode(&manifest.signature)
-        .map_err(|e| format!("Invalid hex signature: {}", e))?;
+    let sig_bytes =
+        hex::decode(&manifest.signature).map_err(|e| format!("Invalid hex signature: {}", e))?;
     if sig_bytes.len() != 64 {
         return Err(format!(
             "Invalid signature length: expected 64 bytes, got {}",
@@ -797,8 +793,13 @@ fn verify_manifest_signature(
         .try_into()
         .map_err(|_| "Peer key byte conversion failed".to_string())?;
 
-    let verifying_key = ed25519_dalek::VerifyingKey::from_bytes(&key_array)
-        .map_err(|e| format!("Invalid Ed25519 public key in {}: {}", peer_key_path.display(), e))?;
+    let verifying_key = ed25519_dalek::VerifyingKey::from_bytes(&key_array).map_err(|e| {
+        format!(
+            "Invalid Ed25519 public key in {}: {}",
+            peer_key_path.display(),
+            e
+        )
+    })?;
 
     // Verify that the node_id matches the public key (prevents key substitution)
     let expected_node_id = node_id_from_public_key(&verifying_key);

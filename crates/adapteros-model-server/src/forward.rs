@@ -327,7 +327,7 @@ impl ForwardExecutor {
 
             // Mock LoRA: logits += scale * gate * lora_b @ lora_a @ hidden
             // Simplified: just add a scaled offset
-            let offset = adapter.scale * gate_f32 * adapter.lora_b.get(0).copied().unwrap_or(0.0);
+            let offset = adapter.scale * gate_f32 * adapter.lora_b.first().copied().unwrap_or(0.0);
             for logit in logits.iter_mut() {
                 *logit += offset * 0.01;
             }

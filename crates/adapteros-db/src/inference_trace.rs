@@ -1914,7 +1914,7 @@ async fn persist_receipt_verification(
 
     // Optional crypto lookup digest: only meaningful when canonical recomputation matches.
     let crypto_receipt_digest = if verification.matches {
-        match verification
+        verification
             .stored
             .as_ref()
             .and_then(|s| s.input_digest_b3)
@@ -1923,17 +1923,17 @@ async fn persist_receipt_verification(
                     .stored
                     .as_ref()
                     .and_then(|s| s.equipment_profile.as_ref().map(|ep| ep.digest)),
-            ) {
-            Some((input_digest, equipment_digest)) => Some(B3Hash::hash_multi(&[
-                &[CRYPTO_RECEIPT_SCHEMA_VERSION],
-                &verification.context_digest[..],
-                input_digest.as_bytes(),
-                verification.recomputed.run_head_hash.as_bytes(),
-                verification.recomputed.output_digest.as_bytes(),
-                equipment_digest.as_bytes(),
-            ])),
-            None => None,
-        }
+            )
+            .map(|(input_digest, equipment_digest)| {
+                B3Hash::hash_multi(&[
+                    &[CRYPTO_RECEIPT_SCHEMA_VERSION],
+                    &verification.context_digest[..],
+                    input_digest.as_bytes(),
+                    verification.recomputed.run_head_hash.as_bytes(),
+                    verification.recomputed.output_digest.as_bytes(),
+                    equipment_digest.as_bytes(),
+                ])
+            })
     } else {
         None
     };
@@ -2690,7 +2690,7 @@ impl BackfillResult {
 /// For each receipt that is missing either:
 /// - `crypto_receipt_digest_b3`, or
 /// - `receipt_parity_verified`,
-/// this function:
+///   this function:
 ///
 /// 1. Recomputes the canonical receipt digest and routing chain from stored trace tokens
 ///    via [`recompute_receipt`].
