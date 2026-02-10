@@ -1,5 +1,6 @@
 use crate::auth::Claims;
 use crate::middleware::require_any_role;
+use crate::permissions::{has_permission, require_permission, Permission};
 use crate::state::AppState;
 use crate::types::*;
 use adapteros_db::sqlx;
@@ -12,6 +13,7 @@ use axum::{
 };
 use serde::Deserialize;
 use std::collections::HashMap;
+use std::str::FromStr;
 
 /// List nodes
 #[utoipa::path(
@@ -658,12 +660,35 @@ pub struct ListJobsQuery {
 )]
 pub async fn list_jobs(
     State(state): State<AppState>,
-    Extension(_claims): Extension<Claims>,
+    Extension(claims): Extension<Claims>,
     Query(query): Query<ListJobsQuery>,
 ) -> Result<Json<Vec<JobResponse>>, (StatusCode, Json<ErrorResponse>)> {
+    // Generic job surfaces are read-only here; require an existing view permission.
+    require_permission(&claims, Permission::DatasetView)
+        .map_err(|e| <crate::api_error::ApiError as Into<(StatusCode, Json<ErrorResponse>)>>::into(e))?;
+
+    // Tenant scoping: default to the caller's tenant. Only tenant managers can
+    // query other tenants or unscoped lists.
+    let role = Role::from_str(&claims.role).map_err(|_| {
+        (
+            StatusCode::BAD_REQUEST,
+            Json(
+                ErrorResponse::new("invalid role in authentication token")
+                    .with_code("INVALID_ROLE")
+                    .with_string_details(claims.role.clone()),
+            ),
+        )
+    })?;
+    let can_manage_tenants = has_permission(&role, Permission::TenantManage);
+    let tenant_filter = if can_manage_tenants {
+        query.tenant_id.as_deref()
+    } else {
+        Some(claims.tenant_id.as_str())
+    };
+
     let jobs = state
         .db
-        .list_jobs(query.tenant_id.as_deref())
+        .list_jobs(tenant_filter)
         .await
         .map_err(|e| {
             (
@@ -705,9 +730,24 @@ pub async fn list_jobs(
 )]
 pub async fn get_job(
     State(state): State<AppState>,
-    Extension(_claims): Extension<Claims>,
+    Extension(claims): Extension<Claims>,
     Path(job_id): Path<String>,
 ) -> Result<Json<JobDetailResponse>, (StatusCode, Json<ErrorResponse>)> {
+    require_permission(&claims, Permission::DatasetView)
+        .map_err(|e| <crate::api_error::ApiError as Into<(StatusCode, Json<ErrorResponse>)>>::into(e))?;
+
+    let role = Role::from_str(&claims.role).map_err(|_| {
+        (
+            StatusCode::BAD_REQUEST,
+            Json(
+                ErrorResponse::new("invalid role in authentication token")
+                    .with_code("INVALID_ROLE")
+                    .with_string_details(claims.role.clone()),
+            ),
+        )
+    })?;
+    let can_manage_tenants = has_permission(&role, Permission::TenantManage);
+
     let job = state.db.get_job(&job_id).await.map_err(|e| {
         (
             StatusCode::INTERNAL_SERVER_ERROR,
@@ -730,6 +770,20 @@ pub async fn get_job(
         ));
     };
 
+    // Tenant isolation: do not leak existence across tenants.
+    if !can_manage_tenants {
+        if job.tenant_id.as_deref() != Some(claims.tenant_id.as_str()) {
+            return Err((
+                StatusCode::NOT_FOUND,
+                Json(
+                    ErrorResponse::new("job not found")
+                        .with_code("NOT_FOUND")
+                        .with_string_details(format!("Job ID: {}", job_id)),
+                ),
+            ));
+        }
+    }
+
     Ok(Json(JobDetailResponse {
         id: job.id,
         kind: job.kind,
@@ -740,6 +794,183 @@ pub async fn get_job(
         started_at: job.started_at,
         finished_at: job.finished_at,
     }))
+}
+
+#[cfg(test)]
+mod jobs_tests {
+    use super::*;
+    use crate::auth::{AuthMode, PrincipalType, JWT_ISSUER};
+    use crate::state::MetricsConfig as StateMetricsConfig;
+    use crate::telemetry::MetricsRegistry;
+    use crate::test_utils;
+    use crate::{ApiConfig, PathsConfig};
+    use adapteros_core::{BackendKind, SeedMode};
+    use adapteros_metrics_exporter::MetricsExporter;
+    use adapteros_telemetry::metrics::MetricsConfig as TelemetryMetricsConfig;
+    use adapteros_telemetry::MetricsCollector;
+    use axum::body::Body;
+    use axum::http::Request;
+    use axum::routing::get;
+    use axum::Router;
+    use std::sync::{Arc, RwLock};
+    use tower::ServiceExt;
+
+    fn make_claims(tenant_id: &str, role: &str) -> Claims {
+        let now = chrono::Utc::now().timestamp();
+        Claims {
+            sub: "user-jobs-test".to_string(),
+            email: "user@example.com".to_string(),
+            role: role.to_string(),
+            roles: vec![role.to_string()],
+            tenant_id: tenant_id.to_string(),
+            admin_tenants: vec![],
+            device_id: None,
+            session_id: Some("session".to_string()),
+            mfa_level: None,
+            rot_id: None,
+            exp: now + 3600,
+            iat: now,
+            jti: "jti-jobs-test".to_string(),
+            nbf: now,
+            iss: JWT_ISSUER.to_string(),
+            auth_mode: AuthMode::BearerToken,
+            principal_type: Some(PrincipalType::User),
+        }
+    }
+
+    async fn build_test_state() -> AppState {
+        let db = adapteros_db::Db::new_in_memory().await.unwrap();
+        let jwt_secret = b"jobs-test-secret-32-bytes-xxxx!".to_vec();
+        let base_tempdir = test_utils::tempdir_with_prefix("aos-test-jobs-");
+        let base_dir = base_tempdir.into_path();
+        for dir in ["artifacts", "bundles", "adapters", "plan", "datasets", "documents"] {
+            let path = base_dir.join(dir);
+            std::fs::create_dir_all(&path).unwrap();
+        }
+
+        let config = Arc::new(RwLock::new(ApiConfig {
+            metrics: StateMetricsConfig {
+                enabled: false,
+                bearer_token: "test".to_string(),
+            },
+            directory_analysis_timeout_secs: 1,
+            use_session_stack_for_routing: false,
+            capacity_limits: Default::default(),
+            general: None,
+            server: Default::default(),
+            security: Default::default(),
+            auth: Default::default(),
+            self_hosting: Default::default(),
+            performance: Default::default(),
+            streaming: Default::default(),
+            paths: PathsConfig {
+                artifacts_root: base_dir.join("artifacts").to_string_lossy().to_string(),
+                bundles_root: base_dir.join("bundles").to_string_lossy().to_string(),
+                adapters_root: base_dir.join("adapters").to_string_lossy().to_string(),
+                plan_dir: base_dir.join("plan").to_string_lossy().to_string(),
+                datasets_root: base_dir.join("datasets").to_string_lossy().to_string(),
+                documents_root: base_dir.join("documents").to_string_lossy().to_string(),
+                synthesis_model_path: None,
+            },
+            chat_context: Default::default(),
+            seed_mode: SeedMode::BestEffort,
+            backend_profile: BackendKind::Auto,
+            worker_id: 0,
+            timeouts: Default::default(),
+            rate_limit: None,
+            inference_cache: Default::default(),
+        }));
+        let metrics_exporter =
+            Arc::new(MetricsExporter::new(vec![0.1, 1.0]).expect("metrics exporter"));
+        let metrics_collector = Arc::new(MetricsCollector::new(TelemetryMetricsConfig::default()));
+        let metrics_registry = Arc::new(MetricsRegistry::new());
+        let uma_monitor =
+            Arc::new(adapteros_lora_worker::memory::UmaPressureMonitor::new(10, None));
+
+        AppState::new(
+            db,
+            jwt_secret,
+            config,
+            metrics_exporter,
+            metrics_collector,
+            metrics_registry,
+            uma_monitor,
+        )
+    }
+
+    fn app(state: AppState) -> Router {
+        Router::new()
+            .route("/v1/jobs", get(list_jobs))
+            .route("/v1/jobs/{job_id}", get(get_job))
+            .with_state(state)
+    }
+
+    #[tokio::test]
+    async fn get_job_is_tenant_scoped_returns_404_cross_tenant() {
+        let state = build_test_state().await;
+        let job_id = state
+            .db
+            .create_job(
+                "training_dataset_from_upload",
+                Some("tenant-a"),
+                Some("user"),
+                "{\"k\":1}",
+            )
+            .await
+            .unwrap();
+
+        let mut req = Request::builder()
+            .uri(format!("/v1/jobs/{}", job_id))
+            .body(Body::empty())
+            .unwrap();
+        req.extensions_mut()
+            .insert(make_claims("tenant-b", "viewer"));
+
+        let resp = app(state).oneshot(req).await.unwrap();
+        assert_eq!(resp.status(), StatusCode::NOT_FOUND);
+    }
+
+    #[tokio::test]
+    async fn list_jobs_defaults_to_claims_tenant_when_not_tenant_manager() {
+        let state = build_test_state().await;
+        let _ = state
+            .db
+            .create_job(
+                "training_dataset_from_upload",
+                Some("tenant-a"),
+                Some("user"),
+                "{\"k\":1}",
+            )
+            .await
+            .unwrap();
+        let _ = state
+            .db
+            .create_job(
+                "training_dataset_from_upload",
+                Some("tenant-b"),
+                Some("user"),
+                "{\"k\":1}",
+            )
+            .await
+            .unwrap();
+
+        let mut req = Request::builder()
+            .uri("/v1/jobs?tenant_id=tenant-b")
+            .body(Body::empty())
+            .unwrap();
+        req.extensions_mut()
+            .insert(make_claims("tenant-a", "viewer"));
+
+        let resp = app(state).oneshot(req).await.unwrap();
+        assert_eq!(resp.status(), StatusCode::OK);
+
+        let bytes = axum::body::to_bytes(resp.into_body(), 1024 * 1024)
+            .await
+            .unwrap();
+        let parsed: serde_json::Value = serde_json::from_slice(&bytes).unwrap();
+        let arr = parsed.as_array().unwrap();
+        assert_eq!(arr.len(), 1, "should only list tenant-a jobs");
+    }
 }
 
 // Note: worker_spawn, list_workers, stop_worker moved to handlers/workers.rs (PRD-RECT topology fix)
