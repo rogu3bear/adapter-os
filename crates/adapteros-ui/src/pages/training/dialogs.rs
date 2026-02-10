@@ -12,7 +12,9 @@ use crate::components::{
 use crate::pages::training::dataset_wizard::{DatasetUploadOutcome, DatasetUploadWizard};
 use crate::pages::training::generate_wizard::{GenerateDatasetOutcome, GenerateDatasetWizard};
 use crate::validation::{rules, use_form_errors, validate_field, ValidationRule};
-use adapteros_api_types::{TrainingBackendKind, TrainingBackendPolicy, TrainingJobResponse};
+use adapteros_api_types::{
+    TrainingBackendKind, TrainingBackendPolicy, TrainingJobResponse, TRAINING_DATA_CONTRACT_VERSION,
+};
 use leptos::prelude::*;
 use serde_json::json;
 
@@ -439,14 +441,25 @@ pub fn CreateJobDialog(
         wasm_bindgen_futures::spawn_local(async move {
             let client = ApiClient::new();
 
+            let resolved_dataset_id = ds_id.trim().to_string();
+            if resolved_dataset_id.is_empty() {
+                error.set(Some("Dataset is required to start training".to_string()));
+                submitting.set(false);
+                return;
+            }
+
             // Build the request body
             let request = serde_json::json!({
                 "adapter_name": name,
                 "base_model_id": base_model_val,
+                "dataset_id": resolved_dataset_id,
                 "config": {
                     "rank": rank_val,
                     "alpha": alpha_val,
                     "targets": ["q_proj", "v_proj"],
+                    "training_contract_version": TRAINING_DATA_CONTRACT_VERSION,
+                    "pad_token_id": 0,
+                    "ignore_index": -100,
                     "epochs": epochs_val,
                     "learning_rate": lr_val,
                     "batch_size": batch_val,
@@ -456,8 +469,6 @@ pub fn CreateJobDialog(
                     "coreml_training_fallback": if backend_val == TrainingBackendKind::CoreML.as_str() || policy_val == TrainingBackendPolicy::CoremlElseFallback.as_str() { json!(fallback_val) } else { serde_json::Value::Null },
                 },
                 "category": cat,
-                "dataset_id": if ds_id.is_empty() { serde_json::Value::Null } else { serde_json::Value::String(ds_id.clone()) },
-                "synthetic_mode": ds_id.is_empty(),
             });
 
             match client
