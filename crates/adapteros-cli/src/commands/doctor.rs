@@ -197,7 +197,7 @@ fn check_coreml_backend() -> ComponentHealth {
     {
         let is_macos = cfg!(target_os = "macos");
         let has_coreml_feature = cfg!(feature = "coreml-backend");
-        return if is_macos && has_coreml_feature {
+        if is_macos && has_coreml_feature {
             ComponentHealth {
                 component: "CoreML Backend".to_string(),
                 status: ComponentStatus::Healthy,
@@ -236,7 +236,7 @@ fn check_coreml_backend() -> ComponentHealth {
                 })),
                 timestamp,
             }
-        };
+        }
     }
 }
 

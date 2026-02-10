@@ -220,7 +220,7 @@ fn read_all_memories(memories_dir: &PathBuf) -> Result<HashMap<String, String>> 
         let entry = entry?;
         let path = entry.path();
 
-        if path.extension().map_or(false, |ext| ext == "md") {
+        if path.extension().is_some_and(|ext| ext == "md") {
             let filename = path
                 .file_name()
                 .and_then(|n| n.to_str())

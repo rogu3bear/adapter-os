@@ -1194,7 +1194,7 @@ fn default_adapter_root() -> PathBuf {
 ///
 /// Uses a ReDB database at `{adapter_root}/index.redb`.
 /// Returns a tuple of (backend, index_manager, repository) for flexibility.
-fn open_version_repository(adapter_root: &PathBuf) -> Result<AdapterVersionRepository> {
+fn open_version_repository(adapter_root: &std::path::Path) -> Result<AdapterVersionRepository> {
     let index_path = adapter_root.join("index.redb");
 
     // Ensure parent directory exists
@@ -1357,7 +1357,7 @@ async fn list_versions(args: VersionsArgs, output: &OutputWriter) -> Result<()> 
             history: &version_history,
         })?;
     } else {
-        output.section(&format!("Versions of {}", adapter_name));
+        output.section(format!("Versions of {}", adapter_name));
         output.blank();
 
         // Separate version tags from named refs
@@ -1510,7 +1510,7 @@ async fn promote_adapter(args: PromoteArgs, output: &OutputWriter) -> Result<()>
                 if let Err(e) = repo.create(&adapter_version).await {
                     let _ = output.warn(format!("Failed to persist version record: {}", e));
                 } else {
-                    let _ = output.info("Version record persisted to repository");
+                    output.info("Version record persisted to repository");
                 }
             }
             Err(e) => {
@@ -1854,7 +1854,7 @@ async fn diff_versions(args: DiffArgs, output: &OutputWriter) -> Result<()> {
     }
 
     // Text output with colors
-    output.section(&format!("Diff: {} -> {}", args.from, args.to));
+    output.section(format!("Diff: {} -> {}", args.from, args.to));
     output.blank();
 
     // Show refs and hashes
@@ -2417,7 +2417,7 @@ async fn run_stack_cmd(cmd: StackCmd, output: &OutputWriter) -> Result<()> {
 }
 
 /// Get the path to a stack definition file
-fn stack_definition_path(root: &PathBuf, tenant_id: &str, name: &str) -> PathBuf {
+fn stack_definition_path(root: &std::path::Path, tenant_id: &str, name: &str) -> PathBuf {
     root.join("stacks")
         .join(tenant_id)
         .join(name)
@@ -2703,7 +2703,7 @@ async fn stack_list(args: StackListArgs, output: &OutputWriter) -> Result<()> {
             return Ok(());
         }
 
-        output.section(&format!("Stacks for tenant '{}'", args.tenant_id));
+        output.section(format!("Stacks for tenant '{}'", args.tenant_id));
         output.blank();
 
         for stack in &stacks {
@@ -2751,7 +2751,7 @@ async fn stack_show(args: StackShowArgs, output: &OutputWriter) -> Result<()> {
     if args.format == "json" {
         output.json(&def)?;
     } else {
-        output.section(&format!("Stack: {}", def.name.name));
+        output.section(format!("Stack: {}", def.name.name));
         output.blank();
 
         output.kv("Version", &def.version);

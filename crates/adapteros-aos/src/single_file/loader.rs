@@ -4,7 +4,8 @@
 
 use super::format::*;
 use super::training::TrainingConfig;
-use adapteros_core::{AosError, Result};
+use adapteros_core::{AosError, B3Hash, IntegrityMode, Result};
+use adapteros_crypto::{PublicKey, Signature};
 use std::path::Path;
 
 /// Load options for .aos files
@@ -74,9 +75,14 @@ impl SingleFileAdapterLoader {
         let manifest: AdapterManifest = serde_json::from_slice(aos_view.manifest_bytes)
             .map_err(|e| AosError::Parse(format!("Failed to parse manifest: {}", e)))?;
 
-        // Verify integrity hash if present (backward compatible with older .aos files)
+        // Verify integrity hash — strict in production, permissive otherwise
         if !options.skip_verification {
-            manifest.verify_integrity()?;
+            let integrity_mode = if production_mode_enabled() {
+                IntegrityMode::Strict
+            } else {
+                IntegrityMode::Permissive
+            };
+            manifest.verify_integrity_with_mode(integrity_mode)?;
         }
 
         // Find the canonical weights segment
@@ -109,24 +115,30 @@ impl SingleFileAdapterLoader {
             created_at: manifest.created_at.clone(),
         };
 
+        // Attempt to load and verify sidecar signature files (.sig + .pub)
+        let signature = if options.skip_signature_check {
+            None
+        } else {
+            Self::load_sidecar_signature(path, &data)?
+        };
+
+        let is_signed = signature.is_some();
+
         let adapter = SingleFileAdapter {
             manifest: manifest.clone(),
             weights,
             config,
             lineage,
             training_data: vec![],
-            signature: None,
+            signature,
         };
 
         tracing::info!(
-            "Loaded AOS format adapter from: {} (adapter_id={}, signed: false)",
+            "Loaded AOS format adapter from: {} (adapter_id={}, signed: {})",
             path.display(),
-            manifest.adapter_id
+            manifest.adapter_id,
+            is_signed,
         );
-
-        // Note: Integrity verification happens at manifest parse time above
-        // The AOS format also has segment hash verification in open_aos()
-        let _ = options; // consumed for skip_verification above
 
         Ok(adapter)
     }
@@ -249,6 +261,112 @@ impl SingleFileAdapterLoader {
                 other
             ))),
         }
+    }
+
+    /// Load sidecar signature files (.sig + .pub) and verify archive integrity.
+    ///
+    /// The packager writes two sidecar files alongside each `.aos` archive:
+    /// - `<path>.sig` — raw Ed25519 signature bytes (64 bytes)
+    /// - `<path>.pub` — hex-encoded Ed25519 public key (32 bytes decoded)
+    ///
+    /// If both files exist, the signature is verified against `archive_bytes`.
+    /// Returns `Ok(Some(AosSignature))` on success, `Ok(None)` if sidecars are
+    /// absent, and `Err` if sidecars are present but verification fails.
+    fn load_sidecar_signature(
+        aos_path: &Path,
+        archive_bytes: &[u8],
+    ) -> Result<Option<AosSignature>> {
+        let sig_path = aos_path.with_extension("aos.sig");
+        let pub_path = aos_path.with_extension("aos.pub");
+
+        // Both sidecars must exist; if neither does, this is an unsigned archive
+        let sig_exists = sig_path.exists();
+        let pub_exists = pub_path.exists();
+
+        if !sig_exists && !pub_exists {
+            return Ok(None);
+        }
+
+        // One present without the other is a packaging error
+        if sig_exists != pub_exists {
+            return Err(AosError::Crypto(format!(
+                "Incomplete signature sidecars for {}: .sig exists={}, .pub exists={}. \
+                 Both files must be present or both absent.",
+                aos_path.display(),
+                sig_exists,
+                pub_exists,
+            )));
+        }
+
+        // Read raw signature (64 bytes)
+        let sig_bytes = std::fs::read(&sig_path)
+            .map_err(|e| AosError::Io(format!("Failed to read {}: {}", sig_path.display(), e)))?;
+
+        let sig_array: [u8; 64] = sig_bytes.try_into().map_err(|v: Vec<u8>| {
+            AosError::Crypto(format!(
+                "Invalid signature length in {}: expected 64 bytes, got {}",
+                sig_path.display(),
+                v.len(),
+            ))
+        })?;
+
+        let signature = Signature::from_bytes(&sig_array).map_err(|e| {
+            AosError::Crypto(format!(
+                "Invalid signature in {}: {}",
+                sig_path.display(),
+                e
+            ))
+        })?;
+
+        // Read hex-encoded public key
+        let pubkey_hex = std::fs::read_to_string(&pub_path)
+            .map_err(|e| AosError::Io(format!("Failed to read {}: {}", pub_path.display(), e)))?;
+
+        let pubkey_bytes = hex::decode(pubkey_hex.trim()).map_err(|e| {
+            AosError::Crypto(format!("Invalid hex in {}: {}", pub_path.display(), e,))
+        })?;
+
+        let pubkey_array: [u8; 32] = pubkey_bytes.try_into().map_err(|v: Vec<u8>| {
+            AosError::Crypto(format!(
+                "Invalid public key length in {}: expected 32 bytes, got {}",
+                pub_path.display(),
+                v.len(),
+            ))
+        })?;
+
+        let public_key = PublicKey::from_bytes(&pubkey_array).map_err(|e| {
+            AosError::Crypto(format!(
+                "Invalid public key in {}: {}",
+                pub_path.display(),
+                e
+            ))
+        })?;
+
+        // Verify: the packager signs the raw archive bytes
+        public_key.verify(archive_bytes, &signature).map_err(|e| {
+            AosError::Crypto(format!(
+                "Signature verification failed for {}: {}. \
+                 The archive may have been tampered with or the signing key does not match.",
+                aos_path.display(),
+                e,
+            ))
+        })?;
+
+        // Build key_id the same way the packager does: blake3(pubkey_bytes)
+        let key_id = B3Hash::hash(&pubkey_array).to_hex();
+
+        tracing::info!(
+            path = %aos_path.display(),
+            key_id = %key_id,
+            "Archive signature verified successfully"
+        );
+
+        Ok(Some(AosSignature {
+            signature,
+            public_key,
+            timestamp: 0, // Sidecar format does not carry a timestamp
+            key_id,
+        }))
     }
 
     /// Load only the manifest without extracting full weights (fast)
