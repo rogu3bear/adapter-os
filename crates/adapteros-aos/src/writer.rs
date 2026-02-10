@@ -18,6 +18,8 @@ use tracing::{debug, info};
 
 /// Magic bytes identifying an AOS archive (4 bytes)
 pub const AOS_MAGIC: [u8; 4] = *b"AOS\0";
+/// Legacy v2 magic bytes (compatibility for older `.aos` bundles).
+pub const AOS_MAGIC_V2: [u8; 4] = *b"AOS2";
 
 /// Current header size in bytes (64-byte aligned for cache efficiency)
 pub const HEADER_SIZE: usize = 64;
@@ -411,7 +413,7 @@ impl AosWriter {
             ));
         }
 
-        if bytes[0..4] != AOS_MAGIC {
+        if bytes[0..4] != AOS_MAGIC && bytes[0..4] != AOS_MAGIC_V2 {
             return Err(AosError::Validation(
                 "Corrupted / needs retrain: invalid AOS magic".to_string(),
             ));
@@ -741,6 +743,64 @@ mod tests {
             .unwrap_err()
             .to_string()
             .contains("invalid AOS magic"));
+    }
+
+    #[test]
+    fn test_open_aos_accepts_legacy_aos2_magic() -> Result<()> {
+        let scope_path = "tests/scope";
+        let payload = b"payload-bytes";
+        let payload_hash = B3Hash::hash(payload);
+
+        let manifest = serde_json::json!({
+            "adapter_id": "legacy-aos2",
+            "version": "1.0.0",
+            "rank": 1,
+            "alpha": 1.0,
+            "base_model": "test",
+            "target_modules": [],
+            "metadata": { "scope_path": scope_path },
+        });
+        let manifest_bytes = serde_json::to_vec(&manifest).unwrap();
+
+        let index_offset = HEADER_SIZE;
+        let index_size = INDEX_ENTRY_SIZE;
+        let payload_offset = HEADER_SIZE + INDEX_ENTRY_SIZE;
+        let manifest_offset = payload_offset + payload.len();
+
+        let total_len = manifest_offset + manifest_bytes.len();
+        let mut bytes = vec![0u8; total_len];
+
+        // Header
+        bytes[0..4].copy_from_slice(&AOS_MAGIC_V2);
+        bytes[4..8].copy_from_slice(&HAS_INDEX_FLAG.to_le_bytes());
+        bytes[8..16].copy_from_slice(&(index_offset as u64).to_le_bytes());
+        bytes[16..24].copy_from_slice(&(index_size as u64).to_le_bytes());
+        bytes[24..32].copy_from_slice(&(manifest_offset as u64).to_le_bytes());
+        bytes[32..40].copy_from_slice(&(manifest_bytes.len() as u64).to_le_bytes());
+
+        // Index entry (single canonical segment)
+        let entry = index_offset;
+        bytes[entry..entry + 4].copy_from_slice(&0u32.to_le_bytes());
+        bytes[entry + 4..entry + 6].copy_from_slice(&BackendTag::Canonical.as_u16().to_le_bytes());
+        bytes[entry + 8..entry + 16].copy_from_slice(&(payload_offset as u64).to_le_bytes());
+        bytes[entry + 16..entry + 24].copy_from_slice(&(payload.len() as u64).to_le_bytes());
+        let scope_hash = compute_scope_hash(scope_path);
+        bytes[entry + 24..entry + 40].copy_from_slice(&scope_hash);
+        bytes[entry + 40..entry + 72].copy_from_slice(payload_hash.as_bytes());
+
+        // Segment payload
+        bytes[payload_offset..payload_offset + payload.len()].copy_from_slice(payload);
+        // Manifest bytes
+        bytes[manifest_offset..manifest_offset + manifest_bytes.len()]
+            .copy_from_slice(&manifest_bytes);
+
+        let view = open_aos(&bytes)?;
+        assert_eq!(view.segments.len(), 1);
+        assert_eq!(view.segments[0].backend_tag, BackendTag::Canonical);
+        assert_eq!(view.segments[0].scope_hash, scope_hash);
+        assert_eq!(view.segments[0].payload, payload);
+        assert_eq!(view.manifest_bytes, manifest_bytes.as_slice());
+        Ok(())
     }
 
     #[test]
