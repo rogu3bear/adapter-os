@@ -27,6 +27,7 @@ struct GoldenCase {
 
 /// Golden test suite from JSON
 #[derive(Debug, Deserialize)]
+#[allow(dead_code)]
 struct GoldenSuite {
     description: String,
     version: String,

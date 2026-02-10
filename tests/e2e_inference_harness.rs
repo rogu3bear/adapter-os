@@ -226,7 +226,7 @@ fn test_mock_kernels_adapter_configurations() {
 // MLX FFI Tests (require feature flag and model files)
 // ============================================================================
 
-#[cfg(feature = "mlx")]
+#[cfg(feature = "multi-backend")]
 mod mlx_ffi_tests {
     use super::*;
 

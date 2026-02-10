@@ -10,6 +10,7 @@
 //! ```
 
 use std::process::Command;
+#[cfg(feature = "multi-backend")]
 use std::time::Instant;
 
 /// Get Metal GPU memory from ioreg
@@ -104,7 +105,7 @@ fn test_model_load_gpu_memory() {
     }
 
     // Load model using MLX FFI
-    #[cfg(feature = "mlx")]
+    #[cfg(feature = "multi-backend")]
     {
         use adapteros_lora_mlx_ffi::MLXFFIModel;
         use std::path::Path;
@@ -200,10 +201,9 @@ fn test_model_load_gpu_memory() {
         }
     }
 
-    #[cfg(not(feature = "mlx"))]
+    #[cfg(not(feature = "multi-backend"))]
     {
-        println!("\n❌ MLX feature not enabled. Add to root Cargo.toml dev-dependencies:");
-        println!("   adapteros-lora-mlx-ffi = {{ path = \"crates/adapteros-lora-mlx-ffi\" }}");
+        println!("\n❌ multi-backend feature not enabled. Enable it to load models via MLX FFI.");
     }
 
     println!("\n╔════════════════════════════════════════════════════════════════╗");
@@ -219,22 +219,22 @@ fn test_memory_comparison_1_vs_3_workers() {
     println!("║     Memory Comparison: 1 Model vs 3 Separate Loads              ║");
     println!("╚════════════════════════════════════════════════════════════════╝\n");
 
-    let model_path = match std::env::var("AOS_MODEL_PATH") {
-        Ok(p) => p,
-        Err(_) => {
-            println!("❌ AOS_MODEL_PATH not set");
-            return;
-        }
-    };
-
     println!("This test demonstrates the memory savings of the Model Server architecture.\n");
     println!("Scenario A: Model Server (1 shared model)");
     println!("Scenario B: Legacy (3 workers each loading model)\n");
 
-    #[cfg(feature = "mlx")]
+    #[cfg(feature = "multi-backend")]
     {
         use adapteros_lora_mlx_ffi::MLXFFIModel;
         use std::path::Path;
+
+        let model_path = match std::env::var("AOS_MODEL_PATH") {
+            Ok(p) => p,
+            Err(_) => {
+                println!("❌ AOS_MODEL_PATH not set");
+                return;
+            }
+        };
 
         // Scenario A: Load model once
         println!("--- Scenario A: Single Shared Model ---");
@@ -284,8 +284,8 @@ fn test_memory_comparison_1_vs_3_workers() {
         drop(model_a);
     }
 
-    #[cfg(not(feature = "mlx"))]
+    #[cfg(not(feature = "multi-backend"))]
     {
-        println!("❌ MLX feature not enabled");
+        println!("❌ multi-backend feature not enabled");
     }
 }
