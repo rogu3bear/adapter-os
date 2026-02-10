@@ -3,6 +3,8 @@ import fs from 'node:fs';
 import path from 'node:path';
 import { fileURLToPath } from 'node:url';
 
+const useDevBypass = (process.env.PW_DEV_BYPASS ?? '').trim() === '1';
+
 const backendBaseUrl = 'http://localhost:8080';
 const uiBaseUrl = 'http://localhost:8080';
 const __filename = fileURLToPath(import.meta.url);
@@ -52,16 +54,11 @@ async function seedBackend(): Promise<void> {
   beat('seed_backend:start', { backendBaseUrl });
   await waitForOk(`${backendBaseUrl}/healthz`);
   beat('seed_backend:healthz_ok');
-  try {
-    beat('seed_backend:readyz_wait');
-    await waitForOk(`${backendBaseUrl}/readyz`, 120_000);
-    beat('seed_backend:readyz_ok');
-  } catch (err) {
-    // Ready checks can be stricter than needed for UI smoke in local E2E.
-    // Continue once /healthz is up so tests can run against the API surface.
-    console.warn(`[playwright] /readyz not OK yet: ${String(err)}`);
-    beat('seed_backend:readyz_skip', { error: String(err) });
-  }
+  // /readyz can 503 when worker/model checks fail (expected for UI-only E2E).
+  // For deterministic seeding we only need the DB online + migrations applied.
+  beat('seed_backend:healthz_db_wait');
+  await waitForOk(`${backendBaseUrl}/healthz/db`, 180_000);
+  beat('seed_backend:healthz_db_ok');
   const api = await request.newContext({ baseURL: backendBaseUrl });
 
   const post = async (path: string, body?: Record<string, unknown>) => {
@@ -72,10 +69,29 @@ async function seedBackend(): Promise<void> {
     }
   };
 
-  beat('seed_backend:testkit_reset');
-  await post('/testkit/reset');
-  beat('seed_backend:seed_minimal');
-  await post('/testkit/seed_minimal');
+  const reuseExistingServer = (process.env.PW_REUSE_EXISTING_SERVER ?? '').trim() === '1';
+
+  // The webServer command already starts from a fresh DB when not reusing an existing server.
+  // Avoid extra reset calls to reduce flake from concurrent local dev traffic.
+  const maxSeedAttempts = 3;
+  for (let attempt = 1; attempt <= maxSeedAttempts; attempt += 1) {
+    try {
+      if (reuseExistingServer || attempt > 1) {
+        beat('seed_backend:testkit_reset', { attempt });
+        await post('/testkit/reset');
+      } else {
+        beat('seed_backend:testkit_reset_skip', { attempt, reason: 'fresh_db' });
+      }
+
+      beat('seed_backend:seed_minimal', { attempt });
+      await post('/testkit/seed_minimal');
+      break;
+    } catch (err) {
+      beat('seed_backend:seed_minimal_failed', { attempt, error: String(err) });
+      if (attempt === maxSeedAttempts) throw err;
+      await new Promise((r) => setTimeout(r, 500 * attempt));
+    }
+  }
   beat('seed_backend:create_document_fixture');
   await post('/testkit/create_document_fixture', {
     document_id: 'doc-fixture',
@@ -118,6 +134,17 @@ async function seedBackend(): Promise<void> {
 }
 
 async function loginAndStoreState(): Promise<void> {
+  if (useDevBypass) {
+    // Dev bypass means we don't need cookies for auth; keep storageState minimal.
+    fs.mkdirSync(path.dirname(storageStatePath), { recursive: true });
+    fs.writeFileSync(
+      storageStatePath,
+      JSON.stringify({ cookies: [], origins: [] }, null, 2) + '\n'
+    );
+    beat('login:skipped_dev_bypass');
+    return;
+  }
+
   beat('login:start', { uiBaseUrl });
   fs.mkdirSync(path.dirname(storageStatePath), { recursive: true });
   fs.mkdirSync(debugDir, { recursive: true });

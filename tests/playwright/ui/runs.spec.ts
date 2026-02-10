@@ -6,7 +6,7 @@ test('runs list and detail', { tag: ['@smoke', '@detail'] }, async ({ page }) =>
   await waitForAppReady(page);
   await ensureLoggedIn(page);
   await expect(
-    page.getByRole('heading', { name: 'Runs', level: 1, exact: true })
+    page.getByRole('heading', { name: 'Flight Recorder', level: 1, exact: true })
   ).toBeVisible();
   const runLabel =
     seeded.runId.length > 12 ? `${seeded.runId.slice(0, 12)}...` : seeded.runId;
@@ -48,9 +48,7 @@ test('primary flow: chat to run detail', { tag: ['@flow'] }, async ({ page }) =>
   await page.goto('/chat', { waitUntil: 'domcontentloaded' });
   await waitForAppReady(page);
   await ensureLoggedIn(page);
-  await expect(
-    page.getByRole('heading', { name: 'Chat', level: 1, exact: true })
-  ).toBeVisible();
+  await expect(page.getByText('Sessions', { exact: true })).toBeVisible();
 
   await page.goto(`/runs/${seeded.runId}`, { waitUntil: 'domcontentloaded' });
   await waitForAppReady(page);

@@ -14,7 +14,8 @@ test('login page loads and authenticates', { tag: ['@smoke'] }, async ({ page })
   await page.getByRole('button', { name: 'Log in' }).click();
   await page.waitForLoadState('domcontentloaded');
   await waitForAppReady(page);
-  await expect(
-    page.getByRole('heading', { name: 'Dashboard', level: 1, exact: true })
-  ).toBeVisible();
+  // Login redirects to /chat by default; verify the shell is up and the chat landing is present.
+  await expect(page).toHaveURL(/\/chat/);
+  await expect(page.getByRole('link', { name: 'Dashboard' })).toBeVisible();
+  await expect(page.getByRole('button', { name: 'New Chat' })).toBeVisible();
 });
