@@ -33,7 +33,7 @@ async fn commit_delta_job_writes_pack() -> adapteros_core::Result<()> {
     let temp_dir = tempfile::Builder::new().prefix("aos-test-").tempdir()?;
 
     let store = ArtifactStore::new(temp_dir.path().to_path_buf());
-    let mut base_symbol = make_symbol("foo", "src/lib.rs", SymbolKind::Function, 1);
+    let base_symbol = make_symbol("foo", "src/lib.rs", SymbolKind::Function, 1);
     let mut head_symbol = base_symbol.clone();
     head_symbol.docstring = Some("updated".to_string());
 
