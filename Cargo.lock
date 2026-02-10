@@ -254,9 +254,11 @@ version = "0.14.1"
 dependencies = [
  "adapteros-core",
  "adapteros-deterministic-exec",
+ "adapteros-ingest-docs",
  "adapteros-lora-kernel-api",
  "adapteros-lora-kernel-mtl",
  "adapteros-lora-router",
+ "adapteros-lora-worker",
  "adapteros-manifest",
  "adapteros-memory",
  "adapteros-model-hub",

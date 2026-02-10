@@ -264,7 +264,7 @@ pub async fn run(args: TrainBaseAdapterArgs) -> Result<()> {
         batch_size: args.batch_size,
         epochs: args.epochs,
         hidden_dim: args.hidden_dim,
-        weight_group_config: adapteros_single_file_adapter::format::WeightGroupConfig::default(),
+        weight_group_config: adapteros_single_file_adapter::training::WeightGroupConfig::default(),
     };
 
     let adapter = SingleFileAdapter::create(
