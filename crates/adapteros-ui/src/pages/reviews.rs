@@ -7,7 +7,7 @@ use crate::components::{
     Badge, BadgeVariant, Card, Column, CopyableId, DataTable, Input, PageBreadcrumbItem,
     PageScaffold, PageScaffoldActions, RefreshButton, Select,
 };
-use crate::hooks::{use_api_resource, use_polling, use_navigate, LoadingState};
+use crate::hooks::{use_api_resource, use_navigate, use_polling, LoadingState};
 use adapteros_api_types::review::{PauseKind, PausedInferenceInfo};
 use leptos::prelude::*;
 use std::sync::Arc;
@@ -31,7 +31,8 @@ pub fn Reviews() -> impl IntoView {
     let search = RwSignal::new(String::new());
 
     // Derive a filtered LoadingState<Vec<PausedInferenceInfo>> for DataTable.
-    let (table_state, set_table_state) = signal::<LoadingState<Vec<PausedInferenceInfo>>>(LoadingState::Idle);
+    let (table_state, set_table_state) =
+        signal::<LoadingState<Vec<PausedInferenceInfo>>>(LoadingState::Idle);
     Effect::new(move || {
         let raw = queue.get();
         let kind = kind_filter.get();
@@ -43,7 +44,11 @@ pub fn Reviews() -> impl IntoView {
             LoadingState::Error(e) => LoadingState::Error(e),
             LoadingState::Loaded(mut items) => {
                 let kind = kind.trim().to_string();
-                let kind = if kind == "all" { None } else { parse_kind(&kind) };
+                let kind = if kind == "all" {
+                    None
+                } else {
+                    parse_kind(&kind)
+                };
 
                 if let Some(kind) = kind {
                     items.retain(|i| i.kind == kind);
@@ -88,7 +93,10 @@ pub fn Reviews() -> impl IntoView {
         ("policy_approval".to_string(), "Policy Approval".to_string()),
         ("resource_wait".to_string(), "Resource Wait".to_string()),
         ("user_requested".to_string(), "User Requested".to_string()),
-        ("threat_escalation".to_string(), "Threat Escalation".to_string()),
+        (
+            "threat_escalation".to_string(),
+            "Threat Escalation".to_string(),
+        ),
     ];
 
     let columns: Vec<Column<PausedInferenceInfo>> = vec![
@@ -97,7 +105,13 @@ pub fn Reviews() -> impl IntoView {
         })
         .with_class("w-[220px]".to_string()),
         Column::custom("Inference", |row: &PausedInferenceInfo| {
-            view! { <CopyableId id=row.inference_id.clone() truncate=18/> }
+            let href = format!("/runs/{}", row.inference_id);
+            let id = row.inference_id.clone();
+            view! {
+                <a href=href class="link link-default text-sm font-mono" title="View run details">
+                    {if id.len() > 18 { format!("{}...", &id[..18]) } else { id }}
+                </a>
+            }
         })
         .with_class("w-[220px]".to_string()),
         Column::custom("Kind", |row: &PausedInferenceInfo| {
@@ -149,7 +163,7 @@ pub fn Reviews() -> impl IntoView {
             title="Reviews"
             subtitle="Items paused awaiting human input".to_string()
             breadcrumbs=vec![
-                PageBreadcrumbItem::new("Operate", "/reviews"),
+                PageBreadcrumbItem::new("Govern", "/reviews"),
                 PageBreadcrumbItem::current("Reviews"),
             ]
         >

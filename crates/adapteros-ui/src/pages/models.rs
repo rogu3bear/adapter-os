@@ -7,9 +7,9 @@ use crate::api::{
     ModelStatusResponse,
 };
 use crate::components::{
-    Badge, BadgeVariant, Button, ButtonVariant, Card, CopyableId, ErrorDisplay, PageBreadcrumbItem,
-    PageScaffold, PageScaffoldActions, Spinner, SplitPanel, Table, TableBody, TableCell, TableHead,
-    TableHeader, TableRow,
+    Badge, BadgeVariant, Button, ButtonVariant, Card, CopyableId, ErrorDisplay, LoadingDisplay,
+    PageBreadcrumbItem, PageScaffold, PageScaffoldActions, Spinner, SplitPanel, Table, TableBody,
+    TableCell, TableHead, TableHeader, TableRow,
 };
 use crate::hooks::{use_api_resource, LoadingState, Refetch};
 use crate::utils::format_datetime;
@@ -68,9 +68,7 @@ pub fn Models() -> impl IntoView {
                                 match models.get() {
                                     LoadingState::Idle | LoadingState::Loading => {
                                         view! {
-                                            <div class="flex items-center justify-center py-12">
-                                                <Spinner/>
-                                            </div>
+                                            <LoadingDisplay message="Loading models..."/>
                                         }.into_any()
                                     }
                                     LoadingState::Loaded(data) => {
@@ -305,9 +303,7 @@ fn ModelDetail(model_id: String, on_close: impl Fn() + Copy + 'static) -> impl I
                 match model_status.get() {
                     LoadingState::Idle | LoadingState::Loading => {
                         view! {
-                            <div class="flex items-center justify-center py-12">
-                                <Spinner/>
-                            </div>
+                            <LoadingDisplay message="Loading model details..."/>
                         }.into_any()
                     }
                     LoadingState::Loaded(data) => {

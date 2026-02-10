@@ -44,17 +44,12 @@ use wasm_bindgen::JsCast;
 /// 3. Overwhelm the inference endpoint
 const MAX_URL_PROMPT_LENGTH: usize = 2000;
 
-#[derive(Clone, Copy, PartialEq, Eq)]
+#[derive(Clone, Copy, PartialEq, Eq, Default)]
 enum AttachMode {
+    #[default]
     Upload,
     Paste,
     Chat,
-}
-
-impl Default for AttachMode {
-    fn default() -> Self {
-        Self::Upload
-    }
 }
 
 /// Chat landing page - redirects to the most recent session or shows empty state.
@@ -417,8 +412,10 @@ fn SessionListPanel(
     });
 
     // Check if dock has unsaved messages
-    let dock_has_messages = Memo::new(move |_| !chat_state.try_get().unwrap_or_default().messages.is_empty());
-    let dock_message_count = Memo::new(move |_| chat_state.try_get().unwrap_or_default().messages.len());
+    let dock_has_messages =
+        Memo::new(move |_| !chat_state.try_get().unwrap_or_default().messages.is_empty());
+    let dock_message_count =
+        Memo::new(move |_| chat_state.try_get().unwrap_or_default().messages.len());
 
     // Create new session
     let create_session = {
@@ -716,7 +713,8 @@ fn ChatConversationPanel(
             }
         });
     }
-    let verified_mode = Signal::derive(move || chat_state.try_get().unwrap_or_default().verified_mode);
+    let verified_mode =
+        Signal::derive(move || chat_state.try_get().unwrap_or_default().verified_mode);
     let show_attach_dialog = RwSignal::new(false);
     let attach_mode = RwSignal::new(AttachMode::Upload);
     let selected_file_name = RwSignal::new(Option::<String>::None);
@@ -809,7 +807,11 @@ fn ChatConversationPanel(
 
             // Check for ?prompt= and ?adapter= query parameters once per session ID.
             if handle_query_params
-                && query_params_consumed_for_session.try_get_untracked().flatten().as_deref() != Some(&id)
+                && query_params_consumed_for_session
+                    .try_get_untracked()
+                    .flatten()
+                    .as_deref()
+                    != Some(&id)
             {
                 let mut consumed_any = false;
                 #[cfg(target_arch = "wasm32")]
@@ -827,7 +829,9 @@ fn ChatConversationPanel(
                                     // Session-only pin (does not persist to localStorage)
                                     action.set_session_pinned_adapters(vec![adapter.clone()]);
                                     // Also set one-shot selected adapter so the first send definitely uses it.
-                                    let Some(state) = chat_state.try_get_untracked() else { return id };
+                                    let Some(state) = chat_state.try_get_untracked() else {
+                                        return id;
+                                    };
                                     if state.selected_adapter.as_deref() != Some(adapter.as_str()) {
                                         action.select_next_adapter(&adapter);
                                     }
@@ -980,17 +984,23 @@ fn ChatConversationPanel(
         let (loading, streaming, _, _) = chat_snapshot.try_get().unwrap_or_default();
         loading || streaming
     });
-    let can_send = Memo::new(move |_| !message.try_get().unwrap_or_default().trim().is_empty() && !is_busy.try_get().unwrap_or(false));
+    let can_send = Memo::new(move |_| {
+        !message.try_get().unwrap_or_default().trim().is_empty()
+            && !is_busy.try_get().unwrap_or(false)
+    });
     let error = Signal::derive(move || chat_snapshot.try_get().unwrap_or_default().2);
     let can_retry = Signal::derive(move || {
         let (loading, streaming, _, has_recovery) = chat_snapshot.try_get().unwrap_or_default();
         !loading && !streaming && has_recovery
     });
     let retry_disabled = Signal::derive(move || !can_retry.try_get().unwrap_or(false));
-    let base_model_label = Signal::derive(move || match chat_state.try_get().unwrap_or_default().target.clone() {
-        ChatTarget::Model(name) => name,
-        _ => "Default".to_string(),
-    });
+    let base_model_label =
+        Signal::derive(
+            move || match chat_state.try_get().unwrap_or_default().target.clone() {
+                ChatTarget::Model(name) => name,
+                _ => "Default".to_string(),
+            },
+        );
 
     // Convert active_adapters to AdapterMagnets for the AdapterBar
     let adapter_magnets = Memo::new(move |_| {
@@ -1036,8 +1046,12 @@ fn ChatConversationPanel(
     });
 
     // Adapter selection pending flag (set on pin toggle, cleared on SSE update)
-    let adapter_selection_pending =
-        Signal::derive(move || chat_state.try_get().unwrap_or_default().adapter_selection_pending);
+    let adapter_selection_pending = Signal::derive(move || {
+        chat_state
+            .try_get()
+            .unwrap_or_default()
+            .adapter_selection_pending
+    });
 
     // Convert suggested_adapters for the SuggestedAdaptersBar
     // Name/purpose are populated from topology; other fields remain optional
@@ -1080,7 +1094,9 @@ fn ChatConversationPanel(
                 move || {
                     // Only proceed if this is still the latest version
                     // (bail if signal is disposed — component was unmounted)
-                    let Some(v) = preview_version.try_get_untracked() else { return };
+                    let Some(v) = preview_version.try_get_untracked() else {
+                        return;
+                    };
                     if v != current_version {
                         return;
                     }
@@ -1242,7 +1258,10 @@ fn ChatConversationPanel(
                                             Ok(status) => match status.status.as_str() {
                                                 "indexed" => {
                                                     // Check cancellation before navigation
-                                                    if upload_cancelled.try_get_untracked().unwrap_or(true) {
+                                                    if upload_cancelled
+                                                        .try_get_untracked()
+                                                        .unwrap_or(true)
+                                                    {
                                                         return;
                                                     }
                                                     if let Some(count) = status.chunk_count {
@@ -1266,7 +1285,10 @@ fn ChatConversationPanel(
                                                     return;
                                                 }
                                                 "failed" => {
-                                                    if upload_cancelled.try_get_untracked().unwrap_or(true) {
+                                                    if upload_cancelled
+                                                        .try_get_untracked()
+                                                        .unwrap_or(true)
+                                                    {
                                                         return;
                                                     }
                                                     attach_error.set(Some(format!(
@@ -1278,7 +1300,10 @@ fn ChatConversationPanel(
                                                     return;
                                                 }
                                                 _ => {
-                                                    if upload_cancelled.try_get_untracked().unwrap_or(true) {
+                                                    if upload_cancelled
+                                                        .try_get_untracked()
+                                                        .unwrap_or(true)
+                                                    {
                                                         return;
                                                     }
                                                     attach_status.set(Some(format!(
@@ -1288,7 +1313,10 @@ fn ChatConversationPanel(
                                                 }
                                             },
                                             Err(e) => {
-                                                if upload_cancelled.try_get_untracked().unwrap_or(true) {
+                                                if upload_cancelled
+                                                    .try_get_untracked()
+                                                    .unwrap_or(true)
+                                                {
                                                     return;
                                                 }
                                                 attach_error.set(Some(format!(

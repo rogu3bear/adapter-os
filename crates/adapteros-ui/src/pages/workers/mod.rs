@@ -17,8 +17,8 @@ mod utils;
 
 use crate::api::ApiClient;
 use crate::components::{
-    BreadcrumbItem, BreadcrumbTrail, Button, ButtonVariant, ErrorDisplay, LoadingDisplay,
-    PageBreadcrumbItem, PageScaffold, PageScaffoldActions, SplitPanel, SplitRatio,
+    Button, ButtonVariant, ErrorDisplay, LoadingDisplay, PageBreadcrumbItem, PageScaffold,
+    PageScaffoldActions, RefreshButton, SplitPanel, SplitRatio,
 };
 use crate::hooks::{use_api_resource, use_polling, LoadingState};
 use adapteros_api_types::SpawnWorkerRequest;
@@ -29,7 +29,9 @@ use std::sync::Arc;
 use crate::components::{IconPlus, IconRefresh, IconX};
 use components::{WorkerDetailPanel, WorkerDetailView, WorkersList, WorkersSummary};
 use dialogs::{PlanOption, SpawnWorkerDialog};
-use utils::{is_recent_timestamp, is_terminal_worker_status, WorkerHealthRecord, WorkerHealthSummary};
+use utils::{
+    is_recent_timestamp, is_terminal_worker_status, WorkerHealthRecord, WorkerHealthSummary,
+};
 
 /// Workers management page
 #[component]
@@ -118,7 +120,7 @@ pub fn Workers() -> impl IntoView {
                     })
                 >
                     {move || {
-                        let (active, total, hidden) = match workers.get() {
+                        let (_active, total, hidden) = match workers.get() {
                             LoadingState::Loaded(ref ws) => {
                                 let total = ws.len();
                                 let active = ws
@@ -150,8 +152,6 @@ pub fn Workers() -> impl IntoView {
                             }
                         } else if hidden > 0 {
                             format!("Show History (+{})", hidden)
-                        } else if active > 0 {
-                            "Show History".to_string()
                         } else {
                             "Show History".to_string()
                         }
@@ -217,7 +217,6 @@ pub fn Workers() -> impl IntoView {
                         let total_all = workers_data.len();
                         let active_workers: Vec<_> = workers_data
                             .iter()
-                            .cloned()
                             .filter(|w| {
                                 if is_terminal_worker_status(&w.status) {
                                     return false;
@@ -230,6 +229,7 @@ pub fn Workers() -> impl IntoView {
                                     is_recent_timestamp(&w.started_at, ACTIVE_WINDOW_SECS);
                                 recent_seen || recent_start
                             })
+                            .cloned()
                             .collect();
                         let hidden_count = total_all.saturating_sub(active_workers.len());
 
@@ -410,13 +410,20 @@ pub fn WorkerDetail() -> impl IntoView {
     });
 
     view! {
-        <div class="space-y-6">
-            <h1 class="sr-only">"Worker Detail"</h1>
-            // Breadcrumb navigation
-            <BreadcrumbTrail items=vec![
-                BreadcrumbItem::link("Workers", "/workers"),
-                BreadcrumbItem::current(worker_id()),
-            ]/>
+        <PageScaffold
+            title="Worker Detail"
+            breadcrumbs=vec![
+                PageBreadcrumbItem::new("Observe", "/workers"),
+                PageBreadcrumbItem::new("Workers", "/workers"),
+                PageBreadcrumbItem::current(worker_id()),
+            ]
+        >
+            <PageScaffoldActions slot>
+                <RefreshButton on_click=Callback::new(move |_| {
+                    refetch_worker.run(());
+                    refetch_metrics.run(());
+                })/>
+            </PageScaffoldActions>
 
             {move || {
                 let worker_state = worker.get();
@@ -457,6 +464,6 @@ pub fn WorkerDetail() -> impl IntoView {
                     }
                 }
             }}
-        </div>
+        </PageScaffold>
     }
 }

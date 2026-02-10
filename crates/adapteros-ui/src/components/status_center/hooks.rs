@@ -157,10 +157,9 @@ pub fn use_status_data() -> (ReadSignal<StatusLoadingState>, impl Fn() + Clone) 
 
                 match futures::future::join(status_future, state_future).await {
                     (Ok(status), Ok(state)) => {
-                        let _ = set_state.try_set(StatusLoadingState::Loaded(Box::new(CombinedStatus {
-                            status,
-                            state,
-                        })));
+                        let _ = set_state.try_set(StatusLoadingState::Loaded(Box::new(
+                            CombinedStatus { status, state },
+                        )));
                     }
                     (Err(e), _) | (_, Err(e)) => {
                         let _ = set_state.try_set(StatusLoadingState::Error(e));
