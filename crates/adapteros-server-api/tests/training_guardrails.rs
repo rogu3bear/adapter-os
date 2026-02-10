@@ -1,6 +1,6 @@
 //! Integration tests for training guardrails (fail-fast validation).
 
-use std::path::{Path, PathBuf};
+use std::path::Path;
 
 use adapteros_api_types::training::{
     DatasetVersionSelection, StartTrainingRequest, TrainingConfigRequest,

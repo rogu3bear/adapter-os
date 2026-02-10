@@ -312,7 +312,7 @@ pub async fn get_discrepancy(
     require_permission(&claims, Permission::InferenceExecute)?;
     let id = crate::id_resolver::resolve_any_id(&state.db, &id)
         .await
-        .map_err(|e| <(StatusCode, Json<ErrorResponse>)>::from(e))?;
+        .map_err(<(StatusCode, Json<ErrorResponse>)>::from)?;
 
     let row = sqlx::query_as::<_, DiscrepancyRow>(
         r#"
@@ -446,7 +446,7 @@ pub async fn resolve_discrepancy(
     require_permission(&claims, Permission::TrainingStart)?;
     let id = crate::id_resolver::resolve_any_id(&state.db, &id)
         .await
-        .map_err(|e| <(StatusCode, Json<ErrorResponse>)>::from(e))?;
+        .map_err(<(StatusCode, Json<ErrorResponse>)>::from)?;
 
     // Validate resolution status
     if !VALID_RESOLUTION_STATUSES.contains(&request.resolution_status.as_str()) {
@@ -616,7 +616,7 @@ pub async fn export_discrepancies(
             ground_truth: row.ground_truth,
             document_id: row.document_id,
             chunk_hash_b3: row.chunk_hash_b3,
-            confirmed_at: row.resolved_at.unwrap_or_else(|| row.updated_at),
+            confirmed_at: row.resolved_at.unwrap_or(row.updated_at),
         };
 
         if let Ok(line) = serde_json::to_string(&export_row) {

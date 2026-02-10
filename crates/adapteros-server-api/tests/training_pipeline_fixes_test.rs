@@ -11,7 +11,6 @@
 
 use adapteros_lora_worker::training::checkpoint::{CheckpointManager, TrainingCheckpoint};
 use adapteros_lora_worker::training::trainer::{LoRAWeights, TrainingConfig};
-use std::path::PathBuf;
 use tempfile::TempDir;
 
 fn new_test_tempdir() -> TempDir {

@@ -136,7 +136,7 @@ impl reqwest::dns::Resolve for SsrfGuardResolver {
             let blocked: Vec<IpAddr> = addrs
                 .iter()
                 .map(|sa| sa.ip())
-                .filter(|ip| is_private_or_reserved(ip))
+                .filter(is_private_or_reserved)
                 .collect();
 
             if !blocked.is_empty() {

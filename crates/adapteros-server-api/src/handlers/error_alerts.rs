@@ -112,7 +112,7 @@ pub async fn get_error_alert_rule(
 ) -> Result<Json<ErrorAlertRuleResponse>, (StatusCode, Json<ErrorResponse>)> {
     let id = crate::id_resolver::resolve_any_id(&state.db, &id)
         .await
-        .map_err(|e| <(StatusCode, Json<ErrorResponse>)>::from(e))?;
+        .map_err(<(StatusCode, Json<ErrorResponse>)>::from)?;
     let tenant_id = &claims.tenant_id;
 
     let rule = state
@@ -298,7 +298,7 @@ pub async fn update_error_alert_rule(
 ) -> Result<Json<ErrorAlertRuleResponse>, (StatusCode, Json<ErrorResponse>)> {
     let id = crate::id_resolver::resolve_any_id(&state.db, &id)
         .await
-        .map_err(|e| <(StatusCode, Json<ErrorResponse>)>::from(e))?;
+        .map_err(<(StatusCode, Json<ErrorResponse>)>::from)?;
     let tenant_id = &claims.tenant_id;
 
     // Fetch existing rule
@@ -430,7 +430,7 @@ pub async fn delete_error_alert_rule(
 ) -> Result<StatusCode, (StatusCode, Json<ErrorResponse>)> {
     let id = crate::id_resolver::resolve_any_id(&state.db, &id)
         .await
-        .map_err(|e| <(StatusCode, Json<ErrorResponse>)>::from(e))?;
+        .map_err(<(StatusCode, Json<ErrorResponse>)>::from)?;
     let tenant_id = &claims.tenant_id;
 
     // Verify rule exists and belongs to tenant
@@ -559,7 +559,7 @@ pub async fn acknowledge_error_alert(
 ) -> Result<StatusCode, (StatusCode, Json<ErrorResponse>)> {
     let id = crate::id_resolver::resolve_any_id(&state.db, &id)
         .await
-        .map_err(|e| <(StatusCode, Json<ErrorResponse>)>::from(e))?;
+        .map_err(<(StatusCode, Json<ErrorResponse>)>::from)?;
     let user_id = &claims.sub;
 
     state
@@ -601,7 +601,7 @@ pub async fn resolve_error_alert(
 ) -> Result<StatusCode, (StatusCode, Json<ErrorResponse>)> {
     let id = crate::id_resolver::resolve_any_id(&state.db, &id)
         .await
-        .map_err(|e| <(StatusCode, Json<ErrorResponse>)>::from(e))?;
+        .map_err(<(StatusCode, Json<ErrorResponse>)>::from)?;
     state
         .db
         .resolve_error_alert(&id, request.resolution_note.as_deref())

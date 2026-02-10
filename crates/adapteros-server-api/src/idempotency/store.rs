@@ -235,7 +235,7 @@ mod tests {
         let mut handles = vec![];
         for i in 0..10 {
             let store_clone = store.clone();
-            let key = IdempotencyKey::new(&format!("test-key-{}", i));
+            let key = IdempotencyKey::new(format!("test-key-{}", i));
             let handle = tokio::spawn(async move {
                 // Small delay to increase chance of race condition
                 sleep(Duration::from_millis(i * 2)).await;

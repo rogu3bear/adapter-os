@@ -132,8 +132,8 @@ pub fn strip_session_token_prefix(raw: &str) -> Option<&str> {
     if !trimmed.starts_with(SESSION_TOKEN_PREFIX) {
         return None;
     }
-    let rest = trimmed[SESSION_TOKEN_PREFIX.len()..]
-        .trim_start_matches(|c| matches!(c, '.' | ':' | '_' | '-' | ' ' | '\t'));
+    let rest =
+        trimmed[SESSION_TOKEN_PREFIX.len()..].trim_start_matches(['.', ':', '_', '-', ' ', '\t']);
     if rest.is_empty() {
         None
     } else {

@@ -633,7 +633,7 @@ async fn run_preprocess_job(
         let canonical_datasets = datasets_root
             .canonicalize()
             .unwrap_or_else(|_| datasets_root.clone());
-        let canonical_var = var_root.canonicalize().unwrap_or_else(|_| var_root);
+        let canonical_var = var_root.canonicalize().unwrap_or(var_root);
         if !canonical.starts_with(&canonical_datasets) && !canonical.starts_with(&canonical_var) {
             return Err(AosError::validation(format!(
                 "Storage path must be under datasets root or var/: {}",

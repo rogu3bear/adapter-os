@@ -1,6 +1,7 @@
 use crate::types::{InferenceError, InferenceRequestInternal, SamplingParams};
 use adapteros_core::determinism::{expand_u64_seed, DeterminismSource};
-use adapteros_core::{derive_request_seed, B3Hash, SeedMode};
+use adapteros_core::seed::SeedLineage;
+use adapteros_core::{derive_request_seed, AosError, B3Hash, SeedMode};
 use adapteros_db::InferenceReplayMetadata;
 use adapteros_types::adapters::metadata::RoutingDeterminismMode;
 use tracing::warn;
@@ -94,6 +95,52 @@ pub fn from_replay_metadata(
         routing_mode,
         source,
     ))
+}
+
+/// Check whether the given determinism mode string indicates strict mode.
+pub fn is_strict_determinism_mode(mode: Option<&str>) -> bool {
+    mode.is_some_and(|m| m.eq_ignore_ascii_case("strict"))
+}
+
+/// Compute the seed lineage binding hash from persisted replay metadata.
+///
+/// This is used by both the replay verification handler and the evidence
+/// bundle export handler to bind evidence envelopes to the original seed.
+pub fn compute_seed_lineage_hash(
+    metadata: &InferenceReplayMetadata,
+) -> std::result::Result<B3Hash, AosError> {
+    let sampling_params: SamplingParams = serde_json::from_str(&metadata.sampling_params_json)
+        .map_err(|e| {
+            AosError::DeterminismViolation(format!(
+                "EP-5: Failed to parse sampling_params_json for seed lineage binding: {e}"
+            ))
+        })?;
+
+    let request_seed: [u8; 32] = if let Some(hex_seed) = sampling_params.request_seed_hex.as_deref()
+    {
+        let bytes = hex::decode(hex_seed).map_err(|e| {
+            AosError::DeterminismViolation(format!(
+                "EP-5: Invalid request_seed_hex for seed lineage binding: {e}"
+            ))
+        })?;
+        bytes.try_into().map_err(|_| {
+            AosError::DeterminismViolation(
+                "EP-5: request_seed_hex must decode to exactly 32 bytes".to_string(),
+            )
+        })?
+    } else if let Some(seed64) = sampling_params.seed {
+        expand_u64_seed(seed64)
+    } else {
+        return Err(AosError::DeterminismViolation(
+            "EP-5: Missing request_seed_hex/seed in replay metadata sampling params".to_string(),
+        ));
+    };
+
+    let seed_mode = sampling_params.seed_mode.unwrap_or(SeedMode::BestEffort);
+    let has_manifest_binding = B3Hash::from_hex(&metadata.manifest_hash).is_ok();
+    let lineage = SeedLineage::from_raw_seed(&request_seed, seed_mode, has_manifest_binding);
+
+    Ok(lineage.to_binding_hash())
 }
 
 #[cfg(test)]

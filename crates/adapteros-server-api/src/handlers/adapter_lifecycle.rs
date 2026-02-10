@@ -41,7 +41,7 @@ pub async fn load_adapter(
     crate::permissions::require_permission(&claims, crate::permissions::Permission::AdapterLoad)?;
     let adapter_id = crate::id_resolver::resolve_any_id(&state.db, &adapter_id)
         .await
-        .map_err(|e| <(StatusCode, Json<ErrorResponse>)>::from(e))?;
+        .map_err(<(StatusCode, Json<ErrorResponse>)>::from)?;
 
     // Get adapter from database with tenant-scoped query
     let adapter = match state
@@ -360,7 +360,7 @@ pub async fn unload_adapter(
     crate::permissions::require_permission(&claims, crate::permissions::Permission::AdapterUnload)?;
     let adapter_id = crate::id_resolver::resolve_any_id(&state.db, &adapter_id)
         .await
-        .map_err(|e| <(StatusCode, Json<ErrorResponse>)>::from(e))?;
+        .map_err(<(StatusCode, Json<ErrorResponse>)>::from)?;
 
     // Hot-swap guard: prevent unloading while other requests are active
     guard_in_flight_requests(&state.in_flight_requests)?;

@@ -469,7 +469,7 @@ pub async fn get_stack(
 
     let id = resolve_stack_id(&state, &id)
         .await
-        .map_err(|e| <(StatusCode, Json<ErrorResponse>)>::from(e))?;
+        .map_err(<(StatusCode, Json<ErrorResponse>)>::from)?;
 
     let tenant_id = claims.tenant_id.clone();
 
@@ -570,7 +570,7 @@ pub async fn update_stack(
 
     let id = resolve_stack_id(&state, &id)
         .await
-        .map_err(|e| <(StatusCode, Json<ErrorResponse>)>::from(e))?;
+        .map_err(<(StatusCode, Json<ErrorResponse>)>::from)?;
 
     let tenant_id = claims.tenant_id.clone();
 
@@ -715,7 +715,7 @@ pub async fn delete_stack(
 
     let id = resolve_stack_id(&state, &id)
         .await
-        .map_err(|e| <(StatusCode, Json<ErrorResponse>)>::from(e))?;
+        .map_err(<(StatusCode, Json<ErrorResponse>)>::from)?;
 
     let tenant_id = claims.tenant_id.clone();
 
@@ -785,7 +785,7 @@ pub async fn activate_stack(
 
     let id = resolve_stack_id(&state, &id)
         .await
-        .map_err(|e| <(StatusCode, Json<ErrorResponse>)>::from(e))?;
+        .map_err(<(StatusCode, Json<ErrorResponse>)>::from)?;
 
     let tenant_id = claims.tenant_id.clone();
 
@@ -1161,7 +1161,7 @@ pub async fn clear_stack_adapters(
 
     let id = resolve_stack_id(&state, &id)
         .await
-        .map_err(|e| <(StatusCode, Json<ErrorResponse>)>::from(e))?;
+        .map_err(<(StatusCode, Json<ErrorResponse>)>::from)?;
 
     let tenant_id = claims.tenant_id.clone();
 
@@ -1355,7 +1355,7 @@ async fn compute_stack_hash(
             .get_adapter_by_id(tenant_id, id)
             .await
             .map_err(ApiError::db_error)?
-            .ok_or_else(|| ApiError::not_found(&format!("Adapter {}", id)))?;
+            .ok_or_else(|| ApiError::not_found(format!("Adapter {}", id)))?;
 
         let hash =
             adapteros_core::B3Hash::from_hex(&adapter.hash_b3).map_err(ApiError::db_error)?;
@@ -1418,7 +1418,7 @@ pub async fn get_stack_history(
 
     let id = resolve_stack_id(&state, &id)
         .await
-        .map_err(|e| <(StatusCode, Json<ErrorResponse>)>::from(e))?;
+        .map_err(<(StatusCode, Json<ErrorResponse>)>::from)?;
 
     let tenant_id = claims.tenant_id.clone();
 
@@ -1429,7 +1429,7 @@ pub async fn get_stack_history(
         .await
         .map_err(ApiError::db_error)?
         .ok_or_else(|| {
-            ApiError::not_found(&format!(
+            ApiError::not_found(format!(
                 "Stack with id '{}' not found for tenant '{}'",
                 id, tenant_id
             ))
@@ -1472,7 +1472,7 @@ pub async fn get_stack_policies(
 
     let id = resolve_stack_id(&state, &id)
         .await
-        .map_err(|e| <(StatusCode, Json<ErrorResponse>)>::from(e))?;
+        .map_err(<(StatusCode, Json<ErrorResponse>)>::from)?;
 
     let tenant_id = claims.tenant_id.clone();
 
@@ -1483,7 +1483,7 @@ pub async fn get_stack_policies(
         .await
         .map_err(ApiError::db_error)?
         .ok_or_else(|| {
-            ApiError::not_found(&format!(
+            ApiError::not_found(format!(
                 "Stack with id '{}' not found for tenant '{}'",
                 id, tenant_id
             ))

@@ -1711,16 +1711,17 @@ impl LoadingStreamState {
                             // and the review has NOT been submitted yet, drop the token.
                             // This prevents a compromised or buggy worker from resuming
                             // inference without human approval for safety-critical pauses.
-                            if self.pause_active && self.active_pause_is_safety {
-                                if !self.is_safety_pause_reviewed() {
-                                    warn!(
-                                        request_id = %self.request_id,
-                                        pause_id = ?self.active_pause_id,
-                                        "Dropping token: safety pause active but review not yet submitted \
-                                         (possible worker bug or compromise)"
-                                    );
-                                    continue;
-                                }
+                            if self.pause_active
+                                && self.active_pause_is_safety
+                                && !self.is_safety_pause_reviewed()
+                            {
+                                warn!(
+                                    request_id = %self.request_id,
+                                    pause_id = ?self.active_pause_id,
+                                    "Dropping token: safety pause active but review not yet submitted \
+                                     (possible worker bug or compromise)"
+                                );
+                                continue;
                             }
                             if self.pause_active {
                                 self.clear_pause_state();
@@ -4102,10 +4103,7 @@ mod tests {
             .await
             .unwrap();
 
-        let paused_event = stream
-            .next_loading_event()
-            .await
-            .expect("paused event");
+        let paused_event = stream.next_loading_event().await.expect("paused event");
         match &paused_event {
             InferenceEvent::Paused {
                 pause_id: got_pause_id,
@@ -4136,8 +4134,8 @@ mod tests {
             .await
             .unwrap();
 
-        let dropped = tokio::time::timeout(Duration::from_millis(50), stream.next_loading_event())
-            .await;
+        let dropped =
+            tokio::time::timeout(Duration::from_millis(50), stream.next_loading_event()).await;
         assert!(
             dropped.is_err(),
             "expected token to be dropped (no event returned), but got: {dropped:?}"

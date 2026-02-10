@@ -556,7 +556,7 @@ pub async fn acknowledge_process_alert(
     require_any_role(&claims, &[Role::Operator, Role::Admin])?;
     let alert_id = crate::id_resolver::resolve_any_id(&state.db, &alert_id)
         .await
-        .map_err(|e| <(StatusCode, Json<ErrorResponse>)>::from(e))?;
+        .map_err(<(StatusCode, Json<ErrorResponse>)>::from)?;
 
     let existing = fetch_process_alert_response(state.db.pool(), &alert_id).await?;
     validate_tenant_isolation(&claims, &existing.tenant_id)?;
@@ -708,7 +708,7 @@ pub async fn update_process_anomaly_status(
     require_any_role(&claims, &[Role::Operator, Role::Admin])?;
     let anomaly_id = crate::id_resolver::resolve_any_id(&state.db, &anomaly_id)
         .await
-        .map_err(|e| <(StatusCode, Json<ErrorResponse>)>::from(e))?;
+        .map_err(<(StatusCode, Json<ErrorResponse>)>::from)?;
 
     let status = parse_anomaly_status(req.status.as_str()).ok_or_else(|| {
         (
@@ -1449,7 +1449,7 @@ pub async fn update_monitoring_rule(
     require_any_role(&claims, &[Role::Operator, Role::Admin])?;
     let rule_id = crate::id_resolver::resolve_any_id(&state.db, &rule_id)
         .await
-        .map_err(|e| <(StatusCode, Json<ErrorResponse>)>::from(e))?;
+        .map_err(<(StatusCode, Json<ErrorResponse>)>::from)?;
 
     let update_request = req.into();
 
@@ -1514,7 +1514,7 @@ pub async fn delete_monitoring_rule(
     require_any_role(&claims, &[Role::Operator, Role::Admin])?;
     let rule_id = crate::id_resolver::resolve_any_id(&state.db, &rule_id)
         .await
-        .map_err(|e| <(StatusCode, Json<ErrorResponse>)>::from(e))?;
+        .map_err(<(StatusCode, Json<ErrorResponse>)>::from)?;
 
     // Fetch the rule first to validate tenant isolation
     let row = sqlx::query("SELECT tenant_id FROM process_monitoring_rules WHERE id = ?")
@@ -1642,7 +1642,7 @@ pub async fn acknowledge_alert(
     require_any_role(&claims, &[Role::Operator, Role::Admin])?;
     let alert_id = crate::id_resolver::resolve_any_id(&state.db, &alert_id)
         .await
-        .map_err(|e| <(StatusCode, Json<ErrorResponse>)>::from(e))?;
+        .map_err(<(StatusCode, Json<ErrorResponse>)>::from)?;
 
     adapteros_system_metrics::ProcessAlert::update_status(
         state.db.pool(),
@@ -1720,7 +1720,7 @@ pub async fn resolve_alert(
     require_any_role(&claims, &[Role::Operator, Role::Admin])?;
     let alert_id = crate::id_resolver::resolve_any_id(&state.db, &alert_id)
         .await
-        .map_err(|e| <(StatusCode, Json<ErrorResponse>)>::from(e))?;
+        .map_err(<(StatusCode, Json<ErrorResponse>)>::from)?;
 
     adapteros_system_metrics::ProcessAlert::update_status(
         state.db.pool(),

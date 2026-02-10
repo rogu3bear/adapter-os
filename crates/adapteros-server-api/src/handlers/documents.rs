@@ -308,7 +308,7 @@ pub async fn upload_document(
                     .map_err(|e| ApiError::bad_request(e.to_string()))?;
 
                 if data.len() > MAX_DOCUMENT_SIZE {
-                    return Err(ApiError::payload_too_large(&format!(
+                    return Err(ApiError::payload_too_large(format!(
                         "Document exceeds maximum size of {}MB",
                         MAX_DOCUMENT_SIZE / 1024 / 1024
                     ))
@@ -649,7 +649,7 @@ pub async fn get_document(
 
     let id = resolve_document_id(&state, &id)
         .await
-        .map_err(|e| <(StatusCode, Json<ErrorResponse>)>::from(e))?;
+        .map_err(<(StatusCode, Json<ErrorResponse>)>::from)?;
 
     // Tenant isolation enforced at DB layer - only returns document if tenant matches
     let document = state
@@ -691,7 +691,7 @@ pub async fn delete_document(
 
     let id = resolve_document_id(&state, &id)
         .await
-        .map_err(|e| <(StatusCode, Json<ErrorResponse>)>::from(e))?;
+        .map_err(<(StatusCode, Json<ErrorResponse>)>::from)?;
 
     // Get document to find storage path (tenant isolation enforced at DB layer)
     let document = state
@@ -769,7 +769,7 @@ pub async fn list_document_chunks(
 
     let id = resolve_document_id(&state, &id)
         .await
-        .map_err(|e| <(StatusCode, Json<ErrorResponse>)>::from(e))?;
+        .map_err(<(StatusCode, Json<ErrorResponse>)>::from)?;
 
     // Verify document exists (tenant isolation enforced at DB layer)
     let document = state
@@ -847,7 +847,7 @@ pub async fn download_document(
 
     let id = resolve_document_id(&state, &id)
         .await
-        .map_err(|e| <(StatusCode, Json<ErrorResponse>)>::from(e))?;
+        .map_err(<(StatusCode, Json<ErrorResponse>)>::from)?;
 
     // Get document to find storage path (tenant isolation enforced at DB layer)
     let document = state
@@ -931,7 +931,7 @@ pub async fn process_document(
 
     let id = resolve_document_id(&state, &id)
         .await
-        .map_err(|e| <(StatusCode, Json<ErrorResponse>)>::from(e))?;
+        .map_err(<(StatusCode, Json<ErrorResponse>)>::from)?;
 
     // Get document (tenant isolation enforced at DB layer)
     let document = state
@@ -1269,7 +1269,7 @@ async fn process_document_inner(
         schema_version: "1.0".to_string(),
         document_id: document_id.to_string(),
         status: "indexed".to_string(),
-        chunk_count: chunk_count as i32,
+        chunk_count,
         indexed_at: chrono::Utc::now().to_rfc3339(),
     }))
 }
@@ -1352,7 +1352,7 @@ pub async fn retry_document(
 
     let id = resolve_document_id(&state, &id)
         .await
-        .map_err(|e| <(StatusCode, Json<ErrorResponse>)>::from(e))?;
+        .map_err(<(StatusCode, Json<ErrorResponse>)>::from)?;
 
     // Get document with tenant isolation
     let document = state

@@ -151,9 +151,9 @@ use adapteros_api_types::inference::ReplayGuarantee;
 use adapteros_api_types::{RunActor, RunEnvelope};
 use adapteros_config::PlacementConfig;
 use adapteros_core::{
-    compute_key_id, identity::IdentityEnvelope, pinned_degradation_telemetry_ref_ids,
-    BundleMetadataRef, EvidenceEnvelope, EvidenceScope, PinnedDegradationEvidence, B3Hash,
-    BackendKind, GuardLogLevel, SeedScopeGuard,
+    compute_key_id, identity::IdentityEnvelope, pinned_degradation_telemetry_ref_ids, B3Hash,
+    BackendKind, BundleMetadataRef, EvidenceEnvelope, EvidenceScope, GuardLogLevel,
+    PinnedDegradationEvidence, SeedScopeGuard,
 };
 use adapteros_db::workers::WorkerWithBinding;
 use adapteros_db::{chat_sessions::ChatSession, CreateReplayMetadataParams};
@@ -1777,7 +1777,7 @@ impl<'a> InferenceCore<'a> {
             Some(stream_tx),
             pause_tx,
         )
-            .await
+        .await
     }
 
     /// Execute inference replay through the unified pipeline
@@ -1808,7 +1808,7 @@ impl<'a> InferenceCore<'a> {
             None,
             None,
         )
-            .await
+        .await
     }
 
     /// Validate that all specified adapters are loadable (not archived/purged)
@@ -1935,7 +1935,8 @@ impl<'a> InferenceCore<'a> {
                 ))
             })?;
 
-        let mut stable_ids = std::collections::HashMap::with_capacity(adapters.len().saturating_mul(2));
+        let mut stable_ids =
+            std::collections::HashMap::with_capacity(adapters.len().saturating_mul(2));
         for adapter in adapters {
             let stable_id = adapter
                 .stable_id
@@ -3700,8 +3701,11 @@ async fn persist_pinned_degradation_evidence_envelope(
             .await?
             .map(|(root, _seq)| root);
 
-        let mut envelope =
-            EvidenceEnvelope::new_telemetry(tenant_id.to_string(), bundle_ref.clone(), previous_root);
+        let mut envelope = EvidenceEnvelope::new_telemetry(
+            tenant_id.to_string(),
+            bundle_ref.clone(),
+            previous_root,
+        );
 
         // Sign the envelope under the existing server signing key.
         // NOTE: signed_at_us is part of canonical bytes; set it before signing.

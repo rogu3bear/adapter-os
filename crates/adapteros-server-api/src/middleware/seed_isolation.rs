@@ -30,44 +30,51 @@
 //! In debug builds, the middleware will panic if it detects leaked thread-local state.
 //! This fails fast to catch determinism bugs during development.
 //!
-//! In release builds, the middleware silently resets state with near-zero overhead.
+//! In release builds, the middleware rejects the request with a 500 error if leaked
+//! state is detected, ensuring contaminated seed state never serves a response.
 
-use adapteros_core::seed_override::{assert_thread_local_clean, reset_thread_local_state};
 #[cfg(not(debug_assertions))]
-use adapteros_core::seed_override::{get_leaked_state_info, is_thread_local_clean};
-use axum::{extract::Request, middleware::Next, response::Response};
+use adapteros_core::seed_override::get_leaked_state_info;
+use adapteros_core::seed_override::{assert_thread_local_clean, reset_thread_local_state};
+use axum::{body::Body, extract::Request, middleware::Next, response::Response};
 
 /// Middleware that enforces thread-local seed state isolation at request boundaries.
 ///
 /// This middleware:
-/// 1. Resets all thread-local seed state at the start of each request
-/// 2. In debug builds, asserts that state was clean (panics on leakage)
-/// 3. In release builds, silently resets with near-zero overhead
+/// 1. Checks for leaked thread-local seed state from a previous request
+/// 2. In debug builds, panics on leakage (fail fast)
+/// 3. In release builds, rejects the request with 500 if state was leaked
+/// 4. Resets all thread-local seed state to ensure clean slate
 ///
 /// # Panics (Debug Builds Only)
 ///
 /// Panics if thread-local seed state is not clean at request entry.
 /// This indicates a determinism bug where a previous request leaked state.
 pub async fn seed_isolation_middleware(req: Request, next: Next) -> Response {
-    // Check for leaked state before resetting (diagnostic logging in non-debug)
-    #[cfg(not(debug_assertions))]
-    {
-        if !is_thread_local_clean() {
+    // Check for leaked state — this is a determinism invariant violation
+    if !assert_thread_local_clean() {
+        // State was dirty — in debug builds we already panicked above.
+        // In release builds: log, clean up, and reject the request.
+        #[cfg(not(debug_assertions))]
+        {
             if let Some(info) = get_leaked_state_info() {
-                tracing::warn!(
+                tracing::error!(
                     target: "determinism.seed_isolation",
                     tenant_id = ?info.tenant_id,
                     request_id = ?info.request_id,
                     nonce_counter = ?info.nonce_counter,
-                    "Thread-local seed state leaked from previous request (cleaned)"
+                    "DETERMINISM INVARIANT: Thread-local seed state leaked — rejecting request"
                 );
             }
+            // Clean up the leaked state so subsequent requests start fresh
+            reset_thread_local_state();
+            // Return 500 — do not serve with potentially contaminated seed state
+            return Response::builder()
+                .status(axum::http::StatusCode::INTERNAL_SERVER_ERROR)
+                .body(Body::from("seed isolation invariant violated"))
+                .unwrap_or_else(|_| Response::new(Body::empty()));
         }
     }
-
-    // In debug builds, this will panic on leakage
-    // In release builds, this is a no-op
-    assert_thread_local_clean();
 
     // Reset all thread-local seed state to ensure clean slate
     reset_thread_local_state();

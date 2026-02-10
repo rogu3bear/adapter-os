@@ -95,7 +95,7 @@ pub async fn get_inference_state(
 ) -> Result<Json<InferenceStateResponse>, (StatusCode, Json<ErrorResponse>)> {
     let inference_id = crate::id_resolver::resolve_any_id(&state.db, &inference_id)
         .await
-        .map_err(|e| <(StatusCode, Json<ErrorResponse>)>::from(e))?;
+        .map_err(<(StatusCode, Json<ErrorResponse>)>::from)?;
 
     let tracker = get_pause_tracker(&state)?;
 
@@ -170,7 +170,7 @@ pub async fn submit_review(
 ) -> Result<Json<SubmitReviewResponse>, (StatusCode, Json<ErrorResponse>)> {
     let inference_id = crate::id_resolver::resolve_any_id(&state.db, &inference_id)
         .await
-        .map_err(|e| <(StatusCode, Json<ErrorResponse>)>::from(e))?;
+        .map_err(<(StatusCode, Json<ErrorResponse>)>::from)?;
 
     let tracker = get_pause_tracker(&state)?;
 
@@ -349,7 +349,7 @@ pub async fn get_pause_details(
 ) -> Result<Json<InferenceStateResponse>, (StatusCode, Json<ErrorResponse>)> {
     let pause_id = crate::id_resolver::resolve_any_id(&state.db, &pause_id)
         .await
-        .map_err(|e| <(StatusCode, Json<ErrorResponse>)>::from(e))?;
+        .map_err(<(StatusCode, Json<ErrorResponse>)>::from)?;
 
     let tracker = get_pause_tracker(&state)?;
 
@@ -404,7 +404,7 @@ pub async fn export_review_context(
 ) -> Result<Json<ReviewContextExport>, (StatusCode, Json<ErrorResponse>)> {
     let pause_id = crate::id_resolver::resolve_any_id(&state.db, &pause_id)
         .await
-        .map_err(|e| <(StatusCode, Json<ErrorResponse>)>::from(e))?;
+        .map_err(<(StatusCode, Json<ErrorResponse>)>::from)?;
 
     let tracker = get_pause_tracker(&state)?;
 

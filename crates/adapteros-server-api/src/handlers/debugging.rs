@@ -83,7 +83,7 @@ pub async fn list_process_logs(
     require_any_role(&claims, &[Role::Operator, Role::Admin])?;
     let worker_id = crate::id_resolver::resolve_any_id(&state.db, &worker_id)
         .await
-        .map_err(|e| <(StatusCode, Json<ErrorResponse>)>::from(e))?;
+        .map_err(<(StatusCode, Json<ErrorResponse>)>::from)?;
     ensure_worker_access(&state, &claims, &worker_id).await?;
 
     let level_filter = match params.get("level") {
@@ -176,7 +176,7 @@ pub async fn list_process_crashes(
     require_any_role(&claims, &[Role::Operator, Role::Admin])?;
     let worker_id = crate::id_resolver::resolve_any_id(&state.db, &worker_id)
         .await
-        .map_err(|e| <(StatusCode, Json<ErrorResponse>)>::from(e))?;
+        .map_err(<(StatusCode, Json<ErrorResponse>)>::from)?;
     ensure_worker_access(&state, &claims, &worker_id).await?;
 
     let rows = match sqlx::query(
@@ -244,10 +244,10 @@ pub async fn start_debug_session(
     require_any_role(&claims, &[Role::Operator, Role::Admin])?;
     let worker_id = crate::id_resolver::resolve_any_id(&state.db, &worker_id)
         .await
-        .map_err(|e| <(StatusCode, Json<ErrorResponse>)>::from(e))?;
+        .map_err(<(StatusCode, Json<ErrorResponse>)>::from)?;
     let request_worker_id = crate::id_resolver::resolve_any_id(&state.db, &req.worker_id)
         .await
-        .map_err(|e| <(StatusCode, Json<ErrorResponse>)>::from(e))?;
+        .map_err(<(StatusCode, Json<ErrorResponse>)>::from)?;
 
     if request_worker_id != worker_id {
         return Err((
@@ -347,10 +347,10 @@ pub async fn run_troubleshooting_step(
     require_any_role(&claims, &[Role::Operator, Role::Admin])?;
     let worker_id = crate::id_resolver::resolve_any_id(&state.db, &worker_id)
         .await
-        .map_err(|e| <(StatusCode, Json<ErrorResponse>)>::from(e))?;
+        .map_err(<(StatusCode, Json<ErrorResponse>)>::from)?;
     let request_worker_id = crate::id_resolver::resolve_any_id(&state.db, &req.worker_id)
         .await
-        .map_err(|e| <(StatusCode, Json<ErrorResponse>)>::from(e))?;
+        .map_err(<(StatusCode, Json<ErrorResponse>)>::from)?;
 
     if request_worker_id != worker_id {
         return Err((

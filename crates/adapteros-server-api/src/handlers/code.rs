@@ -208,7 +208,7 @@ pub async fn get_scan_status(
     require_permission(&claims, Permission::CodeView)?;
     let job_id = crate::id_resolver::resolve_any_id(&state.db, &job_id)
         .await
-        .map_err(|e| <(StatusCode, Json<ErrorResponse>)>::from(e))?;
+        .map_err(<(StatusCode, Json<ErrorResponse>)>::from)?;
 
     let job = state
         .db
@@ -381,7 +381,7 @@ pub async fn get_repository(
     require_permission(&claims, Permission::CodeView)?;
     let repo_id = crate::id_resolver::resolve_any_id(&state.db, &repo_id)
         .await
-        .map_err(|e| <(StatusCode, Json<ErrorResponse>)>::from(e))?;
+        .map_err(<(StatusCode, Json<ErrorResponse>)>::from)?;
 
     let tenant_id = claims.tenant_id.as_str();
 

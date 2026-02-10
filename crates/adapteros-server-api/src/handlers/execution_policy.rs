@@ -65,7 +65,7 @@ pub async fn get_execution_policy(
 ) -> Result<Json<TenantExecutionPolicy>, (StatusCode, Json<ErrorResponse>)> {
     let tenant_id = crate::id_resolver::resolve_any_id(&state.db, &tenant_id)
         .await
-        .map_err(|e| <(StatusCode, Json<ErrorResponse>)>::from(e))?;
+        .map_err(<(StatusCode, Json<ErrorResponse>)>::from)?;
     // Validate tenant isolation
     validate_tenant_isolation(&claims, &tenant_id)?;
 
@@ -112,7 +112,7 @@ pub async fn create_execution_policy(
 ) -> Result<Json<CreatePolicyResponse>, (StatusCode, Json<ErrorResponse>)> {
     let tenant_id = crate::id_resolver::resolve_any_id(&state.db, &tenant_id)
         .await
-        .map_err(|e| <(StatusCode, Json<ErrorResponse>)>::from(e))?;
+        .map_err(<(StatusCode, Json<ErrorResponse>)>::from)?;
     // Validate tenant isolation
     validate_tenant_isolation(&claims, &tenant_id)?;
 
@@ -168,10 +168,10 @@ pub async fn deactivate_execution_policy(
 ) -> Result<StatusCode, (StatusCode, Json<ErrorResponse>)> {
     let tenant_id = crate::id_resolver::resolve_any_id(&state.db, &tenant_id)
         .await
-        .map_err(|e| <(StatusCode, Json<ErrorResponse>)>::from(e))?;
+        .map_err(<(StatusCode, Json<ErrorResponse>)>::from)?;
     let policy_id = crate::id_resolver::resolve_any_id(&state.db, &policy_id)
         .await
-        .map_err(|e| <(StatusCode, Json<ErrorResponse>)>::from(e))?;
+        .map_err(<(StatusCode, Json<ErrorResponse>)>::from)?;
     // Validate tenant isolation
     validate_tenant_isolation(&claims, &tenant_id)?;
 
@@ -228,7 +228,7 @@ pub async fn get_execution_policy_history(
 ) -> Result<Json<PolicyHistoryResponse>, (StatusCode, Json<ErrorResponse>)> {
     let tenant_id = crate::id_resolver::resolve_any_id(&state.db, &tenant_id)
         .await
-        .map_err(|e| <(StatusCode, Json<ErrorResponse>)>::from(e))?;
+        .map_err(<(StatusCode, Json<ErrorResponse>)>::from)?;
     // Validate tenant isolation
     validate_tenant_isolation(&claims, &tenant_id)?;
 

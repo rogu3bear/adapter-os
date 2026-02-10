@@ -964,8 +964,7 @@ impl ValidationRule for JsonlFormatRule {
             let Some(line_schema) = line_schema else {
                 if has_any_schema_field {
                     let mut missing_fields = Vec::new();
-                    let wants_canonical =
-                        has_id || has_metadata || has_response || (has_prompt && has_response);
+                    let wants_canonical = has_id || has_metadata || has_response;
 
                     if wants_canonical {
                         if !has_id {
@@ -1568,20 +1567,20 @@ fn simhash64(prompt: &str, response: &str) -> u64 {
         let hash = blake3::hash(token.as_bytes());
         let bytes = hash.as_bytes();
         let mut value: u64 = 0;
-        for i in 0..8 {
-            value |= (bytes[i] as u64) << (i * 8);
+        for (i, byte) in bytes.iter().take(8).enumerate() {
+            value |= (*byte as u64) << (i * 8);
         }
-        for bit in 0..64 {
+        for (bit, bucket) in buckets.iter_mut().enumerate() {
             if (value >> bit) & 1 == 1 {
-                buckets[bit] += 1;
+                *bucket += 1;
             } else {
-                buckets[bit] -= 1;
+                *bucket -= 1;
             }
         }
     }
     let mut fingerprint = 0u64;
-    for bit in 0..64 {
-        if buckets[bit] >= 0 {
+    for (bit, bucket) in buckets.iter().enumerate() {
+        if *bucket >= 0 {
             fingerprint |= 1u64 << bit;
         }
     }

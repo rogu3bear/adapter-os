@@ -60,7 +60,7 @@ async fn test_system_config_policies_enabled_is_true() {
     let json: SystemConfigResponse = extract_json(response).await;
 
     // Verify policies_enabled is explicitly true
-    assert_eq!(json.policies_enabled, true);
+    assert!(json.policies_enabled);
 }
 
 #[tokio::test]

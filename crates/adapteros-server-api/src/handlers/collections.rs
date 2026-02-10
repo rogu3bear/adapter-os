@@ -220,7 +220,7 @@ pub async fn get_collection(
 
     let id = resolve_collection_id(&state, &id)
         .await
-        .map_err(|e| <(StatusCode, Json<ErrorResponse>)>::from(e))?;
+        .map_err(<(StatusCode, Json<ErrorResponse>)>::from)?;
 
     let collection = state
         .db
@@ -288,7 +288,7 @@ pub async fn delete_collection(
 
     let id = resolve_collection_id(&state, &id)
         .await
-        .map_err(|e| <(StatusCode, Json<ErrorResponse>)>::from(e))?;
+        .map_err(<(StatusCode, Json<ErrorResponse>)>::from)?;
 
     // Get collection to validate tenant
     let collection = state
@@ -348,10 +348,10 @@ pub async fn add_document_to_collection(
     require_permission(&claims, Permission::DatasetUpload)?;
     let id = crate::id_resolver::resolve_any_id(&state.db, &id)
         .await
-        .map_err(|e| <(StatusCode, Json<ErrorResponse>)>::from(e))?;
+        .map_err(<(StatusCode, Json<ErrorResponse>)>::from)?;
     let document_id = crate::id_resolver::resolve_any_id(&state.db, &req.document_id)
         .await
-        .map_err(|e| <(StatusCode, Json<ErrorResponse>)>::from(e))?;
+        .map_err(<(StatusCode, Json<ErrorResponse>)>::from)?;
 
     // Verify collection exists and tenant isolation
     let collection = state
@@ -425,10 +425,10 @@ pub async fn remove_document_from_collection(
     require_permission(&claims, Permission::DatasetDelete)?;
     let id = crate::id_resolver::resolve_any_id(&state.db, &id)
         .await
-        .map_err(|e| <(StatusCode, Json<ErrorResponse>)>::from(e))?;
+        .map_err(<(StatusCode, Json<ErrorResponse>)>::from)?;
     let doc_id = crate::id_resolver::resolve_any_id(&state.db, &doc_id)
         .await
-        .map_err(|e| <(StatusCode, Json<ErrorResponse>)>::from(e))?;
+        .map_err(<(StatusCode, Json<ErrorResponse>)>::from)?;
 
     // Verify collection exists and tenant isolation
     let collection = state

@@ -83,7 +83,7 @@ pub async fn export_telemetry_bundle(
 ) -> Result<Json<ExportTelemetryBundleResponse>, (StatusCode, Json<ErrorResponse>)> {
     let bundle_id = crate::id_resolver::resolve_any_id(&state.db, &bundle_id)
         .await
-        .map_err(|e| <(StatusCode, Json<ErrorResponse>)>::from(e))?;
+        .map_err(<(StatusCode, Json<ErrorResponse>)>::from)?;
 
     let bundle = state
         .db

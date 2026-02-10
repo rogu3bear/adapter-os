@@ -99,7 +99,7 @@ pub async fn get_router_config(
     require_any_role(&claims, &[Role::Admin, Role::Operator, Role::Viewer])?;
     let tenant_id = crate::id_resolver::resolve_any_id(&state.db, &tenant_id)
         .await
-        .map_err(|e| <(StatusCode, Json<ErrorResponse>)>::from(e))?;
+        .map_err(<(StatusCode, Json<ErrorResponse>)>::from)?;
     validate_tenant_isolation(&claims, &tenant_id)?;
 
     // Execution policy (includes optional routing policy)
