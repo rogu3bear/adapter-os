@@ -123,7 +123,7 @@ async fn test_readme_ingestion_end_to_end() {
         add_special_tokens: true,
     };
     let training_data =
-        generate_training_data_from_documents(&[doc.clone()], &tokenizer, &gen_config)
+        generate_training_data_from_documents(std::slice::from_ref(&doc), &tokenizer, &gen_config)
             .expect("generate training data");
 
     // Verify examples were generated

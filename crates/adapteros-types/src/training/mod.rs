@@ -1395,6 +1395,43 @@ impl TrainingConfig {
             lora_layer_indices: Vec::new(),
         }
     }
+
+    /// Normalize the config for deterministic hashing and reproducibility.
+    ///
+    /// This ensures two logically-equivalent configs produce the same hash
+    /// regardless of field ordering or cosmetic differences:
+    /// - Sorts `targets` alphabetically
+    /// - Sorts `lora_layer_indices` numerically and deduplicates
+    /// - Clamps `learning_rate` to \[1e-7, 1.0\] (NaN/Inf → 0.001)
+    /// - Clamps `batch_size` to minimum 1
+    /// - Clamps `epochs` to minimum 1
+    /// - Fills empty `training_contract_version` with current default
+    pub fn normalize(&mut self) -> &mut Self {
+        self.targets.sort();
+        self.targets.dedup();
+
+        self.lora_layer_indices.sort();
+        self.lora_layer_indices.dedup();
+
+        if self.learning_rate.is_nan() || self.learning_rate.is_infinite() {
+            self.learning_rate = 0.001;
+        } else {
+            self.learning_rate = self.learning_rate.clamp(1e-7, 1.0);
+        }
+
+        if self.batch_size == 0 {
+            self.batch_size = 1;
+        }
+        if self.epochs == 0 {
+            self.epochs = 1;
+        }
+
+        if self.training_contract_version.is_empty() {
+            self.training_contract_version = TRAINING_DATA_CONTRACT_VERSION.to_string();
+        }
+
+        self
+    }
 }
 
 impl Default for TrainingConfig {

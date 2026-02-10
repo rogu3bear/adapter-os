@@ -2,7 +2,7 @@
 
 use adapteros_core::backend::BackendKind;
 use adapteros_lora_worker::training::TrainingBackend as WorkerTrainingBackend;
-use adapteros_types::training::TrainingBackendKind;
+use adapteros_types::training::{TrainingBackendKind, TrainingConfig};
 use tracing::warn;
 
 /// Post-actions configuration parsed from JSON
@@ -129,4 +129,17 @@ pub(crate) fn map_preferred_backend(
         preferred: preferred_backend,
         coreml_fallback: fallback_backend,
     }
+}
+
+/// Compute a BLAKE3 hash of a normalized `TrainingConfig` for reproducibility tracking.
+///
+/// The config is cloned and normalized (targets sorted, values clamped) before
+/// serialization to ensure logically-equivalent configs produce the same hash.
+pub(crate) fn normalized_config_hash_b3(config: &TrainingConfig) -> String {
+    let mut normalized = config.clone();
+    normalized.normalize();
+    // serde_json::to_string produces deterministic output for structs with
+    // named fields (insertion-ordered), and normalize() sorts the Vec fields.
+    let json = serde_json::to_string(&normalized).unwrap_or_default();
+    blake3::hash(json.as_bytes()).to_hex().to_string()
 }
