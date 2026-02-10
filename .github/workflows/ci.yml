@@ -6,9 +6,14 @@ on:
   pull_request:
     branches: [main]
 
+# ==========================================================================
+# Tier 1: Fast checks (every PR, ~2-5 min each)
+# These must pass before Tier 2 jobs run.
+# ==========================================================================
+
 jobs:
   format:
-    name: Format Check
+    name: "Tier 1: Format Check"
     runs-on: ubuntu-latest
     steps:
       - uses: actions/checkout@v4
@@ -17,7 +22,7 @@ jobs:
         run: cargo fmt --all -- --check
 
   env-path-policy:
-    name: PRD-13 Path Policy Check
+    name: "Tier 1: PRD-13 Path Policy Check"
     runs-on: ubuntu-latest
     steps:
       - uses: actions/checkout@v4
@@ -25,7 +30,7 @@ jobs:
         run: ./scripts/check_env_paths.sh
 
   anchor-contract:
-    name: ANCHOR Contract Guard
+    name: "Tier 1: ANCHOR Contract Guard"
     runs-on: ubuntu-latest
     steps:
       - uses: actions/checkout@v4
@@ -33,7 +38,7 @@ jobs:
         run: ./scripts/ci/check_anchor_contract.sh
 
   rectification-contracts:
-    name: Rectification Contract Guard
+    name: "Tier 1: Rectification Contract Guard"
     runs-on: ubuntu-latest
     steps:
       - uses: actions/checkout@v4
@@ -42,8 +47,24 @@ jobs:
       - name: Run rectification contract suite
         run: ./scripts/contracts/check_all.sh
 
+  fast-math-scan:
+    name: "Tier 1: Fast-Math Flag Scan"
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+      - name: Scan for forbidden compiler flags
+        run: bash scripts/check_fast_math_flags.sh
+
+  test-artifact-hygiene:
+    name: "Tier 1: Test Artifact Hygiene"
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+      - name: Check for test artifact pollution
+        run: bash scripts/ci/check_test_artifacts.sh
+
   feature-matrix:
-    name: Feature Matrix Tests
+    name: "Tier 1: Feature Matrix Tests"
     runs-on: ubuntu-latest
     steps:
       - uses: actions/checkout@v4
@@ -52,7 +73,7 @@ jobs:
         run: cargo xtask check-all --verbose
 
   clippy:
-    name: Clippy Lints
+    name: "Tier 1: Clippy Lints"
     runs-on: ubuntu-latest
     steps:
       - uses: actions/checkout@v4
@@ -63,7 +84,7 @@ jobs:
         run: cargo clippy --workspace --all-targets --exclude adapteros-lora-mlx-ffi -- -D warnings
 
   test:
-    name: Test Suite
+    name: "Tier 1: Test Suite"
     runs-on: ubuntu-latest
     steps:
       - uses: actions/checkout@v4
@@ -82,8 +103,51 @@ jobs:
       - name: Run tests
         run: cargo test --workspace --all-targets --exclude adapteros-lora-mlx-ffi
 
+  bench-compile-smoke:
+    name: "Tier 1: Benchmark Compile Smoke"
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+      - uses: dtolnay/rust-toolchain@stable
+      - name: Verify all benchmark targets compile
+        run: bash scripts/ci/bench_compile_smoke.sh
+
+  # ==========================================================================
+  # Tier 1 Gate: All fast checks must pass before Tier 2 proceeds
+  # ==========================================================================
+  tier-1-gate:
+    name: "Tier 1 Gate"
+    runs-on: ubuntu-latest
+    needs:
+      - format
+      - clippy
+      - test
+      - fast-math-scan
+      - env-path-policy
+      - anchor-contract
+      - rectification-contracts
+      - test-artifact-hygiene
+      - bench-compile-smoke
+    if: always()
+    steps:
+      - name: Check Tier 1 results
+        run: |
+          # Fail if any required Tier 1 job failed or was cancelled
+          RESULTS='${{ toJSON(needs.*.result) }}'
+          echo "Tier 1 job results: $RESULTS"
+          if echo "$RESULTS" | grep -qE '"failure"|"cancelled"'; then
+            echo "::error::Tier 1 gate failed. One or more fast checks did not pass."
+            exit 1
+          fi
+          echo "Tier 1 gate passed. Proceeding to Tier 2."
+
+  # ==========================================================================
+  # Tier 2: Integration & Determinism (after Tier 1 passes)
+  # ==========================================================================
+
   extended-tenant-isolation-tests:
-    name: Extended Tenant Isolation Tests
+    name: "Tier 2: Extended Tenant Isolation Tests"
+    needs: tier-1-gate
     runs-on: ubuntu-latest
     steps:
       - uses: actions/checkout@v4
@@ -103,7 +167,8 @@ jobs:
         run: cargo test --test integration --features extended-tests tenant_isolation -- --nocapture
 
   test-macos:
-    name: Test Suite (macOS, full workspace)
+    name: "Tier 2: Test Suite (macOS, full workspace)"
+    needs: tier-1-gate
     runs-on: macos-14
     steps:
       - uses: actions/checkout@v4
@@ -123,7 +188,8 @@ jobs:
         run: cargo test --workspace --all-targets
 
   test-macos-production:
-    name: Test Suite (macOS, production-macos)
+    name: "Tier 2: Test Suite (macOS, production-macos)"
+    needs: tier-1-gate
     runs-on: macos-14
     steps:
       - uses: actions/checkout@v4
@@ -146,7 +212,8 @@ jobs:
             --exclude adapteros-lora-mlx-ffi
 
   hardware-residency:
-    name: Hardware Residency Tests
+    name: "Tier 2: Hardware Residency Tests"
+    needs: tier-1-gate
     runs-on: macos-14
     steps:
       - uses: actions/checkout@v4
@@ -158,7 +225,8 @@ jobs:
             -- --ignored --nocapture
 
   kv-primary:
-    name: KV Primary Mode
+    name: "Tier 2: KV Primary Mode"
+    needs: tier-1-gate
     runs-on: ubuntu-latest
     steps:
       - uses: actions/checkout@v4
@@ -220,7 +288,8 @@ jobs:
         run: 'echo "KV-only smoke skipped; unsupported domains: ${{ steps.coverage.outputs.unsupported_domains }}"'
 
   kv-verify:
-    name: KV Drift Verify
+    name: "Tier 2: KV Drift Verify"
+    needs: tier-1-gate
     runs-on: ubuntu-latest
     steps:
       - uses: actions/checkout@v4
@@ -237,10 +306,11 @@ jobs:
           jq -e '(.drift == 0) and (.fallback == 0) and (.errors == 0) and (.degraded == false)' kv-verify.json
 
   # ==========================================================================
-  # Gold Standard E2E Test (runs on every PR)
+  # Gold Standard E2E Test (Tier 2: runs after Tier 1 passes)
   # ==========================================================================
   gold-standard-e2e:
-    name: Gold Standard E2E Test
+    name: "Tier 2: Gold Standard E2E Test"
+    needs: tier-1-gate
     runs-on: macos-14
     timeout-minutes: 5
     env:
@@ -262,10 +332,11 @@ jobs:
           path: target/test-failures/
 
   # ==========================================================================
-  # Happy Path Smoke Test (runs on every PR)
+  # Happy Path Smoke Test (Tier 2: runs after Tier 1 passes)
   # ==========================================================================
   happy-path-smoke:
-    name: Happy Path Smoke Test
+    name: "Tier 2: Happy Path Smoke Test"
+    needs: tier-1-gate
     runs-on: macos-14
     timeout-minutes: 5
     env:
@@ -288,10 +359,11 @@ jobs:
           path: var/smoke-happy-path/
 
   # ==========================================================================
-  # Streaming Reliability Tests (runs on every PR)
+  # Streaming Reliability Tests (Tier 2: runs after Tier 1 passes)
   # ==========================================================================
   streaming-reliability:
-    name: Streaming Reliability Tests
+    name: "Tier 2: Streaming Reliability Tests"
+    needs: tier-1-gate
     runs-on: macos-14
     timeout-minutes: 10
     env:
