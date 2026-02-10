@@ -40,7 +40,6 @@ const ADAPTER_ID: &str = "adapter-test";
 const ADAPTER_NAME: &str = "Test Adapter";
 const ADAPTER_ID_SECONDARY: &str = "adapter-test-2";
 const ADAPTER_NAME_SECONDARY: &str = "Test Adapter 2";
-const E2E_USER_ID: &str = "user-e2e";
 const E2E_USER_EMAIL: &str = "test@example.com";
 const E2E_USER_NAME: &str = "E2E Test User";
 const E2E_USER_PASSWORD: &str = "password";
@@ -242,10 +241,12 @@ pub async fn seed_minimal(State(state): State<AppState>) -> ApiResult<SeedMinima
     .await
     .map_err(map_err)?;
 
-    // Seed deterministic admin user
-    sqlx::query("DELETE FROM users WHERE email = ? OR id = ?")
+    // Seed deterministic admin user.
+    //
+    // IMPORTANT: Db::create_user dual-writes to KV depending on storage mode. Do not "rewrite" the
+    // user id after creation (that can desync SQL/KV and break /v1/auth/me with USER_NOT_FOUND).
+    sqlx::query("DELETE FROM users WHERE email = ?")
         .bind(E2E_USER_EMAIL)
-        .bind(E2E_USER_ID)
         .execute(pool)
         .await
         .map_err(map_err)?;
@@ -262,15 +263,7 @@ pub async fn seed_minimal(State(state): State<AppState>) -> ApiResult<SeedMinima
         )
         .await
         .map_err(map_err)?;
-
-    if created_user_id != E2E_USER_ID {
-        sqlx::query("UPDATE users SET id = ? WHERE id = ?")
-            .bind(E2E_USER_ID)
-            .bind(&created_user_id)
-            .execute(pool)
-            .await
-            .map_err(map_err)?;
-    }
+    let user_id = created_user_id.clone();
 
     sqlx::query(
         r#"
@@ -288,17 +281,27 @@ pub async fn seed_minimal(State(state): State<AppState>) -> ApiResult<SeedMinima
     .bind(E2E_USER_NAME)
     .bind(&pw_hash)
     .bind(FIXED_TS)
-    .bind(E2E_USER_ID)
+    .bind(&user_id)
     .execute(pool)
     .await
     .map_err(map_err)?;
 
-    // Register model with deterministic metadata
-    sqlx::query("DELETE FROM models WHERE id = ?")
+    // Register model with deterministic metadata.
+    //
+    // Avoid hard-deletes here: in real-ish dev environments (and occasionally after partial resets),
+    // other tables may still hold FK references to models/adapters. Seed endpoints should be
+    // idempotent and resilient, so we best-effort delete and continue on FK failures.
+    if let Err(e) = sqlx::query("DELETE FROM models WHERE id = ?")
         .bind(MODEL_ID)
         .execute(pool)
         .await
-        .map_err(map_err)?;
+    {
+        tracing::warn!(
+            model_id = MODEL_ID,
+            error = %e,
+            "testkit seed_minimal: could not delete model (continuing)"
+        );
+    }
 
     let model_params = ModelRegistrationBuilder::new()
         .name(MODEL_NAME)
@@ -349,13 +352,20 @@ pub async fn seed_minimal(State(state): State<AppState>) -> ApiResult<SeedMinima
     .await
     .map_err(map_err)?;
 
-    // Register adapter
-    sqlx::query("DELETE FROM adapters WHERE adapter_id = ? AND tenant_id = ?")
+    // Register adapter (best-effort cleanup; see model delete note above).
+    if let Err(e) = sqlx::query("DELETE FROM adapters WHERE adapter_id = ? AND tenant_id = ?")
         .bind(ADAPTER_ID)
         .bind(TENANT_ID)
         .execute(pool)
         .await
-        .map_err(map_err)?;
+    {
+        tracing::warn!(
+            tenant_id = TENANT_ID,
+            adapter_id = ADAPTER_ID,
+            error = %e,
+            "testkit seed_minimal: could not delete adapter (continuing)"
+        );
+    }
 
     let adapter_params = AdapterRegistrationBuilder::new()
         .tenant_id(TENANT_ID)
@@ -441,12 +451,18 @@ pub async fn seed_minimal(State(state): State<AppState>) -> ApiResult<SeedMinima
     .await
     .map_err(map_err)?;
 
-    // Register secondary model
-    sqlx::query("DELETE FROM models WHERE id = ?")
+    // Register secondary model (best-effort cleanup; see model delete note above).
+    if let Err(e) = sqlx::query("DELETE FROM models WHERE id = ?")
         .bind(MODEL_ID_SECONDARY)
         .execute(pool)
         .await
-        .map_err(map_err)?;
+    {
+        tracing::warn!(
+            model_id = MODEL_ID_SECONDARY,
+            error = %e,
+            "testkit seed_minimal: could not delete secondary model (continuing)"
+        );
+    }
 
     let model_params_secondary = ModelRegistrationBuilder::new()
         .name(MODEL_NAME_SECONDARY)
@@ -497,13 +513,20 @@ pub async fn seed_minimal(State(state): State<AppState>) -> ApiResult<SeedMinima
     .await
     .map_err(map_err)?;
 
-    // Register secondary adapter tied to secondary model
-    sqlx::query("DELETE FROM adapters WHERE adapter_id = ? AND tenant_id = ?")
+    // Register secondary adapter tied to secondary model (best-effort cleanup).
+    if let Err(e) = sqlx::query("DELETE FROM adapters WHERE adapter_id = ? AND tenant_id = ?")
         .bind(ADAPTER_ID_SECONDARY)
         .bind(TENANT_ID_SECONDARY)
         .execute(pool)
         .await
-        .map_err(map_err)?;
+    {
+        tracing::warn!(
+            tenant_id = TENANT_ID_SECONDARY,
+            adapter_id = ADAPTER_ID_SECONDARY,
+            error = %e,
+            "testkit seed_minimal: could not delete secondary adapter (continuing)"
+        );
+    }
 
     let adapter_params_secondary = AdapterRegistrationBuilder::new()
         .tenant_id(TENANT_ID_SECONDARY)
@@ -595,7 +618,7 @@ pub async fn seed_minimal(State(state): State<AppState>) -> ApiResult<SeedMinima
         "#,
     )
     .bind("user-tenant-access-fixture-secondary")
-    .bind(E2E_USER_ID)
+    .bind(&user_id)
     .bind(TENANT_ID_SECONDARY)
     .bind(POLICY_ACTOR)
     .bind(FIXED_TS)
@@ -607,7 +630,7 @@ pub async fn seed_minimal(State(state): State<AppState>) -> ApiResult<SeedMinima
     Ok(Json(SeedMinimalResponse {
         status: "ok".to_string(),
         tenant_id: TENANT_ID.to_string(),
-        user_id: E2E_USER_ID.to_string(),
+        user_id,
         model_id: MODEL_ID.to_string(),
         adapter_id: ADAPTER_ID.to_string(),
         stack_id: STACK_ID.to_string(),
@@ -1533,11 +1556,12 @@ pub async fn create_collection_fixture(
 
     sqlx::query(
         r#"
-        INSERT INTO collection_documents (collection_id, document_id, added_at)
-        VALUES (?, ?, ?)
+        INSERT INTO collection_documents (tenant_id, collection_id, document_id, added_at)
+        VALUES (?, ?, ?, ?)
         ON CONFLICT(collection_id, document_id) DO NOTHING
         "#,
     )
+    .bind(&tenant_id)
     .bind(&collection_id)
     .bind(&document_id)
     .bind(FIXED_TS)
@@ -1617,7 +1641,7 @@ pub async fn create_dataset_fixture(
     .bind(&hash_b3)
     .bind(&storage_path)
     .bind(r#"{"source":"testkit","fixture":"dataset"}"#)
-    .bind(E2E_USER_ID)
+    .bind(POLICY_ACTOR)
     .bind(FIXED_TS)
     .bind(FIXED_TS)
     .bind(&tenant_id)
