@@ -7,8 +7,9 @@
 
 use adapteros_core::{
     context_id::{compute_context_id, AdapterEntry, InferenceConfig},
+    decode_q15_gate, encode_q15_gate,
     receipt_digest::{compute_receipt_digest, ReceiptDigestInput, RECEIPT_SCHEMA_V7},
-    decode_q15_gate, encode_q15_gate, B3Hash, Q15_GATE_DENOMINATOR,
+    B3Hash, Q15_GATE_DENOMINATOR,
 };
 
 #[test]

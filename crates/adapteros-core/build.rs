@@ -70,9 +70,7 @@ fn main() {
         Err(e) => {
             println!("cargo:warning=Failed to parse crate versions from Cargo.lock: {e}");
             // Emit empty manifest so the build doesn't break
-            println!(
-                "cargo:rustc-env=AOS_CRATE_MANIFEST={{\"format\":1,\"crates\":{{}}}}"
-            );
+            println!("cargo:rustc-env=AOS_CRATE_MANIFEST={{\"format\":1,\"crates\":{{}}}}");
         }
     }
 

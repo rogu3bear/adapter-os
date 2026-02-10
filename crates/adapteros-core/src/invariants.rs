@@ -165,30 +165,27 @@ pub fn canonical_score_comparator(a: &(usize, f32), b: &(usize, f32)) -> std::cm
 pub fn canonical_adapter_sort(scores: &mut [(usize, f32)]) {
     scores.sort_by(canonical_score_comparator);
 
-    // Debug assertion: verify ordering is correct
-    #[cfg(debug_assertions)]
-    {
-        for i in 1..scores.len() {
-            let prev = &scores[i - 1];
-            let curr = &scores[i];
-            // Previous score should be >= current score
-            debug_assert!(
-                prev.1 >= curr.1 || prev.1.is_nan(),
-                "canonical_adapter_sort: scores not DESC at index {}: {} > {}",
+    // Verify ordering is correct (O(n) after O(n log n) sort — always worth it)
+    for i in 1..scores.len() {
+        let prev = &scores[i - 1];
+        let curr = &scores[i];
+        // Previous score should be >= current score
+        assert!(
+            prev.1 >= curr.1 || prev.1.is_nan(),
+            "canonical_adapter_sort: scores not DESC at index {}: {} > {}",
+            i,
+            curr.1,
+            prev.1
+        );
+        // If scores are equal, previous index should be < current index
+        if (prev.1 - curr.1).abs() < f32::EPSILON {
+            assert!(
+                prev.0 < curr.0,
+                "canonical_adapter_sort: tie-break failed at index {}: idx {} >= {}",
                 i,
-                curr.1,
-                prev.1
+                prev.0,
+                curr.0
             );
-            // If scores are equal, previous index should be < current index
-            if (prev.1 - curr.1).abs() < f32::EPSILON {
-                debug_assert!(
-                    prev.0 < curr.0,
-                    "canonical_adapter_sort: tie-break failed at index {}: idx {} >= {}",
-                    i,
-                    prev.0,
-                    curr.0
-                );
-            }
         }
     }
 }

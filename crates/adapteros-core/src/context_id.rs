@@ -333,7 +333,10 @@ mod tests {
         let id1 = compute_context_id(&B3Hash::hash(b"model_a"), &adapters, &config);
         let id2 = compute_context_id(&B3Hash::hash(b"model_b"), &adapters, &config);
 
-        assert_ne!(id1, id2, "Different model hashes must produce different context_id");
+        assert_ne!(
+            id1, id2,
+            "Different model hashes must produce different context_id"
+        );
     }
 
     #[test]
@@ -403,7 +406,10 @@ mod tests {
         let id1 = compute_context_id(&model_hash, &adapters, &config1);
         let id2 = compute_context_id(&model_hash, &adapters, &config2);
 
-        assert_ne!(id1, id2, "None vs Some config must produce different context_id");
+        assert_ne!(
+            id1, id2,
+            "None vs Some config must produce different context_id"
+        );
     }
 
     #[test]
@@ -473,7 +479,11 @@ mod tests {
         let config = InferenceConfig::default();
 
         let id = compute_context_id(&model_hash, &[], &config);
-        assert_ne!(id, B3Hash::zero(), "Empty adapters should still produce valid hash");
+        assert_ne!(
+            id,
+            B3Hash::zero(),
+            "Empty adapters should still produce valid hash"
+        );
     }
 
     #[test]

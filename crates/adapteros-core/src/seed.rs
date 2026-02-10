@@ -1005,7 +1005,7 @@ pub fn derive_seed(global: &B3Hash, label: &str) -> [u8; HKDF_OUTPUT_LENGTH] {
         .expect("HKDF_OUTPUT_LENGTH is valid for HKDF-SHA256");
 
     // Validate HKDF output matches expected length
-    debug_assert_eq!(
+    assert_eq!(
         okm.len(),
         HKDF_OUTPUT_LENGTH,
         "HKDF output must be exactly {} bytes",

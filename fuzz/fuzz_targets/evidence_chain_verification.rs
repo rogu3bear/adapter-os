@@ -57,6 +57,7 @@ fuzz_target!(|data: &[u8]| {
             event_count,
             cpid: Some(format!("cp-{}", i)),
             sequence_no: Some(i as u64),
+            pinned_degradation_evidence: None,
         };
 
         // Decide whether to break the chain (10% chance)

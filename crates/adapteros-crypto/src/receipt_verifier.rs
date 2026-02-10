@@ -247,9 +247,7 @@ fn verify_seed_binding(
     expected_seed: Option<&[u8; 32]>,
 ) -> Option<ReasonCode> {
     let expected = expected_seed?;
-    let Some(ref claimed_digest) = bundle.receipt.root_seed_digest_hex else {
-        return None;
-    };
+    let claimed_digest = bundle.receipt.root_seed_digest_hex.as_ref()?;
 
     let expected_digest = B3Hash::hash(expected);
     if &expected_digest.to_hex() != claimed_digest {
@@ -972,7 +970,7 @@ pub fn verify_receipt_payload_bytes(
 
     let canonical_json = receipt_digest::canonical_json_string(&input)
         .ok()
-        .unwrap_or_else(|| String::new());
+        .unwrap_or_default();
     let canonical_bytes = canonical_json.as_bytes();
     let original_trimmed = payload_bytes.strip_suffix(b"\n").unwrap_or(payload_bytes);
     if original_trimmed != canonical_bytes {

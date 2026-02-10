@@ -66,6 +66,7 @@ fuzz_target!(|data: &[u8]| {
                 event_count,
                 cpid,
                 sequence_no,
+                pinned_degradation_evidence: None,
             };
 
             EvidenceEnvelope::new_telemetry("tenant-fuzz".to_string(), bundle_ref, previous_root)

@@ -10,4 +10,3 @@ pub fn is_zip_symlink(entry: &zip::read::ZipFile<'_>) -> bool {
         .map(|mode| (mode & 0o170000) == 0o120000)
         .unwrap_or(false)
 }
-

@@ -778,7 +778,11 @@ impl fmt::Display for VersionInfo {
             "Target:          {}-{}",
             self.target_os, self.target_arch
         )?;
-        writeln!(f, "Crate Manifest:  {}", self.build_provenance.crate_manifest.summary())?;
+        writeln!(
+            f,
+            "Crate Manifest:  {}",
+            self.build_provenance.crate_manifest.summary()
+        )?;
         if let Some(ref d) = self.build_provenance.crate_manifest.digest {
             writeln!(f, "Manifest Digest: {}", d.to_short_hex())?;
         }

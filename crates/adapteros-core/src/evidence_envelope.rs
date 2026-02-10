@@ -993,11 +993,13 @@ mod tests {
 
     #[test]
     fn test_strict_mode_validation_fails_on_missing_fields() {
-        let mut receipt = InferenceReceiptRef::default();
         // Set digests so the failure focuses on strict identity bindings.
-        receipt.trace_id = "trace-ep5-missing".to_string();
-        receipt.output_digest = B3Hash::hash(b"output");
-        receipt.receipt_digest = B3Hash::hash(b"receipt");
+        let receipt = InferenceReceiptRef {
+            trace_id: "trace-ep5-missing".to_string(),
+            output_digest: B3Hash::hash(b"output"),
+            receipt_digest: B3Hash::hash(b"receipt"),
+            ..Default::default()
+        };
 
         let err = receipt.validate_for_strict_mode().expect_err("should fail");
         match err {
