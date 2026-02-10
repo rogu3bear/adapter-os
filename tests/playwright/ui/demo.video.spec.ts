@@ -11,9 +11,9 @@ const readmePath = path.resolve(repoRoot, 'README.md');
 // Demo video spec:
 // - Records video every run (even on pass)
 // - Drives the happy path: upload README -> dataset upload -> create training job -> chat -> receipt verify
+test.use({ video: 'on', trace: 'on', screenshot: 'on' });
 test.describe('demo: end-to-end happy path', () => {
   test.describe.configure({ mode: 'serial' });
-  test.use({ video: 'on', trace: 'on', screenshot: 'on' });
 
   test('demo video', { tag: ['@demo'] }, async ({ page }) => {
     test.setTimeout(12 * 60_000);
@@ -121,4 +121,3 @@ test.describe('demo: end-to-end happy path', () => {
     await expect(page.getByText('Verified', { exact: true })).toBeVisible({ timeout: 60_000 });
   });
 });
-
