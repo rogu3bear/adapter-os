@@ -1411,6 +1411,7 @@ pub fn build(state: AppState) -> Router {
             post(handlers::create_process_monitoring_report),
         )
         .route("/v1/jobs", get(handlers::list_jobs))
+        .route("/v1/jobs/{job_id}", get(handlers::infrastructure::get_job))
         .route("/v1/policies", get(handlers::list_policies))
         .route("/v1/policies/{cpid}", get(handlers::get_policy))
         .route(
@@ -1792,6 +1793,10 @@ pub fn build(state: AppState) -> Router {
         .route(
             "/v1/training/datasets/from-upload",
             post(handlers::training_datasets::create_training_dataset_from_upload),
+        )
+        .route(
+            "/v1/training/datasets/from-upload/async",
+            post(handlers::training_datasets::create_training_dataset_from_upload_async),
         )
         // Generate dataset from file using local inference
         .route(

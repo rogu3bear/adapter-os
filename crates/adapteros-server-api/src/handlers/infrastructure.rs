@@ -689,6 +689,59 @@ pub async fn list_jobs(
     Ok(Json(response))
 }
 
+/// Get a job by id
+#[utoipa::path(
+    get,
+    path = "/v1/jobs/{job_id}",
+    params(
+        ("job_id" = String, Path, description = "Job identifier")
+    ),
+    responses(
+        (status = 200, description = "Job", body = JobDetailResponse),
+        (status = 404, description = "Not found", body = ErrorResponse),
+        (status = 500, description = "Internal error", body = ErrorResponse)
+    ),
+    tag = "jobs"
+)]
+pub async fn get_job(
+    State(state): State<AppState>,
+    Extension(_claims): Extension<Claims>,
+    Path(job_id): Path<String>,
+) -> Result<Json<JobDetailResponse>, (StatusCode, Json<ErrorResponse>)> {
+    let job = state.db.get_job(&job_id).await.map_err(|e| {
+        (
+            StatusCode::INTERNAL_SERVER_ERROR,
+            Json(
+                ErrorResponse::new("database error")
+                    .with_code("DATABASE_ERROR")
+                    .with_string_details(e.to_string()),
+            ),
+        )
+    })?;
+
+    let Some(job) = job else {
+        return Err((
+            StatusCode::NOT_FOUND,
+            Json(
+                ErrorResponse::new("job not found")
+                    .with_code("NOT_FOUND")
+                    .with_string_details(format!("Job ID: {}", job_id)),
+            ),
+        ));
+    };
+
+    Ok(Json(JobDetailResponse {
+        id: job.id,
+        kind: job.kind,
+        status: job.status,
+        payload_json: job.payload_json,
+        result_json: job.result_json,
+        created_at: job.created_at,
+        started_at: job.started_at,
+        finished_at: job.finished_at,
+    }))
+}
+
 // Note: worker_spawn, list_workers, stop_worker moved to handlers/workers.rs (PRD-RECT topology fix)
 
 /// Receive fatal error report from worker
