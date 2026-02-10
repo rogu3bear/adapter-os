@@ -5,7 +5,7 @@
 //! 【2025-01-25†prd-ux-01†chat_sessions_core】
 
 use crate::api_error::{ApiError, ApiResult};
-use crate::auth::Claims;
+use crate::auth::{AuthMode, Claims, PrincipalType};
 use crate::permissions::{require_permission, Permission};
 use crate::security::validate_tenant_isolation;
 use crate::state::AppState;
@@ -174,12 +174,25 @@ pub async fn create_chat_session(
     };
     let session_id = crate::id_generator::readable_session_id(session_slug);
 
+    // DevBypass does not necessarily correspond to a real SQL user row. Avoid creating FK-backed
+    // references that fail local demos and Playwright E2E runs.
+    let is_dev_bypass = claims.auth_mode == AuthMode::DevBypass
+        || matches!(claims.principal_type, Some(PrincipalType::DevBypass));
+
     // Create session parameters
     let params = CreateChatSessionParams {
         id: session_id.clone(),
         tenant_id: target_tenant.clone(),
-        user_id: Some(claims.sub.clone()),
-        created_by: Some(claims.sub.clone()),
+        user_id: if is_dev_bypass {
+            None
+        } else {
+            Some(claims.sub.clone())
+        },
+        created_by: if is_dev_bypass {
+            None
+        } else {
+            Some(claims.sub.clone())
+        },
         stack_id: req.stack_id,
         collection_id: req.collection_id,
         document_id: req.document_id,
