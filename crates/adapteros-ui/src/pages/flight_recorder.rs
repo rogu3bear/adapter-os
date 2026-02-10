@@ -28,7 +28,7 @@ use leptos::prelude::*;
 use leptos::task::spawn_local;
 use leptos_router::hooks::{use_params_map, use_query_map};
 use std::sync::Arc;
-use std::time::Instant;
+use web_time::Instant;
 
 /// Runs list page - shows all diagnostic runs
 #[component]
@@ -438,6 +438,7 @@ fn RunDetailHub(run_id: String, on_close: Callback<()>) -> impl IntoView {
             }
         }
     });
+    let run_id_for_diff_link = run_id.clone();
 
     view! {
         <div class="space-y-4">
@@ -492,7 +493,7 @@ fn RunDetailHub(run_id: String, on_close: Callback<()>) -> impl IntoView {
                     if ui_profile.get() == UiProfile::Full {
                         Some(view! {
                             <a
-                                href=format!("/diff?run={}", run_id)
+                                href=format!("/diff?run={}", run_id_for_diff_link.clone())
                                 class="inline-flex items-center gap-1.5 px-2 py-1 text-xs rounded border border-border hover:bg-muted transition-colors"
                             >
                                 <span>"↔"</span>
@@ -527,9 +528,20 @@ fn RunDetailHub(run_id: String, on_close: Callback<()>) -> impl IntoView {
             </div>
 
             // Tab content
-            <AsyncBoundary
-                state=export_data
-                render=move |export: DiagExportResponse| {
+            {move || match export_data.get() {
+                LoadingState::Idle => view! {
+                    <div class="flex items-center justify-center py-12">
+                        <Spinner/>
+                        <span class="ml-3 text-muted-foreground">"Loading run..."</span>
+                    </div>
+                }.into_any(),
+                LoadingState::Loading => view! {
+                    <div class="flex items-center justify-center py-12">
+                        <Spinner/>
+                        <span class="ml-3 text-muted-foreground">"Loading run..."</span>
+                    </div>
+                }.into_any(),
+                LoadingState::Loaded(export) => {
                     let trace_id = export.run.trace_id.clone();
 
                     // Single fetch for trace detail - shared by all tabs that need it.
@@ -596,9 +608,34 @@ fn RunDetailHub(run_id: String, on_close: Callback<()>) -> impl IntoView {
                             trace_detail_ready_logged=trace_detail_ready_logged
                             perf_enabled=perf_enabled
                         />
+                    }.into_any()
+                }
+                LoadingState::Error(err) => {
+                    // /runs/:id is used both for diagnostic-run IDs and inference trace IDs.
+                    // If the diagnostic export path fails (common for pure trace IDs),
+                    // degrade gracefully to a trace-only viewer instead of hard erroring the page.
+                    if run_id.starts_with("trc-") {
+                        view! {
+                            <div class="space-y-3">
+                                <div class="text-sm text-muted-foreground">
+                                    "Diagnostic export unavailable; showing trace-only view."
+                                </div>
+                                <crate::components::trace_viewer::TraceViewer trace_id=run_id.clone() compact=false/>
+                            </div>
+                        }.into_any()
+                    } else {
+                        let err = err.to_string();
+                        view! {
+                            <div class="bg-destructive/10 border border-destructive/20 rounded-lg p-4">
+                                <div class="flex items-center gap-2 text-destructive">
+                                    <span class="font-medium">"Error loading run"</span>
+                                </div>
+                                <p class="text-sm text-muted-foreground mt-2">{err}</p>
+                            </div>
+                        }.into_any()
                     }
                 }
-            />
+            }}
         </div>
     }
 }
