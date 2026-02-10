@@ -89,6 +89,23 @@ export async function waitForAppReady(page: Page): Promise<void> {
 }
 
 export async function ensureLoggedIn(page: Page): Promise<void> {
+  const devBypass = (process.env.PW_DEV_BYPASS ?? '').trim() === '1';
+
+  // In dev-bypass mode the backend should serve protected routes without a login redirect,
+  // but the UI can still briefly show a "Signing you in" overlay while it boots/auth-hydrates.
+  if (devBypass) {
+    const signingIn = page.getByText('Signing you in', { exact: false });
+    if (await signingIn.isVisible().catch(() => false)) {
+      await signingIn.waitFor({ state: 'hidden', timeout: 90_000 }).catch(() => {});
+    }
+
+    // If the Shell is visible, we consider auth "good enough" for E2E flows.
+    const shellLink = page.getByRole('link', { name: 'Dashboard' });
+    if (await shellLink.isVisible().catch(() => false)) {
+      return;
+    }
+  }
+
   for (let attempt = 0; attempt < 2; attempt += 1) {
     const authError = page.getByRole('heading', { name: 'Authentication Error' });
     const authTimeout = page.getByRole('heading', { name: 'Authentication Timeout' });
