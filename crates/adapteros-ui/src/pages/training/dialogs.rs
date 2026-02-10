@@ -63,6 +63,9 @@ pub fn CreateJobDialog(
     // File upload state
     let uploading = RwSignal::new(false);
     let upload_status = RwSignal::new(String::new());
+    // Dataset creation mode for the single-document file picker below.
+    // "synthesis" uses backend strict replay synthesis; "text" follows the existing doc->dataset path.
+    let upload_dataset_kind = RwSignal::new("synthesis".to_string());
     #[cfg(target_arch = "wasm32")]
     let format_upload_error = |err: &ApiError| -> String {
         if let ApiError::Structured {
@@ -152,12 +155,40 @@ pub fn CreateJobDialog(
             if let Some(files) = input.files() {
                 if let Some(file) = files.get(0) {
                     let file_name = file.name();
+                    let kind = upload_dataset_kind.get();
                     uploading.set(true);
                     upload_status.set(format!("Uploading {}...", file_name));
                     error.set(None);
 
                     wasm_bindgen_futures::spawn_local(async move {
                         let client = ApiClient::new();
+
+                        if kind == "synthesis" {
+                            upload_status.set("Uploading and processing document...".to_string());
+                            match client
+                                .create_training_dataset_from_upload(
+                                    &file,
+                                    Some(&file_name),
+                                    None,
+                                    Some("synthesis"),
+                                )
+                                .await
+                            {
+                                Ok(ds) => {
+                                    dataset_id.set(ds.id);
+                                    upload_status.set("Dataset ready!".to_string());
+                                    uploading.set(false);
+                                    return;
+                                }
+                                Err(e) => {
+                                    let msg = format_upload_error(&e);
+                                    error.set(Some(format!("Failed to synthesize dataset: {}", msg)));
+                                    uploading.set(false);
+                                    upload_status.set(String::new());
+                                    return;
+                                }
+                            }
+                        }
 
                         // Step 1: Upload document
                         match client.upload_document(&file).await {
@@ -590,6 +621,38 @@ pub fn CreateJobDialog(
                             <div class="space-y-3">
                                 // File upload input
                                 <div>
+                                    <div class="flex items-center justify-between mb-2">
+                                        <div class="text-xs text-muted-foreground">
+                                            "Dataset type"
+                                        </div>
+                                        <div class="flex gap-2">
+                                            {vec![
+                                                ("synthesis".to_string(), "Synthesized examples".to_string()),
+                                                ("text".to_string(), "Raw text".to_string()),
+                                            ].into_iter().map(|(value, label)| {
+                                                let value_for_class = value.clone();
+                                                let value_for_click = value.clone();
+                                                view! {
+                                                    <button
+                                                        type="button"
+                                                        class=move || {
+                                                            if upload_dataset_kind.get() == value_for_class {
+                                                                "px-3 py-1.5 rounded-md bg-primary text-primary-foreground text-xs"
+                                                            } else {
+                                                                "px-3 py-1.5 rounded-md border text-xs"
+                                                            }
+                                                        }
+                                                        on:click=move |_| upload_dataset_kind.set(value_for_click.clone())
+                                                    >
+                                                        {label}
+                                                    </button>
+                                                }
+                                            }).collect_view()}
+                                        </div>
+                                    </div>
+                                    <p class="text-xs text-muted-foreground mb-2">
+                                        "Strict replay uses MLX backend and deterministic seeding; same inputs produce the same dataset output."
+                                    </p>
                                     <input
                                         type="file"
                                         accept=".md,.txt,.pdf"

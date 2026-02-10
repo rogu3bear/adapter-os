@@ -422,11 +422,13 @@ pub fn CreateJobWizard(
         }
     };
 
-    let close = move |_: ()| {
-        open.set(false);
+    let reset_form = move || {
         current_step.set(WizardStep::default());
         error.set(None);
         form_errors.update(|e| e.clear_all());
+        submitting.set(false);
+        dataset_wizard_open.set(false);
+        generate_wizard_open.set(false);
         // Reset form state
         adapter_name.set(String::new());
         base_model_id.set(String::new());
@@ -448,9 +450,13 @@ pub fn CreateJobWizard(
     };
 
     // Reset form when dialog closes
+    let was_open = StoredValue::new(open.get_untracked());
     Effect::new(move || {
-        if !open.get() {
-            close(());
+        let is_open = open.get();
+        let prev = was_open.get_value();
+        was_open.set_value(is_open);
+        if prev && !is_open {
+            reset_form();
         }
     });
 
