@@ -121,7 +121,7 @@ async fn golden_path_inference_over_uds() -> Result<(), Box<dyn std::error::Erro
 
     let core = InferenceCore::new(&state);
     let result = core
-        .route_and_infer(request, None, None, None)
+        .route_and_infer(request, None, None, None, None)
         .await
         .expect("golden path inference should succeed");
 
@@ -288,6 +288,7 @@ fn build_stub_response(adapter_id: &str, backend: &str) -> WorkerInferResponse {
         stop_reason_code: None,
         stop_reason_token_index: None,
         stop_policy_digest_b3: None,
+        pinned_degradation_evidence: None,
         tokenizer_digest_b3: None,
         backend_raw: None,
     }

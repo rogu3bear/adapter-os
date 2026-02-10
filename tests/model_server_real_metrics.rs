@@ -13,7 +13,7 @@
 //! ```
 
 use std::process::Command;
-use std::time::{Duration, Instant};
+use std::time::Instant;
 
 /// Memory snapshot from the system
 #[derive(Debug, Clone)]
@@ -25,6 +25,7 @@ struct MemorySnapshot {
     /// Metal GPU memory (if available via ioreg)
     gpu_bytes: Option<u64>,
     /// Unified memory pressure
+    #[allow(dead_code)]
     memory_pressure: Option<String>,
 }
 
@@ -124,6 +125,7 @@ impl MemorySnapshot {
 /// Latency statistics
 #[derive(Debug, Clone)]
 struct LatencyStats {
+    #[allow(dead_code)]
     count: usize,
     min_ms: f64,
     max_ms: f64,
@@ -165,6 +167,7 @@ impl LatencyStats {
 
 /// Benchmark results for a scenario
 #[derive(Debug)]
+#[allow(dead_code)]
 struct BenchmarkResults {
     name: String,
     memory_before: MemorySnapshot,
@@ -496,7 +499,7 @@ fn test_memory_with_real_model() {
     );
 
     // This requires the mlx feature
-    #[cfg(feature = "mlx")]
+    #[cfg(feature = "multi-backend")]
     {
         use adapteros_model_server::{
             adapter_cache::AdapterCache, forward::ForwardExecutor, kv_cache::KvCacheManager,
@@ -555,9 +558,9 @@ fn test_memory_with_real_model() {
         }
     }
 
-    #[cfg(not(feature = "mlx"))]
+    #[cfg(not(feature = "multi-backend"))]
     {
-        println!("\nMLX feature not enabled. Rebuild with --features mlx");
+        println!("\nmulti-backend feature not enabled. Rebuild with --features multi-backend");
     }
 }
 

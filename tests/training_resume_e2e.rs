@@ -591,12 +591,12 @@ mod train_docs_resume {
 
 /// Integration test that runs a quick training cycle
 /// This test requires the MLX backend to be available
-#[cfg(feature = "mlx")]
+#[cfg(feature = "multi-backend")]
 mod integration {
     use super::*;
 
     #[tokio::test]
-    #[ignore = "requires MLX backend - run with: cargo test --features mlx training_resume_e2e -- --ignored"]
+    #[ignore = "requires MLX backend - run with: cargo test --features multi-backend training_resume_e2e -- --ignored"]
     async fn test_training_resume_full_cycle() {
         use tempfile::TempDir;
 
