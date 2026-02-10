@@ -179,7 +179,11 @@ impl CleanupManager {
             })? {
                 let path = entry.path();
                 let ty = entry.file_type().await.map_err(|e| {
-                    AosError::Io(format!("Failed to read file type for {}: {}", path.display(), e))
+                    AosError::Io(format!(
+                        "Failed to read file type for {}: {}",
+                        path.display(),
+                        e
+                    ))
                 })?;
 
                 if ty.is_dir() {
@@ -200,7 +204,11 @@ impl CleanupManager {
                 }
 
                 let metadata = entry.metadata().await.map_err(|e| {
-                    AosError::Io(format!("Failed to read metadata for {}: {}", path.display(), e))
+                    AosError::Io(format!(
+                        "Failed to read metadata for {}: {}",
+                        path.display(),
+                        e
+                    ))
                 })?;
                 let ts = metadata.created().or_else(|_| metadata.modified());
                 let age_ok = ts

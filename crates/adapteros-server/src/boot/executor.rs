@@ -114,34 +114,34 @@ pub async fn initialize_executor(
                     };
                 match parsed {
                     Ok(manifest) => {
-                    // Validate manifest before using for seeding
-                    if let Err(e) = manifest.validate() {
-                        warn!(
-                            error = %e,
-                            path = %manifest_path.display(),
-                            "Manifest validation failed, using default seed"
-                        );
-                        None
-                    } else {
-                        match manifest.compute_hash() {
-                            Ok(hash) => {
-                                info!(
-                                    manifest_hash = %hash.to_hex()[..16],
-                                    path = %manifest_path.display(),
-                                    "Loaded and validated manifest for executor seeding"
-                                );
-                                Some(hash)
-                            }
-                            Err(e) => {
-                                warn!(
-                                    error = %e,
-                                    path = %manifest_path.display(),
-                                    "Failed to compute manifest hash, using default seed"
-                                );
-                                None
+                        // Validate manifest before using for seeding
+                        if let Err(e) = manifest.validate() {
+                            warn!(
+                                error = %e,
+                                path = %manifest_path.display(),
+                                "Manifest validation failed, using default seed"
+                            );
+                            None
+                        } else {
+                            match manifest.compute_hash() {
+                                Ok(hash) => {
+                                    info!(
+                                        manifest_hash = %hash.to_hex()[..16],
+                                        path = %manifest_path.display(),
+                                        "Loaded and validated manifest for executor seeding"
+                                    );
+                                    Some(hash)
+                                }
+                                Err(e) => {
+                                    warn!(
+                                        error = %e,
+                                        path = %manifest_path.display(),
+                                        "Failed to compute manifest hash, using default seed"
+                                    );
+                                    None
+                                }
                             }
                         }
-                    }
                     }
                     Err(e) => {
                         warn!(
