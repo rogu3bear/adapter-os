@@ -164,28 +164,136 @@ pub fn CreateJobDialog(
                         let client = ApiClient::new();
 
                         if kind == "synthesis" {
-                            upload_status.set("Uploading and processing document...".to_string());
-                            match client
-                                .create_training_dataset_from_upload(
-                                    &file,
-                                    Some(&file_name),
-                                    None,
-                                    Some("synthesis"),
-                                )
-                                .await
-                            {
-                                Ok(ds) => {
-                                    dataset_id.set(ds.id);
-                                    upload_status.set("Dataset ready!".to_string());
-                                    uploading.set(false);
-                                    return;
+                            const ASYNC_THRESHOLD_BYTES: u64 = 10 * 1024 * 1024;
+                            let use_async = file.size() as u64 >= ASYNC_THRESHOLD_BYTES;
+
+                            if use_async {
+                                upload_status.set("Queued (async upload)...".to_string());
+                                match client
+                                    .create_training_dataset_from_upload_async(
+                                        &file,
+                                        Some(&file_name),
+                                        None,
+                                        Some("synthesis"),
+                                    )
+                                    .await
+                                {
+                                    Ok(job) => {
+                                        upload_status.set(format!(
+                                            "Queued job {}. Waiting for completion...",
+                                            job.id
+                                        ));
+
+                                        // Poll job status until finished/failed.
+                                        loop {
+                                            gloo_timers::future::TimeoutFuture::new(1000).await;
+                                            match client.get_job(&job.id).await {
+                                                Ok(detail) => match detail.status.as_str() {
+                                                    "queued" | "running" => {
+                                                        upload_status.set(format!(
+                                                            "Synthesis job {}: {}",
+                                                            detail.id, detail.status
+                                                        ));
+                                                    }
+                                                    "finished" => {
+                                                        if let Some(result_json) = detail.result_json
+                                                        {
+                                                            match serde_json::from_str::<
+                                                                crate::api::DatasetResponse,
+                                                            >(&result_json)
+                                                            {
+                                                                Ok(ds) => {
+                                                                    dataset_id.set(ds.id);
+                                                                    upload_status
+                                                                        .set("Dataset ready!".to_string());
+                                                                    uploading.set(false);
+                                                                    return;
+                                                                }
+                                                                Err(e) => {
+                                                                    error.set(Some(format!(
+                                                                        "Job finished but result could not be parsed: {}",
+                                                                        e
+                                                                    )));
+                                                                    uploading.set(false);
+                                                                    upload_status.set(String::new());
+                                                                    return;
+                                                                }
+                                                            }
+                                                        }
+                                                        error.set(Some(
+                                                            "Job finished but result is missing".to_string(),
+                                                        ));
+                                                        uploading.set(false);
+                                                        upload_status.set(String::new());
+                                                        return;
+                                                    }
+                                                    "failed" => {
+                                                        error.set(Some(format!(
+                                                            "Synthesis job failed: {}",
+                                                            detail.result_json
+                                                                .unwrap_or_else(|| "unknown error".to_string())
+                                                        )));
+                                                        uploading.set(false);
+                                                        upload_status.set(String::new());
+                                                        return;
+                                                    }
+                                                    other => {
+                                                        upload_status.set(format!(
+                                                            "Synthesis job {}: {}",
+                                                            detail.id, other
+                                                        ));
+                                                    }
+                                                },
+                                                Err(e) => {
+                                                    error.set(Some(format!(
+                                                        "Failed to poll job: {}",
+                                                        format_upload_error(&e)
+                                                    )));
+                                                    uploading.set(false);
+                                                    upload_status.set(String::new());
+                                                    return;
+                                                }
+                                            }
+                                        }
+                                    }
+                                    Err(e) => {
+                                        let msg = format_upload_error(&e);
+                                        error.set(Some(format!(
+                                            "Failed to start synthesis job: {}",
+                                            msg
+                                        )));
+                                        uploading.set(false);
+                                        upload_status.set(String::new());
+                                        return;
+                                    }
                                 }
-                                Err(e) => {
-                                    let msg = format_upload_error(&e);
-                                    error.set(Some(format!("Failed to synthesize dataset: {}", msg)));
-                                    uploading.set(false);
-                                    upload_status.set(String::new());
-                                    return;
+                            } else {
+                                upload_status.set("Uploading and processing document...".to_string());
+                                match client
+                                    .create_training_dataset_from_upload(
+                                        &file,
+                                        Some(&file_name),
+                                        None,
+                                        Some("synthesis"),
+                                    )
+                                    .await
+                                {
+                                    Ok(ds) => {
+                                        dataset_id.set(ds.id);
+                                        upload_status.set("Dataset ready!".to_string());
+                                        uploading.set(false);
+                                        return;
+                                    }
+                                    Err(e) => {
+                                        let msg = format_upload_error(&e);
+                                        error.set(Some(format!(
+                                            "Failed to synthesize dataset: {}",
+                                            msg
+                                        )));
+                                        uploading.set(false);
+                                        upload_status.set(String::new());
+                                        return;
+                                    }
                                 }
                             }
                         }
