@@ -615,24 +615,47 @@ impl<'a> InferenceCore<'a> {
         self.validate_adapters_loadable(&request).await?;
 
         // 0.1 Gate on base model readiness (strictly per-tenant)
-        let base_status = self
-            .state
-            .db
-            .get_base_model_status(&request.cpid)
-            .await
-            .map_err(|e| {
-                InferenceError::WorkerError(format!("Failed to fetch base model status: {}", e))
-            })?;
+        //
+        // If the request doesn't pin a specific model, prefer the tenant's active base model
+        // (workspace_active_state) rather than the most recently updated status record.
+        let effective_model_id = match request.model.as_deref() {
+            Some(model_id) => Some(model_id.to_string()),
+            None => self
+                .state
+                .db
+                .get_workspace_active_state(&request.cpid)
+                .await
+                .map_err(|e| {
+                    InferenceError::WorkerError(format!(
+                        "Failed to fetch workspace active state: {}",
+                        e
+                    ))
+                })?
+                .and_then(|ws| ws.active_base_model_id),
+        };
+
+        let base_status = match effective_model_id.as_deref() {
+            Some(model_id) => self
+                .state
+                .db
+                .get_base_model_status_for_model(&request.cpid, model_id)
+                .await
+                .map_err(|e| {
+                    InferenceError::WorkerError(format!("Failed to fetch base model status: {}", e))
+                })?,
+            None => self
+                .state
+                .db
+                .get_base_model_status(&request.cpid)
+                .await
+                .map_err(|e| {
+                    InferenceError::WorkerError(format!("Failed to fetch base model status: {}", e))
+                })?,
+        };
 
         let mut records: Vec<adapteros_db::models::BaseModelStatus> = Vec::new();
         if let Some(status) = base_status {
-            if request
-                .model
-                .as_ref()
-                .is_none_or(|model_id| &status.model_id == model_id)
-            {
-                records.push(status);
-            }
+            records.push(status);
         }
 
         if records.is_empty() {
