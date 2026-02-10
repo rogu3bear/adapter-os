@@ -285,7 +285,8 @@ pub async fn upsert_directory_adapter(
             .rank(analysis.symbols.len() as i32 % 17 + 16)
             .tier("warm")
             .languages_json(Some(languages_json.clone()))
-            .category("directory")
+            // Keep within DB enum constraints; directory adapters are effectively codebase-scoped.
+            .category("codebase")
             // Keep within DB enum constraints; directory adapters are still globally routable.
             .scope("global")
             .build()
