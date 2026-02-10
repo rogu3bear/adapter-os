@@ -271,72 +271,9 @@ pub async fn import_adapter(
     // Compute whole-file hash (Issue 5)
     let file_hash = hasher.finalize().to_hex().to_string();
 
-    // === DEDUPLICATION CHECK (Issue 4) ===
-    // Check if adapter with same hash already exists BEFORE any further processing
-    // Use tenant hint for 2-phase lookup optimization (Idea 2)
-    if let Ok(Some(existing)) = state
-        .db
-        .find_adapter_by_hash(&file_hash, Some(&claims.tenant_id))
-        .await
-    {
-        // Cleanup temp file - we don't need it
-        let _ = tokio::fs::remove_file(&temp_path).await;
-
-        info!(
-            existing_id = %existing.adapter_id.as_ref().unwrap_or(&existing.id),
-            hash = %file_hash,
-            actor = %claims.sub,
-            "Deduplicated adapter import - returning existing adapter"
-        );
-
-        let now = chrono::Utc::now().to_rfc3339();
-        return Ok(Json(AdapterResponse {
-            schema_version: "v1".to_string(),
-            id: existing.id.clone(),
-            adapter_id: existing.adapter_id.clone().unwrap_or(existing.id),
-            name: existing.name,
-            hash_b3: existing.hash_b3,
-            rank: existing.rank,
-            tier: existing.tier,
-            assurance_tier: None,
-            languages: vec![],
-            framework: existing.framework,
-            category: Some(existing.category),
-            scope: Some(existing.scope),
-            lora_tier: None,
-            lora_strength: existing.lora_strength,
-            lora_scope: None,
-            framework_id: existing.framework_id,
-            framework_version: existing.framework_version,
-            repo_id: existing.repo_id,
-            commit_sha: existing.commit_sha,
-            intent: existing.intent,
-            created_at: existing.created_at,
-            updated_at: Some(now),
-            stats: None,
-            version: existing.version,
-            lifecycle_state: existing.lifecycle_state,
-            runtime_state: Some(existing.current_state),
-            pinned: Some(existing.pinned != 0),
-            memory_bytes: Some(existing.memory_bytes),
-            deduplicated: Some(true),
-            drift_reference_backend: None,
-            drift_baseline_backend: None,
-            drift_test_backend: None,
-            drift_tier: None,
-            drift_metric: None,
-            drift_slice_size: None,
-            drift_slice_offset: None,
-            drift_loss_metric: None,
-            // Codebase adapter fields
-            adapter_type: None,
-            base_adapter_id: None,
-            stream_session_id: None,
-            versioning_threshold: None,
-            coreml_package_hash: None,
-            display_name: None,
-        }));
-    }
+    // NOTE: We intentionally do NOT deduplicate based on this whole-file hash.
+    // The canonical adapter identity is `weights_hash` (hash_b3) computed from the
+    // canonical segment payload; dedup is performed after AOS parsing.
 
     // === VALIDATE AOS FORMAT ===
     // Read the file for validation (already streamed to disk)
@@ -394,7 +331,7 @@ pub async fn import_adapter(
         )
     })?;
 
-    let manifest: serde_json::Value = serde_json::from_str(manifest_str).map_err(|e| {
+    let mut manifest: serde_json::Value = serde_json::from_str(manifest_str).map_err(|e| {
         let _ = std::fs::remove_file(&temp_path);
         (
             StatusCode::BAD_REQUEST,
@@ -437,41 +374,43 @@ pub async fn import_adapter(
         }
     }
 
-    let metadata_obj = manifest.get("metadata").and_then(|m| m.as_object());
-    let scope_path = match metadata_obj
-        .and_then(|m| m.get("scope_path"))
-        .and_then(|v| v.as_str())
-    {
-        Some(path) => path,
-        None => {
-            let _ = tokio::fs::remove_file(&temp_path).await;
-            return Err((
-                StatusCode::BAD_REQUEST,
-                Json(
-                    ErrorResponse::new("invalid AOS file: missing scope_path in metadata")
-                        .with_code("INVALID_FORMAT"),
-                ),
-            ));
-        }
+    let (scope_path, domain, group, _operation) = {
+        let metadata_obj = manifest.get("metadata").and_then(|m| m.as_object());
+        let scope_path = match metadata_obj
+            .and_then(|m| m.get("scope_path"))
+            .and_then(|v| v.as_str())
+        {
+            Some(path) => path.to_string(),
+            None => {
+                let _ = tokio::fs::remove_file(&temp_path).await;
+                return Err((
+                    StatusCode::BAD_REQUEST,
+                    Json(
+                        ErrorResponse::new("invalid AOS file: missing scope_path in metadata")
+                            .with_code("INVALID_FORMAT"),
+                    ),
+                ));
+            }
+        };
+        let domain = metadata_obj
+            .and_then(|m| m.get("domain").and_then(|v| v.as_str()))
+            .unwrap_or("unspecified")
+            .to_string();
+        let group = metadata_obj
+            .and_then(|m| m.get("group").and_then(|v| v.as_str()))
+            .unwrap_or("unspecified")
+            .to_string();
+        let operation = metadata_obj
+            .and_then(|m| m.get("operation").and_then(|v| v.as_str()))
+            .map(|s| s.to_string());
+        (scope_path, domain, group, operation)
     };
-    let scope_hash = adapteros_aos::compute_scope_hash(scope_path);
-    let domain = metadata_obj
-        .and_then(|m| m.get("domain").and_then(|v| v.as_str()))
-        .unwrap_or("unspecified")
-        .to_string();
-    let group = metadata_obj
-        .and_then(|m| m.get("group").and_then(|v| v.as_str()))
-        .unwrap_or("unspecified")
-        .to_string();
+    let scope_hash = adapteros_aos::compute_scope_hash(&scope_path);
     let scope_value = manifest
         .get("scope")
         .and_then(|v| v.as_str())
         .unwrap_or("project")
         .to_string();
-    let _operation = metadata_obj
-        .and_then(|m| m.get("operation").and_then(|v| v.as_str()))
-        .map(|s| s.to_string());
-
     let canonical_segment = match file_view
         .segments
         .iter()
@@ -501,7 +440,8 @@ pub async fn import_adapter(
     let schema_version = manifest
         .get("schema_version")
         .and_then(|v| v.as_str())
-        .unwrap_or("1.0.0");
+        .unwrap_or("1.0.0")
+        .to_string();
 
     // Simple major version check: extract first number and compare
     let file_major: u32 = schema_version
@@ -598,6 +538,72 @@ pub async fn import_adapter(
         }
     }
     let weights_hash = computed_weights_hash;
+
+    // === DEDUPLICATION CHECK (Issue 4) ===
+    // Deduplicate on canonical weights hash (adapters.hash_b3) within the tenant.
+    if let Ok(Some(existing)) = state
+        .db
+        .find_adapter_by_hash(&weights_hash, Some(&claims.tenant_id))
+        .await
+    {
+        // Cleanup temp file - we don't need it
+        let _ = tokio::fs::remove_file(&temp_path).await;
+
+        info!(
+            existing_id = %existing.adapter_id.as_ref().unwrap_or(&existing.id),
+            hash_b3 = %weights_hash,
+            actor = %claims.sub,
+            "Deduplicated adapter import - returning existing adapter"
+        );
+
+        let now = chrono::Utc::now().to_rfc3339();
+        return Ok(Json(AdapterResponse {
+            schema_version: "v1".to_string(),
+            id: existing.id.clone(),
+            adapter_id: existing.adapter_id.clone().unwrap_or(existing.id),
+            name: existing.name,
+            hash_b3: existing.hash_b3,
+            rank: existing.rank,
+            tier: existing.tier,
+            assurance_tier: None,
+            languages: vec![],
+            framework: existing.framework,
+            category: Some(existing.category),
+            scope: Some(existing.scope),
+            lora_tier: None,
+            lora_strength: existing.lora_strength,
+            lora_scope: None,
+            framework_id: existing.framework_id,
+            framework_version: existing.framework_version,
+            repo_id: existing.repo_id,
+            commit_sha: existing.commit_sha,
+            intent: existing.intent,
+            created_at: existing.created_at,
+            updated_at: Some(now),
+            stats: None,
+            version: existing.version,
+            lifecycle_state: existing.lifecycle_state,
+            runtime_state: Some(existing.current_state),
+            pinned: Some(existing.pinned != 0),
+            memory_bytes: Some(existing.memory_bytes),
+            deduplicated: Some(true),
+            drift_reference_backend: None,
+            drift_baseline_backend: None,
+            drift_test_backend: None,
+            drift_tier: None,
+            drift_metric: None,
+            drift_slice_size: None,
+            drift_slice_offset: None,
+            drift_loss_metric: None,
+            // Codebase adapter fields
+            adapter_type: None,
+            base_adapter_id: None,
+            stream_session_id: None,
+            versioning_threshold: None,
+            coreml_package_hash: None,
+            display_name: None,
+        }));
+    }
 
     // E. Signature Policy Check
     let policy = state
@@ -742,29 +748,141 @@ pub async fn import_adapter(
         );
     }
 
-    // F. Content Hash Identity (compute BLAKE3 of manifest + weights for dedup/identity)
-    let content_hash_b3 = hash_multi_bytes(&[manifest_bytes, weights_data]);
-
     // === END PRD-ART-01 VALIDATIONS ===
 
     // Extract adapter fields from manifest
-    // Validate user-provided adapter_id if present
-    if let Some(user_adapter_id) = manifest.get("adapter_id").and_then(|v| v.as_str()) {
-        validate_adapter_id(user_adapter_id)?;
-    }
-    let adapter_id = manifest
+    // Adapter identity for runtime loads must be stable and must match the on-disk bundle manifest.
+    let user_adapter_id = manifest
         .get("adapter_id")
         .and_then(|v| v.as_str())
-        .map(|s| s.to_string())
-        .unwrap_or_else(|| {
-            crate::id_generator::readable_id(adapteros_id::IdPrefix::Adp, "imported")
-        });
+        .map(|s| s.trim())
+        .filter(|s| !s.is_empty());
+    if let Some(id) = user_adapter_id {
+        validate_adapter_id(id)?;
+    }
+
+    let adapter_id = user_adapter_id.map(|s| s.to_string()).unwrap_or_else(|| {
+        // Deterministic fallback for legacy bundles that omit adapter_id:
+        // tie identity to the canonical weights hash so repeated imports are stable.
+        let prefix_len = 32.min(weights_hash.len());
+        format!("adp_{}", &weights_hash[..prefix_len])
+    });
 
     let adapter_name = manifest
         .get("name")
         .and_then(|v| v.as_str())
         .map(|s| s.to_string())
-        .unwrap_or_else(|| _name.clone());
+        .unwrap_or_else(|| adapter_id.clone());
+
+    // Normalize legacy manifests by injecting adapter_id so worker-side integrity checks can run.
+    let mut did_rewrite_manifest = false;
+    let manifest_adapter_id = manifest
+        .get("adapter_id")
+        .and_then(|v| v.as_str())
+        .map(|s| s.trim())
+        .unwrap_or("");
+    if manifest_adapter_id != adapter_id {
+        if let Some(obj) = manifest.as_object_mut() {
+            obj.insert(
+                "adapter_id".to_string(),
+                serde_json::Value::String(adapter_id.clone()),
+            );
+            did_rewrite_manifest = true;
+        }
+    }
+
+    if did_rewrite_manifest {
+        // Re-package to a canonical AOS archive so the stored bundle's manifest matches
+        // the control-plane adapter_id and can be verified in the worker.
+        let mut writer = adapteros_aos::AosWriter::new();
+        let manifest_scope_hash = adapteros_aos::compute_scope_hash(&scope_path);
+        let scope_path_string = scope_path.clone();
+
+        for seg in &file_view.segments {
+            // Preserve whether a segment is scoped vs unscoped. For legacy bundles we only
+            // know the manifest scope_path, so scoped segments all use that hash.
+            let scope_arg = (seg.scope_hash != [0u8; 16]).then_some(scope_path_string.clone());
+            if seg.backend_tag == adapteros_aos::BackendTag::Canonical {
+                // Ensure canonical segment is always scoped to the manifest scope_path.
+                writer
+                    .add_segment(
+                        seg.backend_tag,
+                        Some(scope_path_string.clone()),
+                        seg.payload,
+                    )
+                    .map_err(|e| {
+                        let _ = std::fs::remove_file(&temp_path);
+                        (
+                            StatusCode::BAD_REQUEST,
+                            Json(
+                                ErrorResponse::new(format!(
+                                    "invalid AOS file: failed to normalize segments: {}",
+                                    e
+                                ))
+                                .with_code("INVALID_FORMAT"),
+                            ),
+                        )
+                    })?;
+            } else if seg.scope_hash == [0u8; 16] || seg.scope_hash == manifest_scope_hash {
+                writer
+                    .add_segment(seg.backend_tag, scope_arg, seg.payload)
+                    .map_err(|e| {
+                        let _ = std::fs::remove_file(&temp_path);
+                        (
+                            StatusCode::BAD_REQUEST,
+                            Json(
+                                ErrorResponse::new(format!(
+                                    "invalid AOS file: failed to normalize segments: {}",
+                                    e
+                                ))
+                                .with_code("INVALID_FORMAT"),
+                            ),
+                        )
+                    })?;
+            } else {
+                warn!(
+                    adapter_id = %adapter_id,
+                    backend_tag = ?seg.backend_tag,
+                    "Skipping non-canonical segment with unknown scope hash during import normalization"
+                );
+            }
+        }
+
+        writer.write_archive(&temp_path, &manifest).map_err(|e| {
+            let _ = std::fs::remove_file(&temp_path);
+            (
+                StatusCode::BAD_REQUEST,
+                Json(
+                    ErrorResponse::new(format!(
+                        "invalid AOS file: failed to normalize manifest: {}",
+                        e
+                    ))
+                    .with_code("INVALID_FORMAT"),
+                ),
+            )
+        })?;
+    }
+
+    // Content hash identity (BLAKE3(manifest_json + weights_bytes)).
+    // If we normalized, use the bytes we will store (writer uses pretty JSON too).
+    let manifest_bytes_for_hash: Vec<u8> = if did_rewrite_manifest {
+        serde_json::to_vec_pretty(&manifest).map_err(|e| {
+            let _ = std::fs::remove_file(&temp_path);
+            (
+                StatusCode::BAD_REQUEST,
+                Json(
+                    ErrorResponse::new(format!(
+                        "invalid AOS file: failed to serialize normalized manifest: {}",
+                        e
+                    ))
+                    .with_code("INVALID_FORMAT"),
+                ),
+            )
+        })?
+    } else {
+        manifest_bytes.to_vec()
+    };
+    let content_hash_b3 = hash_multi_bytes(&[&manifest_bytes_for_hash, weights_data]);
 
     // Validate user-provided rank if present (must be positive and reasonable)
     if let Some(user_rank) = manifest.get("rank").and_then(|v| v.as_i64()) {
@@ -877,10 +995,15 @@ pub async fn import_adapter(
     let stored = repo
         .store_bundle(StoreBundleRequest {
             tenant_id: claims.tenant_id.clone(),
-            adapter_name: adapter_name.clone(),
+            // Store bundles under adapter_id so worker-side runtime resolution is stable.
+            adapter_name: adapter_id.clone(),
             version: version.clone(),
             temp_path: temp_path.clone(),
-            precomputed_hash: Some(file_hash.clone()),
+            precomputed_hash: if did_rewrite_manifest {
+                None
+            } else {
+                Some(file_hash.clone())
+            },
         })
         .await
         .map_err(map_repo_error)?;
