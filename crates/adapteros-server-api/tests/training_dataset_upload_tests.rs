@@ -120,7 +120,9 @@ async fn dataset_upload_enforces_tenant_isolation() {
         .await
         .expect_err("cross-tenant dataset creation should fail");
 
-    assert_eq!(err.0, StatusCode::FORBIDDEN);
+    // Tenant isolation should not leak the existence of another tenant's document.
+    // Cross-tenant document ids resolve to NOT_FOUND rather than FORBIDDEN.
+    assert_eq!(err.0, StatusCode::NOT_FOUND);
 }
 
 #[tokio::test]
