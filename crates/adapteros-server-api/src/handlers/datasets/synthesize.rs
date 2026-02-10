@@ -20,6 +20,227 @@ use tokio::io::AsyncWriteExt;
 use tokio::sync::OnceCell;
 use utoipa::ToSchema;
 
+// Chunk-level incremental reuse cache. Persisted under ./var/ (gitignored).
+//
+// Best-effort optimization for large / repeated synthesis runs. It must never
+// change ordering semantics: we always stitch results back together in the
+// caller-provided chunk order.
+#[derive(Debug, Serialize, Deserialize)]
+struct CachedChunkExamples {
+    examples: Vec<adapteros_orchestrator::synthesis::TrainingExample>,
+}
+
+fn resolve_var_dir_for_cache(state: &AppState) -> std::path::PathBuf {
+    // Use AOS_VAR_DIR if set (consistent with other operational endpoints).
+    // Fall back to "var".
+    if let Ok(v) = std::env::var("AOS_VAR_DIR") {
+        return std::path::PathBuf::from(v);
+    }
+    let _ = state; // reserved for future config wiring
+    std::path::PathBuf::from("var")
+}
+
+fn stable_model_hash_b3(path: &std::path::Path) -> B3Hash {
+    if path.is_file() {
+        if let Ok(bytes) = std::fs::read(path) {
+            return B3Hash::hash(&bytes);
+        }
+        return B3Hash::hash(path.to_string_lossy().as_bytes());
+    }
+
+    // Deterministic directory hash: hash sorted relative paths + file hashes.
+    let mut entries: Vec<std::path::PathBuf> = Vec::new();
+    fn collect_files(root: &std::path::Path, out: &mut Vec<std::path::PathBuf>) {
+        let Ok(rd) = std::fs::read_dir(root) else { return };
+        for e in rd.flatten() {
+            let p = e.path();
+            if p.is_dir() {
+                collect_files(&p, out);
+            } else if p.is_file() {
+                out.push(p);
+            }
+        }
+    }
+    collect_files(path, &mut entries);
+    entries.sort();
+
+    let mut hasher = blake3::Hasher::new();
+    for f in entries {
+        let rel = f.strip_prefix(path).unwrap_or(&f);
+        hasher.update(rel.to_string_lossy().as_bytes());
+        hasher.update(b"\n");
+        if let Ok(bytes) = std::fs::read(&f) {
+            hasher.update(blake3::hash(&bytes).as_bytes());
+        } else {
+            hasher.update(f.to_string_lossy().as_bytes());
+        }
+        hasher.update(b"\n");
+    }
+    B3Hash::new(*hasher.finalize().as_bytes())
+}
+
+fn synthesis_config_hash(config: &SynthesisConfig) -> B3Hash {
+    let s = serde_json::to_string(config).unwrap_or_default();
+    B3Hash::hash(s.as_bytes())
+}
+
+fn synthesis_cache_key_v1(chunk_hash_b3_hex: &str, model_hash_b3_hex: &str, config_hash_b3_hex: &str) -> B3Hash {
+    let s = format!(
+        "synth_cache_v1|chunk={}|model={}|config={}",
+        chunk_hash_b3_hex, model_hash_b3_hex, config_hash_b3_hex
+    );
+    B3Hash::hash(s.as_bytes())
+}
+
+async fn load_cached_examples(cache_root: &std::path::Path, cache_key: &B3Hash) -> Option<Vec<adapteros_orchestrator::synthesis::TrainingExample>> {
+    let path = cache_root.join(format!("{}.json", cache_key.to_hex()));
+    let bytes = tokio::fs::read(&path).await.ok()?;
+    let parsed: CachedChunkExamples = serde_json::from_slice(&bytes).ok()?;
+    Some(parsed.examples)
+}
+
+async fn store_cached_examples(
+    cache_root: &std::path::Path,
+    cache_key: &B3Hash,
+    examples: &[adapteros_orchestrator::synthesis::TrainingExample],
+) {
+    let _ = tokio::fs::create_dir_all(cache_root).await;
+    let path = cache_root.join(format!("{}.json", cache_key.to_hex()));
+    let payload = CachedChunkExamples {
+        examples: examples.to_vec(),
+    };
+    if let Ok(bytes) = serde_json::to_vec(&payload) {
+        let _ = tokio::fs::write(path, bytes).await;
+    }
+}
+
+/// Shared synthesis core used by multiple surfaces.
+///
+/// Produces a flat list of `TrainingExample` in the caller-provided chunk order.
+/// Applies config filters (QA/instructions/completions).
+pub(crate) async fn synthesize_training_examples(
+    state: &AppState,
+    claims: &Claims,
+    config: &SynthesisConfig,
+    chunks: &[DocumentChunk],
+) -> Result<(Vec<adapteros_orchestrator::synthesis::TrainingExample>, SynthesisBatchStats), ApiError> {
+    use adapteros_orchestrator::synthesis::{ExampleType, TrainingExample};
+
+    let engine = get_or_init_synthesis_engine(state).await.map_err(|(code, body)| {
+        ApiError::internal(format!(
+            "synthesis engine init failed: {code} {}",
+            body.0.message
+        ))
+    })?;
+
+    let model_path = resolve_synthesis_model_path(state)
+        .await
+        .map_err(|(code, body)| {
+            ApiError::internal(format!("model resolve failed: {code} {}", body.0.message))
+        })?;
+    let model_hash = stable_model_hash_b3(&model_path).to_hex();
+    let config_hash = synthesis_config_hash(config).to_hex();
+
+    let var_dir = resolve_var_dir_for_cache(state);
+    let cache_root = var_dir
+        .join("synthesis-cache")
+        .join(&claims.tenant_id)
+        .join("chunks");
+    adapteros_core::reject_forbidden_tmp_path(&cache_root, "synthesis-cache-root")?;
+
+    let mut stitched: Vec<Vec<TrainingExample>> = Vec::with_capacity(chunks.len());
+    let mut missing_requests = Vec::new();
+    let mut missing_meta = Vec::new(); // (orig_idx, cache_key)
+
+    for (i, chunk) in chunks.iter().enumerate() {
+        let chunk_hash = B3Hash::hash(chunk.text.as_bytes()).to_hex();
+        let cache_key = synthesis_cache_key_v1(&chunk_hash, &model_hash, &config_hash);
+
+        if let Some(examples) = load_cached_examples(&cache_root, &cache_key).await {
+            stitched.push(examples);
+            continue;
+        }
+
+        stitched.push(Vec::new());
+        let source = if let Some(idx) = chunk.chunk_index {
+            format!("{}:chunk_{}", chunk.source, idx)
+        } else {
+            format!("{}:chunk_{}", chunk.source, i)
+        };
+        missing_requests.push(create_synthesis_request(&chunk.text, &source));
+        missing_meta.push((i, cache_key));
+    }
+
+    let (results, stats) = if missing_requests.is_empty() {
+        (Vec::new(), SynthesisBatchStats::default())
+    } else {
+        let (results, stats) = {
+            let mut engine_guard = engine.write().await;
+            let mut new_config = engine_guard.config().clone();
+            new_config.temperature = config.temperature;
+            new_config.max_new_tokens = config.max_tokens;
+            engine_guard.set_config(new_config);
+            engine_guard
+                .synthesize_batch(missing_requests)
+                .await
+                .map_err(|e| ApiError::internal(format!("Synthesis failed: {}", e)))?
+        };
+        (results, stats)
+    };
+
+    for (result, (orig_idx, cache_key)) in results.iter().zip(missing_meta.into_iter()) {
+        if !result.parse_success {
+            stitched[orig_idx] = Vec::new();
+            continue;
+        }
+
+        let mut examples = Vec::new();
+        let source = &result.request.source;
+
+        if config.include_qa {
+            for (i, qa) in result.output.qa_pairs.iter().enumerate() {
+                examples.push(TrainingExample::new(
+                    qa.question.clone(),
+                    qa.answer.clone(),
+                    ExampleType::QuestionAnswer,
+                    format!("{}:qa_{}", source, i),
+                    i,
+                    qa.relevance,
+                ));
+            }
+        }
+        if config.include_instructions {
+            for (i, inst) in result.output.instructions.iter().enumerate() {
+                examples.push(TrainingExample::new(
+                    inst.instruction.clone(),
+                    inst.response.clone(),
+                    ExampleType::Instruction,
+                    format!("{}:inst_{}", source, i),
+                    i,
+                    Some(0.8),
+                ));
+            }
+        }
+        if config.include_completions {
+            for (i, comp) in result.output.completions.iter().enumerate() {
+                examples.push(TrainingExample::new(
+                    comp.context.clone(),
+                    comp.continuation.clone(),
+                    ExampleType::Completion,
+                    format!("{}:comp_{}", source, i),
+                    i,
+                    Some(0.8),
+                ));
+            }
+        }
+
+        store_cached_examples(&cache_root, &cache_key, &examples).await;
+        stitched[orig_idx] = examples;
+    }
+
+    Ok((stitched.into_iter().flatten().collect(), stats))
+}
+
 /// Cached synthesis engine - loaded once on first use and reused across requests.
 /// This avoids the expensive model loading on every synthesis request.
 ///
@@ -234,96 +455,12 @@ pub async fn synthesize_dataset(
         .into());
     }
 
-    // Get or initialize the cached synthesis engine (model loaded once)
-    let engine = get_or_init_synthesis_engine(&state).await?;
-
-    // Convert chunks to synthesis requests
-    let synthesis_requests: Vec<_> = request
-        .chunks
-        .iter()
-        .enumerate()
-        .map(|(i, chunk)| {
-            let source = if let Some(idx) = chunk.chunk_index {
-                format!("{}:chunk_{}", chunk.source, idx)
-            } else {
-                format!("{}:chunk_{}", chunk.source, i)
-            };
-            create_synthesis_request(&chunk.text, &source)
-        })
-        .collect();
-
-    // Run synthesis with write lock held for both config update and synthesis
-    // This prevents race conditions where another request changes config mid-synthesis
-    let (results, stats) = {
-        let mut engine_guard = engine.write().await;
-
-        // Update config for this request's parameters
-        let mut new_config = engine_guard.config().clone();
-        new_config.temperature = config.temperature;
-        new_config.max_new_tokens = config.max_tokens;
-        engine_guard.set_config(new_config);
-
-        // Run synthesis while still holding the lock
-        engine_guard
-            .synthesize_batch(synthesis_requests)
+    let (training_examples, stats) =
+        synthesize_training_examples(&state, &claims, &config, &request.chunks)
             .await
-            .map_err(|e| ApiError::internal(format!("Synthesis failed: {}", e)))?
-    };
+            .map_err(|e| ApiError::internal(e.to_string()))?;
 
-    // Convert synthesis results to training examples, applying config filters
-    // Use the TrainingExample::new constructor which handles auto-classification
-    use adapteros_orchestrator::synthesis::{ExampleType, TrainingExample};
-
-    let training_examples: Vec<_> = results
-        .iter()
-        .filter(|r| r.parse_success)
-        .flat_map(|r| {
-            let mut examples = Vec::new();
-            let source = &r.request.source;
-
-            // Apply config filters - only include requested example types
-            if config.include_qa {
-                for (i, qa) in r.output.qa_pairs.iter().enumerate() {
-                    examples.push(TrainingExample::new(
-                        qa.question.clone(),
-                        qa.answer.clone(),
-                        ExampleType::QuestionAnswer,
-                        format!("{}:qa_{}", source, i),
-                        i,
-                        qa.relevance, // Relevance auto-classifies sample_role
-                    ));
-                }
-            }
-
-            if config.include_instructions {
-                for (i, inst) in r.output.instructions.iter().enumerate() {
-                    examples.push(TrainingExample::new(
-                        inst.instruction.clone(),
-                        inst.response.clone(),
-                        ExampleType::Instruction,
-                        format!("{}:inst_{}", source, i),
-                        i,
-                        Some(0.8), // Instructions are generally high relevance
-                    ));
-                }
-            }
-
-            if config.include_completions {
-                for (i, comp) in r.output.completions.iter().enumerate() {
-                    examples.push(TrainingExample::new(
-                        comp.context.clone(),
-                        comp.continuation.clone(),
-                        ExampleType::Completion,
-                        format!("{}:comp_{}", source, i),
-                        i,
-                        Some(0.8), // Completions are generally high relevance
-                    ));
-                }
-            }
-
-            examples
-        })
-        .collect();
+    use adapteros_orchestrator::synthesis::ExampleType;
 
     // Calculate filtered stats
     let mut final_stats = SynthesisBatchStats::default();
@@ -332,7 +469,7 @@ pub async fn synthesize_dataset(
     final_stats.parse_failures = stats.parse_failures;
     final_stats.total_latency_ms = stats.total_latency_ms;
 
-    // Count actual examples by type from the filtered list
+    // Count examples by type from the filtered list
     for ex in &training_examples {
         match ex.example_type {
             ExampleType::QuestionAnswer => final_stats.qa_pairs += 1,
