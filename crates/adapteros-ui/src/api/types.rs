@@ -5,6 +5,51 @@
 
 pub use adapteros_api_types::training::JsonlValidationDiagnostic;
 
+/// Generic job response (for `/v1/jobs/*` surfaces).
+#[derive(Debug, Clone, serde::Serialize, serde::Deserialize)]
+pub struct JobResponse {
+    pub id: String,
+    pub kind: String,
+    pub status: String,
+    pub created_at: String,
+}
+
+/// Job detail response (includes payload/result JSON).
+#[derive(Debug, Clone, serde::Serialize, serde::Deserialize)]
+pub struct JobDetailResponse {
+    pub id: String,
+    pub kind: String,
+    pub status: String,
+    #[serde(default)]
+    pub tenant_id: Option<String>,
+    #[serde(default)]
+    pub user_id: Option<String>,
+    pub payload_json: String,
+    #[serde(default)]
+    pub result_json: Option<String>,
+    pub created_at: String,
+    #[serde(default)]
+    pub started_at: Option<String>,
+    #[serde(default)]
+    pub finished_at: Option<String>,
+}
+
+/// Result JSON for `training_dataset_from_upload` jobs.
+#[derive(Debug, Clone, serde::Serialize, serde::Deserialize)]
+pub struct TrainingDatasetFromUploadJobResult {
+    pub dataset_id: String,
+    #[serde(default)]
+    pub dataset_hash_b3: Option<String>,
+    #[serde(default)]
+    pub examples_total: Option<usize>,
+    #[serde(default)]
+    pub cache_hits: Option<usize>,
+    #[serde(default)]
+    pub cache_misses: Option<usize>,
+    #[serde(default)]
+    pub document_hash_b3: Option<String>,
+}
+
 /// Simple inference request for chat
 #[derive(Debug, Clone, serde::Serialize)]
 pub struct InferenceRequest {
