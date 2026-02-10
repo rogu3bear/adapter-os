@@ -339,8 +339,7 @@ impl TrainFromDiscrepanciesArgs {
             pairs.push(TrainingPair {
                 input,
                 output: output_text,
-                provenance: serde_json::to_string(&provenance)
-                    .map_err(|e| AosError::Serialization(e))?,
+                provenance: serde_json::to_string(&provenance).map_err(AosError::Serialization)?,
             });
         }
 

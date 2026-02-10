@@ -37,7 +37,6 @@ mod tests {
         // Test the new git-style subcommand: `telemetry verify`
         if run_cli_help(&["telemetry", "verify", "--help"]).is_none() {
             eprintln!("Skipping test: telemetry verify command not available");
-            return;
         }
     }
 
@@ -46,7 +45,6 @@ mod tests {
         // Test the new git-style subcommand: `adapter list`
         if run_cli_help(&["adapter", "list", "--help"]).is_none() {
             eprintln!("Skipping test: adapter list command not available");
-            return;
         }
     }
 
@@ -60,7 +58,6 @@ mod tests {
 
         if run_cli_help(&["codegraph", "export", "--help"]).is_none() {
             eprintln!("Skipping test: codegraph export command not available");
-            return;
         }
     }
 
@@ -77,7 +74,6 @@ mod tests {
 
         if run_cli_help(&["secd", "status", "--help"]).is_none() {
             eprintln!("Skipping test: secd status command not available");
-            return;
         }
     }
 
@@ -85,7 +81,6 @@ mod tests {
     fn explain_command_exists() {
         if run_cli_help(&["explain", "--help"]).is_none() {
             eprintln!("Skipping test: explain command not available");
-            return;
         }
     }
 
@@ -93,7 +88,6 @@ mod tests {
     fn error_codes_command_exists() {
         if run_cli_help(&["error-codes", "--help"]).is_none() {
             eprintln!("Skipping test: error-codes command not available");
-            return;
         }
     }
 
@@ -101,7 +95,6 @@ mod tests {
     fn tutorial_command_exists() {
         if run_cli_help(&["tutorial", "--help"]).is_none() {
             eprintln!("Skipping test: tutorial command not available");
-            return;
         }
     }
 
@@ -109,7 +102,6 @@ mod tests {
     fn manual_command_exists() {
         if run_cli_help(&["manual", "--help"]).is_none() {
             eprintln!("Skipping test: manual command not available");
-            return;
         }
     }
 
