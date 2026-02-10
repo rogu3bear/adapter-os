@@ -321,6 +321,12 @@ fn ChatEmptyWorkspace() -> impl IntoView {
         Callback::new(move |_: ()| {
             let navigate = navigate.clone();
             let action = action.clone();
+            // Optimistic navigation: make the URL/session stable immediately, then swap to the
+            // server-issued session id once created. This prevents "New Chat" from appearing
+            // non-responsive during cold starts or transient backend delays.
+            let placeholder_id = format!("ses-{}", uuid::Uuid::new_v4().simple());
+            let placeholder_path = format!("/chat/{}", placeholder_id);
+            navigate(&placeholder_path, Default::default());
             wasm_bindgen_futures::spawn_local(async move {
                 // Create the session in the backend first; inference streaming requires
                 // a server-issued session id.
@@ -330,12 +336,28 @@ fn ChatEmptyWorkspace() -> impl IntoView {
                     .await
                 {
                     Ok(session_id) => {
+                        // Clean up placeholder (if untouched) before switching to the real id.
+                        ChatSessionsManager::prune_placeholder_session(&placeholder_id);
                         let path = format!("/chat/{}", session_id);
-                        navigate(&path, Default::default());
+                        navigate(
+                            &path,
+                            leptos_router::NavigateOptions {
+                                replace: true,
+                                ..Default::default()
+                            },
+                        );
                     }
                     Err(e) => {
+                        ChatSessionsManager::prune_placeholder_session(&placeholder_id);
                         web_sys::console::error_1(
                             &format!("[Chat] Failed to create backend session: {}", e).into(),
+                        );
+                        navigate(
+                            "/chat",
+                            leptos_router::NavigateOptions {
+                                replace: true,
+                                ..Default::default()
+                            },
                         );
                     }
                 }
@@ -444,6 +466,9 @@ fn SessionListPanel(
         Callback::new(move |_: ()| {
             let navigate = navigate.clone();
             let action = action.clone();
+            let placeholder_id = format!("ses-{}", uuid::Uuid::new_v4().simple());
+            let placeholder_path = format!("/chat/{}", placeholder_id);
+            navigate(&placeholder_path, Default::default());
             wasm_bindgen_futures::spawn_local(async move {
                 let name = generate_readable_id("session", "chat");
                 match action
@@ -451,12 +476,27 @@ fn SessionListPanel(
                     .await
                 {
                     Ok(session_id) => {
+                        ChatSessionsManager::prune_placeholder_session(&placeholder_id);
                         let path = format!("/chat/{}", session_id);
-                        navigate(&path, Default::default());
+                        navigate(
+                            &path,
+                            leptos_router::NavigateOptions {
+                                replace: true,
+                                ..Default::default()
+                            },
+                        );
                     }
                     Err(e) => {
+                        ChatSessionsManager::prune_placeholder_session(&placeholder_id);
                         web_sys::console::error_1(
                             &format!("[Chat] Failed to create backend session: {}", e).into(),
+                        );
+                        navigate(
+                            "/chat",
+                            leptos_router::NavigateOptions {
+                                replace: true,
+                                ..Default::default()
+                            },
                         );
                     }
                 }
@@ -472,6 +512,9 @@ fn SessionListPanel(
             let state = chat_state.get_untracked();
             let action = action.clone();
             let navigate = navigate.clone();
+            let placeholder_id = format!("ses-{}", uuid::Uuid::new_v4().simple());
+            let placeholder_path = format!("/chat/{}", placeholder_id);
+            navigate(&placeholder_path, Default::default());
             wasm_bindgen_futures::spawn_local(async move {
                 let name = generate_readable_id("session", "chat");
                 match action
@@ -479,15 +522,30 @@ fn SessionListPanel(
                     .await
                 {
                     Ok(session_id) => {
+                        ChatSessionsManager::prune_placeholder_session(&placeholder_id);
                         let session = ChatSessionsManager::session_from_state(&session_id, &state);
                         ChatSessionsManager::save_session(&session);
                         action.clear_messages();
                         let path = format!("/chat/{}", session_id);
-                        navigate(&path, Default::default());
+                        navigate(
+                            &path,
+                            leptos_router::NavigateOptions {
+                                replace: true,
+                                ..Default::default()
+                            },
+                        );
                     }
                     Err(e) => {
+                        ChatSessionsManager::prune_placeholder_session(&placeholder_id);
                         web_sys::console::error_1(
                             &format!("[Chat] Failed to create backend session: {}", e).into(),
+                        );
+                        navigate(
+                            "/chat",
+                            leptos_router::NavigateOptions {
+                                replace: true,
+                                ..Default::default()
+                            },
                         );
                     }
                 }
