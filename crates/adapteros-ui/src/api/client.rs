@@ -1555,6 +1555,122 @@ impl ApiClient {
         Ok(result)
     }
 
+    /// Create a training dataset from a single uploaded document (multipart).
+    ///
+    /// POSTs to `/v1/training/datasets/from-upload`.
+    ///
+    /// Fields:
+    /// - `file`: required
+    /// - `name`: optional
+    /// - `description`: optional
+    /// - `training_strategy`: optional (e.g. "synthesis")
+    ///
+    /// Security: Includes CSRF token header and credentials for cookie-based auth.
+    #[cfg(target_arch = "wasm32")]
+    pub async fn create_training_dataset_from_upload(
+        &self,
+        file: &web_sys::File,
+        name: Option<&str>,
+        description: Option<&str>,
+        training_strategy: Option<&str>,
+    ) -> ApiResult<DatasetResponse> {
+        use wasm_bindgen::JsCast;
+        use wasm_bindgen_futures::JsFuture;
+
+        let url = format!("{}/v1/training/datasets/from-upload", self.base_url);
+
+        let form_data = web_sys::FormData::new()
+            .map_err(|_| ApiError::Network("Failed to create FormData".into()))?;
+
+        // Prefer passing the actual file name so the backend can infer format.
+        form_data
+            .append_with_blob_and_filename("file", file, &file.name())
+            .map_err(|_| ApiError::Network("Failed to append file to FormData".into()))?;
+
+        if let Some(value) = name.and_then(|v| {
+            let trimmed = v.trim();
+            if trimmed.is_empty() { None } else { Some(trimmed) }
+        }) {
+            form_data
+                .append_with_str("name", value)
+                .map_err(|_| ApiError::Network("Failed to append name to FormData".into()))?;
+        }
+        if let Some(value) = description.and_then(|v| {
+            let trimmed = v.trim();
+            if trimmed.is_empty() { None } else { Some(trimmed) }
+        }) {
+            form_data
+                .append_with_str("description", value)
+                .map_err(|_| ApiError::Network("Failed to append description to FormData".into()))?;
+        }
+        if let Some(value) = training_strategy.and_then(|v| {
+            let trimmed = v.trim();
+            if trimmed.is_empty() { None } else { Some(trimmed) }
+        }) {
+            form_data
+                .append_with_str("training_strategy", value)
+                .map_err(|_| {
+                    ApiError::Network("Failed to append training_strategy to FormData".into())
+                })?;
+        }
+
+        let opts = web_sys::RequestInit::new();
+        opts.set_method("POST");
+        opts.set_body(&form_data);
+        // Include credentials (cookies) for httpOnly cookie auth
+        opts.set_credentials(web_sys::RequestCredentials::Include);
+
+        let headers = web_sys::Headers::new()
+            .map_err(|_| ApiError::Network("Failed to create Headers".into()))?;
+        if let Some(token) = self.bearer_token() {
+            headers
+                .set("Authorization", &format!("Bearer {}", token))
+                .map_err(|_| ApiError::Network("Failed to set Authorization header".into()))?;
+        }
+        if let Some(csrf_token) = csrf_token_from_cookie() {
+            headers
+                .set("X-CSRF-Token", &csrf_token)
+                .map_err(|_| ApiError::Network("Failed to set X-CSRF-Token header".into()))?;
+        }
+        opts.set_headers(&headers);
+
+        let window = web_sys::window().ok_or_else(|| ApiError::Network("No window".into()))?;
+        let request = web_sys::Request::new_with_str_and_init(&url, &opts)
+            .map_err(|_| ApiError::Network("Failed to create Request".into()))?;
+
+        let resp_value = JsFuture::from(window.fetch_with_request(&request))
+            .await
+            .map_err(|_| ApiError::Network("Training dataset upload request failed".into()))?;
+        let resp: web_sys::Response = resp_value
+            .dyn_into()
+            .map_err(|_| ApiError::Network("Failed to cast Response".into()))?;
+
+        if !resp.ok() {
+            let status = resp.status();
+            let text = match resp.text() {
+                Ok(promise) => JsFuture::from(promise)
+                    .await
+                    .ok()
+                    .and_then(|v| v.as_string())
+                    .unwrap_or_default(),
+                Err(_) => String::new(),
+            };
+            return Err(ApiError::from_response(status, &text));
+        }
+
+        let json = JsFuture::from(
+            resp.json()
+                .map_err(|_| ApiError::Network("Failed to read response body".into()))?,
+        )
+        .await
+        .map_err(|_| ApiError::Network("Failed to parse response JSON".into()))?;
+
+        let result: DatasetResponse = serde_wasm_bindgen::from_value(json)
+            .map_err(|e| ApiError::Serialization(e.to_string()))?;
+
+        Ok(result)
+    }
+
     /// Generate a training dataset from a file using local inference.
     ///
     /// Accepts multipart form data with:
