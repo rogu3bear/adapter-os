@@ -394,6 +394,10 @@ path = "tests/kv_quota_concurrent_e2e.rs"
 name = "error_handling_integration_tests"
 path = "tests/error_handling_integration_tests.rs"
 
+[[test]]
+name = "record_replay_receipt_harness"
+path = "tests/record_replay_receipt_harness.rs"
+
 # Test dependencies
 [dev-dependencies]
 smallvec = { workspace = true }
