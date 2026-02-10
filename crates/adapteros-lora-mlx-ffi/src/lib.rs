@@ -1692,16 +1692,16 @@ static MLX_IMPLEMENTATION: OnceLock<Mutex<Option<MlxImplementation>>> = OnceLock
 static MLX_INITIALIZED: AtomicBool = AtomicBool::new(false);
 static MLX_INIT_IN_PROGRESS: AtomicBool = AtomicBool::new(false);
 
-static MLX_TEST_LOCK: std::sync::OnceLock<std::sync::Mutex<()>> = std::sync::OnceLock::new();
+static MLX_TEST_LOCK: std::sync::OnceLock<parking_lot::ReentrantMutex<()>> =
+    std::sync::OnceLock::new();
 
-pub(crate) fn mlx_test_lock() -> std::sync::MutexGuard<'static, ()> {
+pub(crate) fn mlx_test_lock() -> parking_lot::ReentrantMutexGuard<'static, ()> {
     MLX_TEST_LOCK
-        .get_or_init(|| std::sync::Mutex::new(()))
+        .get_or_init(|| parking_lot::ReentrantMutex::new(()))
         .lock()
-        .expect("MLX test lock poisoned")
 }
 
-pub fn mlx_test_lock_guard() -> std::sync::MutexGuard<'static, ()> {
+pub fn mlx_test_lock_guard() -> parking_lot::ReentrantMutexGuard<'static, ()> {
     mlx_test_lock()
 }
 
