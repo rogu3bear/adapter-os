@@ -1148,6 +1148,24 @@ start_worker() {
 
     status_msg "Starting Inference Worker..."
 
+    # Determinism/stability: MLX worker support is gated by compiled features.
+    # In dev mode, proactively build the worker with the MLX feature when MLX is requested.
+    # This avoids the common failure mode where `cargo build -p adapteros-lora-worker` produced
+    # a binary that can parse `--backend mlx` but cannot initialize MLX at runtime.
+    local backend="${AOS_MODEL_BACKEND:-mlx}"
+    if is_dev_mode && [ "$backend" = "mlx" ] && [ "${AOS_WORKER_AUTO_BUILD_MLX:-1}" != "0" ]; then
+        if command -v cargo >/dev/null 2>&1; then
+            status_msg "Ensuring worker built with MLX support (cargo build -p adapteros-lora-worker --features mlx)..."
+            cargo build -p adapteros-lora-worker --features mlx >/dev/null 2>&1 || {
+                error_msg "Failed to build worker with MLX support."
+                error_msg "Try: cargo build -p adapteros-lora-worker --features mlx"
+                return 1
+            }
+        else
+            warning_msg "cargo not found; cannot auto-build MLX worker. Install Rust toolchain or build manually."
+        fi
+    fi
+
     # Select binary based on dev mode (dev flags → debug binary, prod → release)
     local worker_bin=""
     if ! worker_bin=$(select_worker_binary); then
@@ -1161,7 +1179,7 @@ start_worker() {
     local uds_path="${AOS_WORKER_SOCKET:-$PROJECT_ROOT/var/run/worker.sock}"
     # Default to MLX; requires worker to be built with multi-backend/MLX features.
     # Override via AOS_MODEL_BACKEND=metal|coreml if MLX is unavailable.
-    local backend="${AOS_MODEL_BACKEND:-mlx}"
+    backend="${AOS_MODEL_BACKEND:-mlx}"
 
     if [ "$backend" = "mock" ]; then
         error_msg "Mock backend is sunset (no stubs). Set AOS_MODEL_BACKEND=mlx|coreml|metal."
@@ -1190,7 +1208,7 @@ start_worker() {
     # Guard common MLX failure mode: feature not built
     if [ "$backend" = "mlx" ]; then
         if ! "$worker_bin" --help 2>&1 | grep -qi "mlx"; then
-            error_msg "Backend 'mlx' requested but worker binary likely built without MLX features. Rebuild with: cargo build -p adapteros-lora-worker --features multi-backend,mlx"
+            error_msg "Backend 'mlx' requested but worker binary likely built without MLX features. Rebuild with: cargo build -p adapteros-lora-worker --features mlx"
             return 1
         fi
     fi
