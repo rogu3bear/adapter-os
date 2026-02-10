@@ -431,13 +431,18 @@ pub fn resolve_workspace_build_id() -> Result<BuildIdInfo, String> {
 ///
 /// Uses line-based parsing of the TOML `[[package]]` entries (supports v3/v4 format).
 /// Returns a sorted list of (name, version) pairs for crates that were found.
+#[allow(dead_code)]
 pub fn parse_crate_versions(
     workspace_root: &Path,
     crate_names: &[&str],
 ) -> Result<Vec<(String, String)>, String> {
     let lock_path = workspace_root.join("Cargo.lock");
     let content = fs::read_to_string(&lock_path).map_err(|e| {
-        format!("Failed to read Cargo.lock at {}: {}", lock_path.display(), e)
+        format!(
+            "Failed to read Cargo.lock at {}: {}",
+            lock_path.display(),
+            e
+        )
     })?;
 
     let mut results = BTreeMap::new();
@@ -495,6 +500,7 @@ pub fn parse_crate_versions(
 ///
 /// Format: `{"format":1,"crates":{"adapteros-core":"0.14.1",...}}`
 /// Keys are sorted alphabetically (guaranteed by BTreeMap input).
+#[allow(dead_code)]
 pub fn serialize_crate_manifest(entries: &[(String, String)]) -> String {
     let mut json = String::from("{\"format\":1,\"crates\":{");
     for (i, (name, version)) in entries.iter().enumerate() {
@@ -512,6 +518,7 @@ pub fn serialize_crate_manifest(entries: &[(String, String)]) -> String {
 }
 
 /// Remove surrounding double quotes from a TOML string value.
+#[allow(dead_code)]
 fn unquote(s: &str) -> String {
     s.trim_matches('"').to_string()
 }
