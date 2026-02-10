@@ -1,9 +1,10 @@
 use crate::chunker::DocumentChunker;
 use crate::types::{
-    DocumentSource, ExtractionConfidence, IngestedDocument, IngestedDocumentWithErrors,
-    PageExtractionResult,
+    ChunkProvenance, DocumentSource, ExtractionConfidence, IngestedDocument,
+    IngestedDocumentWithErrors, PageExtractionResult,
 };
 use crate::utils::{finalize_chunks, normalize_whitespace};
+use crate::INGESTION_VERSION;
 use adapteros_core::{AosError, B3Hash, Result};
 use lopdf::{Document, Object};
 use std::collections::HashSet;
@@ -78,7 +79,14 @@ pub fn ingest_pdf_bytes(
         )));
     }
 
-    let chunks = finalize_chunks(all_chunks);
+    let provenance = ChunkProvenance {
+        source_doc_hash: doc_hash,
+        source_path: source_path
+            .as_ref()
+            .map(|p| p.to_string_lossy().to_string()),
+        transform_version: INGESTION_VERSION,
+    };
+    let chunks = finalize_chunks(all_chunks, &provenance);
     let normalized_text_hash = B3Hash::hash(normalized_text.as_bytes());
     let normalized_text_len = normalized_text.chars().count();
 
@@ -268,7 +276,14 @@ pub fn ingest_pdf_bytes_resilient(
         }
     }
 
-    let chunks = finalize_chunks(all_chunks);
+    let provenance = ChunkProvenance {
+        source_doc_hash: doc_hash,
+        source_path: source_path
+            .as_ref()
+            .map(|p| p.to_string_lossy().to_string()),
+        transform_version: INGESTION_VERSION,
+    };
+    let chunks = finalize_chunks(all_chunks, &provenance);
     let normalized_text_hash = B3Hash::hash(normalized_text.as_bytes());
     let normalized_text_len = normalized_text.chars().count();
 

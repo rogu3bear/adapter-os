@@ -3,9 +3,10 @@
 //! This module provides types for managing document collections (corpora) and their
 //! constituent chunks. All hashing is done with BLAKE3 for deterministic versioning.
 
-use adapteros_core::B3Hash;
+use adapteros_core::{AosError, B3Hash, Result};
 use chrono::{DateTime, Utc};
 use serde::{Deserialize, Serialize};
+use tracing::warn;
 use uuid::Uuid;
 
 /// Type of chunk content
@@ -141,7 +142,12 @@ impl Corpus {
     /// Create a new corpus with the given chunks and configuration.
     ///
     /// Automatically generates a corpus ID and computes the version hash.
+    /// Logs a warning if the chunk set is empty; use [`Corpus::new_validated`]
+    /// to reject empty chunk sets outright.
     pub fn new(chunks: Vec<Chunk>, chunking_config: ChunkingConfig) -> Self {
+        if chunks.is_empty() {
+            warn!("Creating corpus with zero chunks — downstream retrieval will return no results");
+        }
         let corpus_id = Uuid::new_v4().to_string();
         let version_hash = Self::compute_version_hash(&chunks);
         Self {
@@ -151,6 +157,20 @@ impl Corpus {
             chunking_config,
             created_at: Utc::now(),
         }
+    }
+
+    /// Create a new corpus, returning an error if chunks are empty.
+    ///
+    /// Prefer this over [`Corpus::new`] in ingestion pipelines where an
+    /// empty corpus indicates silent data loss.
+    pub fn new_validated(chunks: Vec<Chunk>, chunking_config: ChunkingConfig) -> Result<Self> {
+        if chunks.is_empty() {
+            return Err(AosError::Validation(
+                "Cannot create corpus with zero chunks — input may have been silently dropped"
+                    .to_string(),
+            ));
+        }
+        Ok(Self::new(chunks, chunking_config))
     }
 
     /// Return the number of chunks in the corpus.
@@ -273,5 +293,34 @@ mod tests {
         let corpus = Corpus::new(vec![], ChunkingConfig::default());
         assert_eq!(corpus.len(), 0);
         assert!(corpus.is_empty());
+    }
+
+    #[test]
+    fn test_corpus_new_validated_rejects_empty() {
+        let result = Corpus::new_validated(vec![], ChunkingConfig::default());
+        assert!(result.is_err());
+        let err = result.unwrap_err();
+        let msg = format!("{}", err);
+        assert!(
+            msg.contains("zero chunks"),
+            "error should mention zero chunks, got: {}",
+            msg
+        );
+    }
+
+    #[test]
+    fn test_corpus_new_validated_accepts_nonempty() {
+        let chunks = vec![Chunk::new(
+            "test.md".to_string(),
+            "# Hello".to_string(),
+            0,
+            7,
+            ChunkType::Document {
+                format: "markdown".to_string(),
+            },
+        )];
+        let result = Corpus::new_validated(chunks, ChunkingConfig::default());
+        assert!(result.is_ok());
+        assert_eq!(result.unwrap().len(), 1);
     }
 }

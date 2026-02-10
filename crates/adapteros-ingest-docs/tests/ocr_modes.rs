@@ -6,7 +6,7 @@ fn fixture_pdf_bytes() -> Vec<u8> {
     let path = PathBuf::from(env!("CARGO_MANIFEST_DIR"))
         .join("../../tests/fixtures/docs/training_overview.pdf");
     std::fs::read(&path)
-        .unwrap_or_else(|e| panic!("missing test fixture {}: {}", path.display(), e.to_string()))
+        .unwrap_or_else(|e| panic!("missing test fixture {}: {}", path.display(), e))
 }
 
 #[test]
