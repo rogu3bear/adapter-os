@@ -15,7 +15,6 @@ use std::sync::{Arc, RwLock};
 use tokio::net::UnixStream;
 use tokio::process::{Child, Command};
 use tokio::time::{sleep, Duration};
-use uuid::Uuid;
 
 const ENABLE_ENV: &str = "AOS_TEST_E2E_ENABLE";
 const LEGACY_ENABLE_ENV: &str = "AOS_E2E_HARNESS";
@@ -113,7 +112,7 @@ impl E2eHarness {
         let uds_path = match worker_mode {
             WorkerMode::Spawn => {
                 let base_tempdir = tempfile::TempDir::with_prefix("aos-test-e2e-harness-run-")?;
-                let base = base_tempdir.into_path();
+                let base = base_tempdir.keep();
                 base.join("worker.sock")
             }
             WorkerMode::External => {
@@ -371,7 +370,7 @@ fn resolve_manifest_path() -> Option<PathBuf> {
 
 fn build_paths() -> Result<HarnessPaths> {
     let root_tempdir = tempfile::TempDir::with_prefix("aos-test-e2e-harness-")?;
-    let root = root_tempdir.into_path();
+    let root = root_tempdir.keep();
     let artifacts_root = root.join("artifacts");
     let bundles_root = root.join("bundles");
     let adapters_root = root.join("adapters");

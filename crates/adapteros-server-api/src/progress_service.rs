@@ -575,7 +575,7 @@ impl ProgressService {
     pub fn subscribe_events(&self) -> broadcast::Receiver<ProgressEvent> {
         // Record SSE subscriber metric
         if let Some(ref metrics) = self.metrics {
-            let _ = metrics.sse_subscribers.inc();
+            metrics.sse_subscribers.inc();
         }
         self.event_tx.subscribe()
     }
@@ -583,7 +583,7 @@ impl ProgressService {
     /// Record operation start metric
     fn record_operation_started(&self, event_type: &str, tenant_id: &str) {
         if let Some(ref metrics) = self.metrics {
-            let _ = metrics
+            metrics
                 .operations_started_total
                 .with_label_values(&[event_type, tenant_id])
                 .inc();
@@ -593,11 +593,11 @@ impl ProgressService {
     /// Record operation completion metric
     fn record_operation_completed(&self, event_type: &str, tenant_id: &str, duration_secs: f64) {
         if let Some(ref metrics) = self.metrics {
-            let _ = metrics
+            metrics
                 .operations_completed_total
                 .with_label_values(&[event_type, tenant_id])
                 .inc();
-            let _ = metrics
+            metrics
                 .operation_duration_seconds
                 .with_label_values(&[event_type, "completed"])
                 .observe(duration_secs);
@@ -607,11 +607,11 @@ impl ProgressService {
     /// Record operation failure metric
     fn record_operation_failed(&self, event_type: &str, tenant_id: &str, duration_secs: f64) {
         if let Some(ref metrics) = self.metrics {
-            let _ = metrics
+            metrics
                 .operations_failed_total
                 .with_label_values(&[event_type, tenant_id])
                 .inc();
-            let _ = metrics
+            metrics
                 .operation_duration_seconds
                 .with_label_values(&[event_type, "failed"])
                 .observe(duration_secs);
@@ -622,7 +622,7 @@ impl ProgressService {
     #[allow(dead_code)]
     fn record_operation_cancelled(&self, event_type: &str, tenant_id: &str) {
         if let Some(ref metrics) = self.metrics {
-            let _ = metrics
+            metrics
                 .operations_cancelled_total
                 .with_label_values(&[event_type, tenant_id])
                 .inc();
@@ -633,7 +633,7 @@ impl ProgressService {
     #[allow(dead_code)]
     fn update_active_operations(&self, event_type: &str, tenant_id: &str, count: f64) {
         if let Some(ref metrics) = self.metrics {
-            let _ = metrics
+            metrics
                 .active_operations
                 .with_label_values(&[event_type, tenant_id])
                 .set(count);
@@ -643,7 +643,7 @@ impl ProgressService {
     /// Record event emission
     fn record_event_emitted(&self, event_type: &str) {
         if let Some(ref metrics) = self.metrics {
-            let _ = metrics
+            metrics
                 .events_emitted_total
                 .with_label_values(&[event_type])
                 .inc();
@@ -654,7 +654,7 @@ impl ProgressService {
     #[allow(dead_code)]
     fn record_db_operation(&self, operation: &str, duration_secs: f64) {
         if let Some(ref metrics) = self.metrics {
-            let _ = metrics
+            metrics
                 .db_operation_duration_seconds
                 .with_label_values(&[operation])
                 .observe(duration_secs);
@@ -666,7 +666,7 @@ impl ProgressService {
     fn record_query_operation(&self, duration_secs: f64) {
         if let Some(ref metrics) = self.metrics {
             let empty: &[&str] = &[];
-            let _ = metrics
+            metrics
                 .query_duration_seconds
                 .with_label_values(empty)
                 .observe(duration_secs);

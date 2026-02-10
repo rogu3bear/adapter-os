@@ -69,6 +69,29 @@ pub struct PausedInferenceInfo {
     pub created_at: DateTime<Utc>,
 }
 
+/// Convert a `PausedEntry` into the API-facing `PausedInferenceInfo`.
+fn entry_to_info(entry: &PausedEntry) -> PausedInferenceInfo {
+    let kind = parse_trigger_kind(&entry.trigger_kind);
+    PausedInferenceInfo {
+        tenant_id: entry.tenant_id.clone(),
+        inference_id: entry.inference_id.clone(),
+        pause_id: entry.pause_id.clone(),
+        kind,
+        context: ReviewContext {
+            code: entry.text_so_far.clone(),
+            question: entry.context.clone(),
+            scope: vec![],
+            metadata: Some(serde_json::json!({
+                "token_count": entry.token_count,
+            })),
+        },
+        duration_secs: entry.paused_at.elapsed().as_secs(),
+        text_so_far: entry.text_so_far.clone(),
+        token_count: entry.token_count,
+        created_at: entry.created_at,
+    }
+}
+
 /// Server-side pause tracker
 pub struct ServerPauseTracker {
     /// Map of pause_id -> paused entry
@@ -111,7 +134,12 @@ impl ServerPauseTracker {
     }
 
     /// Register a paused inference received from a worker
-    pub fn register_pause(&self, tenant_id: String, event: WorkerStreamPaused, worker_uds_path: PathBuf) {
+    pub fn register_pause(
+        &self,
+        tenant_id: String,
+        event: WorkerStreamPaused,
+        worker_uds_path: PathBuf,
+    ) {
         let now = Utc::now();
 
         info!(
@@ -164,31 +192,7 @@ impl ServerPauseTracker {
 
     /// List all paused inferences
     pub fn list_paused(&self) -> Vec<PausedInferenceInfo> {
-        self.paused
-            .read()
-            .values()
-            .map(|entry| {
-                let kind = parse_trigger_kind(&entry.trigger_kind);
-                PausedInferenceInfo {
-                    tenant_id: entry.tenant_id.clone(),
-                    inference_id: entry.inference_id.clone(),
-                    pause_id: entry.pause_id.clone(),
-                    kind,
-                    context: ReviewContext {
-                        code: entry.text_so_far.clone(),
-                        question: entry.context.clone(),
-                        scope: vec![],
-                        metadata: Some(serde_json::json!({
-                            "token_count": entry.token_count,
-                        })),
-                    },
-                    duration_secs: entry.paused_at.elapsed().as_secs(),
-                    text_so_far: entry.text_so_far.clone(),
-                    token_count: entry.token_count,
-                    created_at: entry.created_at,
-                }
-            })
-            .collect()
+        self.paused.read().values().map(entry_to_info).collect()
     }
 
     /// List paused inferences for a specific tenant.
@@ -197,27 +201,7 @@ impl ServerPauseTracker {
             .read()
             .values()
             .filter(|entry| entry.tenant_id == tenant_id)
-            .map(|entry| {
-                let kind = parse_trigger_kind(&entry.trigger_kind);
-                PausedInferenceInfo {
-                    tenant_id: entry.tenant_id.clone(),
-                    inference_id: entry.inference_id.clone(),
-                    pause_id: entry.pause_id.clone(),
-                    kind,
-                    context: ReviewContext {
-                        code: entry.text_so_far.clone(),
-                        question: entry.context.clone(),
-                        scope: vec![],
-                        metadata: Some(serde_json::json!({
-                            "token_count": entry.token_count,
-                        })),
-                    },
-                    duration_secs: entry.paused_at.elapsed().as_secs(),
-                    text_so_far: entry.text_so_far.clone(),
-                    token_count: entry.token_count,
-                    created_at: entry.created_at,
-                }
-            })
+            .map(entry_to_info)
             .collect()
     }
 
@@ -225,25 +209,7 @@ impl ServerPauseTracker {
     pub fn get_state_by_inference(&self, inference_id: &str) -> Option<PausedInferenceInfo> {
         self.paused.read().values().find_map(|entry| {
             if entry.inference_id == inference_id {
-                let kind = parse_trigger_kind(&entry.trigger_kind);
-                Some(PausedInferenceInfo {
-                    tenant_id: entry.tenant_id.clone(),
-                    inference_id: entry.inference_id.clone(),
-                    pause_id: entry.pause_id.clone(),
-                    kind,
-                    context: ReviewContext {
-                        code: entry.text_so_far.clone(),
-                        question: entry.context.clone(),
-                        scope: vec![],
-                        metadata: Some(serde_json::json!({
-                            "token_count": entry.token_count,
-                        })),
-                    },
-                    duration_secs: entry.paused_at.elapsed().as_secs(),
-                    text_so_far: entry.text_so_far.clone(),
-                    token_count: entry.token_count,
-                    created_at: entry.created_at,
-                })
+                Some(entry_to_info(entry))
             } else {
                 None
             }
@@ -258,25 +224,7 @@ impl ServerPauseTracker {
     ) -> Option<PausedInferenceInfo> {
         self.paused.read().values().find_map(|entry| {
             if entry.tenant_id == tenant_id && entry.inference_id == inference_id {
-                let kind = parse_trigger_kind(&entry.trigger_kind);
-                Some(PausedInferenceInfo {
-                    tenant_id: entry.tenant_id.clone(),
-                    inference_id: entry.inference_id.clone(),
-                    pause_id: entry.pause_id.clone(),
-                    kind,
-                    context: ReviewContext {
-                        code: entry.text_so_far.clone(),
-                        question: entry.context.clone(),
-                        scope: vec![],
-                        metadata: Some(serde_json::json!({
-                            "token_count": entry.token_count,
-                        })),
-                    },
-                    duration_secs: entry.paused_at.elapsed().as_secs(),
-                    text_so_far: entry.text_so_far.clone(),
-                    token_count: entry.token_count,
-                    created_at: entry.created_at,
-                })
+                Some(entry_to_info(entry))
             } else {
                 None
             }
@@ -285,27 +233,7 @@ impl ServerPauseTracker {
 
     /// Get state by pause ID
     pub fn get_state_by_pause_id(&self, pause_id: &str) -> Option<PausedInferenceInfo> {
-        self.paused.read().get(pause_id).map(|entry| {
-            let kind = parse_trigger_kind(&entry.trigger_kind);
-            PausedInferenceInfo {
-                tenant_id: entry.tenant_id.clone(),
-                inference_id: entry.inference_id.clone(),
-                pause_id: entry.pause_id.clone(),
-                kind,
-                context: ReviewContext {
-                    code: entry.text_so_far.clone(),
-                    question: entry.context.clone(),
-                    scope: vec![],
-                    metadata: Some(serde_json::json!({
-                        "token_count": entry.token_count,
-                    })),
-                },
-                duration_secs: entry.paused_at.elapsed().as_secs(),
-                text_so_far: entry.text_so_far.clone(),
-                token_count: entry.token_count,
-                created_at: entry.created_at,
-            }
-        })
+        self.paused.read().get(pause_id).map(entry_to_info)
     }
 
     /// Get state by pause ID scoped to a tenant.
@@ -318,25 +246,7 @@ impl ServerPauseTracker {
             if entry.tenant_id != tenant_id {
                 return None;
             }
-            let kind = parse_trigger_kind(&entry.trigger_kind);
-            Some(PausedInferenceInfo {
-                tenant_id: entry.tenant_id.clone(),
-                inference_id: entry.inference_id.clone(),
-                pause_id: entry.pause_id.clone(),
-                kind,
-                context: ReviewContext {
-                    code: entry.text_so_far.clone(),
-                    question: entry.context.clone(),
-                    scope: vec![],
-                    metadata: Some(serde_json::json!({
-                        "token_count": entry.token_count,
-                    })),
-                },
-                duration_secs: entry.paused_at.elapsed().as_secs(),
-                text_so_far: entry.text_so_far.clone(),
-                token_count: entry.token_count,
-                created_at: entry.created_at,
-            })
+            Some(entry_to_info(entry))
         })
     }
 
@@ -579,7 +489,11 @@ mod tests {
             token_count: 10,
         };
 
-        tracker.register_pause("tenant-1".to_string(), event, PathBuf::from("/var/run/worker.sock"));
+        tracker.register_pause(
+            "tenant-1".to_string(),
+            event,
+            PathBuf::from("/var/run/worker.sock"),
+        );
 
         let paused = tracker.list_paused();
         assert_eq!(paused.len(), 1);
@@ -600,7 +514,11 @@ mod tests {
             token_count: 5,
         };
 
-        tracker.register_pause("tenant-1".to_string(), event, PathBuf::from("/var/run/worker.sock"));
+        tracker.register_pause(
+            "tenant-1".to_string(),
+            event,
+            PathBuf::from("/var/run/worker.sock"),
+        );
 
         let info = tracker.get_state_by_inference("infer-2");
         assert!(info.is_some());

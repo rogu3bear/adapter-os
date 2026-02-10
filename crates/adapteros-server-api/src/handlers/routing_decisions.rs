@@ -550,7 +550,7 @@ pub async fn get_routing_decision_by_id(
 
     let id = crate::id_resolver::resolve_any_id(&state.db, &id)
         .await
-        .map_err(|e| <(StatusCode, Json<ErrorResponse>)>::from(e))?;
+        .map_err(<(StatusCode, Json<ErrorResponse>)>::from)?;
 
     let decision = state.db.get_routing_decision(&id).await.map_err(|e| {
         (
@@ -674,7 +674,7 @@ pub async fn get_session_router_view(
     require_any_role(&claims, &[Role::Admin, Role::Operator, Role::Viewer])?;
     let request_id = crate::id_resolver::resolve_any_id(&state.db, &request_id)
         .await
-        .map_err(|e| <(StatusCode, Json<ErrorResponse>)>::from(e))?;
+        .map_err(<(StatusCode, Json<ErrorResponse>)>::from)?;
 
     debug!(request_id = %request_id, "Querying session router view");
 

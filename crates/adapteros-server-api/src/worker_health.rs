@@ -595,10 +595,10 @@ impl WorkerHealthMonitor {
                                     (Some(used), Some(max)) if max > 0 => {
                                         Some(used as f32 / max as f32)
                                     }
-                                    _ => cs.memory_bytes.and_then(|bytes| {
+                                    _ => cs.memory_bytes.map(|bytes| {
                                         // Assume 16GB max if not specified (common for Apple Silicon)
                                         let max_bytes = 16 * 1024 * 1024 * 1024u64;
-                                        Some(bytes as f32 / max_bytes as f32)
+                                        bytes as f32 / max_bytes as f32
                                     }),
                                 }
                             })
@@ -698,12 +698,12 @@ impl WorkerHealthMonitor {
         model_hash: &str,
         worker_runtime: &DashMap<String, WorkerRuntimeInfo>,
     ) -> bool {
-        worker_runtime.get(worker_id).map_or(false, |rt| {
+        worker_runtime.get(worker_id).is_some_and(|rt| {
             matches!(rt.model_load_state, Some(WorkerModelLoadState::Loaded))
                 && rt
                     .loaded_model_hash
                     .as_ref()
-                    .map_or(false, |h| h == model_hash)
+                    .is_some_and(|h| h == model_hash)
         })
     }
 

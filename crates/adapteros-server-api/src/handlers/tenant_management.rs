@@ -33,7 +33,7 @@ pub async fn update_tenant(
     require_role(&claims, Role::Admin)?;
     let tenant_id = crate::id_resolver::resolve_any_id(&state.db, &tenant_id)
         .await
-        .map_err(|e| <(StatusCode, Json<ErrorResponse>)>::from(e))?;
+        .map_err(<(StatusCode, Json<ErrorResponse>)>::from)?;
 
     // Update tenant in database using Db trait methods
     if let Some(ref name) = req.name {
@@ -116,7 +116,7 @@ pub async fn pause_tenant(
     require_role(&claims, Role::Admin)?;
     let tenant_id = crate::id_resolver::resolve_any_id(&state.db, &tenant_id)
         .await
-        .map_err(|e| <(StatusCode, Json<ErrorResponse>)>::from(e))?;
+        .map_err(<(StatusCode, Json<ErrorResponse>)>::from)?;
 
     // Update tenant status to 'paused' using Db trait method
     state.db.pause_tenant(&tenant_id).await.map_err(|e| {
@@ -154,7 +154,7 @@ pub async fn archive_tenant(
     require_role(&claims, Role::Admin)?;
     let tenant_id = crate::id_resolver::resolve_any_id(&state.db, &tenant_id)
         .await
-        .map_err(|e| <(StatusCode, Json<ErrorResponse>)>::from(e))?;
+        .map_err(<(StatusCode, Json<ErrorResponse>)>::from)?;
 
     // Mark tenant as archived using Db trait method
     state.db.archive_tenant(&tenant_id).await.map_err(|e| {
@@ -271,7 +271,7 @@ pub async fn get_tenant_index_hashes(
     require_permission(&claims, Permission::TenantView)?;
     let tenant_id = crate::id_resolver::resolve_any_id(&state.db, &tenant_id)
         .await
-        .map_err(|e| <(StatusCode, Json<ErrorResponse>)>::from(e))?;
+        .map_err(<(StatusCode, Json<ErrorResponse>)>::from)?;
 
     if state
         .db
@@ -627,7 +627,7 @@ pub async fn assign_tenant_adapters(
     require_any_role(&claims, &[Role::Admin, Role::Operator])?;
     let tenant_id = crate::id_resolver::resolve_any_id(&state.db, &tenant_id)
         .await
-        .map_err(|e| <(StatusCode, Json<ErrorResponse>)>::from(e))?;
+        .map_err(<(StatusCode, Json<ErrorResponse>)>::from)?;
 
     // Create tenant-adapter associations using Db trait method
     for adapter_id in &req.adapter_ids {

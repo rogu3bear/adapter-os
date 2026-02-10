@@ -406,7 +406,7 @@ pub async fn get_repository_analysis(
     require_any_role(&claims, &[Role::Admin, Role::Operator, Role::Viewer])?;
     let repo_id = crate::id_resolver::resolve_any_id(&state.db, &repo_id)
         .await
-        .map_err(|e| <(StatusCode, Json<ErrorResponse>)>::from(e))?;
+        .map_err(<(StatusCode, Json<ErrorResponse>)>::from)?;
 
     info!("Retrieving analysis for repository: {}", repo_id);
 
@@ -481,7 +481,7 @@ pub async fn train_repository_adapter(
     require_any_role(&claims, &[Role::Admin, Role::Operator])?;
     let repo_id = crate::id_resolver::resolve_any_id(&state.db, &repo_id)
         .await
-        .map_err(|e| <(StatusCode, Json<ErrorResponse>)>::from(e))?;
+        .map_err(<(StatusCode, Json<ErrorResponse>)>::from)?;
 
     info!("Starting adapter training for repository: {}", repo_id);
 

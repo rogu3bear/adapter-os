@@ -141,7 +141,7 @@ pub async fn tokenize(
             token_count,
             tokenizer_hash_b3: tokenizer_hash_b3
                 .map(|h| h.to_hex())
-                .or_else(|| Some(model.tokenizer_hash_b3)),
+                .or(Some(model.tokenizer_hash_b3)),
             tokenizer_vocab_size,
         })
     }

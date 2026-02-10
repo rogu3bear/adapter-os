@@ -176,7 +176,7 @@ pub async fn request_promotion(
     require_permission(&claims, Permission::PromotionManage)?;
     let run_id = crate::id_resolver::resolve_any_id(&state.db, &run_id)
         .await
-        .map_err(|e| <(StatusCode, Json<ErrorResponse>)>::from(e))?;
+        .map_err(<(StatusCode, Json<ErrorResponse>)>::from)?;
 
     // Validate target stage
     if req.target_stage != "staging" && req.target_stage != "production" {
@@ -354,7 +354,7 @@ pub async fn get_promotion_status(
     require_permission(&claims, Permission::PromotionManage)?;
     let run_id = crate::id_resolver::resolve_any_id(&state.db, &run_id)
         .await
-        .map_err(|e| <(StatusCode, Json<ErrorResponse>)>::from(e))?;
+        .map_err(<(StatusCode, Json<ErrorResponse>)>::from)?;
 
     // Get latest promotion request for this golden run
     let request = state
@@ -484,7 +484,7 @@ pub async fn approve_or_reject_promotion(
     require_permission(&claims, Permission::PromotionManage)?;
     let run_id = crate::id_resolver::resolve_any_id(&state.db, &run_id)
         .await
-        .map_err(|e| <(StatusCode, Json<ErrorResponse>)>::from(e))?;
+        .map_err(<(StatusCode, Json<ErrorResponse>)>::from)?;
 
     // Validate action
     if req.action != "approve" && req.action != "reject" {
@@ -661,7 +661,7 @@ pub async fn record_ci_attestation(
     require_permission(&claims, Permission::PromotionManage)?;
     let run_id = crate::id_resolver::resolve_any_id(&state.db, &run_id)
         .await
-        .map_err(|e| <(StatusCode, Json<ErrorResponse>)>::from(e))?;
+        .map_err(<(StatusCode, Json<ErrorResponse>)>::from)?;
 
     if req.status != "passed" && req.status != "failed" {
         return Err((
@@ -951,7 +951,7 @@ pub async fn get_gate_status(
     require_permission(&claims, Permission::PromotionManage)?;
     let run_id = crate::id_resolver::resolve_any_id(&state.db, &run_id)
         .await
-        .map_err(|e| <(StatusCode, Json<ErrorResponse>)>::from(e))?;
+        .map_err(<(StatusCode, Json<ErrorResponse>)>::from)?;
 
     // Get latest promotion request
     let request = state
@@ -1241,8 +1241,8 @@ async fn execute_promotion(
 
     check_gates_passed(state, request_id)
         .await
-        .map_err(|e| AosError::Validation(e))?;
-    check_ci_passed(&request).map_err(|e| AosError::Validation(e))?;
+        .map_err(AosError::Validation)?;
+    check_ci_passed(&request).map_err(AosError::Validation)?;
 
     // Get target stage
     let target_stage = state.db.get_promotion_target_stage(request_id).await?;

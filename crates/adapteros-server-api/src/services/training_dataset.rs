@@ -215,7 +215,7 @@ impl DefaultTrainingDatasetService {
             let text = rag_texts
                 .get(&rag_doc_id)
                 .map(|s| s.as_str())
-                .or_else(|| chunk.text_preview.as_deref());
+                .or(chunk.text_preview.as_deref());
 
             if let Some(text) = text {
                 if !text.trim().is_empty() {
@@ -622,11 +622,9 @@ impl DefaultTrainingDatasetService {
         } else if mime_type.starts_with("text/plain") || document_name.ends_with(".txt") {
             ingestor.ingest_text_bytes(file_data, document_name)
         } else {
-            return Err(ApiError::bad_request(&format!(
-                "Unsupported document type: {}",
-                mime_type
-            ))
-            .into());
+            return Err(
+                ApiError::bad_request(format!("Unsupported document type: {}", mime_type)).into(),
+            );
         }
         .map_err(|e| ApiError::db_error(format!("Failed to parse document: {}", e)))?;
 
@@ -687,7 +685,7 @@ impl DefaultTrainingDatasetService {
             .bind(&chunk_hash)
             .bind(&text_preview)
             .bind(embedding_json.as_deref())
-            .execute(&*self.state.db.pool())
+            .execute(self.state.db.pool())
             .await
             .map_err(|e| ApiError::db_error(format!("Failed to create document chunk: {}", e)))?;
 
@@ -732,7 +730,7 @@ impl DefaultTrainingDatasetService {
             sqlx::query("UPDATE documents SET page_count = ? WHERE id = ?")
                 .bind(page_count as i64)
                 .bind(document_id)
-                .execute(&*self.state.db.pool())
+                .execute(self.state.db.pool())
                 .await
                 .map_err(|e| ApiError::db_error(format!("Failed to update page count: {}", e)))?;
         }
@@ -976,7 +974,7 @@ impl TrainingDatasetService for DefaultTrainingDatasetService {
         }
 
         if params.data.len() > MAX_DOCUMENT_SIZE {
-            return Err(ApiError::payload_too_large(&format!(
+            return Err(ApiError::payload_too_large(format!(
                 "Document exceeds maximum size of {}MB",
                 MAX_DOCUMENT_SIZE / 1024 / 1024
             ))

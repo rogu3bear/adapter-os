@@ -283,7 +283,7 @@ pub async fn create_verdict(
 
     // Validate extraction confidence if provided
     if let Some(score) = request.extraction_confidence_score {
-        if score < 0.0 || score > 1.0 {
+        if !(0.0..=1.0).contains(&score) {
             return Err(ApiError::bad_request(
                 "extraction_confidence_score must be between 0.0 and 1.0",
             ));
@@ -312,7 +312,7 @@ pub async fn create_verdict(
     let warnings_json_str = request
         .warnings_json
         .as_ref()
-        .map(|v| serde_json::to_string(v))
+        .map(serde_json::to_string)
         .transpose()
         .map_err(|e| ApiError::bad_request(format!("Invalid warnings_json: {}", e)))?;
 
@@ -591,7 +591,7 @@ pub async fn derive_verdict(
 
             let warnings_str = warnings_json
                 .as_ref()
-                .map(|v| serde_json::to_string(v))
+                .map(serde_json::to_string)
                 .transpose()
                 .map_err(|e| ApiError::internal(format!("Failed to serialize warnings: {}", e)))?;
 

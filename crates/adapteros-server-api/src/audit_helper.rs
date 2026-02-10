@@ -156,7 +156,7 @@ pub async fn log_action_with_metadata(
     // Serialize metadata to JSON string if provided
     let metadata_json = metadata
         .as_ref()
-        .map(|m| serde_json::to_string(m))
+        .map(serde_json::to_string)
         .transpose()
         .map_err(|e| {
             adapteros_core::AosError::Validation(format!("Failed to serialize metadata: {}", e))

@@ -1,14 +1,13 @@
 use axum::{
     extract::{Extension, Query, State},
-    http::StatusCode,
     Json,
 };
 use serde::{Deserialize, Serialize};
 
+use crate::api_error::{ApiError, ApiResult};
 use crate::auth::{hash_password, Claims};
 use crate::security::validate_tenant_isolation;
 use crate::state::AppState;
-use crate::types::ErrorResponse;
 use adapteros_core::{AosError, B3Hash};
 use adapteros_db::adapters::AdapterRegistrationBuilder;
 use adapteros_db::models::ModelRegistrationBuilder;
@@ -92,24 +91,19 @@ fn e2e_env_enabled() -> bool {
     flag_enabled(E2E_ENV) || flag_enabled(DEV_BYPASS_ENV)
 }
 
-fn ensure_e2e_mode() -> Result<(), (StatusCode, Json<ErrorResponse>)> {
+fn ensure_e2e_mode() -> Result<(), ApiError> {
     // SECURITY: Production mode takes precedence - testkit is NEVER available in production
     if is_production_mode() {
         tracing::warn!(
             "Testkit endpoint called in production mode - rejecting request. \
              Testkit endpoints are disabled when AOS_PRODUCTION_MODE=1"
         );
-        return Err((
-            StatusCode::FORBIDDEN,
-            Json(
-                ErrorResponse::new("testkit unavailable in production")
-                    .with_code("TESTKIT_PRODUCTION_BLOCKED")
-                    .with_string_details(
-                        "Testkit endpoints are disabled in production mode (AOS_PRODUCTION_MODE=1). \
-                         This is a security measure to prevent data loss.",
-                    ),
-            ),
-        ));
+        return Err(ApiError::forbidden("testkit unavailable in production")
+            .with_code("TESTKIT_PRODUCTION_BLOCKED")
+            .with_details(
+                "Testkit endpoints are disabled in production mode (AOS_PRODUCTION_MODE=1). \
+                 This is a security measure to prevent data loss.",
+            ));
     }
 
     if e2e_env_enabled() {
@@ -121,33 +115,21 @@ fn ensure_e2e_mode() -> Result<(), (StatusCode, Json<ErrorResponse>)> {
         return Ok(());
     }
 
-    Err((
-        StatusCode::FORBIDDEN,
-        Json(
-            ErrorResponse::new("testkit unavailable")
-                .with_code("E2E_MODE_DISABLED")
-                .with_string_details(
-                    "Set E2E_MODE=1 or VITE_ENABLE_DEV_BYPASS=1 to enable testkit endpoints",
-                ),
-        ),
-    ))
+    Err(ApiError::forbidden("testkit unavailable")
+        .with_code("E2E_MODE_DISABLED")
+        .with_details("Set E2E_MODE=1 or VITE_ENABLE_DEV_BYPASS=1 to enable testkit endpoints"))
 }
 
 fn hash_bytes(label: &str) -> [u8; 32] {
     B3Hash::hash(label.as_bytes()).to_bytes()
 }
 
-fn map_err(err: impl Into<AosError>) -> (StatusCode, Json<ErrorResponse>) {
+fn map_err(err: impl Into<AosError>) -> ApiError {
     let err = err.into();
     eprintln!("[TESTKIT ERROR] {}", err);
-    (
-        StatusCode::INTERNAL_SERVER_ERROR,
-        Json(
-            ErrorResponse::new("testkit error")
-                .with_code("TESTKIT_ERROR")
-                .with_string_details(err.to_string()),
-        ),
-    )
+    ApiError::internal("testkit error")
+        .with_code("TESTKIT_ERROR")
+        .with_details(err.to_string())
 }
 
 #[derive(Debug, Serialize)]
@@ -157,9 +139,7 @@ pub struct TestkitResetResponse {
 }
 
 #[axum::debug_handler]
-pub async fn reset(
-    State(state): State<AppState>,
-) -> Result<Json<TestkitResetResponse>, (StatusCode, Json<ErrorResponse>)> {
+pub async fn reset(State(state): State<AppState>) -> ApiResult<TestkitResetResponse> {
     ensure_e2e_mode()?;
 
     let pool = state.db.pool();
@@ -233,9 +213,7 @@ pub struct SeedMinimalResponse {
 }
 
 #[axum::debug_handler]
-pub async fn seed_minimal(
-    State(state): State<AppState>,
-) -> Result<Json<SeedMinimalResponse>, (StatusCode, Json<ErrorResponse>)> {
+pub async fn seed_minimal(State(state): State<AppState>) -> ApiResult<SeedMinimalResponse> {
     ensure_e2e_mode()?;
     let pool = state.db.pool();
     let pinned_primary =
@@ -659,7 +637,7 @@ pub struct TraceFixtureResponse {
 pub async fn create_trace_fixture(
     State(state): State<AppState>,
     Json(req): Json<TraceFixtureRequest>,
-) -> Result<Json<TraceFixtureResponse>, (StatusCode, Json<ErrorResponse>)> {
+) -> ApiResult<TraceFixtureResponse> {
     ensure_e2e_mode()?;
     let tenant_id = req.tenant_id.unwrap_or_else(|| TENANT_ID.to_string());
     let adapter_ids = req
@@ -798,7 +776,7 @@ pub struct DiagRunFixtureResponse {
 pub async fn create_diag_run_fixture(
     State(state): State<AppState>,
     Json(req): Json<DiagRunFixtureRequest>,
-) -> Result<Json<DiagRunFixtureResponse>, (StatusCode, Json<ErrorResponse>)> {
+) -> ApiResult<DiagRunFixtureResponse> {
     ensure_e2e_mode()?;
     let tenant_id = req.tenant_id.unwrap_or_else(|| TENANT_ID.to_string());
     let run_id = req.run_id.unwrap_or_else(|| TRACE_ID.to_string());
@@ -860,7 +838,7 @@ pub struct EvidenceFixtureResponse {
 pub async fn create_evidence_fixture(
     State(state): State<AppState>,
     Json(req): Json<EvidenceFixtureRequest>,
-) -> Result<Json<EvidenceFixtureResponse>, (StatusCode, Json<ErrorResponse>)> {
+) -> ApiResult<EvidenceFixtureResponse> {
     ensure_e2e_mode()?;
     let tenant_id = req.tenant_id.unwrap_or_else(|| TENANT_ID.to_string());
     let inference_id = req.inference_id.unwrap_or_else(|| TRACE_ID.to_string());
@@ -1023,7 +1001,7 @@ pub struct CreateRepoResponse {
 pub async fn create_repo(
     State(state): State<AppState>,
     Json(req): Json<CreateRepoRequest>,
-) -> Result<Json<CreateRepoResponse>, (StatusCode, Json<ErrorResponse>)> {
+) -> ApiResult<CreateRepoResponse> {
     ensure_e2e_mode()?;
     let tenant_id = req.tenant_id.unwrap_or_else(|| TENANT_ID.to_string());
     let repo_id = req.repo_id.unwrap_or_else(|| "repo-e2e".to_string());
@@ -1093,7 +1071,7 @@ pub struct CreateAdapterVersionResponse {
 pub async fn create_adapter_version(
     State(state): State<AppState>,
     Json(req): Json<CreateAdapterVersionRequest>,
-) -> Result<Json<CreateAdapterVersionResponse>, (StatusCode, Json<ErrorResponse>)> {
+) -> ApiResult<CreateAdapterVersionResponse> {
     ensure_e2e_mode()?;
     let tenant_id = req.tenant_id.unwrap_or_else(|| TENANT_ID.to_string());
     let version_id = req
@@ -1163,7 +1141,7 @@ pub struct SetPolicyResponse {
 pub async fn set_policy(
     State(state): State<AppState>,
     Json(req): Json<SetPolicyRequest>,
-) -> Result<Json<SetPolicyResponse>, (StatusCode, Json<ErrorResponse>)> {
+) -> ApiResult<SetPolicyResponse> {
     ensure_e2e_mode()?;
     let tenant_id = req.tenant_id.unwrap_or_else(|| TENANT_ID.to_string());
 
@@ -1200,7 +1178,7 @@ pub struct TrainingJobStubResponse {
 pub async fn create_training_job_stub(
     State(state): State<AppState>,
     Json(req): Json<TrainingJobStubRequest>,
-) -> Result<Json<TrainingJobStubResponse>, (StatusCode, Json<ErrorResponse>)> {
+) -> ApiResult<TrainingJobStubResponse> {
     ensure_e2e_mode()?;
     let job_id = req.job_id.unwrap_or_else(|| "job-stub".to_string());
     let repo_id = req.repo_id.unwrap_or_else(|| "repo-e2e".to_string());
@@ -1400,7 +1378,7 @@ pub struct DocumentFixtureResponse {
 pub async fn create_document_fixture(
     State(state): State<AppState>,
     Json(req): Json<DocumentFixtureRequest>,
-) -> Result<Json<DocumentFixtureResponse>, (StatusCode, Json<ErrorResponse>)> {
+) -> ApiResult<DocumentFixtureResponse> {
     ensure_e2e_mode()?;
 
     let tenant_id = req.tenant_id.unwrap_or_else(|| TENANT_ID.to_string());
@@ -1519,7 +1497,7 @@ pub struct CollectionFixtureResponse {
 pub async fn create_collection_fixture(
     State(state): State<AppState>,
     Json(req): Json<CollectionFixtureRequest>,
-) -> Result<Json<CollectionFixtureResponse>, (StatusCode, Json<ErrorResponse>)> {
+) -> ApiResult<CollectionFixtureResponse> {
     ensure_e2e_mode()?;
 
     let tenant_id = req.tenant_id.unwrap_or_else(|| TENANT_ID.to_string());
@@ -1527,7 +1505,9 @@ pub async fn create_collection_fixture(
         .collection_id
         .unwrap_or_else(|| COLLECTION_ID.to_string());
     let name = req.name.unwrap_or_else(|| COLLECTION_NAME.to_string());
-    let description = req.description.unwrap_or_else(|| "Seeded collection fixture".to_string());
+    let description = req
+        .description
+        .unwrap_or_else(|| "Seeded collection fixture".to_string());
     let document_id = req.document_id.unwrap_or_else(|| DOCUMENT_ID.to_string());
 
     sqlx::query(
@@ -1589,7 +1569,7 @@ pub struct DatasetFixtureResponse {
 pub async fn create_dataset_fixture(
     State(state): State<AppState>,
     Json(req): Json<DatasetFixtureRequest>,
-) -> Result<Json<DatasetFixtureResponse>, (StatusCode, Json<ErrorResponse>)> {
+) -> ApiResult<DatasetFixtureResponse> {
     ensure_e2e_mode()?;
 
     let tenant_id = req.tenant_id.unwrap_or_else(|| TENANT_ID.to_string());
@@ -1646,7 +1626,10 @@ pub async fn create_dataset_fixture(
     .await
     .map_err(map_err)?;
 
-    Ok(Json(DatasetFixtureResponse { tenant_id, dataset_id }))
+    Ok(Json(DatasetFixtureResponse {
+        tenant_id,
+        dataset_id,
+    }))
 }
 
 #[derive(Debug, Deserialize)]
@@ -1667,7 +1650,7 @@ pub struct WorkerFixtureResponse {
 pub async fn create_worker_fixture(
     State(state): State<AppState>,
     Json(req): Json<WorkerFixtureRequest>,
-) -> Result<Json<WorkerFixtureResponse>, (StatusCode, Json<ErrorResponse>)> {
+) -> ApiResult<WorkerFixtureResponse> {
     ensure_e2e_mode()?;
 
     let tenant_id = req.tenant_id.unwrap_or_else(|| TENANT_ID.to_string());
@@ -1914,7 +1897,7 @@ pub struct StubTrace {
 #[axum::debug_handler]
 pub async fn inference_stub(
     Json(req): Json<InferenceStubRequest>,
-) -> Result<Json<InferenceStubResponse>, (StatusCode, Json<ErrorResponse>)> {
+) -> ApiResult<InferenceStubResponse> {
     ensure_e2e_mode()?;
     let text = req
         .prompt
@@ -2002,17 +1985,11 @@ pub async fn diverge_policy_audit_chain(
     State(state): State<AppState>,
     claims: Option<Extension<Claims>>,
     Query(params): Query<DivergeAuditQuery>,
-) -> Result<Json<serde_json::Value>, (StatusCode, Json<ErrorResponse>)> {
+) -> ApiResult<serde_json::Value> {
     ensure_e2e_mode()?;
     let Some(Extension(claims)) = claims else {
-        return Err((
-            StatusCode::UNAUTHORIZED,
-            Json(
-                ErrorResponse::new("authentication required")
-                    .with_code("UNAUTHORIZED")
-                    .with_string_details("Provide claims to diverge audit chain"),
-            ),
-        ));
+        return Err(ApiError::unauthorized("authentication required")
+            .with_details("Provide claims to diverge audit chain"));
     };
 
     let tenant_id = params.tenant_id.unwrap_or_else(|| claims.tenant_id.clone());
@@ -2025,14 +2002,9 @@ pub async fn diverge_policy_audit_chain(
         .await
         .map_err(|e| {
             if adapteros_db::policy_audit::is_audit_chain_divergence(&e) {
-                return (
-                    StatusCode::CONFLICT,
-                    Json(
-                        ErrorResponse::new("policy audit chain diverged")
-                            .with_code(AUDIT_CHAIN_DIVERGED_CODE)
-                            .with_string_details(e.to_string()),
-                    ),
-                );
+                return ApiError::conflict("policy audit chain diverged")
+                    .with_code(AUDIT_CHAIN_DIVERGED_CODE)
+                    .with_details(e.to_string());
             }
             map_err(e)
         })?;

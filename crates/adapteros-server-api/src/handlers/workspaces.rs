@@ -353,7 +353,7 @@ pub async fn get_workspace(
     require_permission(&claims, Permission::WorkspaceView)?;
     let workspace_id = crate::id_resolver::resolve_any_id(&state.db, &workspace_id)
         .await
-        .map_err(|e| <(StatusCode, Json<ErrorResponse>)>::from(e))?;
+        .map_err(<(StatusCode, Json<ErrorResponse>)>::from)?;
 
     // TENANT ISOLATION: Check workspace access (validates user's tenant is a workspace member)
     // Workspaces don't have a single tenant_id - they're cross-tenant by design.
@@ -440,7 +440,7 @@ pub async fn update_workspace(
     require_permission(&claims, Permission::WorkspaceManage)?;
     let workspace_id = crate::id_resolver::resolve_any_id(&state.db, &workspace_id)
         .await
-        .map_err(|e| <(StatusCode, Json<ErrorResponse>)>::from(e))?;
+        .map_err(<(StatusCode, Json<ErrorResponse>)>::from)?;
 
     // TENANT ISOLATION: Check workspace access - must be owner or member
     // Validates user's tenant is a workspace member with appropriate role
@@ -566,7 +566,7 @@ pub async fn delete_workspace(
     require_permission(&claims, Permission::WorkspaceManage)?;
     let workspace_id = crate::id_resolver::resolve_any_id(&state.db, &workspace_id)
         .await
-        .map_err(|e| <(StatusCode, Json<ErrorResponse>)>::from(e))?;
+        .map_err(<(StatusCode, Json<ErrorResponse>)>::from)?;
 
     // TENANT ISOLATION: Only owners can delete workspaces
     // Validates user's tenant is a workspace member with owner role
@@ -656,7 +656,7 @@ pub async fn list_workspace_members(
     require_permission(&claims, Permission::WorkspaceView)?;
     let workspace_id = crate::id_resolver::resolve_any_id(&state.db, &workspace_id)
         .await
-        .map_err(|e| <(StatusCode, Json<ErrorResponse>)>::from(e))?;
+        .map_err(<(StatusCode, Json<ErrorResponse>)>::from)?;
 
     // TENANT ISOLATION: Check workspace access
     // Validates user's tenant is a workspace member before listing all members
@@ -747,7 +747,7 @@ pub async fn add_workspace_member(
     require_permission(&claims, Permission::WorkspaceMemberManage)?;
     let workspace_id = crate::id_resolver::resolve_any_id(&state.db, &workspace_id)
         .await
-        .map_err(|e| <(StatusCode, Json<ErrorResponse>)>::from(e))?;
+        .map_err(<(StatusCode, Json<ErrorResponse>)>::from)?;
 
     // TENANT ISOLATION: Only owners and members can add members
     // Validates user's tenant is a workspace member with appropriate role
@@ -864,10 +864,10 @@ pub async fn update_workspace_member(
     require_permission(&claims, Permission::WorkspaceMemberManage)?;
     let workspace_id = crate::id_resolver::resolve_any_id(&state.db, &workspace_id)
         .await
-        .map_err(|e| <(StatusCode, Json<ErrorResponse>)>::from(e))?;
+        .map_err(<(StatusCode, Json<ErrorResponse>)>::from)?;
     let member_id = crate::id_resolver::resolve_any_id(&state.db, &member_id)
         .await
-        .map_err(|e| <(StatusCode, Json<ErrorResponse>)>::from(e))?;
+        .map_err(<(StatusCode, Json<ErrorResponse>)>::from)?;
 
     // TENANT ISOLATION: Only owners can update member roles
     // Validates user's tenant is a workspace member with owner role
@@ -1000,10 +1000,10 @@ pub async fn remove_workspace_member(
     require_permission(&claims, Permission::WorkspaceMemberManage)?;
     let workspace_id = crate::id_resolver::resolve_any_id(&state.db, &workspace_id)
         .await
-        .map_err(|e| <(StatusCode, Json<ErrorResponse>)>::from(e))?;
+        .map_err(<(StatusCode, Json<ErrorResponse>)>::from)?;
     let member_id = crate::id_resolver::resolve_any_id(&state.db, &member_id)
         .await
-        .map_err(|e| <(StatusCode, Json<ErrorResponse>)>::from(e))?;
+        .map_err(<(StatusCode, Json<ErrorResponse>)>::from)?;
 
     // TENANT ISOLATION: Only owners can remove members
     // Validates user's tenant is a workspace member with owner role
@@ -1119,7 +1119,7 @@ pub async fn list_workspace_resources(
     require_permission(&claims, Permission::WorkspaceView)?;
     let workspace_id = crate::id_resolver::resolve_any_id(&state.db, &workspace_id)
         .await
-        .map_err(|e| <(StatusCode, Json<ErrorResponse>)>::from(e))?;
+        .map_err(<(StatusCode, Json<ErrorResponse>)>::from)?;
 
     // TENANT ISOLATION: Check workspace access
     // Validates user's tenant is a workspace member before listing shared resources
@@ -1210,7 +1210,7 @@ pub async fn share_workspace_resource(
     require_permission(&claims, Permission::WorkspaceResourceManage)?;
     let workspace_id = crate::id_resolver::resolve_any_id(&state.db, &workspace_id)
         .await
-        .map_err(|e| <(StatusCode, Json<ErrorResponse>)>::from(e))?;
+        .map_err(<(StatusCode, Json<ErrorResponse>)>::from)?;
 
     // TENANT ISOLATION: Check workspace access - must be member or owner
     // Validates user's tenant is a workspace member with appropriate role
@@ -1414,10 +1414,10 @@ pub async fn unshare_workspace_resource(
     require_permission(&claims, Permission::WorkspaceResourceManage)?;
     let workspace_id = crate::id_resolver::resolve_any_id(&state.db, &workspace_id)
         .await
-        .map_err(|e| <(StatusCode, Json<ErrorResponse>)>::from(e))?;
+        .map_err(<(StatusCode, Json<ErrorResponse>)>::from)?;
     let resource_id = crate::id_resolver::resolve_any_id(&state.db, &resource_id)
         .await
-        .map_err(|e| <(StatusCode, Json<ErrorResponse>)>::from(e))?;
+        .map_err(<(StatusCode, Json<ErrorResponse>)>::from)?;
 
     // TENANT ISOLATION: Check workspace access - must be member or owner
     // Validates user's tenant is a workspace member with appropriate role
@@ -1525,7 +1525,7 @@ pub async fn get_workspace_active_state(
     require_permission(&claims, Permission::WorkspaceView)?;
     let workspace_id = crate::id_resolver::resolve_any_id(&state.db, &workspace_id)
         .await
-        .map_err(|e| <(StatusCode, Json<ErrorResponse>)>::from(e))?;
+        .map_err(<(StatusCode, Json<ErrorResponse>)>::from)?;
 
     // TENANT ISOLATION: Check workspace access (validates user's tenant is a workspace member)
     // Workspaces don't have a single tenant_id - they're cross-tenant by design.
@@ -1597,7 +1597,7 @@ pub async fn set_workspace_active_state(
     require_permission(&claims, Permission::WorkspaceManage)?;
     let workspace_id = crate::id_resolver::resolve_any_id(&state.db, &workspace_id)
         .await
-        .map_err(|e| <(StatusCode, Json<ErrorResponse>)>::from(e))?;
+        .map_err(<(StatusCode, Json<ErrorResponse>)>::from)?;
 
     // TENANT ISOLATION: Check workspace access (validates user's tenant is a workspace member)
     // Workspaces don't have a single tenant_id - they're cross-tenant by design.

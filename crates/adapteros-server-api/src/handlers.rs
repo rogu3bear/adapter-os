@@ -1542,7 +1542,7 @@ pub async fn archive_adapter_repository(
     require_permission(&claims, Permission::AdapterRegister)?;
     let repo_id = crate::id_resolver::resolve_any_id(&state.db, &repo_id)
         .await
-        .map_err(|e| <(StatusCode, Json<ErrorResponse>)>::from(e))?;
+        .map_err(<(StatusCode, Json<ErrorResponse>)>::from)?;
 
     let archived = state
         .db
@@ -1593,7 +1593,7 @@ pub async fn get_adapter(
 ) -> Result<Json<AdapterResponse>, (StatusCode, Json<ErrorResponse>)> {
     let adapter_id = crate::id_resolver::resolve_any_id(&state.db, &adapter_id)
         .await
-        .map_err(|e| <(StatusCode, Json<ErrorResponse>)>::from(e))?;
+        .map_err(<(StatusCode, Json<ErrorResponse>)>::from)?;
     let adapter = state
         .db
         .get_adapter_for_tenant(&claims.tenant_id, &adapter_id)
@@ -2019,7 +2019,7 @@ pub async fn delete_adapter(
     crate::permissions::require_permission(&claims, crate::permissions::Permission::AdapterDelete)?;
     let adapter_id = crate::id_resolver::resolve_any_id(&state.db, &adapter_id)
         .await
-        .map_err(|e| <(StatusCode, Json<ErrorResponse>)>::from(e))?;
+        .map_err(<(StatusCode, Json<ErrorResponse>)>::from)?;
 
     // Get adapter with tenant-scoped query
     let _adapter = state
@@ -2982,7 +2982,7 @@ pub async fn get_promotion(
 ) -> Result<Json<PromotionRecord>, (StatusCode, Json<ErrorResponse>)> {
     let id = crate::id_resolver::resolve_any_id(&state.db, &id)
         .await
-        .map_err(|e| <(StatusCode, Json<ErrorResponse>)>::from(e))?;
+        .map_err(<(StatusCode, Json<ErrorResponse>)>::from)?;
     let promo = sqlx::query_as::<_, PromotionRecord>(
         "SELECT id, cpid, promoted_by, promoted_at, signature_b64, 
                 signer_key_id, quality_json, before_cpid 

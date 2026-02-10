@@ -8,8 +8,8 @@ use adapteros_core::determinism::expand_u64_seed;
 use adapteros_core::evidence_envelope::{EvidenceEnvelope, InferenceReceiptRef};
 use adapteros_core::seed::SeedLineage;
 use adapteros_core::{
-    pinned_degradation_telemetry_ref_ids, AosError, B3Hash, EvidenceScope, PinnedDegradationEvidence,
-    SeedMode,
+    pinned_degradation_telemetry_ref_ids, AosError, B3Hash, EvidenceScope,
+    PinnedDegradationEvidence, SeedMode,
 };
 use adapteros_db::inference_trace::{recompute_receipt, TraceReceipt};
 // UmaStats import removed - live runtime metrics excluded for deterministic exports
@@ -284,7 +284,7 @@ pub async fn download_run_evidence(
     require_permission(&claims, Permission::InferenceExecute)?;
     let run_id = crate::id_resolver::resolve_any_id(&state.db, &run_id)
         .await
-        .map_err(|e| <(StatusCode, Json<ErrorResponse>)>::from(e))?;
+        .map_err(<(StatusCode, Json<ErrorResponse>)>::from)?;
 
     // Fetch metadata by inference_id (tenant isolation enforced at DB layer)
     let metadata = state
@@ -441,7 +441,9 @@ pub async fn download_run_evidence(
                         receipt.attestation.as_ref().map(|a| B3Hash::hash(a));
                     receipt_ref.seed_lineage_hash =
                         Some(compute_seed_lineage_hash(&metadata).map_err(ApiError::from)?);
-                    receipt_ref.validate_for_strict_mode().map_err(ApiError::from)?;
+                    receipt_ref
+                        .validate_for_strict_mode()
+                        .map_err(ApiError::from)?;
                 }
                 // Keep evidence export deterministic by omitting mutable chain linkage and timestamps.
                 let mut envelope =
@@ -466,12 +468,10 @@ pub async fn download_run_evidence(
         }
     } else if is_strict {
         // Strict exports must fail closed: missing receipts are incomplete evidence.
-        return Err(
-            ApiError::from(AosError::DeterminismViolation(
-                "EP-5: Strict evidence export requires an inference trace receipt".to_string(),
-            ))
-            .into(),
-        );
+        return Err(ApiError::from(AosError::DeterminismViolation(
+            "EP-5: Strict evidence export requires an inference trace receipt".to_string(),
+        ))
+        .into());
     } else {
         envelope_warnings.push("no inference trace found for run_id; envelope omitted".to_string());
     }

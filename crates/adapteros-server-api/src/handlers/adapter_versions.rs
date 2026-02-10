@@ -51,7 +51,7 @@ pub async fn list_adapter_versions(
     require_permission(&claims, Permission::AdapterList)?;
     let repo_id = crate::id_resolver::resolve_any_id(&state.db, &repo_id)
         .await
-        .map_err(|e| <(StatusCode, Json<ErrorResponse>)>::from(e))?;
+        .map_err(<(StatusCode, Json<ErrorResponse>)>::from)?;
 
     let repo = state
         .db
@@ -305,7 +305,7 @@ pub async fn get_adapter_version(
     require_permission(&claims, Permission::AdapterList)?;
     let version_id = crate::id_resolver::resolve_any_id(&state.db, &version_id)
         .await
-        .map_err(|e| <(StatusCode, Json<ErrorResponse>)>::from(e))?;
+        .map_err(<(StatusCode, Json<ErrorResponse>)>::from)?;
 
     let version = state
         .db
@@ -441,7 +441,7 @@ pub async fn promote_adapter_version_handler(
     require_permission(&claims, Permission::AdapterRegister)?;
     let version_id = crate::id_resolver::resolve_any_id(&state.db, &version_id)
         .await
-        .map_err(|e| <(StatusCode, Json<ErrorResponse>)>::from(e))?;
+        .map_err(<(StatusCode, Json<ErrorResponse>)>::from)?;
 
     // Fetch version to validate tenant/repo
     let version = state
@@ -545,7 +545,7 @@ pub async fn rollback_adapter_version_handler(
     require_permission(&claims, Permission::AdapterRegister)?;
     let repo_id = crate::id_resolver::resolve_any_id(&state.db, &repo_id)
         .await
-        .map_err(|e| <(StatusCode, Json<ErrorResponse>)>::from(e))?;
+        .map_err(<(StatusCode, Json<ErrorResponse>)>::from)?;
 
     // Ensure repo exists
     let repo_exists = state
@@ -622,7 +622,7 @@ pub async fn tag_adapter_version_handler(
     require_permission(&claims, Permission::AdapterRegister)?;
     let version_id = crate::id_resolver::resolve_any_id(&state.db, &version_id)
         .await
-        .map_err(|e| <(StatusCode, Json<ErrorResponse>)>::from(e))?;
+        .map_err(<(StatusCode, Json<ErrorResponse>)>::from)?;
 
     state
         .db
@@ -669,7 +669,7 @@ pub async fn resolve_adapter_version_handler(
     require_permission(&claims, Permission::AdapterList)?;
     let repo_id = crate::id_resolver::resolve_any_id(&state.db, &repo_id)
         .await
-        .map_err(|e| <(StatusCode, Json<ErrorResponse>)>::from(e))?;
+        .map_err(<(StatusCode, Json<ErrorResponse>)>::from)?;
 
     let resolved = state
         .db

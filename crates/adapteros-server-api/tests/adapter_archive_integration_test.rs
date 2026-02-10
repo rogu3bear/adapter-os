@@ -27,7 +27,7 @@ async fn create_test_adapter(db: &Db, adapter_id: &str, tenant_id: &str, name: &
     let adapter_tempdir = tempfile::TempDir::with_prefix("aos-test-adapters-").map_err(|e| {
         adapteros_core::AosError::Io(format!("Failed to create adapter temp dir: {}", e))
     })?;
-    let adapter_dir = adapter_tempdir.into_path();
+    let adapter_dir = adapter_tempdir.keep();
     let adapter_path = adapter_dir.join(format!("{}.aos", adapter_id));
     std::fs::write(&adapter_path, b"test").map_err(|e| {
         adapteros_core::AosError::Io(format!("Failed to create adapter file: {}", e))
