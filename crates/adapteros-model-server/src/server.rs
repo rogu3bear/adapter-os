@@ -529,7 +529,7 @@ fn tensor_to_f32_vec(tensor: &safetensors::tensor::TensorView<'_>) -> Result<Vec
 
 /// Parse raw f32 bytes (fallback format)
 fn parse_raw_f32_weights(data: &[u8]) -> Result<(Vec<f32>, Vec<f32>, f32), String> {
-    if data.len() % 4 != 0 {
+    if !data.len().is_multiple_of(4) {
         return Err(format!(
             "Invalid raw weights length: {} (not multiple of 4)",
             data.len()

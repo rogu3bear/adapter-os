@@ -550,7 +550,10 @@ impl NodeAgent {
                     };
 
                     *self.model_server.write().await = Some(model_server_info);
-                    info!(pid = simulated_pid, "Simulated Model Server created (dev mode)");
+                    info!(
+                        pid = simulated_pid,
+                        "Simulated Model Server created (dev mode)"
+                    );
                     Ok(simulated_pid)
                 }
             }
@@ -591,11 +594,8 @@ impl NodeAgent {
                 tokio::time::sleep(Duration::from_secs(5)).await;
 
                 // Force kill if still running
-                if let Err(_) =
-                    nix::sys::signal::kill(Pid::from_raw(info.pid as i32), Signal::SIGKILL)
-                {
-                    // Process already exited, which is fine
-                }
+                // Ignore errors (process may have already exited).
+                let _ = nix::sys::signal::kill(Pid::from_raw(info.pid as i32), Signal::SIGKILL);
             }
 
             info!(pid = info.pid, "Model Server stopped");
