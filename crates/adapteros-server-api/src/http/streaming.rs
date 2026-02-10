@@ -576,22 +576,13 @@ mod tests {
 
     #[test]
     fn test_streaming_request_defaults() {
-        let req = StreamingInferenceRequest {
-            prompt: "Hello".to_string(),
-            model: None,
-            max_tokens: default_max_tokens(),
-            temperature: default_temperature(),
-            top_p: None,
-            stop: vec![],
-            stream: default_stream(),
-            adapter_stack: None,
-            stack_id: None,
-            stack_version: None,
-        };
+        // Ensure serde uses our default functions when optional fields are omitted.
+        let req: StreamingInferenceRequest =
+            serde_json::from_str(r#"{"prompt":"Hello"}"#).expect("valid request json");
 
-        assert_eq!(req.max_tokens, 512);
-        assert!((req.temperature - 0.0).abs() < 0.01);
-        assert!(req.stream);
+        assert_eq!(req.max_tokens, default_max_tokens());
+        assert!((req.temperature - default_temperature()).abs() < 0.01);
+        assert_eq!(req.stream, default_stream());
     }
 
     #[test]

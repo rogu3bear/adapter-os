@@ -22,7 +22,10 @@ use std::sync::{Arc, RwLock};
 use tempfile::Builder as TempDirBuilder;
 
 fn stack_name() -> String {
-    TypedId::new(IdPrefix::Stk).to_string()
+    // Stacks are semantically named and validated as `stack.{namespace}[.{identifier}]`.
+    // Use a fixed namespace with a unique identifier for test isolation.
+    let id = TypedId::new(IdPrefix::Stk);
+    format!("stack.test.{}", id.short())
 }
 
 async fn build_test_state(use_session_stack: bool) -> AppState {
@@ -175,12 +178,42 @@ async fn register_worker_with_caps(
     backend: &str,
     caps: &WorkerCapabilities,
 ) {
+    // Worker selection excludes candidates whose UDS socket path doesn't exist.
+    // Create a unique per-test socket path so these unit tests remain hermetic and
+    // don't depend on a real worker process.
+    let uds_path = format!(
+        "var/run/test-uds/{}-{}/worker.sock",
+        worker_id,
+        TypedId::new(IdPrefix::Req).short()
+    );
+    let uds_parent = std::path::Path::new(&uds_path)
+        .parent()
+        .expect("uds_path should have a parent directory");
+    fs::create_dir_all(uds_parent).expect("create uds parent directory");
+
+    #[cfg(unix)]
+    {
+        // Remove any stale socket file from prior test runs.
+        let _ = std::fs::remove_file(&uds_path);
+        let listener =
+            std::os::unix::net::UnixListener::bind(&uds_path).expect("bind test UDS socket");
+        // Keep the listener alive for the duration of the test process so the socket file
+        // remains present and correctly typed.
+        std::mem::forget(listener);
+    }
+
+    #[cfg(not(unix))]
+    {
+        // On non-Unix platforms, worker selection treats the path as a file.
+        std::fs::write(&uds_path, b"").expect("create uds placeholder file");
+    }
+
     let params = WorkerRegistrationParams {
         worker_id: worker_id.to_string(),
         tenant_id: tenant_id.to_string(),
         node_id: node_id.to_string(),
         plan_id: plan_id.to_string(),
-        uds_path: format!("var/run/{}/worker.sock", worker_id),
+        uds_path,
         pid: 1234,
         manifest_hash: manifest_hash.to_string(),
         backend: Some(backend.to_string()),
