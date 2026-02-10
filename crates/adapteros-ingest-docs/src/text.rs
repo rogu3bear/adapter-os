@@ -1,6 +1,7 @@
 use crate::chunker::DocumentChunker;
-use crate::types::{DocumentSource, IngestedDocument};
+use crate::types::{ChunkProvenance, DocumentSource, IngestedDocument};
 use crate::utils::{finalize_chunks, normalize_whitespace};
+use crate::INGESTION_VERSION;
 use adapteros_core::{AosError, B3Hash, Result};
 use std::path::{Path, PathBuf};
 
@@ -59,7 +60,14 @@ pub fn ingest_text_bytes(
 
     let normalized_text_hash = B3Hash::hash(normalized.as_bytes());
     let normalized_text_len = normalized.chars().count();
-    let chunks = finalize_chunks(chunker.chunk(&normalized, None)?);
+    let provenance = ChunkProvenance {
+        source_doc_hash: doc_hash,
+        source_path: source_path
+            .as_ref()
+            .map(|p| p.to_string_lossy().to_string()),
+        transform_version: INGESTION_VERSION,
+    };
+    let chunks = finalize_chunks(chunker.chunk(&normalized, None)?, &provenance);
 
     Ok(IngestedDocument {
         source: DocumentSource::Text,

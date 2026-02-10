@@ -24,17 +24,12 @@ impl DocumentSource {
 ///
 /// Default is `Off` to keep ingestion deterministic and avoid external tool
 /// dependencies unless explicitly enabled.
-#[derive(Debug, Clone, Copy, PartialEq, Eq, Serialize, Deserialize)]
+#[derive(Debug, Clone, Copy, PartialEq, Eq, Serialize, Deserialize, Default)]
 #[serde(rename_all = "snake_case")]
 pub enum OcrMode {
+    #[default]
     Off,
     External,
-}
-
-impl Default for OcrMode {
-    fn default() -> Self {
-        Self::Off
-    }
 }
 
 /// Fingerprint of the OCR toolchain used (or skipped) for ingestion.
@@ -63,6 +58,22 @@ pub struct OcrFingerprint {
     pub tool: OcrToolFingerprint,
 }
 
+/// Provenance metadata stamped on each chunk for traceability.
+///
+/// Enables any downstream consumer (RAG index, training pipeline, audit)
+/// to trace a chunk back to its source file, verify integrity, and know
+/// which version of the transform logic produced it.
+#[derive(Debug, Clone, PartialEq, Eq, Serialize, Deserialize)]
+pub struct ChunkProvenance {
+    /// BLAKE3 hash of the raw source document bytes.
+    pub source_doc_hash: B3Hash,
+    /// Filesystem path of the source document (if ingested from disk).
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub source_path: Option<String>,
+    /// Ingestion pipeline version that produced this chunk.
+    pub transform_version: u32,
+}
+
 /// A normalized text chunk extracted from a document
 #[derive(Debug, Clone, Serialize, Deserialize)]
 pub struct DocumentChunk {
@@ -73,6 +84,9 @@ pub struct DocumentChunk {
     pub end_offset: usize,
     pub text: String,
     pub span_hash: B3Hash,
+    /// Provenance linking this chunk to its source document and transform version.
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub provenance: Option<ChunkProvenance>,
 }
 
 impl DocumentChunk {
@@ -92,6 +106,7 @@ impl DocumentChunk {
             end_offset,
             text,
             span_hash,
+            provenance: None,
         }
     }
 
@@ -185,10 +200,11 @@ pub struct IngestedDocumentWithErrors {
 ///
 /// This enum tracks how text was extracted, enabling downstream consumers
 /// to understand extraction reliability and adjust trust accordingly.
-#[derive(Debug, Clone, Copy, PartialEq, Eq, Serialize, Deserialize)]
+#[derive(Debug, Clone, Copy, PartialEq, Eq, Serialize, Deserialize, Default)]
 #[serde(rename_all = "snake_case")]
 pub enum ExtractionMethod {
     /// Direct text extraction from PDF (lopdf, no OCR)
+    #[default]
     TextNative,
     /// OCR via Tesseract (future)
     OcrTesseract,
@@ -196,12 +212,6 @@ pub enum ExtractionMethod {
     OcrAppleVision,
     /// Mixed extraction: some pages text-native, some OCR
     Mixed,
-}
-
-impl Default for ExtractionMethod {
-    fn default() -> Self {
-        Self::TextNative
-    }
 }
 
 /// Extraction confidence metadata for a document.
@@ -271,10 +281,11 @@ impl ExtractionConfidence {
                 degraded_pages.push(result.page_number);
             }
             // Page is degraded if extraction failed with no visual fallback
-            if result.text.is_none() && result.error.is_some() {
-                if !degraded_pages.contains(&result.page_number) {
-                    degraded_pages.push(result.page_number);
-                }
+            if result.text.is_none()
+                && result.error.is_some()
+                && !degraded_pages.contains(&result.page_number)
+            {
+                degraded_pages.push(result.page_number);
             }
         }
 

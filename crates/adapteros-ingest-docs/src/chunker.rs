@@ -2,6 +2,7 @@ use crate::types::DocumentChunk;
 use adapteros_core::{AosError, Result};
 use std::sync::Arc;
 use tokenizers::Tokenizer;
+use tracing::warn;
 
 /// Chunking behavior configuration
 #[derive(Debug, Clone)]
@@ -69,6 +70,17 @@ impl DocumentChunker {
                     chunk_text.to_string(),
                 )
                 .with_total(total_chunks),
+            );
+        }
+
+        if chunks.is_empty() {
+            warn!(
+                input_len = text.len(),
+                min_chunk_chars = self.options.min_chunk_chars,
+                "Non-empty input ({} bytes) produced zero chunks after filtering — \
+                 all spans fell below min_chunk_chars ({})",
+                text.len(),
+                self.options.min_chunk_chars,
             );
         }
 

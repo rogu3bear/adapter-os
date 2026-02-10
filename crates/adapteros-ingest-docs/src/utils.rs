@@ -1,4 +1,4 @@
-use crate::types::DocumentChunk;
+use crate::types::{ChunkProvenance, DocumentChunk};
 
 pub fn normalize_whitespace(input: &str) -> String {
     let content = input.replace('\r', "");
@@ -29,10 +29,14 @@ pub fn normalize_whitespace(input: &str) -> String {
     }
 }
 
-pub fn finalize_chunks(mut chunks: Vec<DocumentChunk>) -> Vec<DocumentChunk> {
+pub fn finalize_chunks(
+    mut chunks: Vec<DocumentChunk>,
+    provenance: &ChunkProvenance,
+) -> Vec<DocumentChunk> {
     let total = chunks.len();
     for chunk in &mut chunks {
         chunk.total_chunks = total;
+        chunk.provenance = Some(provenance.clone());
     }
     chunks
 }
