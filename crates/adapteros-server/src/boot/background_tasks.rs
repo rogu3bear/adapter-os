@@ -46,10 +46,10 @@ use crate::boot::BackgroundTaskSpawner;
 use crate::logging;
 use crate::shutdown::ShutdownCoordinator;
 use crate::status_writer;
-use adapteros_deterministic_exec::run_global_executor;
 use adapteros_db::diagnostics::SqliteDiagPersister;
 use adapteros_db::kv_metrics;
 use adapteros_db::Db;
+use adapteros_deterministic_exec::run_global_executor;
 use adapteros_server_api::boot_state::{BootStateManager, FailureReason};
 use adapteros_server_api::security::{
     cleanup_expired_ip_rules, cleanup_expired_revocations, cleanup_expired_sessions,

@@ -110,6 +110,24 @@ pub struct MetricsExporter {
     receipt_mismatch_total: Counter,
     audit_divergence_total: Counter,
     policy_override_total: Counter,
+    // ==========================================================================
+    // Retrieval / Embedding metrics
+    // ==========================================================================
+
+    // Ingest metrics
+    ingest_documents_total: CounterVec,
+    ingest_chunks_total: CounterVec,
+    ingest_tokens_total: Counter,
+    ingest_empty_documents_total: Counter,
+
+    // Embedding metrics
+    embedding_generation_duration_seconds: HistogramVec,
+    embedding_batch_size: HistogramVec,
+
+    // Corpus gauges
+    corpus_chunks: GaugeVec,
+    corpus_tokens: GaugeVec,
+
     // SQLite index health / maintenance metrics
     db_page_size_bytes: Gauge,
     db_page_count: Gauge,
@@ -475,6 +493,72 @@ impl MetricsExporter {
         )?;
         registry.register(Box::new(policy_override_total.clone()))?;
 
+        // ==========================================================================
+        // Retrieval / Embedding metrics
+        // ==========================================================================
+
+        // Ingest metrics
+        let ingest_documents_total = CounterVec::new(
+            Opts::new("aos_ingest_documents_total", "Total documents ingested"),
+            &["source_type"],
+        )?;
+        registry.register(Box::new(ingest_documents_total.clone()))?;
+
+        let ingest_chunks_total = CounterVec::new(
+            Opts::new(
+                "aos_ingest_chunks_total",
+                "Total chunks produced from ingested documents",
+            ),
+            &["source_type"],
+        )?;
+        registry.register(Box::new(ingest_chunks_total.clone()))?;
+
+        let ingest_tokens_total = Counter::new(
+            "aos_ingest_tokens_total",
+            "Total tokens across all ingested chunks",
+        )?;
+        registry.register(Box::new(ingest_tokens_total.clone()))?;
+
+        let ingest_empty_documents_total = Counter::new(
+            "aos_ingest_empty_documents_total",
+            "Total documents that produced zero chunks",
+        )?;
+        registry.register(Box::new(ingest_empty_documents_total.clone()))?;
+
+        // Embedding metrics
+        let embedding_generation_duration_seconds = HistogramVec::new(
+            HistogramOpts::new(
+                "aos_embedding_generation_duration_seconds",
+                "Embedding generation latency in seconds",
+            )
+            .buckets(vec![0.01, 0.025, 0.05, 0.1, 0.25, 0.5, 1.0, 2.5, 5.0, 10.0]),
+            &["model_name"],
+        )?;
+        registry.register(Box::new(embedding_generation_duration_seconds.clone()))?;
+
+        let embedding_batch_size = HistogramVec::new(
+            HistogramOpts::new(
+                "aos_embedding_batch_size",
+                "Embedding generation batch sizes",
+            )
+            .buckets(vec![1.0, 4.0, 8.0, 16.0, 32.0, 64.0, 128.0, 256.0, 512.0]),
+            &["model_name"],
+        )?;
+        registry.register(Box::new(embedding_batch_size.clone()))?;
+
+        // Corpus gauges
+        let corpus_chunks = GaugeVec::new(
+            Opts::new("aos_corpus_chunks", "Current chunk count per corpus"),
+            &["corpus_id"],
+        )?;
+        registry.register(Box::new(corpus_chunks.clone()))?;
+
+        let corpus_tokens = GaugeVec::new(
+            Opts::new("aos_corpus_tokens", "Current token count per corpus"),
+            &["corpus_id"],
+        )?;
+        registry.register(Box::new(corpus_tokens.clone()))?;
+
         // SQLite index health / maintenance metrics
         let db_page_size_bytes = Gauge::new(
             "adapteros_db_page_size_bytes",
@@ -715,6 +799,15 @@ impl MetricsExporter {
             receipt_mismatch_total,
             audit_divergence_total,
             policy_override_total,
+            // Retrieval / Embedding metrics
+            ingest_documents_total,
+            ingest_chunks_total,
+            ingest_tokens_total,
+            ingest_empty_documents_total,
+            embedding_generation_duration_seconds,
+            embedding_batch_size,
+            corpus_chunks,
+            corpus_tokens,
             db_page_size_bytes,
             db_page_count,
             db_freelist_count,
@@ -1136,6 +1229,65 @@ impl MetricsExporter {
             .as_secs_f64()
     }
 
+    // ==========================================================================
+    // Retrieval / Embedding - Recording methods
+    // ==========================================================================
+
+    /// Record a document ingest event
+    ///
+    /// # Arguments
+    /// * `source_type` - Source type of the document (e.g., "markdown", "pdf", "html")
+    /// * `chunks` - Number of chunks produced from the document
+    /// * `tokens` - Total token count across all chunks
+    /// * `empty` - Whether the document produced zero chunks
+    pub fn record_ingest(&self, source_type: &str, chunks: u64, tokens: u64, empty: bool) {
+        self.ingest_documents_total
+            .with_label_values(&[source_type])
+            .inc();
+        self.ingest_chunks_total
+            .with_label_values(&[source_type])
+            .inc_by(chunks as f64);
+        self.ingest_tokens_total.inc_by(tokens as f64);
+        if empty {
+            self.ingest_empty_documents_total.inc();
+        }
+    }
+
+    /// Record an embedding generation event
+    ///
+    /// # Arguments
+    /// * `model_name` - Name of the embedding model used
+    /// * `duration_secs` - Time taken to generate embeddings in seconds
+    /// * `batch_size` - Number of items in the embedding batch
+    pub fn record_embedding_generation(
+        &self,
+        model_name: &str,
+        duration_secs: f64,
+        batch_size: u64,
+    ) {
+        self.embedding_generation_duration_seconds
+            .with_label_values(&[model_name])
+            .observe(duration_secs);
+        self.embedding_batch_size
+            .with_label_values(&[model_name])
+            .observe(batch_size as f64);
+    }
+
+    /// Update corpus-level chunk and token gauges
+    ///
+    /// # Arguments
+    /// * `corpus_id` - Corpus identifier
+    /// * `chunks` - Current total chunk count for this corpus
+    /// * `tokens` - Current total token count for this corpus
+    pub fn record_corpus_stats(&self, corpus_id: &str, chunks: i64, tokens: i64) {
+        self.corpus_chunks
+            .with_label_values(&[corpus_id])
+            .set(chunks as f64);
+        self.corpus_tokens
+            .with_label_values(&[corpus_id])
+            .set(tokens as f64);
+    }
+
     pub fn record_index_probe_success(&self, probe: &str, used_index: bool, duration_secs: f64) {
         self.db_index_probe_success
             .with_label_values(&[probe])
@@ -1399,5 +1551,96 @@ mod tests {
         assert!(output_str.contains("aos_receipts_generated_total"));
         assert!(output_str.contains("aos_receipt_verification_total"));
         assert!(output_str.contains("aos_receipt_signature_seconds"));
+    }
+
+    // ==========================================================================
+    // Retrieval / Embedding metrics - Tests
+    // ==========================================================================
+
+    #[test]
+    fn test_ingest_metrics() {
+        let exporter = MetricsExporter::new(vec![0.001, 0.01, 0.1, 1.0])
+            .expect("Test metrics exporter creation should succeed");
+
+        // Record a normal document ingest
+        exporter.record_ingest("markdown", 5, 1200, false);
+        // Record an empty document ingest
+        exporter.record_ingest("pdf", 0, 0, true);
+
+        let output = exporter
+            .render()
+            .expect("Test metrics render should succeed");
+        let output_str = String::from_utf8(output).expect("Test UTF-8 conversion should succeed");
+
+        assert!(output_str.contains("aos_ingest_documents_total"));
+        assert!(output_str.contains("aos_ingest_chunks_total"));
+        assert!(output_str.contains("aos_ingest_tokens_total"));
+        assert!(output_str.contains("aos_ingest_empty_documents_total"));
+    }
+
+    #[test]
+    fn test_embedding_metrics() {
+        let exporter = MetricsExporter::new(vec![0.001, 0.01, 0.1, 1.0])
+            .expect("Test metrics exporter creation should succeed");
+
+        exporter.record_embedding_generation("nomic-embed-text", 0.35, 32);
+        exporter.record_embedding_generation("nomic-embed-text", 0.12, 8);
+
+        let output = exporter
+            .render()
+            .expect("Test metrics render should succeed");
+        let output_str = String::from_utf8(output).expect("Test UTF-8 conversion should succeed");
+
+        assert!(output_str.contains("aos_embedding_generation_duration_seconds"));
+        assert!(output_str.contains("aos_embedding_batch_size"));
+    }
+
+    #[test]
+    fn test_corpus_stats_metrics() {
+        let exporter = MetricsExporter::new(vec![0.001, 0.01, 0.1, 1.0])
+            .expect("Test metrics exporter creation should succeed");
+
+        exporter.record_corpus_stats("corpus-abc", 150, 48000);
+        exporter.record_corpus_stats("corpus-xyz", 300, 96000);
+
+        let output = exporter
+            .render()
+            .expect("Test metrics render should succeed");
+        let output_str = String::from_utf8(output).expect("Test UTF-8 conversion should succeed");
+
+        assert!(output_str.contains("aos_corpus_chunks"));
+        assert!(output_str.contains("aos_corpus_tokens"));
+    }
+
+    #[test]
+    fn test_ingest_counter_values() {
+        let exporter = MetricsExporter::new(vec![0.001, 0.01, 0.1, 1.0])
+            .expect("Test metrics exporter creation should succeed");
+
+        exporter.record_ingest("markdown", 10, 500, false);
+        exporter.record_ingest("markdown", 5, 200, false);
+        exporter.record_ingest("pdf", 0, 0, true);
+
+        // Verify markdown docs counted twice
+        let docs_md = exporter
+            .ingest_documents_total
+            .with_label_values(&["markdown"])
+            .get();
+        assert!((docs_md - 2.0).abs() < f64::EPSILON);
+
+        // Verify chunk accumulation
+        let chunks_md = exporter
+            .ingest_chunks_total
+            .with_label_values(&["markdown"])
+            .get();
+        assert!((chunks_md - 15.0).abs() < f64::EPSILON);
+
+        // Verify token accumulation
+        let tokens = exporter.ingest_tokens_total.get();
+        assert!((tokens - 700.0).abs() < f64::EPSILON);
+
+        // Verify empty document count
+        let empty = exporter.ingest_empty_documents_total.get();
+        assert!((empty - 1.0).abs() < f64::EPSILON);
     }
 }
