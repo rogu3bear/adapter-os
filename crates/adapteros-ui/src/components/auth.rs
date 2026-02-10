@@ -95,7 +95,7 @@ pub fn ProtectedRoute(children: ChildrenFn) -> impl IntoView {
                         <Button
                             on_click=Callback::new({
                                 let retry = retry_auth.clone();
-                                move |_| retry(())
+                                move |_| retry.run(())
                             })
                         >
                             "Retry"
@@ -129,7 +129,7 @@ pub fn ProtectedRoute(children: ChildrenFn) -> impl IntoView {
                                 </p>
                                 <div class="flex gap-3 justify-center">
                                     {is_retryable.then(|| view! {
-                                        <Button on_click=Callback::new(move |_| retry_handler(()))>
+                                        <Button on_click=Callback::new(move |_| retry_handler.run(()))>
                                             "Retry"
                                         </Button>
                                     })}
