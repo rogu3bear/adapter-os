@@ -21,7 +21,6 @@
     <link data-trunk rel="css" href="dist/charts.css">
     <!-- wasm-opt disabled: Trunk's bundled wasm-opt lacks --enable-bulk-memory (PRD-UI-170) -->
     <!-- CI runs: wasm-opt -O4 --enable-bulk-memory, asserts <3.5MB -->
-    <link data-trunk rel="rust" data-wasm-opt="0">
     <!-- PRD-UI-170: DNS prefetch for API endpoints -->
     <link rel="dns-prefetch" href="/">
     <style>
@@ -931,6 +930,10 @@
             }
         })();
     </script>
+    <!-- PRD-UI-000: Load WASM after boot hooks are installed.
+         This avoids a race where Rust calls window.aosSignalMounted before it's defined,
+         leaving the boot progress overlay stuck on screen in fast/cached loads. -->
+    <link data-trunk rel="rust" data-wasm-opt="0">
 </body>
 
 </html>

@@ -32,10 +32,56 @@ export async function disableAnimations(page: Page): Promise<void> {
 
 async function waitForBoot(page: Page): Promise<void> {
   const bootProgress = page.locator('#aos-boot-progress');
-  if ((await bootProgress.count()) === 0) {
-    return;
+  const count = await bootProgress.count().catch(() => 0);
+  if (count === 0) return;
+
+  try {
+    // Prefer DOM truth over Playwright's visibility heuristics.
+    // We have seen cases where the overlay is actually hidden (class/style),
+    // but Playwright continues to report it as "visible" and times out.
+    await page.waitForFunction(
+      () => {
+        const progress = document.getElementById('aos-boot-progress');
+        if (!progress) return true;
+        if (progress.classList.contains('hidden')) return true;
+        const style = window.getComputedStyle(progress);
+        if (style.display === 'none') return true;
+        if (style.visibility === 'hidden') return true;
+        if (style.opacity === '0') return true;
+        const rect = progress.getBoundingClientRect();
+        if (rect.width === 0 || rect.height === 0) return true;
+        return false;
+      },
+      { timeout: 90_000 }
+    );
+  } catch (err) {
+    // Make flakes actionable: dump DOM + boot-stage diagnostics.
+    const diag = await page
+      .evaluate(() => {
+        const nodes = Array.from(document.querySelectorAll('#aos-boot-progress'));
+        const el = nodes[0] as HTMLElement | undefined;
+        const boot = (window as any).aosBoot;
+        const mountStatus = boot?.stages?.mount?.status ?? null;
+        if (!el) {
+          return { count: nodes.length, mountStatus, note: 'missing' };
+        }
+        const style = window.getComputedStyle(el);
+        const rect = el.getBoundingClientRect();
+        return {
+          count: nodes.length,
+          className: el.className,
+          display: style.display,
+          visibility: style.visibility,
+          opacity: style.opacity,
+          rect: { x: rect.x, y: rect.y, width: rect.width, height: rect.height },
+          mountStatus,
+        };
+      })
+      .catch(() => null);
+
+    console.error('[playwright] waitForBoot timeout diagnostics:', diag);
+    throw err;
   }
-  await bootProgress.waitFor({ state: 'hidden', timeout: 90_000 });
 }
 
 export async function waitForAppReady(page: Page): Promise<void> {
@@ -159,7 +205,8 @@ export async function runRouteCheck(page: Page, route: RouteCheck): Promise<void
         await expect(heading).toBeVisible({ timeout: 20_000 });
       } else {
         await expect(
-          page.getByRole('heading', { name: 'Dashboard', level: 1, exact: true })
+          // /login redirects to /chat when already authenticated; assert on the Shell sidebar.
+          page.getByRole('link', { name: 'Dashboard' })
         ).toBeVisible({ timeout: 20_000 });
       }
     } else {
@@ -178,4 +225,18 @@ export async function runRouteChecks(page: Page, routes: RouteCheck[]): Promise<
   for (const route of routes) {
     await runRouteCheck(page, route);
   }
+}
+
+export async function firstDocumentId(page: Page): Promise<string | null> {
+  const link = page.locator('a[href^="/documents/"]').first();
+  if ((await link.count().catch(() => 0)) === 0) {
+    return null;
+  }
+  const href = await link.getAttribute('href');
+  if (!href) return null;
+  const parts = href.split('/').filter(Boolean);
+  // Expected: ["documents", "<id>"]
+  if (parts.length < 2) return null;
+  if (parts[0] !== 'documents') return null;
+  return parts[1] ?? null;
 }

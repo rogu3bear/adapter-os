@@ -13,7 +13,7 @@ use crate::pages::training::dataset_wizard::{DatasetUploadOutcome, DatasetUpload
 use crate::pages::training::generate_wizard::{GenerateDatasetOutcome, GenerateDatasetWizard};
 use crate::signals::use_notifications;
 use crate::validation::{rules, use_form_errors, validate_field, FormErrors, ValidationRule};
-use adapteros_api_types::TrainingJobResponse;
+use adapteros_api_types::{TrainingJobResponse, TRAINING_DATA_CONTRACT_VERSION};
 use leptos::prelude::*;
 use serde_json::json;
 
@@ -359,7 +359,6 @@ pub fn CreateJobWizard(
             let epochs_val: u32 = epochs.get().parse().unwrap_or(10);
             let lr_val: f32 = learning_rate.get().parse().unwrap_or(0.0001);
             let val_split: f32 = validation_split.get().parse().unwrap_or(0.0);
-            let early_stop = early_stopping.get();
             let batch_val: u32 = batch_size.get().parse().unwrap_or(4);
             let rank_val: u32 = rank.get().parse().unwrap_or(8);
             let alpha_val: u32 = alpha.get().parse().unwrap_or(16);
@@ -373,25 +372,33 @@ pub fn CreateJobWizard(
             wasm_bindgen_futures::spawn_local(async move {
                 let client = ApiClient::new();
 
+                let dataset_id = ds_id.trim().to_string();
+                if dataset_id.is_empty() {
+                    error.set(Some("Dataset is required to start training".to_string()));
+                    submitting.set(false);
+                    return;
+                }
+
                 let request = json!({
                     "adapter_name": name,
                     "base_model_id": model,
+                    "dataset_id": dataset_id,
                     "config": {
                         "rank": rank_val,
                         "alpha": alpha_val,
                         "targets": ["q_proj", "v_proj"],
+                        "training_contract_version": TRAINING_DATA_CONTRACT_VERSION,
+                        "pad_token_id": 0,
+                        "ignore_index": -100,
                         "epochs": epochs_val,
                         "learning_rate": lr_val,
                         "batch_size": batch_val,
                         "validation_split": if val_split > 0.0 { json!(val_split) } else { serde_json::Value::Null },
-                        "early_stopping": early_stop,
                         "preferred_backend": if backend_val == "auto" { serde_json::Value::Null } else { json!(backend_val) },
                         "backend_policy": if policy_val == "auto" { serde_json::Value::Null } else { json!(policy_val) },
                         "coreml_training_fallback": if backend_val == "coreml" || policy_val == "coreml_else_fallback" { json!(fallback_val) } else { serde_json::Value::Null },
                     },
                     "category": cat,
-                    "dataset_id": if ds_id.is_empty() { serde_json::Value::Null } else { json!(ds_id) },
-                    "synthetic_mode": ds_id.is_empty(),
                 });
 
                 match client
@@ -415,11 +422,13 @@ pub fn CreateJobWizard(
         }
     };
 
-    let close = move |_: ()| {
-        open.set(false);
+    let reset_form = move || {
         current_step.set(WizardStep::default());
         error.set(None);
         form_errors.update(|e| e.clear_all());
+        submitting.set(false);
+        dataset_wizard_open.set(false);
+        generate_wizard_open.set(false);
         // Reset form state
         adapter_name.set(String::new());
         base_model_id.set(String::new());
@@ -441,9 +450,13 @@ pub fn CreateJobWizard(
     };
 
     // Reset form when dialog closes
+    let was_open = StoredValue::new(open.get_untracked());
     Effect::new(move || {
-        if !open.get() {
-            close(());
+        let is_open = open.get();
+        let prev = was_open.get_value();
+        was_open.set_value(is_open);
+        if prev && !is_open {
+            reset_form();
         }
     });
 

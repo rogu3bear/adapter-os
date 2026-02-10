@@ -4,7 +4,8 @@ use adapteros_core::{AosError, B3Hash, Result};
 use serde::{Deserialize, Serialize};
 
 pub use crate::writer::{
-    compute_scope_hash, BackendTag, AOS_MAGIC, HAS_INDEX_FLAG, HEADER_SIZE, INDEX_ENTRY_SIZE,
+    compute_scope_hash, BackendTag, AOS_MAGIC, AOS_MAGIC_V2, HAS_INDEX_FLAG, HEADER_SIZE,
+    INDEX_ENTRY_SIZE,
 };
 
 #[cfg(feature = "mmap")]
@@ -47,7 +48,7 @@ pub fn open_aos<'a>(bytes: &'a [u8]) -> Result<AosFileView<'a>> {
         ));
     }
 
-    if bytes[0..4] != AOS_MAGIC {
+    if bytes[0..4] != AOS_MAGIC && bytes[0..4] != AOS_MAGIC_V2 {
         return Err(AosError::Validation(
             "Corrupted / needs retrain: invalid AOS magic".to_string(),
         ));
