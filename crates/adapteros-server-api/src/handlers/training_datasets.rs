@@ -148,6 +148,26 @@ pub async fn create_training_dataset_from_upload(
     ))
 }
 
+/// Stub when embeddings feature is disabled.
+#[cfg(not(feature = "embeddings"))]
+#[utoipa::path(
+    post,
+    path = "/v1/training/datasets/from-upload/async",
+    responses(
+        (status = 501, description = "Embeddings feature disabled", body = ErrorResponse)
+    ),
+    tag = "datasets"
+)]
+pub async fn create_training_dataset_from_upload_async(
+    State(_state): State<AppState>,
+    Extension(_claims): Extension<Claims>,
+    _multipart: Multipart,
+) -> Result<Json<ErrorResponse>, ApiError> {
+    Err(ApiError::not_implemented(
+        "Training dataset upload requires the 'embeddings' feature to be enabled",
+    ))
+}
+
 /// Query params for deterministic row streaming.
 #[derive(Debug, Deserialize, IntoParams, ToSchema)]
 pub struct StreamRowsQuery {
