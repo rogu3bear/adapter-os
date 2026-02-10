@@ -96,7 +96,7 @@ pub use inference_banner::InferenceBanner;
 pub use input::{Input, Textarea};
 pub use layout::{
     BreadcrumbItem as PageBreadcrumbItem, Header, PageScaffold, PageScaffoldActions,
-    PageScaffoldInspector, Shell, Sidebar, Taskbar, TopBar,
+    PageScaffoldInspector, Shell, Sidebar, SidebarNav, SidebarState, Taskbar, TopBar,
 };
 pub use lifecycle_transition_dialog::{LifecycleTransitionDialog, LifecycleTransitionInfo};
 pub use link::{Link, LinkVariant};

@@ -7,8 +7,10 @@
 //! not the taskbar, to separate personal preferences from system/org navigation.
 
 use super::nav_registry::build_taskbar_modules;
+use super::sidebar::use_sidebar;
 use super::start_menu::StartMenu;
 use super::system_tray::SystemTray;
+use crate::components::responsive::use_is_mobile;
 use crate::signals::{use_chat, use_ui_profile, DockState};
 use leptos::prelude::*;
 use leptos_router::hooks::use_location;
@@ -21,26 +23,36 @@ pub fn Taskbar() -> impl IntoView {
     let location = use_location();
     let (chat_state, chat_action) = use_chat();
     let ui_profile = use_ui_profile();
+    let sidebar = use_sidebar();
+    let is_mobile = use_is_mobile();
     let modules = Signal::derive(move || build_taskbar_modules(ui_profile.get()));
+
+    // On desktop: toggle sidebar. On mobile: toggle start menu popup.
+    let on_menu_click = move |_| {
+        if is_mobile.get() {
+            set_start_menu_open.update(|v| *v = !*v);
+        } else {
+            sidebar.update(|s| *s = s.toggle());
+        }
+    };
 
     view! {
         <nav class="taskbar h-12 flex items-center justify-between border-t border-border bg-background/95 backdrop-blur-sm shrink-0">
-            // Left: Start button
+            // Left: Start button (toggles sidebar on desktop, start menu on mobile)
             <div class="relative">
                 <button
                     class=move || format!(
                         "start-btn taskbar-btn flex items-center gap-2 px-3 py-1.5 rounded-md transition-colors {}",
-                        if start_menu_open.get() {
+                        if start_menu_open.get() || sidebar.get().is_expanded() {
                             "bg-primary text-primary-foreground"
                         } else {
                             "hover:bg-muted/50 text-foreground"
                         }
                     )
-                    on:click=move |_| set_start_menu_open.update(|v| *v = !*v)
-                    title="Open Start Menu"
-                    aria-label="Open Start Menu - access all pages and settings"
-                    aria-expanded=move || start_menu_open.get().to_string()
-                    aria-haspopup="menu"
+                    on:click=on_menu_click
+                    title="Toggle navigation"
+                    aria-label="Toggle navigation sidebar"
+                    aria-expanded=move || (start_menu_open.get() || sidebar.get().is_expanded()).to_string()
                 >
                     <svg class="w-4 h-4" viewBox="0 0 24 24" fill="currentColor" aria-hidden="true">
                         <rect x="3" y="3" width="8" height="8" rx="1"/>
@@ -51,7 +63,7 @@ pub fn Taskbar() -> impl IntoView {
                     <span class="text-sm font-medium hidden sm:block">"Menu"</span>
                 </button>
 
-                // Start menu dropdown
+                // Start menu dropdown (mobile fallback only)
                 <Show when=move || start_menu_open.get()>
                     <StartMenu on_close=move || set_start_menu_open.set(false)/>
                 </Show>

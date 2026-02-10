@@ -6,6 +6,7 @@
 //! - Alt+1..Alt+8: Jump to workflow group
 
 use super::nav_registry::route_for_alt_shortcut;
+use super::sidebar::{provide_sidebar_context, SidebarNav};
 use super::taskbar::Taskbar;
 use super::topbar::TopBar;
 use crate::components::chat_dock::{ChatDockPanel, MobileChatOverlay, NarrowChatDock};
@@ -31,6 +32,7 @@ use wasm_bindgen::JsCast;
 pub fn Shell() -> impl IntoView {
     web_sys::console::log_1(&"[Shell] Rendering...".into());
     provide_ui_profile_context();
+    provide_sidebar_context();
     provide_route_context();
     let (chat_state, _chat_action) = use_chat();
     let search = use_search();
@@ -102,7 +104,12 @@ pub fn Shell() -> impl IntoView {
             }
 
             // "/" opens command palette when not in input
-            if key == "/" && !search.command_palette_open.try_get_untracked().unwrap_or(false) {
+            if key == "/"
+                && !search
+                    .command_palette_open
+                    .try_get_untracked()
+                    .unwrap_or(false)
+            {
                 event.prevent_default();
                 search.open();
                 return;
@@ -151,8 +158,11 @@ pub fn Shell() -> impl IntoView {
                 // Top bar
                 <TopBar/>
 
-                // Main content area with workspace
+                // Main content area with sidebar + workspace
                 <div class="shell-content">
+                    // Left sidebar navigation
+                    <SidebarNav/>
+
                     // Main workspace wrapper
                     <Workspace class="shell-workspace">
                         <main id="main-content" class="shell-main" tabindex="-1">

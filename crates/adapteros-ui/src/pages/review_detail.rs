@@ -34,7 +34,7 @@ pub fn ReviewDetail() -> impl IntoView {
             title="Review Detail"
             subtitle="Inspect pause context and submit a review".to_string()
             breadcrumbs=vec![
-                PageBreadcrumbItem::new("Operate", "/reviews"),
+                PageBreadcrumbItem::new("Govern", "/reviews"),
                 PageBreadcrumbItem::new("Reviews", "/reviews"),
                 PageBreadcrumbItem::current(pause_id()),
             ]
@@ -140,7 +140,7 @@ fn ReviewDetailBody(pause: InferenceStateResponse) -> impl IntoView {
             issues: issues
                 .get()
                 .into_iter()
-                .filter_map(|e| e.to_review_issue())
+                .filter_map(|e| e.into_review_issue())
                 .collect(),
             suggestions: suggestions
                 .get()
@@ -150,7 +150,11 @@ fn ReviewDetailBody(pause: InferenceStateResponse) -> impl IntoView {
                 .collect(),
             comments: {
                 let c = comments.get().trim().to_string();
-                if c.is_empty() { None } else { Some(c) }
+                if c.is_empty() {
+                    None
+                } else {
+                    Some(c)
+                }
             },
             confidence: parse_confidence(&confidence.get()),
         };
@@ -173,7 +177,8 @@ fn ReviewDetailBody(pause: InferenceStateResponse) -> impl IntoView {
                 }
                 Ok(resp) => {
                     submit_error.set(Some(
-                        resp.message.unwrap_or_else(|| "Review was not accepted".to_string()),
+                        resp.message
+                            .unwrap_or_else(|| "Review was not accepted".to_string()),
                     ));
                     submitting.set(false);
                 }
@@ -195,7 +200,13 @@ fn ReviewDetailBody(pause: InferenceStateResponse) -> impl IntoView {
                     </div>
                     <div>
                         <span class="text-muted-foreground">"Inference ID: "</span>
-                        <span class="font-mono">{pause.inference_id.clone()}</span>
+                        <a
+                            href=format!("/runs/{}", pause.inference_id)
+                            class="link link-default font-mono"
+                            title="View run details"
+                        >
+                            {pause.inference_id.clone()}
+                        </a>
                     </div>
                     <div class="flex items-center gap-2">
                         <span class="text-muted-foreground">"Kind: "</span>
@@ -449,7 +460,7 @@ impl IssueEditor {
         }
     }
 
-    fn to_review_issue(self) -> Option<ReviewIssue> {
+    fn into_review_issue(self) -> Option<ReviewIssue> {
         let description = self.description.get().trim().to_string();
         if description.is_empty() {
             return None;
@@ -462,7 +473,11 @@ impl IssueEditor {
             severity: parse_severity(&self.severity.get()),
             category: parse_scope(&self.category.get()),
             description,
-            location: if location.is_empty() { None } else { Some(location) },
+            location: if location.is_empty() {
+                None
+            } else {
+                Some(location)
+            },
             suggested_fix: if suggested_fix.is_empty() {
                 None
             } else {

@@ -240,9 +240,10 @@ fn derive_event_labels(entry: &AuditLogEntry, is_run_resource: bool) -> Vec<Stri
     }
 
     // Verification result
-    if action.contains("verify") || action.contains("receipt") {
-        labels.push("Verification result".to_string());
-    } else if metadata.as_ref().and_then(|v| v.get("verified")).is_some() {
+    if action.contains("verify")
+        || action.contains("receipt")
+        || metadata.as_ref().and_then(|v| v.get("verified")).is_some()
+    {
         labels.push("Verification result".to_string());
     }
 

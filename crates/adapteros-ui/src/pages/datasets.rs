@@ -1537,6 +1537,7 @@ pub fn DatasetDetail() -> impl IntoView {
         <div class="space-y-6">
             // Breadcrumb navigation
             <BreadcrumbTrail items=vec![
+                BreadcrumbItem::link("Data", "/datasets"),
                 BreadcrumbItem::link("Datasets", "/datasets"),
                 BreadcrumbItem::current(dataset_id()),
             ]/>

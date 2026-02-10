@@ -12,12 +12,12 @@ use crate::api::{ApiClient, UiInferenceTraceDetailResponse};
 use crate::components::{
     ActionCard, ActionCardVariant, AsyncBoundary, Badge, BadgeVariant, Button, ButtonVariant, Card,
     CopyableId, DiffResults, Link, PageBreadcrumbItem, PageScaffold, PageScaffoldActions, Select,
-    Spinner, SplitPanel, SplitRatio,
-    Table, TableBody, TableCell, TableHead, TableHeader, TableRow, TokenDecisionsPaged,
-    TraceViewerWithData,
+    Spinner, SplitPanel, SplitRatio, Table, TableBody, TableCell, TableHead, TableHeader, TableRow,
+    TokenDecisionsPaged, TraceViewerWithData,
 };
+use crate::components::{ButtonSize, Input};
 use crate::constants::pagination::TOKEN_DECISIONS_PAGE_SIZE;
-use crate::hooks::{use_api_resource, use_polling, LoadingState};
+use crate::hooks::{use_api_resource, use_list_controls, use_polling, LoadingState};
 use crate::signals::{perf_logging_enabled, use_notifications, use_ui_profile, NotificationAction};
 use adapteros_api_types::diagnostics::{
     DiagDiffRequest, DiagDiffResponse, DiagEventResponse, DiagExportResponse, DiagRunResponse,
@@ -145,7 +145,7 @@ pub fn FlightRecorderDetail() -> impl IntoView {
             title="Run Detail"
             breadcrumbs=vec![
                 PageBreadcrumbItem::new("Observe", "/runs"),
-                PageBreadcrumbItem::new("Runs", "/runs"),
+                PageBreadcrumbItem::new("Flight Recorder", "/runs"),
                 PageBreadcrumbItem::current(run_id()),
             ]
         >
@@ -180,15 +180,53 @@ fn StatusFilter(filter: RwSignal<String>) -> impl IntoView {
     }
 }
 
-/// Runs table component
+/// Client-side page size for runs table
+const RUNS_PAGE_SIZE: usize = 25;
+
+/// Runs table component with search and client-side pagination
 #[component]
 fn RunsTable(
     runs: Vec<DiagRunResponse>,
     selected_id: RwSignal<Option<String>>,
     on_select: Callback<String>,
 ) -> impl IntoView {
+    let items = Signal::derive({
+        let runs = runs.clone();
+        move || runs.clone()
+    });
+
+    let controls = use_list_controls(
+        items,
+        |run: &DiagRunResponse, query: &str| {
+            run.id.to_lowercase().contains(query)
+                || run.trace_id.to_lowercase().contains(query)
+                || run.status.to_lowercase().contains(query)
+        },
+        RUNS_PAGE_SIZE,
+    );
+
     view! {
         <Card>
+            // Search bar
+            <div class="flex items-center justify-between gap-3 pb-3 border-b border-border mb-0">
+                <Input
+                    value=controls.search
+                    placeholder="Search by run ID, trace ID, or status..."
+                    input_type="text".to_string()
+                />
+                <span class="text-xs text-muted-foreground whitespace-nowrap">
+                    {move || {
+                        let filtered = controls.filtered_count.get();
+                        let total = controls.total_count.get();
+                        if filtered == total {
+                            format!("{} runs", total)
+                        } else {
+                            format!("{} of {} runs", filtered, total)
+                        }
+                    }}
+                </span>
+            </div>
+
             <Table>
                 <TableHeader>
                     <TableRow>
@@ -200,54 +238,93 @@ fn RunsTable(
                     </TableRow>
                 </TableHeader>
                 <TableBody>
-                    {runs.into_iter().map(|run| {
-                        let run_id_for_click = run.id.clone();
-                        let run_id_for_display = truncate_id(&run.id);
-                        let is_selected = {
-                            let rid = run.id.clone();
-                            move || selected_id.get().as_ref() == Some(&rid)
-                        };
-                        let row_class = {
-                            let is_sel = is_selected.clone();
-                            move || if is_sel() { "bg-accent".to_string() } else { String::new() }
-                        };
-                        view! {
-                            <TableRow class=row_class()>
-                                <TableCell>
-                                    <button
-                                        class="text-left font-mono text-sm text-primary hover:underline cursor-pointer"
-                                        on:click={
-                                            let id = run_id_for_click.clone();
-                                            move |_| on_select.run(id.clone())
-                                        }
-                                    >
-                                        {run_id_for_display}
-                                    </button>
-                                </TableCell>
-                                <TableCell>
-                                    <StatusBadge status=run.status.clone()/>
-                                </TableCell>
-                                <TableCell>
-                                    {format_duration_ms(run.duration_ms)}
-                                </TableCell>
-                                <TableCell>
-                                    <span class="font-mono text-sm">
-                                        {run.total_events_count}
-                                        {if run.dropped_events_count > 0 {
-                                            format!(" ({} dropped)", run.dropped_events_count)
-                                        } else {
-                                            String::new()
-                                        }}
-                                    </span>
-                                </TableCell>
-                                <TableCell>
-                                    {format_timestamp_ms(run.started_at_unix_ms)}
-                                </TableCell>
-                            </TableRow>
-                        }
-                    }).collect::<Vec<_>>()}
+                    {move || {
+                        controls.visible_items.get().into_iter().map(|run| {
+                            let run_id_for_click = run.id.clone();
+                            let run_id_for_display = truncate_id(&run.id);
+                            let is_selected = {
+                                let rid = run.id.clone();
+                                move || selected_id.get().as_ref() == Some(&rid)
+                            };
+                            let row_class = {
+                                let is_sel = is_selected.clone();
+                                move || if is_sel() { "bg-accent".to_string() } else { String::new() }
+                            };
+                            view! {
+                                <TableRow class=row_class()>
+                                    <TableCell>
+                                        <button
+                                            class="text-left font-mono text-sm text-primary hover:underline cursor-pointer"
+                                            on:click={
+                                                let id = run_id_for_click.clone();
+                                                move |_| on_select.run(id.clone())
+                                            }
+                                        >
+                                            {run_id_for_display}
+                                        </button>
+                                    </TableCell>
+                                    <TableCell>
+                                        <StatusBadge status=run.status.clone()/>
+                                    </TableCell>
+                                    <TableCell>
+                                        {format_duration_ms(run.duration_ms)}
+                                    </TableCell>
+                                    <TableCell>
+                                        <span class="font-mono text-sm">
+                                            {run.total_events_count}
+                                            {if run.dropped_events_count > 0 {
+                                                format!(" ({} dropped)", run.dropped_events_count)
+                                            } else {
+                                                String::new()
+                                            }}
+                                        </span>
+                                    </TableCell>
+                                    <TableCell>
+                                        {format_timestamp_ms(run.started_at_unix_ms)}
+                                    </TableCell>
+                                </TableRow>
+                            }
+                        }).collect::<Vec<_>>()
+                    }}
                 </TableBody>
             </Table>
+
+            // Pagination
+            {move || {
+                let total_pages = controls.total_pages.get();
+                (total_pages > 1).then(|| {
+                    let current = controls.page.get();
+                    view! {
+                        <div class="flex items-center justify-center gap-2 py-3 border-t border-border">
+                            <Button
+                                variant=ButtonVariant::Outline
+                                size=ButtonSize::Sm
+                                disabled=Signal::derive(move || !controls.has_prev.get())
+                                on_click=Callback::new({
+                                    let controls = controls.clone();
+                                    move |_| controls.prev_page()
+                                })
+                            >
+                                "Previous"
+                            </Button>
+                            <span class="text-sm text-muted-foreground">
+                                {format!("Page {} of {}", current, total_pages)}
+                            </span>
+                            <Button
+                                variant=ButtonVariant::Outline
+                                size=ButtonSize::Sm
+                                disabled=Signal::derive(move || !controls.has_next.get())
+                                on_click=Callback::new({
+                                    let controls = controls.clone();
+                                    move |_| controls.next_page()
+                                })
+                            >
+                                "Next"
+                            </Button>
+                        </div>
+                    }
+                })
+            }}
         </Card>
     }
 }
@@ -415,11 +492,11 @@ fn RunDetailHub(run_id: String, on_close: Callback<()>) -> impl IntoView {
                     if ui_profile.get() == UiProfile::Full {
                         Some(view! {
                             <a
-                                href=format!("/runs/{}?tab=diff", run_id)
+                                href=format!("/diff?run={}", run_id)
                                 class="inline-flex items-center gap-1.5 px-2 py-1 text-xs rounded border border-border hover:bg-muted transition-colors"
                             >
                                 <span>"↔"</span>
-                                <span>"Open Diff"</span>
+                                <span>"Compare Runs"</span>
                             </a>
                         })
                     } else {
@@ -1045,8 +1122,11 @@ fn OverviewTab(
                                         view! {
                                             <div class="flex flex-wrap gap-1.5">
                                                 {adapters.into_iter().map(|adapter_id| {
+                                                    let href = format!("/adapters/{}", adapter_id);
                                                     view! {
-                                                        <Badge variant=BadgeVariant::Secondary>{adapter_id}</Badge>
+                                                        <a href=href class="no-underline">
+                                                            <Badge variant=BadgeVariant::Secondary>{adapter_id}</Badge>
+                                                        </a>
                                                     }
                                                 }).collect::<Vec<_>>()}
                                             </div>
@@ -1502,7 +1582,7 @@ fn ReceiptsTab(
                                                                 on_click=Callback::new({
                                                                     let trace_id = trace_id.clone();
                                                                     let notifications = notifications.clone();
-                                                                    let refetch = refetch_trace_detail.clone();
+                                                                    let refetch = refetch_trace_detail;
                                                                     move |_| {
                                                                         if verifying.get_untracked() {
                                                                             return;
@@ -1512,7 +1592,6 @@ fn ReceiptsTab(
                                                                             trace_id.clone();
                                                                         let notifications =
                                                                             notifications.clone();
-                                                                        let refetch = refetch.clone();
                                                                         spawn_local(async move {
                                                                             let client = ApiClient::new();
                                                                             let req = TraceVerifyRequest { trace_id };
