@@ -981,6 +981,22 @@ impl Db {
         Ok(status)
     }
 
+    /// Get base model status for a specific model (tenant-scoped).
+    pub async fn get_base_model_status_for_model(
+        &self,
+        tenant_id: &str,
+        model_id: &str,
+    ) -> Result<Option<BaseModelStatus>> {
+        let status = sqlx::query_as::<_, BaseModelStatus>(
+            "SELECT id, tenant_id, model_id, status, loaded_at, unloaded_at, error_message, memory_usage_mb, created_at, updated_at FROM base_model_status WHERE tenant_id = ? AND model_id = ? ORDER BY updated_at DESC LIMIT 1"
+        )
+        .bind(tenant_id)
+        .bind(model_id)
+        .fetch_optional(self.pool())
+        .await?;
+        Ok(status)
+    }
+
     /// List all base model statuses
     pub async fn list_base_model_statuses(&self) -> Result<Vec<BaseModelStatus>> {
         let statuses = sqlx::query_as::<_, BaseModelStatus>(

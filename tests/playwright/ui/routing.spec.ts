@@ -20,7 +20,7 @@ test('routing decisions tab renders prompt input', { tag: ['@smoke'] }, async ({
   await ensureLoggedIn(page);
   await page.getByRole('tab', { name: 'Decisions' }).click();
   await expect(
-    page.getByRole('heading', { name: 'Routing Decisions', level: 1, exact: true })
+    page.getByRole('heading', { name: 'Routing Decisions', level: 2, exact: true })
   ).toBeVisible();
   await page.getByRole('button', { name: 'Debug Router' }).click();
   await expect(

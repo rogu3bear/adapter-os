@@ -4384,6 +4384,98 @@ mod tests {
         assert!(verification.changes[0].contains("Hash changed"));
         assert!(verification.changes[1].contains("Trust state"));
     }
+
+    #[test]
+    fn training_jsonl_accepts_input_target_schema_with_metadata() {
+        let data =
+            br#"{"input":"hi","target":"there","metadata":{"source":"unit_test","split":"eval","weight":2.0}}"#;
+        let (rows, parse_errors, dropped) = super::build_training_rows_from_jsonl_bytes(
+            "fixture.jsonl",
+            data,
+            "dst-test",
+            "dsv-test",
+            Some("tenant-test"),
+            Some("user-test"),
+            Some("upload"),
+        );
+
+        assert_eq!(parse_errors, 0);
+        assert_eq!(dropped, 0);
+        assert_eq!(rows.len(), 1);
+        assert_eq!(rows[0].prompt, "hi");
+        assert_eq!(rows[0].response, "there");
+        assert_eq!(rows[0].split, "eval");
+        assert_eq!(rows[0].weight, 2.0);
+        assert_eq!(rows[0].source_file.as_deref(), Some("fixture.jsonl"));
+        assert_eq!(rows[0].source_line, Some(1));
+        assert!(rows[0]
+            .metadata_json
+            .as_deref()
+            .unwrap_or_default()
+            .contains("unit_test"));
+        assert_eq!(rows[0].tenant_id.as_deref(), Some("tenant-test"));
+        assert_eq!(rows[0].created_by.as_deref(), Some("user-test"));
+        assert_eq!(rows[0].source_type.as_deref(), Some("upload"));
+    }
+
+    #[test]
+    fn training_jsonl_accepts_prompt_response_schema_and_defaults_split() {
+        let data = br#"{"prompt":"p","response":"r"}"#;
+        let (rows, parse_errors, dropped) = super::build_training_rows_from_jsonl_bytes(
+            "fixture.jsonl",
+            data,
+            "dst-test",
+            "dsv-test",
+            None,
+            None,
+            None,
+        );
+        assert_eq!(parse_errors, 0);
+        assert_eq!(dropped, 0);
+        assert_eq!(rows.len(), 1);
+        assert_eq!(rows[0].prompt, "p");
+        assert_eq!(rows[0].response, "r");
+        assert_eq!(rows[0].split, "train");
+        assert_eq!(rows[0].weight, 1.0);
+    }
+
+    #[test]
+    fn training_jsonl_accepts_openai_prompt_completion_schema() {
+        let data = br#"{"prompt":"p","completion":"c"}"#;
+        let (rows, parse_errors, dropped) = super::build_training_rows_from_jsonl_bytes(
+            "fixture.jsonl",
+            data,
+            "dst-test",
+            "dsv-test",
+            None,
+            None,
+            None,
+        );
+        assert_eq!(parse_errors, 0);
+        assert_eq!(dropped, 0);
+        assert_eq!(rows.len(), 1);
+        assert_eq!(rows[0].prompt, "p");
+        assert_eq!(rows[0].response, "c");
+    }
+
+    #[test]
+    fn training_jsonl_accepts_raw_text_schema() {
+        let data = br#"{"text":"hello"}"#;
+        let (rows, parse_errors, dropped) = super::build_training_rows_from_jsonl_bytes(
+            "fixture.jsonl",
+            data,
+            "dst-test",
+            "dsv-test",
+            None,
+            None,
+            None,
+        );
+        assert_eq!(parse_errors, 0);
+        assert_eq!(dropped, 0);
+        assert_eq!(rows.len(), 1);
+        assert_eq!(rows[0].prompt, "hello");
+        assert!(rows[0].response.is_empty());
+    }
 }
 
 // ==============================================================================
@@ -4721,7 +4813,6 @@ pub fn build_training_rows_from_jsonl_bytes(
     for (line_idx, line) in text.lines().enumerate() {
         let trimmed = line.trim();
         if trimmed.is_empty() {
-            parse_errors += 1;
             continue;
         }
 
@@ -4738,55 +4829,91 @@ pub fn build_training_rows_from_jsonl_bytes(
             continue;
         };
 
-        let is_supervised =
-            object.len() == 2 && object.contains_key("prompt") && object.contains_key("completion");
-        let is_raw = object.len() == 1 && object.contains_key("text");
+        let metadata_obj = object.get("metadata").and_then(|v| v.as_object());
 
-        if !is_supervised && !is_raw {
+        // Accept a few common JSONL dialects:
+        // - OpenAI fine-tune: {prompt, completion}
+        // - AdapterOS UI + training: {prompt, response} / {input, target}
+        // - Raw: {text}
+        let prompt = object
+            .get("prompt")
+            .or_else(|| object.get("input"))
+            .or_else(|| object.get("question"))
+            .or_else(|| object.get("text"))
+            .or_else(|| metadata_obj.and_then(|m| m.get("prompt")))
+            .or_else(|| metadata_obj.and_then(|m| m.get("input")))
+            .or_else(|| metadata_obj.and_then(|m| m.get("question")))
+            .or_else(|| metadata_obj.and_then(|m| m.get("text")))
+            .and_then(|v| v.as_str())
+            .map(str::trim)
+            .filter(|s| !s.is_empty())
+            .map(str::to_string);
+
+        let response = object
+            .get("response")
+            .or_else(|| object.get("target"))
+            .or_else(|| object.get("output"))
+            .or_else(|| object.get("answer"))
+            .or_else(|| object.get("completion"))
+            .or_else(|| metadata_obj.and_then(|m| m.get("response")))
+            .or_else(|| metadata_obj.and_then(|m| m.get("target")))
+            .or_else(|| metadata_obj.and_then(|m| m.get("output")))
+            .or_else(|| metadata_obj.and_then(|m| m.get("answer")))
+            .or_else(|| metadata_obj.and_then(|m| m.get("completion")))
+            .and_then(|v| v.as_str())
+            .map(str::trim)
+            .filter(|s| !s.is_empty())
+            .map(str::to_string)
+            .unwrap_or_default();
+
+        let Some(prompt) = prompt else {
             dropped += 1;
             continue;
-        }
-
-        let (prompt, response) = if is_supervised {
-            let prompt = object
-                .get("prompt")
-                .and_then(|v| v.as_str())
-                .map(str::trim)
-                .filter(|s| !s.is_empty())
-                .map(str::to_string);
-            let completion = object
-                .get("completion")
-                .and_then(|v| v.as_str())
-                .map(str::trim)
-                .filter(|s| !s.is_empty())
-                .map(str::to_string);
-
-            let (Some(prompt), Some(completion)) = (prompt, completion) else {
-                dropped += 1;
-                continue;
-            };
-            (prompt, completion)
-        } else {
-            let text = object
-                .get("text")
-                .and_then(|v| v.as_str())
-                .map(str::trim)
-                .filter(|s| !s.is_empty())
-                .map(str::to_string);
-            let Some(text) = text else {
-                dropped += 1;
-                continue;
-            };
-            (text, String::new())
         };
 
         let source_line = i32::try_from(line_idx + 1).ok();
 
+        let split = extract_string_field(object, metadata_obj, "split")
+            .unwrap_or_else(|| default_split.to_string());
+
+        let weight = object
+            .get("weight")
+            .or_else(|| metadata_obj.and_then(|m| m.get("weight")))
+            .and_then(|v| match v {
+                Value::Number(num) => num.as_f64(),
+                Value::String(text) => text.trim().parse::<f64>().ok(),
+                _ => None,
+            })
+            .unwrap_or(1.0);
+
+        let sample_role = object
+            .get("sample_role")
+            .or_else(|| object.get("role"))
+            .or_else(|| metadata_obj.and_then(|m| m.get("sample_role")))
+            .or_else(|| metadata_obj.and_then(|m| m.get("role")))
+            .and_then(|v| v.as_str())
+            .and_then(SampleRole::from_str)
+            .unwrap_or_else(|| {
+                if weight.is_sign_negative() {
+                    SampleRole::Negative
+                } else {
+                    SampleRole::Positive
+                }
+            });
+
+        let metadata_json = metadata_obj.and_then(|m| {
+            if m.is_empty() {
+                None
+            } else {
+                serde_json::to_string(m).ok()
+            }
+        });
+
         let mut builder = CreateTrainingDatasetRowParams::builder(dataset_id, prompt, response)
             .dataset_version_id(dataset_version_id)
-            .weight(1.0)
-            .split(default_split)
-            .sample_role(SampleRole::Positive)
+            .weight(weight)
+            .split(split)
+            .sample_role(sample_role)
             .source_file(file_name);
 
         if let Some(source_line) = source_line {
@@ -4801,6 +4928,9 @@ pub fn build_training_rows_from_jsonl_bytes(
         }
         if let Some(created_by) = created_by {
             builder = builder.created_by(created_by);
+        }
+        if let Some(metadata_json) = metadata_json {
+            builder = builder.metadata_json(metadata_json);
         }
 
         rows.push(builder.build());

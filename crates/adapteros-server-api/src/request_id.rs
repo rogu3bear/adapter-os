@@ -110,6 +110,6 @@ mod tests {
         let id1 = readable_request_id();
         let id2 = readable_request_id();
         assert_ne!(id1, id2);
-        assert!(id1.starts_with("req."));
+        assert!(id1.starts_with("req-"));
     }
 }

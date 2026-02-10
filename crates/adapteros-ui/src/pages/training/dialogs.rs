@@ -12,7 +12,9 @@ use crate::components::{
 use crate::pages::training::dataset_wizard::{DatasetUploadOutcome, DatasetUploadWizard};
 use crate::pages::training::generate_wizard::{GenerateDatasetOutcome, GenerateDatasetWizard};
 use crate::validation::{rules, use_form_errors, validate_field, ValidationRule};
-use adapteros_api_types::{TrainingBackendKind, TrainingBackendPolicy, TrainingJobResponse};
+use adapteros_api_types::{
+    TrainingBackendKind, TrainingBackendPolicy, TrainingJobResponse, TRAINING_DATA_CONTRACT_VERSION,
+};
 use leptos::prelude::*;
 use serde_json::json;
 
@@ -61,6 +63,9 @@ pub fn CreateJobDialog(
     // File upload state
     let uploading = RwSignal::new(false);
     let upload_status = RwSignal::new(String::new());
+    // Dataset creation mode for the single-document file picker below.
+    // "synthesis" uses backend strict replay synthesis; "text" follows the existing doc->dataset path.
+    let upload_dataset_kind = RwSignal::new("synthesis".to_string());
     #[cfg(target_arch = "wasm32")]
     let format_upload_error = |err: &ApiError| -> String {
         if let ApiError::Structured {
@@ -150,12 +155,40 @@ pub fn CreateJobDialog(
             if let Some(files) = input.files() {
                 if let Some(file) = files.get(0) {
                     let file_name = file.name();
+                    let kind = upload_dataset_kind.get();
                     uploading.set(true);
                     upload_status.set(format!("Uploading {}...", file_name));
                     error.set(None);
 
                     wasm_bindgen_futures::spawn_local(async move {
                         let client = ApiClient::new();
+
+                        if kind == "synthesis" {
+                            upload_status.set("Uploading and processing document...".to_string());
+                            match client
+                                .create_training_dataset_from_upload(
+                                    &file,
+                                    Some(&file_name),
+                                    None,
+                                    Some("synthesis"),
+                                )
+                                .await
+                            {
+                                Ok(ds) => {
+                                    dataset_id.set(ds.id);
+                                    upload_status.set("Dataset ready!".to_string());
+                                    uploading.set(false);
+                                    return;
+                                }
+                                Err(e) => {
+                                    let msg = format_upload_error(&e);
+                                    error.set(Some(format!("Failed to synthesize dataset: {}", msg)));
+                                    uploading.set(false);
+                                    upload_status.set(String::new());
+                                    return;
+                                }
+                            }
+                        }
 
                         // Step 1: Upload document
                         match client.upload_document(&file).await {
@@ -439,14 +472,25 @@ pub fn CreateJobDialog(
         wasm_bindgen_futures::spawn_local(async move {
             let client = ApiClient::new();
 
+            let resolved_dataset_id = ds_id.trim().to_string();
+            if resolved_dataset_id.is_empty() {
+                error.set(Some("Dataset is required to start training".to_string()));
+                submitting.set(false);
+                return;
+            }
+
             // Build the request body
             let request = serde_json::json!({
                 "adapter_name": name,
                 "base_model_id": base_model_val,
+                "dataset_id": resolved_dataset_id,
                 "config": {
                     "rank": rank_val,
                     "alpha": alpha_val,
                     "targets": ["q_proj", "v_proj"],
+                    "training_contract_version": TRAINING_DATA_CONTRACT_VERSION,
+                    "pad_token_id": 0,
+                    "ignore_index": -100,
                     "epochs": epochs_val,
                     "learning_rate": lr_val,
                     "batch_size": batch_val,
@@ -456,8 +500,6 @@ pub fn CreateJobDialog(
                     "coreml_training_fallback": if backend_val == TrainingBackendKind::CoreML.as_str() || policy_val == TrainingBackendPolicy::CoremlElseFallback.as_str() { json!(fallback_val) } else { serde_json::Value::Null },
                 },
                 "category": cat,
-                "dataset_id": if ds_id.is_empty() { serde_json::Value::Null } else { serde_json::Value::String(ds_id.clone()) },
-                "synthetic_mode": ds_id.is_empty(),
             });
 
             match client
@@ -579,6 +621,38 @@ pub fn CreateJobDialog(
                             <div class="space-y-3">
                                 // File upload input
                                 <div>
+                                    <div class="flex items-center justify-between mb-2">
+                                        <div class="text-xs text-muted-foreground">
+                                            "Dataset type"
+                                        </div>
+                                        <div class="flex gap-2">
+                                            {vec![
+                                                ("synthesis".to_string(), "Synthesized examples".to_string()),
+                                                ("text".to_string(), "Raw text".to_string()),
+                                            ].into_iter().map(|(value, label)| {
+                                                let value_for_class = value.clone();
+                                                let value_for_click = value.clone();
+                                                view! {
+                                                    <button
+                                                        type="button"
+                                                        class=move || {
+                                                            if upload_dataset_kind.get() == value_for_class {
+                                                                "px-3 py-1.5 rounded-md bg-primary text-primary-foreground text-xs"
+                                                            } else {
+                                                                "px-3 py-1.5 rounded-md border text-xs"
+                                                            }
+                                                        }
+                                                        on:click=move |_| upload_dataset_kind.set(value_for_click.clone())
+                                                    >
+                                                        {label}
+                                                    </button>
+                                                }
+                                            }).collect_view()}
+                                        </div>
+                                    </div>
+                                    <p class="text-xs text-muted-foreground mb-2">
+                                        "Strict replay uses MLX backend and deterministic seeding; same inputs produce the same dataset output."
+                                    </p>
                                     <input
                                         type="file"
                                         accept=".md,.txt,.pdf"

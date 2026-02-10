@@ -2,19 +2,17 @@
 //!
 //! Provides client-side validation and previews for the supported
 //! ingestion paths:
-//! - Manifest + JSONL (prompt/response with weights)
+//! - JSONL (prompt/response with weights)
 //! - Direct CSV with column mapping
 //! - Direct text/markdown with simple pairing strategies
 
 #[cfg(target_arch = "wasm32")]
 use crate::api::ApiClient;
-use crate::api::DatasetManifest;
 use crate::components::spinner::SpinnerSize;
 use crate::components::{
     Badge, BadgeVariant, Button, ButtonSize, ButtonVariant, Dialog, DialogSize, FormField, Input,
     Spinner,
 };
-use adapteros_api_types::TRAINING_DATA_CONTRACT_VERSION;
 #[cfg(target_arch = "wasm32")]
 use gloo_file::futures::read_as_text;
 #[cfg(target_arch = "wasm32")]
@@ -31,8 +29,6 @@ use wasm_bindgen::JsCast;
 #[cfg(target_arch = "wasm32")]
 use wasm_bindgen_futures::spawn_local;
 
-#[cfg(target_arch = "wasm32")]
-const MANIFEST_MIME: &[&str] = &["application/json"];
 #[cfg(target_arch = "wasm32")]
 const JSONL_MIME: &[&str] = &["application/jsonl", "application/json", "text/plain"];
 #[cfg(target_arch = "wasm32")]
@@ -379,7 +375,6 @@ pub fn DatasetUploadWizard(
     let text_strategy = RwSignal::new(TextStrategy::Echo);
     let csv_headers = RwSignal::new(Vec::<String>::new());
     let csv_mapping = RwSignal::new(None::<CsvMapping>);
-    let manifest_info = RwSignal::new(None::<DatasetManifest>);
     let preview_rows = RwSignal::new(Vec::<ParsedRow>::new());
     let parse_errors = RwSignal::new(Vec::<String>::new());
     let submitting = RwSignal::new(false);
@@ -393,13 +388,8 @@ pub fn DatasetUploadWizard(
     );
 
     #[cfg(target_arch = "wasm32")]
-    let manifest_file: RwSignal<Option<SendWrapper<web_sys::File>>> =
-        RwSignal::new(None::<SendWrapper<web_sys::File>>);
-    #[cfg(target_arch = "wasm32")]
     let data_file: RwSignal<Option<SendWrapper<web_sys::File>>> =
         RwSignal::new(None::<SendWrapper<web_sys::File>>);
-    #[cfg(target_arch = "wasm32")]
-    let manifest_preview: RwSignal<Option<SelectedFile>> = RwSignal::new(None);
     #[cfg(target_arch = "wasm32")]
     let data_preview: RwSignal<Option<SelectedFile>> = RwSignal::new(None);
 
@@ -417,7 +407,6 @@ pub fn DatasetUploadWizard(
         Callback::new(move |_| {
             parse_errors.set(Vec::new());
             preview_rows.set(Vec::new());
-            manifest_info.set(None);
             status.set(String::new());
             #[cfg(target_arch = "wasm32")]
             {
@@ -427,30 +416,8 @@ pub fn DatasetUploadWizard(
                 let text_strategy_value = text_strategy.get();
                 match mode_value {
                     UploadMode::ManifestJsonl => {
-                        let manifest_file_value = manifest_preview.get();
                         let data_file_value = data_preview.get();
-                        if let (Some(manifest_file), Some(jsonl_file)) =
-                            (manifest_file_value, data_file_value)
-                        {
-                            match serde_json::from_str::<DatasetManifest>(&manifest_file.text) {
-                                Ok(manifest) => {
-                                    if manifest.training_contract_version
-                                        != TRAINING_DATA_CONTRACT_VERSION
-                                    {
-                                        parse_errors.set(vec![format!(
-                                            "training_contract_version must be {}",
-                                            TRAINING_DATA_CONTRACT_VERSION
-                                        )]);
-                                        return;
-                                    }
-                                    manifest_info.set(Some(manifest));
-                                }
-                                Err(e) => {
-                                    parse_errors.set(vec![format!("Invalid manifest JSON: {}", e)]);
-                                    return;
-                                }
-                            }
-
+                        if let Some(jsonl_file) = data_file_value {
                             let parsed = parse_jsonl_rows(&jsonl_file.text, &jsonl_file.name);
                             match parsed {
                                 Ok(rows) => {
@@ -518,46 +485,6 @@ pub fn DatasetUploadWizard(
     };
 
     #[cfg(target_arch = "wasm32")]
-    let handle_manifest_file = {
-        move |ev: web_sys::Event| {
-            if let Some(input) = ev
-                .target()
-                .and_then(|t| t.dyn_into::<web_sys::HtmlInputElement>().ok())
-            {
-                if let Some(files) = input.files() {
-                    if let Some(file) = files.get(0) {
-                        if let Err(err) = validate_file(
-                            &file,
-                            upload_limits.1,
-                            MANIFEST_MIME,
-                            &[".json"],
-                            "manifest",
-                        ) {
-                            parse_errors.set(vec![err]);
-                            return;
-                        }
-
-                        let name = file.name();
-                        spawn_local(async move {
-                            match read_as_text(&Blob::from(file.clone())).await {
-                                Ok(text) => {
-                                    manifest_file.set(Some(SendWrapper::new(file)));
-                                    manifest_preview.set(Some(SelectedFile { name, text }));
-                                    refresh_preview.run(());
-                                }
-                                Err(e) => {
-                                    parse_errors
-                                        .set(vec![format!("Failed to read manifest: {}", e)]);
-                                }
-                            }
-                        });
-                    }
-                }
-            }
-        }
-    };
-
-    #[cfg(target_arch = "wasm32")]
     let handle_data_file = {
         move |ev: web_sys::Event| {
             if let Some(input) = ev
@@ -568,7 +495,7 @@ pub fn DatasetUploadWizard(
                     if let Some(file) = files.get(0) {
                         let (allowed_mime, allowed_ext, label) = match mode.get() {
                             UploadMode::ManifestJsonl => {
-                                (JSONL_MIME, &[".jsonl", ".json"][..], "JSONL dataset")
+                                (JSONL_MIME, &[".jsonl", ".ndjson"][..], "JSONL dataset")
                             }
                             UploadMode::Csv => (CSV_MIME, &[".csv"][..], "CSV dataset"),
                             UploadMode::Text => {
@@ -604,9 +531,6 @@ pub fn DatasetUploadWizard(
     };
 
     #[cfg(not(target_arch = "wasm32"))]
-    let handle_manifest_file = |_ev: web_sys::Event| {};
-
-    #[cfg(not(target_arch = "wasm32"))]
     let handle_data_file = |_ev: web_sys::Event| {};
 
     let on_upload: Callback<()> = {
@@ -631,10 +555,8 @@ pub fn DatasetUploadWizard(
             {
                 let client = ApiClient::new();
                 let data_file_value = data_file.get();
-                let manifest_value = manifest_file.get();
                 let mode_value = mode.get();
                 let csv_mapping = csv_mapping.get();
-                let manifest_value_cached = manifest_info.get();
                 status.set("Uploading dataset (this may take a moment)...".to_string());
                 spawn_local(async move {
                     let form = match web_sys::FormData::new() {
@@ -659,19 +581,6 @@ pub fn DatasetUploadWizard(
                         upload_error.set(Some("Failed to attach dataset file".into()));
                         submitting.set(false);
                         return;
-                    }
-                    if let UploadMode::ManifestJsonl = mode_value {
-                        if let Some(manifest) = manifest_value.map(|file| file.take()) {
-                            if let Err(_) = form.append_with_blob("files[]", manifest.as_ref()) {
-                                upload_error.set(Some("Failed to attach manifest file".into()));
-                                submitting.set(false);
-                                return;
-                            }
-                        } else {
-                            upload_error.set(Some("Manifest is required for this format".into()));
-                            submitting.set(false);
-                            return;
-                        }
                     }
                     form.append_with_str("name", &dataset_name).ok();
                     form.append_with_str("format", format).ok();
@@ -706,14 +615,7 @@ pub fn DatasetUploadWizard(
                             ));
                             let version_id = resp.dataset_version_id.clone();
                             let hash = resp.dataset_hash_b3.clone();
-                            let sample_count = match (version_id.clone(), manifest_value_cached) {
-                                (Some(ver_id), Some(manifest))
-                                    if manifest.dataset_version_id == ver_id =>
-                                {
-                                    manifest.total_rows
-                                }
-                                _ => preview_rows.get().len(),
-                            };
+                            let sample_count = preview_rows.get().len();
                             on_complete.run(DatasetUploadOutcome {
                                 dataset_id: resp.dataset_id.clone(),
                                 dataset_version_id: version_id,
@@ -738,7 +640,6 @@ pub fn DatasetUploadWizard(
     });
 
     let dialog = move || -> AnyView {
-        let manifest_handler = handle_manifest_file;
         let data_handler = handle_data_file;
         if !open.get() {
             view! {}.into_any()
@@ -785,7 +686,7 @@ pub fn DatasetUploadWizard(
                                 <label class="text-sm font-medium">"Format"</label>
                                 <div class="flex gap-2">
                                     {vec![
-                                        (UploadMode::ManifestJsonl, "Manifest + JSONL"),
+                                        (UploadMode::ManifestJsonl, "JSONL"),
                                         (UploadMode::Csv, "CSV"),
                                         (UploadMode::Text, "Text / Markdown"),
                                     ].into_iter().map(|(value, label)| {
@@ -810,8 +711,6 @@ pub fn DatasetUploadWizard(
                                 </div>
                                 <p class="text-xs text-muted-foreground">
                                     "Required fields: prompt/input, target/response, optional weight > 0. "
-                                    "Manifest must match TRAINING_DATA_CONTRACT_VERSION=" {TRAINING_DATA_CONTRACT_VERSION}
-                                    "."
                                 </p>
                                 <div class="text-xs text-muted-foreground space-y-1">
                                     <div class="font-medium text-foreground">"Size guardrails"</div>
@@ -829,33 +728,17 @@ pub fn DatasetUploadWizard(
                                 <div class="rounded-lg border p-4 space-y-3">
                                     <div class="flex items-center justify-between">
                                         <div>
-                                            <div class="text-sm font-medium">"Manifest + JSONL"</div>
+                                            <div class="text-sm font-medium">"JSONL"</div>
                                             <p class="text-xs text-muted-foreground">
-                                                "Manifest must include training_contract_version "
-                                                {TRAINING_DATA_CONTRACT_VERSION} ", and the JSONL must contain prompt/response pairs."
+                                                "Each line must be a JSON object with prompt/response (or input/target)."
                                             </p>
                                         </div>
                                         <Badge variant=BadgeVariant::Secondary>"Prompt / Response"</Badge>
                                     </div>
-                                    <div class="grid gap-3 md:grid-cols-2">
-                                        <div>
-                                            <label class="text-sm font-medium">"Manifest (.json)"</label>
-                                            <input type="file" accept=".json" class="mt-1 block w-full text-sm" on:change=manifest_handler/>
-                                        </div>
-                                        <div>
-                                            <label class="text-sm font-medium">"Dataset (.jsonl)"</label>
-                                            <input type="file" accept=".jsonl" class="mt-1 block w-full text-sm" on:change=data_handler/>
-                                        </div>
+                                    <div>
+                                        <label class="text-sm font-medium">"Dataset (.jsonl or .ndjson)"</label>
+                                        <input type="file" accept=".jsonl,.ndjson" class="mt-1 block w-full text-sm" on:change=data_handler/>
                                     </div>
-                                    {move || manifest_info.get().map(|m| view! {
-                                        <div class="rounded-md bg-muted p-3 text-xs text-muted-foreground space-y-1">
-                                            <div class="font-medium text-foreground">"Manifest summary"</div>
-                                            <div>{format!("Dataset: {}", m.dataset_id)}</div>
-                                            <div>{format!("Version: {}", m.dataset_version_id)}</div>
-                                            <div>{format!("Total rows: {}", m.total_rows)}</div>
-                                            <div>{format!("Hash: {}", m.hash_b3)}</div>
-                                        </div>
-                                    })}
                                 </div>
                             }.into_any(),
                             UploadMode::Csv => view! {
