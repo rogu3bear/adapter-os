@@ -16,12 +16,24 @@ function writeHeartbeat(payload) {
 }
 
 export default class HeartbeatReporter {
+  constructor() {
+    /** @type {NodeJS.Timeout | null} */
+    this._interval = null;
+  }
+
   onBegin(config, suite) {
     writeHeartbeat({
       event: 'begin',
       testCount: suite.allTests().length,
       workers: config.workers,
     });
+
+    // Keep the watchdog heartbeat fresh even during long single-test runs.
+    // Also emit a tiny stderr tick so external runners don't assume we're hung.
+    this._interval = setInterval(() => {
+      writeHeartbeat({ event: 'tick' });
+      process.stderr.write('[pw] heartbeat\n');
+    }, 15_000);
   }
 
   onTestBegin(test) {
@@ -48,7 +60,10 @@ export default class HeartbeatReporter {
   }
 
   onExit() {
+    if (this._interval) {
+      clearInterval(this._interval);
+      this._interval = null;
+    }
     writeHeartbeat({ event: 'exit' });
   }
 }
-
