@@ -1906,13 +1906,10 @@ async fn worker_reports_loaded(state: &AppState) -> bool {
 
     let client = UdsClient::new(Duration::from_secs(5));
     match client.get_model_status(&uds_path).await {
-        Ok(status) => {
-            status
-                .get("adapter_count")
-                .and_then(|v| v.as_u64())
-                .unwrap_or(0)
-                > 0
-        }
+        Ok(status) => status
+            .get("status")
+            .and_then(|v| v.as_str())
+            .is_some_and(|v| v.eq_ignore_ascii_case("loaded")),
         Err(e) => {
             info!(
                 error = %e,
