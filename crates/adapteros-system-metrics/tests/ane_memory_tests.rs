@@ -139,7 +139,7 @@ fn test_ane_generation_detection() {
 
         // Generation should be reasonable (1-10 range for known chips)
         assert!(
-            generation >= 1 && generation <= 10,
+            (1..=10).contains(&generation),
             "Unexpected generation: {}",
             generation
         );

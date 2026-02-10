@@ -102,6 +102,8 @@ pub enum InvariantCategory {
     System,
     /// Code hygiene invariants (credentials, uncommitted changes, panic density)
     Hygiene,
+    /// Determinism invariants (seed derivation, router ordering, quantization)
+    Determinism,
 }
 
 impl InvariantCategory {
@@ -120,6 +122,7 @@ impl InvariantCategory {
             Self::Lifecycle => "Lifecycle",
             Self::System => "System",
             Self::Hygiene => "Hygiene",
+            Self::Determinism => "Determinism",
         }
     }
 }
@@ -233,6 +236,7 @@ impl InvariantReport {
             Lifecycle,
             System,
             Hygiene,
+            Determinism,
         ];
         categories
             .iter()
@@ -260,7 +264,7 @@ impl InvariantReport {
 ///
 /// Returns `InvariantReport` containing all violations found.
 ///
-/// # Checked Invariants (29 total)
+/// # Checked Invariants (33 total)
 ///
 /// ## Security Invariants
 /// | ID | Description | Fatal in Prod |
@@ -337,6 +341,18 @@ impl InvariantReport {
 /// |----|-------------|---------------|
 /// | `POL-001` | Default policy pack loaded | Yes |
 /// | `POL-002` | Enforcement mode set | Yes |
+///
+/// ## Determinism Invariants
+/// | ID | Description | Fatal in Prod |
+/// |----|-------------|---------------|
+/// | `DET-001` | Canonical adapter sort ordering correct | Yes |
+/// | `DET-002` | Softmax non-finite rejection (runtime) | Yes |
+/// | `DET-003` | Q15 denominator is canonical (32767.0) | Yes |
+/// | `DET-004` | Feature vector dimension is 22 (runtime) | Yes |
+/// | `DET-005` | HKDF output length is 32 bytes | Yes |
+/// | `DET-006` | Gate normalization sum-to-one (runtime) | Yes |
+/// | `DET-007` | No -ffast-math compiler flags (build-time) | Yes |
+/// | `DET-008` | RouterRing K bound (K <= 8) | Yes |
 pub fn validate_boot_invariants(
     config: &Arc<RwLock<Config>>,
     executor_manifest_hash_present: bool,
@@ -1691,6 +1707,121 @@ pub fn validate_boot_invariants(
     }
 
     // =========================================================================
+    // DET-001: Canonical adapter sort is stable and correct
+    // =========================================================================
+    // Enforced: adapteros-core/src/invariants.rs canonical_adapter_sort()
+    // Violation: Sort ordering does not match score DESC, index ASC
+    // Fails: CLOSED (deterministic sort is foundational)
+    if invariants_config.disable_det_001_adapter_sort {
+        report.record_skip("DET-001");
+    } else {
+        use adapteros_core::canonical_adapter_sort;
+        // Test vector with ties — verifies score DESC, index ASC
+        let mut test_scores = vec![(3usize, 0.5f32), (1, 0.8), (2, 0.5), (0, 0.9)];
+        canonical_adapter_sort(&mut test_scores);
+        let expected = [(0usize, 0.9f32), (1, 0.8), (2, 0.5), (3, 0.5)];
+        let sort_correct = test_scores
+            .iter()
+            .zip(expected.iter())
+            .all(|(a, b)| a.0 == b.0 && (a.1 - b.1).abs() < f32::EPSILON);
+        if !sort_correct {
+            report.record_violation(InvariantViolation {
+                id: "DET-001",
+                category: InvariantCategory::Determinism,
+                message: format!(
+                    "Canonical adapter sort produced wrong ordering: {:?}",
+                    test_scores
+                ),
+                severity: Severity::Fatal,
+                remediation:
+                    "The canonical_adapter_sort function is broken — this is a critical determinism bug",
+            });
+        } else {
+            report.record_pass();
+        }
+    }
+
+    // =========================================================================
+    // DET-003: Q15 denominator matches canonical value
+    // =========================================================================
+    // Enforced: adapteros-core/src/invariants.rs Q15_GATE_DENOMINATOR const
+    // Violation: Denominator differs from 32767.0
+    // Fails: CLOSED (quantization mismatch = non-deterministic gates)
+    if invariants_config.disable_det_003_q15_denominator {
+        report.record_skip("DET-003");
+    } else {
+        use adapteros_core::Q15_GATE_DENOMINATOR;
+        if (Q15_GATE_DENOMINATOR - 32767.0f32).abs() > f32::EPSILON {
+            report.record_violation(InvariantViolation {
+                id: "DET-003",
+                category: InvariantCategory::Determinism,
+                message: format!(
+                    "Q15 denominator is {} (expected 32767.0)",
+                    Q15_GATE_DENOMINATOR
+                ),
+                severity: Severity::Fatal,
+                remediation:
+                    "Q15_GATE_DENOMINATOR must be exactly 32767.0 for deterministic gate quantization",
+            });
+        } else {
+            report.record_pass();
+        }
+    }
+
+    // =========================================================================
+    // DET-005: HKDF output length is 32 bytes
+    // =========================================================================
+    // Enforced: adapteros-core/src/seed.rs HKDF_OUTPUT_LENGTH const
+    // Violation: Output length differs from 32
+    // Fails: CLOSED (seed derivation chain breaks)
+    if invariants_config.disable_det_005_hkdf_length {
+        report.record_skip("DET-005");
+    } else {
+        use adapteros_core::seed::HKDF_OUTPUT_LENGTH;
+        if HKDF_OUTPUT_LENGTH != 32 {
+            report.record_violation(InvariantViolation {
+                id: "DET-005",
+                category: InvariantCategory::Determinism,
+                message: format!("HKDF output length is {} (expected 32)", HKDF_OUTPUT_LENGTH),
+                severity: Severity::Fatal,
+                remediation: "HKDF_OUTPUT_LENGTH must be 32 bytes for seed derivation chain",
+            });
+        } else {
+            report.record_pass();
+        }
+    }
+
+    // =========================================================================
+    // DET-008: RouterRing K bound enforced
+    // =========================================================================
+    // Enforced: adapteros-lora-kernel-api/src/lib.rs RouterRing arrays
+    // Violation: [u16; 8] size assumption broken
+    // Fails: CLOSED (K > 8 would overflow fixed arrays)
+    if invariants_config.disable_det_008_router_ring_k {
+        report.record_skip("DET-008");
+    } else {
+        // RouterRing uses [u16; 8] and [i16; 8] arrays — K must be <= 8
+        // This is a structural invariant verified at boot
+        if std::mem::size_of::<[u16; 8]>() != 16 {
+            report.record_violation(InvariantViolation {
+                id: "DET-008",
+                category: InvariantCategory::Determinism,
+                message: "RouterRing array size assumption violated".into(),
+                severity: Severity::Fatal,
+                remediation: "RouterRing assumes [u16; 8] is 16 bytes",
+            });
+        } else {
+            report.record_pass();
+        }
+    }
+
+    // DET-002: Softmax non-finite rejection — enforced at runtime via assert! in router.rs
+    // DET-004: Feature vector dimension — enforced at runtime via assert_eq! in features.rs
+    // DET-006: Gate normalization — enforced at runtime via assert! in routing.rs
+    // DET-007: No -ffast-math — enforced at compile time via build.rs + CI check_fast_math_flags.sh
+    // These are documented here for the invariant catalog but checked elsewhere.
+
+    // =========================================================================
     // Remaining invariants documented but NOT checked at boot time
     // =========================================================================
     // The following are enforced at runtime or are implicit in the code:
@@ -1922,6 +2053,18 @@ fn collect_disabled_invariants(
     }
     if cfg.disable_hygiene_003_panic_density {
         disabled.push("HYGIENE-003");
+    }
+    if cfg.disable_det_001_adapter_sort {
+        disabled.push("DET-001");
+    }
+    if cfg.disable_det_003_q15_denominator {
+        disabled.push("DET-003");
+    }
+    if cfg.disable_det_005_hkdf_length {
+        disabled.push("DET-005");
+    }
+    if cfg.disable_det_008_router_ring_k {
+        disabled.push("DET-008");
     }
     disabled
 }

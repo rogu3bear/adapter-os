@@ -191,8 +191,8 @@ fn absolutize(path: &Path) -> PathBuf {
 #[cfg(test)]
 mod tests {
     use super::*;
-    use std::path::PathBuf;
     use crate::platform::common::PlatformUtils;
+    use std::path::PathBuf;
     use tempfile::{Builder, TempDir};
 
     fn new_test_tempdir() -> TempDir {

@@ -7,8 +7,8 @@
 //! - Policy enforcement (policy_tests)
 //! - Integration tests (integration_tests)
 
-use adapteros_core::Result;
 use crate::platform::common::PlatformUtils;
+use adapteros_core::Result;
 use tempfile::{Builder, TempDir};
 
 pub(super) fn new_test_tempdir() -> Result<TempDir> {

@@ -1611,11 +1611,11 @@ impl AlertEvaluator {
             if !self.validate_control_matrix(&rule.tenant_id).await? {
                 if let Err(e) = self
                     .trigger_compliance_violation(
-                    rule,
-                    "control_matrix_mapping",
-                    "Control matrix cross-links do not resolve to existing evidence",
-                )
-                .await
+                        rule,
+                        "control_matrix_mapping",
+                        "Control matrix cross-links do not resolve to existing evidence",
+                    )
+                    .await
                 {
                     // Best-effort: don't fail evaluation if compliance alert persistence isn't wired.
                     warn!(
@@ -1631,11 +1631,11 @@ impl AlertEvaluator {
             if !self.validate_itar_isolation(&rule.tenant_id).await? {
                 if let Err(e) = self
                     .trigger_compliance_violation(
-                    rule,
-                    "itar_isolation",
-                    "ITAR isolation validation failed",
-                )
-                .await
+                        rule,
+                        "itar_isolation",
+                        "ITAR isolation validation failed",
+                    )
+                    .await
                 {
                     warn!(
                         tenant_id = %rule.tenant_id,
@@ -1650,11 +1650,11 @@ impl AlertEvaluator {
             if !self.validate_evidence_links(rule).await? {
                 if let Err(e) = self
                     .trigger_compliance_violation(
-                    rule,
-                    "evidence_links",
-                    "Evidence links required but not provided",
-                )
-                .await
+                        rule,
+                        "evidence_links",
+                        "Evidence links required but not provided",
+                    )
+                    .await
                 {
                     warn!(
                         tenant_id = %rule.tenant_id,
