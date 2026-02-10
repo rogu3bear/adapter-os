@@ -58,7 +58,7 @@ pub fn apply_multi_lora(
                 *weight /= total_weight;
             }
         }
-        debug_assert!(
+        assert!(
             (gate_weights.iter().sum::<f32>() - 1.0).abs() <= GATE_NORMALIZATION_EPSILON + 1e-6,
             "Gates must sum to approximately 1.0 after normalization, got {}",
             gate_weights.iter().sum::<f32>()

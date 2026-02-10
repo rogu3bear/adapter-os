@@ -1,7 +1,7 @@
 //! Router performance metrics and monitoring
 
 use serde::{Deserialize, Serialize};
-use std::collections::HashMap;
+use std::collections::BTreeMap;
 use std::time::{Duration, Instant};
 
 /// Per-adapter performance metrics
@@ -271,7 +271,7 @@ impl MemoryMetrics {
 #[derive(Debug, Clone, Serialize, Deserialize)]
 pub struct RouterMonitoringMetrics {
     /// Per-adapter metrics
-    pub adapter_metrics: HashMap<u16, AdapterMetrics>,
+    pub adapter_metrics: BTreeMap<u16, AdapterMetrics>,
     /// Router overhead metrics
     pub overhead: RouterOverheadMetrics,
     /// Token throughput metrics
@@ -285,7 +285,7 @@ pub struct RouterMonitoringMetrics {
 impl RouterMonitoringMetrics {
     pub fn new(total_memory_bytes: u64) -> Self {
         Self {
-            adapter_metrics: HashMap::new(),
+            adapter_metrics: BTreeMap::new(),
             overhead: RouterOverheadMetrics::new(),
             throughput: ThroughputMetrics::new(),
             memory: MemoryMetrics::new(total_memory_bytes),

@@ -1305,7 +1305,7 @@ impl Router {
 
         let tau = sanitize_tau(tau);
 
-        debug_assert!(
+        assert!(
             logits.iter().all(|(_, s)| s.is_finite()),
             "deterministic_softmax received non-finite logits"
         );

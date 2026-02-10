@@ -623,4 +623,93 @@ mod tests {
         })
         .await;
     }
+
+    #[tokio::test]
+    #[serial_test::serial]
+    async fn test_stop_reason_counts_tracked() {
+        run_with_timeout(async {
+            let collector = InferenceMetricsCollector::new(100);
+
+            // Record inferences with known stop reasons
+            collector
+                .record_inference_with_stop(
+                    "req1".to_string(),
+                    Duration::from_millis(50),
+                    100,
+                    true,
+                    vec!["adapter1".to_string()],
+                    Some("LENGTH".to_string()),
+                )
+                .await;
+
+            collector
+                .record_inference_with_stop(
+                    "req2".to_string(),
+                    Duration::from_millis(60),
+                    50,
+                    true,
+                    vec!["adapter1".to_string()],
+                    Some("BUDGET_MAX".to_string()),
+                )
+                .await;
+
+            collector
+                .record_inference_with_stop(
+                    "req3".to_string(),
+                    Duration::from_millis(70),
+                    200,
+                    true,
+                    vec!["adapter1".to_string()],
+                    Some("LENGTH".to_string()),
+                )
+                .await;
+
+            collector
+                .record_inference_with_stop(
+                    "req4".to_string(),
+                    Duration::from_millis(40),
+                    80,
+                    true,
+                    vec!["adapter1".to_string()],
+                    None, // no stop reason
+                )
+                .await;
+
+            let metrics = collector.get_metrics().await;
+
+            // Verify stop_reason_counts
+            assert_eq!(
+                metrics.stop_reason_counts.get("LENGTH"),
+                Some(&2),
+                "LENGTH should appear twice"
+            );
+            assert_eq!(
+                metrics.stop_reason_counts.get("BUDGET_MAX"),
+                Some(&1),
+                "BUDGET_MAX should appear once"
+            );
+            assert_eq!(
+                metrics.stop_reason_counts.get("COMPLETION_CONFIDENT"),
+                None,
+                "COMPLETION_CONFIDENT should not appear"
+            );
+
+            // Verify output_tokens_by_stop_reason
+            assert_eq!(
+                metrics.output_tokens_by_stop_reason.get("LENGTH"),
+                Some(&300), // 100 + 200
+                "LENGTH output tokens should sum to 300"
+            );
+            assert_eq!(
+                metrics.output_tokens_by_stop_reason.get("BUDGET_MAX"),
+                Some(&50),
+                "BUDGET_MAX output tokens should be 50"
+            );
+
+            // Requests without stop reason should not appear in the maps
+            assert_eq!(metrics.stop_reason_counts.len(), 2);
+            assert_eq!(metrics.output_tokens_by_stop_reason.len(), 2);
+        })
+        .await;
+    }
 }

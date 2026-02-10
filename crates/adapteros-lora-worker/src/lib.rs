@@ -2651,21 +2651,22 @@ impl<K: FusedKernels + StrictnessControl + Send + Sync + 'static> Worker<K> {
 
         // Evidence-bound pinned degradation (counts + digest, no raw IDs).
         // Only emitted when there is actual degradation (some pins unavailable).
-        let pinned_degradation_evidence = match (&request.pinned_adapter_ids, &unavailable_pinned_adapters) {
-            (Some(pinned), Some(unavailable))
-                if !pinned.is_empty() && !unavailable.is_empty() =>
-            {
-                Some(adapteros_core::PinnedDegradationEvidence {
-                    pinned_total_count: pinned.len() as u32,
-                    unavailable_pinned_count: unavailable.len() as u32,
-                    unavailable_pinned_set_digest_b3: Some(
-                        adapteros_core::compute_unavailable_pinned_set_digest_b3(unavailable),
-                    ),
-                    pinned_fallback_mode: pinned_routing_fallback.clone(),
-                })
-            }
-            _ => None,
-        };
+        let pinned_degradation_evidence =
+            match (&request.pinned_adapter_ids, &unavailable_pinned_adapters) {
+                (Some(pinned), Some(unavailable))
+                    if !pinned.is_empty() && !unavailable.is_empty() =>
+                {
+                    Some(adapteros_core::PinnedDegradationEvidence {
+                        pinned_total_count: pinned.len() as u32,
+                        unavailable_pinned_count: unavailable.len() as u32,
+                        unavailable_pinned_set_digest_b3: Some(
+                            adapteros_core::compute_unavailable_pinned_set_digest_b3(unavailable),
+                        ),
+                        pinned_fallback_mode: pinned_routing_fallback.clone(),
+                    })
+                }
+                _ => None,
+            };
 
         let validator = RequestValidator::new(self.tokenizer.as_ref(), self.max_seq_len);
         let validated_prompt = validator.validate(&request.prompt)?;
@@ -3348,7 +3349,6 @@ impl<K: FusedKernels + StrictnessControl + Send + Sync + 'static> Worker<K> {
             policy_mask_digest_seed,
         );
 
-        #[cfg(debug_assertions)]
         if !base_only_request
             && routing_mode == RoutingDeterminismMode::Deterministic
             && policy_mask.allowed.iter().any(|&allowed| allowed)
@@ -3363,22 +3363,20 @@ impl<K: FusedKernels + StrictnessControl + Send + Sync + 'static> Worker<K> {
                             Some(0) => {
                                 // Legacy adapter: stable_id may be 0 (missing at registration time).
                             }
-                            Some(expected) => debug_assert!(
+                            Some(expected) => assert!(
                                 info.stable_id == expected && info.stable_id != 0,
                                 "deterministic routing requires non-zero stable_id for adapter_id='{}' (expected stable_id={})",
                                 info.id,
                                 expected
                             ),
-                            None => debug_assert!(
-                                false,
+                            None => panic!(
                                 "deterministic routing missing stable_id for adapter_id='{}' (allowed adapter); control-plane must supply adapter_stable_ids",
                                 info.id
                             ),
                         }
                     }
                 }
-                None => debug_assert!(
-                    false,
+                None => panic!(
                     "deterministic routing requires adapter_stable_ids for stable tie-breaking (score DESC, stable_id ASC)"
                 ),
             }
@@ -3666,7 +3664,8 @@ impl<K: FusedKernels + StrictnessControl + Send + Sync + 'static> Worker<K> {
             // Bind routing-affecting constants (e.g. PINNED_BOOST) via build provenance.
             // This avoids per-constant receipt fields while still allowing third-party
             // verifiers to pin policy semantics to a trusted build allowlist.
-            let model_build_hash_b3 = Some(adapteros_core::version::BuildProvenance::cached().digest);
+            let model_build_hash_b3 =
+                Some(adapteros_core::version::BuildProvenance::cached().digest);
             let adapter_build_hash_b3 = None;
             let decode_algo = Some(if request.temperature.unwrap_or(1.0) <= 0.0 {
                 "greedy".to_string()
@@ -3684,7 +3683,7 @@ impl<K: FusedKernels + StrictnessControl + Send + Sync + 'static> Worker<K> {
             let thread_count = None;
             let reduction_strategy = None;
             let stop_eos_q15 = None;
-            let stop_window_digest_b3 = None;
+            let stop_window_digest_b3 = Some(stop_controller.window_digest());
             let cache_scope = Some("global".to_string());
             let cached_prefix_digest_b3 = compute_cached_prefix_digest(
                 &prompt_tokens,
@@ -3800,27 +3799,27 @@ impl<K: FusedKernels + StrictnessControl + Send + Sync + 'static> Worker<K> {
                             // V6 cross-run lineage (not tracked yet)
                             previous_receipt_digest: None,
                             session_sequence: 0,
-                            tokenizer_hash_b3: tokenizer_hash_b3.map(|h| h),
+                            tokenizer_hash_b3,
                             tokenizer_version: tokenizer_version.clone(),
                             tokenizer_normalization: tokenizer_normalization.clone(),
-                            model_build_hash_b3: model_build_hash_b3.map(|h| h),
-                            adapter_build_hash_b3: adapter_build_hash_b3.map(|h| h),
+                            model_build_hash_b3,
+                            adapter_build_hash_b3,
                             decode_algo: decode_algo.clone(),
                             temperature_q15,
                             top_p_q15,
                             top_k,
-                            seed_digest_b3: seed_digest_b3.map(|h| h),
+                            seed_digest_b3,
                             sampling_backend: sampling_backend.clone(),
                             thread_count,
                             reduction_strategy: reduction_strategy.clone(),
                             stop_eos_q15,
                             stop_window_digest_b3,
                             cache_scope: cache_scope.clone(),
-                            cached_prefix_digest_b3: cached_prefix_digest_b3.map(|h| h),
+                            cached_prefix_digest_b3,
                             cached_prefix_len,
-                            cache_key_b3: cache_key_b3.map(|h| h),
-                            retrieval_merkle_root_b3: retrieval_merkle_root_b3.map(|h| h),
-                            retrieval_order_digest_b3: retrieval_order_digest_b3.map(|h| h),
+                            cache_key_b3,
+                            retrieval_merkle_root_b3,
+                            retrieval_order_digest_b3,
                             tool_call_inputs_digest_b3,
                             tool_call_outputs_digest_b3,
                             disclosure_level: disclosure_level.clone(),
@@ -4520,7 +4519,7 @@ impl<K: FusedKernels + StrictnessControl + Send + Sync + 'static> Worker<K> {
         let thread_count = None;
         let reduction_strategy = None;
         let stop_eos_q15 = None;
-        let stop_window_digest_b3 = None;
+        let stop_window_digest_b3 = Some(stop_controller.window_digest());
         let cache_scope = Some("global".to_string());
         let cached_prefix_digest_b3 = compute_cached_prefix_digest(
             &prompt_tokens,
@@ -4637,27 +4636,27 @@ impl<K: FusedKernels + StrictnessControl + Send + Sync + 'static> Worker<K> {
                         // V6 cross-run lineage (not tracked yet)
                         previous_receipt_digest: None,
                         session_sequence: 0,
-                        tokenizer_hash_b3: tokenizer_hash_b3.map(|h| h),
+                        tokenizer_hash_b3,
                         tokenizer_version: tokenizer_version.clone(),
                         tokenizer_normalization: tokenizer_normalization.clone(),
-                        model_build_hash_b3: model_build_hash_b3.map(|h| h),
-                        adapter_build_hash_b3: adapter_build_hash_b3.map(|h| h),
+                        model_build_hash_b3,
+                        adapter_build_hash_b3,
                         decode_algo: decode_algo.clone(),
                         temperature_q15,
                         top_p_q15,
                         top_k,
-                        seed_digest_b3: seed_digest_b3.map(|h| h),
+                        seed_digest_b3,
                         sampling_backend: sampling_backend.clone(),
                         thread_count,
                         reduction_strategy: reduction_strategy.clone(),
                         stop_eos_q15,
                         stop_window_digest_b3,
                         cache_scope: cache_scope.clone(),
-                        cached_prefix_digest_b3: cached_prefix_digest_b3.map(|h| h),
+                        cached_prefix_digest_b3,
                         cached_prefix_len,
-                        cache_key_b3: cache_key_b3.map(|h| h),
-                        retrieval_merkle_root_b3: retrieval_merkle_root_b3.map(|h| h),
-                        retrieval_order_digest_b3: retrieval_order_digest_b3.map(|h| h),
+                        cache_key_b3,
+                        retrieval_merkle_root_b3,
+                        retrieval_order_digest_b3,
                         tool_call_inputs_digest_b3,
                         tool_call_outputs_digest_b3,
                         disclosure_level: disclosure_level.clone(),

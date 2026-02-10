@@ -667,10 +667,9 @@ pub async fn run_worker() -> Result<()> {
             backend_profile: requested_backend,
             require_explicit_fallback_opt_out: false,
         };
-        let selection = select_backend_from_execution_profile(&SelectionContext::new(
-            exec_profile,
-            capabilities.clone(),
-        ))?;
+        let selection = select_backend_from_execution_profile(
+            &SelectionContext::new(exec_profile, capabilities.clone()).with_reasoning_mode(false),
+        )?;
         info!(
             requested = %requested_backend.as_str(),
             selected = %selection.selected.as_str(),
@@ -1135,10 +1134,7 @@ pub async fn run_worker() -> Result<()> {
         worker_id_u32,
     )
     .await
-    .map_err(|e| {
-        notify_cp_error("worker-init-failed");
-        e
-    })?;
+    .inspect_err(|_| notify_cp_error("worker-init-failed"))?;
     log_boot_phase("worker-created");
 
     if let Ok(cache) = get_model_cache() {
@@ -1189,16 +1185,11 @@ pub async fn run_worker() -> Result<()> {
         };
         let monitor = if let Some(t) = telemetry_for_monitor {
             HealthMonitor::new(config)
-                .map_err(|e| {
-                    notify_cp_error("health-monitor-init-failed");
-                    e
-                })?
+                .inspect_err(|_| notify_cp_error("health-monitor-init-failed"))?
                 .with_telemetry(t, args.tenant_id.clone(), worker_id.clone())
         } else {
-            HealthMonitor::new(config).map_err(|e| {
-                notify_cp_error("health-monitor-init-failed");
-                e
-            })?
+            HealthMonitor::new(config)
+                .inspect_err(|_| notify_cp_error("health-monitor-init-failed"))?
         };
         guard.set_health_monitor(Arc::new(monitor));
     }
@@ -1404,8 +1395,12 @@ pub async fn run_worker() -> Result<()> {
         #[cfg(unix)]
         let terminate = async {
             match signal::unix::signal(signal::unix::SignalKind::terminate()) {
-                Ok(mut sig) => { sig.recv().await; }
-                Err(e) => { warn!(error = %e, "Failed to install SIGTERM handler"); }
+                Ok(mut sig) => {
+                    sig.recv().await;
+                }
+                Err(e) => {
+                    warn!(error = %e, "Failed to install SIGTERM handler");
+                }
             }
         };
         #[cfg(not(unix))]
