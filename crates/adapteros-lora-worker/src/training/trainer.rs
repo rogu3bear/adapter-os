@@ -2792,9 +2792,23 @@ Use --force-resume to override (may produce incorrect results).",
         let prepared_dataset = self.prepare_datasets_for_training(examples)?;
         let total_examples = prepared_dataset.summary.total_examples;
 
+        // Compute reproducibility metadata
+        let dataset_hash = super::dataset::compute_examples_hash(examples);
+        let config_hash = self.config.canonical_hash();
+        let base_model_id = self
+            .config
+            .base_model_path
+            .as_ref()
+            .and_then(|p| p.file_name())
+            .map(|n| n.to_string_lossy().to_string())
+            .unwrap_or_else(|| "none".to_string());
+
         info!(
             job_id = %job_id,
             correlation_id = %correlation_id,
+            dataset_hash = %dataset_hash,
+            config_hash = %config_hash,
+            base_model_id = %base_model_id,
             "Starting LoRA training: rank={}, epochs={}, examples={}, backend={}, seed={}, batch_size={}, max_tokens_per_batch={}",
             self.config.rank,
             target_epochs,
@@ -2805,7 +2819,7 @@ Use --force-resume to override (may produce incorrect results).",
             prepared_dataset.batch_plan.max_tokens_per_batch,
         );
 
-        // Log training start with GPU information
+        // Log training start with GPU information and reproducibility metadata
         self.telemetry.log(
             "training.started",
             serde_json::json!({
@@ -2818,6 +2832,10 @@ Use --force-resume to override (may produce incorrect results).",
                 "backend": backend_name,
                 "using_gpu": using_gpu,
                 "has_kernels": self.kernels.is_some(),
+                "dataset_hash_b3": dataset_hash,
+                "config_hash_b3": config_hash,
+                "base_model_id": base_model_id,
+                "mlx_version": self.config.mlx_version,
                 "config": {
                     "batch_size": self.config.batch_size,
                     "learning_rate": self.config.learning_rate,

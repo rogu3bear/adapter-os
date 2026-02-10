@@ -198,7 +198,7 @@ impl CodeFeatures {
         // [21] Attention entropy (1 dimension, 0.0 if not computed)
         vec.push(self.attn_entropy.unwrap_or(0.0));
 
-        debug_assert_eq!(vec.len(), 22, "Feature vector must be 22 dimensions");
+        assert_eq!(vec.len(), 22, "Feature vector must be 22 dimensions");
         vec
     }
 

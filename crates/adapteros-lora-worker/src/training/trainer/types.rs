@@ -584,6 +584,80 @@ impl TrainingConfig {
             self.use_gpu_backward
         )
     }
+
+    /// Compute a deterministic BLAKE3 hash of the training configuration.
+    ///
+    /// This hash covers all fields that affect training outcomes: hyperparameters,
+    /// optimizer settings, determinism config, and target modules. It deliberately
+    /// excludes runtime-only fields (checkpoint paths, GPU memory limits) that do
+    /// not affect the mathematical result of training.
+    ///
+    /// Two configs that produce the same `canonical_hash` will produce identical
+    /// training results given the same dataset and base model.
+    pub fn canonical_hash(&self) -> String {
+        let mut hasher = blake3::Hasher::new();
+        hasher.update(b"TrainingConfig_v1");
+        // Hyperparameters
+        hasher.update(&(self.rank as u64).to_le_bytes());
+        hasher.update(&self.alpha.to_le_bytes());
+        hasher.update(&self.learning_rate.to_le_bytes());
+        hasher.update(&(self.batch_size as u64).to_le_bytes());
+        hasher.update(&(self.epochs as u64).to_le_bytes());
+        hasher.update(&(self.hidden_dim as u64).to_le_bytes());
+        hasher.update(&(self.vocab_size as u64).to_le_bytes());
+        hasher.update(self.training_contract_version.as_bytes());
+        hasher.update(&self.pad_token_id.to_le_bytes());
+        hasher.update(&self.ignore_index.to_le_bytes());
+        hasher.update(&self.validation_split.to_le_bytes());
+        hasher.update(&(self.use_gpu_backward as u8).to_le_bytes());
+        // Optimizer
+        hasher.update(&(self.optimizer_config.optimizer_type as u8).to_le_bytes());
+        hasher.update(&self.optimizer_config.beta1.to_le_bytes());
+        hasher.update(&self.optimizer_config.beta2.to_le_bytes());
+        hasher.update(&self.optimizer_config.epsilon.to_le_bytes());
+        hasher.update(&self.optimizer_config.weight_decay.to_le_bytes());
+        hasher.update(&self.optimizer_config.momentum.to_le_bytes());
+        // Schedule
+        hasher.update(&self.warmup_steps.unwrap_or(0).to_le_bytes());
+        hasher.update(&self.gradient_accumulation_steps.unwrap_or(1).to_le_bytes());
+        hasher.update(&self.max_seq_length.unwrap_or(0).to_le_bytes());
+        // Early stopping
+        hasher.update(&(self.early_stopping.unwrap_or(false) as u8).to_le_bytes());
+        hasher.update(&self.patience.unwrap_or(0).to_le_bytes());
+        hasher.update(&self.min_delta.unwrap_or(0.0).to_le_bytes());
+        // Hidden state layer
+        if let Some(ref layer) = self.hidden_state_layer {
+            hasher.update(layer.as_bytes());
+        }
+        // Target modules (sorted — BTreeMap-style determinism)
+        let mut sorted_targets = self.targets.clone();
+        sorted_targets.sort();
+        for target in &sorted_targets {
+            hasher.update(target.as_bytes());
+        }
+        hasher.update(&(self.multi_module_training as u8).to_le_bytes());
+        // Layer indices (sorted for determinism)
+        let mut sorted_layers = self.lora_layer_indices.clone();
+        sorted_layers.sort();
+        for idx in &sorted_layers {
+            hasher.update(&(*idx as u64).to_le_bytes());
+        }
+        // Determinism seed (if provided)
+        if let Some(ref det) = self.determinism {
+            if let Some(seed) = det.seed {
+                hasher.update(&seed.to_le_bytes());
+            }
+            if let Some(ref version_id) = det.dataset_version_id {
+                hasher.update(version_id.as_bytes());
+            }
+        }
+        // MoE config
+        if let Some(ref moe) = self.moe_config {
+            hasher.update(&(moe.num_experts as u64).to_le_bytes());
+            hasher.update(&(moe.num_experts_per_token as u64).to_le_bytes());
+        }
+        hasher.finalize().to_hex().to_string()
+    }
 }
 
 impl Default for TrainingConfig {

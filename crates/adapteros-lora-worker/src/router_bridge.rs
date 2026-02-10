@@ -93,7 +93,7 @@ pub fn decision_to_router_ring(
     let mut ring = RouterRing::new(k);
 
     // Pre-condition: indices and gates have matching lengths (Decision guarantees this)
-    debug_assert_eq!(
+    assert_eq!(
         decision.indices.len(),
         decision.gates_q15.len(),
         "Decision invariant violated: mismatched indices/gates lengths"
@@ -107,7 +107,7 @@ pub fn decision_to_router_ring(
     );
 
     // Post-condition: verify K matches
-    debug_assert_eq!(
+    assert_eq!(
         ring.k, k,
         "RouterRing K mismatch after conversion (expected {}, got {})",
         k, ring.k

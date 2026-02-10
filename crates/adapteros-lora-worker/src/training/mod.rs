@@ -44,7 +44,9 @@ pub use builder::{
     SourceFileInfo,
 };
 pub use checkpoint::{CheckpointManager, TrainingCheckpoint};
-pub use dataset::{split_examples_for_validation, DatasetGenerator, ValidationSplitSummary};
+pub use dataset::{
+    compute_examples_hash, split_examples_for_validation, DatasetGenerator, ValidationSplitSummary,
+};
 pub type TrainingExample = TrainingExampleV1;
 pub use determinism_harness::{
     build_harness_training_config, compute_drift, deterministic_slice, run_backend_with_examples,

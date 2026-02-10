@@ -751,14 +751,12 @@ fn create_mlx_ffi_backend(
         // Create backend with or without manifest hash for deterministic seeding
         info!("Creating MLX backend with HKDF-seeded determinism from manifest hash");
         let backend: KernelBox = Box::new(
-            MLXFFIBackend::with_manifest_hash_arc(model_arc, manifest_hash.clone()).map_err(
-                |e| {
-                    AosError::Config(format!(
-                        "Failed to create MLX backend with manifest hash: {}",
-                        e
-                    ))
-                },
-            )?,
+            MLXFFIBackend::with_manifest_hash_arc(model_arc, *manifest_hash).map_err(|e| {
+                AosError::Config(format!(
+                    "Failed to create MLX backend with manifest hash: {}",
+                    e
+                ))
+            })?,
         );
 
         Ok(backend)

@@ -83,7 +83,7 @@ impl PolicyMask {
             .iter()
             .enumerate()
             .map(|(idx, id)| (id.as_str(), idx))
-            .collect::<std::collections::HashMap<_, _>>();
+            .collect::<std::collections::BTreeMap<_, _>>();
 
         if let Some(allow_ids) = allowed_adapter_ids {
             overrides_applied.allow_list = true;

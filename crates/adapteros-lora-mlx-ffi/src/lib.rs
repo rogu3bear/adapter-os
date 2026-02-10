@@ -881,7 +881,7 @@ impl MLXFFIModel {
 
             // SAFETY: arrays_to_eval.len() is bounded by 1 + MAX_HIDDEN_STATES (1025),
             // which fits safely in i32.
-            debug_assert!(arrays_to_eval.len() <= (MAX_HIDDEN_STATES as usize + 1));
+            assert!(arrays_to_eval.len() <= (MAX_HIDDEN_STATES as usize + 1));
             unsafe {
                 mlx_eval_all(arrays_to_eval.as_mut_ptr(), arrays_to_eval.len() as i32);
                 mlx_synchronize();
