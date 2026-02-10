@@ -8,8 +8,8 @@ mod list;
 
 use crate::api::ApiClient;
 use crate::components::{
-    BreadcrumbItem, BreadcrumbTrail, Button, ButtonVariant, PageBreadcrumbItem, PageScaffold,
-    PageScaffoldActions, Select, Spinner, SplitPanel, SplitRatio,
+    Button, ButtonVariant, PageBreadcrumbItem, PageScaffold, PageScaffoldActions, Select, Spinner,
+    SplitPanel, SplitRatio,
 };
 use crate::hooks::{use_api_resource, LoadingState};
 use detail::{RepositoryDetailPanel, RepositoryDetailStandalone};
@@ -142,17 +142,16 @@ pub fn RepositoryDetail() -> impl IntoView {
     let repo_id = Memo::new(move |_| params.get().get("id").unwrap_or_default());
 
     view! {
-        <div class="space-y-6">
-            // Breadcrumb navigation
-            <BreadcrumbTrail items=vec![
-                BreadcrumbItem::link("Repositories", "/repositories"),
-                BreadcrumbItem::current(repo_id.get()),
-            ]/>
-
-            <h1 class="heading-1">"Repository Details"</h1>
-
+        <PageScaffold
+            title="Repository Details"
+            breadcrumbs=vec![
+                PageBreadcrumbItem::new("Data", "/repositories"),
+                PageBreadcrumbItem::new("Repositories", "/repositories"),
+                PageBreadcrumbItem::current(repo_id.get()),
+            ]
+        >
             <RepositoryDetailStandalone repo_id=repo_id.get()/>
-        </div>
+        </PageScaffold>
     }
 }
 

@@ -6,9 +6,10 @@ use crate::api::client::{ChunkListResponse, DocumentListParams, DocumentResponse
 use crate::api::ApiClient;
 use crate::components::{
     Badge, BadgeVariant, Button, ButtonSize, ButtonVariant, Card, ConfirmationDialog,
-    ConfirmationSeverity, CopyableId, Dialog, IconExternalLink, InlineProgress, LoadingDisplay,
-    PageBreadcrumbItem, PageScaffold, PageScaffoldActions, ProgressStage, ProgressStages,
-    RefreshButton, Select, Table, TableBody, TableCell, TableHead, TableHeader, TableRow,
+    ConfirmationSeverity, CopyableId, Dialog, EmptyState, EmptyStateVariant, ErrorDisplay,
+    IconExternalLink, InlineProgress, LoadingDisplay, PageBreadcrumbItem, PageScaffold,
+    PageScaffoldActions, ProgressStage, ProgressStages, RefreshButton, Select, Table, TableBody,
+    TableCell, TableHead, TableHeader, TableRow,
 };
 use crate::hooks::{
     use_api, use_api_resource, use_conditional_polling, use_delete_dialog, LoadingState,
@@ -357,9 +358,10 @@ pub fn Documents() -> impl IntoView {
                     }
                     LoadingState::Error(e) => {
                         view! {
-                            <div class="rounded-lg border border-destructive bg-destructive/10 p-4">
-                                <p class="text-destructive">{e.to_string()}</p>
-                            </div>
+                            <ErrorDisplay
+                                error=e
+                                on_retry=Callback::new(move |_| refetch())
+                            />
                         }.into_any()
                     }
                 }
@@ -385,20 +387,13 @@ fn DocumentsList(
     if documents.is_empty() {
         return view! {
             <Card>
-                <div class="py-8 text-center">
-                    <p class="text-muted-foreground">"No documents found"</p>
-                    <p class="text-sm text-muted-foreground mt-2">
-                        "Upload documents to begin indexing for RAG."
-                    </p>
-                    <div class="mt-4 flex justify-center">
-                        <Button
-                            variant=ButtonVariant::Primary
-                            on_click=Callback::new(move |_| on_upload.run(()))
-                        >
-                            "Upload Document"
-                        </Button>
-                    </div>
-                </div>
+                <EmptyState
+                    variant=EmptyStateVariant::Empty
+                    title="No documents found"
+                    description="Upload documents to begin indexing for RAG."
+                    action_label="Upload Document"
+                    on_action=Callback::new(move |_| on_upload.run(()))
+                />
             </Card>
         }
         .into_any();
@@ -758,7 +753,8 @@ fn DocumentUploadDialog(open: RwSignal<bool>, on_success: Callback<String>) -> i
                 let client = ApiClient::new();
                 match client.upload_document(&file).await {
                     Ok(response) => {
-                        let _ = upload_status.try_set(Some("Upload complete. Indexing started.".into()));
+                        let _ = upload_status
+                            .try_set(Some("Upload complete. Indexing started.".into()));
                         let _ = uploaded_status.try_set(Some(response.status.clone()));
                         let _ = uploading.try_set(false);
                         let _ = open.try_set(false);
@@ -949,9 +945,10 @@ pub fn DocumentDetail() -> impl IntoView {
                     }
                     LoadingState::Error(e) => {
                         view! {
-                            <div class="rounded-lg border border-destructive bg-destructive/10 p-4">
-                                <p class="text-destructive">{e.to_string()}</p>
-                            </div>
+                            <ErrorDisplay
+                                error=e
+                                on_retry=Callback::new(move |_| refetch())
+                            />
                         }.into_any()
                     }
                 }

@@ -9,6 +9,7 @@
 pub mod nav_registry;
 mod page_scaffold;
 mod shell;
+pub mod sidebar;
 mod start_menu;
 mod system_tray;
 mod taskbar;
@@ -17,6 +18,7 @@ mod topbar;
 // Main exports
 pub use page_scaffold::{BreadcrumbItem, PageScaffold, PageScaffoldActions, PageScaffoldInspector};
 pub use shell::Shell;
+pub use sidebar::{provide_sidebar_context, use_sidebar, SidebarNav, SidebarState};
 pub use taskbar::Taskbar;
 pub use topbar::TopBar;
 
@@ -32,10 +34,8 @@ pub fn Header() -> impl IntoView {
     view! { <TopBar/> }
 }
 
-/// Sidebar navigation (legacy, replaced by taskbar)
+/// Sidebar navigation (legacy stub, real sidebar is SidebarNav)
 #[component]
 pub fn Sidebar() -> impl IntoView {
-    // Legacy sidebar is now replaced by the bottom taskbar
-    // This component is kept for backwards compatibility but renders nothing
-    view! {}
+    view! { <SidebarNav/> }
 }

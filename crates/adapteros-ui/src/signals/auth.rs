@@ -349,54 +349,55 @@ pub fn provide_auth_context() {
             // Defer spawn_local via Timeout to avoid RefCell re-entrancy panic
             // in wasm-bindgen-futures when called from within a reactive Effect body.
             gloo_timers::callback::Timeout::new(0, move || {
-            wasm_bindgen_futures::spawn_local(async move {
-                // On localhost, check dev bypass with a short timeout so we never hang
-                // if the backend is down (GET /v1/auth/config can hang otherwise).
-                let use_dev_bypass = if is_dev_localhost() {
-                    let bypass_future = dev_bypass_allowed(&client);
-                    let timeout_future =
-                        gloo_timers::future::TimeoutFuture::new(DEV_BYPASS_CHECK_TIMEOUT_MS);
-                    futures::pin_mut!(bypass_future);
+                wasm_bindgen_futures::spawn_local(async move {
+                    // On localhost, check dev bypass with a short timeout so we never hang
+                    // if the backend is down (GET /v1/auth/config can hang otherwise).
+                    let use_dev_bypass = if is_dev_localhost() {
+                        let bypass_future = dev_bypass_allowed(&client);
+                        let timeout_future =
+                            gloo_timers::future::TimeoutFuture::new(DEV_BYPASS_CHECK_TIMEOUT_MS);
+                        futures::pin_mut!(bypass_future);
+                        futures::pin_mut!(timeout_future);
+                        match futures::future::select(bypass_future, timeout_future).await {
+                            futures::future::Either::Left((allowed, _)) => allowed,
+                            futures::future::Either::Right(_) => {
+                                boot_log("auth", "dev bypass check timed out, using normal auth");
+                                false
+                            }
+                        }
+                    } else {
+                        false
+                    };
+                    if use_dev_bypass {
+                        boot_log("auth", "dev bypass active (localhost + allowed)");
+                        state_timeout.set(AuthState::Authenticated(Box::new(mock_dev_user())));
+                        return;
+                    }
+
+                    // Race auth check against timeout
+                    let auth_future = action.check_auth();
+                    let timeout_future = gloo_timers::future::TimeoutFuture::new(AUTH_TIMEOUT_MS);
+
+                    // Use futures::select! to race the two futures
+                    futures::pin_mut!(auth_future);
                     futures::pin_mut!(timeout_future);
-                    match futures::future::select(bypass_future, timeout_future).await {
-                        futures::future::Either::Left((allowed, _)) => allowed,
+
+                    match futures::future::select(auth_future, timeout_future).await {
+                        futures::future::Either::Left(_) => {
+                            // Auth completed (success or error) - state already set by check_auth
+                            boot_log("auth", "check completed");
+                        }
                         futures::future::Either::Right(_) => {
-                            boot_log("auth", "dev bypass check timed out, using normal auth");
-                            false
+                            // Timeout - only set if still loading
+                            if state_timeout.get().is_loading() {
+                                boot_log("auth", &format!("TIMEOUT after {}ms", AUTH_TIMEOUT_MS));
+                                state_timeout.set(AuthState::Timeout);
+                            }
                         }
                     }
-                } else {
-                    false
-                };
-                if use_dev_bypass {
-                    boot_log("auth", "dev bypass active (localhost + allowed)");
-                    state_timeout.set(AuthState::Authenticated(Box::new(mock_dev_user())));
-                    return;
-                }
-
-                // Race auth check against timeout
-                let auth_future = action.check_auth();
-                let timeout_future = gloo_timers::future::TimeoutFuture::new(AUTH_TIMEOUT_MS);
-
-                // Use futures::select! to race the two futures
-                futures::pin_mut!(auth_future);
-                futures::pin_mut!(timeout_future);
-
-                match futures::future::select(auth_future, timeout_future).await {
-                    futures::future::Either::Left(_) => {
-                        // Auth completed (success or error) - state already set by check_auth
-                        boot_log("auth", "check completed");
-                    }
-                    futures::future::Either::Right(_) => {
-                        // Timeout - only set if still loading
-                        if state_timeout.get().is_loading() {
-                            boot_log("auth", &format!("TIMEOUT after {}ms", AUTH_TIMEOUT_MS));
-                            state_timeout.set(AuthState::Timeout);
-                        }
-                    }
-                }
-            });
-            }).forget();
+                });
+            })
+            .forget();
         }
     });
 

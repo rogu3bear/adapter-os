@@ -6,9 +6,9 @@ use crate::components::inference_guidance::guidance_for;
 use crate::components::status_center::use_status_center;
 use crate::components::{
     Button, ButtonVariant, Card, ChartPoint, DataSeries, EmptyState, EmptyStateVariant,
-    IconCheckCircle, IconPlay, IconServer, LineChart, PageScaffold, PageScaffoldActions,
-    SparklineMetric, Spinner, StatusColor, StatusIconBox, StatusIndicator, StatusVariant,
-    TimeSeriesData, WorkerStatusBadge,
+    ErrorDisplay, IconCheckCircle, IconPlay, IconServer, LineChart, LoadingDisplay, PageScaffold,
+    PageScaffoldActions, SparklineMetric, Spinner, StatusColor, StatusIconBox, StatusIndicator,
+    StatusVariant, TimeSeriesData, WorkerStatusBadge,
 };
 use crate::hooks::{use_api_resource, use_sse_notifications, LoadingState};
 use crate::signals::use_auth;
@@ -286,9 +286,7 @@ pub fn Dashboard() -> impl IntoView {
                 match status.get() {
                     LoadingState::Idle | LoadingState::Loading => {
                         view! {
-                            <div class="flex items-center justify-center py-12">
-                                <Spinner/>
-                            </div>
+                            <LoadingDisplay message="Loading system status..."/>
                         }.into_any()
                     }
                     LoadingState::Loaded(data) => {
@@ -309,9 +307,10 @@ pub fn Dashboard() -> impl IntoView {
                     }
                     LoadingState::Error(e) => {
                         view! {
-                            <div class="rounded-lg border border-destructive bg-destructive/10 p-4">
-                                <p class="text-destructive">{e.to_string()}</p>
-                            </div>
+                            <ErrorDisplay
+                                error=e
+                                on_retry=Callback::new(move |_| refetch_all())
+                            />
                         }.into_any()
                     }
                 }
@@ -529,14 +528,22 @@ fn DashboardContent(
                                             {events.into_iter().map(|event| {
                                                 let target = event.target_type.clone().unwrap_or_else(|| "system".to_string());
                                                 let when = event.created_at.clone();
+                                                let href = activity_event_href(event.target_type.as_deref(), event.target_id.as_deref());
                                                 view! {
-                                                    <div class="flex items-center justify-between rounded-md border border-input px-3 py-2">
+                                                    <a
+                                                        href=href.clone().unwrap_or_default()
+                                                        class=if href.is_some() {
+                                                            "flex items-center justify-between rounded-md border border-input px-3 py-2 hover:bg-accent/30 transition-colors no-underline text-foreground"
+                                                        } else {
+                                                            "flex items-center justify-between rounded-md border border-input px-3 py-2"
+                                                        }
+                                                    >
                                                         <div>
                                                             <div class="text-sm font-medium">{event.event_type}</div>
                                                             <div class="text-xs text-muted-foreground">{target}</div>
                                                         </div>
                                                         <div class="text-xs text-muted-foreground">{when}</div>
-                                                    </div>
+                                                    </a>
                                                 }
                                             }).collect::<Vec<_>>()}
                                         </div>
@@ -747,6 +754,20 @@ fn MetricCard(
                 </div>
             })}
         </div>
+    }
+}
+
+/// Map activity event target type + ID to a navigable href.
+/// Returns `None` for events that don't map to a known page.
+fn activity_event_href(target_type: Option<&str>, target_id: Option<&str>) -> Option<String> {
+    let id = target_id?;
+    match target_type? {
+        "run" | "inference" | "trace" => Some(format!("/runs/{}", id)),
+        "adapter" => Some(format!("/adapters/{}", id)),
+        "review" | "pause" => Some(format!("/reviews/{}", id)),
+        "worker" => Some(format!("/workers/{}", id)),
+        "training" | "training_job" => Some(format!("/training/{}", id)),
+        _ => None,
     }
 }
 

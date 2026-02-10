@@ -191,7 +191,7 @@ pub fn System() -> impl IntoView {
         <PageScaffold
             title="Infrastructure"
             breadcrumbs=vec![
-                PageBreadcrumbItem::new("Observe", "/system"),
+                PageBreadcrumbItem::new("Org", "/system"),
                 PageBreadcrumbItem::current("Infrastructure"),
             ]
         >

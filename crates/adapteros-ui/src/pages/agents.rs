@@ -74,7 +74,7 @@ pub fn Agents() -> impl IntoView {
             title="Agent Orchestration"
             subtitle="Manage multi-agent sessions and worker executors"
             breadcrumbs=vec![
-                PageBreadcrumbItem::new("Operate", "/agents"),
+                PageBreadcrumbItem::new("Org", "/agents"),
                 PageBreadcrumbItem::current("Agents"),
             ]
         >

@@ -22,6 +22,9 @@ use std::sync::Arc;
 /// Maximum number of errors to keep in the live feed ring buffer
 const LIVE_FEED_MAX_ERRORS: usize = 100;
 
+/// Client-side pagination chunk for the history table.
+const ERROR_HISTORY_PAGE_SIZE: usize = 25;
+
 /// Error Monitor page
 #[component]
 pub fn Errors() -> impl IntoView {
@@ -34,7 +37,7 @@ pub fn Errors() -> impl IntoView {
             subtitle="Real-time error monitoring and analysis"
             breadcrumbs=vec![
                 PageBreadcrumbItem::new("Observe", "/errors"),
-                PageBreadcrumbItem::current("Incidents"),
+                PageBreadcrumbItem::current("Errors"),
             ]
         >
             <TabNav
@@ -294,7 +297,7 @@ fn HistorySection() -> impl IntoView {
                 </Button>
             </div>
 
-            // Errors table
+            // Errors table with client-side pagination
             <Card>
                 <AsyncBoundary
                     state=errors
@@ -307,10 +310,15 @@ fn HistorySection() -> impl IntoView {
                                 </div>
                             }.into_any()
                         } else {
+                            let error_count = data.errors.len();
+                            let total = data.total;
+                            let errors_data = data.errors;
+                            let visible_count = RwSignal::new(ERROR_HISTORY_PAGE_SIZE);
+
                             view! {
                                 <div>
                                     <div class="px-4 py-2 text-sm text-muted-foreground border-b">
-                                        {format!("Showing {} of {} errors", data.errors.len(), data.total)}
+                                        {format!("Showing {} of {} errors", error_count, total)}
                                     </div>
                                     <Table>
                                         <TableHeader>
@@ -323,11 +331,37 @@ fn HistorySection() -> impl IntoView {
                                             </TableRow>
                                         </TableHeader>
                                         <TableBody>
-                                            {data.errors.iter().cloned().map(|error| {
-                                                view! { <ErrorRow error=error/> }
-                                            }).collect::<Vec<_>>()}
+                                            {move || {
+                                                let count = visible_count.get().min(error_count);
+                                                errors_data
+                                                    .iter()
+                                                    .take(count)
+                                                    .cloned()
+                                                    .map(|error| {
+                                                        view! { <ErrorRow error=error/> }
+                                                    })
+                                                    .collect::<Vec<_>>()
+                                            }}
                                         </TableBody>
                                     </Table>
+
+                                    // Show more button
+                                    {move || {
+                                        let count = visible_count.get();
+                                        let remaining = error_count.saturating_sub(count);
+                                        (remaining > 0).then(|| view! {
+                                            <div class="flex items-center justify-center py-3 border-t">
+                                                <button
+                                                    class="text-sm text-primary hover:underline"
+                                                    on:click=move |_| {
+                                                        visible_count.update(|c| *c = (*c + ERROR_HISTORY_PAGE_SIZE).min(error_count));
+                                                    }
+                                                >
+                                                    {format!("Show more ({} remaining)", remaining)}
+                                                </button>
+                                            </div>
+                                        })
+                                    }}
                                 </div>
                             }.into_any()
                         }

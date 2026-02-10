@@ -12,7 +12,7 @@ const ERROR_TOAST_DURATION_MS: u32 = 20000;
 
 thread_local! {
     static GLOBAL_NOTIFICATION_ACTION: std::cell::RefCell<Option<NotificationAction>> =
-        std::cell::RefCell::new(None);
+        const { std::cell::RefCell::new(None) };
 }
 
 fn readable_id(_prefix: &str, _slug_source: &str) -> String {

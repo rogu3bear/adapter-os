@@ -394,6 +394,7 @@ pub fn CollectionDetail() -> impl IntoView {
         <PageScaffold
             title="Collection Details"
             breadcrumbs=vec![
+                PageBreadcrumbItem::new("Data", "/collections"),
                 PageBreadcrumbItem::new("Collections", "/collections"),
                 PageBreadcrumbItem::current(collection_id.get()),
             ]

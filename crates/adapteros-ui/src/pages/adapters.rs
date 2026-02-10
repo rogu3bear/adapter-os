@@ -20,8 +20,8 @@ use crate::api::ApiClient;
 use crate::components::{
     AdapterDetailPanel, AsyncBoundary, AsyncBoundaryWithErrorRender, Badge, BadgeVariant, Button,
     ButtonSize, ButtonVariant, Card, CopyableId, EmptyState, EmptyStateVariant, ErrorDisplay, Link,
-    PageBreadcrumbItem, PageScaffold, PageScaffoldActions, SplitPanel, SplitRatio, Table, TableBody,
-    TableCell, TableHead, TableHeader, TableRow,
+    PageBreadcrumbItem, PageScaffold, PageScaffoldActions, SplitPanel, SplitRatio, Table,
+    TableBody, TableCell, TableHead, TableHeader, TableRow,
 };
 use crate::constants::urls::docs_link;
 use crate::contexts::use_in_flight;
@@ -122,6 +122,9 @@ pub fn Adapters() -> impl IntoView {
             ]
         >
             <PageScaffoldActions slot>
+                <Link href="/training" class="btn btn-secondary btn-sm">
+                    "Train New"
+                </Link>
                 {
                     let navigate = use_navigate();
                     view! {

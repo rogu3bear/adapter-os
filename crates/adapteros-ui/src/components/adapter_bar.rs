@@ -692,7 +692,8 @@ pub fn ChatAdaptersRegion(
     });
 
     let has_active = Memo::new(move |_| !active_with_pins.try_get().unwrap_or_default().is_empty());
-    let has_pinned_only = Memo::new(move |_| !pinned_only_magnets.try_get().unwrap_or_default().is_empty());
+    let has_pinned_only =
+        Memo::new(move |_| !pinned_only_magnets.try_get().unwrap_or_default().is_empty());
 
     view! {
         <div

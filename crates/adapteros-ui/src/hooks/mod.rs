@@ -3,9 +3,11 @@
 //! Leptos-style hooks for data fetching, state management, etc.
 
 pub mod use_delete_dialog;
+pub mod use_list_controls;
 pub mod use_sse_notifications;
 
 pub use use_delete_dialog::{use_delete_dialog, DeleteDialogState};
+pub use use_list_controls::{use_list_controls, ListControls, DEFAULT_PAGE_SIZE};
 pub use use_sse_notifications::use_sse_notifications;
 
 // Re-export the Refetch type since it's part of the use_api_resource return type

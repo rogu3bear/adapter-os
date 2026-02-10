@@ -28,8 +28,8 @@ mod wizard;
 
 use crate::api::ApiClient;
 use crate::components::{
-    AsyncBoundary, Button, ButtonVariant, PageBreadcrumbItem, PageScaffold, PageScaffoldActions,
-    SplitPanel,
+    AsyncBoundary, Button, ButtonVariant, Link, PageBreadcrumbItem, PageScaffold,
+    PageScaffoldActions, SplitPanel,
 };
 use crate::hooks::{use_api_resource, use_conditional_polling, LoadingState};
 use crate::signals::{try_use_route_context, SelectedEntity};
@@ -219,11 +219,14 @@ pub fn Training() -> impl IntoView {
             title="Training Jobs"
             subtitle="Launch, monitor, and validate training runs for adapter builds."
             breadcrumbs=vec![
-                PageBreadcrumbItem::new("Deploy", "/training"),
+                PageBreadcrumbItem::new("Train", "/training"),
                 PageBreadcrumbItem::current("Training Jobs"),
             ]
         >
             <PageScaffoldActions slot>
+                <Link href="/datasets" class="btn btn-secondary btn-sm">
+                    "Datasets"
+                </Link>
                 <StatusFilter filter=status_filter/>
                 <CoremlFilters filter=coreml_filter/>
                 <Button
