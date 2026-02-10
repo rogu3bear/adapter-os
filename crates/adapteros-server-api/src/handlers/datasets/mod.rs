@@ -29,7 +29,7 @@ mod helpers;
 mod preprocess;
 mod progress_sse;
 mod safety;
-mod synthesize;
+pub(crate) mod synthesize;
 mod types;
 mod upload;
 mod upload_sessions;

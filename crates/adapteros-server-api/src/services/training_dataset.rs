@@ -968,6 +968,10 @@ impl TrainingDatasetService for DefaultTrainingDatasetService {
             training_strategy.as_str(),
             "qa" | "question-answer" | "question_answer"
         );
+        let generate_synthesis = matches!(
+            training_strategy.as_str(),
+            "synthesis" | "qa_synthesis" | "question_answer_synthesis"
+        );
 
         if params.data.is_empty() {
             return Err(ApiError::bad_request("No file uploaded").into());
@@ -1061,6 +1065,17 @@ impl TrainingDatasetService for DefaultTrainingDatasetService {
                         &existing_doc.name,
                         &mime_type,
                         params.name,
+                        params.description,
+                    )
+                    .await;
+            }
+
+            if generate_synthesis {
+                return self
+                    .build_dataset_from_synthesis_for_document(
+                        claims,
+                        &existing_doc.id,
+                        params.name.unwrap_or_else(|| existing_doc.name.clone()),
                         params.description,
                     )
                     .await;
@@ -1188,6 +1203,17 @@ impl TrainingDatasetService for DefaultTrainingDatasetService {
                 .await;
         }
 
+        if generate_synthesis {
+            return self
+                .build_dataset_from_synthesis_for_document(
+                    claims,
+                    &document_id,
+                    params.name.unwrap_or_else(|| document_name.clone()),
+                    params.description,
+                )
+                .await;
+        }
+
         self.create_from_document_ids(
             claims,
             DatasetFromDocumentIdsParams {
@@ -1195,6 +1221,109 @@ impl TrainingDatasetService for DefaultTrainingDatasetService {
                 name: params.name,
                 description: params.description,
             },
+        )
+        .await
+    }
+}
+
+impl DefaultTrainingDatasetService {
+    #[cfg(feature = "embeddings")]
+    async fn build_dataset_from_synthesis_for_document(
+        &self,
+        claims: &crate::auth::Claims,
+        document_id: &str,
+        dataset_name: String,
+        description: Option<String>,
+    ) -> Result<DatasetResponse, (StatusCode, Json<ErrorResponse>)> {
+        use crate::handlers::datasets::synthesize::{synthesize_training_examples, SynthesisConfig};
+
+        // Pull chunks deterministically; DB enforces tenant isolation.
+        let chunks = self
+            .state
+            .db
+            .get_document_chunks(&claims.tenant_id, document_id)
+            .await
+            .map_err(|e| ApiError::db_error(format!("Failed to get document chunks: {}", e)))?;
+
+        if chunks.is_empty() {
+            return Err(ApiError::bad_request("No document chunks found").into());
+        }
+
+        // Fetch full text from rag_documents when available; fall back to text_preview.
+        let mut rag_texts: HashMap<String, String> = HashMap::new();
+        if self.state.db.storage_mode().read_from_sql() && !chunks.is_empty() {
+            let rag_doc_ids: Vec<String> = chunks
+                .iter()
+                .map(|chunk| format!("{}__chunk_{}", chunk.document_id, chunk.chunk_index))
+                .collect();
+            let placeholders = rag_doc_ids
+                .iter()
+                .map(|_| "?")
+                .collect::<Vec<_>>()
+                .join(",");
+            let query = format!(
+                "SELECT doc_id, text FROM rag_documents WHERE tenant_id = ? AND doc_id IN ({})",
+                placeholders
+            );
+            let mut query_builder = sqlx::query_as::<_, (String, String)>(&query);
+            query_builder = query_builder.bind(&claims.tenant_id);
+            for doc_id in &rag_doc_ids {
+                query_builder = query_builder.bind(doc_id);
+            }
+            let rows = query_builder
+                .fetch_all(self.state.db.pool())
+                .await
+                .map_err(|e| ApiError::db_error(format!("Failed to load rag documents: {}", e)))?;
+            rag_texts.extend(rows.into_iter());
+        }
+
+        // Map DB chunks into synthesis chunks with stable source ids.
+        let synthesis_chunks: Vec<_> = chunks
+            .iter()
+            .map(|chunk| {
+                let rag_doc_id = format!("{}__chunk_{}", chunk.document_id, chunk.chunk_index);
+                let text = rag_texts
+                    .get(&rag_doc_id)
+                    .map(|s| s.as_str())
+                    .or(chunk.text_preview.as_deref())
+                    .unwrap_or("")
+                    .to_string();
+                crate::handlers::datasets::synthesize::DocumentChunk {
+                    source: rag_doc_id,
+                    text,
+                    chunk_index: Some(chunk.chunk_index as usize),
+                }
+            })
+            .collect();
+
+        // Default config: generate all example types.
+        let config = SynthesisConfig::default();
+        let (examples, _stats) =
+            synthesize_training_examples(&self.state, claims, &config, &synthesis_chunks)
+                .await
+                .map_err(|e| <ApiError as Into<(StatusCode, Json<ErrorResponse>)>>::into(e))?;
+
+        // Convert examples into canonical JSONL rows for training.
+        let jsonl_lines: Vec<String> = examples
+            .into_iter()
+            .map(|ex| {
+                serde_json::json!({
+                    "prompt": ex.prompt,
+                    "completion": ex.response,
+                    "source": ex.source,
+                    "example_type": format!("{:?}", ex.example_type),
+                    "sample_role": ex.sample_role,
+                })
+                .to_string()
+            })
+            .collect();
+
+        self.build_dataset_from_jsonl_lines(
+            claims,
+            dataset_name,
+            description,
+            jsonl_lines,
+            "synthesis-derived",
         )
         .await
     }
