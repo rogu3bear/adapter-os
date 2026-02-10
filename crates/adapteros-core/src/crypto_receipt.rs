@@ -861,9 +861,7 @@ impl CryptographicReceipt {
             tokenizer_hash_b3: None,
             tokenizer_version: None,
             tokenizer_normalization: None,
-            model_build_hash_b3: Some(
-                *crate::version::BuildProvenance::cached().digest.as_bytes(),
-            ),
+            model_build_hash_b3: Some(*crate::version::BuildProvenance::cached().digest.as_bytes()),
             adapter_build_hash_b3: None,
             decode_algo: None,
             temperature_q15: None,
@@ -2099,5 +2097,128 @@ mod tests {
 
         assert_eq!(receipt.partial_output_count, 0);
         assert!(receipt.verify());
+    }
+
+    // ========================================================================
+    // Golden Hex-Pinned Digest Tests
+    //
+    // These tests pin exact digest hex values to detect silent changes to
+    // the receipt digest computation. If any of these fail, the receipt
+    // schema has changed — intentional changes require a version bump.
+    // ========================================================================
+
+    /// Golden test: CryptographicReceipt digest is pinned to a specific hex value.
+    ///
+    /// If this test fails, the receipt digest computation has changed. This is a
+    /// breaking change — existing receipts will fail verification.
+    #[test]
+    fn test_golden_receipt_digest_hex() {
+        let mut generator =
+            ReceiptGenerator::new(sample_model_hash(), sample_adapter_config_hash());
+        generator.set_equipment_profile("Apple M4 Max", "mlx-0.21.0");
+        generator.bind_input_tokens(&sample_input_tokens());
+        for step in 0..3 {
+            generator.record_routing_decision(sample_routing_record(step));
+        }
+        let receipt = generator.finalize(&sample_output_tokens()).unwrap();
+
+        assert_eq!(
+            receipt.receipt_digest.to_hex(),
+            "aeded95089f25649bab21547663eb8b4c07eac4de9abee5f9a6e0a3c697d8e54",
+            "CryptographicReceipt digest has changed — this is a breaking schema change"
+        );
+    }
+
+    /// Golden test: CryptographicReceipt canonical bytes are pinned.
+    #[test]
+    fn test_golden_receipt_canonical_bytes_hex() {
+        let mut generator =
+            ReceiptGenerator::new(sample_model_hash(), sample_adapter_config_hash());
+        generator.set_equipment_profile("Apple M4 Max", "mlx-0.21.0");
+        generator.bind_input_tokens(&sample_input_tokens());
+        for step in 0..3 {
+            generator.record_routing_decision(sample_routing_record(step));
+        }
+        let receipt = generator.finalize(&sample_output_tokens()).unwrap();
+
+        assert_eq!(
+            hex::encode(receipt.to_canonical_bytes()),
+            "01ed3de8d15fb4831ded369720f4a6115e807f8dcdabc46cbc9bea4c78c8f26ac452\
+             54058a279af6a6becc44a47f371430af4ab2de880e49285142749dc2c0168fd35b44a\
+             b4ad455332311b1fae7035199ca7d1ebb275d4496168470fe3fe5306e6b98f4af20d3\
+             aa2fce353fd9b8723a8f06ac0cf8e052862b8a1e2db4aefe313a030000002422dfae5\
+             cdad43b7a71fc70b9e6615441c4fa9197b5aa44e8e3cabcaa35cb7c689f040a655100\
+             d3081efd7d933cb015ae0464e20d85f46dc6c73d7f4f5bddd00c0000004170706c6520\
+             4d34204d61780a0000006d6c782d302e32312e30003a75f31ae8759115e55436857313\
+             6511a436741cef0c5ddbab057b790a7772d5aeded95089f25649bab21547663eb8b4c0\
+             7eac4de9abee5f9a6e0a3c697d8e54",
+            "CryptographicReceipt canonical bytes have changed — this is a breaking schema change"
+        );
+    }
+
+    /// Golden test: CancellationReceipt digest (minimal, no equipment/context) is pinned.
+    #[test]
+    fn test_golden_cancellation_receipt_digest_hex() {
+        let receipt = CancellationReceiptBuilder::new(
+            "trace-golden-test".to_string(),
+            CancelSource::ClientDisconnect,
+            42,
+        )
+        .with_partial_tokens(vec![100, 200, 300, 400, 500])
+        .finalize();
+
+        assert_eq!(
+            receipt.receipt_digest.to_hex(),
+            "b040375d1730e58f660985a37887322697742d5d5e9ae0bac3f0cf0312bda18d",
+            "CancellationReceipt digest has changed — this is a breaking schema change"
+        );
+    }
+
+    /// Golden test: CancellationReceipt canonical bytes (minimal) are pinned.
+    #[test]
+    fn test_golden_cancellation_canonical_bytes_hex() {
+        let receipt = CancellationReceiptBuilder::new(
+            "trace-golden-test".to_string(),
+            CancelSource::ClientDisconnect,
+            42,
+        )
+        .with_partial_tokens(vec![100, 200, 300, 400, 500])
+        .finalize();
+
+        // Clear the timestamp for deterministic comparison
+        let mut receipt = receipt;
+        receipt.cancelled_at = None;
+
+        assert_eq!(
+            hex::encode(receipt.to_canonical_bytes()),
+            "011100000074726163652d676f6c64656e2d7465737449051a3493e963eb9271352ca4\
+             af55ef0e8ea9088ac89702532e02c7808e92e9050000000900000043414e43454c4c45\
+             4411000000434c49454e545f444953434f4e4e4543542a000000b040375d1730e58f66\
+             0985a37887322697742d5d5e9ae0bac3f0cf0312bda18d00",
+            "CancellationReceipt canonical bytes have changed — this is a breaking schema change"
+        );
+    }
+
+    /// Golden test: CancellationReceipt with equipment + context produces a pinned digest.
+    #[test]
+    fn test_golden_cancellation_receipt_full_digest_hex() {
+        let profile = EquipmentProfile::compute("Apple M4 Max", "mlx-0.21.0", None);
+        let context = ContextId::compute(sample_model_hash(), sample_adapter_config_hash());
+
+        let receipt = CancellationReceiptBuilder::new(
+            "trace-golden-full".to_string(),
+            CancelSource::PolicyViolation,
+            10,
+        )
+        .with_partial_tokens(vec![50, 51, 52])
+        .with_equipment_profile(profile)
+        .with_context_digest(context.digest)
+        .finalize();
+
+        assert_eq!(
+            receipt.receipt_digest.to_hex(),
+            "795f979a8371eca7f629ad78d2693b19b55134ac36ce2a5a42bbd93b13e23739",
+            "CancellationReceipt (full) digest has changed — this is a breaking schema change"
+        );
     }
 }

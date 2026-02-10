@@ -480,6 +480,7 @@ async fn test_telemetry_envelope_creation() -> anyhow::Result<()> {
         event_count: 100,
         cpid: Some("cp-001".to_string()),
         sequence_no: Some(1),
+        pinned_degradation_evidence: None,
     };
 
     // Create telemetry envelope
@@ -590,6 +591,7 @@ async fn test_mixed_evidence_chain() -> anyhow::Result<()> {
         event_count: 50,
         cpid: Some("cp-001".to_string()),
         sequence_no: Some(1),
+        pinned_degradation_evidence: None,
     };
     let telem_env1 = EvidenceEnvelope::new_telemetry("tenant-test".to_string(), bundle_ref1, None);
     db.store_evidence_envelope(&telem_env1).await?;

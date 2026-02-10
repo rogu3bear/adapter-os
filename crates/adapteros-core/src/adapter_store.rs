@@ -95,9 +95,9 @@ impl Drop for AdapterPins {
             // AcqRel is not needed here since we don't read dependent data.
             let prev = rc.fetch_sub(1, Ordering::Release);
 
-            // Debug assertion: prev should always be >= 1 if refcounting is correct.
+            // prev should always be >= 1 if refcounting is correct.
             // A prev of 0 would indicate a double-free bug.
-            debug_assert!(
+            assert!(
                 prev >= 1,
                 "AdapterPins refcount underflow detected (prev={prev})"
             );
