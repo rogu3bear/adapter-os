@@ -189,6 +189,10 @@ pub(crate) async fn run_training_job(
         };
         let tenant = tenant_id.as_deref().unwrap_or("default");
 
+        // Normalize orchestrator config for deterministic hashing before mapping
+        let mut orchestrator_cfg = orchestrator_cfg;
+        orchestrator_cfg.normalize();
+
         // Map orchestrator config to worker trainer config
         let preferred_backend = map_preferred_backend(
             orchestrator_cfg.preferred_backend,
@@ -858,6 +862,33 @@ pub(crate) async fn run_training_job(
             }
         }
 
+        // Emit structured reproducibility receipt before training begins.
+        // All reproducibility-critical fields are logged in a single event for
+        // easy extraction from log aggregators.
+        {
+            let normalized_cfg_hash =
+                crate::training::config::normalized_config_hash_b3(&orchestrator_cfg);
+            info!(
+                job_id = %job_id,
+                adapter_name = %adapter_name,
+                base_model_id = ?base_model_id,
+                dataset_hash_b3 = %dataset_hash_b3,
+                normalized_config_hash_b3 = %normalized_cfg_hash,
+                training_seed = trainer.training_seed(),
+                determinism_mode = "hkdf_seeded",
+                backend = ?preferred_backend.preferred,
+                epochs = worker_cfg.epochs,
+                rank = worker_cfg.rank,
+                alpha = %worker_cfg.alpha,
+                learning_rate = worker_cfg.learning_rate,
+                batch_size = worker_cfg.batch_size,
+                dataset_source = %dataset_source,
+                tokenizer_hash_b3 = %tokenizer_hash_b3,
+                examples = examples.len(),
+                "TRAINING_JOB_REPRODUCIBILITY_RECEIPT"
+            );
+        }
+
         let (train_examples, validation_examples, split_summary) = split_examples_for_validation(
             &examples,
             worker_cfg.validation_split,
@@ -1468,6 +1499,21 @@ pub(crate) async fn run_training_job(
                     }
                 }
 
+                // Emit structured completion receipt with outcome metrics.
+                info!(
+                    job_id = %job_id,
+                    adapter_name = %adapter_name,
+                    base_model_id = ?base_model_id,
+                    final_loss = training_result.final_loss,
+                    training_time_ms = training_time_ms,
+                    backend = ?backend_selected,
+                    examples_processed = examples_processed,
+                    tokens_processed = tokens_processed,
+                    dataset_hash_b3 = %dataset_hash_b3,
+                    training_seed = trainer.training_seed(),
+                    "TRAINING_JOB_COMPLETION_RECEIPT"
+                );
+
                 info!(
                     job_id = %job_id,
                     adapter_name = %adapter_name,
@@ -1803,16 +1849,8 @@ async fn resolve_training_config_hash(
         return hash;
     }
 
-    let params = adapteros_db::training_jobs::TrainingConfigParams {
-        rank: orchestrator_cfg.rank as usize,
-        alpha: orchestrator_cfg.alpha as f32,
-        learning_rate: orchestrator_cfg.learning_rate,
-        batch_size: orchestrator_cfg.batch_size as usize,
-        epochs: orchestrator_cfg.epochs as usize,
-        hidden_dim: 768,
-    };
-    adapteros_db::training_jobs::compute_config_hash(&params)
-        .unwrap_or_else(|_| "unknown".to_string())
+    // Use normalized config hash which covers all fields
+    crate::training::config::normalized_config_hash_b3(orchestrator_cfg)
 }
 
 fn compute_pipeline_training_config_hash(worker_cfg: &WorkerTrainingConfig) -> Result<String> {

@@ -1012,14 +1012,15 @@ impl PolicyPackValidator for EgressValidator {
         // inject "runtime_mode": "dev" and bypass egress blocking in production.
         // We read from AOS_RUNTIME_MODE (operator-controlled env var) and default to
         // "prod" (fail-closed) if unset.
-        let runtime_mode = std::env::var("AOS_RUNTIME_MODE").ok().and_then(|s| {
-            match s.to_lowercase().as_str() {
-                "dev" | "development" => Some("dev"),
-                "staging" | "stage" => Some("staging"),
-                "prod" | "production" => Some("prod"),
-                _ => None,
-            }
-        });
+        let runtime_mode =
+            std::env::var("AOS_RUNTIME_MODE")
+                .ok()
+                .and_then(|s| match s.to_lowercase().as_str() {
+                    "dev" | "development" => Some("dev"),
+                    "staging" | "stage" => Some("staging"),
+                    "prod" | "production" => Some("prod"),
+                    _ => None,
+                });
 
         // Determine if we should block based on runtime mode
         // In Auto mode (default): block in prod, warn in dev/staging

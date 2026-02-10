@@ -575,12 +575,16 @@ mod tests {
         let policy = IsolationPolicy::new(config);
 
         let uds_path = policy.generate_tenant_uds_path("tenant1", "socket.sock");
-        assert_eq!(
-            uds_path,
-            policy.config.uds_root.join("tenant1/socket.sock")
-        );
+        assert_eq!(uds_path, policy.config.uds_root.join("tenant1/socket.sock"));
 
         let fs_path = policy.generate_tenant_fs_path("tenant1", "data/file.txt");
-        assert_eq!(fs_path, policy.config.filesystem.root_dir.join("tenant1/data/file.txt"));
+        assert_eq!(
+            fs_path,
+            policy
+                .config
+                .filesystem
+                .root_dir
+                .join("tenant1/data/file.txt")
+        );
     }
 }
