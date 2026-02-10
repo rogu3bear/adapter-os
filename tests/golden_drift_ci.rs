@@ -297,7 +297,6 @@ fn test_drift_result_classification() {
 #[test]
 fn test_empty_baselines_graceful() {
     // Ensure test passes gracefully when no baselines exist
-    use std::path::PathBuf;
     use tempfile::TempDir;
 
     let temp_dir = TempDir::with_prefix("aos-test-").unwrap();

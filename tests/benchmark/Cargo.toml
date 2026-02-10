@@ -21,6 +21,8 @@ adapteros-policy = { path = "../../crates/adapteros-policy" }
 adapteros-manifest = { path = "../../crates/adapteros-manifest" }
 adapteros-model-hub = { path = "../../crates/adapteros-model-hub" }
 adapteros-deterministic-exec = { path = "../../crates/adapteros-deterministic-exec" }
+adapteros-ingest-docs = { path = "../../crates/adapteros-ingest-docs" }
+adapteros-lora-worker = { path = "../../crates/adapteros-lora-worker", default-features = false }
 
 # Benchmarking framework
 criterion = { version = "0.5", features = ["html_reports"] }
@@ -89,6 +91,10 @@ harness = false
 
 [[bench]]
 name = "router_performance"
+harness = false
+
+[[bench]]
+name = "chat_inference"
 harness = false
 
 [features]
