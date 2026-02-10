@@ -149,7 +149,7 @@ pub async fn batch_infer(
                 if item
                     .request
                     .max_tokens
-                    .map_or(false, |t| t > MAX_TOKENS_LIMIT)
+                    .is_some_and(|t| t > MAX_TOKENS_LIMIT)
                 {
                     return BatchInferItemResponse {
                         id: item.id,
@@ -957,7 +957,11 @@ async fn process_batch_job(
                 }
 
                 // Validate max_tokens to prevent resource exhaustion
-                if batch_item_request.request.max_tokens.map_or(false, |t| t > MAX_TOKENS_LIMIT) {
+                if batch_item_request
+                    .request
+                    .max_tokens
+                    .is_some_and(|t| t > MAX_TOKENS_LIMIT)
+                {
                     let _ = state
                         .db
                         .update_batch_item_result(
@@ -1210,7 +1214,7 @@ pub async fn get_batch_status(
     require_permission(&claims, Permission::InferenceExecute)?;
     let batch_id = crate::id_resolver::resolve_any_id(&state.db, &batch_id)
         .await
-        .map_err(|e| <(StatusCode, Json<ErrorResponse>)>::from(e))?;
+        .map_err(<(StatusCode, Json<ErrorResponse>)>::from)?;
 
     let batch_job = state
         .db
@@ -1298,7 +1302,7 @@ pub async fn get_batch_items(
     require_permission(&claims, Permission::InferenceExecute)?;
     let batch_id = crate::id_resolver::resolve_any_id(&state.db, &batch_id)
         .await
-        .map_err(|e| <(StatusCode, Json<ErrorResponse>)>::from(e))?;
+        .map_err(<(StatusCode, Json<ErrorResponse>)>::from)?;
 
     // Verify batch job exists and user has access
     let batch_job = state

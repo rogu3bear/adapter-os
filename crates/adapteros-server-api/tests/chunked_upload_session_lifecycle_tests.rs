@@ -1,7 +1,5 @@
 //! Chunked upload session lifecycle tests.
 
-use std::path::PathBuf;
-
 use adapteros_db::sqlx::Row;
 use adapteros_server_api::handlers::datasets::cleanup_expired_sessions;
 use adapteros_server_api::types::{CompleteChunkedUploadResponse, InitiateChunkedUploadResponse};

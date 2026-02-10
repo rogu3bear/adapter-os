@@ -51,7 +51,7 @@ pub async fn archive_adapter_version(
     require_permission(&claims, Permission::AdapterLoad)?;
     let version_id = crate::id_resolver::resolve_any_id(&state.db, &version_id)
         .await
-        .map_err(|e| <(StatusCode, Json<ErrorResponse>)>::from(e))?;
+        .map_err(<(StatusCode, Json<ErrorResponse>)>::from)?;
 
     // Verify version exists and belongs to tenant
     let version = state
@@ -152,7 +152,7 @@ pub async fn unarchive_adapter_version(
     require_permission(&claims, Permission::AdapterLoad)?;
     let version_id = crate::id_resolver::resolve_any_id(&state.db, &version_id)
         .await
-        .map_err(|e| <(StatusCode, Json<ErrorResponse>)>::from(e))?;
+        .map_err(<(StatusCode, Json<ErrorResponse>)>::from)?;
 
     // Verify version exists and belongs to tenant
     let version = state

@@ -2,11 +2,11 @@
 //!
 //! Provides endpoints for creating, listing, and verifying deterministic replay sessions.
 
-use adapteros_core::{AosError, B3Hash};
 use adapteros_core::determinism::expand_u64_seed;
 use adapteros_core::evidence_envelope::InferenceReceiptRef;
 use adapteros_core::seed::SeedLineage;
 use adapteros_core::SeedMode;
+use adapteros_core::{AosError, B3Hash};
 use adapteros_crypto::signature::Signature;
 use adapteros_db::replay_sessions::ReplaySession;
 use anyhow::{anyhow, bail, Context, Result};
@@ -1150,7 +1150,10 @@ pub async fn verify_trace_receipt(
 
         if let Some(replay_metadata) = replay_metadata {
             if is_strict_determinism_mode(replay_metadata.determinism_mode.as_deref()) {
-                let receipt = verification.stored.as_ref().unwrap_or(&verification.recomputed);
+                let receipt = verification
+                    .stored
+                    .as_ref()
+                    .unwrap_or(&verification.recomputed);
 
                 let mut receipt_ref = InferenceReceiptRef::default();
                 receipt_ref.trace_id = req.trace_id.clone();

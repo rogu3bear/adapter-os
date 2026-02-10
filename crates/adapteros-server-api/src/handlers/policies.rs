@@ -34,7 +34,7 @@ pub async fn assign_tenant_policies(
     crate::middleware::require_any_role(&claims, &[Role::Admin])?;
     let tenant_id = crate::id_resolver::resolve_any_id(&state.db, &tenant_id)
         .await
-        .map_err(|e| <(StatusCode, Json<ErrorResponse>)>::from(e))?;
+        .map_err(<(StatusCode, Json<ErrorResponse>)>::from)?;
 
     // Create tenant-policy associations using Db trait method
     for policy_id in &req.policy_ids {
@@ -135,7 +135,7 @@ pub async fn get_policy(
     crate::permissions::require_permission(&claims, crate::permissions::Permission::PolicyView)?;
     let cpid = crate::id_resolver::resolve_any_id(&state.db, &cpid)
         .await
-        .map_err(|e| <(StatusCode, Json<ErrorResponse>)>::from(e))?;
+        .map_err(<(StatusCode, Json<ErrorResponse>)>::from)?;
 
     // Query database for policy pack
     let pack = state
@@ -590,7 +590,7 @@ pub async fn sign_policy(
     crate::permissions::require_permission(&claims, crate::permissions::Permission::PolicySign)?;
     let cpid = crate::id_resolver::resolve_any_id(&state.db, &cpid)
         .await
-        .map_err(|e| <(StatusCode, Json<ErrorResponse>)>::from(e))?;
+        .map_err(<(StatusCode, Json<ErrorResponse>)>::from)?;
 
     // Use the server's configured Ed25519 signing key (PRD-SEC-01: no ad-hoc key generation)
     let signing_key = &state.ed25519_keypair;
@@ -650,7 +650,7 @@ pub async fn verify_policy_signature(
     crate::permissions::require_permission(&claims, crate::permissions::Permission::PolicyView)?;
     let cpid = crate::id_resolver::resolve_any_id(&state.db, &cpid)
         .await
-        .map_err(|e| <(StatusCode, Json<ErrorResponse>)>::from(e))?;
+        .map_err(<(StatusCode, Json<ErrorResponse>)>::from)?;
 
     // Fetch the policy pack to get its signature
     let policy_pack = state
@@ -911,7 +911,7 @@ pub async fn export_policy(
 ) -> Result<Json<ExportPolicyResponse>, (StatusCode, Json<ErrorResponse>)> {
     let cpid = crate::id_resolver::resolve_any_id(&state.db, &cpid)
         .await
-        .map_err(|e| <(StatusCode, Json<ErrorResponse>)>::from(e))?;
+        .map_err(<(StatusCode, Json<ErrorResponse>)>::from)?;
     // Fetch policy pack from database
     let pack = state
         .db

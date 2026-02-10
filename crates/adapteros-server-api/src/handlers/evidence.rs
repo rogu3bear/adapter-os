@@ -346,7 +346,7 @@ pub async fn get_evidence(
     require_permission(&claims, Permission::AdapterView)?;
     let id = crate::id_resolver::resolve_any_id(&state.db, &id)
         .await
-        .map_err(|e| <(StatusCode, Json<ErrorResponse>)>::from(e))?;
+        .map_err(<(StatusCode, Json<ErrorResponse>)>::from)?;
 
     let entry = state
         .db
@@ -405,7 +405,7 @@ pub async fn delete_evidence(
     require_permission(&claims, Permission::AdapterDelete)?;
     let id = crate::id_resolver::resolve_any_id(&state.db, &id)
         .await
-        .map_err(|e| <(StatusCode, Json<ErrorResponse>)>::from(e))?;
+        .map_err(<(StatusCode, Json<ErrorResponse>)>::from)?;
 
     // Verify entry exists first
     let entry = state
@@ -496,7 +496,7 @@ pub async fn get_dataset_evidence(
     require_permission(&claims, Permission::TrainingView)?;
     let dataset_id = crate::id_resolver::resolve_any_id(&state.db, &dataset_id)
         .await
-        .map_err(|e| <(StatusCode, Json<ErrorResponse>)>::from(e))?;
+        .map_err(<(StatusCode, Json<ErrorResponse>)>::from)?;
 
     // CRITICAL: Validate tenant isolation - verify dataset belongs to tenant
     let dataset = state
@@ -549,7 +549,7 @@ pub async fn get_adapter_evidence(
     require_permission(&claims, Permission::AdapterView)?;
     let adapter_id = crate::id_resolver::resolve_any_id(&state.db, &adapter_id)
         .await
-        .map_err(|e| <(StatusCode, Json<ErrorResponse>)>::from(e))?;
+        .map_err(<(StatusCode, Json<ErrorResponse>)>::from)?;
 
     // CRITICAL: Validate tenant isolation - verify adapter belongs to tenant
     // get_adapter_by_id enforces tenant isolation by requiring tenant_id

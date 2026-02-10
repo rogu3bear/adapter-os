@@ -105,7 +105,7 @@ pub async fn get_worker_detail(
 
     let worker_id = crate::id_resolver::resolve_any_id(&state.db, &worker_id)
         .await
-        .map_err(|e| <(StatusCode, Json<ErrorResponse>)>::from(e))?;
+        .map_err(<(StatusCode, Json<ErrorResponse>)>::from)?;
 
     // Fetch worker from database
     let worker = state

@@ -557,7 +557,7 @@ mod tests {
     #[test]
     fn test_client_from_env() {
         std::env::set_var("SUPERVISOR_API_URL", "http://custom:8080");
-        let result = match build_client_or_skip(|| SupervisorClient::from_env()) {
+        let result = match build_client_or_skip(SupervisorClient::from_env) {
             Some(result) => result,
             None => {
                 std::env::remove_var("SUPERVISOR_API_URL");
@@ -582,7 +582,7 @@ mod tests {
         std::env::remove_var("SUPERVISOR_API_URL");
         std::env::remove_var("AOS_PANEL_PORT");
 
-        let result = match build_client_or_skip(|| SupervisorClient::from_env()) {
+        let result = match build_client_or_skip(SupervisorClient::from_env) {
             Some(result) => result,
             None => return,
         };
@@ -603,7 +603,7 @@ mod tests {
         std::env::remove_var("SUPERVISOR_API_URL");
         std::env::set_var("AOS_PANEL_PORT", "9999");
 
-        let result = match build_client_or_skip(|| SupervisorClient::from_env()) {
+        let result = match build_client_or_skip(SupervisorClient::from_env) {
             Some(result) => result,
             None => {
                 std::env::remove_var("AOS_PANEL_PORT");

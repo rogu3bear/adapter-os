@@ -305,6 +305,7 @@ mod tests {
     // Note: In real tests, we'd need to use a different approach since OnceLock
     // can't be reset. These tests demonstrate the logic.
 
+    #[allow(dead_code)]
     fn test_app() -> Router {
         Router::new()
             .route("/test", get(|| async { "ok" }))

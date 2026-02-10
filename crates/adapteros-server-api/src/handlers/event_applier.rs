@@ -518,7 +518,7 @@ pub async fn apply_tenant_event(
     require_any_role(&claims, &[Role::Admin, Role::Operator])?;
     let tenant_id = crate::id_resolver::resolve_any_id(&state.db, &tenant_id)
         .await
-        .map_err(|e| <(StatusCode, Json<ErrorResponse>)>::from(e))?;
+        .map_err(<(StatusCode, Json<ErrorResponse>)>::from)?;
 
     // Validate tenant isolation - users can only apply events to their own tenant
     if claims.tenant_id != tenant_id {

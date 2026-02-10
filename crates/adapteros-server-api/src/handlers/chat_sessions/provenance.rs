@@ -54,7 +54,7 @@ pub async fn get_chat_provenance(
     })?;
     let session_id = crate::id_resolver::resolve_any_id(&state.db, &session_id)
         .await
-        .map_err(|e| <(StatusCode, Json<ErrorResponse>)>::from(e))?;
+        .map_err(<(StatusCode, Json<ErrorResponse>)>::from)?;
 
     // Get session
     let session = state

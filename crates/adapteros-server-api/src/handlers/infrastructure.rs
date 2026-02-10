@@ -141,7 +141,7 @@ pub async fn test_node_connection(
     require_any_role(&claims, &[Role::Operator])?;
     let node_id = crate::id_resolver::resolve_any_id(&state.db, &node_id)
         .await
-        .map_err(|e| <(StatusCode, Json<ErrorResponse>)>::from(e))?;
+        .map_err(<(StatusCode, Json<ErrorResponse>)>::from)?;
 
     // Get node from database
     let node = state
@@ -247,7 +247,7 @@ pub async fn mark_node_offline(
     require_any_role(&claims, &[Role::Operator])?;
     let node_id = crate::id_resolver::resolve_any_id(&state.db, &node_id)
         .await
-        .map_err(|e| <(StatusCode, Json<ErrorResponse>)>::from(e))?;
+        .map_err(<(StatusCode, Json<ErrorResponse>)>::from)?;
 
     // Update node status using Db trait method
     state
@@ -300,7 +300,7 @@ pub async fn evict_node(
     require_any_role(&claims, &[Role::Operator])?;
     let node_id = crate::id_resolver::resolve_any_id(&state.db, &node_id)
         .await
-        .map_err(|e| <(StatusCode, Json<ErrorResponse>)>::from(e))?;
+        .map_err(<(StatusCode, Json<ErrorResponse>)>::from)?;
 
     // Check for running workers on this node
     let workers = state.db.list_all_workers().await.map_err(|e| {
@@ -374,7 +374,7 @@ pub async fn get_node_details(
     require_any_role(&claims, &[Role::Operator])?;
     let node_id = crate::id_resolver::resolve_any_id(&state.db, &node_id)
         .await
-        .map_err(|e| <(StatusCode, Json<ErrorResponse>)>::from(e))?;
+        .map_err(<(StatusCode, Json<ErrorResponse>)>::from)?;
 
     // Get node from database
     let node = state
@@ -798,7 +798,7 @@ pub async fn list_worker_incidents(
 ) -> Result<Json<serde_json::Value>, (StatusCode, Json<ErrorResponse>)> {
     let worker_id = crate::id_resolver::resolve_any_id(&state.db, &worker_id)
         .await
-        .map_err(|e| <(StatusCode, Json<ErrorResponse>)>::from(e))?;
+        .map_err(<(StatusCode, Json<ErrorResponse>)>::from)?;
 
     let _worker = state
         .db

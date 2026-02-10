@@ -91,7 +91,7 @@ pub async fn health(State(state): State<AppState>) -> impl IntoResponse {
 mod build_id_tests {
     #[test]
     fn build_id_is_set_and_canonical() {
-        let build_id = option_env!("AOS_BUILD_ID").expect("AOS_BUILD_ID must be set by build.rs");
+        let build_id = env!("AOS_BUILD_ID");
         assert!(
             !build_id.trim().is_empty(),
             "AOS_BUILD_ID must not be empty"

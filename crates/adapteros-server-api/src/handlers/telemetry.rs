@@ -453,7 +453,7 @@ pub async fn get_trace(
 
     let trace_id = crate::id_resolver::resolve_any_id(&state.db, &trace_id)
         .await
-        .map_err(|e| <(StatusCode, Json<ErrorResponse>)>::from(e))?;
+        .map_err(<(StatusCode, Json<ErrorResponse>)>::from)?;
 
     // Get trace from the trace buffer with tenant isolation
     let trace = state
@@ -504,7 +504,7 @@ pub async fn get_inference_trace_detail(
 
     let trace_id = crate::id_resolver::resolve_any_id(&state.db, &trace_id)
         .await
-        .map_err(|e| <(StatusCode, Json<ErrorResponse>)>::from(e))?;
+        .map_err(<(StatusCode, Json<ErrorResponse>)>::from)?;
 
     let record = get_inference_trace_detail_for_tenant(
         &state.db,
@@ -641,7 +641,7 @@ pub async fn get_ui_inference_trace_detail(
 
     let trace_id = crate::id_resolver::resolve_any_id(&state.db, &trace_id)
         .await
-        .map_err(|e| <(StatusCode, Json<ErrorResponse>)>::from(e))?;
+        .map_err(<(StatusCode, Json<ErrorResponse>)>::from)?;
 
     let record = get_inference_trace_detail_for_tenant(
         &state.db,

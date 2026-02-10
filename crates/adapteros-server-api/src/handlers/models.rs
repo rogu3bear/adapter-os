@@ -797,7 +797,7 @@ pub async fn unload_model(
     })?;
     let model_id = crate::id_resolver::resolve_any_id(&state.db, &model_id)
         .await
-        .map_err(|e| <(StatusCode, Json<ErrorResponse>)>::from(e))?;
+        .map_err(<(StatusCode, Json<ErrorResponse>)>::from)?;
 
     let tenant_id = &claims.tenant_id;
     let now = chrono::Utc::now().to_rfc3339();
@@ -1101,7 +1101,7 @@ pub async fn get_model_status(
     let tenant_id = &claims.tenant_id;
     let model_id = crate::id_resolver::resolve_any_id(&state.db, &model_id)
         .await
-        .map_err(|e| <(StatusCode, Json<ErrorResponse>)>::from(e))?;
+        .map_err(<(StatusCode, Json<ErrorResponse>)>::from)?;
 
     // Check if model exists in database
     let model = state
@@ -1225,7 +1225,7 @@ pub async fn validate_model(
     let tenant_id = &claims.tenant_id;
     let model_id = crate::id_resolver::resolve_any_id(&state.db, &model_id)
         .await
-        .map_err(|e| <(StatusCode, Json<ErrorResponse>)>::from(e))?;
+        .map_err(<(StatusCode, Json<ErrorResponse>)>::from)?;
 
     // Check if model exists in database
     let model = state

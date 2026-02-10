@@ -154,7 +154,7 @@ pub async fn get_default_stack(
 ) -> Result<Json<DefaultStackResponse>, (StatusCode, Json<ErrorResponse>)> {
     let tenant_id = crate::id_resolver::resolve_any_id(&state.db, &tenant_id)
         .await
-        .map_err(|e| <(StatusCode, Json<ErrorResponse>)>::from(e))?;
+        .map_err(<(StatusCode, Json<ErrorResponse>)>::from)?;
     // SECURITY FIX: Validate tenant isolation before accessing tenant data
     // Users can only view default stack for their own tenant (or admin with explicit access)
     validate_tenant_isolation(&claims, &tenant_id)?;
@@ -208,7 +208,7 @@ pub async fn set_default_stack(
 ) -> Result<Json<DefaultStackResponse>, (StatusCode, Json<ErrorResponse>)> {
     let tenant_id = crate::id_resolver::resolve_any_id(&state.db, &tenant_id)
         .await
-        .map_err(|e| <(StatusCode, Json<ErrorResponse>)>::from(e))?;
+        .map_err(<(StatusCode, Json<ErrorResponse>)>::from)?;
     // SECURITY FIX: Validate tenant isolation before modifying tenant data
     // Users can only set default stack for their own tenant (or admin with explicit access)
     validate_tenant_isolation(&claims, &tenant_id)?;
@@ -276,7 +276,7 @@ pub async fn clear_default_stack(
 ) -> Result<StatusCode, (StatusCode, Json<ErrorResponse>)> {
     let tenant_id = crate::id_resolver::resolve_any_id(&state.db, &tenant_id)
         .await
-        .map_err(|e| <(StatusCode, Json<ErrorResponse>)>::from(e))?;
+        .map_err(<(StatusCode, Json<ErrorResponse>)>::from)?;
     // SECURITY FIX: Validate tenant isolation before modifying tenant data
     // Users can only clear default stack for their own tenant (or admin with explicit access)
     validate_tenant_isolation(&claims, &tenant_id)?;
@@ -327,7 +327,7 @@ pub async fn update_tenant(
     require_role(&claims, Role::Admin)?;
     let tenant_id = crate::id_resolver::resolve_any_id(&state.db, &tenant_id)
         .await
-        .map_err(|e| <(StatusCode, Json<ErrorResponse>)>::from(e))?;
+        .map_err(<(StatusCode, Json<ErrorResponse>)>::from)?;
 
     // Update name if provided
     if let Some(name) = req.name {
@@ -427,7 +427,7 @@ pub async fn pause_tenant(
     require_role(&claims, Role::Admin)?;
     let tenant_id = crate::id_resolver::resolve_any_id(&state.db, &tenant_id)
         .await
-        .map_err(|e| <(StatusCode, Json<ErrorResponse>)>::from(e))?;
+        .map_err(<(StatusCode, Json<ErrorResponse>)>::from)?;
 
     state
         .db
@@ -493,7 +493,7 @@ pub async fn archive_tenant(
     require_permission(&claims, Permission::TenantManage)?;
     let tenant_id = crate::id_resolver::resolve_any_id(&state.db, &tenant_id)
         .await
-        .map_err(|e| <(StatusCode, Json<ErrorResponse>)>::from(e))?;
+        .map_err(<(StatusCode, Json<ErrorResponse>)>::from)?;
 
     state
         .db
@@ -562,7 +562,7 @@ pub async fn get_tenant_usage(
 ) -> Result<Json<TenantUsageResponse>, (StatusCode, Json<ErrorResponse>)> {
     let tenant_id = crate::id_resolver::resolve_any_id(&state.db, &tenant_id)
         .await
-        .map_err(|e| <(StatusCode, Json<ErrorResponse>)>::from(e))?;
+        .map_err(<(StatusCode, Json<ErrorResponse>)>::from)?;
     // SECURITY FIX: Validate tenant isolation before accessing usage data
     // Users can only view usage for their own tenant (or admin with explicit access)
     validate_tenant_isolation(&claims, &tenant_id)?;
@@ -628,7 +628,7 @@ pub async fn get_tenant_metrics(
 
     let tenant_id = crate::id_resolver::resolve_any_id(&state.db, &tenant_id)
         .await
-        .map_err(|e| <(StatusCode, Json<ErrorResponse>)>::from(e))?;
+        .map_err(<(StatusCode, Json<ErrorResponse>)>::from)?;
     // Validate tenant isolation
     validate_tenant_isolation(&claims, &tenant_id)?;
 
@@ -703,7 +703,7 @@ pub async fn assign_policies_to_tenant(
     require_role(&claims, Role::Admin)?;
     let tenant_id = crate::id_resolver::resolve_any_id(&state.db, &tenant_id)
         .await
-        .map_err(|e| <(StatusCode, Json<ErrorResponse>)>::from(e))?;
+        .map_err(<(StatusCode, Json<ErrorResponse>)>::from)?;
 
     let assigned_by = claims.sub.clone();
 
@@ -757,7 +757,7 @@ pub async fn assign_adapters_to_tenant(
     require_role(&claims, Role::Admin)?;
     let tenant_id = crate::id_resolver::resolve_any_id(&state.db, &tenant_id)
         .await
-        .map_err(|e| <(StatusCode, Json<ErrorResponse>)>::from(e))?;
+        .map_err(<(StatusCode, Json<ErrorResponse>)>::from)?;
 
     let assigned_by = claims.sub.clone();
 
@@ -824,7 +824,7 @@ pub async fn revoke_tenant_tokens(
     })?;
     let tenant_id = crate::id_resolver::resolve_any_id(&state.db, &tenant_id)
         .await
-        .map_err(|e| <(StatusCode, Json<ErrorResponse>)>::from(e))?;
+        .map_err(<(StatusCode, Json<ErrorResponse>)>::from)?;
 
     // Validate tenant access (admin can only revoke for tenants they manage)
     validate_tenant_isolation(&claims, &tenant_id)?;

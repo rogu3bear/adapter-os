@@ -142,25 +142,27 @@ pub async fn get_preprocessed_cache_count(
     }
 
     let tenant_root = datasets_root.join(&claims.tenant_id);
-    let canonical_root =
-        match canonicalize_strict_in_allowed_roots(&tenant_root, &[datasets_root.clone()]) {
-            Ok(path) => path,
-            Err(AosError::NotFound(_)) => {
-                return Ok(Json(
-                    adapteros_api_types::training::PreprocessedCacheCountResponse {
-                        schema_version: adapteros_api_types::schema_version(),
-                        count: 0,
-                        dataset_count: 0,
-                    },
-                ))
-            }
-            Err(err) => {
-                return Err(ApiError::forbidden(format!(
-                    "Dataset root rejected: {}",
-                    err
-                )))
-            }
-        };
+    let canonical_root = match canonicalize_strict_in_allowed_roots(
+        &tenant_root,
+        std::slice::from_ref(&datasets_root),
+    ) {
+        Ok(path) => path,
+        Err(AosError::NotFound(_)) => {
+            return Ok(Json(
+                adapteros_api_types::training::PreprocessedCacheCountResponse {
+                    schema_version: adapteros_api_types::schema_version(),
+                    count: 0,
+                    dataset_count: 0,
+                },
+            ))
+        }
+        Err(err) => {
+            return Err(ApiError::forbidden(format!(
+                "Dataset root rejected: {}",
+                err
+            )))
+        }
+    };
 
     let mut total = 0u64;
     let mut datasets_with_cache = 0u64;
@@ -287,25 +289,27 @@ pub async fn list_preprocessed_cache(
     }
 
     let tenant_root = datasets_root.join(&claims.tenant_id);
-    let canonical_root =
-        match canonicalize_strict_in_allowed_roots(&tenant_root, &[datasets_root.clone()]) {
-            Ok(path) => path,
-            Err(AosError::NotFound(_)) => {
-                return Ok(Json(
-                    adapteros_api_types::training::PreprocessedCacheListResponse {
-                        schema_version: adapteros_api_types::schema_version(),
-                        entries: Vec::new(),
-                        total: 0,
-                    },
-                ))
-            }
-            Err(err) => {
-                return Err(ApiError::forbidden(format!(
-                    "Dataset root rejected: {}",
-                    err
-                )))
-            }
-        };
+    let canonical_root = match canonicalize_strict_in_allowed_roots(
+        &tenant_root,
+        std::slice::from_ref(&datasets_root),
+    ) {
+        Ok(path) => path,
+        Err(AosError::NotFound(_)) => {
+            return Ok(Json(
+                adapteros_api_types::training::PreprocessedCacheListResponse {
+                    schema_version: adapteros_api_types::schema_version(),
+                    entries: Vec::new(),
+                    total: 0,
+                },
+            ))
+        }
+        Err(err) => {
+            return Err(ApiError::forbidden(format!(
+                "Dataset root rejected: {}",
+                err
+            )))
+        }
+    };
 
     let dataset_records = state
         .db
@@ -1447,7 +1451,7 @@ pub async fn get_training_job(
     require_permission(&claims, Permission::TrainingView)?;
     let job_id = crate::id_resolver::resolve_any_id(&state.db, &job_id)
         .await
-        .map_err(|e| <(StatusCode, Json<ErrorResponse>)>::from(e))?;
+        .map_err(<(StatusCode, Json<ErrorResponse>)>::from)?;
 
     let job = match state.training_service.get_job(&job_id).await {
         Ok(job) => job,
@@ -1552,7 +1556,7 @@ pub async fn export_coreml_training_job(
     require_permission(&claims, Permission::TrainingStart)?;
     let job_id = crate::id_resolver::resolve_any_id(&state.db, &job_id)
         .await
-        .map_err(|e| <(StatusCode, Json<ErrorResponse>)>::from(e))?;
+        .map_err(<(StatusCode, Json<ErrorResponse>)>::from)?;
 
     // Execute export via orchestrator (per-tenant enforcement)
     let job = state
@@ -3317,10 +3321,10 @@ pub async fn promote_version(
     require_permission(&claims, Permission::TrainingStart)?;
     let repo_id = crate::id_resolver::resolve_any_id(&state.db, &repo_id)
         .await
-        .map_err(|e| <(StatusCode, Json<ErrorResponse>)>::from(e))?;
+        .map_err(<(StatusCode, Json<ErrorResponse>)>::from)?;
     let version_id = crate::id_resolver::resolve_any_id(&state.db, &version_id)
         .await
-        .map_err(|e| <(StatusCode, Json<ErrorResponse>)>::from(e))?;
+        .map_err(<(StatusCode, Json<ErrorResponse>)>::from)?;
 
     let version = state
         .db
@@ -3444,10 +3448,10 @@ pub async fn publish_version(
     require_permission(&claims, Permission::TrainingStart)?;
     let repo_id = crate::id_resolver::resolve_any_id(&state.db, &repo_id)
         .await
-        .map_err(|e| <(StatusCode, Json<ErrorResponse>)>::from(e))?;
+        .map_err(<(StatusCode, Json<ErrorResponse>)>::from)?;
     let version_id = crate::id_resolver::resolve_any_id(&state.db, &version_id)
         .await
-        .map_err(|e| <(StatusCode, Json<ErrorResponse>)>::from(e))?;
+        .map_err(<(StatusCode, Json<ErrorResponse>)>::from)?;
 
     // Verify version exists and belongs to tenant/repo
     let version = state
@@ -3577,7 +3581,7 @@ pub async fn cancel_training(
     require_permission(&claims, Permission::TrainingCancel)?;
     let job_id = crate::id_resolver::resolve_any_id(&state.db, &job_id)
         .await
-        .map_err(|e| <(StatusCode, Json<ErrorResponse>)>::from(e))?;
+        .map_err(<(StatusCode, Json<ErrorResponse>)>::from)?;
 
     // CRITICAL: Fetch job first to validate tenant isolation before cancellation
     let job = state.training_service.get_job(&job_id).await.map_err(|e| {
@@ -3723,7 +3727,7 @@ pub async fn retry_training(
     require_permission(&claims, Permission::TrainingStart)?;
     let job_id = crate::id_resolver::resolve_any_id(&state.db, &job_id)
         .await
-        .map_err(|e| <(StatusCode, Json<ErrorResponse>)>::from(e))?;
+        .map_err(<(StatusCode, Json<ErrorResponse>)>::from)?;
 
     // Get the original job
     let original_job = state.training_service.get_job(&job_id).await.map_err(|e| {
@@ -3925,7 +3929,7 @@ pub async fn get_chat_bootstrap(
     require_permission(&claims, Permission::TrainingView)?;
     let job_id = crate::id_resolver::resolve_any_id(&state.db, &job_id)
         .await
-        .map_err(|e| <(StatusCode, Json<ErrorResponse>)>::from(e))?;
+        .map_err(<(StatusCode, Json<ErrorResponse>)>::from)?;
 
     // Try in-memory first (for running jobs), fall back to DB (for completed jobs after restart)
     let (
@@ -4479,7 +4483,7 @@ pub async fn update_training_priority(
     })?;
     let job_id = crate::id_resolver::resolve_any_id(&state.db, &job_id)
         .await
-        .map_err(|e| <(StatusCode, Json<ErrorResponse>)>::from(e))?;
+        .map_err(<(StatusCode, Json<ErrorResponse>)>::from)?;
 
     // Validate priority range
     if req.priority < 0 || req.priority > 100 {
@@ -4564,7 +4568,7 @@ pub async fn get_training_logs(
 ) -> Result<Json<Vec<String>>, (StatusCode, Json<ErrorResponse>)> {
     let job_id = crate::id_resolver::resolve_any_id(&state.db, &job_id)
         .await
-        .map_err(|e| <(StatusCode, Json<ErrorResponse>)>::from(e))?;
+        .map_err(<(StatusCode, Json<ErrorResponse>)>::from)?;
 
     let job = state.db.get_training_job(&job_id).await.map_err(|e| {
         (
@@ -4653,7 +4657,7 @@ pub async fn get_training_metrics(
 {
     let job_id = crate::id_resolver::resolve_any_id(&state.db, &job_id)
         .await
-        .map_err(|e| <(StatusCode, Json<ErrorResponse>)>::from(e))?;
+        .map_err(<(StatusCode, Json<ErrorResponse>)>::from)?;
 
     // First verify the job exists and belongs to the caller's tenant
     let job = state
@@ -4775,7 +4779,7 @@ pub async fn get_training_report(
 ) -> Result<Json<adapteros_api_types::TrainingReportResponse>, (StatusCode, Json<ErrorResponse>)> {
     let job_id = crate::id_resolver::resolve_any_id(&state.db, &job_id)
         .await
-        .map_err(|e| <(StatusCode, Json<ErrorResponse>)>::from(e))?;
+        .map_err(<(StatusCode, Json<ErrorResponse>)>::from)?;
 
     let job = state
         .db
@@ -4997,7 +5001,7 @@ pub async fn stream_training_progress(
     require_permission(&claims, Permission::TrainingView)?;
     let job_id = crate::id_resolver::resolve_any_id(&state.db, &job_id)
         .await
-        .map_err(|e| <(StatusCode, Json<ErrorResponse>)>::from(e))?;
+        .map_err(<(StatusCode, Json<ErrorResponse>)>::from)?;
 
     // Validate job exists and user has access
     let job = state

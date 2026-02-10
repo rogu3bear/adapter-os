@@ -156,7 +156,7 @@ pub async fn setup_state(_uds_path: Option<&PathBuf>) -> anyhow::Result<AppState
     // 4. Create isolated filesystem roots for tests in OS temp directory
     // Leak the TempDir to prevent cleanup during test - OS will clean on reboot
     let base_tempdir = tempfile::TempDir::with_prefix("aos-test-server-api-")?;
-    let base_dir = base_tempdir.into_path();
+    let base_dir = base_tempdir.keep();
     let artifacts_root = base_dir.join("artifacts");
     let bundles_root = base_dir.join("bundles");
     let adapters_root = base_dir.join("adapters");

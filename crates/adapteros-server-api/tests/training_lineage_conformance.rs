@@ -9,7 +9,6 @@ use adapteros_server_api::handlers::training::start_training;
 use adapteros_server_api::types::ErrorResponse;
 use adapteros_types::training::TRAINING_DATA_CONTRACT_VERSION;
 use axum::{extract::State, http::StatusCode, Extension, Json};
-use std::path::PathBuf;
 use tempfile::TempDir;
 use tokio::time::Duration;
 

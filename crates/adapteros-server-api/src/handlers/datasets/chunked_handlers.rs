@@ -1390,7 +1390,7 @@ pub async fn get_upload_session_status(
     require_permission(&claims, Permission::DatasetView)?;
     let session_id = crate::id_resolver::resolve_any_id(&state.db, &session_id)
         .await
-        .map_err(|e| <(StatusCode, Json<ErrorResponse>)>::from(e))?;
+        .map_err(<(StatusCode, Json<ErrorResponse>)>::from)?;
 
     let _session_record = ensure_session_loaded(&state, &claims, &session_id).await?;
     let session = state
@@ -1538,7 +1538,7 @@ pub async fn retry_chunk(
     require_permission(&claims, Permission::DatasetUpload)?;
     let session_id = crate::id_resolver::resolve_any_id(&state.db, &session_id)
         .await
-        .map_err(|e| <(StatusCode, Json<ErrorResponse>)>::from(e))?;
+        .map_err(<(StatusCode, Json<ErrorResponse>)>::from)?;
 
     let session_record = ensure_session_loaded(&state, &claims, &session_id).await?;
     if session_record.status == "complete" {

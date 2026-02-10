@@ -9,7 +9,6 @@ use adapteros_server_api_models::handlers::{
     AneMemoryStatus, ModelDownloadProgress, ModelStatusResponse, ModelValidationResponse,
     SeedModelRequest, SeedModelResponse, ValidationIssue,
 };
-use serde_json;
 
 /// Test SeedModelRequest serialization and deserialization
 #[test]
@@ -116,7 +115,7 @@ fn test_model_status_response_serde() {
         serde_json::from_str(&json).expect("Failed to deserialize ModelStatusResponse");
     assert_eq!(deserialized.model_id, response.model_id);
     assert_eq!(deserialized.model_name, response.model_name);
-    assert_eq!(deserialized.is_loaded, true);
+    assert!(deserialized.is_loaded);
     assert_eq!(deserialized.memory_usage_mb, Some(4096));
 }
 
@@ -361,7 +360,7 @@ fn test_model_load_status_variants() {
             model_id: format!("{}-model", status.as_str()),
             model_name: "Test".to_string(),
             model_path: None,
-            status: status.clone(),
+            status,
             loaded_at: None,
             error_message: None,
             memory_usage_mb: None,

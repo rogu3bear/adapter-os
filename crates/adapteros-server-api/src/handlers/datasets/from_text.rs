@@ -324,14 +324,14 @@ pub async fn create_dataset_from_chat(
     }
     if request.messages.len() > MAX_MESSAGES {
         return Err(
-            ApiError::bad_request(&format!("Too many messages (max {})", MAX_MESSAGES)).into(),
+            ApiError::bad_request(format!("Too many messages (max {})", MAX_MESSAGES)).into(),
         );
     }
 
     // Check individual message sizes
     for (i, msg) in request.messages.iter().enumerate() {
         if msg.content.len() > MAX_MESSAGE_CONTENT_SIZE {
-            return Err(ApiError::bad_request(&format!(
+            return Err(ApiError::bad_request(format!(
                 "Message {} content too large (max {} chars)",
                 i, MAX_MESSAGE_CONTENT_SIZE
             ))
@@ -781,12 +781,13 @@ fn count_turns(messages: &[&ChatMessageInput]) -> usize {
 
     while i < messages.len() {
         let role = messages[i].role.to_lowercase();
-        if role == "user" {
-            if i + 1 < messages.len() && messages[i + 1].role.to_lowercase() == "assistant" {
-                turns += 1;
-                i += 2;
-                continue;
-            }
+        if role == "user"
+            && i + 1 < messages.len()
+            && messages[i + 1].role.to_lowercase() == "assistant"
+        {
+            turns += 1;
+            i += 2;
+            continue;
         }
         i += 1;
     }

@@ -92,11 +92,7 @@ fn parse_refresh_interval(config: &serde_json::Value, fallback: u64) -> u64 {
 }
 
 fn widget_type_label(value: &str) -> String {
-    let normalized = value
-        .trim()
-        .to_lowercase()
-        .replace(' ', "_")
-        .replace('-', "_");
+    let normalized = value.trim().to_lowercase().replace([' ', '-'], "_");
 
     match normalized.as_str() {
         "timeseries" => "time_series".to_string(),
@@ -126,7 +122,7 @@ fn widget_id_from_value(widget: &serde_json::Value) -> String {
         .unwrap_or_else(|| "unknown".to_string())
 }
 
-fn widget_config_from_value<'a>(widget: &'a serde_json::Value) -> &'a serde_json::Value {
+fn widget_config_from_value(widget: &serde_json::Value) -> &serde_json::Value {
     widget.get("config").unwrap_or(widget)
 }
 

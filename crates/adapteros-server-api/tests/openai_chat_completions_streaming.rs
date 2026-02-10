@@ -106,7 +106,7 @@ async fn test_n_greater_than_one_rejected() {
 /// Test messages_to_prompt conversion
 #[tokio::test]
 async fn test_messages_format() {
-    let messages = vec![
+    let messages = [
         OpenAiChatMessage {
             role: "system".to_string(),
             content: json!("You are a helpful assistant."),
