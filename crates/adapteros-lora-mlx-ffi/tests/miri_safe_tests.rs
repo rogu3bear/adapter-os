@@ -100,7 +100,7 @@ mod token_alternative {
 
     #[test]
     fn test_alternatives_vec() {
-        let alternatives = vec![
+        let alternatives = [
             MlxTokenAlternative {
                 token_id: 100,
                 prob: 0.4,
@@ -350,7 +350,12 @@ mod model_config {
         };
 
         assert_eq!(config.hidden_size, 4096);
+        assert_eq!(config.num_attention_heads, 32);
+        assert_eq!(config.num_key_value_heads, 8);
+        assert_eq!(config.intermediate_size, 11008);
         assert_eq!(config.num_hidden_layers, 32);
+        assert_eq!(config.vocab_size, 32000);
+        assert_eq!(config.max_position_embeddings, 32768);
         assert_eq!(config.rope_theta, 10000.0);
     }
 
@@ -367,7 +372,13 @@ mod model_config {
             rope_theta: 1000000.0,
         };
 
+        assert_eq!(config.hidden_size, 3584);
+        assert_eq!(config.num_hidden_layers, 28);
+        assert_eq!(config.num_attention_heads, 28);
+        assert_eq!(config.num_key_value_heads, 4);
+        assert_eq!(config.intermediate_size, 18944);
         assert_eq!(config.vocab_size, 152064);
+        assert_eq!(config.max_position_embeddings, 131072);
         assert_eq!(config.rope_theta, 1000000.0);
     }
 }
@@ -420,6 +431,7 @@ mod circuit_breaker {
     #[test]
     fn test_circuit_breaker_initial() {
         let health = ModelHealth::new();
+        assert!(!health.operational);
         assert_eq!(health.circuit_breaker, CircuitBreakerState::Closed);
         assert_eq!(health.consecutive_failures, 0);
     }
@@ -607,7 +619,11 @@ mod generation_config {
         assert_eq!(config.max_tokens, 100);
         assert_eq!(config.temperature, 0.7);
         assert_eq!(config.top_k, Some(50));
+        assert_eq!(config.top_p, Some(0.9));
+        assert_eq!(config.repetition_penalty, 1.1);
+        assert_eq!(config.eos_token, 2);
         assert!(config.use_cache);
+        assert_eq!(config.kv_num_layers, Some(32));
     }
 
     #[test]
@@ -623,9 +639,13 @@ mod generation_config {
             kv_num_layers: None,
         };
 
+        assert_eq!(config.max_tokens, 50);
         assert_eq!(config.temperature, 0.0);
         assert!(config.top_k.is_none());
         assert!(config.top_p.is_none());
+        assert_eq!(config.repetition_penalty, 1.0);
+        assert_eq!(config.eos_token, 128001);
+        assert!(config.kv_num_layers.is_none());
     }
 }
 

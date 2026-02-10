@@ -221,29 +221,29 @@ mod ffi_impl {
     use super::*;
     use crate::{
         mlx_add, mlx_array_copy, mlx_array_data, mlx_array_dtype, mlx_array_free,
-        mlx_array_from_data, mlx_array_from_ints, mlx_array_ndim, mlx_array_reshape,
-        mlx_array_shape, mlx_array_size, mlx_array_t, mlx_array_transpose, mlx_clear_error,
-        mlx_get_last_error, mlx_matmul, mlx_multiply,
+        mlx_array_from_data, mlx_array_from_ints, mlx_array_reshape, mlx_array_shape,
+        mlx_array_size, mlx_array_t, mlx_array_transpose, mlx_clear_error, mlx_get_last_error,
+        mlx_matmul, mlx_multiply,
     };
 
-    #[cfg(test)]
-    fn test_lock_guard() -> Option<std::sync::MutexGuard<'static, ()>> {
-        Some(crate::mlx_test_lock())
+    fn test_lock_guard() -> Option<parking_lot::ReentrantMutexGuard<'static, ()>> {
+        // Integration tests build the crate as a normal dependency (so `cfg(test)` is false).
+        // Use a reentrant lock so tests can also take the public guard without deadlocking.
+        if cfg!(debug_assertions) {
+            Some(crate::mlx_test_lock())
+        } else {
+            None
+        }
     }
 
-    #[cfg(not(test))]
-    fn test_lock_guard() -> Option<std::sync::MutexGuard<'static, ()>> {
-        None
-    }
-
-    #[cfg(test)]
     fn test_force_eval(array: *mut mlx_array_t) {
-        let _ = unsafe { crate::mlx_force_eval(array) };
-        crate::mlx_sync();
+        // Keep unit tests deterministic, but avoid making integration tests painfully slow by
+        // syncing on every operation (integration tests compile this crate with `cfg(test)=false`).
+        if cfg!(test) {
+            let _ = unsafe { crate::mlx_force_eval(array) };
+            crate::mlx_sync();
+        }
     }
-
-    #[cfg(not(test))]
-    fn test_force_eval(_array: *mut mlx_array_t) {}
 
     /// MLX FFI tensor wrapper
     #[derive(Debug)]
@@ -652,7 +652,7 @@ mod ffi_impl {
                 let _guard = test_lock_guard();
                 unsafe {
                     mlx_clear_error();
-                    let ndim = mlx_array_ndim(self.inner);
+                    let ndim = crate::mlx_array_ndim(self.inner);
                     if ndim < 0 {
                         let error_msg = mlx_get_last_error();
                         let error_str = if error_msg.is_null() {

@@ -8,7 +8,7 @@
 mod tensor_operation_tests {
     use adapteros_lora_mlx_ffi::tensor::{MLXFFITensor, TensorDtype};
 
-    fn mlx_test_guard() -> std::sync::MutexGuard<'static, ()> {
+    fn mlx_test_guard() -> parking_lot::ReentrantMutexGuard<'static, ()> {
         adapteros_lora_mlx_ffi::mlx_test_lock_guard()
     }
 

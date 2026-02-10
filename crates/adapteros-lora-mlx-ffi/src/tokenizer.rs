@@ -351,8 +351,23 @@ mod tests {
 
     #[test]
     fn test_chat_template_formatting() {
+        use adapteros_core::tokenizer_config::TokenMapSource;
+
         let tokenizer = Tokenizer::new(tokenizers::models::bpe::BPE::default());
-        let mlx_tokenizer = MLXTokenizer::new_with_eos(tokenizer, 151645);
+        // Provide ChatML markers so apply_chat_template() selects the ChatML format.
+        // new_with_eos() intentionally leaves these unset and would fall back to the raw prompt.
+        let mlx_tokenizer = MLXTokenizer::new(
+            tokenizer,
+            SpecialTokenMap {
+                eos_token_id: 151645,
+                bos_token_id: None,
+                pad_token_id: None,
+                unk_token_id: None,
+                im_start_id: Some(151644),
+                im_end_id: Some(151645),
+                source: TokenMapSource::Unknown,
+            },
+        );
 
         let formatted = mlx_tokenizer.apply_chat_template("What is 2+2?");
         assert!(formatted.contains("<|im_start|>system"));

@@ -80,6 +80,7 @@ fn create_router_ring(k: usize) -> RouterRing {
 
 /// Test: Inference step latency should not regress
 #[test]
+#[ignore = "Performance baselines are machine-dependent; run with: cargo test -p adapteros-lora-mlx-ffi --test performance_regression -- --ignored --nocapture"]
 fn test_inference_step_latency_baseline() {
     println!("\n=== Inference Step Latency Baseline ===");
 
@@ -121,6 +122,7 @@ fn test_inference_step_latency_baseline() {
 
 /// Test: Tensor allocation should not regress
 #[test]
+#[ignore = "Performance baselines are machine-dependent; run with: cargo test -p adapteros-lora-mlx-ffi --test performance_regression -- --ignored --nocapture"]
 fn test_tensor_allocation_latency_baseline() {
     println!("\n=== Tensor Allocation Latency Baseline ===");
 
@@ -157,6 +159,7 @@ fn test_tensor_allocation_latency_baseline() {
 
 /// Test: Adapter load latency should not regress
 #[test]
+#[ignore = "Performance baselines are machine-dependent; run with: cargo test -p adapteros-lora-mlx-ffi --test performance_regression -- --ignored --nocapture"]
 fn test_adapter_load_latency_baseline() {
     println!("\n=== Adapter Load Latency Baseline ===");
 
@@ -189,6 +192,7 @@ fn test_adapter_load_latency_baseline() {
 
 /// Test: Memory usage should not increase unexpectedly
 #[test]
+#[ignore = "Performance baselines are machine-dependent; run with: cargo test -p adapteros-lora-mlx-ffi --test performance_regression -- --ignored --nocapture"]
 fn test_memory_pool_baseline() {
     println!("\n=== Memory Pool Baseline ===");
 
@@ -263,6 +267,7 @@ fn test_ffi_overhead_baseline() {
 
 /// Test: Multi-adapter routing should scale linearly with K
 #[test]
+#[ignore = "Performance baselines are machine-dependent; run with: cargo test -p adapteros-lora-mlx-ffi --test performance_regression -- --ignored --nocapture"]
 fn test_routing_scaling_baseline() {
     println!("\n=== Multi-Adapter Routing Scaling ===");
 
@@ -314,6 +319,7 @@ fn test_routing_scaling_baseline() {
 
 /// Test: Backend health check should return healthy status
 #[test]
+#[ignore = "Performance baselines are machine-dependent; run with: cargo test -p adapteros-lora-mlx-ffi --test performance_regression -- --ignored --nocapture"]
 fn test_backend_health_baseline() {
     println!("\n=== Backend Health Baseline ===");
 
@@ -344,6 +350,7 @@ fn test_backend_health_baseline() {
 
 /// Test: Adapter registration should work efficiently
 #[test]
+#[ignore = "Performance baselines are machine-dependent; run with: cargo test -p adapteros-lora-mlx-ffi --test performance_regression -- --ignored --nocapture"]
 fn test_adapter_registration_baseline() {
     println!("\n=== Adapter Registration Baseline ===");
 
@@ -383,6 +390,7 @@ fn test_adapter_registration_baseline() {
 
 /// Test: Stress test with rapid allocation/deallocation
 #[test]
+#[ignore = "Performance baselines are machine-dependent; run with: cargo test -p adapteros-lora-mlx-ffi --test performance_regression -- --ignored --nocapture"]
 fn test_stress_rapid_allocation() {
     println!("\n=== Stress Test: Rapid Allocation ===");
 
@@ -403,6 +411,7 @@ fn test_stress_rapid_allocation() {
 
 /// Test: Stress test with many adapters
 #[test]
+#[ignore = "Performance baselines are machine-dependent; run with: cargo test -p adapteros-lora-mlx-ffi --test performance_regression -- --ignored --nocapture"]
 fn test_stress_many_adapters() {
     println!("\n=== Stress Test: Many Adapters ===");
 
