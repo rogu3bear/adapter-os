@@ -487,6 +487,6 @@ mod tests {
         let preview = detector.context_preview();
         assert!(preview.starts_with("..."));
         // Verify it's valid UTF-8 (would panic on invalid)
-        assert!(preview.len() > 0);
+        assert!(!preview.is_empty());
     }
 }

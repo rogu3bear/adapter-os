@@ -242,6 +242,7 @@ pub fn register_with_cp_with_retry(
 }
 
 /// Notify control plane of worker status change
+#[allow(clippy::too_many_arguments)]
 pub fn notify_cp_status(
     cp_url: &str,
     worker_id: &str,
@@ -271,6 +272,7 @@ pub fn notify_cp_status(
 ///
 /// Use this for critical transitions (e.g. `healthy`) where a missed notification
 /// causes the worker to be silently excluded from routing.
+#[allow(clippy::too_many_arguments)]
 pub fn notify_cp_status_with_retry(
     cp_url: &str,
     worker_id: &str,
@@ -297,6 +299,7 @@ pub fn notify_cp_status_with_retry(
     );
 }
 
+#[allow(clippy::too_many_arguments)]
 fn notify_cp_status_inner(
     cp_url: &str,
     worker_id: &str,

@@ -1,6 +1,6 @@
 //! Code-specific feature extraction for router scoring
 
-use std::collections::{HashMap, HashSet};
+use std::collections::{BTreeMap, HashSet};
 use std::path::PathBuf;
 
 /// Extracts features from code changes for router scoring
@@ -41,8 +41,8 @@ impl CodeFeatureExtractor {
 
     /// Extract framework adapter boost scores
     /// Returns map of framework name -> boost multiplier
-    pub fn extract_framework_priors(frameworks: &HashSet<String>) -> HashMap<String, f32> {
-        let mut priors = HashMap::new();
+    pub fn extract_framework_priors(frameworks: &HashSet<String>) -> BTreeMap<String, f32> {
+        let mut priors = BTreeMap::new();
 
         // Define boost scores for different frameworks
         let boost_mapping = [
@@ -90,9 +90,9 @@ impl CodeFeatureExtractor {
     }
 
     /// Extract path tokens for pattern matching
-    /// Returns unique directory and file name tokens
+    /// Returns unique directory and file name tokens in sorted order for determinism.
     pub fn extract_path_tokens(files: &[PathBuf]) -> Vec<String> {
-        let mut tokens = HashSet::new();
+        let mut tokens = std::collections::BTreeSet::new();
 
         for file in files {
             // Add each path component as a token
@@ -164,7 +164,8 @@ impl CodeFeatureExtractor {
 #[derive(Debug, Clone)]
 pub struct CodeFeatures {
     pub language_dist: Vec<f32>,
-    pub framework_priors: HashMap<String, f32>,
+    /// Uses BTreeMap for deterministic iteration order (critical for reproducible routing).
+    pub framework_priors: BTreeMap<String, f32>,
     pub symbol_hit_score: f32,
     pub path_tokens: Vec<String>,
     pub depth_score: f32,

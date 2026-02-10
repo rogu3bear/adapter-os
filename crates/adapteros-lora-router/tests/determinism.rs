@@ -45,7 +45,7 @@ fn test_deterministic_top_k_ordering() {
 
     // Create priors with ties
     let priors = vec![0.5, 0.5, 0.5, 0.3, 0.2]; // First three tied
-    let stable_ids = vec![300_u64, 100, 200, 400, 500];
+    let stable_ids = [300_u64, 100, 200, 400, 500];
     let adapter_info: Vec<AdapterInfo> = (0..priors.len())
         .map(|i| AdapterInfo {
             id: format!("test_adapter_{}", i),
@@ -542,7 +542,7 @@ fn test_score_sorting_descending_with_stable_id_tiebreak() {
     // Create priors with known order: [0.9, 0.5, 0.5, 0.5, 0.1]
     // Expected top-3: indices [0, 2, 1] (0.9, then ties at 0.5 broken by stable_id)
     let priors = vec![0.9, 0.5, 0.5, 0.5, 0.1];
-    let stable_ids = vec![10_u64, 200, 100, 300, 400];
+    let stable_ids = [10_u64, 200, 100, 300, 400];
     let adapter_info: Vec<AdapterInfo> = (0..priors.len())
         .map(|i| AdapterInfo {
             id: format!("test_adapter_{}", i),

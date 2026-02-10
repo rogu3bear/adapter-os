@@ -619,32 +619,34 @@ impl AdapterTable {
                     new_active.insert(id.clone(), adapter);
                     added_count += 1;
                 } else {
-                    // FIX 3 defensive path (should not hit due to earlier validation)
-                    let rollback_state = self.rollback_state.read();
-                    if let Some(rollback_stack) = rollback_state.as_ref() {
-                        let _old = self
-                            .current_stack
-                            .swap(rollback_stack.generation as usize, Ordering::AcqRel);
-                        tracing::error!(
-                            adapter_id = %id,
-                            "UNEXPECTED: Adapter not in staged after validation - rolling back"
-                        );
-                        self.staged.write().clear();
-                        let err = AosError::Worker(format!(
-                            "Critical hot-swap error: adapter '{}' was removed from staging between validation and swap (concurrent modification detected). This indicates a race condition. Rolling back to previous state.",
-                            id
-                        ));
-                        self.emit_swap_event(add_ids, remove_ids, false, Some(err.to_string()));
-                        return Err(err);
-                    } else {
-                        self.staged.write().clear();
-                        let err = AosError::Worker(format!(
-                            "Fatal hot-swap error: adapter '{}' is missing from staging and no rollback state exists. System state may be inconsistent. Manual intervention required.",
-                            id
-                        ));
-                        self.emit_swap_event(add_ids, remove_ids, false, Some(err.to_string()));
-                        return Err(err);
+                    // Defensive path: adapter vanished from staging between
+                    // validation and the clone. This indicates a concurrent
+                    // modification race. Because the active map has not been
+                    // committed yet (it is still the local `new_active`), we
+                    // only need to abort -- no generation or active revert is
+                    // necessary. We remove only the add_ids from staged (not
+                    // all staged adapters) to avoid disrupting unrelated
+                    // preloads.
+                    tracing::error!(
+                        adapter_id = %id,
+                        "UNEXPECTED: Adapter not in staged after validation (concurrent modification)"
+                    );
+                    {
+                        let active_ids: HashSet<String> =
+                            self.active.read().keys().cloned().collect();
+                        let mut staged_guard = self.staged.write();
+                        for add_id in add_ids {
+                            if !active_ids.contains(add_id) {
+                                staged_guard.remove(add_id);
+                            }
+                        }
                     }
+                    let err = AosError::Worker(format!(
+                        "Critical hot-swap error: adapter '{}' was removed from staging between validation and swap (concurrent modification detected). Swap aborted; active set unchanged.",
+                        id
+                    ));
+                    self.emit_swap_event(add_ids, remove_ids, false, Some(err.to_string()));
+                    return Err(err);
                 }
             }
         } // Drop staged_read lock before await
@@ -734,7 +736,24 @@ impl AdapterTable {
         Ok((vram_delta, added_count))
     }
 
-    /// Rollback to last verified state
+    /// Rollback to the last verified adapter state.
+    ///
+    /// # Safety guarantees
+    ///
+    /// This method atomically restores three layers to a consistent pre-swap state:
+    ///
+    /// 1. **Active adapter map** -- reverted to the exact set of adapters that were
+    ///    active before the failed swap.
+    /// 2. **Generation counter** -- restored to the pre-swap value so KV cache
+    ///    coherence checks and in-flight request pinning remain valid.
+    /// 3. **AdapterStore index** -- re-installed with entries matching the restored
+    ///    active map so that `store.pin_current()` returns the correct snapshot.
+    ///    Without this, request pinning would reference the post-swap (failed) index
+    ///    while the active map points to pre-swap adapters.
+    ///
+    /// The failed stack is retired (moved to the retired queue) so its adapters can
+    /// be cleaned up once all in-flight references drain to zero. The rollback state
+    /// is consumed (set to `None`) to prevent double-rollback.
     pub async fn rollback(&self) -> Result<()> {
         let rollback_stack = self
             .rollback_state
@@ -756,6 +775,46 @@ impl AdapterTable {
             (previous, snapshot)
         };
 
+        // Re-install the AdapterStore index to match the restored active set.
+        // Without this, store.pin_current() would return a stale snapshot from the
+        // failed swap, causing request-pinning to reference adapters that are no
+        // longer in the active map.
+        {
+            let refcounts_guard = self.refcounts.lock().await;
+            let identity = self.cache_identity_snapshot();
+            let store_entries: HashMap<AdapterCacheKey, AdapterRecord> = rollback_stack
+                .active
+                .iter()
+                .map(|(id, state)| {
+                    let rc = refcounts_guard
+                        .get(id)
+                        .cloned()
+                        .unwrap_or_else(|| Arc::new(AtomicUsize::new(0)));
+                    let mut cache_key = AdapterCacheKey::new(
+                        id.clone(),
+                        state.hash,
+                        identity.base_manifest_hash,
+                        identity.backend_type.clone(),
+                        identity.kernel_version_id.clone(),
+                        identity.tenant_id.clone(),
+                        identity.adapter_dir_hash,
+                    );
+                    if let Some(backing) = &state.backing {
+                        cache_key = cache_key.with_galaxy(backing.galaxy_id());
+                    }
+                    (
+                        cache_key,
+                        AdapterRecord {
+                            hash: state.hash,
+                            refcount: rc,
+                        },
+                    )
+                })
+                .collect();
+            drop(refcounts_guard);
+            self.store.install(rollback_stack.generation, store_entries);
+        }
+
         // Retire the previous current stack if generation changed
         if old_generation as u64 > rollback_stack.generation {
             let mut retired = self.retired_stacks.lock().await;
@@ -770,7 +829,9 @@ impl AdapterTable {
         let stack_hash = self.compute_stack_hash();
         tracing::info!(
             stack_hash = %stack_hash.to_short_hex(),
-            "Rollback completed and verified"
+            generation = rollback_stack.generation,
+            adapter_count = rollback_stack.active.len(),
+            "Rollback completed: active map, generation, and store index restored"
         );
 
         Ok(())
@@ -1345,9 +1406,7 @@ impl AdapterTable {
 
     pub fn current_stack_hash(&self) -> B3Hash {
         let active = self.active.read();
-        let adapters = active
-            .iter()
-            .map(|(id, state)| (id.clone(), state.hash.clone()));
+        let adapters = active.iter().map(|(id, state)| (id.clone(), state.hash));
         compute_stack_hash(adapters)
     }
 
@@ -4064,6 +4123,330 @@ mod tests {
             unload_time < Duration::from_millis(500),
             "Unload should be reasonably fast: {:?}",
             unload_time
+        );
+    }
+
+    /// Verify that rollback restores the AdapterStore index so that
+    /// `store.pin_current()` returns the pre-swap adapter set, not the
+    /// failed swap's set.
+    #[tokio::test]
+    async fn rollback_restores_store_index() {
+        let table = AdapterTable::new();
+
+        // Stage and activate adapter_a
+        let hash_a = B3Hash::hash(b"adapter_a");
+        table
+            .preload("adapter_a".to_string(), hash_a, 10)
+            .await
+            .expect("preload adapter_a");
+        table
+            .swap(&["adapter_a".to_string()], &[])
+            .await
+            .expect("swap in adapter_a");
+
+        // Capture pre-swap state
+        let pre_swap_gen = table.current_stack();
+        let pre_swap_pins = table.store().pin_current();
+        assert_eq!(pre_swap_pins.generation(), pre_swap_gen as u64);
+        assert!(
+            pre_swap_pins
+                .hashes()
+                .keys()
+                .any(|k| k.adapter_id == "adapter_a"),
+            "store should contain adapter_a before swap"
+        );
+        drop(pre_swap_pins);
+
+        // Stage adapter_b and swap (replacing adapter_a)
+        let hash_b = B3Hash::hash(b"adapter_b");
+        table
+            .preload("adapter_b".to_string(), hash_b, 15)
+            .await
+            .expect("preload adapter_b");
+        table
+            .swap(&["adapter_b".to_string()], &["adapter_a".to_string()])
+            .await
+            .expect("swap adapter_b for adapter_a");
+
+        // Verify post-swap state
+        let post_swap_pins = table.store().pin_current();
+        assert!(
+            post_swap_pins
+                .hashes()
+                .keys()
+                .any(|k| k.adapter_id == "adapter_b"),
+            "store should contain adapter_b after swap"
+        );
+        assert!(
+            !post_swap_pins
+                .hashes()
+                .keys()
+                .any(|k| k.adapter_id == "adapter_a"),
+            "store should not contain adapter_a after swap"
+        );
+        drop(post_swap_pins);
+
+        // Rollback to pre-swap state
+        table.rollback().await.expect("rollback should succeed");
+
+        // Verify all three layers are consistent
+        let restored_gen = table.current_stack();
+        assert_eq!(
+            restored_gen, pre_swap_gen,
+            "generation must be restored to pre-swap value"
+        );
+
+        let active = table.get_active();
+        assert_eq!(active.len(), 1);
+        assert_eq!(active[0].id, "adapter_a");
+
+        let restored_pins = table.store().pin_current();
+        assert_eq!(
+            restored_pins.generation(),
+            pre_swap_gen as u64,
+            "store generation must match restored generation"
+        );
+        assert!(
+            restored_pins
+                .hashes()
+                .keys()
+                .any(|k| k.adapter_id == "adapter_a"),
+            "store must contain adapter_a after rollback"
+        );
+        assert!(
+            !restored_pins
+                .hashes()
+                .keys()
+                .any(|k| k.adapter_id == "adapter_b"),
+            "store must not contain adapter_b after rollback"
+        );
+    }
+
+    /// Verify that a failed swap (adapter not preloaded) leaves the entire
+    /// system in the pre-swap state: active map, generation, store index,
+    /// and stack hash are all unchanged.
+    #[tokio::test]
+    async fn failed_swap_preserves_all_layers() {
+        let table = AdapterTable::new();
+
+        // Stage and activate adapter_a
+        let hash_a = B3Hash::hash(b"adapter_a");
+        table
+            .preload("adapter_a".to_string(), hash_a, 10)
+            .await
+            .expect("preload adapter_a");
+        table
+            .swap(&["adapter_a".to_string()], &[])
+            .await
+            .expect("swap in adapter_a");
+
+        // Capture pre-swap state
+        let pre_swap_gen = table.current_stack();
+        let pre_swap_hash = table.compute_stack_hash();
+        let pre_swap_pins = table.store().pin_current();
+        drop(pre_swap_pins);
+
+        // Attempt swap with unpreloaded adapter_c (should fail)
+        let result = table
+            .swap(&["adapter_c".to_string()], &["adapter_a".to_string()])
+            .await;
+        assert!(result.is_err(), "swap with unpreloaded adapter must fail");
+
+        // Verify all layers are unchanged
+        assert_eq!(
+            table.current_stack(),
+            pre_swap_gen,
+            "generation must not change on failed swap"
+        );
+        assert_eq!(
+            table.compute_stack_hash(),
+            pre_swap_hash,
+            "stack hash must not change on failed swap"
+        );
+
+        let active = table.get_active();
+        assert_eq!(active.len(), 1, "active count must be unchanged");
+        assert_eq!(active[0].id, "adapter_a", "adapter_a must still be active");
+
+        let pins = table.store().pin_current();
+        assert_eq!(
+            pins.generation(),
+            pre_swap_gen as u64,
+            "store generation must be unchanged on failed swap"
+        );
+        assert!(
+            pins.hashes().keys().any(|k| k.adapter_id == "adapter_a"),
+            "store must still contain adapter_a"
+        );
+    }
+
+    /// Verify that rollback after a successful swap followed by an explicit
+    /// rollback command properly restores the adapter table, including when
+    /// a second swap+rollback cycle follows (no double-rollback panic).
+    #[tokio::test]
+    async fn double_rollback_is_rejected() {
+        let table = AdapterTable::new();
+
+        let hash_a = B3Hash::hash(b"a");
+        table.preload("a".to_string(), hash_a, 10).await.unwrap();
+        table.swap(&["a".to_string()], &[]).await.unwrap();
+
+        let hash_b = B3Hash::hash(b"b");
+        table.preload("b".to_string(), hash_b, 10).await.unwrap();
+        table
+            .swap(&["b".to_string()], &["a".to_string()])
+            .await
+            .unwrap();
+
+        // First rollback should succeed
+        table.rollback().await.expect("first rollback should work");
+        let active = table.get_active();
+        assert_eq!(active.len(), 1);
+        assert_eq!(active[0].id, "a");
+
+        // Second rollback should fail (rollback state was consumed)
+        let result = table.rollback().await;
+        assert!(result.is_err(), "double rollback must fail: no saved state");
+
+        // State should still be the first rollback result
+        let active = table.get_active();
+        assert_eq!(active.len(), 1);
+        assert_eq!(active[0].id, "a");
+    }
+
+    /// Verify that a failed swap via HotSwapManager.execute (with kernel
+    /// attach failure) preserves the pre-swap state and cleans up staged
+    /// adapters without affecting unrelated staged entries.
+    #[tokio::test]
+    async fn execute_swap_failure_preserves_state_and_unrelated_staged() {
+        let repo = tempdir().expect("tempdir");
+        let tenant = "tenant_staged";
+        let base_model = "base-model";
+        let scope_path = "tenant/scope";
+        let tenant_dir = repo.path().join(tenant);
+        fs::create_dir_all(&tenant_dir).expect("tenant dir");
+
+        let adapter_a = "staged_a";
+        let adapter_b = "staged_b";
+        let adapter_c = "staged_c";
+
+        let weights_a = make_payload(adapter_a, 128);
+        let hash_a = write_test_adapter(
+            &tenant_dir.join(format!("{adapter_a}.aos")),
+            adapter_a,
+            base_model,
+            "persistent",
+            "tenant",
+            scope_path,
+            &weights_a,
+        );
+
+        let weights_b = make_payload(adapter_b, 128);
+        let hash_b = write_test_adapter(
+            &tenant_dir.join(format!("{adapter_b}.aos")),
+            adapter_b,
+            base_model,
+            "persistent",
+            "tenant",
+            scope_path,
+            &weights_b,
+        );
+
+        let weights_c = make_payload(adapter_c, 128);
+        let hash_c = write_test_adapter(
+            &tenant_dir.join(format!("{adapter_c}.aos")),
+            adapter_c,
+            base_model,
+            "persistent",
+            "tenant",
+            scope_path,
+            &weights_c,
+        );
+
+        // Use FailingAttachKernels that fails on adapter_b
+        let fail_id = adapter_id_to_u16(adapter_b);
+        let kernels = Arc::new(tokio::sync::Mutex::new(FailingAttachKernels::new(fail_id)));
+        let integrity = Arc::new(AdapterIntegrityVerifier::disabled(tenant.to_string()));
+        let manager = HotSwapManager::new_with_kernels(
+            kernels.clone(),
+            repo.path().to_path_buf(),
+            tenant.to_string(),
+            integrity,
+            None,
+            None,
+        );
+
+        // Preload and activate adapter_a
+        manager
+            .execute(AdapterCommand::Preload {
+                adapter_id: adapter_a.to_string(),
+                hash: hash_a,
+            })
+            .await
+            .expect("preload adapter_a");
+        manager
+            .execute(AdapterCommand::Swap {
+                add_ids: vec![adapter_a.to_string()],
+                remove_ids: vec![],
+                expected_stack_hash: None,
+            })
+            .await
+            .expect("swap adapter_a");
+
+        // Preload adapter_b (will fail on attach) and adapter_c (unrelated)
+        manager
+            .execute(AdapterCommand::Preload {
+                adapter_id: adapter_b.to_string(),
+                hash: hash_b,
+            })
+            .await
+            .expect("preload adapter_b");
+        manager
+            .execute(AdapterCommand::Preload {
+                adapter_id: adapter_c.to_string(),
+                hash: hash_c,
+            })
+            .await
+            .expect("preload adapter_c");
+
+        // Verify adapter_c is staged
+        assert!(
+            manager.table.staged.read().contains_key(adapter_c),
+            "adapter_c should be staged before failed swap"
+        );
+
+        // Attempt swap that will fail (adapter_b attach fails on second call)
+        let result = manager
+            .execute(AdapterCommand::Swap {
+                add_ids: vec![adapter_b.to_string()],
+                remove_ids: vec![adapter_a.to_string()],
+                expected_stack_hash: None,
+            })
+            .await;
+        assert!(result.is_err(), "swap should fail due to attach failure");
+
+        // adapter_a must still be active
+        let active = manager.table.active.read();
+        assert!(
+            active.contains_key(adapter_a),
+            "adapter_a must still be active after failed swap"
+        );
+        assert!(
+            !active.contains_key(adapter_b),
+            "adapter_b must not be active"
+        );
+        drop(active);
+
+        // adapter_b should be cleaned from staged
+        assert!(
+            !manager.table.staged.read().contains_key(adapter_b),
+            "failed adapter_b should be cleaned from staged"
+        );
+
+        // adapter_c should still be staged (unrelated to the failed swap)
+        assert!(
+            manager.table.staged.read().contains_key(adapter_c),
+            "unrelated adapter_c must survive the failed swap cleanup"
         );
     }
 }

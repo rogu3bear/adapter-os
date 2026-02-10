@@ -990,7 +990,7 @@ impl MLXFFIBackend {
             base_logits
         };
 
-        debug_assert!(
+        assert!(
             self.model.config.hidden_size == config_snapshot.hidden_size
                 && self.model.config.num_hidden_layers == config_snapshot.num_hidden_layers
                 && self.model.config.num_attention_heads == config_snapshot.num_attention_heads
@@ -1246,13 +1246,13 @@ impl MLXFFIBackend {
         let float_data: &[f32] = {
             let ptr = data.as_ptr();
             let align = std::mem::align_of::<f32>();
-            if (ptr as usize) % align != 0 {
+            if !(ptr as usize).is_multiple_of(align) {
                 return Err(adapteros_core::AosError::Parse(format!(
                     "Tensor data is not aligned to {} bytes (required for f32)",
                     align
                 )));
             }
-            if data.len() % std::mem::size_of::<f32>() != 0 {
+            if !data.len().is_multiple_of(std::mem::size_of::<f32>()) {
                 return Err(adapteros_core::AosError::Parse(format!(
                     "Tensor data length {} is not a multiple of f32 size ({})",
                     data.len(),

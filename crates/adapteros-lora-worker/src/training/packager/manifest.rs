@@ -14,7 +14,7 @@ use crate::training::trainer::{MoETrainingConfig, TrainingConfig};
 use crate::training::{
     LORA_Q15_DENOM, LORA_Q15_QUANTIZATION, LORA_Q15_VERSION, LORA_STRENGTH_DEFAULTS_VERSION,
 };
-use adapteros_core::{AosError, Result};
+use adapteros_core::{AosError, IntegrityMode, Result};
 use adapteros_types::training::LoraTier;
 use serde::{Deserialize, Serialize};
 use std::collections::HashMap;
@@ -517,10 +517,21 @@ impl AdapterManifest {
     }
 
     /// Verify the integrity hash matches the computed value.
-    /// Returns Ok(()) if valid or if no integrity_hash is set (backward compatibility).
-    /// Returns an error with actionable message if verification fails.
-    pub fn verify_integrity(&self) -> Result<()> {
+    ///
+    /// Behavior depends on `mode`:
+    /// - `Permissive`: returns `Ok(())` when `integrity_hash` is `None` (backward
+    ///   compatibility with legacy `.aos` files). Present hashes are still verified.
+    /// - `Strict`: returns an error when `integrity_hash` is `None`.
+    pub fn verify_integrity_with_mode(&self, mode: IntegrityMode) -> Result<()> {
         let Some(ref stored_hash) = self.integrity_hash else {
+            if mode.is_strict() {
+                return Err(AosError::IntegrityViolation(
+                    "Missing integrity_hash in adapter manifest. \
+                     Strict integrity mode requires all adapters to carry an integrity hash. \
+                     Action: Re-package the adapter with `seal_integrity()` before deployment."
+                        .to_string(),
+                ));
+            }
             // Backward compatibility: older .aos files may not have integrity_hash
             debug!(
                 adapter_version = %self.version,
@@ -544,6 +555,13 @@ impl AdapterManifest {
             "Adapter integrity verification passed"
         );
         Ok(())
+    }
+
+    /// Verify the integrity hash in permissive mode (backward compatible).
+    ///
+    /// Equivalent to `verify_integrity_with_mode(IntegrityMode::Permissive)`.
+    pub fn verify_integrity(&self) -> Result<()> {
+        self.verify_integrity_with_mode(IntegrityMode::Permissive)
     }
 
     /// Seal the manifest by computing and storing the integrity hash.

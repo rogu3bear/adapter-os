@@ -639,15 +639,16 @@ mod tests {
             #[cfg(target_os = "macos")]
             {
                 if metal::Device::system_default().is_some() {
-                    return true;
+                    true
+                } else {
+                    eprintln!("SKIPPED: MLX tests require a Metal device");
+                    false
                 }
-                eprintln!("SKIPPED: MLX tests require a Metal device");
-                return false;
             }
             #[cfg(not(target_os = "macos"))]
             {
                 eprintln!("SKIPPED: MLX tests require macOS Metal support");
-                return false;
+                false
             }
         }
         #[cfg(not(feature = "multi-backend"))]

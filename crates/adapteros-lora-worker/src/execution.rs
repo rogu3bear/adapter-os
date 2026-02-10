@@ -1031,6 +1031,104 @@ mod tests {
     }
 
     #[test]
+    fn test_attributed_tokens_accounting_table() {
+        struct Case {
+            label: &'static str,
+            input: u32,
+            cached: u32,
+            expected: u32,
+        }
+        let cases = [
+            Case {
+                label: "no_cache",
+                input: 4000,
+                cached: 0,
+                expected: 4000,
+            },
+            Case {
+                label: "quarter_cache",
+                input: 4000,
+                cached: 1000,
+                expected: 3000,
+            },
+            Case {
+                label: "half_cache",
+                input: 4000,
+                cached: 2000,
+                expected: 2000,
+            },
+            Case {
+                label: "three_quarter",
+                input: 4000,
+                cached: 3000,
+                expected: 1000,
+            },
+            Case {
+                label: "full_cache",
+                input: 4000,
+                cached: 4000,
+                expected: 0,
+            },
+            Case {
+                label: "overflow_guard",
+                input: 100,
+                cached: 200,
+                expected: 0,
+            },
+            Case {
+                label: "empty",
+                input: 0,
+                cached: 0,
+                expected: 0,
+            },
+            Case {
+                label: "single",
+                input: 1,
+                cached: 0,
+                expected: 1,
+            },
+            Case {
+                label: "single_cached",
+                input: 1,
+                cached: 1,
+                expected: 0,
+            },
+            Case {
+                label: "u32_max",
+                input: u32::MAX,
+                cached: 0,
+                expected: u32::MAX,
+            },
+            Case {
+                label: "u32_max_minus_one",
+                input: u32::MAX,
+                cached: 1,
+                expected: u32::MAX - 1,
+            },
+            Case {
+                label: "u32_max_cached",
+                input: u32::MAX,
+                cached: u32::MAX,
+                expected: 0,
+            },
+        ];
+        for case in &cases {
+            let ctx =
+                ExecutionContext::new(B3Hash::zero(), case.input).with_cached_tokens(case.cached);
+            assert_eq!(
+                ctx.attributed_tokens(),
+                case.expected,
+                "FAIL [{}]: attributed_tokens({}, {}) = {} expected {}",
+                case.label,
+                case.input,
+                case.cached,
+                ctx.attributed_tokens(),
+                case.expected
+            );
+        }
+    }
+
+    #[test]
     fn test_execution_result_verify_integrity() {
         // Create a minimal result and verify chain integrity
         let ctx_digest = B3Hash::hash(b"context");

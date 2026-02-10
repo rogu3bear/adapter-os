@@ -5,6 +5,18 @@ use adapteros_core::{
 use serde::{Deserialize, Serialize};
 use tracing::{debug, info, warn};
 
+/// The kind of operation the backend will be used for.
+///
+/// Training always prefers MLX (the only backend with training kernels today).
+/// Inference follows the standard priority chain or reasoning-aware routing.
+#[derive(Debug, Clone, Copy, PartialEq, Eq, Hash)]
+pub enum OperationKind {
+    /// Standard inference (generate tokens).
+    Inference,
+    /// LoRA fine-tuning / training.
+    Training,
+}
+
 /// Backend strategy for automatic selection
 #[derive(Debug, Clone)]
 pub enum BackendStrategy {
@@ -27,6 +39,9 @@ pub enum BackendStrategy {
 pub struct SelectionContext {
     pub profile: ExecutionProfile,
     pub capabilities: BackendCapabilities,
+    /// Whether reasoning mode is enabled for this request.
+    /// When true, the Auto backend path prefers CoreML for ANE-accelerated determinism.
+    pub reasoning_mode: bool,
 }
 
 impl SelectionContext {
@@ -34,7 +49,14 @@ impl SelectionContext {
         Self {
             profile,
             capabilities,
+            reasoning_mode: false,
         }
+    }
+
+    /// Set reasoning mode on this context (builder pattern).
+    pub fn with_reasoning_mode(mut self, mode: bool) -> Self {
+        self.reasoning_mode = mode;
+        self
     }
 }
 
@@ -190,7 +212,7 @@ pub fn coreml_unavailable_reason(capabilities: &BackendCapabilities) -> Option<S
     #[cfg(not(target_os = "macos"))]
     {
         let _ = capabilities;
-        return Some("requires_macos".to_string());
+        Some("requires_macos".to_string())
     }
 
     #[cfg(all(target_os = "macos", not(feature = "coreml-backend")))]
@@ -199,7 +221,7 @@ pub fn coreml_unavailable_reason(capabilities: &BackendCapabilities) -> Option<S
         if !capabilities.has_ane {
             reasons.push("ane_unavailable");
         }
-        return Some(reasons.join(","));
+        Some(reasons.join(","))
     }
 
     #[cfg(all(target_os = "macos", feature = "coreml-backend"))]
@@ -378,30 +400,55 @@ pub struct BackendSelection {
     pub selected: BackendChoice,
     pub overridden: bool,
     pub reason: Option<&'static str>,
+    /// Which decision branch produced this selection (for structured logging).
+    pub decision_path: &'static str,
 }
 
 impl BackendSelection {
-    pub fn new(selected: BackendChoice) -> Self {
+    pub fn new(selected: BackendChoice, decision_path: &'static str) -> Self {
         Self {
             selected,
             overridden: false,
             reason: None,
+            decision_path,
         }
     }
 }
 
 /// Resolve backend choice using the canonical ExecutionProfile and capabilities.
+///
+/// When the profile is `Auto` and `context.reasoning_mode` is true, the
+/// reasoning-aware routing layer is consulted first: it prefers CoreML for
+/// ANE-accelerated determinism, falling back to the standard auto-select
+/// priority chain if CoreML is unavailable.
 pub fn select_backend_from_execution_profile(
     context: &SelectionContext,
 ) -> Result<BackendSelection> {
     let requested = context.profile.backend_profile;
     let capabilities = &context.capabilities;
     let selection = match requested {
-        BackendKind::Auto => BackendSelection::new(auto_select_backend(capabilities)?),
+        BackendKind::Auto => {
+            if context.reasoning_mode {
+                let hint = resolve_reasoning_aware_backend(None, true, capabilities);
+                if hint.reasoning_triggered {
+                    // Reasoning routing picked a specific backend (CoreML w/ ANE).
+                    BackendSelection::new(hint.suggested, "reasoning_coreml_preferred")
+                } else {
+                    // Reasoning was requested but CoreML unavailable — fall through
+                    // to the standard auto-select chain.
+                    BackendSelection::new(
+                        auto_select_backend(capabilities)?,
+                        "reasoning_fallback_auto",
+                    )
+                }
+            } else {
+                BackendSelection::new(auto_select_backend(capabilities)?, "auto_priority_chain")
+            }
+        }
         BackendKind::CoreML => match auto_select_backend(capabilities) {
             Ok(choice) => {
                 if choice == BackendChoice::CoreML {
-                    BackendSelection::new(BackendChoice::CoreML)
+                    BackendSelection::new(BackendChoice::CoreML, "explicit_passthrough")
                 } else {
                     let detail = if !capabilities.has_coreml && !capabilities.has_ane {
                         "CoreML framework and Neural Engine both unavailable"
@@ -433,6 +480,7 @@ pub fn select_backend_from_execution_profile(
                         selected: choice,
                         overridden: true,
                         reason: Some(reason),
+                        decision_path: "explicit_passthrough",
                     }
                 }
             }
@@ -444,7 +492,7 @@ pub fn select_backend_from_execution_profile(
         },
         BackendKind::Metal => {
             if capabilities.has_metal {
-                BackendSelection::new(BackendChoice::Metal)
+                BackendSelection::new(BackendChoice::Metal, "explicit_passthrough")
             } else {
                 return Err(AosError::Config(
                     "Requested Metal backend is not available".to_string(),
@@ -454,7 +502,7 @@ pub fn select_backend_from_execution_profile(
         BackendKind::Mlx => {
             if cfg!(feature = "multi-backend") {
                 if capabilities.has_mlx {
-                    BackendSelection::new(BackendChoice::Mlx)
+                    BackendSelection::new(BackendChoice::Mlx, "explicit_passthrough")
                 } else {
                     return Err(AosError::Config(
                         "Requested MLX backend is not available (enable multi-backend)".to_string(),
@@ -469,7 +517,7 @@ pub fn select_backend_from_execution_profile(
         BackendKind::MlxBridge => {
             if cfg!(feature = "mlx-bridge") {
                 if capabilities.has_mlx_bridge {
-                    BackendSelection::new(BackendChoice::MlxBridge)
+                    BackendSelection::new(BackendChoice::MlxBridge, "explicit_passthrough")
                 } else {
                     // Fall back to MLX FFI if available
                     if cfg!(feature = "multi-backend") && capabilities.has_mlx {
@@ -478,6 +526,7 @@ pub fn select_backend_from_execution_profile(
                             selected: BackendChoice::Mlx,
                             overridden: true,
                             reason: Some("mlxbridge_unavailable_fallback_mlx"),
+                            decision_path: "explicit_passthrough",
                         }
                     } else {
                         return Err(AosError::Config(
@@ -501,9 +550,18 @@ pub fn select_backend_from_execution_profile(
         BackendKind::ModelServer => {
             // ModelServer is always accepted when explicitly requested
             // Configuration validation happens in the backend factory
-            BackendSelection::new(BackendChoice::ModelServer)
+            BackendSelection::new(BackendChoice::ModelServer, "explicit_passthrough")
         }
     };
+
+    info!(
+        target: "inference.backend.selection",
+        selected = %selection.selected.as_str(),
+        reasoning_mode = context.reasoning_mode,
+        decision_path = selection.decision_path,
+        overridden = selection.overridden,
+        "Backend selected"
+    );
 
     Ok(selection)
 }
@@ -605,8 +663,16 @@ pub fn get_available_backends() -> Vec<BackendCapability> {
             backend_type: BackendType::MLX, // Uses MLX per naming contract (serde rename preserves wire format)
             name: "MLX".to_string(),
             available: caps.has_mlx,
-            deterministic: false, // MLX execution order not guaranteed
-            description: "MLX backend for research/prototyping".to_string(),
+            // MLX attests BitExact determinism when HKDF-seeded with a manifest hash
+            // and running a real (non-stub) build. caps.has_mlx is only true when the
+            // `mlx` feature is enabled AND runtime initializes successfully, matching
+            // the IS_REAL_MLX condition checked by MLXFFIBackend::attest_determinism().
+            deterministic: caps.has_mlx,
+            description: if caps.has_mlx {
+                "MLX backend with HKDF-seeded determinism".to_string()
+            } else {
+                "MLX backend (unavailable)".to_string()
+            },
             requirements: vec![
                 "macOS".to_string(),
                 "Apple Silicon".to_string(),
@@ -949,5 +1015,106 @@ mod tests {
         // Without MLX, should fall back to CoreML (which has ANE)
         assert_eq!(hint.suggested, BackendChoice::CoreML);
         assert!(!hint.reasoning_triggered);
+    }
+
+    // ---- Production path (select_backend_from_execution_profile) ----
+
+    fn make_auto_profile() -> ExecutionProfile {
+        ExecutionProfile {
+            seed_mode: adapteros_core::SeedMode::BestEffort,
+            backend_profile: BackendKind::Auto,
+            require_explicit_fallback_opt_out: false,
+        }
+    }
+
+    #[test]
+    fn auto_with_reasoning_mode_selects_coreml() {
+        let caps = make_full_caps();
+        let ctx = SelectionContext::new(make_auto_profile(), caps).with_reasoning_mode(true);
+        let selection = select_backend_from_execution_profile(&ctx).expect("reasoning coreml path");
+
+        assert_eq!(selection.selected, BackendChoice::CoreML);
+        assert_eq!(selection.decision_path, "reasoning_coreml_preferred");
+        assert!(!selection.overridden);
+    }
+
+    #[test]
+    fn auto_with_reasoning_mode_falls_back_when_no_coreml() {
+        let caps = make_mlx_only_caps();
+        let ctx = SelectionContext::new(make_auto_profile(), caps).with_reasoning_mode(true);
+        let selection =
+            select_backend_from_execution_profile(&ctx).expect("reasoning fallback path");
+
+        // CoreML unavailable -> falls through to auto_select_backend
+        if cfg!(feature = "multi-backend") {
+            assert_eq!(selection.selected, BackendChoice::Mlx);
+        }
+        assert_eq!(selection.decision_path, "reasoning_fallback_auto");
+    }
+
+    #[test]
+    fn auto_without_reasoning_mode_uses_standard_chain() {
+        let caps = make_full_caps();
+        let ctx = SelectionContext::new(make_auto_profile(), caps).with_reasoning_mode(false);
+        let selection = select_backend_from_execution_profile(&ctx).expect("standard auto path");
+
+        assert_eq!(selection.decision_path, "auto_priority_chain");
+    }
+
+    #[test]
+    fn explicit_backend_gets_passthrough_decision_path() {
+        let caps = make_full_caps();
+        let profile = ExecutionProfile {
+            seed_mode: adapteros_core::SeedMode::BestEffort,
+            backend_profile: BackendKind::Metal,
+            require_explicit_fallback_opt_out: false,
+        };
+        let ctx = SelectionContext::new(profile, caps).with_reasoning_mode(true);
+        let selection = select_backend_from_execution_profile(&ctx).expect("explicit metal path");
+
+        assert_eq!(selection.selected, BackendChoice::Metal);
+        assert_eq!(selection.decision_path, "explicit_passthrough");
+    }
+
+    /// Proves that identical `(profile, capabilities, reasoning_mode)` always
+    /// yields the same `(selected, decision_path)` across repeated invocations.
+    #[test]
+    fn selector_determinism_across_identical_inputs() {
+        let scenarios: Vec<(BackendCapabilities, bool, &str)> = vec![
+            (make_full_caps(), true, "full_caps_reasoning"),
+            (make_full_caps(), false, "full_caps_no_reasoning"),
+            (make_mlx_only_caps(), true, "mlx_only_reasoning"),
+            (make_mlx_only_caps(), false, "mlx_only_no_reasoning"),
+            (make_coreml_only_caps(), true, "coreml_only_reasoning"),
+            (make_coreml_only_caps(), false, "coreml_only_no_reasoning"),
+        ];
+
+        for (caps, reasoning, label) in scenarios {
+            let profile = make_auto_profile();
+            let ctx =
+                SelectionContext::new(profile.clone(), caps.clone()).with_reasoning_mode(reasoning);
+            let reference = select_backend_from_execution_profile(&ctx)
+                .unwrap_or_else(|e| panic!("{label}: first call failed: {e}"));
+
+            for i in 1..100 {
+                let ctx = SelectionContext::new(profile.clone(), caps.clone())
+                    .with_reasoning_mode(reasoning);
+                let trial = select_backend_from_execution_profile(&ctx)
+                    .unwrap_or_else(|e| panic!("{label}: iteration {i} failed: {e}"));
+
+                assert_eq!(
+                    reference.selected, trial.selected,
+                    "{label}: selected diverged at iteration {i}"
+                );
+                assert_eq!(
+                    reference.decision_path, trial.decision_path,
+                    "{label}: decision_path diverged at iteration {i}"
+                );
+                assert_eq!(
+                    reference.overridden, trial.overridden,
+                    "{label}: overridden diverged at iteration {i}"
+                );
+            }
+        }
     }
 }

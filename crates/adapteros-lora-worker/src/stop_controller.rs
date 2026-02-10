@@ -18,7 +18,7 @@
 use adapteros_api_types::inference::{StopPolicySpec, StopReasonCode, STOP_Q15_DENOM};
 use adapteros_core::B3Hash;
 use std::collections::VecDeque;
-use tracing::{debug, trace};
+use tracing::{debug, info, trace};
 
 /// Result of a stop check containing the reason and token index
 #[derive(Debug, Clone, Copy)]
@@ -176,69 +176,143 @@ impl StopController {
         // 1. BUDGET_MAX - Hard budget cap
         if let Some(reason) = self.check_budget_max(token_index) {
             debug!(
+                target: "inference.stop",
+                reason = %reason,
                 token_index,
                 budget = self.policy.output_max_tokens,
-                "Stop: BUDGET_MAX"
+                generated_count = self.generated_count,
+                "Stop condition: BUDGET_MAX"
             );
-            return Some(StopDecision {
+            let decision = StopDecision {
                 reason,
                 token_index,
                 trim_tokens: 0,
-            });
+            };
+            info!(
+                target: "inference.stop",
+                reason = %decision.reason,
+                token_index = decision.token_index,
+                generated_count = self.generated_count,
+                trim_tokens = decision.trim_tokens,
+                "Stop controller triggered"
+            );
+            return Some(decision);
         }
 
         // 2. COMPLETION_CONFIDENT - High EOS probability
         if let Some(reason) = self.check_completion_confident(logits, eos_token_id) {
+            let effective_eos = self.policy.eos_token_id.unwrap_or(eos_token_id) as usize;
+            let eos_prob_q15 = if effective_eos < logits.len() {
+                let p = self.compute_eos_probability(logits, effective_eos);
+                (p * STOP_Q15_DENOM).round() as i16
+            } else {
+                0
+            };
             debug!(
+                target: "inference.stop",
+                reason = %reason,
                 token_index,
+                eos_prob_q15,
                 threshold_q15 = self.policy.completion_threshold_q15,
-                "Stop: COMPLETION_CONFIDENT"
+                "Stop condition: COMPLETION_CONFIDENT"
             );
-            return Some(StopDecision {
+            let decision = StopDecision {
                 reason,
                 token_index,
                 trim_tokens: 0,
-            });
+            };
+            info!(
+                target: "inference.stop",
+                reason = %decision.reason,
+                token_index = decision.token_index,
+                generated_count = self.generated_count,
+                trim_tokens = decision.trim_tokens,
+                "Stop controller triggered"
+            );
+            return Some(decision);
         }
 
         // 3. REPETITION_GUARD - N-gram repetition detected
         if let Some(reason) = self.check_repetition_guard() {
             debug!(
+                target: "inference.stop",
+                reason = %reason,
                 token_index,
-                min_ngram = self.policy.repetition_ngram,
-                window = self.policy.repetition_window,
+                ngram_size = self.policy.repetition_ngram,
+                max_count = self.policy.repetition_threshold,
                 threshold = self.policy.repetition_threshold,
-                "Stop: REPETITION_GUARD"
+                "Stop condition: REPETITION_GUARD"
             );
-            return Some(StopDecision {
+            let decision = StopDecision {
                 reason,
                 token_index,
                 trim_tokens: 0,
-            });
+            };
+            info!(
+                target: "inference.stop",
+                reason = %decision.reason,
+                token_index = decision.token_index,
+                generated_count = self.generated_count,
+                trim_tokens = decision.trim_tokens,
+                "Stop controller triggered"
+            );
+            return Some(decision);
         }
 
         // 4. STOP_SEQUENCE - explicit stop sequences matched
         if let Some(trim_tokens) = self.check_stop_sequences() {
-            debug!(token_index, "Stop: STOP_SEQUENCE");
-            return Some(StopDecision {
+            let sequence_len = trim_tokens + 1;
+            debug!(
+                target: "inference.stop",
+                reason = %StopReasonCode::StopSequence,
+                token_index,
+                sequence_len,
+                trim_tokens,
+                "Stop condition: STOP_SEQUENCE"
+            );
+            let decision = StopDecision {
                 reason: StopReasonCode::StopSequence,
                 token_index,
                 trim_tokens,
-            });
+            };
+            info!(
+                target: "inference.stop",
+                reason = %decision.reason,
+                token_index = decision.token_index,
+                generated_count = self.generated_count,
+                trim_tokens = decision.trim_tokens,
+                "Stop controller triggered"
+            );
+            return Some(decision);
         }
 
         // 5. LENGTH - EOS token encountered
         let effective_eos = self.policy.eos_token_id.unwrap_or(eos_token_id);
         if token == effective_eos {
-            debug!(token_index, eos_token = effective_eos, "Stop: LENGTH (EOS)");
-            return Some(StopDecision {
+            debug!(
+                target: "inference.stop",
+                reason = %StopReasonCode::Length,
+                token_index,
+                eos_token = effective_eos,
+                "Stop condition: LENGTH (EOS)"
+            );
+            let decision = StopDecision {
                 reason: StopReasonCode::Length,
                 token_index,
                 trim_tokens: 0,
-            });
+            };
+            info!(
+                target: "inference.stop",
+                reason = %decision.reason,
+                token_index = decision.token_index,
+                generated_count = self.generated_count,
+                trim_tokens = decision.trim_tokens,
+                "Stop controller triggered"
+            );
+            return Some(decision);
         }
 
-        trace!(token_index, token, "Continue generation");
+        trace!(target: "inference.stop", token_index, token, "Continue generation");
         None
     }
 
@@ -406,6 +480,20 @@ impl StopController {
     pub fn reset(&mut self) {
         self.generated_count = 0;
         self.token_history.clear();
+    }
+
+    /// Compute a BLAKE3 digest of the current sliding window state.
+    ///
+    /// The digest covers `generated_count` (LE) followed by each window token (LE).
+    /// This is deterministic: the same token history always produces the same digest.
+    /// Used to bind the stop window state into V7 receipts via `stop_window_digest_b3`.
+    pub fn window_digest(&self) -> B3Hash {
+        let mut buf = Vec::with_capacity(4 + self.token_history.len() * 4);
+        buf.extend_from_slice(&self.generated_count.to_le_bytes());
+        for &token in &self.token_history {
+            buf.extend_from_slice(&token.to_le_bytes());
+        }
+        B3Hash::hash(&buf)
     }
 }
 
@@ -652,5 +740,209 @@ mod tests {
 
         assert_eq!(parsed_cancelled, StopReasonCode::Cancelled);
         assert_eq!(parsed_system_error, StopReasonCode::SystemError);
+    }
+
+    #[test]
+    fn test_preload_tokens_consumes_budget() {
+        let policy = StopPolicySpec {
+            output_max_tokens: 5,
+            ..make_policy()
+        };
+        let mut controller = StopController::new(policy);
+        let logits = vec![0.0; 151646];
+
+        // Preload 4 tokens
+        controller.preload_tokens(&[10, 20, 30, 40]);
+        assert_eq!(controller.generated_count(), 4);
+
+        // Next check_stop should allow 1 more token (index 4 < budget 5)
+        let decision = controller.check_stop(50, 151645, &logits);
+        assert!(
+            decision.is_none(),
+            "Should allow one more token after preload"
+        );
+
+        // The 6th token (index 5) should trigger BUDGET_MAX
+        let decision = controller.check_stop(60, 151645, &logits);
+        assert!(decision.is_some());
+        assert_eq!(decision.unwrap().reason, StopReasonCode::BudgetMax);
+        assert_eq!(decision.unwrap().token_index, 5);
+    }
+
+    #[test]
+    fn test_completion_confident_nan_inf_logits() {
+        let policy = StopPolicySpec {
+            output_max_tokens: 100,
+            eos_token_id: Some(2),
+            completion_threshold_q15: 24576, // ~0.75
+            ..make_policy()
+        };
+
+        // Test NaN logits - should not panic
+        {
+            let mut controller = StopController::new(policy.clone());
+            let mut logits = vec![0.0; 10];
+            logits[0] = f32::NAN;
+            logits[5] = f32::NAN;
+            let decision = controller.check_stop(1, 2, &logits);
+            // Should either return None or a valid decision, never panic
+            if let Some(d) = decision {
+                assert!(
+                    d.reason == StopReasonCode::CompletionConfident
+                        || d.reason == StopReasonCode::Length
+                        || d.reason == StopReasonCode::BudgetMax
+                );
+            }
+        }
+
+        // Test Inf logits - should not panic
+        {
+            let mut controller = StopController::new(policy.clone());
+            let mut logits = vec![0.0; 10];
+            logits[0] = f32::INFINITY;
+            logits[2] = f32::NEG_INFINITY;
+            let decision = controller.check_stop(1, 2, &logits);
+            if let Some(d) = decision {
+                assert!(
+                    d.reason == StopReasonCode::CompletionConfident
+                        || d.reason == StopReasonCode::Length
+                        || d.reason == StopReasonCode::BudgetMax
+                );
+            }
+        }
+    }
+
+    #[test]
+    fn test_completion_confident_all_zero_logits() {
+        let policy = StopPolicySpec {
+            output_max_tokens: 100,
+            eos_token_id: Some(2),
+            completion_threshold_q15: 24576, // ~0.75
+            ..make_policy()
+        };
+        let mut controller = StopController::new(policy);
+
+        // All-zero logits → uniform softmax → probability = 1/vocab_size
+        // For vocab_size=10, EOS prob = 0.1 → Q15 = ~3277 (well below 24576)
+        let logits = vec![0.0; 10];
+        let decision = controller.check_stop(1, 2, &logits);
+        // Should not trigger COMPLETION_CONFIDENT since uniform prob is low
+        assert!(
+            decision.is_none(),
+            "All-zero logits should give uniform distribution, too low for completion threshold"
+        );
+    }
+
+    #[test]
+    fn test_multiple_stop_sequences_first_match() {
+        let policy = StopPolicySpec {
+            output_max_tokens: 100,
+            eos_token_id: Some(999), // won't trigger
+            completion_threshold_q15: 32767,
+            repetition_ngram: 3,
+            repetition_window: 8,
+            repetition_threshold: 100, // won't trigger
+            stop_sequences: Vec::new(),
+        };
+        // Two stop sequences: [10, 20] and [20, 30, 40]
+        let stop_seqs = vec![vec![10, 20], vec![20, 30, 40]];
+        let mut controller = StopController::new_with_stop_sequences(policy, stop_seqs);
+        let logits = vec![0.0; 1000];
+
+        // Feed tokens: 5, 10, 20 → matches first stop sequence [10, 20]
+        assert!(controller.check_stop(5, 999, &logits).is_none());
+        assert!(controller.check_stop(10, 999, &logits).is_none());
+        let decision = controller.check_stop(20, 999, &logits);
+        assert!(decision.is_some());
+        let d = decision.unwrap();
+        assert_eq!(d.reason, StopReasonCode::StopSequence);
+        // trim_tokens = seq_len - 1 = 2 - 1 = 1
+        assert_eq!(d.trim_tokens, 1);
+    }
+
+    #[test]
+    fn test_stop_sequence_no_match() {
+        let policy = StopPolicySpec {
+            output_max_tokens: 100,
+            eos_token_id: Some(999),
+            completion_threshold_q15: 32767,
+            repetition_ngram: 3,
+            repetition_window: 8,
+            repetition_threshold: 100,
+            stop_sequences: Vec::new(),
+        };
+        let stop_seqs = vec![vec![100, 200, 300]];
+        let mut controller = StopController::new_with_stop_sequences(policy, stop_seqs);
+        let logits = vec![0.0; 1000];
+
+        // Feed tokens that don't match the stop sequence
+        for tok in [1, 2, 3, 4, 5] {
+            let decision = controller.check_stop(tok, 999, &logits);
+            assert!(
+                decision.is_none(),
+                "Should not match stop sequence for token {tok}"
+            );
+        }
+    }
+
+    #[test]
+    fn test_history_window_sized_for_stop_sequences() {
+        // Stop sequence longer than repetition_window → history_window should be the larger value
+        let policy = StopPolicySpec {
+            output_max_tokens: 100,
+            eos_token_id: Some(999),
+            completion_threshold_q15: 32767,
+            repetition_ngram: 3,
+            repetition_window: 4, // small
+            repetition_threshold: 100,
+            stop_sequences: Vec::new(),
+        };
+        // Stop sequence of length 10 (larger than repetition_window of 4)
+        let long_stop_seq = vec![vec![1, 2, 3, 4, 5, 6, 7, 8, 9, 10]];
+        let controller = StopController::new_with_stop_sequences(policy, long_stop_seq);
+        assert_eq!(
+            controller.history_window, 10,
+            "history_window should use max of repetition_window and max stop sequence length"
+        );
+    }
+
+    #[test]
+    fn test_window_digest_deterministic() {
+        let policy = StopPolicySpec {
+            output_max_tokens: 100,
+            ..make_policy()
+        };
+
+        // Create two controllers with the same token sequence
+        let mut controller1 = StopController::new(policy.clone());
+        let mut controller2 = StopController::new(policy);
+        let logits = vec![0.0; 151646];
+
+        let tokens = [10, 20, 30, 40, 50];
+        for &tok in &tokens {
+            controller1.check_stop(tok, 151645, &logits);
+            controller2.check_stop(tok, 151645, &logits);
+        }
+
+        let digest1 = controller1.window_digest();
+        let digest2 = controller2.window_digest();
+        assert_eq!(
+            digest1, digest2,
+            "Same token sequence must produce identical window digest"
+        );
+
+        // Different sequence should produce different digest
+        let mut controller3 = StopController::new(StopPolicySpec {
+            output_max_tokens: 100,
+            ..make_policy()
+        });
+        for &tok in &[10, 20, 30, 40, 99] {
+            controller3.check_stop(tok, 151645, &logits);
+        }
+        let digest3 = controller3.window_digest();
+        assert_ne!(
+            digest1, digest3,
+            "Different token sequence should produce different window digest"
+        );
     }
 }

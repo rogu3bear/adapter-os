@@ -303,6 +303,25 @@ pub fn example_hash_for_seed(seed: u64, example: &TrainingExampleV1) -> [u8; 32]
     )
 }
 
+/// Compute a deterministic BLAKE3 hash over a set of training examples.
+///
+/// The hash covers all token data (input, target, attention mask) for every
+/// example in order. This provides a content-addressable identifier for the
+/// exact dataset used in a training run, enabling reproducibility verification.
+pub fn compute_examples_hash(examples: &[TrainingExampleV1]) -> String {
+    let mut hasher = Hasher::new();
+    for example in examples {
+        for token in &example.input_tokens {
+            hasher.update(&token.to_le_bytes());
+        }
+        for token in &example.target_tokens {
+            hasher.update(&token.to_le_bytes());
+        }
+        hasher.update(&example.attention_mask);
+    }
+    hasher.finalize().to_hex().to_string()
+}
+
 fn split_hash_from_hashes(
     hashes: impl Iterator<Item = [u8; 32]>,
     seed: u64,
