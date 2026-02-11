@@ -2072,6 +2072,23 @@ impl ApiClient {
     }
 
     // ========================================================================
+    // Persisted Errors (server-side)
+    // ========================================================================
+
+    /// List persisted error instances filtered by diagnostic trace ID
+    pub async fn list_errors_by_diag_trace_id(
+        &self,
+        diag_trace_id: &str,
+        limit: Option<u32>,
+    ) -> ApiResult<adapteros_api_types::errors::ListErrorsResponse> {
+        let mut params = vec![format!("diag_trace_id={}", encode(diag_trace_id))];
+        if let Some(l) = limit {
+            params.push(format!("limit={}", l));
+        }
+        self.get(&format!("/v1/errors?{}", params.join("&"))).await
+    }
+
+    // ========================================================================
     // Routing Rules
     // ========================================================================
 

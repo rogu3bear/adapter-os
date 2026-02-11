@@ -310,14 +310,14 @@ pub fn ErrorDisplay(
                     <div class="border-t border-destructive/20 pt-3">
                         <button
                             class="w-full flex items-center justify-between text-sm text-muted-foreground hover:text-foreground transition-colors"
-                            on:click=move |_| set_details_expanded.update(|e| *e = !*e)
-                            aria-expanded=move || details_expanded.get().to_string()
+                            on:click=move |_| { let _ = set_details_expanded.try_update(|e| *e = !*e); }
+                            aria-expanded=move || details_expanded.try_get().unwrap_or(false).to_string()
                         >
                             <span class="font-medium">"Error Details"</span>
                             <svg
                                 class=move || format!(
                                     "w-4 h-4 transition-transform {}",
-                                    if details_expanded.get() { "rotate-180" } else { "" }
+                                    if details_expanded.try_get().unwrap_or(false) { "rotate-180" } else { "" }
                                 )
                                 fill="none"
                                 stroke="currentColor"
@@ -327,7 +327,7 @@ pub fn ErrorDisplay(
                             </svg>
                         </button>
 
-                        {move || if details_expanded.get() {
+                        {move || if details_expanded.try_get().unwrap_or(false) {
                             let json_pretty = serde_json::to_string_pretty(&details_clone)
                                 .unwrap_or_else(|e| {
                                     format!(
@@ -371,16 +371,16 @@ pub fn ErrorDisplay(
                                     class="inline-flex items-center gap-2 text-sm text-muted-foreground hover:text-foreground font-medium transition-colors"
                                     on:click=move |_| {
                                         let payload = build_error_payload(&error_for_handler);
-                                        set_copy_state.set(CopyState::Copying);
+                                        let _ = set_copy_state.try_set(CopyState::Copying);
                                         copy_to_clipboard(
                                             &payload,
-                                            move || set_copy_state.set(CopyState::Copied),
-                                            move |_| set_copy_state.set(CopyState::Failed),
+                                            move || { let _ = set_copy_state.try_set(CopyState::Copied); },
+                                            move |_| { let _ = set_copy_state.try_set(CopyState::Failed); },
                                         );
                                     }
-                                    disabled=move || matches!(copy_state.get(), CopyState::Copying)
+                                    disabled=move || matches!(copy_state.try_get().unwrap_or(CopyState::Idle), CopyState::Copying)
                                 >
-                                    {move || match copy_state.get() {
+                                    {move || match copy_state.try_get().unwrap_or(CopyState::Idle) {
                                         CopyState::Idle => view! {
                                             <svg
                                                 xmlns="http://www.w3.org/2000/svg"
@@ -713,7 +713,7 @@ pub fn RefreshButton(
     #[prop(optional)]
     loading: Option<RwSignal<bool>>,
 ) -> impl IntoView {
-    let is_loading = move || loading.map(|l| l.get()).unwrap_or(false);
+    let is_loading = move || loading.and_then(|l| l.try_get()).unwrap_or(false);
 
     view! {
         <Button
@@ -808,7 +808,11 @@ where
     view! {
         {move || {
             let render = render.clone();
-            match state.get() {
+            let current = match state.try_get() {
+                Some(s) => s,
+                None => return view! { <LoadingDisplay /> }.into_any(),
+            };
+            match current {
                 crate::hooks::LoadingState::Idle | crate::hooks::LoadingState::Loading => {
                     match loading_message.clone() {
                         Some(msg) => view! { <LoadingDisplay message=msg /> }.into_any(),
@@ -878,7 +882,11 @@ where
         {move || {
             let render = render.clone();
             let render_error = render_error.clone();
-            match state.get() {
+            let current = match state.try_get() {
+                Some(s) => s,
+                None => return view! { <LoadingDisplay /> }.into_any(),
+            };
+            match current {
                 crate::hooks::LoadingState::Idle | crate::hooks::LoadingState::Loading => {
                     match loading_message.clone() {
                         Some(msg) => view! { <LoadingDisplay message=msg /> }.into_any(),
@@ -957,7 +965,11 @@ where
             let empty_title = empty_title.clone();
             let empty_desc = empty_description.clone();
 
-            match state.get() {
+            let current = match state.try_get() {
+                Some(s) => s,
+                None => return view! { <LoadingDisplay /> }.into_any(),
+            };
+            match current {
                 crate::hooks::LoadingState::Idle | crate::hooks::LoadingState::Loading => {
                     match loading_message.clone() {
                         Some(msg) => view! { <LoadingDisplay message=msg /> }.into_any(),

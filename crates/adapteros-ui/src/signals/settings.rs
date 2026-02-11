@@ -107,10 +107,15 @@ pub struct UserSettings {
     /// Compact mode for denser UI
     pub compact_mode: bool,
     /// Show timestamps in lists and messages
+    // TODO: not yet consumed — wire into chat_dock.rs, error_history_panel.rs,
+    // and other components that render timestamps so they respect this toggle.
     pub show_timestamps: bool,
-    /// Default page after login
+    /// Default page after login (consumed by login.rs redirect)
     pub default_page: DefaultPage,
     /// Custom API endpoint (if overridden)
+    // TODO: not yet consumed — api_config.rs saves this but ApiClient::new()
+    // calls api_base_url() which ignores settings. Either make api_base_url()
+    // check settings first, or have ApiClient::new() read the override.
     pub api_endpoint: Option<String>,
     /// Show telemetry overlay in corner (off by default for clean UI)
     #[serde(default)]

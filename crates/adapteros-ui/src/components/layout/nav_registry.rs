@@ -371,8 +371,9 @@ static NAV_GROUPS_FULL: &[NavGroup] = &[
     },
 ];
 
-/// Primary profile navigation groups (simplified)
+/// Primary profile navigation groups (MVP: 4 focused groups)
 static NAV_GROUPS_PRIMARY: &[NavGroup] = &[
+    // 1. Infer (Alt+1) — Chat
     NavGroup {
         id: "infer",
         label: "Chat",
@@ -389,28 +390,38 @@ static NAV_GROUPS_PRIMARY: &[NavGroup] = &[
         show_in_mobile: true,
         scope: NavScope::PrimaryOnly,
     },
+    // 2. Data (Alt+2) — Documents
     NavGroup {
-        id: "observe",
-        label: "Runs",
-        icon: ICON_EYE,
+        id: "data",
+        label: "Documents",
+        icon: ICON_DATABASE,
         alt_shortcut: Some(2),
-        items: &[NavItem::new("runs", "Runs", "/runs").with_keywords(&[
-            "flight",
-            "recorder",
-            "traces",
-            "provenance",
-            "receipts",
-        ])],
+        items: &[NavItem::new("documents", "Documents", "/documents")
+            .with_keywords(&["files", "upload", "corpus", "ingest"])],
         collapsed_by_default: false,
         show_in_taskbar: true,
         show_in_mobile: true,
         scope: NavScope::PrimaryOnly,
     },
+    // 3. Train (Alt+3) — Training Jobs
+    NavGroup {
+        id: "train",
+        label: "Train",
+        icon: ICON_FLAME,
+        alt_shortcut: Some(3),
+        items: &[NavItem::new("training", "Training Jobs", "/training")
+            .with_keywords(&["train", "finetune", "jobs", "pipeline", "lora"])],
+        collapsed_by_default: false,
+        show_in_taskbar: true,
+        show_in_mobile: true,
+        scope: NavScope::PrimaryOnly,
+    },
+    // 4. Deploy (Alt+4) — Models
     NavGroup {
         id: "deploy",
         label: "Models",
         icon: ICON_ROCKET,
-        alt_shortcut: Some(3),
+        alt_shortcut: Some(4),
         items: &[NavItem::new("models", "Models", "/models").with_keywords(&[
             "llm",
             "foundation",

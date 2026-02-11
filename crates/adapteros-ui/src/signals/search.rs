@@ -1,10 +1,12 @@
 //! Search context for the command palette.
 
 use crate::api::ApiClient;
+use crate::components::layout::nav_registry::all_nav_items;
 use crate::search::{
     contextual_result_matches, generate_contextual_actions, RecentItem, SearchResult,
 };
 use crate::signals::page_context::RouteContext;
+use crate::signals::ui_profile::use_ui_profile;
 use leptos::prelude::*;
 use std::sync::Arc;
 
@@ -116,6 +118,9 @@ impl SearchContext {
             .map(|ctx| generate_contextual_actions(&ctx))
             .unwrap_or_default();
 
+        // Resolve profile now (in reactive scope) for use in timeout
+        let profile = use_ui_profile().get_untracked();
+
         set_timeout_simple(
             move || {
                 if search_version.get_untracked() != version {
@@ -136,7 +141,7 @@ impl SearchContext {
 
                 // If query is not empty, also search static results
                 if !query.is_empty() {
-                    let static_matches: Vec<SearchResult> = static_results()
+                    let static_matches: Vec<SearchResult> = static_results(profile)
                         .into_iter()
                         .filter(|result| result_matches(result, &query))
                         .collect();
@@ -166,6 +171,9 @@ impl SearchContext {
             .map(|ctx| generate_contextual_actions(&ctx))
             .unwrap_or_default();
 
+        // Resolve profile for filtering
+        let profile = use_ui_profile().get_untracked();
+
         // Start with contextual actions (filtered by query if not empty)
         let mut matches: Vec<SearchResult> = if query.is_empty() {
             // Show all contextual actions when query is empty
@@ -180,7 +188,7 @@ impl SearchContext {
 
         // If query is not empty, also search static results
         if !query.is_empty() {
-            let static_matches: Vec<SearchResult> = static_results()
+            let static_matches: Vec<SearchResult> = static_results(profile)
                 .into_iter()
                 .filter(|result| result_matches(result, &query))
                 .collect();
@@ -235,40 +243,30 @@ fn set_timeout_simple<F: FnOnce() + 'static>(f: F, ms: i32) {
 #[cfg(not(target_arch = "wasm32"))]
 fn set_timeout_simple<F: FnOnce() + 'static>(_f: F, _ms: i32) {}
 
-fn static_results() -> Vec<SearchResult> {
-    vec![
-        SearchResult::page("dashboard", "Dashboard", None, "/dashboard", 1.0),
-        SearchResult::page("adapters", "Adapters", None, "/adapters", 1.0),
-        SearchResult::page("chat", "Chat", None, "/chat", 1.0),
-        SearchResult::page("training", "Training", None, "/training", 1.0),
-        SearchResult::page("system", "System", None, "/system", 1.0),
-        SearchResult::page("models", "Models", None, "/models", 1.0),
-        SearchResult::page("policies", "Policies", None, "/policies", 1.0),
-        SearchResult::page("stacks", "Stacks", None, "/stacks", 1.0),
-        SearchResult::page("collections", "Collections", None, "/collections", 1.0),
-        SearchResult::page("documents", "Documents", None, "/documents", 1.0),
-        SearchResult::page("repositories", "Repositories", None, "/repositories", 1.0),
-        SearchResult::page("workers", "Workers", None, "/workers", 1.0),
-        SearchResult::page("admin", "Admin", None, "/admin", 1.0),
-        SearchResult::page("audit", "Audit", None, "/audit", 1.0),
-        SearchResult::page("settings", "Settings", None, "/settings", 1.0),
-        SearchResult::page("user", "User", None, "/user", 1.0),
-        SearchResult::page("safe", "Safe Mode", None, "/safe", 1.0),
-        SearchResult::action(
-            "toggle-chat",
-            "Toggle Chat Dock",
-            None,
-            "toggle-chat",
-            None,
-            1.0,
-        ),
-        SearchResult::action(
-            "toggle-theme",
-            "Toggle Theme",
-            None,
-            "toggle-theme",
-            None,
-            1.0,
-        ),
-    ]
+fn static_results(profile: adapteros_api_types::UiProfile) -> Vec<SearchResult> {
+    // Build page results from nav registry (profile-aware)
+    let mut results: Vec<SearchResult> = all_nav_items(profile)
+        .into_iter()
+        .map(|item| SearchResult::page(item.id, item.label, None, item.route, 1.0))
+        .collect();
+
+    // Actions are always available regardless of profile
+    results.push(SearchResult::action(
+        "toggle-chat",
+        "Toggle Chat Dock",
+        None,
+        "toggle-chat",
+        None,
+        1.0,
+    ));
+    results.push(SearchResult::action(
+        "toggle-theme",
+        "Toggle Theme",
+        None,
+        "toggle-theme",
+        None,
+        1.0,
+    ));
+
+    results
 }

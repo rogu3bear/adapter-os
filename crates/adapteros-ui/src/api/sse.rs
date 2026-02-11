@@ -259,7 +259,7 @@ impl SseConnection {
 
     /// Check if connected
     pub fn is_connected(&self) -> bool {
-        self.ctx.state.get() == SseState::Connected
+        self.ctx.state.try_get_untracked() == Some(SseState::Connected)
     }
 }
 
@@ -306,7 +306,7 @@ fn connect_with_handler(
     ctx: SseContext,
     handler: Rc<dyn Fn(SseEvent)>,
 ) -> Result<(), crate::api::ApiError> {
-    if ctx.state.get_untracked() == SseState::CircuitOpen {
+    if ctx.state.try_get_untracked() == Some(SseState::CircuitOpen) {
         let _ = ctx.state.try_set(SseState::CircuitOpen);
         return Err(crate::api::ApiError::Network(
             "Circuit breaker open".to_string(),
@@ -534,11 +534,12 @@ fn start_watchdog(ctx: SseContext) {
     let interval_ms = (idle_timeout_ms / 2).max(1000);
     let ctx_for_watchdog = ctx.clone();
     let handle = Interval::new(interval_ms, move || {
-        if ctx_for_watchdog.state.get_untracked() != SseState::Connected {
+        // Use try_ variants to avoid panic if signals are disposed during navigation
+        if ctx_for_watchdog.state.try_get_untracked() != Some(SseState::Connected) {
             return;
         }
 
-        if let Some(last_event_at) = ctx_for_watchdog.last_event_at.get_untracked() {
+        if let Some(last_event_at) = ctx_for_watchdog.last_event_at.try_get_untracked().flatten() {
             let elapsed = Date::now() - last_event_at;
             if elapsed.is_sign_negative() {
                 return;

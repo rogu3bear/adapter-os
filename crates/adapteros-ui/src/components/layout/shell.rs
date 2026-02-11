@@ -18,7 +18,7 @@ use crate::components::telemetry_overlay::TelemetryOverlay;
 use crate::components::workspace::Workspace;
 use crate::signals::{
     provide_route_context, provide_ui_profile_context, use_chat, use_route_context, use_search,
-    use_ui_profile, DockState,
+    use_settings, use_ui_profile, DockState,
 };
 use leptos::prelude::*;
 use leptos_router::components::Outlet;
@@ -46,6 +46,37 @@ pub fn Shell() -> impl IntoView {
         route_context.set_route(&pathname);
         // Clear selection when route changes
         route_context.clear_selected();
+
+        // Update document title based on current route
+        let title = match pathname.as_str() {
+            "/" | "/dashboard" => "Dashboard",
+            "/adapters" => "Adapters",
+            "/training" => "Training",
+            "/chat" => "Chat",
+            "/models" => "Models",
+            "/workers" => "Workers",
+            "/monitoring" => "Monitoring",
+            "/settings" => "Settings",
+            "/documents" => "Documents",
+            "/stacks" => "Stacks",
+            "/datasets" => "Datasets",
+            "/collections" => "Collections",
+            "/routing" => "Routing",
+            "/repositories" => "Repositories",
+            _ if pathname.starts_with("/training/") => "Training Detail",
+            _ if pathname.starts_with("/adapters/") => "Adapter Detail",
+            _ if pathname.starts_with("/stacks/") => "Stack Detail",
+            _ if pathname.starts_with("/workers/") => "Worker Detail",
+            _ if pathname.starts_with("/models/") => "Model Detail",
+            _ if pathname.starts_with("/documents/") => "Document Detail",
+            _ if pathname.starts_with("/datasets/") => "Dataset Detail",
+            _ if pathname.starts_with("/repositories/") => "Repository Detail",
+            _ => "AdapterOS",
+        };
+        if let Some(document) = web_sys::window().and_then(|w| w.document()) {
+            document.set_title(&format!("{} \u{2014} AdapterOS", title));
+        }
+
         // Clear panic overlay on navigation (it's outside Leptos, so we call JS directly)
         if let Some(window) = web_sys::window() {
             if let Some(document) = window.document() {
@@ -138,9 +169,18 @@ pub fn Shell() -> impl IntoView {
         closure.forget();
     });
 
+    let settings = use_settings();
+    let shell_class = move || {
+        if settings.try_get().map(|s| s.compact_mode).unwrap_or(false) {
+            "shell compact"
+        } else {
+            "shell"
+        }
+    };
+
     view! {
         <StatusCenterProvider>
-            <div class="shell">
+            <div class=shell_class>
                 // Skip to main content link for keyboard accessibility
                 <a
                     href="#main-content"

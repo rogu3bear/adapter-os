@@ -241,7 +241,7 @@ pub fn StepFormDialog(
             </div>
 
             // Step content
-            <div class="step-content min-h-[200px]">
+            <div class="step-content">
                 {children()}
             </div>
 
