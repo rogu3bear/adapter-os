@@ -93,6 +93,7 @@ dependencies = [
  "blake3",
  "chrono",
  "futures",
+ "futures-util",
  "hex",
  "parking_lot",
  "serde",
@@ -1151,6 +1152,7 @@ dependencies = [
  "dirs",
  "ed25519-dalek",
  "flate2",
+ "futures-util",
  "git2",
  "half 2.7.1",
  "hex",
@@ -1339,6 +1341,7 @@ dependencies = [
  "blake3",
  "clap",
  "ed25519-dalek",
+ "futures-util",
  "hex",
  "hostname",
  "hyper 1.8.1",
@@ -1400,6 +1403,7 @@ dependencies = [
  "blake3",
  "chrono",
  "clap",
+ "futures-util",
  "git2",
  "hex",
  "parking_lot",
@@ -1459,6 +1463,7 @@ dependencies = [
  "adapteros-trace",
  "blake3",
  "chrono",
+ "futures-util",
  "governor",
  "hex",
  "once_cell",
@@ -1600,6 +1605,7 @@ dependencies = [
  "clap",
  "core-foundation 0.9.4",
  "ed25519-dalek",
+ "futures-util",
  "hex",
  "hkdf",
  "nix 0.29.0",
@@ -1911,19 +1917,6 @@ dependencies = [
 ]
 
 [[package]]
-name = "adapteros-server-api-types"
-version = "0.2.0"
-dependencies = [
- "axum 0.8.8",
- "chrono",
- "http 1.4.0",
- "serde",
- "serde_json",
- "thiserror 2.0.18",
- "uuid",
-]
-
-[[package]]
 name = "adapteros-service-supervisor"
 version = "0.14.1"
 dependencies = [
@@ -1941,6 +1934,7 @@ dependencies = [
  "config",
  "ed25519-dalek",
  "futures",
+ "futures-util",
  "hex",
  "jsonwebtoken",
  "metrics 0.23.1",
@@ -2014,6 +2008,7 @@ dependencies = [
  "anyhow",
  "async-trait",
  "chrono",
+ "futures-util",
  "hkdf",
  "metal 0.30.0",
  "parking_lot",
@@ -2051,6 +2046,7 @@ dependencies = [
  "crossbeam",
  "dashmap 5.5.3",
  "flate2",
+ "futures-util",
  "hex",
  "lz4_flex 0.11.5",
  "parking_lot",
