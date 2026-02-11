@@ -163,6 +163,8 @@ pub struct ReadyzResponse {
     /// components that failed to start.
     #[serde(default, skip_serializing_if = "Vec::is_empty")]
     pub boot_warnings: Vec<BootWarning>,
+    #[serde(skip_serializing_if = "Option::is_none")]
+    pub build_id: Option<String>,
 }
 
 #[derive(Debug, Clone, Serialize, Deserialize, ToSchema, Default)]
@@ -256,6 +258,7 @@ pub async fn ready(State(state): State<AppState>) -> impl IntoResponse {
                 phases: Vec::new(),
                 readiness_mode,
                 boot_warnings: Vec::new(),
+                build_id: None,
             }),
         );
     };
@@ -565,6 +568,7 @@ pub async fn ready(State(state): State<AppState>) -> impl IntoResponse {
             phases: boot_state.phase_statuses(),
             readiness_mode,
             boot_warnings: boot_state.get_boot_warnings(),
+            build_id: Some(adapteros_core::version::BUILD_ID.to_string()),
         }),
     )
 }

@@ -1560,6 +1560,14 @@ async fn main() -> Result<()> {
     // Initialize unified logging
     init_logging()?;
 
+    tracing::debug!(
+        build_id = adapteros_core::version::BUILD_ID,
+        git_commit = adapteros_core::version::GIT_COMMIT_HASH,
+        version = adapteros_core::version::VERSION,
+        profile = adapteros_core::version::BUILD_PROFILE,
+        "aosctl starting"
+    );
+
     let cli = Cli::parse();
 
     // Create output writer based on global flags

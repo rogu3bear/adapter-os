@@ -300,6 +300,8 @@ pub async fn run_worker() -> Result<()> {
 
     // Initialize tracing
     let _log_guard = init_worker_logging()?;
+    let _root_span =
+        tracing::info_span!("worker", build_id = adapteros_core::version::BUILD_ID).entered();
 
     // Startup preamble: first structured log identifying this build
     info!(

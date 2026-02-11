@@ -62,7 +62,14 @@ async fn main() -> Result<()> {
             report,
             format,
         } => {
-            info!(cpid = %cpid, "Starting adapterOS Promotion Gate Orchestrator");
+            info!(
+                build_id = adapteros_core::version::BUILD_ID,
+                git_commit = adapteros_core::version::GIT_COMMIT_HASH,
+                version = adapteros_core::version::VERSION,
+                profile = adapteros_core::version::BUILD_PROFILE,
+                cpid = %cpid,
+                "mplora-orchestrator starting"
+            );
 
             let config = OrchestratorConfig {
                 continue_on_error,

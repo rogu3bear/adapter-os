@@ -16,7 +16,13 @@ async fn main() -> Result<()> {
         .with(tracing_subscriber::fmt::layer())
         .init();
 
-    info!("Starting adapterOS Service Supervisor");
+    info!(
+        build_id = adapteros_core::version::BUILD_ID,
+        git_commit = adapteros_core::version::GIT_COMMIT_HASH,
+        version = adapteros_core::version::VERSION,
+        profile = adapteros_core::version::BUILD_PROFILE,
+        "aos-service-supervisor starting"
+    );
 
     // Load configuration
     let config = match SupervisorConfig::load() {
