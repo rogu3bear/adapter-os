@@ -55,7 +55,9 @@ pub fn TraceViewer(
         let api = api.clone();
         let request_id = initial_request_id.clone();
         let has_initial_trace = initial_trace_id.is_some();
-        let selected = selected_trace_id.get();
+        let Some(selected) = selected_trace_id.try_get() else {
+            return;
+        };
 
         wasm_bindgen_futures::spawn_local(async move {
             if let Some(tid) = selected {

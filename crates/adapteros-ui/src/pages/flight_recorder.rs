@@ -654,18 +654,19 @@ fn TabContent(
     perf_enabled: bool,
 ) -> impl IntoView {
     Effect::new(move |_| {
-        if let LoadingState::Loaded(detail) = trace_detail.get() {
-            let digest = detail.receipt.map(|receipt| receipt.receipt_digest);
-            receipt_digest.set(digest);
-            if perf_enabled && !trace_detail_ready_logged.get_untracked() {
-                if let Some(started_at) = trace_detail_started_at.get_untracked() {
-                    let elapsed_ms = started_at.elapsed().as_millis();
-                    web_sys::console::log_1(
-                        &format!("[perf] run detail ready: {}ms", elapsed_ms).into(),
-                    );
-                }
-                trace_detail_ready_logged.set(true);
+        let Some(LoadingState::Loaded(detail)) = trace_detail.try_get() else {
+            return;
+        };
+        let digest = detail.receipt.map(|receipt| receipt.receipt_digest);
+        let _ = receipt_digest.try_set(digest);
+        if perf_enabled && !trace_detail_ready_logged.get_untracked() {
+            if let Some(started_at) = trace_detail_started_at.get_untracked() {
+                let elapsed_ms = started_at.elapsed().as_millis();
+                web_sys::console::log_1(
+                    &format!("[perf] run detail ready: {}ms", elapsed_ms).into(),
+                );
             }
+            let _ = trace_detail_ready_logged.try_set(true);
         }
     });
 
@@ -1476,9 +1477,10 @@ fn ReceiptsTab(
     let verifying = RwSignal::new(false);
 
     Effect::new(move |_| {
-        if let LoadingState::Loaded(detail) = trace_detail.get() {
-            receipt_digest.set(detail.receipt.map(|r| r.receipt_digest));
-        }
+        let Some(LoadingState::Loaded(detail)) = trace_detail.try_get() else {
+            return;
+        };
+        let _ = receipt_digest.try_set(detail.receipt.map(|r| r.receipt_digest));
     });
 
     let run_id = export.run.id.clone();
@@ -2171,10 +2173,10 @@ fn DiffTab(export: DiagExportResponse, compare_trace: Option<String>) -> impl In
 
     let start_compare_for_effect = start_compare;
     Effect::new(move |_| {
-        if auto_compare_done.get() || compare_trace_value.is_empty() {
+        if auto_compare_done.try_get().unwrap_or(true) || compare_trace_value.is_empty() {
             return;
         }
-        auto_compare_done.set(true);
+        let _ = auto_compare_done.try_set(true);
         start_compare_for_effect.run(compare_trace_value.clone());
     });
 

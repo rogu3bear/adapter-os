@@ -922,31 +922,16 @@ impl StreamingInferenceHandler {
 
         // Handle stream_started lifecycle event
         if event.event_type == "stream_started" {
-            if let Ok(parsed) = serde_json::from_str::<serde_json::Value>(data) {
-                let stream_id = parsed
-                    .get("stream_id")
-                    .and_then(|v| v.as_str())
-                    .unwrap_or("")
-                    .to_string();
-                let request_id = parsed
-                    .get("request_id")
-                    .and_then(|v| v.as_str())
-                    .unwrap_or("")
-                    .to_string();
-                let idempotency_key = parsed
-                    .get("idempotency_key")
-                    .and_then(|v| v.as_str())
-                    .map(|s| s.to_string());
-
-                *self.stream_id.borrow_mut() = Some(stream_id.clone());
-                *self.request_id.borrow_mut() = Some(request_id.clone());
-                *self.idempotency_key.borrow_mut() = idempotency_key.clone();
+            if let Ok(evt) = serde_json::from_str::<adapteros_api_types::StreamStartedEvent>(data) {
+                *self.stream_id.borrow_mut() = Some(evt.stream_id.clone());
+                *self.request_id.borrow_mut() = Some(evt.request_id.clone());
+                *self.idempotency_key.borrow_mut() = evt.idempotency_key.clone();
 
                 if let Some(ref callback) = *self.on_lifecycle.borrow() {
                     callback(StreamLifecycleEvent::Started {
-                        stream_id,
-                        request_id,
-                        idempotency_key,
+                        stream_id: evt.stream_id,
+                        request_id: evt.request_id,
+                        idempotency_key: evt.idempotency_key,
                     });
                 }
             }
@@ -955,37 +940,15 @@ impl StreamingInferenceHandler {
 
         // Handle stream_finished lifecycle event
         if event.event_type == "stream_finished" {
-            if let Ok(parsed) = serde_json::from_str::<serde_json::Value>(data) {
-                let stream_id = parsed
-                    .get("stream_id")
-                    .and_then(|v| v.as_str())
-                    .unwrap_or("")
-                    .to_string();
-                let request_id = parsed
-                    .get("request_id")
-                    .and_then(|v| v.as_str())
-                    .unwrap_or("")
-                    .to_string();
-                let total_tokens = parsed
-                    .get("total_tokens")
-                    .and_then(|v| v.as_u64())
-                    .unwrap_or(0) as usize;
-                let duration_ms = parsed
-                    .get("duration_ms")
-                    .and_then(|v| v.as_u64())
-                    .unwrap_or(0);
-                let finish_reason = parsed
-                    .get("finish_reason")
-                    .and_then(|v| v.as_str())
-                    .map(|s| s.to_string());
-
+            if let Ok(evt) = serde_json::from_str::<adapteros_api_types::StreamFinishedEvent>(data)
+            {
                 if let Some(ref callback) = *self.on_lifecycle.borrow() {
                     callback(StreamLifecycleEvent::Finished {
-                        stream_id,
-                        request_id,
-                        total_tokens,
-                        duration_ms,
-                        finish_reason,
+                        stream_id: evt.stream_id,
+                        request_id: evt.request_id,
+                        total_tokens: evt.total_tokens,
+                        duration_ms: evt.duration_ms,
+                        finish_reason: evt.finish_reason,
                     });
                 }
             }
@@ -994,19 +957,14 @@ impl StreamingInferenceHandler {
 
         // Handle error event
         if event.event_type == "error" {
-            if let Ok(parsed) = serde_json::from_str::<serde_json::Value>(data) {
-                let message = parsed
-                    .get("message")
-                    .and_then(|v| v.as_str())
-                    .unwrap_or("Unknown error")
-                    .to_string();
-                let retryable = parsed
-                    .get("retryable")
-                    .and_then(|v| v.as_bool())
-                    .unwrap_or(false);
-
+            if let Ok(evt) = serde_json::from_str::<adapteros_api_types::StreamErrorEvent>(data) {
+                let message = if evt.message.is_empty() {
+                    "Unknown error".to_string()
+                } else {
+                    evt.message
+                };
                 if let Some(ref callback) = *self.on_error.borrow() {
-                    callback(message, retryable);
+                    callback(message, evt.retryable);
                 }
             }
             return;

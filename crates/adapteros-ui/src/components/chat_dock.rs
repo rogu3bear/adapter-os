@@ -220,11 +220,13 @@ fn TargetSelector() -> impl IntoView {
 
     // Reset has_loaded when dropdown closes to allow refresh on next open
     Effect::new(move |prev_open: Option<bool>| {
-        let is_open = show_dropdown.get();
+        let Some(is_open) = show_dropdown.try_get() else {
+            return prev_open.unwrap_or(false);
+        };
         if let Some(was_open) = prev_open {
             if was_open && !is_open {
                 // Dropdown just closed - reset to allow refresh on next open
-                has_loaded.set(false);
+                let _ = has_loaded.try_set(false);
             }
         }
         is_open
@@ -644,7 +646,10 @@ fn MessageList() -> impl IntoView {
     // Uses Timeout instead of spawn_local to avoid RefCell re-entrancy panic
     // in wasm-bindgen-futures when called from within an Effect body
     Effect::new(move |_| {
-        let msg_count = chat_state.get().messages.len();
+        let Some(state) = chat_state.try_get() else {
+            return;
+        };
+        let msg_count = state.messages.len();
         // Scroll to bottom when message count changes
         if msg_count > 0 {
             if let Some(el) = container_ref.get() {
@@ -945,9 +950,15 @@ fn ChatInput() -> impl IntoView {
     {
         let action_for_poll = chat_action.clone();
         Effect::new(move |_| {
-            let has_q = has_queued.get();
-            let ready = inference_ready.get();
-            let busy = is_busy.get();
+            let Some(has_q) = has_queued.try_get() else {
+                return;
+            };
+            let Some(ready) = inference_ready.try_get() else {
+                return;
+            };
+            let Some(busy) = is_busy.try_get() else {
+                return;
+            };
 
             if has_q && ready && !busy {
                 action_for_poll.process_queued_message();
@@ -959,7 +970,7 @@ fn ChatInput() -> impl IntoView {
     {
         let action_for_tick = chat_action.clone();
         Effect::new(move |_| {
-            if let LoadingState::Loaded(status) = system_status.get() {
+            if let Some(LoadingState::Loaded(status)) = system_status.try_get() {
                 let blocker_text = status.inference_blockers.first().map(humanize_blocker);
                 action_for_tick.tick_pending_phases(blocker_text);
             }
