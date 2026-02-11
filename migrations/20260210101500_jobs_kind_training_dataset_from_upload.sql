@@ -4,7 +4,6 @@
 -- Keep the schema identical aside from the expanded `kind` enum.
 
 PRAGMA foreign_keys=off;
-BEGIN;
 
 CREATE TABLE IF NOT EXISTS jobs_new (
     id TEXT PRIMARY KEY,
@@ -30,6 +29,4 @@ ALTER TABLE jobs_new RENAME TO jobs;
 CREATE INDEX IF NOT EXISTS idx_jobs_status_created_at ON jobs(status, created_at DESC);
 CREATE INDEX IF NOT EXISTS idx_jobs_tenant_id ON jobs(tenant_id);
 
-COMMIT;
 PRAGMA foreign_keys=on;
-
