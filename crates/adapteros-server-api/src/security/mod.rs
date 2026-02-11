@@ -236,7 +236,7 @@ pub async fn validate_tenant_isolation_with_audit(
     } else {
         Some("tenant isolation violation")
     };
-    let _ = log_tenant_access_attempt(
+    if let Err(e) = log_tenant_access_attempt(
         db,
         claims,
         resource_tenant_id,
@@ -244,7 +244,16 @@ pub async fn validate_tenant_isolation_with_audit(
         reason,
         request_path,
     )
-    .await;
+    .await
+    {
+        tracing::error!(
+            target: "security.tenant",
+            error = %e,
+            user_id = %claims.sub,
+            resource_tenant = %resource_tenant_id,
+            "failed to log tenant access attempt"
+        );
+    }
 
     if access_granted {
         info!(

@@ -358,13 +358,22 @@ impl Db {
                             .await?
                             .is_some()
                         {
-                            let _ = repo
+                            if let Err(e) = repo
                                 .remove_document_from_collection(
                                     tenant_id,
                                     collection_id,
                                     document_id,
                                 )
-                                .await;
+                                .await
+                            {
+                                warn!(
+                                    collection_id,
+                                    document_id,
+                                    tenant_id,
+                                    error = %e,
+                                    "failed to remove document from collection in KV store"
+                                );
+                            }
                             break;
                         }
                     }

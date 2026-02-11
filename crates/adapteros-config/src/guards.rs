@@ -279,10 +279,12 @@ impl ConfigGuards {
     /// ```
     pub fn safe_env_var(key: &str) -> Result<String> {
         if Self::is_frozen() {
-            let _ = Self::record_violation(
+            if let Err(e) = Self::record_violation(
                 "env_var_access",
                 &format!("Attempted to read {} after freeze", key),
-            );
+            ) {
+                tracing::error!(target: "security.config", error = %e, key = %key, "failed to record config freeze violation");
+            }
 
             return Err(AosError::Config(format!(
                 "Environment variable access after freeze is prohibited: {}",
@@ -307,10 +309,12 @@ impl ConfigGuards {
     /// about environment state. A violation is recorded for auditing.
     pub fn env_var_exists(key: &str) -> bool {
         if Self::is_frozen() {
-            let _ = Self::record_violation(
+            if let Err(e) = Self::record_violation(
                 "env_var_check",
                 &format!("Checked existence of {} after freeze", key),
-            );
+            ) {
+                tracing::error!(target: "security.config", error = %e, key = %key, "failed to record config freeze violation");
+            }
             tracing::warn!(key = %key, "Environment variable check after freeze - returning false");
             // Return false after freeze to prevent information leakage
             return false;

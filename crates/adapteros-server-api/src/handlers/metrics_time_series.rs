@@ -14,6 +14,7 @@ use axum::{
     Extension, Json,
 };
 use serde::{Deserialize, Serialize};
+use tracing;
 use utoipa::ToSchema;
 
 /// Metrics time series response
@@ -229,7 +230,7 @@ pub async fn get_metrics_snapshot(
     };
 
     // Store in database for historical tracking
-    let _ = sqlx::query(
+    if let Err(e) = sqlx::query(
         "INSERT INTO system_metrics (
             timestamp, cpu_usage, memory_usage,
             disk_read_bytes, disk_write_bytes, disk_usage_percent,
@@ -257,7 +258,10 @@ pub async fn get_metrics_snapshot(
     .bind(data_point.load_5min)
     .bind(data_point.load_15min)
     .execute(state.db.pool())
-    .await;
+    .await
+    {
+        tracing::warn!(error = %e, "failed to persist system metrics to database");
+    }
 
     Ok(Json(data_point))
 }

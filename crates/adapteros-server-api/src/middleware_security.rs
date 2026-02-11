@@ -283,11 +283,16 @@ pub async fn request_size_limit_middleware(
             };
 
             if size > max_size {
+                let ip = req
+                    .extensions()
+                    .get::<crate::ip_extraction::ClientIp>()
+                    .map(|c| c.0.as_str().to_owned());
                 tracing::warn!(
                     method = %req.method(),
                     content_length = %size,
                     max_size = %max_size,
                     path = %req.uri().path(),
+                    client_ip = ?ip,
                     "Request size limit exceeded"
                 );
                 return Ok(Response::builder()
