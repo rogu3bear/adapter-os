@@ -13,7 +13,7 @@ use crate::auth::Claims;
 use crate::ip_extraction::ClientIp;
 use crate::permissions::{require_permission, Permission};
 use crate::state::AppState;
-use crate::types::{AdapterResponse, ErrorResponse};
+use crate::types::{AdapterResponse, ErrorResponse, LifecycleState};
 use crate::validation::validate_adapter_id;
 use adapteros_db::AdapterRegistrationBuilder;
 use axum::{
@@ -584,7 +584,7 @@ pub async fn import_adapter(
             updated_at: Some(now),
             stats: None,
             version: existing.version,
-            lifecycle_state: existing.lifecycle_state,
+            lifecycle_state: existing.lifecycle_state.into(),
             runtime_state: Some(existing.current_state),
             pinned: Some(existing.pinned != 0),
             memory_bytes: Some(existing.memory_bytes),
@@ -1149,7 +1149,7 @@ pub async fn import_adapter(
         updated_at: None,
         stats: None,
         version,
-        lifecycle_state: "draft".to_string(),
+        lifecycle_state: LifecycleState::Draft,
         runtime_state: Some(if auto_load {
             "warm".to_string()
         } else {

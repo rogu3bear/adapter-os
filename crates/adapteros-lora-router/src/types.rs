@@ -543,23 +543,33 @@ pub struct ScoringExplanation {
 }
 
 impl ScoringExplanation {
-    /// Format as human-readable string
-    pub fn format(&self) -> String {
+    /// Format as human-readable string using actual weight values
+    pub fn format_with_weights(&self, weights: &RouterWeights) -> String {
         format!(
             "Scoring Breakdown:\n\
-             - Language:     {:.3} (weight: 0.30)\n\
-             - Framework:    {:.3} (weight: 0.25)\n\
-             - Symbol Hits:  {:.3} (weight: 0.20)\n\
-             - Path Tokens:  {:.3} (weight: 0.15)\n\
-             - Prompt Verb:  {:.3} (weight: 0.10)\n\
+             - Language:     {:.3} (weight: {:.3})\n\
+             - Framework:    {:.3} (weight: {:.3})\n\
+             - Symbol Hits:  {:.3} (weight: {:.3})\n\
+             - Path Tokens:  {:.3} (weight: {:.3})\n\
+             - Prompt Verb:  {:.3} (weight: {:.3})\n\
              = Total Score:  {:.3}",
             self.language_score,
+            weights.language_weight,
             self.framework_score,
+            weights.framework_weight,
             self.symbol_hits_score,
+            weights.symbol_hits_weight,
             self.path_tokens_score,
+            weights.path_tokens_weight,
             self.prompt_verb_score,
+            weights.prompt_verb_weight,
             self.total_score,
         )
+    }
+
+    /// Format as human-readable string using default weights
+    pub fn format(&self) -> String {
+        self.format_with_weights(&RouterWeights::default())
     }
 }
 

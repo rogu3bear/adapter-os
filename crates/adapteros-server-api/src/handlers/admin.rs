@@ -4,7 +4,7 @@
 //!
 //! 【2025-11-30†feature†admin_users_endpoint】
 
-use crate::api_error::ApiError;
+use crate::api_error::{ApiError, ApiResult};
 use crate::auth::Claims;
 use crate::middleware::require_role;
 use crate::state::AppState;
@@ -13,8 +13,7 @@ pub use adapteros_api_types::admin::{ListUsersParams, ListUsersResponse, UserRes
 use adapteros_db::users::{Role, User};
 use axum::{
     extract::{Extension, Query, State},
-    http::StatusCode,
-    response::Json,
+    Json,
 };
 
 /// Convert a database User to an API UserResponse
@@ -57,7 +56,7 @@ pub async fn list_users(
     State(state): State<AppState>,
     Extension(claims): Extension<Claims>,
     Query(params): Query<ListUsersParams>,
-) -> Result<Json<ListUsersResponse>, (StatusCode, Json<ErrorResponse>)> {
+) -> ApiResult<ListUsersResponse> {
     // Require Admin role
     require_role(&claims, Role::Admin)?;
 

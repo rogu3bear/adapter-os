@@ -36,7 +36,8 @@ const ACTION_MODEL_UNLOAD: &str = "model.unload";
 /// Audit action: model import
 const ACTION_MODEL_IMPORT: &str = "model.import";
 
-fn normalize_backend_label(backend: &str) -> &str {
+/// Normalize backend label strings (e.g. "mlx-ffi" / "mlx_ffi" -> "mlx").
+pub fn normalize_backend_label(backend: &str) -> &str {
     let trimmed = backend.trim();
     if trimmed.eq_ignore_ascii_case("mlx-ffi") || trimmed.eq_ignore_ascii_case("mlx_ffi") {
         "mlx"

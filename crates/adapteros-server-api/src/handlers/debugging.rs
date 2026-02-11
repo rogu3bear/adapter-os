@@ -2,6 +2,7 @@
 //!
 //! Handlers for process logs, crash dumps, debug sessions, and troubleshooting.
 
+use crate::api_error::{ApiError, ApiResult};
 use crate::auth::Claims;
 use crate::middleware::require_any_role;
 use crate::state::AppState;
@@ -9,7 +10,6 @@ use crate::types::*;
 use adapteros_db::users::Role;
 use axum::{
     extract::{Path, Query, State},
-    http::StatusCode,
     Extension, Json,
 };
 use chrono::Utc;
@@ -32,27 +32,15 @@ async fn ensure_worker_access(
     state: &AppState,
     claims: &Claims,
     worker_id: &str,
-) -> Result<(), (StatusCode, Json<ErrorResponse>)> {
+) -> Result<(), ApiError> {
     let worker = state
         .db
         .get_worker_for_tenant(&claims.tenant_id, worker_id)
         .await
-        .map_err(|e| {
-            (
-                StatusCode::INTERNAL_SERVER_ERROR,
-                Json(
-                    ErrorResponse::new("database error")
-                        .with_code("DATABASE_ERROR")
-                        .with_string_details(e.to_string()),
-                ),
-            )
-        })?;
+        .map_err(ApiError::db_error)?;
 
     if worker.is_none() {
-        return Err((
-            StatusCode::NOT_FOUND,
-            Json(ErrorResponse::new("worker not found").with_code("NOT_FOUND")),
-        ));
+        return Err(ApiError::not_found("worker"));
     }
 
     Ok(())
@@ -79,11 +67,9 @@ pub async fn list_process_logs(
     Extension(claims): Extension<Claims>,
     Path(worker_id): Path<String>,
     Query(params): Query<HashMap<String, String>>,
-) -> Result<Json<Vec<ProcessLogResponse>>, (StatusCode, Json<ErrorResponse>)> {
+) -> ApiResult<Vec<ProcessLogResponse>> {
     require_any_role(&claims, &[Role::Operator, Role::Admin])?;
-    let worker_id = crate::id_resolver::resolve_any_id(&state.db, &worker_id)
-        .await
-        .map_err(<(StatusCode, Json<ErrorResponse>)>::from)?;
+    let worker_id = crate::id_resolver::resolve_any_id(&state.db, &worker_id).await?;
     ensure_worker_access(&state, &claims, &worker_id).await?;
 
     let level_filter = match params.get("level") {
@@ -93,14 +79,9 @@ pub async fn list_process_logs(
                 normalized.as_str(),
                 "debug" | "info" | "warn" | "error" | "fatal"
             ) {
-                return Err((
-                    StatusCode::BAD_REQUEST,
-                    Json(
-                        ErrorResponse::new("invalid level filter")
-                            .with_code("BAD_REQUEST")
-                            .with_string_details(level.to_string()),
-                    ),
-                ));
+                return Err(
+                    ApiError::bad_request("invalid level filter").with_details(level.to_string())
+                );
             }
             Some(normalized)
         }
@@ -130,14 +111,7 @@ pub async fn list_process_logs(
             if is_missing_table_error(&e) {
                 return Ok(Json(Vec::new()));
             }
-            return Err((
-                StatusCode::INTERNAL_SERVER_ERROR,
-                Json(
-                    ErrorResponse::new("database error")
-                        .with_code("DATABASE_ERROR")
-                        .with_string_details(e.to_string()),
-                ),
-            ));
+            return Err(ApiError::db_error(e));
         }
     };
 
@@ -172,11 +146,9 @@ pub async fn list_process_crashes(
     State(state): State<AppState>,
     Extension(claims): Extension<Claims>,
     Path(worker_id): Path<String>,
-) -> Result<Json<Vec<ProcessCrashDumpResponse>>, (StatusCode, Json<ErrorResponse>)> {
+) -> ApiResult<Vec<ProcessCrashDumpResponse>> {
     require_any_role(&claims, &[Role::Operator, Role::Admin])?;
-    let worker_id = crate::id_resolver::resolve_any_id(&state.db, &worker_id)
-        .await
-        .map_err(<(StatusCode, Json<ErrorResponse>)>::from)?;
+    let worker_id = crate::id_resolver::resolve_any_id(&state.db, &worker_id).await?;
     ensure_worker_access(&state, &claims, &worker_id).await?;
 
     let rows = match sqlx::query(
@@ -194,14 +166,7 @@ pub async fn list_process_crashes(
             if is_missing_table_error(&e) {
                 return Ok(Json(Vec::new()));
             }
-            return Err((
-                StatusCode::INTERNAL_SERVER_ERROR,
-                Json(
-                    ErrorResponse::new("database error")
-                        .with_code("DATABASE_ERROR")
-                        .with_string_details(e.to_string()),
-                ),
-            ));
+            return Err(ApiError::db_error(e));
         }
     };
 
@@ -240,38 +205,24 @@ pub async fn start_debug_session(
     Extension(claims): Extension<Claims>,
     Path(worker_id): Path<String>,
     Json(req): Json<StartDebugSessionRequest>,
-) -> Result<Json<ProcessDebugSessionResponse>, (StatusCode, Json<ErrorResponse>)> {
+) -> ApiResult<ProcessDebugSessionResponse> {
     require_any_role(&claims, &[Role::Operator, Role::Admin])?;
-    let worker_id = crate::id_resolver::resolve_any_id(&state.db, &worker_id)
-        .await
-        .map_err(<(StatusCode, Json<ErrorResponse>)>::from)?;
-    let request_worker_id = crate::id_resolver::resolve_any_id(&state.db, &req.worker_id)
-        .await
-        .map_err(<(StatusCode, Json<ErrorResponse>)>::from)?;
+    let worker_id = crate::id_resolver::resolve_any_id(&state.db, &worker_id).await?;
+    let request_worker_id = crate::id_resolver::resolve_any_id(&state.db, &req.worker_id).await?;
 
     if request_worker_id != worker_id {
-        return Err((
-            StatusCode::BAD_REQUEST,
-            Json(
-                ErrorResponse::new("worker_id mismatch")
-                    .with_code("BAD_REQUEST")
-                    .with_string_details(format!(
-                        "path worker_id {} does not match request worker_id {}",
-                        worker_id, req.worker_id
-                    )),
-            ),
-        ));
+        return Err(
+            ApiError::bad_request("worker_id mismatch").with_details(format!(
+                "path worker_id {} does not match request worker_id {}",
+                worker_id, req.worker_id
+            )),
+        );
     }
 
     if !is_valid_session_type(req.session_type.as_str()) {
-        return Err((
-            StatusCode::BAD_REQUEST,
-            Json(
-                ErrorResponse::new("invalid session_type")
-                    .with_code("BAD_REQUEST")
-                    .with_string_details(req.session_type.clone()),
-            ),
-        ));
+        return Err(
+            ApiError::bad_request("invalid session_type").with_details(req.session_type.clone())
+        );
     }
 
     ensure_worker_access(&state, &claims, &worker_id).await?;
@@ -295,22 +246,10 @@ pub async fn start_debug_session(
     .await
     .map_err(|e| {
         if is_missing_table_error(&e) {
-            return (
-                StatusCode::SERVICE_UNAVAILABLE,
-                Json(
-                    ErrorResponse::new("process_debug_sessions table missing")
-                        .with_code("MISSING_TABLE"),
-                ),
-            );
+            return ApiError::service_unavailable("process_debug_sessions table missing")
+                .with_code("MISSING_TABLE");
         }
-        (
-            StatusCode::INTERNAL_SERVER_ERROR,
-            Json(
-                ErrorResponse::new("database error")
-                    .with_code("DATABASE_ERROR")
-                    .with_string_details(e.to_string()),
-            ),
-        )
+        ApiError::db_error(e)
     })?;
 
     Ok(Json(ProcessDebugSessionResponse {
@@ -343,38 +282,22 @@ pub async fn run_troubleshooting_step(
     Extension(claims): Extension<Claims>,
     Path(worker_id): Path<String>,
     Json(req): Json<RunTroubleshootingStepRequest>,
-) -> Result<Json<ProcessTroubleshootingStepResponse>, (StatusCode, Json<ErrorResponse>)> {
+) -> ApiResult<ProcessTroubleshootingStepResponse> {
     require_any_role(&claims, &[Role::Operator, Role::Admin])?;
-    let worker_id = crate::id_resolver::resolve_any_id(&state.db, &worker_id)
-        .await
-        .map_err(<(StatusCode, Json<ErrorResponse>)>::from)?;
-    let request_worker_id = crate::id_resolver::resolve_any_id(&state.db, &req.worker_id)
-        .await
-        .map_err(<(StatusCode, Json<ErrorResponse>)>::from)?;
+    let worker_id = crate::id_resolver::resolve_any_id(&state.db, &worker_id).await?;
+    let request_worker_id = crate::id_resolver::resolve_any_id(&state.db, &req.worker_id).await?;
 
     if request_worker_id != worker_id {
-        return Err((
-            StatusCode::BAD_REQUEST,
-            Json(
-                ErrorResponse::new("worker_id mismatch")
-                    .with_code("BAD_REQUEST")
-                    .with_string_details(format!(
-                        "path worker_id {} does not match request worker_id {}",
-                        worker_id, req.worker_id
-                    )),
-            ),
-        ));
+        return Err(
+            ApiError::bad_request("worker_id mismatch").with_details(format!(
+                "path worker_id {} does not match request worker_id {}",
+                worker_id, req.worker_id
+            )),
+        );
     }
 
     if !is_valid_step_type(req.step_type.as_str()) {
-        return Err((
-            StatusCode::BAD_REQUEST,
-            Json(
-                ErrorResponse::new("invalid step_type")
-                    .with_code("BAD_REQUEST")
-                    .with_string_details(req.step_type.clone()),
-            ),
-        ));
+        return Err(ApiError::bad_request("invalid step_type").with_details(req.step_type.clone()));
     }
 
     ensure_worker_access(&state, &claims, &worker_id).await?;
@@ -399,22 +322,10 @@ pub async fn run_troubleshooting_step(
     .await
     .map_err(|e| {
         if is_missing_table_error(&e) {
-            return (
-                StatusCode::SERVICE_UNAVAILABLE,
-                Json(
-                    ErrorResponse::new("process_troubleshooting_steps table missing")
-                        .with_code("MISSING_TABLE"),
-                ),
-            );
+            return ApiError::service_unavailable("process_troubleshooting_steps table missing")
+                .with_code("MISSING_TABLE");
         }
-        (
-            StatusCode::INTERNAL_SERVER_ERROR,
-            Json(
-                ErrorResponse::new("database error")
-                    .with_code("DATABASE_ERROR")
-                    .with_string_details(e.to_string()),
-            ),
-        )
+        ApiError::db_error(e)
     })?;
 
     Ok(Json(ProcessTroubleshootingStepResponse {

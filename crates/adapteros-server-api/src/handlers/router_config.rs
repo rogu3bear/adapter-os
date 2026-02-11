@@ -1,11 +1,11 @@
 use crate::api_error::ApiError;
 use crate::auth::Claims;
-use crate::middleware::require_any_role;
+use crate::permissions::{require_permission, Permission};
 use crate::security::validate_tenant_isolation;
 use crate::state::AppState;
 use crate::types::ErrorResponse;
 use adapteros_api_types::RoutingPolicy;
-use adapteros_db::{adapters::Adapter, users::Role};
+use adapteros_db::adapters::Adapter;
 use adapteros_model_hub::manifest::{Adapter as ManifestAdapter, ManifestV3, RouterCfg};
 use axum::extract::{Extension, Path, State};
 use axum::http::StatusCode;
@@ -96,7 +96,7 @@ pub async fn get_router_config(
     Extension(claims): Extension<Claims>,
     Path(tenant_id): Path<String>,
 ) -> Result<Json<RouterConfigView>, (StatusCode, Json<ErrorResponse>)> {
-    require_any_role(&claims, &[Role::Admin, Role::Operator, Role::Viewer])?;
+    require_permission(&claims, Permission::AdapterView)?;
     let tenant_id = crate::id_resolver::resolve_any_id(&state.db, &tenant_id)
         .await
         .map_err(<(StatusCode, Json<ErrorResponse>)>::from)?;

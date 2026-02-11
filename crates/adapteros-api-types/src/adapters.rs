@@ -32,6 +32,114 @@ pub struct RegisterAdapterRequest {
     pub expires_at: Option<String>,
 }
 
+/// Canonical lifecycle phases for adapters and stacks.
+///
+/// Known states: `draft`, `training`, `ready`, `active`, `pending`, `staging`,
+/// `deprecated`, `failed`, `retired`, `archived`.
+/// Unknown values from the backend deserialize to `Other` for forward compatibility.
+#[derive(Debug, Clone, Copy, PartialEq, Eq, Hash, Serialize, Deserialize)]
+#[cfg_attr(feature = "server", derive(utoipa::ToSchema))]
+#[serde(rename_all = "lowercase")]
+pub enum LifecycleState {
+    Draft,
+    Training,
+    Ready,
+    Active,
+    Pending,
+    Staging,
+    Deprecated,
+    Failed,
+    Retired,
+    Archived,
+    /// Forward-compatibility catch-all for states the client does not yet know about.
+    #[serde(other)]
+    Other,
+}
+
+impl LifecycleState {
+    /// Sort key for display ordering (lower = more prominent).
+    pub fn sort_key(self) -> u8 {
+        match self {
+            Self::Active => 0,
+            Self::Training | Self::Ready | Self::Pending | Self::Staging => 1,
+            Self::Deprecated | Self::Failed => 2,
+            Self::Retired | Self::Archived => 3,
+            Self::Draft | Self::Other => 4,
+        }
+    }
+}
+
+impl std::fmt::Display for LifecycleState {
+    fn fmt(&self, f: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
+        match self {
+            Self::Draft => f.write_str("draft"),
+            Self::Training => f.write_str("training"),
+            Self::Ready => f.write_str("ready"),
+            Self::Active => f.write_str("active"),
+            Self::Pending => f.write_str("pending"),
+            Self::Staging => f.write_str("staging"),
+            Self::Deprecated => f.write_str("deprecated"),
+            Self::Failed => f.write_str("failed"),
+            Self::Retired => f.write_str("retired"),
+            Self::Archived => f.write_str("archived"),
+            Self::Other => f.write_str("unknown"),
+        }
+    }
+}
+
+impl From<&str> for LifecycleState {
+    fn from(s: &str) -> Self {
+        match s {
+            "draft" => Self::Draft,
+            "training" => Self::Training,
+            "ready" => Self::Ready,
+            "active" => Self::Active,
+            "pending" => Self::Pending,
+            "staging" => Self::Staging,
+            "deprecated" => Self::Deprecated,
+            "failed" => Self::Failed,
+            "retired" => Self::Retired,
+            "archived" => Self::Archived,
+            _ => Self::Other,
+        }
+    }
+}
+
+impl From<String> for LifecycleState {
+    fn from(s: String) -> Self {
+        Self::from(s.as_str())
+    }
+}
+
+#[cfg(test)]
+mod tests {
+    use super::LifecycleState;
+
+    #[test]
+    fn lifecycle_state_maps_legacy_db_values() {
+        assert_eq!(LifecycleState::from("training"), LifecycleState::Training);
+        assert_eq!(LifecycleState::from("ready"), LifecycleState::Ready);
+        assert_eq!(LifecycleState::from("failed"), LifecycleState::Failed);
+    }
+
+    #[test]
+    fn lifecycle_state_serde_round_trips_legacy_values() {
+        for (raw, expected) in [
+            ("training", LifecycleState::Training),
+            ("ready", LifecycleState::Ready),
+            ("failed", LifecycleState::Failed),
+        ] {
+            let parsed: LifecycleState =
+                serde_json::from_str(&format!("\"{}\"", raw)).expect("state should deserialize");
+            assert_eq!(parsed, expected);
+            assert_eq!(
+                serde_json::to_string(&parsed).expect("state should serialize"),
+                format!("\"{}\"", raw)
+            );
+        }
+    }
+}
+
 /// Adapter response
 ///
 /// # State Fields
@@ -39,8 +147,7 @@ pub struct RegisterAdapterRequest {
 /// This type exposes two distinct state concepts:
 ///
 /// - `lifecycle_state`: The adapter's lifecycle phase in the release workflow.
-///   Values: "draft", "active", "deprecated", "retired"
-///   This is the **canonical field** for adapter maturity/release status.
+///   See [`LifecycleState`] for the canonical set of values.
 ///
 /// - `runtime_state`: The adapter's current memory/runtime status.
 ///   Values: "unloaded", "cold", "warm", "hot", "resident"
@@ -107,9 +214,9 @@ pub struct AdapterResponse {
     pub stats: Option<AdapterStats>,
     /// Adapter version from migration 0068 (semantic or monotonic)
     pub version: String,
-    /// Lifecycle state from migration 0068 (draft/active/deprecated/retired)
+    /// Lifecycle state from migration 0068 (draft/training/ready/active/deprecated/retired/failed)
     /// This is the canonical field for adapter maturity/release status.
-    pub lifecycle_state: String,
+    pub lifecycle_state: LifecycleState,
     /// Runtime state indicating memory/load status (unloaded/cold/warm/hot/resident)
     /// Maps from database `current_state` field.
     #[serde(skip_serializing_if = "Option::is_none")]

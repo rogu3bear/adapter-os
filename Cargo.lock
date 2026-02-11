@@ -182,6 +182,7 @@ dependencies = [
  "chrono",
  "serde",
  "serde_json",
+ "tracing",
  "utoipa",
  "uuid",
 ]

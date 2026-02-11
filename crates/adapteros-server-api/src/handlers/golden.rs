@@ -1,10 +1,10 @@
-use axum::http::StatusCode;
 use axum::{
     extract::{Path, State},
     Extension, Json,
 };
 use std::path::Component;
 
+use crate::api_error::{ApiError, ApiResult};
 use crate::auth::Claims;
 use crate::permissions::{require_permission, Permission};
 use crate::state::AppState;
@@ -21,7 +21,7 @@ use adapteros_verify::{
 /// - URL-encoded traversal patterns
 /// - Null bytes
 /// - Absolute paths
-fn validate_golden_name(name: &str) -> Result<(), (StatusCode, Json<ErrorResponse>)> {
+fn validate_golden_name(name: &str) -> Result<(), ApiError> {
     // Check for URL-encoded and other traversal patterns
     let patterns = [
         "..",
@@ -38,14 +38,9 @@ fn validate_golden_name(name: &str) -> Result<(), (StatusCode, Json<ErrorRespons
     let lower = name.to_lowercase();
     for pattern in patterns {
         if lower.contains(&pattern.to_lowercase()) {
-            return Err((
-                StatusCode::BAD_REQUEST,
-                Json(
-                    ErrorResponse::new("invalid golden run name")
-                        .with_code("PATH_TRAVERSAL")
-                        .with_string_details("Name contains forbidden path traversal pattern"),
-                ),
-            ));
+            return Err(ApiError::bad_request("invalid golden run name")
+                .with_code("PATH_TRAVERSAL")
+                .with_details("Name contains forbidden path traversal pattern"));
         }
     }
 
@@ -54,24 +49,14 @@ fn validate_golden_name(name: &str) -> Result<(), (StatusCode, Json<ErrorRespons
     for component in path.components() {
         match component {
             Component::ParentDir => {
-                return Err((
-                    StatusCode::BAD_REQUEST,
-                    Json(
-                        ErrorResponse::new("invalid golden run name")
-                            .with_code("PATH_TRAVERSAL")
-                            .with_string_details("Name contains parent directory reference (..)"),
-                    ),
-                ));
+                return Err(ApiError::bad_request("invalid golden run name")
+                    .with_code("PATH_TRAVERSAL")
+                    .with_details("Name contains parent directory reference (..)"));
             }
             Component::RootDir => {
-                return Err((
-                    StatusCode::BAD_REQUEST,
-                    Json(
-                        ErrorResponse::new("invalid golden run name")
-                            .with_code("PATH_TRAVERSAL")
-                            .with_string_details("Name cannot be an absolute path"),
-                    ),
-                ));
+                return Err(ApiError::bad_request("invalid golden run name")
+                    .with_code("PATH_TRAVERSAL")
+                    .with_details("Name cannot be an absolute path"));
             }
             _ => {}
         }
@@ -93,7 +78,7 @@ fn validate_golden_name(name: &str) -> Result<(), (StatusCode, Json<ErrorRespons
 pub async fn list_golden_runs(
     State(_state): State<AppState>,
     Extension(claims): Extension<Claims>,
-) -> Result<Json<Vec<String>>, (StatusCode, Json<ErrorResponse>)> {
+) -> ApiResult<Vec<String>> {
     require_permission(&claims, Permission::PromotionManage)?;
 
     let base = std::path::Path::new("golden_runs");
@@ -104,14 +89,7 @@ pub async fn list_golden_runs(
     }
     match adapteros_verify::list_golden_runs(base) {
         Ok(names) => Ok(Json(names)),
-        Err(e) => Err((
-            StatusCode::INTERNAL_SERVER_ERROR,
-            Json(
-                ErrorResponse::new("failed to list golden runs")
-                    .with_code("INTERNAL_ERROR")
-                    .with_string_details(e.to_string()),
-            ),
-        )),
+        Err(e) => Err(ApiError::internal("failed to list golden runs").with_details(e.to_string())),
     }
 }
 
@@ -132,7 +110,7 @@ pub async fn get_golden_run(
     State(_state): State<AppState>,
     Extension(claims): Extension<Claims>,
     Path(name): Path<String>,
-) -> Result<Json<GoldenRunSummary>, (StatusCode, Json<ErrorResponse>)> {
+) -> ApiResult<GoldenRunSummary> {
     require_permission(&claims, Permission::PromotionManage)?;
 
     // Validate name to prevent path traversal attacks
@@ -146,14 +124,9 @@ pub async fn get_golden_run(
     if let Ok(canonical_base) = base_dir.canonicalize() {
         if let Ok(canonical_dir) = dir.canonicalize() {
             if !canonical_dir.starts_with(&canonical_base) {
-                return Err((
-                    StatusCode::BAD_REQUEST,
-                    Json(
-                        ErrorResponse::new("invalid golden run name")
-                            .with_code("PATH_TRAVERSAL")
-                            .with_string_details("Resolved path escapes baselines directory"),
-                    ),
-                ));
+                return Err(ApiError::bad_request("invalid golden run name")
+                    .with_code("PATH_TRAVERSAL")
+                    .with_details("Resolved path escapes baselines directory"));
             }
         }
     }
@@ -178,14 +151,7 @@ pub async fn get_golden_run(
             };
             Ok(Json(summary))
         }
-        Err(e) => Err((
-            StatusCode::NOT_FOUND,
-            Json(
-                ErrorResponse::new("golden run not found")
-                    .with_code("NOT_FOUND")
-                    .with_string_details(e.to_string()),
-            ),
-        )),
+        Err(e) => Err(ApiError::not_found_msg("golden run not found").with_details(e.to_string())),
     }
 }
 
@@ -206,10 +172,7 @@ pub async fn golden_compare(
     State(_state): State<AppState>,
     Extension(claims): Extension<Claims>,
     Json(req): Json<GoldenCompareRequest>,
-) -> Result<
-    Json<adapteros_verify::verification::VerificationReport>,
-    (StatusCode, Json<ErrorResponse>),
-> {
+) -> ApiResult<adapteros_verify::verification::VerificationReport> {
     require_permission(&claims, Permission::PromotionManage)?;
 
     // Validate golden name to prevent path traversal attacks
@@ -224,41 +187,24 @@ pub async fn golden_compare(
     if let Ok(canonical_base) = base_dir.canonicalize() {
         if let Ok(canonical_dir) = golden_dir.canonicalize() {
             if !canonical_dir.starts_with(&canonical_base) {
-                return Err((
-                    StatusCode::BAD_REQUEST,
-                    Json(
-                        ErrorResponse::new("invalid golden name")
-                            .with_code("PATH_TRAVERSAL")
-                            .with_string_details("Resolved path escapes baselines directory"),
-                    ),
-                ));
+                return Err(ApiError::bad_request("invalid golden name")
+                    .with_code("PATH_TRAVERSAL")
+                    .with_details("Resolved path escapes baselines directory"));
             }
         }
     }
 
     if !golden_dir.exists() {
-        return Err((
-            StatusCode::NOT_FOUND,
-            Json(
-                ErrorResponse::new("golden baseline not found")
-                    .with_code("NOT_FOUND")
-                    .with_string_details(format!("{}", golden_dir.display())),
-            ),
-        ));
+        return Err(ApiError::not_found_msg("golden baseline not found")
+            .with_details(format!("{}", golden_dir.display())));
     }
 
     let bundle_path = std::path::Path::new("var")
         .join("bundles")
         .join(format!("{}.ndjson", req.bundle_id));
     if !bundle_path.exists() {
-        return Err((
-            StatusCode::NOT_FOUND,
-            Json(
-                ErrorResponse::new("bundle not found")
-                    .with_code("NOT_FOUND")
-                    .with_string_details(format!("{}", bundle_path.display())),
-            ),
-        ));
+        return Err(ApiError::not_found_msg("bundle not found")
+            .with_details(format!("{}", bundle_path.display())));
     }
 
     // Build comparison config with defaults
@@ -271,14 +217,8 @@ pub async fn golden_compare(
             "epsilon-tolerant" => StrictnessLevel::EpsilonTolerant,
             "statistical" => StrictnessLevel::Statistical,
             other => {
-                return Err((
-                    StatusCode::BAD_REQUEST,
-                    Json(
-                        ErrorResponse::new("invalid strictness")
-                            .with_code("BAD_REQUEST")
-                            .with_string_details(format!("unknown strictness: {}", other)),
-                    ),
-                ))
+                return Err(ApiError::bad_request("invalid strictness")
+                    .with_details(format!("unknown strictness: {}", other)))
             }
         };
         config.strictness = lv;
@@ -301,13 +241,6 @@ pub async fn golden_compare(
     // Run verification
     match verify_against_golden(&golden_dir, &bundle_path, &config).await {
         Ok(report) => Ok(Json(report)),
-        Err(e) => Err((
-            StatusCode::INTERNAL_SERVER_ERROR,
-            Json(
-                ErrorResponse::new("verification failed")
-                    .with_code("INTERNAL_ERROR")
-                    .with_string_details(e.to_string()),
-            ),
-        )),
+        Err(e) => Err(ApiError::internal("verification failed").with_details(e.to_string())),
     }
 }

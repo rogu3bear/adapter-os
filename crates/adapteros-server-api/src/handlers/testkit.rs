@@ -5,7 +5,7 @@ use axum::{
 use serde::{Deserialize, Serialize};
 
 use crate::api_error::{ApiError, ApiResult};
-use crate::auth::{hash_password, Claims};
+use crate::auth::{hash_password, is_production_mode, Claims};
 use crate::security::validate_tenant_isolation;
 use crate::state::AppState;
 use adapteros_core::{AosError, B3Hash};
@@ -21,7 +21,6 @@ use serde_json::json;
 
 const E2E_ENV: &str = "E2E_MODE";
 const DEV_BYPASS_ENV: &str = "VITE_ENABLE_DEV_BYPASS";
-const PRODUCTION_MODE_ENV: &str = "AOS_PRODUCTION_MODE";
 
 // Deterministic fixture constants shared across endpoints
 const TENANT_ID: &str = "tenant-test";
@@ -77,13 +76,6 @@ fn flag_enabled(env: &str) -> bool {
             .as_deref(),
         Ok("1") | Ok("true")
     )
-}
-
-/// Check if production mode is enabled via AOS_PRODUCTION_MODE env var.
-///
-/// SECURITY: Production mode blocks testkit endpoints regardless of other env vars.
-fn is_production_mode() -> bool {
-    flag_enabled(PRODUCTION_MODE_ENV)
 }
 
 fn e2e_env_enabled() -> bool {

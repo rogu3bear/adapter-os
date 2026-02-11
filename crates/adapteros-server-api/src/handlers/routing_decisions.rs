@@ -22,7 +22,6 @@ use adapteros_db::{
     RoutingDecision as DbRoutingDecision, RoutingDecisionChainRecord, RoutingDecisionFilters,
 };
 use axum::extract::{Extension, Path, Query, State};
-use axum::http::StatusCode;
 use axum::Json;
 use serde::{de::DeserializeOwned, Deserialize, Serialize};
 use serde_json::Value;
@@ -241,7 +240,7 @@ pub async fn ingest_router_decision(
     State(state): State<AppState>,
     Extension(claims): Extension<Claims>,
     Json(request): Json<IngestRouterDecisionRequest>,
-) -> Result<Json<IdResponse>, (StatusCode, Json<ErrorResponse>)> {
+) -> ApiResult<IdResponse> {
     require_any_role(&claims, &[Role::Admin, Role::Operator])?;
     validate_tenant_isolation(&claims, &request.tenant_id)?;
 
@@ -264,14 +263,9 @@ pub async fn ingest_router_decision(
         .collect();
 
     let candidates_json = serde_json::to_string(&db_candidates).map_err(|e| {
-        (
-            StatusCode::BAD_REQUEST,
-            Json(
-                ErrorResponse::new("Failed to serialize candidates")
-                    .with_code("SERIALIZATION_ERROR")
-                    .with_string_details(e.to_string()),
-            ),
-        )
+        ApiError::bad_request("Failed to serialize candidates")
+            .with_code("SERIALIZATION_ERROR")
+            .with_details(e.to_string())
     })?;
 
     let selected_adapter_ids: Vec<String> = db_candidates
@@ -322,14 +316,7 @@ pub async fn ingest_router_decision(
         .await
         .map_err(|e| {
             warn!(error = %e, "Failed to insert routing decision");
-            (
-                StatusCode::INTERNAL_SERVER_ERROR,
-                Json(
-                    ErrorResponse::new("Failed to insert routing decision")
-                        .with_code("DATABASE_ERROR")
-                        .with_string_details(e.to_string()),
-                ),
-            )
+            ApiError::db_error(e)
         })?;
 
     // Return 200 OK (consistent with other ingestion endpoints)
@@ -358,7 +345,7 @@ pub async fn get_routing_decision_chain(
     State(state): State<AppState>,
     Extension(claims): Extension<Claims>,
     Query(query): Query<RoutingChainQuery>,
-) -> Result<Json<RoutingDecisionChainResponse>, (StatusCode, Json<ErrorResponse>)> {
+) -> ApiResult<RoutingDecisionChainResponse> {
     require_any_role(&claims, &[Role::Admin, Role::Operator])?;
     validate_tenant_isolation(&claims, &query.tenant)?;
 
@@ -372,14 +359,9 @@ pub async fn get_routing_decision_chain(
         )
         .await
         .map_err(|e| {
-            (
-                StatusCode::INTERNAL_SERVER_ERROR,
-                Json(
-                    ErrorResponse::new("Failed to fetch routing decision chain")
-                        .with_code("ROUTING_CHAIN_ERROR")
-                        .with_string_details(e.to_string()),
-                ),
-            )
+            ApiError::internal("Failed to fetch routing decision chain")
+                .with_code("ROUTING_CHAIN_ERROR")
+                .with_details(e.to_string())
         })?;
 
     let items: Vec<RoutingDecisionChainItem> =
@@ -463,7 +445,7 @@ pub async fn get_routing_decisions(
     State(state): State<AppState>,
     Extension(claims): Extension<Claims>,
     Query(query): Query<RoutingDecisionsQuery>,
-) -> Result<Json<RoutingDecisionsResponse>, (StatusCode, Json<ErrorResponse>)> {
+) -> ApiResult<RoutingDecisionsResponse> {
     require_any_role(&claims, &[Role::Admin, Role::Operator, Role::Viewer])?;
 
     // Default to claims.tenant_id if not provided (matches get_routing_history pattern)
@@ -508,14 +490,7 @@ pub async fn get_routing_decisions(
         .await
         .map_err(|e| {
             warn!(error = %e, "Failed to query routing decisions");
-            (
-                StatusCode::INTERNAL_SERVER_ERROR,
-                Json(
-                    ErrorResponse::new("Failed to query routing decisions")
-                        .with_code("DATABASE_ERROR")
-                        .with_string_details(e.to_string()),
-                ),
-            )
+            ApiError::db_error(e)
         })?;
 
     // Convert to response format
@@ -545,22 +520,13 @@ pub async fn get_routing_decision_by_id(
     State(state): State<AppState>,
     Extension(claims): Extension<Claims>,
     Path(id): Path<String>,
-) -> Result<Json<RoutingDecisionResponse>, (StatusCode, Json<ErrorResponse>)> {
+) -> ApiResult<RoutingDecisionResponse> {
     require_any_role(&claims, &[Role::Admin, Role::Operator, Role::Viewer])?;
 
-    let id = crate::id_resolver::resolve_any_id(&state.db, &id)
-        .await
-        .map_err(<(StatusCode, Json<ErrorResponse>)>::from)?;
+    let id = crate::id_resolver::resolve_any_id(&state.db, &id).await?;
 
     let decision = state.db.get_routing_decision(&id).await.map_err(|e| {
-        (
-            StatusCode::NOT_FOUND,
-            Json(
-                ErrorResponse::new("Routing decision not found")
-                    .with_code("NOT_FOUND")
-                    .with_string_details(e.to_string()),
-            ),
-        )
+        ApiError::not_found_msg("Routing decision not found").with_details(e.to_string())
     })?;
 
     validate_tenant_isolation(&claims, &decision.tenant_id)?;
@@ -670,11 +636,9 @@ pub async fn get_session_router_view(
     State(state): State<AppState>,
     Extension(claims): Extension<Claims>,
     Path(request_id): Path<String>,
-) -> Result<Json<SessionRouterViewResponse>, (StatusCode, Json<ErrorResponse>)> {
+) -> ApiResult<SessionRouterViewResponse> {
     require_any_role(&claims, &[Role::Admin, Role::Operator, Role::Viewer])?;
-    let request_id = crate::id_resolver::resolve_any_id(&state.db, &request_id)
-        .await
-        .map_err(<(StatusCode, Json<ErrorResponse>)>::from)?;
+    let request_id = crate::id_resolver::resolve_any_id(&state.db, &request_id).await?;
 
     debug!(request_id = %request_id, "Querying session router view");
 
@@ -685,28 +649,16 @@ pub async fn get_session_router_view(
         .await
         .map_err(|e| {
             warn!(error = %e, request_id = %request_id, "Failed to query session routing decisions");
-            (
-                StatusCode::INTERNAL_SERVER_ERROR,
-                Json(
-                    ErrorResponse::new("Failed to query session routing decisions")
-                        .with_code("DATABASE_ERROR")
-                        .with_string_details(e.to_string()),
-                ),
-            )
+            ApiError::db_error(e)
         })?;
 
     if decisions.is_empty() {
-        return Err((
-            StatusCode::NOT_FOUND,
-            Json(
-                ErrorResponse::new("Session not found")
-                    .with_code("NOT_FOUND")
-                    .with_string_details(format!(
-                        "No routing decisions found for request_id '{}'",
-                        request_id
-                    )),
-            ),
-        ));
+        return Err(
+            ApiError::not_found_msg("Session not found").with_details(format!(
+                "No routing decisions found for request_id '{}'",
+                request_id
+            )),
+        );
     }
 
     // Validate tenant isolation using the first decision's tenant_id
@@ -863,7 +815,7 @@ pub async fn debug_routing(
     State(state): State<AppState>,
     Extension(claims): Extension<Claims>,
     Json(req): Json<RoutingDebugRequest>,
-) -> Result<Json<RoutingDebugResponse>, (StatusCode, Json<ErrorResponse>)> {
+) -> ApiResult<RoutingDebugResponse> {
     use adapteros_lora_router::{AdapterInfo, CodeFeatures, Router, RouterWeights};
 
     require_any_role(&claims, &[Role::Admin, Role::Operator, Role::Viewer])?;
@@ -880,14 +832,9 @@ pub async fn debug_routing(
         .await
         .map_err(|e| {
             tracing::error!("Failed to list adapters: {}", e);
-            (
-                StatusCode::INTERNAL_SERVER_ERROR,
-                Json(
-                    ErrorResponse::new("Failed to fetch adapters for routing debug")
-                        .with_code("ADAPTER_FETCH_ERROR")
-                        .with_string_details(e.to_string()),
-                ),
-            )
+            ApiError::internal("Failed to fetch adapters for routing debug")
+                .with_code("ADAPTER_FETCH_ERROR")
+                .with_details(e.to_string())
         })?;
 
     let adapter_infos: Vec<AdapterInfo> = adapters
@@ -923,14 +870,9 @@ pub async fn debug_routing(
         .route_with_code_features(&code_features, &adapter_infos)
         .map_err(|e| {
             tracing::error!(error = %e, "Failed to compute routing decision for debug");
-            (
-                StatusCode::INTERNAL_SERVER_ERROR,
-                Json(
-                    ErrorResponse::new("Failed to compute routing decision")
-                        .with_code("ROUTING_ERROR")
-                        .with_string_details(e.to_string()),
-                ),
-            )
+            ApiError::internal("Failed to compute routing decision")
+                .with_code("ROUTING_ERROR")
+                .with_details(e.to_string())
         })?;
     let explanation = router.explain_score(&code_features.to_vector());
 
@@ -1016,7 +958,7 @@ pub async fn get_routing_history(
     State(state): State<AppState>,
     Extension(claims): Extension<Claims>,
     Query(params): Query<RoutingHistoryQuery>,
-) -> Result<Json<RoutingDecisionsResponse>, (StatusCode, Json<ErrorResponse>)> {
+) -> ApiResult<RoutingDecisionsResponse> {
     require_any_role(&claims, &[Role::Admin, Role::Operator, Role::Viewer])?;
 
     let limit = params.limit.unwrap_or(50);
@@ -1034,14 +976,7 @@ pub async fn get_routing_history(
         .await
         .map_err(|e| {
             warn!(error = %e, "Failed to query routing history");
-            (
-                StatusCode::INTERNAL_SERVER_ERROR,
-                Json(
-                    ErrorResponse::new("Failed to query routing decisions")
-                        .with_code("DATABASE_ERROR")
-                        .with_string_details(e.to_string()),
-                ),
-            )
+            ApiError::db_error(e)
         })?;
 
     let items: Vec<RoutingDecisionResponse> = decisions

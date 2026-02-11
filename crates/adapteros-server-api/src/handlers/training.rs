@@ -15,6 +15,7 @@ use crate::services::{DefaultTrainingService, TrainingService};
 use crate::state::AppState;
 use crate::types::*;
 use crate::worker_capabilities::parse_worker_capabilities;
+use adapteros_api_types::training::canonical_trust_state;
 use adapteros_config::resolve_worker_socket_for_cp;
 use adapteros_config::ModelConfig;
 use adapteros_core::defaults::DEFAULT_TRAINING_REPORTS_SUBDIR;
@@ -60,15 +61,6 @@ const METRIC_LINEAGE_REQUIRED: &str = "training_jobs_rejected_lineage_required";
 const METRIC_TRUST_BLOCKED: &str = "training_jobs_rejected_trust_blocked";
 const METRIC_TRUST_NEEDS_APPROVAL: &str = "training_jobs_rejected_trust_needs_approval";
 
-// Canonical tokens for public trust state surfaces.
-const CANONICAL_TRUST_STATES: &[&str] = &[
-    "allowed",
-    "allowed_with_warning",
-    "needs_approval",
-    "blocked",
-    "unknown",
-];
-
 const PREPROCESS_CACHE_MARKER: &str = "manifest.json";
 
 #[derive(Debug, serde::Deserialize)]
@@ -77,28 +69,6 @@ struct PreprocessManifestSummary {
     backend: String,
     produced_at_unix_ms: u64,
     example_count: usize,
-}
-
-fn canonical_trust_state(raw: &str) -> String {
-    let normalized = match raw.trim().to_ascii_lowercase().as_str() {
-        "allowed" => "allowed",
-        "allowed_with_warning" | "warn" => "allowed_with_warning",
-        "needs_approval" => "needs_approval",
-        "blocked" | "blocked_regressed" => "blocked",
-        "unknown" => "unknown",
-        other => {
-            warn!(state = %other, "Unknown trust_state; normalizing to unknown");
-            "unknown"
-        }
-    };
-
-    // Guardrail: ensure only canonical tokens escape public APIs.
-    if !CANONICAL_TRUST_STATES.contains(&normalized) {
-        warn!(state = %normalized, "Non-canonical trust_state emitted; forcing unknown");
-        "unknown".to_string()
-    } else {
-        normalized.to_string()
-    }
 }
 
 /// Count preprocessed cache entries for training datasets.
