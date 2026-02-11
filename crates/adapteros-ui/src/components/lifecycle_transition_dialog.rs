@@ -136,7 +136,7 @@ pub fn LifecycleTransitionDialog(
 
                             // In-flight warning
                             {t.is_in_flight.then(|| view! {
-                                <div class="flex items-start gap-2 p-3 bg-warning/10 border border-warning/30 rounded-lg text-warning">
+                                <div class="flex items-start gap-2 p-3 bg-warning/10 border border-warning/20 rounded-lg text-warning">
                                     <svg
                                         class="h-5 w-5 flex-shrink-0 mt-0.5"
                                         xmlns="http://www.w3.org/2000/svg"

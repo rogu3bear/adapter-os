@@ -191,15 +191,19 @@ fn ReviewDetailBody(pause: InferenceStateResponse) -> impl IntoView {
                     }
                 }
                 Ok(resp) => {
-                    submit_error.set(Some(
-                        resp.message
-                            .unwrap_or_else(|| "Review was not accepted".to_string()),
-                    ));
-                    submitting.set(false);
+                    if alive.load(std::sync::atomic::Ordering::SeqCst) {
+                        submit_error.set(Some(
+                            resp.message
+                                .unwrap_or_else(|| "Review was not accepted".to_string()),
+                        ));
+                        submitting.set(false);
+                    }
                 }
                 Err(e) => {
-                    submit_error.set(Some(format!("Failed to submit review: {}", e)));
-                    submitting.set(false);
+                    if alive.load(std::sync::atomic::Ordering::SeqCst) {
+                        submit_error.set(Some(format!("Failed to submit review: {}", e)));
+                        submitting.set(false);
+                    }
                 }
             }
         });

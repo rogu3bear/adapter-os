@@ -76,10 +76,10 @@ impl StatusColor {
     fn pulse_class(&self) -> &'static str {
         match self {
             Self::Gray => "bg-muted",
-            Self::Green => "bg-status-success/80",
-            Self::Yellow => "bg-status-warning/80",
-            Self::Red => "bg-status-error/80",
-            Self::Blue => "bg-status-info/80",
+            Self::Green => "bg-status-success/20",
+            Self::Yellow => "bg-status-warning/20",
+            Self::Red => "bg-status-error/20",
+            Self::Blue => "bg-status-info/20",
         }
     }
 }

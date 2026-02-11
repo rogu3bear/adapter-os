@@ -10,7 +10,7 @@
 //! Uses Liquid Glass Tier 2 (panels) with 12px blur and 78% alpha.
 //! Deterministic content - no random elements, consistent ordering.
 
-use adapteros_api_types::AdapterResponse;
+use adapteros_api_types::{AdapterResponse, LifecycleState};
 use leptos::prelude::*;
 
 use crate::components::{
@@ -156,14 +156,14 @@ fn AdapterDetailContent(
     let adapter_id_for_flight = adapter.adapter_id.clone();
     let adapter_id_for_lifecycle = adapter.adapter_id.clone();
     let adapter_name_for_lifecycle = adapter.name.clone();
-    let lifecycle_state_for_controls = adapter.lifecycle_state.clone();
+    let lifecycle_state_for_controls = adapter.lifecycle_state.to_string();
 
     // Derive lifecycle badge variant
-    let lifecycle_variant = match adapter.lifecycle_state.as_str() {
-        "active" => BadgeVariant::Success,
-        "deprecated" => BadgeVariant::Warning,
-        "retired" => BadgeVariant::Destructive,
-        "draft" => BadgeVariant::Secondary,
+    let lifecycle_variant = match adapter.lifecycle_state {
+        LifecycleState::Active => BadgeVariant::Success,
+        LifecycleState::Deprecated => BadgeVariant::Warning,
+        LifecycleState::Retired => BadgeVariant::Destructive,
+        LifecycleState::Draft => BadgeVariant::Secondary,
         _ => BadgeVariant::Default,
     };
 
@@ -197,7 +197,7 @@ fn AdapterDetailContent(
     let tier = adapter.tier.clone();
     let category = adapter.category.clone().unwrap_or_else(|| "N/A".into());
     let scope = adapter.scope.clone().unwrap_or_else(|| "N/A".into());
-    let lifecycle_state = adapter.lifecycle_state.clone();
+    let lifecycle_state = adapter.lifecycle_state.to_string();
     let runtime_state = adapter
         .runtime_state
         .clone()

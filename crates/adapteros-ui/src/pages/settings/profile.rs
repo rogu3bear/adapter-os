@@ -21,7 +21,9 @@ pub fn ProfileSection() -> impl IntoView {
         let action = auth_action.clone();
         wasm_bindgen_futures::spawn_local(async move {
             action.logout().await;
-            // Redirect will happen via auth context
+            // Redirect will happen via auth context.
+            // Reset loading in case logout fails or navigation doesn't occur.
+            let _ = logout_loading.try_set(false);
         });
     });
 
@@ -137,7 +139,7 @@ pub fn ProfileSection() -> impl IntoView {
                 >
                     <Button
                         variant=ButtonVariant::Destructive
-                        loading=logout_loading.get_untracked()
+                        loading=Signal::from(logout_loading)
                         on_click=Callback::new(move |_| show_logout_confirm.set(true))
                     >
                         "Logout"

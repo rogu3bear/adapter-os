@@ -43,6 +43,7 @@ pub fn SpawnWorkerDialog(
     nodes: Vec<NodeResponse>,
     plans: Vec<PlanOption>,
     on_spawn: Callback<SpawnWorkerRequest>,
+    #[prop(optional, into)] loading: Signal<bool>,
 ) -> impl IntoView {
     // Form state
     let node_id = RwSignal::new(String::new());
@@ -176,7 +177,8 @@ pub fn SpawnWorkerDialog(
                     </Button>
                     <Button
                         variant=ButtonVariant::Primary
-                        disabled=Signal::derive(move || !is_valid())
+                        disabled=Signal::derive(move || !is_valid() || loading.get())
+                        loading=loading
                         on_click=Callback::new({
                             let plans_ref = plans_for_tenant.clone();
                             move |_| {

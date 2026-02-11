@@ -8,6 +8,7 @@ use crate::components::{
     AsyncBoundaryWithEmpty, Button, ButtonVariant, Checkbox, Dialog, Input, Select, Textarea,
 };
 use crate::hooks::{use_api, use_api_resource, Refetch};
+use crate::signals::use_notifications;
 use adapteros_api_types::AdapterResponse;
 use leptos::prelude::*;
 use std::sync::Arc;
@@ -15,6 +16,7 @@ use std::sync::Arc;
 /// Create stack dialog
 #[component]
 pub fn CreateStackDialog(open: RwSignal<bool>, refetch: Refetch) -> impl IntoView {
+    let notifications = use_notifications();
     let name = RwSignal::new(String::new());
     let description = RwSignal::new(String::new());
     let workflow_type = RwSignal::new("parallel".to_string());
@@ -43,6 +45,7 @@ pub fn CreateStackDialog(open: RwSignal<bool>, refetch: Refetch) -> impl IntoVie
             error.set(None);
 
             let client = Arc::clone(&client);
+            let notifications = notifications.clone();
             let adapter_ids = selected_adapter_ids.get();
             let desc = description.get();
             let wf_type = workflow_type.get();
@@ -73,6 +76,8 @@ pub fn CreateStackDialog(open: RwSignal<bool>, refetch: Refetch) -> impl IntoVie
                         let _ = description.try_set(String::new());
                         let _ = selected_adapter_ids.try_set(vec![]);
                         let _ = open.try_set(false);
+                        notifications
+                            .success("Stack created", "Adapter stack created successfully.");
                         refetch.run(());
                     }
                     Err(e) => {
@@ -159,8 +164,8 @@ pub fn CreateStackDialog(open: RwSignal<bool>, refetch: Refetch) -> impl IntoVie
                 </Button>
                 <Button
                     variant=ButtonVariant::Primary
-                    loading=creating.get()
-                    disabled=creating.get()
+                    loading=Signal::from(creating)
+                    disabled=Signal::from(creating)
                     on_click=Callback::new(on_submit.clone())
                 >
                     "Create Stack"
@@ -217,6 +222,7 @@ pub fn EditStackDialog(
     stack: StackResponse,
     refetch: Refetch,
 ) -> impl IntoView {
+    let notifications = use_notifications();
     let name = RwSignal::new(stack.name.clone());
     let description = RwSignal::new(stack.description.clone().unwrap_or_default());
     let workflow_type = RwSignal::new(
@@ -257,6 +263,7 @@ pub fn EditStackDialog(
             error.set(None);
 
             let client = Arc::clone(&client);
+            let notifications = notifications.clone();
             let adapter_ids = selected_adapter_ids.get();
             let desc = description.get();
             let wf_type = workflow_type.get();
@@ -284,6 +291,8 @@ pub fn EditStackDialog(
                     Ok(_) => {
                         let _ = updating.try_set(false);
                         let _ = open.try_set(false);
+                        notifications
+                            .success("Stack updated", "Adapter stack updated successfully.");
                         refetch.run(());
                     }
                     Err(e) => {
@@ -363,8 +372,8 @@ pub fn EditStackDialog(
                 </Button>
                 <Button
                     variant=ButtonVariant::Primary
-                    loading=updating.get()
-                    disabled=updating.get()
+                    loading=Signal::from(updating)
+                    disabled=Signal::from(updating)
                     on_click=Callback::new(on_submit.clone())
                 >
                     "Save Changes"
