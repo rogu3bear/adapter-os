@@ -1186,12 +1186,19 @@ impl Db {
 
         if exists.is_none() {
             warn!("Adapters table missing lora_strength column; applying runtime patch");
-            sqlx::query("ALTER TABLE adapters ADD COLUMN lora_strength REAL DEFAULT 1.0")
+            if let Err(e) = sqlx::query("ALTER TABLE adapters ADD COLUMN lora_strength REAL DEFAULT 1.0")
                 .execute(self.pool())
                 .await
-                .map_err(|e| {
-                    AosError::Database(format!("Failed to add lora_strength column: {}", e))
-                })?;
+            {
+                // Best-effort compatibility patch: concurrent initializers may race here.
+                let msg = e.to_string();
+                if !msg.contains("duplicate column name: lora_strength") {
+                    return Err(AosError::Database(format!(
+                        "Failed to add lora_strength column: {}",
+                        e
+                    )));
+                }
+            }
             // Backfill existing rows to preserve deterministic defaults.
             sqlx::query("UPDATE adapters SET lora_strength = 1.0 WHERE lora_strength IS NULL")
                 .execute(self.pool())
