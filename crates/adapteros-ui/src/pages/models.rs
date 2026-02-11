@@ -3,17 +3,18 @@
 //! Model management with list view and status display.
 
 use crate::api::{
-    report_error_with_toast, AllModelsStatusResponse, ApiClient, ApiError, ModelLoadStatus,
-    ModelStatusResponse,
+    report_error_with_toast, AllModelsStatusResponse, ApiClient, ApiError, BaseModelStatusResponse,
+    ModelLoadStatus, ModelStatusResponse,
 };
 use crate::components::{
     Badge, BadgeVariant, Button, ButtonVariant, Card, CopyableId, ErrorDisplay, LoadingDisplay,
-    PageBreadcrumbItem, PageScaffold, PageScaffoldActions, Spinner, SplitPanel, Table, TableBody,
-    TableCell, TableHead, TableHeader, TableRow,
+    PageBreadcrumbItem, PageScaffold, PageScaffoldActions, SkeletonTable, Spinner, SplitPanel,
+    Table, TableBody, TableCell, TableHead, TableHeader, TableRow,
 };
 use crate::hooks::{use_api_resource, LoadingState, Refetch};
 use crate::utils::format_datetime;
 use leptos::prelude::*;
+use std::collections::HashSet;
 use std::sync::Arc;
 
 /// Models management page
@@ -22,11 +23,86 @@ pub fn Models() -> impl IntoView {
     // Selected model ID for detail panel
     let selected_model_id = RwSignal::new(None::<String>);
 
-    // Fetch base model status list
-    let (models, refetch_models) =
-        use_api_resource(
-            move |client: Arc<ApiClient>| async move { client.list_models_status().await },
-        );
+    // Fetch base model status list (models with load status)
+    let (models_status, refetch_models_status) = use_api_resource(
+        move |client: Arc<ApiClient>| async move { client.list_models_status().await },
+    );
+
+    // Also fetch registered models (may include models not yet loaded)
+    let (registered_models, refetch_registered) =
+        use_api_resource(move |client: Arc<ApiClient>| async move { client.list_models().await });
+
+    let refetch_all = move |()| {
+        refetch_models_status.run(());
+        refetch_registered.run(());
+    };
+
+    // Merge status data with registered models: if a registered model has no
+    // status entry, synthesize one with NoModel status so it appears in the list.
+    let merged_models = Signal::derive(move || {
+        let status_state = models_status.get();
+        let registered_state = registered_models.get();
+
+        match status_state {
+            LoadingState::Idle | LoadingState::Loading => LoadingState::Loading,
+            LoadingState::Error(e) => {
+                // If status endpoint failed but registered models loaded,
+                // still show registered models with unknown status
+                if let LoadingState::Loaded(reg) = registered_state {
+                    if !reg.models.is_empty() {
+                        let models: Vec<BaseModelStatusResponse> = reg
+                            .models
+                            .iter()
+                            .map(|m| BaseModelStatusResponse {
+                                model_id: m.id.clone(),
+                                model_name: m.name.clone(),
+                                model_path: None,
+                                status: ModelLoadStatus::NoModel,
+                                loaded_at: None,
+                                unloaded_at: None,
+                                error_message: None,
+                                memory_usage_mb: None,
+                                is_loaded: false,
+                                updated_at: m.updated_at.clone().unwrap_or_default(),
+                            })
+                            .collect();
+                        return LoadingState::Loaded(AllModelsStatusResponse {
+                            schema_version: String::new(),
+                            active_model_count: 0,
+                            total_memory_mb: 0,
+                            available_memory_mb: None,
+                            models,
+                        });
+                    }
+                }
+                LoadingState::Error(e)
+            }
+            LoadingState::Loaded(mut data) => {
+                // Merge registered models that have no status entry
+                if let LoadingState::Loaded(reg) = registered_state {
+                    let known_ids: HashSet<String> =
+                        data.models.iter().map(|m| m.model_id.clone()).collect();
+                    for m in &reg.models {
+                        if !known_ids.contains(&m.id) {
+                            data.models.push(BaseModelStatusResponse {
+                                model_id: m.id.clone(),
+                                model_name: m.name.clone(),
+                                model_path: None,
+                                status: ModelLoadStatus::NoModel,
+                                loaded_at: None,
+                                unloaded_at: None,
+                                error_message: None,
+                                memory_usage_mb: None,
+                                is_loaded: false,
+                                updated_at: m.updated_at.clone().unwrap_or_default(),
+                            });
+                        }
+                    }
+                }
+                LoadingState::Loaded(data)
+            }
+        }
+    });
 
     let on_model_select = move |model_id: String| {
         selected_model_id.set(Some(model_id));
@@ -50,7 +126,7 @@ pub fn Models() -> impl IntoView {
             <PageScaffoldActions slot>
                 <Button
                     variant=ButtonVariant::Outline
-                    on_click=Callback::new(move |_| refetch_models.run(()))
+                    on_click=Callback::new(move |_| refetch_all(()))
                 >
                     "Refresh"
                 </Button>
@@ -65,13 +141,21 @@ pub fn Models() -> impl IntoView {
                         <div class="space-y-6">
                             // Model list
                             {move || {
-                                match models.get() {
+                                match merged_models.get() {
                                     LoadingState::Idle | LoadingState::Loading => {
                                         view! {
-                                            <LoadingDisplay message="Loading models..."/>
+                                            <SkeletonTable rows=5 columns=4/>
                                         }.into_any()
                                     }
-                                    LoadingState::Loaded(data) => {
+                                    LoadingState::Loaded(mut data) => {
+                                        data.models.sort_by_key(|m| match m.status {
+                                            ModelLoadStatus::Ready => 0,
+                                            ModelLoadStatus::Loading => 1,
+                                            ModelLoadStatus::Checking => 2,
+                                            ModelLoadStatus::Unloading => 3,
+                                            ModelLoadStatus::NoModel => 4,
+                                            ModelLoadStatus::Error => 5,
+                                        });
                                         view! {
                                             <ModelList
                                                 models=data
@@ -94,7 +178,7 @@ pub fn Models() -> impl IntoView {
                                             view! {
                                                 <ErrorDisplay
                                                     error=e
-                                                    on_retry=refetch_models.as_callback()
+                                                    on_retry=Callback::new(move |_| refetch_all(()))
                                                 />
                                             }
                                             .into_any()
@@ -127,36 +211,69 @@ fn ModelList(
     on_select: impl Fn(String) + Copy + Send + 'static,
 ) -> impl IntoView {
     if models.models.is_empty() {
-        return view! {
-            <Card>
-                <div class="py-8 text-center">
-                    <div class="rounded-full bg-muted p-3 mx-auto w-fit mb-4">
-                        <svg
-                            xmlns="http://www.w3.org/2000/svg"
-                            class="h-8 w-8 text-muted-foreground"
-                            viewBox="0 0 24 24"
-                            fill="none"
-                            stroke="currentColor"
-                            stroke-width="1.5"
-                        >
-                            <path stroke-linecap="round" stroke-linejoin="round" d="M9.663 17h4.673M12 3v1m6.364 1.636l-.707.707M21 12h-1M4 12H3m3.343-5.657l-.707-.707m2.828 9.9a5 5 0 117.072 0l-.548.547A3.374 3.374 0 0014 18.469V19a2 2 0 11-4 0v-.531c0-.895-.356-1.754-.988-2.386l-.548-.547z"/>
-                        </svg>
+        // Check if the system reports active models despite empty list (worker connected, model pending)
+        let has_active_context = models.active_model_count > 0 || models.total_memory_mb > 0;
+
+        return if has_active_context {
+            view! {
+                <Card>
+                    <div class="py-8 text-center">
+                        <div class="rounded-full bg-muted p-3 mx-auto w-fit mb-4">
+                            <svg
+                                xmlns="http://www.w3.org/2000/svg"
+                                class="h-8 w-8 text-muted-foreground"
+                                viewBox="0 0 24 24"
+                                fill="none"
+                                stroke="currentColor"
+                                stroke-width="1.5"
+                            >
+                                <path stroke-linecap="round" stroke-linejoin="round" d="M9.663 17h4.673M12 3v1m6.364 1.636l-.707.707M21 12h-1M4 12H3m3.343-5.657l-.707-.707m2.828 9.9a5 5 0 117.072 0l-.548.547A3.374 3.374 0 0014 18.469V19a2 2 0 11-4 0v-.531c0-.895-.356-1.754-.988-2.386l-.548-.547z"/>
+                            </svg>
+                        </div>
+                        <p class="text-muted-foreground">"Worker connected, model pending registration"</p>
+                        <p class="text-sm text-muted-foreground mt-1">
+                            "A worker is active but no model has been registered yet. Seed a model with "
+                            <code class="font-mono text-xs bg-muted px-1 py-0.5 rounded">"aosctl models seed"</code>
+                            " to begin."
+                        </p>
                     </div>
-                    <p class="text-muted-foreground">"No models found."</p>
-                    <p class="text-sm text-muted-foreground mt-1">
-                        "Models must be registered, then loaded into a worker to enable chat/inference."
-                    </p>
-                    <p class="text-xs text-muted-foreground mt-2">
-                        "If you expected to see models here, check "
-                        <a class="link link-default" href="/system">"System"</a>
-                        " for readiness and "
-                        <a class="link link-default" href="/workers">"Workers"</a>
-                        " for a connected worker."
-                    </p>
-                </div>
-            </Card>
-        }
-        .into_any();
+                </Card>
+            }
+            .into_any()
+        } else {
+            view! {
+                <Card>
+                    <div class="py-8 text-center">
+                        <div class="rounded-full bg-muted p-3 mx-auto w-fit mb-4">
+                            <svg
+                                xmlns="http://www.w3.org/2000/svg"
+                                class="h-8 w-8 text-muted-foreground"
+                                viewBox="0 0 24 24"
+                                fill="none"
+                                stroke="currentColor"
+                                stroke-width="1.5"
+                            >
+                                <path stroke-linecap="round" stroke-linejoin="round" d="M9.663 17h4.673M12 3v1m6.364 1.636l-.707.707M21 12h-1M4 12H3m3.343-5.657l-.707-.707m2.828 9.9a5 5 0 117.072 0l-.548.547A3.374 3.374 0 0014 18.469V19a2 2 0 11-4 0v-.531c0-.895-.356-1.754-.988-2.386l-.548-.547z"/>
+                            </svg>
+                        </div>
+                        <p class="text-muted-foreground">"No models registered."</p>
+                        <p class="text-sm text-muted-foreground mt-1">
+                            "Seed a model with "
+                            <code class="font-mono text-xs bg-muted px-1 py-0.5 rounded">"aosctl models seed"</code>
+                            ", then load it into a worker to enable inference."
+                        </p>
+                        <p class="text-xs text-muted-foreground mt-2">
+                            "Check "
+                            <a class="link link-default" href="/system">"System"</a>
+                            " for readiness and "
+                            <a class="link link-default" href="/workers">"Workers"</a>
+                            " for a connected worker."
+                        </p>
+                    </div>
+                </Card>
+            }
+            .into_any()
+        };
     }
 
     view! {

@@ -6,6 +6,7 @@
 //! 3. Config - Training parameters
 //! 4. Review - Summary and submit
 
+use crate::api::error::format_structured_details;
 use crate::api::ApiClient;
 use crate::components::{Button, ButtonVariant, Card, Dialog, DialogSize, FormField, Input};
 use crate::pages::training::config_presets::{TrainingConfigPresets, TrainingPreset};
@@ -222,7 +223,16 @@ pub fn CreateJobWizard(
 
     // Step validation
     let validate_dataset_step = move || -> bool {
-        // Dataset step is optional - user can proceed without a dataset
+        form_errors.update(|e| e.clear_all());
+        if dataset_id.get().trim().is_empty() {
+            form_errors.update(|e| {
+                e.set(
+                    "dataset_id",
+                    "Select or generate a dataset before continuing".to_string(),
+                )
+            });
+            return false;
+        }
         true
     };
 
@@ -397,6 +407,7 @@ pub fn CreateJobWizard(
                         "preferred_backend": if backend_val == "auto" { serde_json::Value::Null } else { json!(backend_val) },
                         "backend_policy": if policy_val == "auto" { serde_json::Value::Null } else { json!(policy_val) },
                         "coreml_training_fallback": if backend_val == "coreml" || policy_val == "coreml_else_fallback" { json!(fallback_val) } else { serde_json::Value::Null },
+                        "early_stopping": early_stopping.get_untracked(),
                     },
                     "category": cat,
                 });
@@ -407,14 +418,17 @@ pub fn CreateJobWizard(
                 {
                     Ok(response) => {
                         submitting.set(false);
-                        notifications.success(
+                        let job_href = format!("/training?job_id={}", response.id);
+                        notifications.success_with_action(
                             "Training job created",
                             &format!("\"{}\" is now queued for training", name_for_toast),
+                            "View Job",
+                            &job_href,
                         );
                         on_created(response.id);
                     }
                     Err(e) => {
-                        error.set(Some(e.to_string()));
+                        error.set(Some(format_structured_details(&e)));
                         submitting.set(false);
                     }
                 }
@@ -478,7 +492,7 @@ pub fn CreateJobWizard(
             })}
 
             // Step content
-            <div class="min-h-72 min-w-0">
+            <div class="wizard-step-content min-w-0">
                 {move || match current_step.get() {
                     WizardStep::Dataset => view! {
                         <DatasetStepContent
@@ -915,7 +929,7 @@ fn ReviewStepContent(
             <div class="rounded-lg border bg-muted/30 divide-y">
                 <ReviewRow label="Adapter Name" value=adapter_name/>
                 <ReviewRow label="Base Model" value=base_model_id/>
-                <ReviewRow label="Dataset" value=if dataset_id.is_empty() { "Synthetic (auto-generated)".to_string() } else { dataset_id }/>
+                <ReviewRow label="Dataset" value=if dataset_id.is_empty() { "None selected".to_string() } else { dataset_id }/>
                 <ReviewRow label="Category" value=category/>
             </div>
 

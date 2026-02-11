@@ -42,6 +42,11 @@ pub fn StacksList(stacks: Vec<StackResponse>, refetch: Refetch) -> impl IntoView
     let pending_activate_name = RwSignal::new(String::new());
     let activating = RwSignal::new(false);
 
+    // Deactivate confirmation dialog state
+    let show_deactivate_confirm = RwSignal::new(false);
+    let pending_deactivate_name = RwSignal::new(String::new());
+    let deactivating = RwSignal::new(false);
+
     // Reset dialog state
     let reset_delete_state = move || {
         pending_delete_id.set(None);
@@ -114,6 +119,31 @@ pub fn StacksList(stacks: Vec<StackResponse>, refetch: Refetch) -> impl IntoView
         })
     };
 
+    // Handle confirmed deactivation
+    let on_confirm_deactivate = {
+        let client = Arc::clone(&client);
+        Callback::new(move |_| {
+            deactivating.set(true);
+            let client = Arc::clone(&client);
+            wasm_bindgen_futures::spawn_local(async move {
+                match client.deactivate_stack().await {
+                    Ok(_) => {
+                        refetch.run(());
+                        let _ = show_deactivate_confirm.try_set(false);
+                    }
+                    Err(e) => {
+                        tracing::error!("Failed to deactivate stack: {}", e);
+                    }
+                }
+                let _ = deactivating.try_set(false);
+            });
+        })
+    };
+
+    let on_cancel_deactivate = Callback::new(move |_| {
+        pending_deactivate_name.set(String::new());
+    });
+
     view! {
         <Card>
             <Table>
@@ -130,18 +160,17 @@ pub fn StacksList(stacks: Vec<StackResponse>, refetch: Refetch) -> impl IntoView
                     {stacks
                         .into_iter()
                         .map(|stack| {
-                            let client = Arc::clone(&client);
                             view! {
                                 <StackRow
                                     stack=stack
-                                    client=client
-                                    refetch=refetch
                                     show_delete_confirm=show_delete_confirm
                                     pending_delete_id=pending_delete_id
                                     pending_delete_name=pending_delete_name
                                     show_activate_confirm=show_activate_confirm
                                     pending_activate_id=pending_activate_id
                                     pending_activate_name=pending_activate_name
+                                    show_deactivate_confirm=show_deactivate_confirm
+                                    pending_deactivate_name=pending_deactivate_name
                                 />
                             }
                         })
@@ -196,6 +225,26 @@ pub fn StacksList(stacks: Vec<StackResponse>, refetch: Refetch) -> impl IntoView
                 />
             }
         }}
+
+        {move || {
+            let name = pending_deactivate_name.get();
+            let description = format!(
+                "Deactivate '{}'? Inference requests will no longer route to this stack.",
+                name
+            );
+            view! {
+                <ConfirmationDialog
+                    open=show_deactivate_confirm
+                    title="Deactivate Stack"
+                    description=description
+                    severity=ConfirmationSeverity::Warning
+                    confirm_text="Deactivate"
+                    on_confirm=on_confirm_deactivate
+                    on_cancel=on_cancel_deactivate
+                    loading=Signal::derive(move || deactivating.get())
+                />
+            }
+        }}
     }
     .into_any()
 }
@@ -204,14 +253,14 @@ pub fn StacksList(stacks: Vec<StackResponse>, refetch: Refetch) -> impl IntoView
 #[component]
 pub fn StackRow(
     stack: StackResponse,
-    client: Arc<ApiClient>,
-    refetch: Refetch,
     show_delete_confirm: RwSignal<bool>,
     pending_delete_id: RwSignal<Option<String>>,
     pending_delete_name: RwSignal<String>,
     show_activate_confirm: RwSignal<bool>,
     pending_activate_id: RwSignal<Option<String>>,
     pending_activate_name: RwSignal<String>,
+    show_deactivate_confirm: RwSignal<bool>,
+    pending_deactivate_name: RwSignal<String>,
 ) -> impl IntoView {
     let id = stack.id.clone();
     let id_link = id.clone();
@@ -220,6 +269,7 @@ pub fn StackRow(
     let name = stack.name.clone();
     let name_for_delete = name.clone();
     let name_for_activate = name.clone();
+    let name_for_deactivate = name.clone();
     let adapter_count = stack.adapter_ids.len();
     let workflow_label = workflow_type_label(&stack.workflow_type);
     let is_active = stack.is_active;
@@ -268,17 +318,13 @@ pub fn StackRow(
                         "View"
                     </a>
                     {if is_active {
-                        let client = Arc::clone(&client);
+                        let name_for_deactivate = name_for_deactivate.clone();
                         view! {
                             <button
                                 class="text-sm text-status-warning hover:underline focus:outline-none focus:ring-2 focus:ring-ring focus:ring-offset-2 rounded"
                                 on:click=move |_| {
-                                    let client = Arc::clone(&client);
-                                    wasm_bindgen_futures::spawn_local(async move {
-                                        if client.deactivate_stack().await.is_ok() {
-                                            refetch.run(());
-                                        }
-                                    });
+                                    pending_deactivate_name.set(name_for_deactivate.clone());
+                                    show_deactivate_confirm.set(true);
                                 }
                             >
                                 "Deactivate"

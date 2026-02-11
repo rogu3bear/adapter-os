@@ -6,9 +6,9 @@ use crate::components::inference_guidance::guidance_for;
 use crate::components::status_center::use_status_center;
 use crate::components::{
     Button, ButtonVariant, Card, ChartPoint, DataSeries, EmptyState, EmptyStateVariant,
-    ErrorDisplay, IconCheckCircle, IconPlay, IconServer, LineChart, LoadingDisplay, PageScaffold,
-    PageScaffoldActions, SparklineMetric, Spinner, StatusColor, StatusIconBox, StatusIndicator,
-    StatusVariant, TimeSeriesData, WorkerStatusBadge,
+    ErrorDisplay, IconCheckCircle, IconPlay, IconServer, LineChart, PageScaffold,
+    PageScaffoldActions, SkeletonCard, SkeletonStatsGrid, SparklineMetric, Spinner, StatusColor,
+    StatusIconBox, StatusIndicator, StatusVariant, TimeSeriesData, WorkerStatusBadge,
 };
 use crate::hooks::{use_api_resource, use_sse_notifications, LoadingState};
 use crate::signals::use_auth;
@@ -151,7 +151,10 @@ pub fn Dashboard() -> impl IntoView {
     // Log first successful status fetch
     let logged_first_status = StoredValue::new(false);
     Effect::new(move || {
-        if let LoadingState::Loaded(_) = status.get() {
+        let Some(current) = status.try_get() else {
+            return;
+        };
+        if let LoadingState::Loaded(_) = current {
             if !logged_first_status.get_value() {
                 logged_first_status.set_value(true);
                 boot_log("api", "first /v1/system/status success");
@@ -286,7 +289,17 @@ pub fn Dashboard() -> impl IntoView {
                 match status.get() {
                     LoadingState::Idle | LoadingState::Loading => {
                         view! {
-                            <LoadingDisplay message="Loading system status..."/>
+                            <SkeletonStatsGrid count=3/>
+                            <div class="grid gap-6 mt-6 lg:grid-cols-5">
+                                <div class="lg:col-span-3 space-y-6">
+                                    <SkeletonCard has_header=true/>
+                                    <SkeletonCard has_header=true/>
+                                </div>
+                                <div class="lg:col-span-2 space-y-6">
+                                    <SkeletonCard has_header=true/>
+                                    <SkeletonCard has_header=true/>
+                                </div>
+                            </div>
                         }.into_any()
                     }
                     LoadingState::Loaded(data) => {
@@ -294,10 +307,12 @@ pub fn Dashboard() -> impl IntoView {
                             LoadingState::Loaded(w) => w,
                             _ => Vec::new(),
                         };
+                        let workers_error = matches!(workers.get(), LoadingState::Error(_));
                         view! {
                             <DashboardContent
                                 status=data
                                 workers=workers_data
+                                workers_error=workers_error
                                 live_metrics=live_metrics
                                 metrics_history=metrics_history
                                 activity=activity
@@ -350,6 +365,7 @@ fn SseIndicator(state: RwSignal<SseState>) -> impl IntoView {
 fn DashboardContent(
     status: SystemStatusResponse,
     workers: Vec<WorkerResponse>,
+    #[prop(optional)] workers_error: bool,
     live_metrics: RwSignal<Option<MetricsSnapshot>>,
     metrics_history: RwSignal<MetricsHistory>,
     activity: ReadSignal<LoadingState<Vec<ActivityEventResponse>>>,
@@ -469,7 +485,14 @@ fn DashboardContent(
             <div class="lg:col-span-2 space-y-6">
                 // Workers List - with count in header
                 <Card title=format!("Workers ({}/{})", healthy_workers, total_workers)>
-                    {if workers.is_empty() {
+                    {if workers.is_empty() && workers_error {
+                        view! {
+                            <div class="py-4 text-center">
+                                <p class="text-sm text-muted-foreground">"Could not load worker status."</p>
+                                <p class="text-xs text-muted-foreground mt-1">"Check the Workers page for details."</p>
+                            </div>
+                        }.into_any()
+                    } else if workers.is_empty() {
                         view! {
                             <EmptyState
                                 variant=EmptyStateVariant::Empty
@@ -705,51 +728,21 @@ fn LiveMetricsSection(
     }
 }
 
-/// Trend direction for metric cards
-#[derive(Debug, Clone, Copy, Default, PartialEq)]
-pub enum TrendDirection {
-    #[default]
-    Neutral,
-    Up,
-    Down,
-}
-
 /// Individual metric card for live metrics display
 #[component]
 fn MetricCard(
     label: String,
     value: String,
     #[prop(optional, into)] trend: MaybeProp<String>,
-    #[prop(optional)] trend_direction: TrendDirection,
 ) -> impl IntoView {
     let trend = trend.get();
-    let trend_class = match trend_direction {
-        TrendDirection::Up => "trend-up",
-        TrendDirection::Down => "trend-down",
-        TrendDirection::Neutral => "trend-neutral",
-    };
-
-    let trend_icon = match trend_direction {
-        TrendDirection::Up => Some(view! {
-            <svg class="h-3 w-3" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2">
-                <path d="M7 17l5-5 5 5M7 7l5 5 5-5" stroke-linecap="round" stroke-linejoin="round"/>
-            </svg>
-        }),
-        TrendDirection::Down => Some(view! {
-            <svg class="h-3 w-3" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2">
-                <path d="M7 7l5 5 5-5M7 17l5-5 5 5" stroke-linecap="round" stroke-linejoin="round"/>
-            </svg>
-        }),
-        TrendDirection::Neutral => None,
-    };
 
     view! {
         <div class="rounded-lg border p-4 bg-card">
             <p class="text-xs text-muted-foreground mb-1">{label}</p>
             <p class="text-2xl font-bold">{value}</p>
             {trend.map(|t| view! {
-                <div class=format!("flex items-center gap-1 text-xs mt-1 {}", trend_class)>
-                    {trend_icon.clone()}
+                <div class="flex items-center gap-1 text-xs mt-1 text-muted-foreground">
                     <span>{t}</span>
                 </div>
             })}

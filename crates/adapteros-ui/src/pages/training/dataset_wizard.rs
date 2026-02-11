@@ -626,7 +626,7 @@ pub fn DatasetUploadWizard(
                             open.set(false);
                         }
                         Err(e) => {
-                            upload_error.set(Some(e.to_string()));
+                            upload_error.set(Some(e.user_message()));
                             submitting.set(false);
                         }
                     }

@@ -87,20 +87,19 @@ pub fn TrainingJobDetail(
                     refetch_action.adapters();
                     refetch_action.stacks();
 
-                    // Show success notification with "View Adapter" action
-                    // This links directly to the adapter detail page so users can find what they created
+                    // Show success notification with "Try in Chat" action
                     let adapter_name = data.adapter_name.clone();
-                    let adapter_url = data
+                    let chat_url = data
                         .adapter_id
                         .as_ref()
-                        .map(|id| format!("/adapters/{}", id))
-                        .unwrap_or_else(|| "/adapters".to_string());
+                        .map(|id| chat_path_with_adapter(id))
+                        .unwrap_or_else(|| "/chat".to_string());
 
                     notifications.success_with_action(
                         "Adapter Ready!",
                         &format!("'{}' is now available for inference", adapter_name),
-                        "View Adapter",
-                        &adapter_url,
+                        "Try in Chat",
+                        &chat_url,
                     );
                 }
 
@@ -144,8 +143,8 @@ pub fn TrainingJobDetail(
                             .info("Training cancelled", "The training job has been stopped");
                         on_cancelled();
                     }
-                    Err(_) => {
-                        // On error, close dialog - user can retry via UI
+                    Err(e) => {
+                        notifications.error("Cancel failed", &e.user_message());
                         show_cancel_confirm.set(false);
                     }
                 }
@@ -415,7 +414,24 @@ pub fn JobDetailContent(
                                             <p class="text-xs text-muted-foreground">"Your adapter is ready for inference."</p>
                                         </div>
                                         <div class="flex flex-wrap items-center gap-2">
-                                            <Link href=adapter_href class="btn btn-primary btn-sm">
+                                            <Link href=chat_href class="btn btn-primary btn-sm">
+                                                <svg
+                                                    xmlns="http://www.w3.org/2000/svg"
+                                                    width="14"
+                                                    height="14"
+                                                    viewBox="0 0 24 24"
+                                                    fill="none"
+                                                    stroke="currentColor"
+                                                    stroke-width="2"
+                                                    stroke-linecap="round"
+                                                    stroke-linejoin="round"
+                                                    class="mr-1.5"
+                                                >
+                                                    <path d="M21 15a2 2 0 0 1-2 2H7l-4 4V5a2 2 0 0 1 2-2h14a2 2 0 0 1 2 2z"/>
+                                                </svg>
+                                                "Try in Chat"
+                                            </Link>
+                                            <Link href=adapter_href class="btn btn-secondary btn-sm">
                                                 <svg
                                                     xmlns="http://www.w3.org/2000/svg"
                                                     width="14"
@@ -433,23 +449,6 @@ pub fn JobDetailContent(
                                                     <line x1="12" y1="22" x2="12" y2="12"/>
                                                 </svg>
                                                 "View Adapter"
-                                            </Link>
-                                            <Link href=chat_href class="btn btn-secondary btn-sm">
-                                                <svg
-                                                    xmlns="http://www.w3.org/2000/svg"
-                                                    width="14"
-                                                    height="14"
-                                                    viewBox="0 0 24 24"
-                                                    fill="none"
-                                                    stroke="currentColor"
-                                                    stroke-width="2"
-                                                    stroke-linecap="round"
-                                                    stroke-linejoin="round"
-                                                    class="mr-1.5"
-                                                >
-                                                    <path d="M21 15a2 2 0 0 1-2 2H7l-4 4V5a2 2 0 0 1 2-2h14a2 2 0 0 1 2 2z"/>
-                                                </svg>
-                                                "Try in Chat"
                                             </Link>
                                         </div>
                                     </div>
@@ -826,7 +825,7 @@ pub fn LogViewer(job_id: String) -> impl IntoView {
                     error.set(None);
                 }
                 Err(e) => {
-                    error.set(Some(e.to_string()));
+                    error.set(Some(e.user_message()));
                 }
             }
             loading.set(false);
@@ -897,7 +896,7 @@ pub fn MetricsChart(job_id: String) -> impl IntoView {
                     error.set(None);
                 }
                 Err(e) => {
-                    error.set(Some(e.to_string()));
+                    error.set(Some(e.user_message()));
                 }
             }
             loading.set(false);

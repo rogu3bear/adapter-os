@@ -387,6 +387,11 @@ pub fn Monitoring() -> impl IntoView {
     }
 }
 
+/// Returns true if a LoadingState contains a network-level error (backend unreachable).
+fn is_network_error<T>(state: &LoadingState<T>) -> bool {
+    matches!(state, LoadingState::Error(e) if matches!(e, crate::api::ApiError::Network(_)))
+}
+
 /// Health endpoints summary card
 #[component]
 fn HealthEndpointsCard(
@@ -395,6 +400,34 @@ fn HealthEndpointsCard(
     healthz_all: LoadingState<SystemHealthResponse>,
     system_ready: LoadingState<(u16, SystemReadyResponse)>,
 ) -> impl IntoView {
+    // Detect when all endpoints failed with network errors (backend unreachable)
+    let all_network_errors = is_network_error(&healthz)
+        && is_network_error(&readyz)
+        && is_network_error(&healthz_all)
+        && is_network_error(&system_ready);
+
+    if all_network_errors {
+        return view! {
+            <Card title="Health Endpoints".to_string() description="Live status from /healthz, /readyz, /system/ready".to_string()>
+                <div class="rounded-lg border border-destructive bg-destructive/10 p-6 text-center space-y-2">
+                    <div class="flex items-center justify-center gap-2 text-destructive">
+                        <svg xmlns="http://www.w3.org/2000/svg" class="h-5 w-5" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round">
+                            <path d="M10.29 3.86L1.82 18a2 2 0 001.71 3h16.94a2 2 0 001.71-3L13.71 3.86a2 2 0 00-3.42 0z"/>
+                            <line x1="12" y1="9" x2="12" y2="13"/>
+                            <line x1="12" y1="17" x2="12.01" y2="17"/>
+                        </svg>
+                        <span class="font-medium">"Backend not available"</span>
+                    </div>
+                    <p class="text-sm text-muted-foreground">
+                        "Cannot reach the control plane. Start the backend with "
+                        <code class="font-mono text-xs bg-muted px-1 py-0.5 rounded">"./start"</code>
+                        " or check the server logs."
+                    </p>
+                </div>
+            </Card>
+        }.into_any();
+    }
+
     view! {
         <Card title="Health Endpoints".to_string() description="Live status from /healthz, /readyz, /system/ready".to_string()>
             <Table>
@@ -436,7 +469,7 @@ fn HealthEndpointsCard(
                             <TableRow>
                                 <TableCell><span class="font-mono text-sm">"/healthz"</span></TableCell>
                                 <TableCell><Badge variant=BadgeVariant::Destructive>"Error"</Badge></TableCell>
-                                <TableCell><span class="text-sm text-destructive">{e.to_string()}</span></TableCell>
+                                <TableCell><span class="text-sm text-destructive">{e.user_message()}</span></TableCell>
                             </TableRow>
                         }.into_any(),
                     }}
@@ -476,7 +509,7 @@ fn HealthEndpointsCard(
                             <TableRow>
                                 <TableCell><span class="font-mono text-sm">"/readyz"</span></TableCell>
                                 <TableCell><Badge variant=BadgeVariant::Destructive>"Error"</Badge></TableCell>
-                                <TableCell><span class="text-sm text-destructive">{e.to_string()}</span></TableCell>
+                                <TableCell><span class="text-sm text-destructive">{e.user_message()}</span></TableCell>
                             </TableRow>
                         }.into_any(),
                     }}
@@ -516,7 +549,7 @@ fn HealthEndpointsCard(
                             <TableRow>
                                 <TableCell><span class="font-mono text-sm">"/system/ready"</span></TableCell>
                                 <TableCell><Badge variant=BadgeVariant::Destructive>"Error"</Badge></TableCell>
-                                <TableCell><span class="text-sm text-destructive">{e.to_string()}</span></TableCell>
+                                <TableCell><span class="text-sm text-destructive">{e.user_message()}</span></TableCell>
                             </TableRow>
                         }.into_any(),
                     }}
@@ -549,14 +582,14 @@ fn HealthEndpointsCard(
                             <TableRow>
                                 <TableCell><span class="font-mono text-sm">"/healthz/all"</span></TableCell>
                                 <TableCell><Badge variant=BadgeVariant::Destructive>"Error"</Badge></TableCell>
-                                <TableCell><span class="text-sm text-destructive">{e.to_string()}</span></TableCell>
+                                <TableCell><span class="text-sm text-destructive">{e.user_message()}</span></TableCell>
                             </TableRow>
                         }.into_any(),
                     }}
                 </TableBody>
             </Table>
         </Card>
-    }
+    }.into_any()
 }
 
 fn component_status_badge(status: ComponentStatus) -> (BadgeVariant, &'static str) {

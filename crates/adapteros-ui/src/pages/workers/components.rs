@@ -4,9 +4,9 @@
 
 use crate::api::{ApiClient, ApiError, WorkerMetricsResponse};
 use crate::components::{
-    Badge, BadgeVariant, Button, ButtonSize, ButtonVariant, Card, CopyableId, EmptyState,
-    EmptyStateVariant, Spinner, StatusColor, StatusIndicator, Table, TableBody, TableCell,
-    TableHead, TableHeader, TableRow,
+    Badge, BadgeVariant, Button, ButtonSize, ButtonVariant, Card, ConfirmationDialog,
+    ConfirmationSeverity, CopyableId, EmptyState, EmptyStateVariant, Spinner, StatusColor,
+    StatusIndicator, Table, TableBody, TableCell, TableHead, TableHeader, TableRow,
 };
 use crate::hooks::{use_api_resource, use_navigate, use_scope_alive, LoadingState};
 use adapteros_api_types::WorkerResponse;
@@ -306,15 +306,19 @@ pub fn WorkerRow(
         .unwrap_or_else(|| "-".to_string());
 
     view! {
-        <TableRow class="cursor-pointer hover:bg-muted/50">
+        <tr
+            class="table-row cursor-pointer hover:bg-muted/50"
+            on:click=move |_| on_select.run(())
+        >
             <TableCell>
-                <button
-                    class="font-mono text-sm text-primary hover:underline focus:outline-none focus:ring-2 focus:ring-ring focus:ring-offset-2 rounded"
+                <a
+                    href=format!("/workers/{}", worker.id)
+                    class="font-mono text-sm text-primary hover:underline"
                     title=worker.id.clone()
-                    on:click=move |_| on_select.run(())
+                    on:click=move |e: web_sys::MouseEvent| e.stop_propagation()
                 >
                     {short_worker_id.clone()}
-                </button>
+                </a>
                 <div class="text-xs text-muted-foreground font-mono mt-1" title=worker.tenant_id.clone()>
                     {"tenant: "}{short_tenant_id}
                 </div>
@@ -379,7 +383,10 @@ pub fn WorkerRow(
                 <span class="text-sm text-muted-foreground">{format_timestamp(&last_seen)}</span>
             </TableCell>
             <TableCell class="text-right">
-                <div class="flex items-center justify-end gap-1">
+                <div
+                    class="flex items-center justify-end gap-1"
+                    on:click=move |e: web_sys::MouseEvent| e.stop_propagation()
+                >
                     {show_drain.then(|| view! {
                         <Button
                             variant=ButtonVariant::Ghost
@@ -402,7 +409,7 @@ pub fn WorkerRow(
                     })}
                 </div>
             </TableCell>
-        </TableRow>
+        </tr>
     }
 }
 
@@ -634,6 +641,7 @@ pub fn WorkerDetailView(
     let alive = use_scope_alive();
     let action_loading = RwSignal::new(false);
     let action_error = RwSignal::new(Option::<String>::None);
+    let show_stop_confirm = RwSignal::new(false);
 
     let is_healthy = worker.status == "healthy";
     let is_draining = worker.status == "draining";
@@ -700,7 +708,7 @@ pub fn WorkerDetailView(
                                                     }
                                                 }
                                                 Err(e) => {
-                                                    action_error.set(Some(format!("Failed to drain: {}", e)));
+                                                    action_error.set(Some(e.user_message()));
                                                 }
                                             }
                                             action_loading.set(false);
@@ -714,29 +722,12 @@ pub fn WorkerDetailView(
                         }
                     })}
                     {(is_healthy || is_draining).then(|| {
-                        let worker_id = worker.id.clone();
                         view! {
                             <Button
                                 variant=ButtonVariant::Destructive
                                 disabled=Signal::from(action_loading)
                                 on_click=Callback::new(move |_| {
-                                    action_loading.set(true);
-                                    let client = ApiClient::new();
-                                    let worker_id = worker_id.clone();
-                                    wasm_bindgen_futures::spawn_local(async move {
-                                        match client.stop_worker(&worker_id).await {
-                                            Ok(_) => {
-                                                // Navigate using window.location
-                                                if let Some(window) = web_sys::window() {
-                                                    let _ = window.location().set_href("/workers");
-                                                }
-                                            }
-                                            Err(e) => {
-                                                action_error.set(Some(format!("Failed to stop: {}", e)));
-                                            }
-                                        }
-                                        action_loading.set(false);
-                                    });
+                                    show_stop_confirm.set(true);
                                 })
                             >
                                 <IconStop/>
@@ -746,6 +737,44 @@ pub fn WorkerDetailView(
                     })}
                 </div>
             </div>
+
+            // Stop confirmation dialog
+            {
+                let worker_id = worker.id.clone();
+                let stop_desc = format!(
+                    "Stop worker '{}'? Active inference requests will be terminated.",
+                    short_id(&worker.id),
+                );
+                view! {
+                    <ConfirmationDialog
+                        open=show_stop_confirm
+                        title="Stop Worker"
+                        description=stop_desc
+                        severity=ConfirmationSeverity::Warning
+                        confirm_text="Stop"
+                        on_confirm=Callback::new(move |_| {
+                            action_loading.set(true);
+                            let client = ApiClient::new();
+                            let worker_id = worker_id.clone();
+                            wasm_bindgen_futures::spawn_local(async move {
+                                match client.stop_worker(&worker_id).await {
+                                    Ok(_) => {
+                                        if let Some(window) = web_sys::window() {
+                                            let _ = window.location().set_href("/workers");
+                                        }
+                                    }
+                                    Err(e) => {
+                                        action_error.set(Some(e.user_message()));
+                                    }
+                                }
+                                action_loading.set(false);
+                            });
+                        })
+                        on_cancel=Callback::new(move |_| {})
+                        loading=Signal::from(action_loading)
+                    />
+                }
+            }
 
             // Error banner
             {move || action_error.get().map(|e| view! {

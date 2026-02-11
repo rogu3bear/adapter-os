@@ -330,7 +330,7 @@ pub fn CreateJobDialog(
                         preprocess_status.set(Some(resp));
                     }
                     Err(e) => {
-                        status_error.set(Some(e.to_string()));
+                        status_error.set(Some(e.user_message()));
                     }
                 }
                 checking_status.set(false);
@@ -537,7 +537,7 @@ pub fn CreateJobDialog(
                     on_created();
                 }
                 Err(e) => {
-                    error.set(Some(e.to_string()));
+                    error.set(Some(e.user_message()));
                     submitting.set(false);
                 }
             }

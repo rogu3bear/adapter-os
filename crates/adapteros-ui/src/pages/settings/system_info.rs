@@ -1,7 +1,7 @@
 //! System Info section component
 
 use crate::api::ApiClient;
-use crate::components::{Badge, BadgeVariant, Button, ButtonVariant, Card, Spinner};
+use crate::components::{Badge, BadgeVariant, Button, ButtonVariant, Card, ErrorDisplay, Spinner};
 use crate::hooks::{use_api_resource, LoadingState};
 use adapteros_api_types::HealthResponse;
 use leptos::prelude::*;
@@ -62,11 +62,7 @@ pub fn SystemInfoSection() -> impl IntoView {
                         }
                         LoadingState::Error(e) => {
                             view! {
-                                <div class="rounded-lg border border-destructive bg-destructive/10 p-4">
-                                    <p class="text-sm text-destructive">
-                                        {format!("Failed to fetch: {}", e)}
-                                    </p>
-                                </div>
+                                <ErrorDisplay error=e on_retry=Callback::new(move |_| refetch.run(()))/>
                             }.into_any()
                         }
                     }

@@ -1,6 +1,7 @@
 //! Login page
 
 use crate::components::{Button, Card, Checkbox, FormField, Input, OfflineBanner};
+use crate::signals::settings::UserSettings;
 use crate::signals::use_auth;
 use crate::validation::{use_form_errors, validate_field, ValidationRule};
 use leptos::prelude::*;
@@ -66,7 +67,7 @@ pub fn Login() -> impl IntoView {
             // Navigate to returnUrl if present, otherwise dashboard
             let target = return_url
                 .get_value()
-                .unwrap_or_else(|| "/chat".to_string());
+                .unwrap_or_else(|| UserSettings::load().default_page.path().to_string());
             if let Some(window) = web_sys::window() {
                 let _ = window.location().set_href(&target);
             }
@@ -117,9 +118,9 @@ pub fn Login() -> impl IntoView {
                             loading.set(false);
                         }
                         // Navigate to returnUrl if present, otherwise dashboard
-                        let target = return_url
-                            .get_value()
-                            .unwrap_or_else(|| "/chat".to_string());
+                        let target = return_url.get_value().unwrap_or_else(|| {
+                            UserSettings::load().default_page.path().to_string()
+                        });
                         if let Some(window) = web_sys::window() {
                             let _ = window.location().set_href(&target);
                         }
@@ -127,7 +128,7 @@ pub fn Login() -> impl IntoView {
                     Err(e) => {
                         // Only update signals if component is still mounted
                         if is_mounted.load(Ordering::SeqCst) {
-                            error.set(Some(e.to_string()));
+                            error.set(Some(e.user_message()));
                             loading.set(false);
                         }
                     }

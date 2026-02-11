@@ -21,7 +21,7 @@ mod upload_dialog;
 // Re-export upload types for external use
 pub use upload_dialog::{SafetyScanStatus, UploadResult};
 
-use crate::api::ApiClient;
+use crate::api::{report_error_with_toast, ApiClient};
 use crate::components::ErrorDisplay;
 use crate::hooks::{use_api_resource, LoadingState};
 use data_list::{DataList, DataListItem};
@@ -220,7 +220,8 @@ pub fn TrainingData() -> impl IntoView {
                             tracing::info!("Created dataset from document: {}", document_id);
                         }
                         Err(e) => {
-                            create_dataset_error.set(Some(e.to_string()));
+                            report_error_with_toast(&e, "Failed to create dataset", Some("/training"), true);
+                            create_dataset_error.set(Some(e.user_message()));
                             creating_dataset.set(false);
                             tracing::error!("Failed to create dataset: {}", e);
                         }

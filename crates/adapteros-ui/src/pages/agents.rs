@@ -5,9 +5,9 @@
 
 use crate::api::{ApiClient, ApiError};
 use crate::components::{
-    Card, EmptyState, EmptyStateVariant, ErrorDisplay, LoadingDisplay, PageBreadcrumbItem,
-    PageScaffold, PageScaffoldActions, RefreshButton, Table, TableBody, TableCell, TableHead,
-    TableHeader, TableRow,
+    Button, ButtonSize, ButtonVariant, Card, EmptyState, EmptyStateVariant, ErrorDisplay,
+    LoadingDisplay, PageBreadcrumbItem, PageScaffold, PageScaffoldActions, RefreshButton, Table,
+    TableBody, TableCell, TableHead, TableHeader, TableRow,
 };
 use crate::hooks::{use_api_resource, LoadingState};
 use adapteros_api_types::orchestration::OrchestrationConfig;
@@ -79,6 +79,14 @@ pub fn Agents() -> impl IntoView {
             ]
         >
             <PageScaffoldActions slot>
+                <Button
+                    variant=ButtonVariant::Secondary
+                    size=ButtonSize::Sm
+                    disabled=true
+                    attr:title="Session creation is not yet available via the UI. Use the API directly."
+                >
+                    "Create Session"
+                </Button>
                 <RefreshButton on_click=refetch_all/>
             </PageScaffoldActions>
 

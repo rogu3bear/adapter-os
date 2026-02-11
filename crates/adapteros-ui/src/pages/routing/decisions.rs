@@ -7,9 +7,9 @@ use crate::api::{
     RoutingDebugResponse, RoutingDecisionResponse, RoutingDecisionsQuery, RoutingDecisionsResponse,
 };
 use crate::components::{
-    Badge, BadgeVariant, Button, ButtonSize, ButtonVariant, Card, Checkbox, CopyableId,
-    ErrorDisplay, Input, Spinner, SplitPanel, Table, TableBody, TableCell, TableHead, TableHeader,
-    TableRow, Textarea,
+    Badge, BadgeVariant, Button, ButtonSize, ButtonVariant, Card, Checkbox, CopyableId, EmptyState,
+    EmptyStateVariant, ErrorDisplay, Input, Spinner, SplitPanel, Table, TableBody, TableCell,
+    TableHead, TableHeader, TableRow, Textarea,
 };
 use crate::hooks::{use_api_resource, LoadingState};
 use crate::utils::format_datetime;
@@ -287,22 +287,11 @@ fn DecisionsList(
     if decisions.decisions.is_empty() {
         return view! {
             <Card>
-                <div class="py-8 text-center">
-                    <div class="rounded-full bg-muted p-3 mx-auto w-fit mb-4">
-                        <svg
-                            xmlns="http://www.w3.org/2000/svg"
-                            class="h-8 w-8 text-muted-foreground"
-                            viewBox="0 0 24 24"
-                            fill="none"
-                            stroke="currentColor"
-                            stroke-width="1.5"
-                        >
-                            <path stroke-linecap="round" stroke-linejoin="round" d="M7.5 21L3 16.5m0 0L7.5 12M3 16.5h13.5m0-13.5L21 7.5m0 0L16.5 12M21 7.5H7.5"/>
-                        </svg>
-                    </div>
-                    <p class="text-muted-foreground">"No routing decisions found."</p>
-                    <p class="text-sm text-muted-foreground mt-1">"Run some inference requests to see routing decisions."</p>
-                </div>
+                <EmptyState
+                    title="No routing decisions found"
+                    description="Run some inference requests to see routing decisions."
+                    variant=EmptyStateVariant::Empty
+                />
             </Card>
         }
         .into_any();
@@ -625,7 +614,7 @@ fn DebugPanel() -> impl IntoView {
                     result.set(Some(response));
                 }
                 Err(e) => {
-                    error.set(Some(e.to_string()));
+                    error.set(Some(e.user_message()));
                 }
             }
             loading.set(false);

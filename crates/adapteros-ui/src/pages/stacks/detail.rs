@@ -34,13 +34,19 @@ pub fn StackDetail() -> impl IntoView {
 
     let show_edit_dialog = RwSignal::new(false);
 
+    // Derive breadcrumb label: show name once loaded, fall back to ID
+    let breadcrumb_label = Signal::derive(move || match stack.get() {
+        LoadingState::Loaded(ref data) => data.name.clone(),
+        _ => stack_id.get(),
+    });
+
     view! {
         <PageScaffold
             title="Stack Details"
             breadcrumbs=vec![
                 PageBreadcrumbItem::new("Deploy", "/stacks"),
                 PageBreadcrumbItem::new("Stacks", "/stacks"),
-                PageBreadcrumbItem::current(stack_id.get()),
+                PageBreadcrumbItem::current(breadcrumb_label.get()),
             ]
         >
             <PageScaffoldActions slot>

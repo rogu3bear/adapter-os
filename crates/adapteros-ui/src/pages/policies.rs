@@ -426,7 +426,7 @@ fn PolicyActionsCard(
         wasm_bindgen_futures::spawn_local(async move {
             let client = ApiClient::new();
             let result = client.validate_policy(&content).await;
-            set_validation_result.set(Some(result.map_err(|e| e.to_string())));
+            set_validation_result.set(Some(result.map_err(|e| e.user_message())));
             set_validating.set(false);
         });
     };
@@ -477,7 +477,7 @@ fn PolicyActionsCard(
                     }
                 }
                 Err(e) => {
-                    set_apply_result.set(Some(Err(e.to_string())));
+                    set_apply_result.set(Some(Err(e.user_message())));
                 }
             }
             set_applying.set(false);

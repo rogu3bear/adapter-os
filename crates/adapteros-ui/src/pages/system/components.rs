@@ -1319,7 +1319,7 @@ fn HealthEndpointsSection(
                             <TableRow>
                                 <TableCell><span class="font-mono text-sm">"/healthz"</span></TableCell>
                                 <TableCell><Badge variant=BadgeVariant::Destructive>"Error"</Badge></TableCell>
-                                <TableCell><span class="text-sm text-destructive">{e.to_string()}</span></TableCell>
+                                <TableCell><span class="text-sm text-destructive">{e.user_message()}</span></TableCell>
                             </TableRow>
                         }.into_any(),
                     }}
@@ -1359,7 +1359,7 @@ fn HealthEndpointsSection(
                             <TableRow>
                                 <TableCell><span class="font-mono text-sm">"/readyz"</span></TableCell>
                                 <TableCell><Badge variant=BadgeVariant::Destructive>"Error"</Badge></TableCell>
-                                <TableCell><span class="text-sm text-destructive">{e.to_string()}</span></TableCell>
+                                <TableCell><span class="text-sm text-destructive">{e.user_message()}</span></TableCell>
                             </TableRow>
                         }.into_any(),
                     }}
@@ -1399,7 +1399,7 @@ fn HealthEndpointsSection(
                             <TableRow>
                                 <TableCell><span class="font-mono text-sm">"/system/ready"</span></TableCell>
                                 <TableCell><Badge variant=BadgeVariant::Destructive>"Error"</Badge></TableCell>
-                                <TableCell><span class="text-sm text-destructive">{e.to_string()}</span></TableCell>
+                                <TableCell><span class="text-sm text-destructive">{e.user_message()}</span></TableCell>
                             </TableRow>
                         }.into_any(),
                     }}
@@ -1432,7 +1432,7 @@ fn HealthEndpointsSection(
                             <TableRow>
                                 <TableCell><span class="font-mono text-sm">"/healthz/all"</span></TableCell>
                                 <TableCell><Badge variant=BadgeVariant::Destructive>"Error"</Badge></TableCell>
-                                <TableCell><span class="text-sm text-destructive">{e.to_string()}</span></TableCell>
+                                <TableCell><span class="text-sm text-destructive">{e.user_message()}</span></TableCell>
                             </TableRow>
                         }.into_any(),
                     }}
