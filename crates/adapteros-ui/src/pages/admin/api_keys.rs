@@ -8,6 +8,7 @@ use crate::components::{
     ErrorDisplay, Input, Spinner, Table, TableBody, TableCell, TableHead, TableHeader, TableRow,
 };
 use crate::hooks::{use_api_resource, LoadingState};
+use crate::signals::use_notifications;
 use crate::utils::format_date;
 use leptos::prelude::*;
 use std::sync::Arc;
@@ -16,6 +17,8 @@ use wasm_bindgen_futures::spawn_local;
 /// API Keys section - LM Studio-style API key management
 #[component]
 pub fn ApiKeysSection() -> impl IntoView {
+    let notifications = use_notifications();
+
     // Fetch API keys from API
     let (keys, refetch) =
         use_api_resource(move |client: Arc<ApiClient>| async move { client.list_api_keys().await });
@@ -105,10 +108,12 @@ pub fn ApiKeysSection() -> impl IntoView {
             revoking_id.set(Some(id.clone()));
             show_revoke_confirm.set(false);
 
+            let notifications = notifications.clone();
             spawn_local(async move {
                 let client = ApiClient::new();
                 match client.revoke_api_key(&id).await {
                     Ok(_) => {
+                        notifications.success("API key revoked", "The API key has been revoked.");
                         refetch.run(());
                     }
                     Err(e) => {
@@ -280,7 +285,8 @@ pub fn ApiKeysSection() -> impl IntoView {
                                     <Button
                                         variant=ButtonVariant::Primary
                                         on_click=Callback::new(on_create)
-                                        disabled=creating.get()
+                                        disabled=Signal::from(creating)
+                                        loading=Signal::from(creating)
                                     >
                                         {move || if creating.get() { "Generating..." } else { "Generate Key" }}
                                     </Button>
@@ -380,7 +386,7 @@ pub fn ApiKeysSection() -> impl IntoView {
                                                     let key_id = key.id.clone();
                                                     let key_id_for_revoke = key.id.clone();
                                                     let key_name_for_revoke = key.name.clone();
-                                                    let is_revoking = move || revoking_id.get() == Some(key_id.clone());
+                                                    let is_revoking = Signal::derive(move || revoking_id.get() == Some(key_id.clone()));
 
                                                     view! {
                                                         <TableRow>
@@ -419,9 +425,9 @@ pub fn ApiKeysSection() -> impl IntoView {
                                                                         let name = key_name_for_revoke.clone();
                                                                         move |_| request_revoke(id.clone(), name.clone())
                                                                     })
-                                                                    disabled=is_revoking()
+                                                                    disabled=is_revoking
                                                                 >
-                                                                    {move || if is_revoking() { "Revoking..." } else { "Revoke" }}
+                                                                    {move || if is_revoking.get() { "Revoking..." } else { "Revoke" }}
                                                                 </Button>
                                                             </TableCell>
                                                         </TableRow>

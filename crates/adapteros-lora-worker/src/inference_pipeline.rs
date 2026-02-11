@@ -725,8 +725,7 @@ impl InferencePipeline {
 
     /// Run inference on a prompt with circuit breaker protection
     pub async fn infer(&mut self, request: InferenceRequest) -> Result<InferenceResponse> {
-        // Use circuit breaker with timeout protection
-        let _timeout_duration = Duration::from_secs(30); // 30 second timeout for inference
+        let timeout_duration = Duration::from_secs(30);
 
         let start_time = Instant::now();
 
@@ -742,7 +741,6 @@ impl InferencePipeline {
             request.max_tokens
         );
 
-        // Run inference directly without circuit breaker call wrapper
         // Circuit breaker state is checked via state() method
         if matches!(
             self.circuit_breaker.state(),
@@ -751,7 +749,14 @@ impl InferencePipeline {
             return Err(AosError::Worker("Circuit breaker is open".to_string()));
         }
 
-        self.infer_inner(request, start_time).await
+        tokio::time::timeout(timeout_duration, self.infer_inner(request, start_time))
+            .await
+            .map_err(|_| {
+                AosError::Worker(format!(
+                    "Inference timed out after {}s",
+                    timeout_duration.as_secs()
+                ))
+            })?
     }
 
     /// Streaming inference with reasoning-aware adapter hot-swaps.

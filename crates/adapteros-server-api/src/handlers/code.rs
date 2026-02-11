@@ -488,11 +488,9 @@ pub async fn create_commit_delta(
 }
 
 // --- Imports for propose_patch ---
-use crate::middleware::require_any_role;
 use crate::uds_client::{UdsClient, UdsClientError};
 use crate::validation::{validate_description, validate_file_paths, validate_repo_id};
 use adapteros_db::sqlx;
-use adapteros_db::users::Role;
 
 // --- Moved from handlers.rs ---
 /// Propose code patch
@@ -510,7 +508,7 @@ pub async fn propose_patch(
     Extension(claims): Extension<Claims>,
     Json(req): Json<ProposePatchRequest>,
 ) -> Result<Json<ProposePatchResponse>, (StatusCode, Json<ErrorResponse>)> {
-    require_any_role(&claims, &[Role::Operator])?;
+    require_permission(&claims, Permission::CodeScan)?;
 
     // Validate inputs
     validate_repo_id(&req.repo_id)?;

@@ -43,14 +43,7 @@ const ACTION_MODEL_UNLOAD: &str = "model.unload";
 /// Audit action: model import
 const ACTION_MODEL_IMPORT: &str = "model.import";
 
-fn normalize_backend_label(backend: &str) -> &str {
-    let trimmed = backend.trim();
-    if trimmed.eq_ignore_ascii_case("mlx-ffi") || trimmed.eq_ignore_ascii_case("mlx_ffi") {
-        "mlx"
-    } else {
-        trimmed
-    }
-}
+use adapteros_server_api::handlers::models::normalize_backend_label;
 
 fn model_allowed_roots() -> Result<Vec<PathBuf>, String> {
     let location = resolve_base_model_location(None, None, false).map_err(|e| e.to_string())?;

@@ -534,19 +534,30 @@ pub async fn execute_replay(
         }
     }
 
-    // Check RAG availability and compute degraded status
+    // Check RAG availability and compute degraded status (batch lookup)
     let mut missing_doc_ids = Vec::new();
     if let Some(ref doc_ids) = rag_doc_ids {
-        for doc_id in doc_ids {
-            let doc_exists = state
+        if !doc_ids.is_empty() {
+            match state
                 .db
-                .get_document(&metadata.tenant_id, doc_id)
+                .get_documents_by_ids_ordered(&metadata.tenant_id, doc_ids)
                 .await
-                .ok()
-                .flatten()
-                .is_some();
-            if !doc_exists {
-                missing_doc_ids.push(doc_id.clone());
+            {
+                Ok(docs) => {
+                    for (idx, doc) in docs.iter().enumerate() {
+                        if doc.is_none() {
+                            missing_doc_ids.push(doc_ids[idx].clone());
+                        }
+                    }
+                }
+                Err(e) => {
+                    warn!(
+                        inference_id = %inference_id,
+                        error = %e,
+                        "Failed to check RAG document availability in replay, assuming all missing"
+                    );
+                    missing_doc_ids = doc_ids.clone();
+                }
             }
         }
     }

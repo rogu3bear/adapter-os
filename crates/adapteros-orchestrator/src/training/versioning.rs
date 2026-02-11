@@ -1,7 +1,5 @@
 //! Adapter version state management for training.
 
-use tracing::warn;
-
 use crate::training::job::DatasetVersionSelection;
 
 /// Versioning context for training output.
@@ -55,32 +53,5 @@ pub fn compute_combined_data_spec_hash(entries: &[(String, String, f32)]) -> Str
     hasher.finalize().to_hex().to_string()
 }
 
-/// Normalize trust state to canonical form.
-pub(crate) fn canonical_trust_state(raw: &str) -> String {
-    const CANONICAL_TRUST_STATES: &[&str] = &[
-        "allowed",
-        "allowed_with_warning",
-        "needs_approval",
-        "blocked",
-        "unknown",
-    ];
-
-    let normalized = match raw.trim().to_ascii_lowercase().as_str() {
-        "allowed" => "allowed",
-        "allowed_with_warning" | "warn" => "allowed_with_warning",
-        "needs_approval" => "needs_approval",
-        "blocked" | "blocked_regressed" => "blocked",
-        "unknown" => "unknown",
-        other => {
-            warn!(state = %other, "Unknown trust_state; normalizing to unknown");
-            "unknown"
-        }
-    };
-
-    if !CANONICAL_TRUST_STATES.contains(&normalized) {
-        warn!(state = %normalized, "Non-canonical trust_state emitted; forcing unknown");
-        "unknown".to_string()
-    } else {
-        normalized.to_string()
-    }
-}
+// Re-export canonical trust state normalization from the shared types crate.
+pub(crate) use adapteros_api_types::training::canonical_trust_state;

@@ -1542,7 +1542,8 @@ impl<K: adapteros_lora_kernel_api::FusedKernels + StrictnessControl + 'static> U
                 }
                 WorkerStreamEvent::Complete(response) => {
                     let json = serde_json::to_string(response).unwrap_or_else(|e| {
-                        format!(r#"{{"error":"serialization failed: {}"}}"#, e)
+                        serde_json::json!({ "error": format!("serialization failed: {}", e) })
+                            .to_string()
                     });
                     format!("event: complete\ndata: {}\n\n", json)
                 }
@@ -1611,7 +1612,7 @@ impl<K: adapteros_lora_kernel_api::FusedKernels + StrictnessControl + 'static> U
 
     /// Send HTTP error response
     async fn send_error(stream: &mut UnixStream, status_code: u16, message: &str) -> Result<()> {
-        let error_body = format!("{{\"error\": \"{}\"}}", message);
+        let error_body = serde_json::json!({ "error": message }).to_string();
         let http_response = format!(
             "HTTP/1.1 {} {}\r\n\
              Content-Type: application/json\r\n\

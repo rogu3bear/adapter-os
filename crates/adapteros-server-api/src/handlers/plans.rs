@@ -1,13 +1,12 @@
+use crate::api_error::{ApiError, ApiResult};
 use crate::auth::Claims;
-use crate::middleware::require_any_role;
+use crate::permissions::{require_permission, Permission};
 use crate::security::validate_tenant_isolation;
 use crate::state::AppState;
 use crate::types::*;
 use adapteros_db::sqlx;
-use adapteros_db::users::Role;
 use axum::{
     extract::{Path, Query, State},
-    http::StatusCode,
     Extension, Json,
 };
 use serde::Deserialize;
@@ -34,23 +33,15 @@ pub async fn build_plan(
     State(state): State<AppState>,
     Extension(claims): Extension<Claims>,
     Json(req): Json<BuildPlanRequest>,
-) -> Result<Json<JobResponse>, (StatusCode, Json<ErrorResponse>)> {
-    require_any_role(&claims, &[Role::Operator])?;
+) -> ApiResult<JobResponse> {
+    require_permission(&claims, Permission::PlanManage)?;
 
     // CRITICAL: Validate tenant isolation - PRD-03
     // User can only create plans for their own tenant
     validate_tenant_isolation(&claims, &req.tenant_id)?;
 
-    let payload = serde_json::to_string(&req).map_err(|e| {
-        (
-            StatusCode::INTERNAL_SERVER_ERROR,
-            Json(
-                ErrorResponse::new("serialization error")
-                    .with_code("INTERNAL_ERROR")
-                    .with_string_details(e.to_string()),
-            ),
-        )
-    })?;
+    let payload = serde_json::to_string(&req)
+        .map_err(|e| ApiError::internal("serialization error").with_details(e.to_string()))?;
 
     let job_id = state
         .db
@@ -61,16 +52,7 @@ pub async fn build_plan(
             &payload,
         )
         .await
-        .map_err(|e| {
-            (
-                StatusCode::INTERNAL_SERVER_ERROR,
-                Json(
-                    ErrorResponse::new("failed to create job")
-                        .with_code("INTERNAL_ERROR")
-                        .with_string_details(e.to_string()),
-                ),
-            )
-        })?;
+        .map_err(ApiError::db_error)?;
 
     Ok(Json(JobResponse {
         id: job_id,
@@ -98,7 +80,7 @@ pub async fn list_plans(
     State(state): State<AppState>,
     Extension(claims): Extension<Claims>,
     Query(query): Query<ListPlansQuery>,
-) -> Result<Json<Vec<PlanResponse>>, (StatusCode, Json<ErrorResponse>)> {
+) -> ApiResult<Vec<PlanResponse>> {
     // PRD-03: Enforce tenant isolation
     // - Admin role can list all plans or any tenant's plans
     // - Other users can only see their own tenant's plans
@@ -109,27 +91,13 @@ pub async fn list_plans(
                 .db
                 .list_plans_by_tenant(&tenant_id)
                 .await
-                .map_err(|e| {
-                    (
-                        StatusCode::INTERNAL_SERVER_ERROR,
-                        Json(
-                            ErrorResponse::new("database error")
-                                .with_code("INTERNAL_SERVER_ERROR")
-                                .with_string_details(e.to_string()),
-                        ),
-                    )
-                })?
+                .map_err(ApiError::db_error)?
         } else {
-            state.db.list_all_plans().await.map_err(|e| {
-                (
-                    StatusCode::INTERNAL_SERVER_ERROR,
-                    Json(
-                        ErrorResponse::new("database error")
-                            .with_code("DATABASE_ERROR")
-                            .with_string_details(e.to_string()),
-                    ),
-                )
-            })?
+            state
+                .db
+                .list_all_plans()
+                .await
+                .map_err(ApiError::db_error)?
         }
     } else {
         // Non-admin: only their tenant's plans, ignore query param
@@ -137,16 +105,7 @@ pub async fn list_plans(
             .db
             .list_plans_by_tenant(&claims.tenant_id)
             .await
-            .map_err(|e| {
-                (
-                    StatusCode::INTERNAL_SERVER_ERROR,
-                    Json(
-                        ErrorResponse::new("database error")
-                            .with_code("INTERNAL_SERVER_ERROR")
-                            .with_string_details(e.to_string()),
-                    ),
-                )
-            })?
+            .map_err(ApiError::db_error)?
     };
 
     // Build responses - kernel_hash_b3 lookup would require async iteration,
@@ -186,29 +145,15 @@ pub async fn get_plan_details(
     State(state): State<AppState>,
     Extension(claims): Extension<Claims>,
     Path(plan_id): Path<String>,
-) -> Result<Json<PlanDetailsResponse>, (StatusCode, Json<ErrorResponse>)> {
-    require_any_role(&claims, &[Role::Operator])?;
+) -> ApiResult<PlanDetailsResponse> {
+    require_permission(&claims, Permission::PlanView)?;
 
     let plan = state
         .db
         .get_plan(&plan_id)
         .await
-        .map_err(|e| {
-            (
-                StatusCode::INTERNAL_SERVER_ERROR,
-                Json(
-                    ErrorResponse::new("database error")
-                        .with_code("DATABASE_ERROR")
-                        .with_string_details(e.to_string()),
-                ),
-            )
-        })?
-        .ok_or_else(|| {
-            (
-                StatusCode::NOT_FOUND,
-                Json(ErrorResponse::new("plan not found").with_code("NOT_FOUND")),
-            )
-        })?;
+        .map_err(ApiError::db_error)?
+        .ok_or_else(|| ApiError::not_found("Plan"))?;
 
     // CRITICAL: Validate tenant isolation - PRD-03
     validate_tenant_isolation(&claims, &plan.tenant_id)?;
@@ -280,29 +225,15 @@ pub async fn rebuild_plan(
     State(state): State<AppState>,
     Extension(claims): Extension<Claims>,
     Path(plan_id): Path<String>,
-) -> Result<Json<PlanRebuildResponse>, (StatusCode, Json<ErrorResponse>)> {
-    require_any_role(&claims, &[Role::Operator])?;
+) -> ApiResult<PlanRebuildResponse> {
+    require_permission(&claims, Permission::PlanManage)?;
 
     let plan = state
         .db
         .get_plan(&plan_id)
         .await
-        .map_err(|e| {
-            (
-                StatusCode::INTERNAL_SERVER_ERROR,
-                Json(
-                    ErrorResponse::new("database error")
-                        .with_code("DATABASE_ERROR")
-                        .with_string_details(e.to_string()),
-                ),
-            )
-        })?
-        .ok_or_else(|| {
-            (
-                StatusCode::NOT_FOUND,
-                Json(ErrorResponse::new("plan not found").with_code("NOT_FOUND")),
-            )
-        })?;
+        .map_err(ApiError::db_error)?
+        .ok_or_else(|| ApiError::not_found("Plan"))?;
 
     // CRITICAL: Validate tenant isolation - PRD-03
     validate_tenant_isolation(&claims, &plan.tenant_id)?;
@@ -356,14 +287,7 @@ pub async fn rebuild_plan(
         }
         Err(e) => {
             tracing::error!("Failed to create new plan: {}", e);
-            Err((
-                StatusCode::INTERNAL_SERVER_ERROR,
-                Json(
-                    ErrorResponse::new("Failed to rebuild plan")
-                        .with_code("INTERNAL_ERROR")
-                        .with_string_details(e.to_string()),
-                ),
-            ))
+            Err(ApiError::internal("Failed to rebuild plan").with_details(e.to_string()))
         }
     }
 }
@@ -384,56 +308,22 @@ pub async fn compare_plans(
     State(state): State<AppState>,
     Extension(claims): Extension<Claims>,
     Json(req): Json<ComparePlansRequest>,
-) -> Result<Json<PlanComparisonResponse>, (StatusCode, Json<ErrorResponse>)> {
-    require_any_role(&claims, &[Role::Operator])?;
+) -> ApiResult<PlanComparisonResponse> {
+    require_permission(&claims, Permission::PlanView)?;
 
     let plan1 = state
         .db
         .get_plan(&req.plan_id_1)
         .await
-        .map_err(|e| {
-            (
-                StatusCode::INTERNAL_SERVER_ERROR,
-                Json(
-                    ErrorResponse::new("database error")
-                        .with_code("DATABASE_ERROR")
-                        .with_string_details(e.to_string()),
-                ),
-            )
-        })?
-        .ok_or_else(|| {
-            (
-                StatusCode::NOT_FOUND,
-                Json(
-                    ErrorResponse::new(format!("plan {} not found", req.plan_id_1))
-                        .with_code("NOT_FOUND"),
-                ),
-            )
-        })?;
+        .map_err(ApiError::db_error)?
+        .ok_or_else(|| ApiError::not_found_msg(format!("plan {} not found", req.plan_id_1)))?;
 
     let plan2 = state
         .db
         .get_plan(&req.plan_id_2)
         .await
-        .map_err(|e| {
-            (
-                StatusCode::INTERNAL_SERVER_ERROR,
-                Json(
-                    ErrorResponse::new("database error")
-                        .with_code("DATABASE_ERROR")
-                        .with_string_details(e.to_string()),
-                ),
-            )
-        })?
-        .ok_or_else(|| {
-            (
-                StatusCode::NOT_FOUND,
-                Json(
-                    ErrorResponse::new(format!("plan {} not found", req.plan_id_2))
-                        .with_code("NOT_FOUND"),
-                ),
-            )
-        })?;
+        .map_err(ApiError::db_error)?
+        .ok_or_else(|| ApiError::not_found_msg(format!("plan {} not found", req.plan_id_2)))?;
 
     // CRITICAL: Validate tenant isolation for both plans - PRD-03
     validate_tenant_isolation(&claims, &plan1.tenant_id)?;
@@ -473,27 +363,13 @@ pub async fn export_plan_manifest(
     State(state): State<AppState>,
     Extension(claims): Extension<Claims>,
     Path(plan_id): Path<String>,
-) -> Result<Json<serde_json::Value>, (StatusCode, Json<ErrorResponse>)> {
+) -> ApiResult<serde_json::Value> {
     let plan = state
         .db
         .get_plan(&plan_id)
         .await
-        .map_err(|e| {
-            (
-                StatusCode::INTERNAL_SERVER_ERROR,
-                Json(
-                    ErrorResponse::new("database error")
-                        .with_code("DATABASE_ERROR")
-                        .with_string_details(e.to_string()),
-                ),
-            )
-        })?
-        .ok_or_else(|| {
-            (
-                StatusCode::NOT_FOUND,
-                Json(ErrorResponse::new("plan not found").with_code("NOT_FOUND")),
-            )
-        })?;
+        .map_err(ApiError::db_error)?
+        .ok_or_else(|| ApiError::not_found("Plan"))?;
 
     // CRITICAL: Validate tenant isolation - PRD-03
     validate_tenant_isolation(&claims, &plan.tenant_id)?;
@@ -526,7 +402,7 @@ pub async fn promotion_gates(
     State(_state): State<AppState>,
     Extension(_claims): Extension<Claims>,
     Path(cpid): Path<String>,
-) -> Result<Json<PromotionGatesResponse>, (StatusCode, Json<ErrorResponse>)> {
+) -> ApiResult<PromotionGatesResponse> {
     // Stub implementation - in reality would check all gates
     let gates = vec![
         GateStatus {

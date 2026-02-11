@@ -804,7 +804,7 @@ fn ReasoningModeToggle() -> impl IntoView {
             class=move || format!(
                 "flex items-center gap-1.5 px-2 py-1 rounded text-xs font-medium transition-colors {}",
                 if chat_state.get().context.reasoning_mode {
-                    "bg-amber-500/20 text-amber-600 dark:text-amber-400 border border-amber-500/30"
+                    "bg-warning/10 text-warning border border-warning/50"
                 } else {
                     "hover:bg-muted text-muted-foreground"
                 }

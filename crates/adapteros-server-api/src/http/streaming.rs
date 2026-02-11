@@ -62,15 +62,7 @@ pub struct StreamingInferenceRequest {
     pub stack_version: Option<i64>,
 }
 
-fn default_max_tokens() -> usize {
-    512
-}
-
-fn default_temperature() -> f32 {
-    adapteros_config::try_effective_config()
-        .map(|c| c.inference.default_temperature)
-        .unwrap_or(0.7)
-}
+use crate::types::{default_max_tokens, default_temperature};
 
 fn default_stream() -> bool {
     true

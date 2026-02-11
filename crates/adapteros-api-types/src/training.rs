@@ -60,6 +60,45 @@ pub use adapteros_types::training::{
     LoraTier, TrainingBackendKind, TrainingBackendPolicy, TRAINING_DATA_CONTRACT_VERSION,
 };
 
+// ===== Trust State Normalization =====
+
+/// Canonical tokens for public trust state surfaces.
+pub const CANONICAL_TRUST_STATES: &[&str] = &[
+    "allowed",
+    "allowed_with_warning",
+    "needs_approval",
+    "blocked",
+    "unknown",
+];
+
+/// Normalize a raw trust state string to its canonical form.
+///
+/// Legacy tokens are mapped: `"warn"` -> `"allowed_with_warning"`,
+/// `"blocked_regressed"` -> `"blocked"`. Unrecognized values become `"unknown"`.
+pub fn canonical_trust_state(raw: &str) -> String {
+    let normalized = match raw.trim().to_ascii_lowercase().as_str() {
+        "allowed" => "allowed",
+        "allowed_with_warning" | "warn" => "allowed_with_warning",
+        "needs_approval" => "needs_approval",
+        "blocked" | "blocked_regressed" => "blocked",
+        "unknown" => "unknown",
+        _other => {
+            #[cfg(feature = "server")]
+            tracing::warn!(state = %_other, "Unknown trust_state; normalizing to unknown");
+            "unknown"
+        }
+    };
+
+    // Guardrail: ensure only canonical tokens escape public APIs.
+    if !CANONICAL_TRUST_STATES.contains(&normalized) {
+        #[cfg(feature = "server")]
+        tracing::warn!(state = %normalized, "Non-canonical trust_state emitted; forcing unknown");
+        "unknown".to_string()
+    } else {
+        normalized.to_string()
+    }
+}
+
 // ===== Deprecation Constants =====
 
 /// Sunset version for deprecated fields.

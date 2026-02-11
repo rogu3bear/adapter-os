@@ -4,13 +4,14 @@
 
 use crate::api::{ApiClient, RegisterRepositoryRequest};
 use crate::components::{Button, ButtonVariant, Dialog, Input};
-use crate::signals::use_auth;
+use crate::signals::{use_auth, use_notifications};
 use leptos::prelude::*;
 
 /// Register repository dialog
 #[component]
 pub fn RegisterRepositoryDialog(open: RwSignal<bool>) -> impl IntoView {
     let (auth_state, _) = use_auth();
+    let notifications = use_notifications();
     // Form state
     let repo_id = RwSignal::new(String::new());
     let path = RwSignal::new(String::new());
@@ -52,6 +53,7 @@ pub fn RegisterRepositoryDialog(open: RwSignal<bool>) -> impl IntoView {
             .filter(|s| !s.is_empty())
             .collect();
         let branch = default_branch.get();
+        let notifications = notifications.clone();
 
         wasm_bindgen_futures::spawn_local(async move {
             let client = ApiClient::new();
@@ -73,6 +75,10 @@ pub fn RegisterRepositoryDialog(open: RwSignal<bool>) -> impl IntoView {
                     languages.set(String::new());
                     default_branch.set("main".to_string());
                     open.set(false);
+                    notifications.success(
+                        "Repository registered",
+                        "Repository registered successfully.",
+                    );
                 }
                 Err(e) => {
                     error.set(Some(e.user_message()));
@@ -132,8 +138,8 @@ pub fn RegisterRepositoryDialog(open: RwSignal<bool>) -> impl IntoView {
                 </Button>
                 <Button
                     variant=ButtonVariant::Primary
-                    loading=submitting.get()
-                    disabled=submitting.get()
+                    loading=Signal::from(submitting)
+                    disabled=Signal::from(submitting)
                     on_click=Callback::new(on_submit)
                 >
                     "Register"

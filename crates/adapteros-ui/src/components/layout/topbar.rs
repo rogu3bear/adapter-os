@@ -119,7 +119,7 @@ pub fn TopBar() -> impl IntoView {
     });
 
     view! {
-        <header class="topbar h-10 flex items-center justify-between border-b border-border/50 bg-background/95 backdrop-blur-sm shrink-0">
+        <header class="topbar h-10 flex items-center justify-between border-b border-border/50 shrink-0">
             // Left: Hamburger (mobile) + Product name + environment badge
             <div class="flex items-center gap-3">
                 // Hamburger menu button (mobile only)
@@ -244,7 +244,7 @@ pub fn TopBar() -> impl IntoView {
                     // This is the primary way to access personal settings, separate from Org admin
                     <Show when=move || user_menu_open.get()>
                         <div
-                            class="absolute right-0 top-full mt-1 w-48 bg-background border border-border rounded-lg shadow-lg z-50"
+                            class="absolute right-0 top-full mt-1 w-48 rounded-lg shadow-lg z-50"
                             id="user-menu"
                             role="menu"
                             node_ref=user_menu_ref

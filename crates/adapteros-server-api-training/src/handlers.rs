@@ -462,18 +462,6 @@ pub fn validate_training_guardrails(
 mod tests {
     use super::*;
 
-    #[test]
-    fn canonical_trust_state_normalizes_legacy_tokens() {
-        assert_eq!(canonical_trust_state("warn"), "allowed_with_warning");
-        assert_eq!(canonical_trust_state("blocked_regressed"), "blocked");
-        assert_eq!(canonical_trust_state("Unknown"), "unknown");
-    }
-
-    #[test]
-    fn canonical_trust_state_rejects_non_canonical_tokens() {
-        assert_eq!(canonical_trust_state("custom-state"), "unknown");
-    }
-
     fn caps(coreml: bool, ane: bool, metal: bool, mlx: bool) -> BackendCapabilities {
         BackendCapabilities {
             has_coreml: coreml,

@@ -14,6 +14,24 @@ pub const MAX_REPLAY_TEXT_SIZE: usize = 64 * 1024;
 /// Default maximum tokens to generate when not specified by request
 pub const DEFAULT_MAX_TOKENS: usize = 512;
 
+/// Serde default for `max_tokens` fields — returns [`DEFAULT_MAX_TOKENS`].
+///
+/// Use with `#[serde(default = "crate::types::default_max_tokens")]` to avoid
+/// duplicating the constant in every request struct.
+pub fn default_max_tokens() -> usize {
+    DEFAULT_MAX_TOKENS
+}
+
+/// Serde default for `temperature` fields — reads from config, falls back to 0.7.
+///
+/// Use with `#[serde(default = "crate::types::default_temperature")]` to keep
+/// config-aware defaults consistent across request structs.
+pub fn default_temperature() -> f32 {
+    adapteros_config::try_effective_config()
+        .map(|c| c.inference.default_temperature)
+        .unwrap_or(0.7)
+}
+
 /// Maximum allowed max_tokens value to prevent resource exhaustion.
 /// This is a reasonable upper bound based on typical model context limits.
 /// Requests exceeding this will be rejected with a clear error message.

@@ -691,8 +691,8 @@ impl ApiClient {
     }
 
     /// Activate an adapter stack
-    pub async fn activate_stack(&self, id: &str) -> ApiResult<serde_json::Value> {
-        self.post(
+    pub async fn activate_stack(&self, id: &str) -> ApiResult<()> {
+        self.post_no_response(
             &format!("/v1/adapter-stacks/{}/activate", id),
             &serde_json::json!({}),
         )
@@ -700,8 +700,8 @@ impl ApiClient {
     }
 
     /// Deactivate the current adapter stack
-    pub async fn deactivate_stack(&self) -> ApiResult<serde_json::Value> {
-        self.post("/v1/adapter-stacks/deactivate", &serde_json::json!({}))
+    pub async fn deactivate_stack(&self) -> ApiResult<()> {
+        self.post_no_response("/v1/adapter-stacks/deactivate", &serde_json::json!({}))
             .await
     }
 
@@ -1478,7 +1478,11 @@ impl ApiClient {
             .await
     }
 
-    /// Get a receipt by its digest
+    /// Get a receipt by its digest.
+    ///
+    /// Returns untyped JSON because `RunReceipt<B3Hash>` pulls in `adapteros-core`
+    /// crypto types that are not yet WASM-gated. Type this when a UI caller needs
+    /// structured access to receipt fields.
     pub async fn get_receipt_by_digest(&self, digest: &str) -> ApiResult<serde_json::Value> {
         self.get(&format!("/v1/adapteros/receipts/{}", digest))
             .await

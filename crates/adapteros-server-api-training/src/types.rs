@@ -115,34 +115,5 @@ pub fn parse_lora_tier(value: Option<&str>) -> Option<LoraTier> {
     }
 }
 
-// Canonical tokens for public trust state surfaces
-const CANONICAL_TRUST_STATES: &[&str] = &[
-    "allowed",
-    "allowed_with_warning",
-    "needs_approval",
-    "blocked",
-    "unknown",
-];
-
-/// Normalize trust state to canonical token
-pub fn canonical_trust_state(raw: &str) -> String {
-    let normalized = match raw.trim().to_ascii_lowercase().as_str() {
-        "allowed" => "allowed",
-        "allowed_with_warning" | "warn" => "allowed_with_warning",
-        "needs_approval" => "needs_approval",
-        "blocked" | "blocked_regressed" => "blocked",
-        "unknown" => "unknown",
-        other => {
-            tracing::warn!(state = %other, "Unknown trust_state; normalizing to unknown");
-            "unknown"
-        }
-    };
-
-    // Guardrail: ensure only canonical tokens escape public APIs.
-    if !CANONICAL_TRUST_STATES.contains(&normalized) {
-        tracing::warn!(state = %normalized, "Non-canonical trust_state emitted; forcing unknown");
-        "unknown".to_string()
-    } else {
-        normalized.to_string()
-    }
-}
+// Re-export canonical trust state normalization from the shared types crate.
+pub use adapteros_api_types::training::canonical_trust_state;

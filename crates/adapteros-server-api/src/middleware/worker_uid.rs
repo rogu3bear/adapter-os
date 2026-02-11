@@ -39,6 +39,7 @@ use axum::{
 use std::sync::OnceLock;
 use tracing::{debug, info, warn};
 
+use crate::auth::is_production_mode;
 use crate::types::ErrorResponse;
 
 /// Peer credentials extracted from a UDS connection.
@@ -84,21 +85,6 @@ impl UdsPeerCredentials {
 ///
 /// This is read once at first access and cached for performance.
 static EXPECTED_WORKER_UID: OnceLock<Option<u32>> = OnceLock::new();
-
-/// Cached production mode flag from environment.
-static IS_PRODUCTION_MODE: OnceLock<bool> = OnceLock::new();
-
-/// Check if production mode is enabled via AOS_PRODUCTION_MODE env var.
-fn is_production_mode() -> bool {
-    *IS_PRODUCTION_MODE.get_or_init(|| {
-        std::env::var("AOS_PRODUCTION_MODE")
-            .map(|v| {
-                let lower = v.to_ascii_lowercase();
-                matches!(lower.as_str(), "1" | "true")
-            })
-            .unwrap_or(false)
-    })
-}
 
 /// Get the expected worker UID from environment.
 ///
