@@ -19,16 +19,16 @@
 use crate::api::{report_error_with_toast, ApiClient};
 use crate::components::{
     AdapterDetailPanel, AsyncBoundary, AsyncBoundaryWithErrorRender, Badge, BadgeVariant, Button,
-    ButtonSize, ButtonVariant, Card, CopyableId, EmptyState, EmptyStateVariant, ErrorDisplay, Link,
-    PageBreadcrumbItem, PageScaffold, PageScaffoldActions, SplitPanel, SplitRatio, Table,
-    TableBody, TableCell, TableHead, TableHeader, TableRow,
+    ButtonSize, ButtonVariant, Card, CopyableId, EmptyStateVariant, ErrorDisplay, Link,
+    ListEmptyCard, PageBreadcrumbItem, PageScaffold, PageScaffoldActions, SplitPanel, SplitRatio,
+    Table, TableBody, TableCell, TableHead, TableHeader, TableRow,
 };
 use crate::contexts::use_in_flight;
 use crate::hooks::{use_api_resource, LoadingState};
 use crate::signals::refetch::{use_refetch_signal, RefetchTopic};
 use crate::signals::{try_use_route_context, SelectedEntity};
-use crate::utils::chat_path_with_adapter;
-use adapteros_api_types::AdapterResponse;
+use crate::utils::{chat_path_with_adapter, format_datetime};
+use adapteros_api_types::{AdapterResponse, LifecycleState};
 use leptos::prelude::*;
 use leptos_router::hooks::{use_navigate, use_params_map};
 use std::sync::Arc;
@@ -84,7 +84,7 @@ pub fn Adapters() -> impl IntoView {
                                 "adapter",
                                 id.clone(),
                                 adapter.name.clone(),
-                                adapter.lifecycle_state.clone(),
+                                adapter.lifecycle_state.to_string(),
                             ));
                         } else {
                             route_ctx.set_selected(SelectedEntity::new("adapter", id.clone(), id));
@@ -153,13 +153,7 @@ pub fn Adapters() -> impl IntoView {
                 on_retry=Callback::new(move |_| refetch_signal.with_value(|f| f.run(())))
                 render=move |data| {
                     let mut adapters_for_list = data.clone();
-                    adapters_for_list.sort_by_key(|a| match a.lifecycle_state.as_str() {
-                        "active" => 0,
-                        "pending" | "staging" => 1,
-                        "deprecated" => 2,
-                        "retired" | "archived" => 3,
-                        _ => 4,
-                    });
+                    adapters_for_list.sort_by_key(|a| a.lifecycle_state.sort_key());
                     view! {
                         <SplitPanel
                             has_selection=has_selection
@@ -210,17 +204,15 @@ fn AdaptersListInteractive(
     if adapters.is_empty() {
         let navigate = navigate.clone();
         return view! {
-            <Card>
-                <EmptyState
-                    variant=EmptyStateVariant::Empty
-                    title="No adapters found"
-                    description="Adapters enable specialized inference capabilities. Train your first adapter to get started."
-                    action_label="Train Adapter"
-                    on_action=Callback::new(move |_| {
-                        navigate(NEW_ADAPTER_PATH, Default::default());
-                    })
-                />
-            </Card>
+            <ListEmptyCard
+                variant=EmptyStateVariant::Empty
+                title="No adapters found"
+                description="Adapters enable specialized inference capabilities. Train your first adapter to get started."
+                action_label="Train Adapter"
+                on_action=Callback::new(move |_| {
+                    navigate(NEW_ADAPTER_PATH, Default::default());
+                })
+            />
         }
         .into_any();
     }
@@ -259,18 +251,14 @@ fn AdaptersListInteractive(
                             let id = adapter.id.clone();
                             let id_for_click = id.clone();
                             let name = adapter.name.clone();
-                            let lifecycle = adapter.lifecycle_state.clone();
+                            let lifecycle = adapter.lifecycle_state;
                             let tier = adapter.tier.clone();
                             let is_selected = current_selected.as_ref() == Some(&id);
                             let is_in_flight = current_in_flight.contains(&id);
 
                             // Lifecycle badge variant
-                            let lifecycle_variant = match lifecycle.as_str() {
-                                "active" => BadgeVariant::Success,
-                                "deprecated" => BadgeVariant::Warning,
-                                "retired" => BadgeVariant::Destructive,
-                                _ => BadgeVariant::Secondary,
-                            };
+                            let lifecycle_variant = lifecycle_badge_variant(lifecycle);
+                            let lifecycle_label = lifecycle.to_string();
 
                             view! {
                                 <tr
@@ -290,7 +278,7 @@ fn AdaptersListInteractive(
                                     <TableCell>
                                         <div class="flex items-center gap-2">
                                             <Badge variant=lifecycle_variant>
-                                                {lifecycle}
+                                                {lifecycle_label}
                                             </Badge>
                                             {is_in_flight.then(|| view! {
                                                 <Badge variant=BadgeVariant::Warning>"In Use"</Badge>
@@ -378,25 +366,12 @@ fn validate_adapter_id(id: &str) -> Result<(), &'static str> {
 /// Adapter detail page
 #[component]
 pub fn AdapterDetail() -> impl IntoView {
-    // Log component mount
-    web_sys::console::log_1(&"[AdapterDetail] Component mounted".into());
-
     let params = use_params_map();
 
     // Extract adapter ID from URL - must be called unconditionally
     let adapter_id = Memo::new(move |_| {
         let params_map = params.get();
-        let id = params_map.get("id").unwrap_or_default();
-
-        // Log parameter extraction
-        if id.is_empty() {
-            web_sys::console::warn_1(&"[AdapterDetail] No 'id' parameter in route params".into());
-        } else {
-            web_sys::console::log_1(
-                &format!("[AdapterDetail] Param extracted: id='{}'", id).into(),
-            );
-        }
-        id
+        params_map.get("id").unwrap_or_default()
     });
 
     // Always call use_api_resource (hooks must be called unconditionally)
@@ -404,34 +379,16 @@ pub fn AdapterDetail() -> impl IntoView {
     let (adapter, refetch) = use_api_resource(move |client: Arc<ApiClient>| {
         let id = adapter_id.get_untracked();
         async move {
-            // Log validation step
-            web_sys::console::log_1(&format!("[AdapterDetail] Validating ID: '{}'", id).into());
-
             if let Err(validation_err) = validate_adapter_id(&id) {
                 let api_err = crate::api::ApiError::Validation(validation_err.to_string());
                 report_error_with_toast(&api_err, "Invalid adapter ID", Some("/adapters"), false);
                 return Err(api_err);
             }
 
-            // Log API call initiation
-            web_sys::console::log_1(&format!("[AdapterDetail] Fetching adapter: '{}'", id).into());
-
             let result = client.get_adapter(&id).await;
 
-            // Log API result
-            match &result {
-                Ok(adapter) => {
-                    web_sys::console::log_1(
-                        &format!(
-                            "[AdapterDetail] Loaded: '{}' ({})",
-                            adapter.name, adapter.id
-                        )
-                        .into(),
-                    );
-                }
-                Err(ref e) => {
-                    report_error_with_toast(e, "Failed to load adapter", Some("/adapters"), false);
-                }
+            if let Err(ref e) = result {
+                report_error_with_toast(e, "Failed to load adapter", Some("/adapters"), false);
             }
             result
         }
@@ -504,6 +461,16 @@ pub fn AdapterDetail() -> impl IntoView {
     }
 }
 
+fn lifecycle_badge_variant(state: LifecycleState) -> BadgeVariant {
+    match state {
+        LifecycleState::Active => BadgeVariant::Success,
+        LifecycleState::Deprecated => BadgeVariant::Warning,
+        LifecycleState::Retired => BadgeVariant::Destructive,
+        LifecycleState::Draft => BadgeVariant::Secondary,
+        _ => BadgeVariant::Secondary,
+    }
+}
+
 /// Validate adapter response data before rendering
 /// Returns error message if validation fails
 fn validate_adapter_data(adapter: &AdapterResponse) -> Result<(), String> {
@@ -524,9 +491,6 @@ fn validate_adapter_data(adapter: &AdapterResponse) -> Result<(), String> {
     if adapter.tier.is_empty() {
         missing.push("tier");
     }
-    if adapter.lifecycle_state.is_empty() {
-        missing.push("lifecycle_state");
-    }
 
     if missing.is_empty() {
         Ok(())
@@ -537,17 +501,7 @@ fn validate_adapter_data(adapter: &AdapterResponse) -> Result<(), String> {
 
 #[component]
 fn AdapterDetailContent(adapter: AdapterResponse) -> impl IntoView {
-    // Log component render
-    web_sys::console::log_1(
-        &format!(
-            "[AdapterDetailContent] Rendering: '{}' ({})",
-            adapter.name, adapter.id
-        )
-        .into(),
-    );
-
     // Validate adapter data before rendering
-    web_sys::console::log_1(&"[AdapterDetailContent] Validating data...".into());
     if let Err(validation_error) = validate_adapter_data(&adapter) {
         report_error_with_toast(
             &crate::api::ApiError::Validation(validation_error.clone()),
@@ -568,15 +522,8 @@ fn AdapterDetailContent(adapter: AdapterResponse) -> impl IntoView {
         }
         .into_any();
     }
-    web_sys::console::log_1(&"[AdapterDetailContent] Validation passed".into());
 
-    // Defensive: Handle potential invalid lifecycle_state values
-    let lifecycle_variant = match adapter.lifecycle_state.as_str() {
-        "active" => BadgeVariant::Success,
-        "deprecated" => BadgeVariant::Warning,
-        "retired" => BadgeVariant::Destructive,
-        _ => BadgeVariant::Secondary,
-    };
+    let lifecycle_variant = lifecycle_badge_variant(adapter.lifecycle_state);
 
     // Extract values needed before moving into closures
     let adapter_name_for_link = adapter.name.clone();
@@ -618,7 +565,7 @@ fn AdapterDetailContent(adapter: AdapterResponse) -> impl IntoView {
             <Card title="Status".to_string()>
                 <div class="flex items-center gap-2 mb-3">
                     <Badge variant=lifecycle_variant>
-                        {adapter.lifecycle_state.clone()}
+                        {adapter.lifecycle_state.to_string()}
                     </Badge>
                     {adapter.runtime_state.clone().map(|state| view! {
                         <Badge variant=BadgeVariant::Secondary>
@@ -703,11 +650,11 @@ fn AdapterDetailContent(adapter: AdapterResponse) -> impl IntoView {
                     </div>
                     <div>
                         <p class="text-sm text-muted-foreground">"Created At"</p>
-                        <p class="font-medium">{adapter.created_at.clone()}</p>
+                        <p class="font-medium">{format_datetime(&adapter.created_at)}</p>
                     </div>
                     <div>
                         <p class="text-sm text-muted-foreground">"Updated At"</p>
-                        <p class="font-medium">{adapter.updated_at.clone().unwrap_or_else(|| "N/A".to_string())}</p>
+                        <p class="font-medium">{adapter.updated_at.as_deref().map(format_datetime).unwrap_or_else(|| "N/A".to_string())}</p>
                     </div>
                 </div>
             </Card>

@@ -201,7 +201,7 @@ where
     // (AsyncBoundary's children closure has complex type requirements)
     let inner = view! {
         {move || {
-            match data.get() {
+            match data.try_get().unwrap_or(LoadingState::Loading) {
                 LoadingState::Idle | LoadingState::Loading => {
                     view! {
                         <div class="flex items-center justify-center py-8">

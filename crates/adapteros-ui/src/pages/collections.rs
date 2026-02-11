@@ -13,12 +13,13 @@ use crate::api::{
     CreateCollectionRequest, DocumentListParams, DocumentListResponse,
 };
 use crate::components::{
-    async_state::AsyncBoundary, Badge, BadgeVariant, Button, ButtonSize, ButtonVariant, Card,
-    Checkbox, ConfirmationDialog, ConfirmationSeverity, CopyableId, Dialog, EmptyState,
-    EmptyStateVariant, Input, PageBreadcrumbItem, PageScaffold, PageScaffoldActions, RefreshButton,
-    Select, Spinner, Table, TableBody, TableCell, TableHead, TableHeader, TableRow, Textarea,
+    async_state::AsyncBoundary, Badge, BadgeVariant, Button, ButtonVariant, Card, Checkbox,
+    ConfirmationDialog, ConfirmationSeverity, CopyableId, Dialog, EmptyStateVariant, Input,
+    ListEmptyCard, PageBreadcrumbItem, PageScaffold, PageScaffoldActions, PaginationControls,
+    RefreshButton, Select, Spinner, Table, TableBody, TableCell, TableHead, TableHeader, TableRow,
+    Textarea,
 };
-use crate::hooks::{use_api_resource, use_scope_alive, LoadingState};
+use crate::hooks::{use_api, use_api_resource, use_scope_alive, LoadingState};
 use crate::utils::{format_bytes, format_date};
 use leptos::prelude::*;
 use leptos_router::hooks::use_params_map;
@@ -28,6 +29,8 @@ use std::sync::Arc;
 /// Collections list page
 #[component]
 pub fn Collections() -> impl IntoView {
+    let client = use_api();
+
     // Pagination state
     let (page, set_page) = signal(1u32);
     let limit = 20u32;
@@ -56,6 +59,7 @@ pub fn Collections() -> impl IntoView {
 
     // Create collection handler
     let on_create = {
+        let client = Arc::clone(&client);
         move |_| {
             let name = new_name.get();
             let description = new_description.get();
@@ -69,7 +73,7 @@ pub fn Collections() -> impl IntoView {
             create_error.set(None);
 
             let refetch = refetch;
-            let client = Arc::new(ApiClient::new());
+            let client = Arc::clone(&client);
             wasm_bindgen_futures::spawn_local(async move {
                 let request = CreateCollectionRequest {
                     name: name.trim().to_string(),
@@ -191,17 +195,15 @@ fn CollectionsList(
     total: u64,
     page: u32,
     pages: u32,
-    on_page_change: impl Fn(u32) + Clone + Send + 'static,
+    on_page_change: impl Fn(u32) + Clone + Send + Sync + 'static,
 ) -> impl IntoView {
     if collections.is_empty() {
         return view! {
-            <Card>
-                <EmptyState
-                    title="No collections yet"
-                    description="Create your first collection to start organizing documents."
-                    variant=EmptyStateVariant::Empty
-                />
-            </Card>
+            <ListEmptyCard
+                title="No collections yet"
+                description="Create your first collection to start organizing documents."
+                variant=EmptyStateVariant::Empty
+            />
         }
         .into_any();
     }
@@ -272,29 +274,16 @@ fn CollectionsList(
             // Pagination
             {if pages > 1 {
                 let on_page_change_prev = on_page_change.clone();
-                let _on_page_change_next = on_page_change.clone();
+                let on_page_change_next = on_page_change.clone();
                 Some(view! {
-                    <div class="flex items-center justify-between border-t px-4 py-3">
-                        <div class="text-sm text-muted-foreground">
-                            {format!("Page {} of {} ({} total)", page, pages, total)}
-                        </div>
-                        <div class="flex items-center gap-2">
-                            <button
-                                class="inline-flex items-center justify-center rounded-md border border-input bg-background px-3 py-1 text-sm hover:bg-accent disabled:opacity-50"
-                                disabled=move || page <= 1
-                                on:click=move |_| on_page_change_prev(page.saturating_sub(1))
-                            >
-                                "Previous"
-                            </button>
-                            <button
-                                class="inline-flex items-center justify-center rounded-md border border-input bg-background px-3 py-1 text-sm hover:bg-accent disabled:opacity-50"
-                                disabled=move || page >= pages
-                                on:click=move |_| _on_page_change_next(page + 1)
-                            >
-                                "Next"
-                            </button>
-                        </div>
-                    </div>
+                    <PaginationControls
+                        current_page=page as usize
+                        total_pages=pages as usize
+                        total_items=total as usize
+                        class="border-t px-4 py-3".to_string()
+                        on_prev=Callback::new(move |_| on_page_change_prev(page.saturating_sub(1)))
+                        on_next=Callback::new(move |_| on_page_change_next((page + 1).min(pages)))
+                    />
                 })
             } else {
                 None
@@ -308,6 +297,7 @@ fn CollectionsList(
 #[component]
 pub fn CollectionDetail() -> impl IntoView {
     let params = use_params_map();
+    let client = use_api();
 
     // Get collection ID from URL
     let collection_id = Memo::new(move |_| params.get().get("id").unwrap_or_default());
@@ -331,11 +321,12 @@ pub fn CollectionDetail() -> impl IntoView {
 
     // Delete handler
     let on_delete = {
+        let client = Arc::clone(&client);
         move |_| {
             let id = collection_id.get();
             deleting.set(true);
 
-            let client = Arc::new(ApiClient::new());
+            let client = Arc::clone(&client);
             wasm_bindgen_futures::spawn_local(async move {
                 match client.delete_collection(&id).await {
                     Ok(_) => {
@@ -361,9 +352,10 @@ pub fn CollectionDetail() -> impl IntoView {
 
     // Remove document handler creator
     let create_remove_handler = {
+        let client = Arc::clone(&client);
         move |doc_id: String| {
             let coll_id = collection_id.get();
-            let client = Arc::new(ApiClient::new());
+            let client = Arc::clone(&client);
 
             wasm_bindgen_futures::spawn_local(async move {
                 match client
@@ -629,6 +621,7 @@ fn AddDocumentsDialog(
     existing_documents: Vec<String>,
     on_added: Callback<()>,
 ) -> impl IntoView {
+    let client = use_api();
     let alive = use_scope_alive();
     let existing_set: Arc<HashSet<String>> =
         Arc::new(existing_documents.into_iter().collect::<HashSet<_>>());
@@ -708,6 +701,7 @@ fn AddDocumentsDialog(
     let add_selected = Callback::new({
         let collection_id = collection_id.clone();
         let alive = alive.clone();
+        let client = Arc::clone(&client);
         move |_| {
             let ids = selected_ids.get();
             if ids.is_empty() {
@@ -716,7 +710,7 @@ fn AddDocumentsDialog(
             }
             adding.set(true);
             error_msg.set(None);
-            let client = Arc::new(ApiClient::new());
+            let client = Arc::clone(&client);
             let on_added = on_added;
             let open = open;
             let selected_ids = selected_ids;
@@ -880,27 +874,12 @@ fn AddDocumentsDialog(
 
                                     {if total_pages > 1 {
                                         Some(view! {
-                                            <div class="flex items-center justify-between text-sm text-muted-foreground">
-                                                <span>{format!("Page {} of {}", current_page, total_pages)}</span>
-                                                <div class="flex items-center gap-2">
-                                                    <Button
-                                                        variant=ButtonVariant::Outline
-                                                        size=ButtonSize::Sm
-                                                        disabled=Signal::derive(move || current_page <= 1)
-                                                        on_click=Callback::new(move |_| set_page.set(current_page.saturating_sub(1)))
-                                                    >
-                                                        "Previous"
-                                                    </Button>
-                                                    <Button
-                                                        variant=ButtonVariant::Outline
-                                                        size=ButtonSize::Sm
-                                                        disabled=Signal::derive(move || current_page >= total_pages)
-                                                        on_click=Callback::new(move |_| set_page.set((current_page + 1).min(total_pages)))
-                                                    >
-                                                        "Next"
-                                                    </Button>
-                                                </div>
-                                            </div>
+                                            <PaginationControls
+                                                current_page=current_page as usize
+                                                total_pages=total_pages as usize
+                                                on_prev=Callback::new(move |_| set_page.set(current_page.saturating_sub(1)))
+                                                on_next=Callback::new(move |_| set_page.set((current_page + 1).min(total_pages)))
+                                            />
                                         })
                                     } else {
                                         None

@@ -87,9 +87,6 @@ fn slugify_id(raw: &str) -> String {
 
 #[derive(Clone, Debug, Default)]
 struct DocumentStatusCounts {
-    // Kept for API forward-compat; some backends return an `all` count even if the UI doesn't use it.
-    #[allow(dead_code)]
-    all: u64,
     indexed: u64,
     processing: u64,
     failed: u64,
@@ -98,6 +95,8 @@ struct DocumentStatusCounts {
 /// Documents list page
 #[component]
 pub fn Documents() -> impl IntoView {
+    let _client = use_api();
+
     // Filter state - use RwSignal<String> for Select component
     let status_filter = RwSignal::new(String::new());
     let (current_page, set_current_page) = signal(1u32);
@@ -118,7 +117,6 @@ pub fn Documents() -> impl IntoView {
                 limit: Some(1),
             };
 
-            let all = client.list_documents(Some(&base_params(None))).await?.total;
             let indexed = client
                 .list_documents(Some(&base_params(Some("indexed".to_string()))))
                 .await?
@@ -133,7 +131,6 @@ pub fn Documents() -> impl IntoView {
                 .total;
 
             Ok(DocumentStatusCounts {
-                all,
                 indexed,
                 processing,
                 failed,
@@ -167,8 +164,10 @@ pub fn Documents() -> impl IntoView {
         #[cfg(target_arch = "wasm32")]
         let set_refetch_trigger = set_refetch_trigger;
         #[cfg(target_arch = "wasm32")]
+        let client_for_demo = Arc::clone(&_client);
+        #[cfg(target_arch = "wasm32")]
         wasm_bindgen_futures::spawn_local(async move {
-            let client = Arc::new(ApiClient::new());
+            let client = client_for_demo;
             let tenant_id = client
                 .me()
                 .await
@@ -993,6 +992,7 @@ fn DocumentDetailContent(
     set_action_error: WriteSignal<Option<String>>,
     refetch_trigger: WriteSignal<u32>,
 ) -> AnyView {
+    let client = use_api();
     let navigate = use_navigate();
     let status_variant = status_badge_variant(&document.status);
     let doc_id = document.document_id.clone();
@@ -1019,8 +1019,9 @@ fn DocumentDetailContent(
     let delete_action = {
         let doc_id_for_delete = doc_id_for_delete.clone();
         let navigate = navigate.clone();
+        let client = Arc::clone(&client);
         Callback::new(move |_: ()| {
-            let client = Arc::new(ApiClient::new());
+            let client = Arc::clone(&client);
             let id = doc_id_for_delete.clone();
             let navigate = navigate.clone();
             set_deleting.set(true);
@@ -1043,45 +1044,51 @@ fn DocumentDetailContent(
     };
 
     // Process action (for reprocessing)
-    let process_action = move |_| {
-        let client = Arc::new(ApiClient::new());
-        let id = doc_id_for_process.clone();
-        set_processing.set(true);
-        set_action_error.set(None);
+    let process_action = {
+        let client = Arc::clone(&client);
+        move |_| {
+            let client = Arc::clone(&client);
+            let id = doc_id_for_process.clone();
+            set_processing.set(true);
+            set_action_error.set(None);
 
-        wasm_bindgen_futures::spawn_local(async move {
-            match client.process_document(&id).await {
-                Ok(_) => {
-                    let _ = set_processing.try_set(false);
-                    let _ = refetch_trigger.try_update(|t| *t += 1);
+            wasm_bindgen_futures::spawn_local(async move {
+                match client.process_document(&id).await {
+                    Ok(_) => {
+                        let _ = set_processing.try_set(false);
+                        let _ = refetch_trigger.try_update(|t| *t += 1);
+                    }
+                    Err(e) => {
+                        let _ = set_action_error.try_set(Some(format!("Process failed: {}", e)));
+                        let _ = set_processing.try_set(false);
+                    }
                 }
-                Err(e) => {
-                    let _ = set_action_error.try_set(Some(format!("Process failed: {}", e)));
-                    let _ = set_processing.try_set(false);
-                }
-            }
-        });
+            });
+        }
     };
 
     // Retry action (for failed documents)
-    let retry_action = move |_| {
-        let client = Arc::new(ApiClient::new());
-        let id = doc_id_for_retry.clone();
-        set_processing.set(true);
-        set_action_error.set(None);
+    let retry_action = {
+        let client = Arc::clone(&client);
+        move |_| {
+            let client = Arc::clone(&client);
+            let id = doc_id_for_retry.clone();
+            set_processing.set(true);
+            set_action_error.set(None);
 
-        wasm_bindgen_futures::spawn_local(async move {
-            match client.retry_document(&id).await {
-                Ok(_) => {
-                    let _ = set_processing.try_set(false);
-                    let _ = refetch_trigger.try_update(|t| *t += 1);
+            wasm_bindgen_futures::spawn_local(async move {
+                match client.retry_document(&id).await {
+                    Ok(_) => {
+                        let _ = set_processing.try_set(false);
+                        let _ = refetch_trigger.try_update(|t| *t += 1);
+                    }
+                    Err(e) => {
+                        let _ = set_action_error.try_set(Some(format!("Retry failed: {}", e)));
+                        let _ = set_processing.try_set(false);
+                    }
                 }
-                Err(e) => {
-                    let _ = set_action_error.try_set(Some(format!("Retry failed: {}", e)));
-                    let _ = set_processing.try_set(false);
-                }
-            }
-        });
+            });
+        }
     };
 
     let is_failed = document.status == "failed";
@@ -1175,13 +1182,14 @@ fn DocumentDetailContent(
                     {is_indexed.then(|| {
                         let doc_id_for_train = doc_id.clone();
                         let navigate = navigate.clone();
+                        let client = Arc::clone(&client);
                         view! {
                             <div id="train-adapter-cta" class="pt-2">
                                 <Button
                                     variant=ButtonVariant::Secondary
                                     size=ButtonSize::Sm
                                     on_click=Callback::new(move |_| {
-                                        let client = Arc::new(ApiClient::new());
+                                        let client = Arc::clone(&client);
                                         let doc_id = doc_id_for_train.clone();
                                         let navigate = navigate.clone();
 

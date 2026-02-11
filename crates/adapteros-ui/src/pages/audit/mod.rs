@@ -11,6 +11,7 @@ use crate::components::{
 };
 use crate::hooks::use_api_resource;
 use crate::hooks::LoadingState;
+use crate::signals::notifications::try_emit_global_error_with_details;
 use leptos::prelude::*;
 use std::fmt;
 use std::sync::Arc;
@@ -153,7 +154,11 @@ pub fn Audit() -> impl IntoView {
 
                 // Trigger browser download
                 if let Err(e) = trigger_download(&jsonl, "audit_logs.jsonl") {
-                    web_sys::console::error_1(&format!("Export failed: {:?}", e).into());
+                    try_emit_global_error_with_details(
+                        "Export Failed",
+                        "Could not download audit logs",
+                        &format!("{:?}", e),
+                    );
                 }
             }
             set_exporting.set(false);

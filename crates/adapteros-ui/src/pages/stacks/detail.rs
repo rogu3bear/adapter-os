@@ -279,15 +279,15 @@ pub fn StackDetailContent(
                                     </div>
                                     {adapter.map(|a| {
                                         let tier = a.tier.clone();
-                                        let lifecycle_state = a.lifecycle_state.clone();
-                                        let badge_variant = lifecycle_badge_variant(&lifecycle_state);
+                                        let lifecycle_label = a.lifecycle_state.to_string();
+                                        let badge_variant = lifecycle_badge_variant(&lifecycle_label);
                                         view! {
                                             <div class="flex items-center gap-2">
                                                 <Badge variant=BadgeVariant::Secondary>
                                                     {tier}
                                                 </Badge>
                                                 <Badge variant=badge_variant>
-                                                    {lifecycle_state}
+                                                    {lifecycle_label}
                                                 </Badge>
                                                 {move || is_in_flight.get().then(|| view! {
                                                     <Badge variant=BadgeVariant::Warning>"In Use"</Badge>

@@ -935,7 +935,7 @@ pub fn DatasetUploadWizard(
                                 view! {}.into_any()
                             } else {
                                 view! {
-                                    <div class="rounded-md border border-green-600/60 bg-green-100/40 p-3 text-sm text-foreground">
+                                    <div class="rounded-md border border-status-success/50 bg-status-success/10 p-3 text-sm text-foreground">
                                         {msg}
                                     </div>
                                 }.into_any()
@@ -946,7 +946,7 @@ pub fn DatasetUploadWizard(
                             <Button variant=ButtonVariant::Ghost on_click=Callback::new(move |_| close.run(()))>"Cancel"</Button>
                             <Button
                                 variant=ButtonVariant::Primary
-                                disabled=submitting.get()
+                                disabled=submitting
                                 on_click=on_upload
                             >
                                 {move || if submitting.get() {
