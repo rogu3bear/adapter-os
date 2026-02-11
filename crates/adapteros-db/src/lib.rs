@@ -1186,9 +1186,10 @@ impl Db {
 
         if exists.is_none() {
             warn!("Adapters table missing lora_strength column; applying runtime patch");
-            if let Err(e) = sqlx::query("ALTER TABLE adapters ADD COLUMN lora_strength REAL DEFAULT 1.0")
-                .execute(self.pool())
-                .await
+            if let Err(e) =
+                sqlx::query("ALTER TABLE adapters ADD COLUMN lora_strength REAL DEFAULT 1.0")
+                    .execute(self.pool())
+                    .await
             {
                 // Best-effort compatibility patch: concurrent initializers may race here.
                 let msg = e.to_string();

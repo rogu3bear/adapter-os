@@ -1046,7 +1046,7 @@ impl LifecycleManager {
 
         // Log behavior event for training data
         if let Some(ref db) = self.db {
-            let _ = db
+            if let Err(e) = db
                 .insert_behavior_event(
                     "pinned",
                     &adapter_id_str,
@@ -1058,7 +1058,10 @@ impl LifecycleManager {
                     "manual_pin",
                     None,
                 )
-                .await;
+                .await
+            {
+                warn!(adapter_id = %adapter_id_str, error = %e, "failed to insert pin behavior event");
+            }
         }
 
         Ok(())
@@ -2136,7 +2139,7 @@ impl LifecycleManager {
 
         // Log behavior event for training data
         if let Some(ref db) = self.db {
-            let _ = db
+            if let Err(e) = db
                 .insert_behavior_event(
                     "evicted",
                     &adapter_id_str,
@@ -2148,7 +2151,10 @@ impl LifecycleManager {
                     "lru_eviction",
                     None,
                 )
-                .await;
+                .await
+            {
+                warn!(adapter_id = %adapter_id_str, error = %e, "failed to insert eviction behavior event");
+            }
         }
 
         Ok(())
@@ -2574,7 +2580,9 @@ impl LifecycleManager {
         let candidates = self.get_eviction_candidates(tier);
         for name in candidates {
             if let Some(id) = self.get_adapter_id_by_name(&name) {
-                let _ = self.evict_adapter(id).await;
+                if let Err(e) = self.evict_adapter(id).await {
+                    tracing::error!(adapter = %name, tier = ?tier, error = %e, "failed to evict adapter during memory pressure");
+                }
             }
         }
         Ok(())

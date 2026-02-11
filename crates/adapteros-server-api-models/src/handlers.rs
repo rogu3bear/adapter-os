@@ -463,6 +463,7 @@ pub async fn load_model(
                 RESOURCE_MODEL,
                 Some(&model_id),
                 &err_msg,
+                None,
             )
             .await;
         }
@@ -645,6 +646,7 @@ pub async fn load_model(
             RESOURCE_MODEL,
             Some(&model_id),
             &format!("Failed to load model: {}", e),
+            None,
         )
         .await;
         state
@@ -685,6 +687,7 @@ pub async fn load_model(
             RESOURCE_MODEL,
             Some(&model_id),
             &format!("Worker failed to load model: {}", error_msg),
+            None,
         )
         .await;
         state
@@ -726,6 +729,7 @@ pub async fn load_model(
         ACTION_MODEL_LOAD,
         RESOURCE_MODEL,
         Some(&model_id),
+        None,
     )
     .await;
 
@@ -973,6 +977,7 @@ pub async fn unload_model(
             RESOURCE_MODEL,
             Some(&model_id),
             &format!("Failed to set unloading status: {}", e),
+            None,
         )
         .await;
         state
@@ -1025,6 +1030,7 @@ pub async fn unload_model(
             RESOURCE_MODEL,
             Some(&model_id),
             &format!("Failed to unload model: {}", e),
+            None,
         )
         .await;
         state
@@ -1066,6 +1072,7 @@ pub async fn unload_model(
         ACTION_MODEL_UNLOAD,
         RESOURCE_MODEL,
         Some(&model_id),
+        None,
     )
     .await;
 
@@ -1581,6 +1588,7 @@ pub async fn import_model(
                 RESOURCE_MODEL,
                 None,
                 &format!("Failed to import model {}: {}", req.model_name, e),
+                None,
             )
             .await;
             return Err((
@@ -1610,6 +1618,7 @@ pub async fn import_model(
         ACTION_MODEL_IMPORT,
         RESOURCE_MODEL,
         Some(&model_id),
+        None,
     )
     .await;
 

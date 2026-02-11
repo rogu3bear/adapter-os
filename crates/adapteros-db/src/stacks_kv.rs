@@ -211,7 +211,9 @@ impl StackKvRepository {
         self.remove_from_set(&tenant_key, &stack.id).await?;
 
         // Reverse lookup index
-        let _ = self.backend.delete(&Self::lookup_key(&stack.id)).await;
+        if let Err(e) = self.backend.delete(&Self::lookup_key(&stack.id)).await {
+            warn!(stack_id = %stack.id, error = %e, "failed to delete stack reverse-lookup index");
+        }
 
         Ok(())
     }

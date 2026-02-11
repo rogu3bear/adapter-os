@@ -15,12 +15,12 @@ fn resolve_ui_profile() -> UiProfile {
             Err(_) => {
                 warn!(
                     ui_profile = %value,
-                    "Invalid AOS_UI_PROFILE value; falling back to full"
+                    "Invalid AOS_UI_PROFILE value; falling back to primary"
                 );
-                UiProfile::Full
+                UiProfile::Primary
             }
         },
-        Err(_) => UiProfile::Full,
+        Err(_) => UiProfile::Primary,
     }
 }
 

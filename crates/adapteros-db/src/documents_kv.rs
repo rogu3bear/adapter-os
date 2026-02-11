@@ -127,7 +127,9 @@ impl DocumentKvRepository {
                 serde_json::from_slice(&bytes).map_err(AosError::Serialization)?;
             ids.retain(|v| v != id);
             if ids.is_empty() {
-                let _ = self.backend.delete(&key).await;
+                if let Err(e) = self.backend.delete(&key).await {
+                    tracing::warn!(key, error = %e, "failed to delete empty document index");
+                }
             } else {
                 let payload = serde_json::to_vec(&ids).map_err(AosError::Serialization)?;
                 self.backend.set(&key, payload).await.map_err(|e| {
@@ -183,7 +185,9 @@ impl DocumentKvRepository {
                 serde_json::from_slice(&bytes).map_err(AosError::Serialization)?;
             ids.retain(|v| v != chunk_id);
             if ids.is_empty() {
-                let _ = self.backend.delete(&key).await;
+                if let Err(e) = self.backend.delete(&key).await {
+                    tracing::warn!(key, error = %e, "failed to delete empty chunk index");
+                }
             } else {
                 let payload = serde_json::to_vec(&ids).map_err(AosError::Serialization)?;
                 self.backend.set(&key, payload).await.map_err(|e| {
