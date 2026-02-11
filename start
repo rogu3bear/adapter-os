@@ -522,8 +522,24 @@ ensure_var_dirs() {
     mkdir -p "$AOS_LOG_DIR"
 }
 
+rotate_boot_logs() {
+    ensure_var_dirs
+    local max_bytes=2097152  # ~2MB
+    for f in "$SCRIPT_LOG" "$DEBUG_LOG_PATH" "$READYZ_TIMELINE_PATH"; do
+        [ -f "$f" ] || continue
+        local size
+        size=$(wc -c < "$f" 2>/dev/null | tr -d ' ')
+        if [ -n "$size" ] && [ "$size" -gt "$max_bytes" ]; then
+            mv "$f" "${f}.prev"
+        fi
+    done
+}
+
 run_dev_log_hygiene() {
     ensure_var_dirs
+
+    # Rotate boot logs if they exceed ~2MB
+    rotate_boot_logs
 
     local log_retention_days="${AOS_DEV_LOG_RETENTION_DAYS:-7}"
     local db_retention_days="${AOS_DEV_CLIENT_ERROR_RETENTION_DAYS:-30}"

@@ -39,7 +39,7 @@ async fn test_cleanup_old_logs_removes_files_older_than_retention() {
 
     let retention_days = 7;
     let deleted_count =
-        adapteros_server::logging::cleanup_old_logs(log_dir.to_str().unwrap(), retention_days)
+        adapteros_server::logging::cleanup_old_logs(log_dir.to_str().unwrap(), retention_days, 0)
             .await
             .expect("cleanup_old_logs should succeed");
 
@@ -65,7 +65,7 @@ async fn test_cleanup_old_logs_preserves_recent_files() {
 
     let retention_days = 7;
     let deleted_count =
-        adapteros_server::logging::cleanup_old_logs(log_dir.to_str().unwrap(), retention_days)
+        adapteros_server::logging::cleanup_old_logs(log_dir.to_str().unwrap(), retention_days, 0)
             .await
             .expect("cleanup_old_logs should succeed");
 
@@ -95,7 +95,7 @@ async fn test_cleanup_old_logs_handles_empty_directory() {
     // Directory exists but is empty
     let retention_days = 7;
     let deleted_count =
-        adapteros_server::logging::cleanup_old_logs(log_dir.to_str().unwrap(), retention_days)
+        adapteros_server::logging::cleanup_old_logs(log_dir.to_str().unwrap(), retention_days, 0)
             .await
             .expect("cleanup_old_logs should succeed");
 
@@ -112,7 +112,7 @@ async fn test_cleanup_old_logs_handles_missing_directory() {
 
     let retention_days = 7;
     let deleted_count =
-        adapteros_server::logging::cleanup_old_logs(non_existent_path, retention_days)
+        adapteros_server::logging::cleanup_old_logs(non_existent_path, retention_days, 0)
             .await
             .expect("cleanup_old_logs should succeed for missing directory");
 
