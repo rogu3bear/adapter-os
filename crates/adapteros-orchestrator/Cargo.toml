@@ -48,6 +48,7 @@ sqlx = { workspace = true }
 # Async
 tokio = { workspace = true, features = ["full"] }
 async-trait = "0.1"
+futures-util = { workspace = true }
 # Logging
 tracing = { workspace = true }
 # Filesystem

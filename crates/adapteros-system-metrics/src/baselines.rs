@@ -10,6 +10,7 @@ use crate::monitoring_types::*;
 use adapteros_core::Result;
 use adapteros_db::Db;
 use adapteros_telemetry::TelemetryWriter;
+use futures_util::FutureExt;
 use std::collections::HashMap;
 use std::sync::Arc;
 use std::time::{SystemTime, UNIX_EPOCH};
@@ -110,8 +111,19 @@ impl BaselineService {
         let calculation_handle = {
             let service = self.clone();
             tokio::spawn(async move {
-                if let Err(e) = service.calculation_loop().await {
-                    error!("Baseline calculation loop failed: {}", e);
+                if let Err(panic) = std::panic::AssertUnwindSafe(async move {
+                    if let Err(e) = service.calculation_loop().await {
+                        error!("Baseline calculation loop failed: {}", e);
+                    }
+                })
+                .catch_unwind()
+                .await
+                {
+                    tracing::error!(
+                        task = "baseline_calculation_loop",
+                        "background task panicked: {:?}",
+                        panic
+                    );
                 }
             })
         };
@@ -119,8 +131,19 @@ impl BaselineService {
         let cleanup_handle = {
             let service = self.clone();
             tokio::spawn(async move {
-                if let Err(e) = service.cleanup_loop().await {
-                    error!("Baseline cleanup loop failed: {}", e);
+                if let Err(panic) = std::panic::AssertUnwindSafe(async move {
+                    if let Err(e) = service.cleanup_loop().await {
+                        error!("Baseline cleanup loop failed: {}", e);
+                    }
+                })
+                .catch_unwind()
+                .await
+                {
+                    tracing::error!(
+                        task = "baseline_cleanup_loop",
+                        "background task panicked: {:?}",
+                        panic
+                    );
                 }
             })
         };

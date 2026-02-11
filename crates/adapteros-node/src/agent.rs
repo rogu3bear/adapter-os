@@ -828,101 +828,114 @@ impl NodeAgent {
         let agent = Arc::clone(&self);
 
         tokio::spawn(async move {
-            let mut consecutive_failures = 0u32;
-            let mut current_delay = initial_delay;
+            use futures_util::FutureExt;
+            use std::panic::AssertUnwindSafe;
+            if let Err(panic) = AssertUnwindSafe(async move {
+                let mut consecutive_failures = 0u32;
+                let mut current_delay = initial_delay;
 
-            loop {
-                // Check shutdown flag
-                {
-                    let shutdown = agent.supervisor_shutdown.read().await;
-                    if *shutdown {
-                        info!("Model Server supervisor shutting down");
-                        break;
+                loop {
+                    // Check shutdown flag
+                    {
+                        let shutdown = agent.supervisor_shutdown.read().await;
+                        if *shutdown {
+                            info!("Model Server supervisor shutting down");
+                            break;
+                        }
                     }
-                }
 
-                // Check if model server is configured
-                let has_server = {
-                    let ms = agent.model_server.read().await;
-                    ms.is_some()
-                };
+                    // Check if model server is configured
+                    let has_server = {
+                        let ms = agent.model_server.read().await;
+                        ms.is_some()
+                    };
 
-                if !has_server {
-                    // No model server to supervise - wait and check again
-                    tokio::time::sleep(interval).await;
-                    continue;
-                }
+                    if !has_server {
+                        // No model server to supervise - wait and check again
+                        tokio::time::sleep(interval).await;
+                        continue;
+                    }
 
-                // Perform health check
-                let is_healthy = agent.check_model_server_health().await;
+                    // Perform health check
+                    let is_healthy = agent.check_model_server_health().await;
 
-                if is_healthy {
-                    // Reset failure counter and delay on success
-                    if consecutive_failures > 0 {
-                        info!(
-                            previous_failures = consecutive_failures,
-                            "Model Server recovered, resetting failure counter"
+                    if is_healthy {
+                        // Reset failure counter and delay on success
+                        if consecutive_failures > 0 {
+                            info!(
+                                previous_failures = consecutive_failures,
+                                "Model Server recovered, resetting failure counter"
+                            );
+                        }
+                        consecutive_failures = 0;
+                        current_delay = initial_delay;
+                    } else {
+                        consecutive_failures += 1;
+                        warn!(
+                            consecutive_failures = consecutive_failures,
+                            max_attempts = max_attempts,
+                            "Model Server health check failed"
                         );
-                    }
-                    consecutive_failures = 0;
-                    current_delay = initial_delay;
-                } else {
-                    consecutive_failures += 1;
-                    warn!(
-                        consecutive_failures = consecutive_failures,
-                        max_attempts = max_attempts,
-                        "Model Server health check failed"
-                    );
 
-                    // Check if we've exceeded max attempts
-                    if consecutive_failures > max_attempts {
-                        error!(
+                        // Check if we've exceeded max attempts
+                        if consecutive_failures > max_attempts {
+                            error!(
                             consecutive_failures = consecutive_failures,
                             max_attempts = max_attempts,
                             "Model Server exceeded maximum restart attempts, supervisor giving up"
                         );
-                        break;
+                            break;
+                        }
+
+                        // Attempt restart with backoff
+                        info!(
+                            attempt = consecutive_failures,
+                            delay_secs = current_delay.as_secs(),
+                            "Attempting Model Server restart after backoff"
+                        );
+
+                        tokio::time::sleep(current_delay).await;
+
+                        match agent.restart_model_server().await {
+                            Ok(new_pid) => {
+                                info!(
+                                    new_pid = new_pid,
+                                    attempt = consecutive_failures,
+                                    "Model Server restart succeeded"
+                                );
+                                // Don't reset consecutive_failures yet - wait for next health check
+                            }
+                            Err(e) => {
+                                error!(
+                                    error = %e,
+                                    attempt = consecutive_failures,
+                                    "Model Server restart failed"
+                                );
+                            }
+                        }
+
+                        // Calculate next backoff delay (exponential with cap)
+                        current_delay = Duration::from_secs_f64(
+                            (current_delay.as_secs_f64() * backoff_multiplier)
+                                .min(max_delay.as_secs_f64()),
+                        );
                     }
 
-                    // Attempt restart with backoff
-                    info!(
-                        attempt = consecutive_failures,
-                        delay_secs = current_delay.as_secs(),
-                        "Attempting Model Server restart after backoff"
-                    );
-
-                    tokio::time::sleep(current_delay).await;
-
-                    match agent.restart_model_server().await {
-                        Ok(new_pid) => {
-                            info!(
-                                new_pid = new_pid,
-                                attempt = consecutive_failures,
-                                "Model Server restart succeeded"
-                            );
-                            // Don't reset consecutive_failures yet - wait for next health check
-                        }
-                        Err(e) => {
-                            error!(
-                                error = %e,
-                                attempt = consecutive_failures,
-                                "Model Server restart failed"
-                            );
-                        }
-                    }
-
-                    // Calculate next backoff delay (exponential with cap)
-                    current_delay = Duration::from_secs_f64(
-                        (current_delay.as_secs_f64() * backoff_multiplier)
-                            .min(max_delay.as_secs_f64()),
-                    );
+                    // Wait for next check interval
+                    tokio::time::sleep(interval).await;
                 }
 
-                // Wait for next check interval
-                tokio::time::sleep(interval).await;
+                info!("Model Server supervisor exited");
+            })
+            .catch_unwind()
+            .await
+            {
+                tracing::error!(
+                    task = "model_server_supervisor",
+                    "model server supervisor panicked — process monitoring lost: {:?}",
+                    panic
+                );
             }
-
-            info!("Model Server supervisor exited");
         })
     }
 

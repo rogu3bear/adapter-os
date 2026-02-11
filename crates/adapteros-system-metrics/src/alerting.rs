@@ -12,6 +12,7 @@ use adapteros_db::Db;
 use adapteros_model_hub::manifest::Policies;
 use adapteros_policy::PolicyEngine;
 use adapteros_telemetry::{SecurityEvent, TelemetryWriter};
+use futures_util::FutureExt;
 use serde::Serialize;
 use sqlx::Row;
 use std::sync::Arc;
@@ -155,8 +156,19 @@ impl AlertEvaluator {
         let evaluation_handle = {
             let evaluator = self.clone();
             tokio::spawn(async move {
-                if let Err(e) = evaluator.evaluation_loop().await {
-                    error!("Alert evaluation loop failed: {}", e);
+                if let Err(panic) = std::panic::AssertUnwindSafe(async move {
+                    if let Err(e) = evaluator.evaluation_loop().await {
+                        error!("Alert evaluation loop failed: {}", e);
+                    }
+                })
+                .catch_unwind()
+                .await
+                {
+                    tracing::error!(
+                        task = "alert_evaluation_loop",
+                        "background task panicked: {:?}",
+                        panic
+                    );
                 }
             })
         };
@@ -164,8 +176,19 @@ impl AlertEvaluator {
         let escalation_handle = {
             let evaluator = self.clone();
             tokio::spawn(async move {
-                if let Err(e) = evaluator.escalation_loop().await {
-                    error!("Alert escalation loop failed: {}", e);
+                if let Err(panic) = std::panic::AssertUnwindSafe(async move {
+                    if let Err(e) = evaluator.escalation_loop().await {
+                        error!("Alert escalation loop failed: {}", e);
+                    }
+                })
+                .catch_unwind()
+                .await
+                {
+                    tracing::error!(
+                        task = "alert_escalation_loop",
+                        "background task panicked: {:?}",
+                        panic
+                    );
                 }
             })
         };

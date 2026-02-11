@@ -36,6 +36,7 @@ uuid = { workspace = true }
 sqlx = { workspace = true }
 tempfile = { workspace = true }
 blake3 = "1.5"
+futures-util = { workspace = true }
 reqwest = { workspace = true }
 governor = "0.6"
 # Domain dependencies (no unique deps - uses workspace shared)

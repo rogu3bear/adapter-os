@@ -36,6 +36,7 @@ adapteros-lora-mlx-ffi = { path = "../adapteros-lora-mlx-ffi", optional = true, 
 # Note: Metal integration moved to macOS-specific dependencies below
 # Additional dependencies
 parking_lot.workspace = true
+futures-util = { workspace = true }
 sqlx.workspace = true
 async-trait.workspace = true
 reqwest.workspace = true

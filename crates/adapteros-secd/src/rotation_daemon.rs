@@ -188,9 +188,17 @@ impl RotationDaemon {
                 ))
             })?;
 
-        // Spawn the rotation task
+        // Spawn the rotation task with panic guard
         tokio::spawn(async move {
-            self.run_rotation_loop().await;
+            use futures_util::FutureExt;
+            use std::panic::AssertUnwindSafe;
+            if let Err(panic) = AssertUnwindSafe(self.run_rotation_loop()).catch_unwind().await {
+                tracing::error!(
+                    task = "secd_key_rotation",
+                    "key rotation daemon panicked — security-critical background task crashed: {:?}",
+                    panic
+                );
+            }
         });
 
         Ok(())

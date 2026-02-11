@@ -157,7 +157,18 @@ impl FederationDaemon {
         );
 
         tokio::spawn(async move {
-            self.run_loop(shutdown_rx).await;
+            use futures_util::FutureExt;
+            use std::panic::AssertUnwindSafe;
+            if let Err(panic) = AssertUnwindSafe(self.run_loop(shutdown_rx))
+                .catch_unwind()
+                .await
+            {
+                tracing::error!(
+                    task = "federation_daemon",
+                    "federation daemon panicked — peer sync disabled: {:?}",
+                    panic
+                );
+            }
         })
     }
 
