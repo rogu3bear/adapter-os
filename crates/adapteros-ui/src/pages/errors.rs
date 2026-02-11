@@ -84,12 +84,12 @@ fn LiveFeedSection() -> impl IntoView {
     let is_paused = RwSignal::new(false);
 
     // SSE connection for client error stream
+    // Use try_get/try_update to avoid panics when signals are disposed on unmount
     let (sse_status, _reconnect) =
         use_sse_json::<ClientErrorItem, _>("/v1/stream/client-errors", move |error| {
-            if !is_paused.get() {
-                live_errors.update(|errors| {
+            if !is_paused.try_get().unwrap_or(true) {
+                live_errors.try_update(|errors| {
                     errors.push_front(error);
-                    // Keep only the most recent errors
                     while errors.len() > LIVE_FEED_MAX_ERRORS {
                         errors.pop_back();
                     }
@@ -130,8 +130,8 @@ fn LiveFeedSection() -> impl IntoView {
                     if errors.is_empty() {
                         view! {
                             <div class="py-12 text-center">
-                                <div class="text-muted-foreground">"Waiting for errors..."</div>
-                                <div class="text-sm text-muted-foreground mt-2">"Errors will appear here in real-time"</div>
+                                <div class="text-muted-foreground">"No incidents detected"</div>
+                                <div class="text-sm text-muted-foreground mt-2">"Errors will appear here in real-time when they occur"</div>
                             </div>
                         }.into_any()
                     } else {
@@ -900,8 +900,18 @@ fn CrashesSection() -> impl IntoView {
                 LoadingState::Error(e) => {
                     view! {
                         <Card>
-                            <div class="p-4 text-sm text-destructive">
-                                {format!("Failed to load workers: {}", e)}
+                            <div class="p-6 text-center space-y-2">
+                                <p class="text-sm text-muted-foreground">
+                                    "Could not load worker list. Crash data requires a connected worker."
+                                </p>
+                                <p class="text-xs text-muted-foreground">{e.user_message()}</p>
+                                <Button
+                                    variant=ButtonVariant::Outline
+                                    size=ButtonSize::Sm
+                                    on_click=Callback::new(move |_| refetch_workers.run(()))
+                                >
+                                    "Retry"
+                                </Button>
                             </div>
                         </Card>
                     }.into_any()
@@ -1235,7 +1245,7 @@ fn CreateAlertRuleDialog(open: RwSignal<bool>, on_created: Callback<()>) -> impl
                     }
                 }
                 Err(e) => {
-                    error.set(Some(e.to_string()));
+                    error.set(Some(e.user_message()));
                     submitting.set(false);
                 }
             }
@@ -1325,18 +1335,21 @@ fn CreateAlertRuleDialog(open: RwSignal<bool>, on_created: Callback<()>) -> impl
 /// SSE connection indicator
 #[component]
 fn SseIndicator(state: RwSignal<SseState>) -> impl IntoView {
-    let (color, label) = match state.get() {
-        SseState::Connected => ("bg-status-success", "Connected"),
-        SseState::Connecting => ("bg-status-warning animate-pulse", "Connecting..."),
-        SseState::Disconnected => ("bg-muted", "Disconnected"),
-        SseState::Error => ("bg-status-error", "Error"),
-        SseState::CircuitOpen => ("bg-status-warning", "Circuit Open"),
-    };
-
     view! {
         <div class="flex items-center gap-2">
-            <div class=format!("w-2 h-2 rounded-full {}", color)/>
-            <span class="text-xs text-muted-foreground">{label}</span>
+            {move || {
+                let (color, label) = match state.try_get().unwrap_or(SseState::Disconnected) {
+                    SseState::Connected => ("bg-status-success", "Connected"),
+                    SseState::Connecting => ("bg-status-warning animate-pulse", "Connecting..."),
+                    SseState::Disconnected => ("bg-muted", "Disconnected"),
+                    SseState::Error => ("bg-status-error", "Error"),
+                    SseState::CircuitOpen => ("bg-status-warning", "Circuit Open"),
+                };
+                view! {
+                    <div class=format!("w-2 h-2 rounded-full {}", color)/>
+                    <span class="text-xs text-muted-foreground">{label}</span>
+                }
+            }}
         </div>
     }
 }

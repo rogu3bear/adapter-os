@@ -9,17 +9,16 @@
 //! Uses canonical Dialog and ErrorDisplay components for consistency.
 
 use crate::api::{
-    ApiClient, CollectionDetailResponse, CollectionResponse, CreateCollectionRequest,
-    DocumentListParams, DocumentListResponse,
+    report_error_with_toast, ApiClient, CollectionDetailResponse, CollectionResponse,
+    CreateCollectionRequest, DocumentListParams, DocumentListResponse,
 };
 use crate::components::{
     async_state::AsyncBoundary, Badge, BadgeVariant, Button, ButtonSize, ButtonVariant, Card,
-    Checkbox, ConfirmationDialog, ConfirmationSeverity, CopyableId, Dialog, Input,
-    PageBreadcrumbItem, PageScaffold, PageScaffoldActions, RefreshButton, Select, Spinner, Table,
-    TableBody, TableCell, TableHead, TableHeader, TableRow, Textarea,
+    Checkbox, ConfirmationDialog, ConfirmationSeverity, CopyableId, Dialog, EmptyState,
+    EmptyStateVariant, Input, PageBreadcrumbItem, PageScaffold, PageScaffoldActions, RefreshButton,
+    Select, Spinner, Table, TableBody, TableCell, TableHead, TableHeader, TableRow, Textarea,
 };
 use crate::hooks::{use_api_resource, use_scope_alive, LoadingState};
-use crate::signals::use_notifications;
 use crate::utils::{format_bytes, format_date};
 use leptos::prelude::*;
 use leptos_router::hooks::use_params_map;
@@ -89,7 +88,7 @@ pub fn Collections() -> impl IntoView {
                         refetch();
                     }
                     Err(e) => {
-                        let _ = create_error.try_set(Some(e.to_string()));
+                        let _ = create_error.try_set(Some(e.user_message()));
                     }
                 }
                 let _ = set_creating.try_set(false);
@@ -197,13 +196,11 @@ fn CollectionsList(
     if collections.is_empty() {
         return view! {
             <Card>
-                <div class="py-12 text-center">
-                    <svg xmlns="http://www.w3.org/2000/svg" width="48" height="48" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1" stroke-linecap="round" stroke-linejoin="round" class="mx-auto text-muted-foreground mb-4">
-                        <path d="M20 20a2 2 0 0 0 2-2V8a2 2 0 0 0-2-2h-7.9a2 2 0 0 1-1.69-.9L9.6 3.9A2 2 0 0 0 7.93 3H4a2 2 0 0 0-2 2v13a2 2 0 0 0 2 2Z"/>
-                    </svg>
-                    <h3 class="heading-4 mb-1">"No collections yet"</h3>
-                    <p class="text-muted-foreground">"Create your first collection to start organizing documents."</p>
-                </div>
+                <EmptyState
+                    title="No collections yet"
+                    description="Create your first collection to start organizing documents."
+                    variant=EmptyStateVariant::Empty
+                />
             </Card>
         }
         .into_any();
@@ -318,7 +315,6 @@ pub fn CollectionDetail() -> impl IntoView {
     // Delete confirmation state
     let show_delete_confirm = RwSignal::new(false);
     let deleting = RwSignal::new(false);
-    let notifications = use_notifications();
     let show_add_dialog = RwSignal::new(false);
 
     // Trigger for refetch
@@ -335,11 +331,9 @@ pub fn CollectionDetail() -> impl IntoView {
 
     // Delete handler
     let on_delete = {
-        let notifications = notifications.clone();
         move |_| {
             let id = collection_id.get();
             deleting.set(true);
-            let notifications = notifications.clone();
 
             let client = Arc::new(ApiClient::new());
             wasm_bindgen_futures::spawn_local(async move {
@@ -351,9 +345,11 @@ pub fn CollectionDetail() -> impl IntoView {
                         }
                     }
                     Err(e) => {
-                        notifications.error(
-                            "Delete failed",
-                            &format!("Failed to delete collection: {}", e),
+                        report_error_with_toast(
+                            &e,
+                            "Failed to delete collection",
+                            Some("/collections"),
+                            true,
                         );
                         let _ = deleting.try_set(false);
                         let _ = show_delete_confirm.try_set(false);
@@ -365,11 +361,9 @@ pub fn CollectionDetail() -> impl IntoView {
 
     // Remove document handler creator
     let create_remove_handler = {
-        let notifications = notifications.clone();
         move |doc_id: String| {
             let coll_id = collection_id.get();
             let client = Arc::new(ApiClient::new());
-            let notifications = notifications.clone();
 
             wasm_bindgen_futures::spawn_local(async move {
                 match client
@@ -380,9 +374,11 @@ pub fn CollectionDetail() -> impl IntoView {
                         refetch();
                     }
                     Err(e) => {
-                        notifications.error(
-                            "Remove failed",
-                            &format!("Failed to remove document: {}", e),
+                        report_error_with_toast(
+                            &e,
+                            "Failed to remove document",
+                            Some("/collections"),
+                            true,
                         );
                     }
                 }
@@ -677,17 +673,22 @@ fn AddDocumentsDialog(
 
     // Refetch and reset selection when dialog opens or filter changes
     Effect::new(move || {
-        if open.get() {
-            selected_ids.set(Vec::new());
-            error_msg.set(None);
-            set_refetch_trigger.update(|t| *t += 1);
+        let Some(is_open) = open.try_get() else {
+            return;
+        };
+        if is_open {
+            let _ = selected_ids.try_set(Vec::new());
+            let _ = error_msg.try_set(None);
+            let _ = set_refetch_trigger.try_update(|t| *t += 1);
         }
     });
 
     Effect::new(move || {
-        let _ = status_filter.get();
-        set_page.set(1);
-        set_refetch_trigger.update(|t| *t += 1);
+        let Some(_) = status_filter.try_get() else {
+            return;
+        };
+        let _ = set_page.try_set(1);
+        let _ = set_refetch_trigger.try_update(|t| *t += 1);
     });
 
     let toggle_selected = {
@@ -728,7 +729,7 @@ fn AddDocumentsDialog(
                         .add_document_to_collection(&collection_id, doc_id)
                         .await
                     {
-                        failures.push((doc_id.clone(), e.to_string()));
+                        failures.push((doc_id.clone(), e.user_message()));
                     }
                 }
 
@@ -910,7 +911,7 @@ fn AddDocumentsDialog(
                         LoadingState::Error(e) => {
                             view! {
                                 <div class="rounded-lg border border-destructive bg-destructive/10 p-4">
-                                    <p class="text-destructive">{e.to_string()}</p>
+                                    <p class="text-destructive">{e.user_message()}</p>
                                 </div>
                             }.into_any()
                         }

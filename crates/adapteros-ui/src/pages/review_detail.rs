@@ -29,6 +29,21 @@ pub fn ReviewDetail() -> impl IntoView {
         }
     });
 
+    // Derive breadcrumb label: show pause kind once loaded, fall back to ID
+    let breadcrumb_label = Signal::derive(move || match pause_state.get() {
+        LoadingState::Loaded(ref data) => match &data.state {
+            InferenceState::Paused(reason) => match &reason.kind {
+                PauseKind::ReviewNeeded => "Review Needed".to_string(),
+                PauseKind::PolicyApproval => "Policy Approval".to_string(),
+                PauseKind::ResourceWait => "Resource Wait".to_string(),
+                PauseKind::UserRequested => "User Requested".to_string(),
+                PauseKind::ThreatEscalation => "Threat Escalation".to_string(),
+            },
+            _ => format!("{:?}", data.state),
+        },
+        _ => pause_id(),
+    });
+
     view! {
         <PageScaffold
             title="Review Detail"
@@ -36,7 +51,7 @@ pub fn ReviewDetail() -> impl IntoView {
             breadcrumbs=vec![
                 PageBreadcrumbItem::new("Govern", "/reviews"),
                 PageBreadcrumbItem::new("Reviews", "/reviews"),
-                PageBreadcrumbItem::current(pause_id()),
+                PageBreadcrumbItem::current(breadcrumb_label.get()),
             ]
         >
             <PageScaffoldActions slot>

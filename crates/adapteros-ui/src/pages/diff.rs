@@ -4,8 +4,8 @@
 
 use crate::api::ApiClient;
 use crate::components::{
-    Button, ButtonVariant, Card, DiffResults, Link, PageBreadcrumbItem, PageScaffold,
-    PageScaffoldActions, Spinner,
+    Button, ButtonVariant, Card, DiffResults, EmptyState, EmptyStateVariant, Link,
+    PageBreadcrumbItem, PageScaffold, PageScaffoldActions, Spinner,
 };
 use crate::hooks::{use_api_resource, LoadingState};
 use adapteros_api_types::diagnostics::{
@@ -93,7 +93,7 @@ pub fn Diff() -> impl IntoView {
                     diff_loading.set(false);
                 }
                 Err(e) => {
-                    diff_error.set(Some(e.to_string()));
+                    diff_error.set(Some(e.user_message()));
                     diff_loading.set(false);
                 }
             }
@@ -183,9 +183,11 @@ pub fn Diff() -> impl IntoView {
                 } else {
                     view! {
                         <Card>
-                            <div class="text-center py-12 text-muted-foreground">
-                                "Select two runs and click Compare to see differences"
-                            </div>
+                            <EmptyState
+                                title="No comparison selected"
+                                description="Select two runs and click Compare to see differences."
+                                variant=EmptyStateVariant::Empty
+                            />
                         </Card>
                     }.into_any()
                 }

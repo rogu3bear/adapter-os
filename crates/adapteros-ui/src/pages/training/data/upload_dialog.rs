@@ -260,7 +260,7 @@ pub fn DocumentUploadDialog(
                         .forget();
                     }
                     Err(e) => {
-                        error_msg.set(Some(e.to_string()));
+                        error_msg.set(Some(e.user_message()));
                         upload_progress.set(0);
                         uploading.set(false);
                     }

@@ -75,7 +75,7 @@ pub fn RegisterRepositoryDialog(open: RwSignal<bool>) -> impl IntoView {
                     open.set(false);
                 }
                 Err(e) => {
-                    error.set(Some(e.to_string()));
+                    error.set(Some(e.user_message()));
                     submitting.set(false);
                 }
             }

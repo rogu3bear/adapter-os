@@ -11,9 +11,9 @@
 use crate::api::{ApiClient, UiInferenceTraceDetailResponse};
 use crate::components::{
     ActionCard, ActionCardVariant, AsyncBoundary, Badge, BadgeVariant, Button, ButtonVariant, Card,
-    CopyableId, DiffResults, Link, PageBreadcrumbItem, PageScaffold, PageScaffoldActions, Select,
-    Spinner, SplitPanel, SplitRatio, Table, TableBody, TableCell, TableHead, TableHeader, TableRow,
-    TokenDecisionsPaged, TraceViewerWithData,
+    CopyableId, DiffResults, EmptyState, EmptyStateVariant, Link, PageBreadcrumbItem, PageScaffold,
+    PageScaffoldActions, Select, Spinner, SplitPanel, SplitRatio, Table, TableBody, TableCell,
+    TableHead, TableHeader, TableRow, TokenDecisionsPaged, TraceViewerWithData,
 };
 use crate::components::{ButtonSize, Input};
 use crate::constants::pagination::TOKEN_DECISIONS_PAGE_SIZE;
@@ -97,9 +97,11 @@ pub fn FlightRecorder() -> impl IntoView {
                                 if response.runs.is_empty() {
                                     view! {
                                         <Card>
-                                            <div class="text-center py-8 text-muted-foreground">
-                                                "No runs found"
-                                            </div>
+                                            <EmptyState
+                                                title="No runs found"
+                                                description="Diagnostic runs will appear here after inference requests are processed."
+                                                variant=EmptyStateVariant::Empty
+                                            />
                                         </Card>
                                     }.into_any()
                                 } else {
@@ -241,28 +243,33 @@ fn RunsTable(
                 <TableBody>
                     {move || {
                         controls.visible_items.get().into_iter().map(|run| {
-                            let run_id_for_click = run.id.clone();
+                            let run_id_for_row_click = run.id.clone();
+                            let run_id_for_link = run.id.clone();
                             let run_id_for_display = truncate_id(&run.id);
-                            let is_selected = {
-                                let rid = run.id.clone();
-                                move || selected_id.get().as_ref() == Some(&rid)
-                            };
-                            let row_class = {
-                                let is_sel = is_selected.clone();
-                                move || if is_sel() { "bg-accent".to_string() } else { String::new() }
-                            };
+                            let rid = run.id.clone();
+
                             view! {
-                                <TableRow class=row_class()>
+                                <tr
+                                    class="table-row cursor-pointer hover:bg-muted/50"
+                                    class:bg-accent=move || selected_id.get().as_ref() == Some(&rid)
+                                    on:click=move |_| on_select.run(run_id_for_row_click.clone())
+                                >
                                     <TableCell>
-                                        <button
-                                            class="text-left font-mono text-sm text-primary hover:underline cursor-pointer"
-                                            on:click={
-                                                let id = run_id_for_click.clone();
-                                                move |_| on_select.run(id.clone())
+                                        <a
+                                            href=format!("/runs/{}", run_id_for_link)
+                                            class="font-mono text-sm text-primary hover:underline"
+                                            on:click=move |e: web_sys::MouseEvent| {
+                                                // Ctrl/Cmd+click or middle-click: let browser open link
+                                                if e.ctrl_key() || e.meta_key() || e.button() != 0 {
+                                                    e.stop_propagation();
+                                                } else {
+                                                    // Plain left click: prevent navigation, let row handler select
+                                                    e.prevent_default();
+                                                }
                                             }
                                         >
                                             {run_id_for_display}
-                                        </button>
+                                        </a>
                                     </TableCell>
                                     <TableCell>
                                         <StatusBadge status=run.status.clone()/>
@@ -283,7 +290,7 @@ fn RunsTable(
                                     <TableCell>
                                         {format_timestamp_ms(run.started_at_unix_ms)}
                                     </TableCell>
-                                </TableRow>
+                                </tr>
                             }
                         }).collect::<Vec<_>>()
                     }}
@@ -628,7 +635,7 @@ fn RunDetailHub(run_id: String, on_close: Callback<()>) -> impl IntoView {
                             </div>
                         }.into_any()
                     } else {
-                        let err = err.to_string();
+                        let err = err.user_message();
                         view! {
                             <div class="bg-destructive/10 border border-destructive/20 rounded-lg p-4">
                                 <div class="flex items-center gap-2 text-destructive">
@@ -2171,7 +2178,7 @@ fn DiffTab(export: DiagExportResponse, compare_trace: Option<String>) -> impl In
                         diff_loading.set(false);
                     }
                     Err(e) => {
-                        diff_error.set(Some(e.to_string()));
+                        diff_error.set(Some(e.user_message()));
                         diff_loading.set(false);
                     }
                 }

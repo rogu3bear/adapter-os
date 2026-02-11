@@ -90,6 +90,8 @@ pub fn Workers() -> impl IntoView {
         selected_worker.set(None);
     });
 
+    let notifications_for_spawn = notifications.clone();
+
     view! {
         <PageScaffold
             title="Workers"
@@ -184,7 +186,7 @@ pub fn Workers() -> impl IntoView {
             })}
 
             // Main content
-            {let notifications = notifications.clone();
+            {let notifications = notifications_for_spawn.clone();
             move || {
                 let workers_state = workers.get();
                 let nodes_list = match nodes.get() {

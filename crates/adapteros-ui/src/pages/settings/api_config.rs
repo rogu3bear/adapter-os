@@ -32,7 +32,7 @@ pub fn ApiConfigSection() -> impl IntoView {
             let client = ApiClient::with_base_url(&endpoint);
             match client.health().await {
                 Ok(_) => test_status.set(ConnectionTestStatus::Success),
-                Err(e) => test_status.set(ConnectionTestStatus::Error(e.to_string())),
+                Err(e) => test_status.set(ConnectionTestStatus::Error(e.user_message())),
             }
         });
     };

@@ -77,7 +77,7 @@ pub fn CreateStackDialog(open: RwSignal<bool>, refetch: Refetch) -> impl IntoVie
                     }
                     Err(e) => {
                         let _ = creating.try_set(false);
-                        let _ = error.try_set(Some(e.to_string()));
+                        let _ = error.try_set(Some(e.user_message()));
                     }
                 }
             });
@@ -288,7 +288,7 @@ pub fn EditStackDialog(
                     }
                     Err(e) => {
                         let _ = updating.try_set(false);
-                        let _ = error.try_set(Some(e.to_string()));
+                        let _ = error.try_set(Some(e.user_message()));
                     }
                 }
             });

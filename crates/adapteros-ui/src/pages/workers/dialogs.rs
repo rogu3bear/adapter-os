@@ -83,16 +83,23 @@ pub fn SpawnWorkerDialog(
             .chain(plans.iter().map(|p| (p.id.clone(), format_config_label(p))))
             .collect();
 
-    // Auto-generate UDS path when node is selected
+    // Auto-generate UDS path when node is selected or changed.
+    // Track the last auto-generated path so we only overwrite auto-generated values,
+    // not user-edited ones.
+    let last_auto_path = RwSignal::new(String::new());
     Effect::new(move || {
         let node = node_id.get();
-        if !node.is_empty() && uds_path.get().is_empty() {
+        if node.is_empty() {
+            return;
+        }
+        let current = uds_path.get_untracked();
+        let prev_auto = last_auto_path.get_untracked();
+        // Only overwrite if empty or still matches the last auto-generated value
+        if current.is_empty() || current == prev_auto {
             let timestamp = js_sys::Date::now() as u64;
-            uds_path.set(format!(
-                "var/run/aos-worker-{}-{}.sock",
-                short_id(&node),
-                timestamp
-            ));
+            let generated = format!("var/run/aos-worker-{}-{}.sock", short_id(&node), timestamp);
+            last_auto_path.set(generated.clone());
+            uds_path.set(generated);
         }
     });
 
@@ -102,7 +109,7 @@ pub fn SpawnWorkerDialog(
             title="Spawn New Worker".to_string()
             description="Start a new inference worker on a cluster node".to_string()
         >
-            <div class="space-y-4 max-h-[60vh] overflow-y-auto">
+            <div class="space-y-4 overflow-y-auto" style="max-height: 60vh">
                 // Node selection (required)
                 <Select
                     value=node_id
@@ -160,6 +167,7 @@ pub fn SpawnWorkerDialog(
                             node_id.set(String::new());
                             plan_id.set(String::new());
                             uds_path.set(String::new());
+                            last_auto_path.set(String::new());
                         })
                     >
                         "Cancel"
@@ -196,6 +204,7 @@ pub fn SpawnWorkerDialog(
                                 node_id.set(String::new());
                                 plan_id.set(String::new());
                                 uds_path.set(String::new());
+                                last_auto_path.set(String::new());
                             }
                         })
                     >

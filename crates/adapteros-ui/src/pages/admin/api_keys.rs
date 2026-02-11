@@ -4,8 +4,8 @@
 
 use crate::api::{report_error_with_toast, ApiClient, ApiKeyInfo, CreateApiKeyRequest};
 use crate::components::{
-    Badge, BadgeVariant, Button, ButtonVariant, Card, ErrorDisplay, Input, Spinner, Table,
-    TableBody, TableCell, TableHead, TableHeader, TableRow,
+    Badge, BadgeVariant, Button, ButtonVariant, Card, ConfirmationDialog, ConfirmationSeverity,
+    ErrorDisplay, Input, Spinner, Table, TableBody, TableCell, TableHead, TableHeader, TableRow,
 };
 use crate::hooks::{use_api_resource, LoadingState};
 use crate::utils::format_date;
@@ -33,6 +33,9 @@ pub fn ApiKeysSection() -> impl IntoView {
 
     // Revoking state
     let revoking_id = RwSignal::new(Option::<String>::None);
+    let show_revoke_confirm = RwSignal::new(false);
+    let revoke_target_id = RwSignal::new(Option::<String>::None);
+    let revoke_target_name = RwSignal::new(String::new());
 
     // Create key handler
     let on_create = move |_| {
@@ -62,7 +65,13 @@ pub fn ApiKeysSection() -> impl IntoView {
                     refetch.run(());
                 }
                 Err(e) => {
-                    create_error.set(Some(e.to_string()));
+                    report_error_with_toast(
+                        &e,
+                        "Failed to create API key",
+                        Some("/admin/api-keys"),
+                        true,
+                    );
+                    create_error.set(Some(e.user_message()));
                 }
             }
             creating.set(false);
@@ -83,28 +92,38 @@ pub fn ApiKeysSection() -> impl IntoView {
         }
     };
 
-    // Revoke key handler
-    let on_revoke = move |id: String| {
-        revoking_id.set(Some(id.clone()));
-
-        spawn_local(async move {
-            let client = ApiClient::new();
-            match client.revoke_api_key(&id).await {
-                Ok(_) => {
-                    refetch.run(());
-                }
-                Err(e) => {
-                    report_error_with_toast(
-                        &e,
-                        "Failed to revoke API key",
-                        Some("/admin/api-keys"),
-                        true,
-                    );
-                }
-            }
-            revoking_id.set(None);
-        });
+    // Revoke key - request confirmation first
+    let request_revoke = move |id: String, name: String| {
+        revoke_target_id.set(Some(id));
+        revoke_target_name.set(name);
+        show_revoke_confirm.set(true);
     };
+
+    // Execute revoke after confirmation
+    let do_revoke = Callback::new(move |_| {
+        if let Some(id) = revoke_target_id.get() {
+            revoking_id.set(Some(id.clone()));
+            show_revoke_confirm.set(false);
+
+            spawn_local(async move {
+                let client = ApiClient::new();
+                match client.revoke_api_key(&id).await {
+                    Ok(_) => {
+                        refetch.run(());
+                    }
+                    Err(e) => {
+                        report_error_with_toast(
+                            &e,
+                            "Failed to revoke API key",
+                            Some("/admin/api-keys"),
+                            true,
+                        );
+                    }
+                }
+                revoking_id.set(None);
+            });
+        }
+    });
 
     // Toggle scope selection
     let toggle_scope = move |scope: String| {
@@ -360,6 +379,7 @@ pub fn ApiKeysSection() -> impl IntoView {
                                                 {active_keys.into_iter().map(|key| {
                                                     let key_id = key.id.clone();
                                                     let key_id_for_revoke = key.id.clone();
+                                                    let key_name_for_revoke = key.name.clone();
                                                     let is_revoking = move || revoking_id.get() == Some(key_id.clone());
 
                                                     view! {
@@ -396,7 +416,8 @@ pub fn ApiKeysSection() -> impl IntoView {
                                                                     variant=ButtonVariant::Ghost
                                                                     on_click=Callback::new({
                                                                         let id = key_id_for_revoke.clone();
-                                                                        move |_| on_revoke(id.clone())
+                                                                        let name = key_name_for_revoke.clone();
+                                                                        move |_| request_revoke(id.clone(), name.clone())
                                                                     })
                                                                     disabled=is_revoking()
                                                                 >
@@ -423,6 +444,30 @@ pub fn ApiKeysSection() -> impl IntoView {
                     }
                 }}
             </Card>
+
+            // Revoke confirmation dialog
+            {move || {
+                let name = revoke_target_name.get();
+                let description = format!(
+                    "Revoke '{}'? Applications using this key will immediately lose access.",
+                    name,
+                );
+                view! {
+                    <ConfirmationDialog
+                        open=show_revoke_confirm
+                        title="Revoke API Key"
+                        description=description
+                        severity=ConfirmationSeverity::Destructive
+                        confirm_text="Revoke"
+                        typed_confirmation=name
+                        on_confirm=do_revoke
+                        on_cancel=Callback::new(move |_| {
+                            show_revoke_confirm.set(false);
+                        })
+                        loading=Signal::derive(move || revoking_id.get().is_some())
+                    />
+                }
+            }}
         </div>
     }
 }

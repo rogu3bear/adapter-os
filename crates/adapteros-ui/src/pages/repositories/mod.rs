@@ -8,8 +8,8 @@ mod list;
 
 use crate::api::ApiClient;
 use crate::components::{
-    Button, ButtonVariant, PageBreadcrumbItem, PageScaffold, PageScaffoldActions, Select, Spinner,
-    SplitPanel, SplitRatio,
+    Button, ButtonVariant, ErrorDisplay, PageBreadcrumbItem, PageScaffold, PageScaffoldActions,
+    Select, Spinner, SplitPanel, SplitRatio,
 };
 use crate::hooks::{use_api_resource, LoadingState};
 use detail::{RepositoryDetailPanel, RepositoryDetailStandalone};
@@ -100,9 +100,7 @@ pub fn Repositories() -> impl IntoView {
                                 }
                                 LoadingState::Error(e) => {
                                     view! {
-                                        <div class="rounded-lg border border-destructive bg-destructive/10 p-4">
-                                            <p class="text-destructive">{e.to_string()}</p>
-                                        </div>
+                                        <ErrorDisplay error=e/>
                                     }.into_any()
                                 }
                             }
