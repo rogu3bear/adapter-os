@@ -219,10 +219,10 @@ pub fn Datasets() -> impl IntoView {
 
     // Keep view mode in sync with query param (e.g. ?view=cards)
     Effect::new(move |_| {
-        let q = query.get();
+        let Some(q) = query.try_get() else { return };
         let mode = DatasetViewMode::from_query(q.get("view").as_deref());
         if view_mode.get_untracked() != mode {
-            view_mode.set(mode);
+            let _ = view_mode.try_set(mode);
         }
     });
 
@@ -349,54 +349,60 @@ fn DatasetsList(
 
     // Initialize filters from query params once (so links are shareable).
     Effect::new(move |_| {
-        if filters_initialized.get() {
+        if filters_initialized.try_get().unwrap_or(true) {
             return;
         }
-        let q = query.get();
+        let Some(q) = query.try_get() else { return };
         if let Some(v) = q.get("q") {
-            search.set(v.clone());
+            let _ = search.try_set(v.clone());
         }
         if let Some(v) = q.get("status") {
-            status_filter.set(v.clone());
+            let _ = status_filter.try_set(v.clone());
         }
         if let Some(v) = q.get("validation") {
-            validation_filter.set(v.clone());
+            let _ = validation_filter.try_set(v.clone());
         }
         if let Some(v) = q.get("trust") {
-            trust_filter.set(v.clone());
+            let _ = trust_filter.try_set(v.clone());
         }
         if let Some(v) = q.get("type") {
-            type_filter.set(v.clone());
+            let _ = type_filter.try_set(v.clone());
         }
         if let Some(v) = q.get("sort") {
-            sort.set(v.clone());
+            let _ = sort.try_set(v.clone());
         }
         if q.get("trainable").as_deref() == Some("1") {
-            trainable_only.set(true);
+            let _ = trainable_only.try_set(true);
         }
-        filters_initialized.set(true);
+        let _ = filters_initialized.try_set(true);
     });
 
     // Persist filters to the URL query string (replace, not push).
     Effect::new(move |_| {
-        if !filters_initialized.get() {
+        if !filters_initialized.try_get().unwrap_or(false) {
             return;
         }
 
         // Track dependencies
-        let qv = search.get();
-        let sv = status_filter.get();
-        let vv = validation_filter.get();
-        let tv = trust_filter.get();
-        let ty = type_filter.get();
-        let so = sort.get();
-        let tr = trainable_only.get();
+        let Some(qv) = search.try_get() else { return };
+        let Some(sv) = status_filter.try_get() else {
+            return;
+        };
+        let Some(vv) = validation_filter.try_get() else {
+            return;
+        };
+        let Some(tv) = trust_filter.try_get() else {
+            return;
+        };
+        let Some(ty) = type_filter.try_get() else {
+            return;
+        };
+        let Some(so) = sort.try_get() else { return };
+        let tr = trainable_only.try_get().unwrap_or(false);
 
-        let mut params: HashMap<String, String> = query
-            .get()
-            .into_iter()
-            .map(|(k, v)| (k.to_string(), v))
-            .collect();
+        let Some(q) = query.try_get() else { return };
+        let mut params: HashMap<String, String> =
+            q.into_iter().map(|(k, v)| (k.to_string(), v)).collect();
 
         set_query_param(&mut params, "q", qv.trim());
         set_query_param(&mut params, "status", sv.trim());
@@ -411,7 +417,7 @@ fn DatasetsList(
         if last_emitted_query.get_untracked() == qs {
             return;
         }
-        last_emitted_query.set(qs.clone());
+        let _ = last_emitted_query.try_set(qs.clone());
         navigate_store.with_value(|nav| {
             nav(
                 &format!("/datasets{}", qs),
@@ -1398,28 +1404,29 @@ pub fn DatasetDetail() -> impl IntoView {
 
     // Initialize tab from query param (?tab=issues), once.
     Effect::new(move |_| {
-        if tab_initialized.get() {
+        if tab_initialized.try_get().unwrap_or(true) {
             return;
         }
-        if let Some(raw) = query.get().get("tab") {
+        let Some(q) = query.try_get() else { return };
+        if let Some(raw) = q.get("tab") {
             if let Some(tab) = DatasetDetailTab::from_str(raw.as_str()) {
-                active_tab.set(tab);
-                tab_initialized.set(true);
+                let _ = active_tab.try_set(tab);
+                let _ = tab_initialized.try_set(true);
             }
         }
     });
 
     // Keep ?tab= in sync when user clicks tabs (replace, not push).
     Effect::new(move |_| {
-        if !tab_initialized.get() {
+        if !tab_initialized.try_get().unwrap_or(false) {
             return;
         }
-        let tab = active_tab.get();
-        let mut params: HashMap<String, String> = query
-            .get()
-            .into_iter()
-            .map(|(k, v)| (k.to_string(), v))
-            .collect();
+        let Some(tab) = active_tab.try_get() else {
+            return;
+        };
+        let Some(q) = query.try_get() else { return };
+        let mut params: HashMap<String, String> =
+            q.into_iter().map(|(k, v)| (k.to_string(), v)).collect();
         params.insert("tab".to_string(), tab.as_str().to_string());
         let qs = build_query_string(&params);
         navigate_store.with_value(|nav| {
@@ -1461,18 +1468,19 @@ pub fn DatasetDetail() -> impl IntoView {
 
     // If no explicit tab is requested, pick a default based on trainability.
     Effect::new(move |_| {
-        if tab_initialized.get() {
+        if tab_initialized.try_get().unwrap_or(true) {
             return;
         }
-        if let LoadingState::Loaded(data) = dataset.get() {
-            let g = dataset_gating(&data);
-            if g.status_ok && (!g.validation_ok || !g.trust_ok) {
-                active_tab.set(DatasetDetailTab::Issues);
-            } else {
-                active_tab.set(DatasetDetailTab::Preview);
-            }
-            tab_initialized.set(true);
+        let Some(LoadingState::Loaded(data)) = dataset.try_get() else {
+            return;
+        };
+        let g = dataset_gating(&data);
+        if g.status_ok && (!g.validation_ok || !g.trust_ok) {
+            let _ = active_tab.try_set(DatasetDetailTab::Issues);
+        } else {
+            let _ = active_tab.try_set(DatasetDetailTab::Preview);
         }
+        let _ = tab_initialized.try_set(true);
     });
 
     let refetch_trigger = RwSignal::new(0u32);
@@ -1482,7 +1490,9 @@ pub fn DatasetDetail() -> impl IntoView {
     let preview_refetch_stored = StoredValue::new(preview_refetch);
 
     Effect::new(move |_| {
-        let _ = refetch_trigger.get();
+        let Some(_) = refetch_trigger.try_get() else {
+            return;
+        };
         refetch_stored.with_value(|f| f.run(()));
         stats_refetch_stored.with_value(|f| f.run(()));
         versions_refetch_stored.with_value(|f| f.run(()));
@@ -1491,8 +1501,10 @@ pub fn DatasetDetail() -> impl IntoView {
 
     // Refetch preview when the limit changes
     Effect::new(move |_| {
-        let _ = preview_limit.get();
-        refetch_trigger.update(|n| *n = n.wrapping_add(1));
+        let Some(_) = preview_limit.try_get() else {
+            return;
+        };
+        let _ = refetch_trigger.try_update(|n| *n = n.wrapping_add(1));
     });
 
     let trigger_refresh = move || {
@@ -2160,9 +2172,11 @@ fn DatasetDraftView(
     {
         let client = Arc::clone(&client);
         Effect::new(move |_| {
-            let dataset_id = dataset_id_state.get();
+            let Some(dataset_id) = dataset_id_state.try_get() else {
+                return;
+            };
             if let Some(id) = dataset_id {
-                stats_state.set(LoadingState::Loading);
+                let _ = stats_state.try_set(LoadingState::Loading);
                 let client = Arc::clone(&client);
                 #[cfg(target_arch = "wasm32")]
                 wasm_bindgen_futures::spawn_local(async move {
@@ -2180,7 +2194,7 @@ fn DatasetDraftView(
                     let _ = (client, id);
                 }
             } else {
-                stats_state.set(LoadingState::Idle);
+                let _ = stats_state.try_set(LoadingState::Idle);
             }
         });
     }
@@ -2189,7 +2203,9 @@ fn DatasetDraftView(
     {
         let client = Arc::clone(&client);
         Effect::new(move |_| {
-            let dataset_id = dataset_id_state.get();
+            let Some(dataset_id) = dataset_id_state.try_get() else {
+                return;
+            };
             if let Some(id) = dataset_id {
                 let client = Arc::clone(&client);
                 #[cfg(target_arch = "wasm32")]
@@ -2263,8 +2279,10 @@ fn DatasetDraftView(
     {
         let client = Arc::clone(&client);
         Effect::new(move |_| {
-            let job_id = training_job_id.get();
-            poll_nonce.update(|v| *v = v.wrapping_add(1));
+            let Some(job_id) = training_job_id.try_get() else {
+                return;
+            };
+            let _ = poll_nonce.try_update(|v| *v = v.wrapping_add(1));
 
             if let Some(job_id) = job_id {
                 training_job_status.set(Some("pending".to_string()));

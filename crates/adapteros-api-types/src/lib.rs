@@ -54,6 +54,7 @@ pub mod review;
 pub mod routing;
 pub mod run_envelope;
 pub mod settings;
+pub mod streaming_events;
 pub mod system_state;
 pub mod system_status;
 pub mod telemetry;
@@ -101,6 +102,7 @@ pub use review::*;
 pub use routing::*;
 pub use run_envelope::*;
 pub use settings::*;
+pub use streaming_events::*;
 pub use system_status::*;
 pub use tenant_settings::*;
 // Note: telemetry types are not re-exported to avoid conflicts with metrics types

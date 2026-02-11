@@ -71,7 +71,7 @@ pub fn Workers() -> impl IntoView {
     // Debug logging for list sizes
     #[cfg(debug_assertions)]
     Effect::new(move |_| {
-        if let LoadingState::Loaded(ref w) = workers.get() {
+        if let Some(LoadingState::Loaded(ref w)) = workers.try_get() {
             web_sys::console::log_1(&format!("[list] workers: {} items", w.len()).into());
         }
     });
