@@ -349,6 +349,26 @@ impl ManagedService {
         });
     }
 
+    /// Rotate a log file to `.prev` if it exceeds `max_bytes`.
+    async fn rotate_log_if_large(path: &std::path::Path, max_bytes: u64) {
+        match tokio::fs::metadata(path).await {
+            Ok(meta) if meta.len() > max_bytes => {
+                let mut prev = path.to_path_buf().into_os_string();
+                prev.push(".prev");
+                if let Err(e) = tokio::fs::rename(path, &prev).await {
+                    warn!("Failed to rotate log {}: {}", path.display(), e);
+                } else {
+                    info!(
+                        "Rotated log {} -> {}",
+                        path.display(),
+                        prev.to_string_lossy()
+                    );
+                }
+            }
+            _ => {}
+        }
+    }
+
     async fn spawn_process(&self) -> Result<Child> {
         let mut command = Command::new(&self.config.command);
         command.args(&self.config.args);
@@ -368,8 +388,9 @@ impl ManagedService {
             SupervisorError::Process(format!("Failed to spawn {}: {}", self.config.name, e))
         })?;
 
-        // Capture stdout and stderr
+        // Rotate log file before opening if it exceeds 10MB
         let log_path = self.log_file_path();
+        Self::rotate_log_if_large(&log_path, 10 * 1024 * 1024).await;
 
         if let Some(stdout) = child.stdout.take() {
             Self::capture_output(self.config.name.clone(), log_path.clone(), stdout, "stdout")

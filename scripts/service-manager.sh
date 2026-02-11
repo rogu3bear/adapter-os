@@ -130,6 +130,25 @@ log_line() {
     echo -e "$line" >>"$SCRIPT_LOG"
 }
 
+# Rotate a log file to .prev if it exceeds a size threshold (bytes).
+# Usage: rotate_log_if_large <file> <max_bytes>
+rotate_log_if_large() {
+    local file="$1"
+    local max_bytes="$2"
+    [ -f "$file" ] || return 0
+    local size
+    size=$(wc -c < "$file" 2>/dev/null | tr -d ' ')
+    if [ -n "$size" ] && [ "$size" -gt "$max_bytes" ]; then
+        mv "$file" "${file}.prev"
+    fi
+}
+
+# Rotate a log file to .prev if it is non-empty.
+# Usage: rotate_log <file>
+rotate_log() {
+    [ -s "$1" ] && mv "$1" "${1}.prev"
+}
+
 # =============================================================================
 # Helper Functions
 # =============================================================================
@@ -705,6 +724,8 @@ start_backend() {
     # Redirect stdin to avoid any accidental TTY coupling.
     # Note: We intentionally avoid `setsid` here because it is not available on
     # some macOS environments by default.
+    rotate_log "$BACKEND_LOG"
+
     nohup "$server_bin" --config "${AOS_CONFIG_PATH:-$PROJECT_ROOT/configs/cp.toml}" \
         ${drift_flag:+$drift_flag} \
         > "$BACKEND_LOG" 2>&1 < /dev/null &
@@ -1241,6 +1262,7 @@ start_worker() {
     fi
 
     # Start worker (avoid eval, detach).
+    rotate_log "$WORKER_LOG"
     nohup "${worker_args[@]}" > "$WORKER_LOG" 2>&1 < /dev/null &
     local pid=$!
     disown "$pid" 2>/dev/null || true
@@ -1497,6 +1519,7 @@ start_secd() {
     export RUST_LOG="${RUST_LOG:-info,adapteros_secd=info}"
 
     # Start secd
+    rotate_log "$SECD_LOG"
     nohup "$secd_bin" \
         --socket "$SECD_SOCKET" \
         --pid-file "$SECD_PID_FILE" \
@@ -1631,6 +1654,7 @@ start_node() {
     export RUST_LOG="${RUST_LOG:-info,aos_node=info}"
 
     # Start node agent (development mode with TCP binding)
+    rotate_log "$NODE_LOG"
     nohup "$node_bin" \
         --port "$NODE_PORT" \
         --cas-path "$PROJECT_ROOT/var/cas" \
@@ -1910,6 +1934,10 @@ usage() {
 # =============================================================================
 # Main Entry Point
 # =============================================================================
+
+# Rotate service-manager.log at script start if it exceeds ~5MB
+mkdir -p "$LOG_DIR"
+rotate_log_if_large "$SCRIPT_LOG" 5242880
 
 if [ $# -lt 1 ]; then
     usage

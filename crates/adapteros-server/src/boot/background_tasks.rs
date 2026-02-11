@@ -20,6 +20,7 @@
 //! - Status writer (UI needs it)
 //! - WAL checkpoint (database health)
 //! - TTL cleanup (prevents DB bloat)
+//! - Log cleanup (prevents disk bloat, reduced frequency in dev)
 //!
 //! ## Production Mode Tasks (15 tasks)
 //!
@@ -85,6 +86,7 @@ pub fn orphaned_training_job_cleaned_count() -> u64 {
 /// - Status writer (UI needs it)
 /// - WAL checkpoint (database health)
 /// - TTL cleanup (prevents DB bloat)
+/// - Log cleanup (prevents disk bloat, reduced frequency in dev)
 ///
 /// # Arguments
 ///
@@ -285,26 +287,35 @@ pub async fn spawn_all_background_tasks(
     }
 
     // Spawn log cleanup background task
-    // SKIPPED in dev mode - production maintenance only
-    if !dev_mode {
-        let (log_dir_opt, retention_days) = {
+    // Runs in all modes - dev mode uses a shorter interval since logs accumulate faster
+    {
+        let (log_dir_opt, retention_days, max_log_files) = {
             let cfg = server_config.read().map_err(|e| {
                 error!(error = %e, "Config lock poisoned during log cleanup setup");
                 anyhow::anyhow!("config lock poisoned")
             })?;
-            (cfg.logging.log_dir.clone(), cfg.logging.retention_days)
+            (
+                cfg.logging.log_dir.clone(),
+                cfg.logging.retention_days,
+                cfg.logging.max_log_files,
+            )
         };
 
         if let Some(log_dir) = log_dir_opt {
-            if retention_days > 0 {
+            if retention_days > 0 || max_log_files > 0 {
                 let log_dir_for_info = log_dir.clone();
 
                 // Run cleanup on startup
-                if let Err(e) = logging::cleanup_old_logs(&log_dir, retention_days).await {
+                if let Err(e) =
+                    logging::cleanup_old_logs(&log_dir, retention_days, max_log_files).await
+                {
                     error!(error = %e, "Failed to cleanup old logs on startup");
                 }
 
-                // Spawn daily cleanup task
+                // In dev mode, run every 4 hours instead of daily
+                let interval_secs = if dev_mode { 14400 } else { 86400 };
+
+                // Spawn periodic cleanup task
                 let mut spawner = BackgroundTaskSpawner::new(shutdown_coordinator)
                     .with_task_tracker(Arc::clone(&background_tasks));
                 let mut shutdown_rx = spawner.coordinator().subscribe_shutdown();
@@ -312,7 +323,8 @@ pub async fn spawn_all_background_tasks(
                     .spawn_optional(
                         "Log cleanup",
                         async move {
-                            let mut interval = tokio::time::interval(Duration::from_secs(86400)); // 24 hours
+                            let mut interval =
+                                tokio::time::interval(Duration::from_secs(interval_secs));
                             interval
                                 .set_missed_tick_behavior(tokio::time::MissedTickBehavior::Skip);
 
@@ -324,12 +336,13 @@ pub async fn spawn_all_background_tasks(
                                         break;
                                     }
                                     _ = interval.tick() => {
-                                        match logging::cleanup_old_logs(&log_dir, retention_days).await {
+                                        match logging::cleanup_old_logs(&log_dir, retention_days, max_log_files).await {
                                             Ok(count) => {
                                                 if count > 0 {
                                                     info!(
                                                         count,
                                                         retention_days,
+                                                        max_log_files,
                                                         log_dir = %log_dir,
                                                         "Cleaned up old log files"
                                                     );
@@ -351,10 +364,13 @@ pub async fn spawn_all_background_tasks(
                     )
                     .is_ok()
                 {
+                    let interval_desc = if dev_mode { "4h (dev)" } else { "24h" };
                     info!(
                         retention_days,
+                        max_log_files,
+                        interval = interval_desc,
                         log_dir = %log_dir_for_info,
-                        "Log cleanup task started (daily interval)"
+                        "Log cleanup task started"
                     );
                 }
                 shutdown_coordinator = spawner.into_coordinator();

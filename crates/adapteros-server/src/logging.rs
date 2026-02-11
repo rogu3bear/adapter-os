@@ -3,7 +3,8 @@
 //! This module provides:
 //! - [`init_logging`]: Sets up tracing with console, file, and OpenTelemetry outputs
 //!   using a deterministic log profile switch.
-//! - [`cleanup_old_logs`]: Removes log files older than the retention period
+//! - [`cleanup_old_logs`]: Removes log files older than the retention period and
+//!   enforces per-prefix max file count
 
 use anyhow::Result;
 use std::fmt as stdfmt;
@@ -202,11 +203,19 @@ where
     }
 }
 
-/// Cleanup old log files based on retention policy
+/// Cleanup old log files based on retention policy and max file count.
 ///
-/// Deletes log files older than the specified retention period.
-/// Returns the number of files deleted.
-pub async fn cleanup_old_logs(log_dir: &str, retention_days: u32) -> Result<usize> {
+/// First deletes log files older than the specified retention period.
+/// Then, if `max_log_files > 0`, enforces a per-prefix cap by deleting
+/// the oldest files that exceed the limit. Known prefixes are discovered
+/// from the files present in the directory.
+///
+/// Returns the total number of files deleted.
+pub async fn cleanup_old_logs(
+    log_dir: &str,
+    retention_days: u32,
+    max_log_files: usize,
+) -> Result<usize> {
     use std::time::SystemTime;
 
     let retention_duration = std::time::Duration::from_secs(retention_days as u64 * 86400);
@@ -280,6 +289,95 @@ pub async fn cleanup_old_logs(log_dir: &str, retention_days: u32) -> Result<usiz
                         path = %path.display(),
                         error = %e,
                         "Failed to delete old log file"
+                    );
+                }
+            }
+        }
+    }
+
+    // Phase 2: Enforce max_log_files per prefix
+    if max_log_files > 0 {
+        deleted_count += enforce_max_log_files(log_path, max_log_files).await?;
+    }
+
+    Ok(deleted_count)
+}
+
+/// Enforce a per-prefix cap on log files.
+///
+/// Groups remaining files by their prefix (the portion before the first dot),
+/// then deletes the oldest files in each group that exceed `max_files`.
+async fn enforce_max_log_files(log_path: &std::path::Path, max_files: usize) -> Result<usize> {
+    use std::collections::HashMap;
+    use std::time::SystemTime;
+
+    let mut prefix_files: HashMap<String, Vec<(std::path::PathBuf, SystemTime)>> = HashMap::new();
+
+    let mut entries = tokio::fs::read_dir(log_path).await.map_err(|e| {
+        anyhow::anyhow!("Failed to read log directory for count enforcement: {}", e)
+    })?;
+
+    while let Some(entry) = entries
+        .next_entry()
+        .await
+        .map_err(|e| anyhow::anyhow!("Failed to read directory entry: {}", e))?
+    {
+        let path = entry.path();
+        let metadata = match tokio::fs::metadata(&path).await {
+            Ok(m) if m.is_file() => m,
+            _ => continue,
+        };
+
+        let modified = match metadata.modified() {
+            Ok(m) => m,
+            Err(_) => continue,
+        };
+
+        // Extract prefix: everything before the first '.' in the filename.
+        // e.g. "aos-cp.2026-02-11" -> "aos-cp"
+        let file_name = match path.file_name().and_then(|n| n.to_str()) {
+            Some(n) => n.to_string(),
+            None => continue,
+        };
+
+        let prefix = match file_name.split_once('.') {
+            Some((p, _)) => p.to_string(),
+            None => file_name.clone(),
+        };
+
+        prefix_files
+            .entry(prefix)
+            .or_default()
+            .push((path, modified));
+    }
+
+    let mut deleted_count = 0;
+
+    for (prefix, mut files) in prefix_files {
+        if files.len() <= max_files {
+            continue;
+        }
+
+        // Sort oldest first (ascending by mtime)
+        files.sort_by_key(|(_, mtime)| *mtime);
+
+        let to_delete = files.len() - max_files;
+        for (path, _) in files.into_iter().take(to_delete) {
+            match tokio::fs::remove_file(&path).await {
+                Ok(()) => {
+                    deleted_count += 1;
+                    info!(
+                        path = %path.display(),
+                        prefix = %prefix,
+                        max_log_files = max_files,
+                        "Deleted log file exceeding max_log_files limit"
+                    );
+                }
+                Err(e) => {
+                    warn!(
+                        path = %path.display(),
+                        error = %e,
+                        "Failed to delete log file for count enforcement"
                     );
                 }
             }
