@@ -10420,6 +10420,32 @@
         ],
         "type": "object"
       },
+      "DocumentChunk": {
+        "description": "A document chunk to synthesize from",
+        "properties": {
+          "chunk_index": {
+            "description": "Optional chunk index within the source",
+            "minimum": 0,
+            "type": [
+              "integer",
+              "null"
+            ]
+          },
+          "source": {
+            "description": "Source identifier (e.g., \"document.pdf:page_3\")",
+            "type": "string"
+          },
+          "text": {
+            "description": "The text content of the chunk",
+            "type": "string"
+          }
+        },
+        "required": [
+          "text",
+          "source"
+        ],
+        "type": "object"
+      },
       "DocumentProvenanceInfo": {
         "description": "Document provenance in API response",
         "properties": {
@@ -11368,6 +11394,180 @@
         ],
         "type": "object"
       },
+      "ErrorBucket": {
+        "properties": {
+          "count": {
+            "format": "int64",
+            "type": "integer"
+          },
+          "error_code": {
+            "type": "string"
+          },
+          "fingerprint": {
+            "type": "string"
+          },
+          "first_seen_unix_ms": {
+            "format": "int64",
+            "type": "integer"
+          },
+          "kind": {
+            "$ref": "#/components/schemas/ErrorKind"
+          },
+          "last_seen_unix_ms": {
+            "format": "int64",
+            "type": "integer"
+          },
+          "sample_error_ids_json": {
+            "type": "string"
+          },
+          "severity": {
+            "$ref": "#/components/schemas/ErrorSeverity"
+          },
+          "tenant_id": {
+            "type": "string"
+          }
+        },
+        "required": [
+          "fingerprint",
+          "tenant_id",
+          "error_code",
+          "kind",
+          "severity",
+          "first_seen_unix_ms",
+          "last_seen_unix_ms",
+          "count",
+          "sample_error_ids_json"
+        ],
+        "type": "object"
+      },
+      "ErrorInstance": {
+        "properties": {
+          "created_at_unix_ms": {
+            "format": "int64",
+            "type": "integer"
+          },
+          "diag_trace_id": {
+            "type": [
+              "string",
+              "null"
+            ]
+          },
+          "error_code": {
+            "type": "string"
+          },
+          "fingerprint": {
+            "type": "string"
+          },
+          "http_method": {
+            "type": [
+              "string",
+              "null"
+            ]
+          },
+          "http_path": {
+            "type": [
+              "string",
+              "null"
+            ]
+          },
+          "http_status": {
+            "format": "int32",
+            "type": [
+              "integer",
+              "null"
+            ]
+          },
+          "id": {
+            "type": "string"
+          },
+          "kind": {
+            "$ref": "#/components/schemas/ErrorKind"
+          },
+          "message_dev": {
+            "type": [
+              "string",
+              "null"
+            ]
+          },
+          "message_user": {
+            "type": "string"
+          },
+          "otel_trace_id": {
+            "type": [
+              "string",
+              "null"
+            ]
+          },
+          "receipt_hash": {
+            "type": [
+              "string",
+              "null"
+            ]
+          },
+          "request_id": {
+            "type": [
+              "string",
+              "null"
+            ]
+          },
+          "route_digest": {
+            "type": [
+              "string",
+              "null"
+            ]
+          },
+          "run_id": {
+            "type": [
+              "string",
+              "null"
+            ]
+          },
+          "session_id": {
+            "type": [
+              "string",
+              "null"
+            ]
+          },
+          "severity": {
+            "$ref": "#/components/schemas/ErrorSeverity"
+          },
+          "source": {
+            "$ref": "#/components/schemas/ErrorSource"
+          },
+          "tags_json": {
+            "type": "string"
+          },
+          "tenant_id": {
+            "type": "string"
+          }
+        },
+        "required": [
+          "id",
+          "created_at_unix_ms",
+          "tenant_id",
+          "source",
+          "error_code",
+          "kind",
+          "severity",
+          "message_user",
+          "fingerprint",
+          "tags_json"
+        ],
+        "type": "object"
+      },
+      "ErrorKind": {
+        "enum": [
+          "network",
+          "auth",
+          "validation",
+          "server",
+          "decode",
+          "timeout",
+          "worker",
+          "unknown"
+        ],
+        "type": "string"
+      },
       "ErrorResponse": {
         "description": "Common error response structure",
         "properties": {
@@ -11375,6 +11575,20 @@
             "type": "string"
           },
           "details": {},
+          "diag_trace_id": {
+            "description": "AdapterOS diagnostic trace id (trc-...) when available",
+            "type": [
+              "string",
+              "null"
+            ]
+          },
+          "error_id": {
+            "description": "Stable debug identifier for a persisted server-side error instance (err-...)",
+            "type": [
+              "string",
+              "null"
+            ]
+          },
           "failure_code": {
             "oneOf": [
               {
@@ -11383,6 +11597,13 @@
               {
                 "$ref": "#/components/schemas/FailureCode"
               }
+            ]
+          },
+          "fingerprint": {
+            "description": "Stable fingerprint for bucketing/dedupe",
+            "type": [
+              "string",
+              "null"
             ]
           },
           "hint": {
@@ -11395,6 +11616,13 @@
             "description": "Human-readable error message",
             "type": "string"
           },
+          "otel_trace_id": {
+            "description": "W3C trace id (32-hex) when available",
+            "type": [
+              "string",
+              "null"
+            ]
+          },
           "request_id": {
             "type": [
               "string",
@@ -11403,12 +11631,36 @@
           },
           "schema_version": {
             "type": "string"
+          },
+          "session_id": {
+            "description": "UI session correlation (ses-...)",
+            "type": [
+              "string",
+              "null"
+            ]
           }
         },
         "required": [
           "message"
         ],
         "type": "object"
+      },
+      "ErrorSeverity": {
+        "enum": [
+          "info",
+          "warn",
+          "error",
+          "fatal"
+        ],
+        "type": "string"
+      },
+      "ErrorSource": {
+        "enum": [
+          "ui",
+          "api",
+          "worker"
+        ],
+        "type": "string"
       },
       "EvaluatorType": {
         "description": "Evaluator type - who/what produced the verdict",
@@ -11641,6 +11893,29 @@
           "line_range",
           "relevance_score",
           "content"
+        ],
+        "type": "object"
+      },
+      "ExampleCounts": {
+        "description": "Counts of examples by type",
+        "properties": {
+          "completions": {
+            "minimum": 0,
+            "type": "integer"
+          },
+          "instructions": {
+            "minimum": 0,
+            "type": "integer"
+          },
+          "qa_pairs": {
+            "minimum": 0,
+            "type": "integer"
+          }
+        },
+        "required": [
+          "qa_pairs",
+          "instructions",
+          "completions"
         ],
         "type": "object"
       },
@@ -12401,6 +12676,17 @@
         },
         "required": [
           "widgets"
+        ],
+        "type": "object"
+      },
+      "GetErrorResponse": {
+        "properties": {
+          "item": {
+            "$ref": "#/components/schemas/ErrorInstance"
+          }
+        },
+        "required": [
+          "item"
         ],
         "type": "object"
       },
@@ -13980,7 +14266,7 @@
         "type": "string"
       },
       "JobResponse": {
-        "description": "Job response",
+        "description": "Job response (lightweight, used by list endpoints and async-creation responses)",
         "properties": {
           "created_at": {
             "type": "string"
@@ -14922,6 +15208,34 @@
             ]
           }
         },
+        "type": "object"
+      },
+      "ListErrorBucketsResponse": {
+        "properties": {
+          "items": {
+            "items": {
+              "$ref": "#/components/schemas/ErrorBucket"
+            },
+            "type": "array"
+          }
+        },
+        "required": [
+          "items"
+        ],
+        "type": "object"
+      },
+      "ListErrorsResponse": {
+        "properties": {
+          "items": {
+            "items": {
+              "$ref": "#/components/schemas/ErrorInstance"
+            },
+            "type": "array"
+          }
+        },
+        "required": [
+          "items"
+        ],
         "type": "object"
       },
       "ListEvidenceQuery": {
@@ -21548,7 +21862,7 @@
             ]
           },
           "router_seed": {
-            "description": "Router seed for audit purposes (stored but currently unused)\n\nThe router uses a deterministic algorithm (sorted by score, then by\nindex for tie-breaking). This seed is stored for audit trail purposes\nbut does NOT currently affect routing decisions.",
+            "description": "Router seed for audit purposes (stored but currently unused)\n\nThe router uses a deterministic algorithm (sorted by score, then by\nstable_id for tie-breaking). This seed is stored for audit trail purposes\nbut does NOT currently affect routing decisions.",
             "type": [
               "string",
               "null"
@@ -26874,6 +27188,133 @@
         },
         "required": [
           "tenant_id"
+        ],
+        "type": "object"
+      },
+      "SynthesisConfig": {
+        "description": "Configuration for synthesis",
+        "properties": {
+          "include_completions": {
+            "description": "Whether to include completion examples",
+            "type": "boolean"
+          },
+          "include_instructions": {
+            "description": "Whether to include instruction-following examples",
+            "type": "boolean"
+          },
+          "include_qa": {
+            "description": "Whether to include Q&A pairs",
+            "type": "boolean"
+          },
+          "max_tokens": {
+            "description": "Maximum tokens to generate per chunk",
+            "minimum": 0,
+            "type": "integer"
+          },
+          "temperature": {
+            "description": "Temperature for generation (0.0 - 2.0, default 0.7)",
+            "format": "float",
+            "type": "number"
+          }
+        },
+        "type": "object"
+      },
+      "SynthesizeDatasetRequest": {
+        "description": "Request to synthesize training data from document chunks",
+        "properties": {
+          "chunks": {
+            "description": "Document chunks to synthesize from",
+            "items": {
+              "$ref": "#/components/schemas/DocumentChunk"
+            },
+            "type": "array"
+          },
+          "config": {
+            "oneOf": [
+              {
+                "type": "null"
+              },
+              {
+                "$ref": "#/components/schemas/SynthesisConfig",
+                "description": "Synthesis configuration"
+              }
+            ]
+          },
+          "description": {
+            "description": "Optional description",
+            "type": [
+              "string",
+              "null"
+            ]
+          },
+          "name": {
+            "description": "Name for the resulting dataset",
+            "type": "string"
+          },
+          "workspace_id": {
+            "description": "Optional workspace ID for tenant isolation",
+            "type": [
+              "string",
+              "null"
+            ]
+          }
+        },
+        "required": [
+          "name",
+          "chunks"
+        ],
+        "type": "object"
+      },
+      "SynthesizeDatasetResponse": {
+        "description": "Response from synthesis",
+        "properties": {
+          "chunks_processed": {
+            "description": "Number of chunks processed",
+            "minimum": 0,
+            "type": "integer"
+          },
+          "dataset_id": {
+            "description": "ID of the created dataset",
+            "type": "string"
+          },
+          "examples_by_type": {
+            "$ref": "#/components/schemas/ExampleCounts",
+            "description": "Breakdown by type"
+          },
+          "name": {
+            "description": "Name of the dataset",
+            "type": "string"
+          },
+          "processing_time_ms": {
+            "description": "Total processing time in milliseconds",
+            "format": "int64",
+            "minimum": 0,
+            "type": "integer"
+          },
+          "status": {
+            "description": "Status message",
+            "type": "string"
+          },
+          "success_rate": {
+            "description": "Parse success rate (0.0 - 1.0)",
+            "format": "float",
+            "type": "number"
+          },
+          "total_examples": {
+            "description": "Total examples generated",
+            "minimum": 0,
+            "type": "integer"
+          }
+        },
+        "required": [
+          "dataset_id",
+          "name",
+          "chunks_processed",
+          "total_examples",
+          "examples_by_type",
+          "success_rate",
+          "processing_time_ms",
+          "status"
         ],
         "type": "object"
       },
@@ -41786,6 +42227,50 @@
         ]
       }
     },
+    "/v1/datasets/synthesize": {
+      "post": {
+        "description": "Takes document chunks and uses a local synthesis model to generate\nstructured training examples (Q&A pairs, instructions, completions).\n\nThe synthesis model runs locally on Apple Silicon using CoreML/ANE\nfor efficient inference.",
+        "operationId": "synthesize_dataset",
+        "requestBody": {
+          "content": {
+            "application/json": {
+              "schema": {
+                "$ref": "#/components/schemas/SynthesizeDatasetRequest"
+              }
+            }
+          },
+          "required": true
+        },
+        "responses": {
+          "200": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/SynthesizeDatasetResponse"
+                }
+              }
+            },
+            "description": "Dataset synthesized successfully"
+          },
+          "400": {
+            "description": "Invalid request"
+          },
+          "403": {
+            "description": "Permission denied"
+          },
+          "500": {
+            "description": "Internal server error"
+          },
+          "503": {
+            "description": "Synthesis model not available"
+          }
+        },
+        "summary": "Synthesize training data from document chunks",
+        "tags": [
+          "datasets"
+        ]
+      }
+    },
     "/v1/datasets/upload/progress": {
       "get": {
         "description": "This endpoint establishes a Server-Sent Events (SSE) connection that streams\nprogress events for dataset operations. Clients can connect to receive real-time\nupdates about:\n- File upload progress (percentage, current file)\n- Dataset validation progress (files processed, validation results)\n- Statistics computation progress\n\nEvents are JSON objects with the following fields:\n- `dataset_id`: The ID of the dataset being processed\n- `event_type`: One of \"upload\", \"validation\", or \"statistics\"\n- `current_file`: The file currently being processed (optional)\n- `percentage_complete`: Overall progress as a percentage (0-100)\n- `total_files`: Total number of files in the dataset (optional)\n- `files_processed`: Number of files processed so far (optional)\n- `message`: Human-readable status message\n- `timestamp`: RFC3339 formatted timestamp\n\nExample client usage (JavaScript):\n```javascript\nconst eventSource = new EventSource('/v1/datasets/upload/progress?dataset_id=abc123');\neventSource.onmessage = (event) => {\n  const progress = JSON.parse(event.data);\n  console.log(`${progress.message}: ${progress.percentage_complete}%`);\n};\n```",
@@ -44609,6 +45094,284 @@
         "summary": "Resolve an alert",
         "tags": [
           "Error Alerts"
+        ]
+      }
+    },
+    "/v1/error-buckets": {
+      "get": {
+        "operationId": "list_error_buckets",
+        "parameters": [
+          {
+            "in": "query",
+            "name": "limit",
+            "required": false,
+            "schema": {
+              "format": "int32",
+              "minimum": 0,
+              "type": [
+                "integer",
+                "null"
+              ]
+            }
+          },
+          {
+            "in": "query",
+            "name": "error_code",
+            "required": false,
+            "schema": {
+              "type": [
+                "string",
+                "null"
+              ]
+            }
+          }
+        ],
+        "responses": {
+          "200": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ListErrorBucketsResponse"
+                }
+              }
+            },
+            "description": "Error buckets list"
+          },
+          "401": {
+            "description": "Unauthorized"
+          }
+        },
+        "security": [
+          {
+            "bearer_token": []
+          }
+        ],
+        "summary": "GET /v1/error-buckets - List error buckets (fingerprint groups)",
+        "tags": [
+          "errors"
+        ]
+      }
+    },
+    "/v1/errors": {
+      "get": {
+        "operationId": "list_error_instances",
+        "parameters": [
+          {
+            "in": "query",
+            "name": "since_unix_ms",
+            "required": false,
+            "schema": {
+              "format": "int64",
+              "type": [
+                "integer",
+                "null"
+              ]
+            }
+          },
+          {
+            "in": "query",
+            "name": "until_unix_ms",
+            "required": false,
+            "schema": {
+              "format": "int64",
+              "type": [
+                "integer",
+                "null"
+              ]
+            }
+          },
+          {
+            "in": "query",
+            "name": "limit",
+            "required": false,
+            "schema": {
+              "format": "int32",
+              "minimum": 0,
+              "type": [
+                "integer",
+                "null"
+              ]
+            }
+          },
+          {
+            "in": "query",
+            "name": "after_created_at_unix_ms",
+            "required": false,
+            "schema": {
+              "format": "int64",
+              "type": [
+                "integer",
+                "null"
+              ]
+            }
+          },
+          {
+            "in": "query",
+            "name": "error_code",
+            "required": false,
+            "schema": {
+              "type": [
+                "string",
+                "null"
+              ]
+            }
+          },
+          {
+            "in": "query",
+            "name": "fingerprint",
+            "required": false,
+            "schema": {
+              "type": [
+                "string",
+                "null"
+              ]
+            }
+          },
+          {
+            "in": "query",
+            "name": "request_id",
+            "required": false,
+            "schema": {
+              "type": [
+                "string",
+                "null"
+              ]
+            }
+          },
+          {
+            "in": "query",
+            "name": "diag_trace_id",
+            "required": false,
+            "schema": {
+              "type": [
+                "string",
+                "null"
+              ]
+            }
+          },
+          {
+            "in": "query",
+            "name": "session_id",
+            "required": false,
+            "schema": {
+              "type": [
+                "string",
+                "null"
+              ]
+            }
+          },
+          {
+            "in": "query",
+            "name": "source",
+            "required": false,
+            "schema": {
+              "oneOf": [
+                {
+                  "type": "null"
+                },
+                {
+                  "$ref": "#/components/schemas/ErrorSource"
+                }
+              ]
+            }
+          },
+          {
+            "in": "query",
+            "name": "severity",
+            "required": false,
+            "schema": {
+              "oneOf": [
+                {
+                  "type": "null"
+                },
+                {
+                  "$ref": "#/components/schemas/ErrorSeverity"
+                }
+              ]
+            }
+          },
+          {
+            "in": "query",
+            "name": "kind",
+            "required": false,
+            "schema": {
+              "oneOf": [
+                {
+                  "type": "null"
+                },
+                {
+                  "$ref": "#/components/schemas/ErrorKind"
+                }
+              ]
+            }
+          }
+        ],
+        "responses": {
+          "200": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ListErrorsResponse"
+                }
+              }
+            },
+            "description": "Error instances list"
+          },
+          "401": {
+            "description": "Unauthorized"
+          }
+        },
+        "security": [
+          {
+            "bearer_token": []
+          }
+        ],
+        "summary": "GET /v1/errors - List persisted error instances (tenant-scoped)",
+        "tags": [
+          "errors"
+        ]
+      }
+    },
+    "/v1/errors/{error_id}": {
+      "get": {
+        "operationId": "get_error_instance",
+        "parameters": [
+          {
+            "description": "Error instance ID (err-...)",
+            "in": "path",
+            "name": "error_id",
+            "required": true,
+            "schema": {
+              "type": "string"
+            }
+          }
+        ],
+        "responses": {
+          "200": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/GetErrorResponse"
+                }
+              }
+            },
+            "description": "Error instance"
+          },
+          "401": {
+            "description": "Unauthorized"
+          },
+          "404": {
+            "description": "Not found"
+          }
+        },
+        "security": [
+          {
+            "bearer_token": []
+          }
+        ],
+        "summary": "GET /v1/errors/{error_id} - Get a single persisted error instance (tenant-scoped)",
+        "tags": [
+          "errors"
         ]
       }
     },

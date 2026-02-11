@@ -74,12 +74,15 @@ pub struct TrainingData {
 }
 
 /// Strategy for generating training examples from documents
-#[derive(Debug, Clone, Copy, PartialEq, Eq)]
+#[derive(Debug, Clone, Copy, PartialEq, Eq, Serialize, Deserialize)]
+#[serde(rename_all = "snake_case")]
 pub enum TrainingStrategy {
     /// Identity mapping: input = target (memorization)
     Identity,
     /// Question-answer pairs (requires prompt engineering)
     QuestionAnswer,
+    /// Model-based synthesis with determinism controls (routed to SynthesisEngine)
+    Synthesis,
 }
 
 /// Configuration for training data generation
@@ -112,6 +115,9 @@ pub fn generate_examples_from_chunk(
         TrainingStrategy::QuestionAnswer => {
             generate_qa_examples(chunk, document, tokenizer, config)
         }
+        TrainingStrategy::Synthesis => Err(AosError::Validation(
+            "Synthesis strategy is handled by SynthesisEngine, not training_gen".to_string(),
+        )),
     }
 }
 

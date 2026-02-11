@@ -104,9 +104,15 @@ pub struct ExampleProvenance {
     /// ID of the synthesis model that generated this example
     #[serde(default)]
     pub synthesis_model_id: Option<String>,
-    /// Seed used for deterministic synthesis
+    /// Seed used for deterministic synthesis (v1, u64)
     #[serde(default)]
     pub synthesis_seed: Option<u64>,
+    /// Full 32-byte seed as hex string (v2, for strict replay)
+    #[serde(default)]
+    pub synthesis_seed_bytes_hex: Option<String>,
+    /// BLAKE3 hash of the synthesis model content/identity
+    #[serde(default)]
+    pub synthesis_model_hash_b3: Option<String>,
     /// Timestamp when the example was synthesized (Unix ms)
     #[serde(default)]
     pub synthesized_at_ms: Option<u64>,
@@ -155,6 +161,17 @@ impl ExampleProvenance {
         self
     }
 
+    /// Builder: set v2 32-byte seed hex and model content hash
+    pub fn with_synthesis_seed_v2(
+        mut self,
+        seed_bytes_hex: impl Into<String>,
+        model_hash_b3: impl Into<String>,
+    ) -> Self {
+        self.synthesis_seed_bytes_hex = Some(seed_bytes_hex.into());
+        self.synthesis_model_hash_b3 = Some(model_hash_b3.into());
+        self
+    }
+
     /// Builder: set synthesis timestamp
     pub fn with_timestamp(mut self, timestamp_ms: u64) -> Self {
         self.synthesized_at_ms = Some(timestamp_ms);
@@ -198,6 +215,61 @@ impl ExampleProvenance {
         }
         citation.push_str(&format!(" (chunk {})", self.chunk_index));
         citation
+    }
+}
+
+// =============================================================================
+// Synthesis Provenance (document-level provenance for enrichment pipeline)
+// =============================================================================
+
+/// Provenance metadata recorded per synthesis run against a source document.
+///
+/// This captures the full context needed to reproduce or audit a synthesis:
+/// which backend, model, seed, and engine version were used, plus counts
+/// of each example type produced.
+#[derive(Debug, Clone, Serialize, Deserialize)]
+pub struct DocumentSynthesisProvenance {
+    /// Inference backend used ("mlx" or "coreml")
+    pub synthesis_backend: String,
+    /// Model path hash (BLAKE3) identifying the synthesis model
+    pub synthesis_model_id: String,
+    /// Derived seed used for deterministic generation (v1, u64)
+    pub synthesis_seed: u64,
+    /// Full 32-byte seed as hex string (v2, for strict replay)
+    #[serde(default)]
+    pub synthesis_seed_bytes_hex: Option<String>,
+    /// BLAKE3 hash of the synthesis model content/identity
+    #[serde(default)]
+    pub synthesis_model_hash_b3: Option<String>,
+    /// Engine version string for reproducibility
+    pub synthesis_engine_version: String,
+    /// Source document identifier
+    pub source_document_id: String,
+    /// BLAKE3 hash of the source document
+    pub source_document_hash_b3: String,
+    /// Number of chunks the document was split into
+    pub chunk_count: usize,
+    /// Counts of each example type produced
+    pub example_counts: SynthesisExampleCounts,
+    /// True only when MLX strict mode was used (fully deterministic)
+    pub verified_deterministic: bool,
+}
+
+/// Counts of synthesized examples by type
+#[derive(Debug, Clone, Serialize, Deserialize, Default)]
+pub struct SynthesisExampleCounts {
+    /// Number of question-answer pairs generated
+    pub qa: usize,
+    /// Number of instruction-following examples generated
+    pub instructions: usize,
+    /// Number of completion examples generated
+    pub completions: usize,
+}
+
+impl SynthesisExampleCounts {
+    /// Total examples across all types
+    pub fn total(&self) -> usize {
+        self.qa + self.instructions + self.completions
     }
 }
 

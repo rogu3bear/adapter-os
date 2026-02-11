@@ -6,57 +6,16 @@
 use crate::api_error::ApiError;
 use crate::auth::Claims;
 use crate::permissions::{require_permission, Permission};
+use crate::services::SynthesisService;
 use crate::state::AppState;
 use crate::types::{ErrorResponse, MAX_TOKENS_LIMIT};
 use adapteros_core::B3Hash;
-use adapteros_orchestrator::synthesis::{
-    create_synthesis_request, SynthesisBatchStats, SynthesisEngine, SynthesisEngineConfig,
-};
+use adapteros_orchestrator::synthesis::{create_synthesis_request, SynthesisBatchStats};
 use axum::{extract::State, http::StatusCode, response::IntoResponse, Extension, Json};
 use serde::{Deserialize, Serialize};
 use std::path::PathBuf;
-use std::sync::Arc;
 use tokio::io::AsyncWriteExt;
-use tokio::sync::OnceCell;
 use utoipa::ToSchema;
-
-/// Cached synthesis engine - loaded once on first use and reused across requests.
-/// This avoids the expensive model loading on every synthesis request.
-///
-/// The engine is wrapped in RwLock to allow config updates per request while
-/// sharing the expensive loaded model backend across requests.
-static SYNTHESIS_ENGINE: OnceCell<Arc<tokio::sync::RwLock<SynthesisEngine>>> =
-    OnceCell::const_new();
-
-/// Get or initialize the cached synthesis engine
-async fn get_or_init_synthesis_engine(
-    state: &AppState,
-) -> Result<Arc<tokio::sync::RwLock<SynthesisEngine>>, (StatusCode, Json<ErrorResponse>)> {
-    SYNTHESIS_ENGINE
-        .get_or_try_init(|| async {
-            let model_path = resolve_synthesis_model_path(state).await?;
-
-            let engine_config = SynthesisEngineConfig {
-                model_path,
-                ..Default::default()
-            };
-            let mut engine = SynthesisEngine::new(engine_config);
-
-            // Load the model once
-            engine.load_model().await.map_err(|e| {
-                tracing::warn!(error = %e, "Failed to load synthesis model");
-                ApiError::service_unavailable(format!(
-                    "Synthesis model not available: {}. Ensure a model is deployed at the configured path.",
-                    e
-                ))
-            })?;
-
-            tracing::info!("Synthesis engine loaded and cached");
-            Ok(Arc::new(tokio::sync::RwLock::new(engine)))
-        })
-        .await
-        .cloned()
-}
 
 /// Request to synthesize training data from document chunks
 #[derive(Debug, Clone, Serialize, Deserialize, ToSchema)]
@@ -234,8 +193,9 @@ pub async fn synthesize_dataset(
         .into());
     }
 
-    // Get or initialize the cached synthesis engine (model loaded once)
-    let engine = get_or_init_synthesis_engine(&state).await?;
+    // Get or initialize the shared synthesis service (model loaded once)
+    let service = SynthesisService::get_or_init(&state).await?;
+    let engine = service.engine().clone();
 
     // Convert chunks to synthesis requests
     let synthesis_requests: Vec<_> = request
@@ -394,66 +354,6 @@ pub async fn synthesize_dataset(
     Ok(Json(response))
 }
 
-/// Resolve the synthesis model path from environment or config
-async fn resolve_synthesis_model_path(
-    state: &AppState,
-) -> Result<PathBuf, (StatusCode, Json<ErrorResponse>)> {
-    // Check environment variable first (highest priority)
-    if let Ok(path) = std::env::var("AOS_SYNTHESIS_MODEL_PATH") {
-        let path = PathBuf::from(path);
-        if path.exists() {
-            return Ok(path);
-        }
-        tracing::warn!(
-            path = %path.display(),
-            "AOS_SYNTHESIS_MODEL_PATH set but path does not exist"
-        );
-    }
-
-    // Check config paths
-    let config = state.config.read().map_err(|e| {
-        tracing::error!(error = %e, "Failed to read synthesis config");
-        ApiError::internal("Failed to load synthesis config")
-    })?;
-
-    // Use configured synthesis_model_path if set
-    if let Some(ref config_path) = config.paths.synthesis_model_path {
-        let path = PathBuf::from(config_path);
-        if path.exists() {
-            return Ok(path);
-        }
-        tracing::warn!(
-            path = %path.display(),
-            "synthesis_model_path configured but path does not exist"
-        );
-    }
-
-    let var_dir = std::env::var("AOS_VAR_DIR").unwrap_or_else(|_| "var".to_string());
-
-    // Try common model locations
-    let candidates = [
-        PathBuf::from(&var_dir).join("models/synthesis_model"),
-        PathBuf::from(&var_dir).join("models/synthesis_model.mlpackage"),
-        PathBuf::from(&var_dir).join("model-cache/models/synthesis_model"),
-        PathBuf::from(&config.paths.datasets_root)
-            .parent()
-            .unwrap_or(std::path::Path::new("var"))
-            .join("models/synthesis_model"),
-    ];
-
-    for candidate in &candidates {
-        if candidate.exists() {
-            tracing::debug!(path = %candidate.display(), "Found synthesis model");
-            return Ok(candidate.clone());
-        }
-    }
-
-    Err(ApiError::service_unavailable(
-        "No synthesis model found. Set AOS_SYNTHESIS_MODEL_PATH, configure paths.synthesis_model_path, or deploy a model to var/models/synthesis_model",
-    )
-    .into())
-}
-
 /// Persist synthesis results to storage and database
 async fn persist_synthesis_results(
     state: &AppState,
@@ -469,13 +369,14 @@ async fn persist_synthesis_results(
     // Generate dataset ID
     let dataset_id = crate::id_generator::readable_id(adapteros_id::IdPrefix::Dst, name);
 
-    // Resolve storage path
-    let config = state.config.read().map_err(|e| {
-        tracing::error!(error = %e, "Failed to read dataset config");
-        AosError::Internal(format!("Failed to read dataset config: {e}"))
-    })?;
-    let datasets_root = PathBuf::from(&config.paths.datasets_root);
-    drop(config); // Release lock before async operations
+    // Resolve storage path — block scope so RwLockReadGuard is dropped before any .await
+    let datasets_root = {
+        let config = state.config.read().map_err(|e| {
+            tracing::error!(error = %e, "Failed to read dataset config");
+            AosError::Internal(format!("Failed to read dataset config: {e}"))
+        })?;
+        PathBuf::from(&config.paths.datasets_root)
+    };
     let dataset_dir = datasets_root.join(tenant_id).join(&dataset_id);
 
     // Create directory

@@ -2531,6 +2531,7 @@ impl StreamState {
                                                     | InferenceError::NoCompatibleWorker { .. }
                                                     | InferenceError::WorkerError(_)
                                                     | InferenceError::WorkerNotAvailable(_)
+                                                    | InferenceError::ModelNotReady(_)
                                             )
                                         {
                                             info!(

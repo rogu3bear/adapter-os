@@ -69,6 +69,12 @@ pub struct GenerationConfig {
     pub use_cache: bool,
     /// Number of transformer layers for KV cache sizing (required when cache is enabled)
     pub kv_num_layers: Option<usize>,
+    /// Explicit 32-byte seed for deterministic generation.
+    ///
+    /// When `Some`, the generator uses `B3Hash::new(seed)` as its base seed
+    /// instead of deriving one from the model path. This allows callers
+    /// (e.g., synthesis pipelines) to control determinism end-to-end.
+    pub seed: Option<[u8; 32]>,
 }
 
 impl GenerationConfig {
@@ -112,6 +118,7 @@ impl Default for GenerationConfig {
             eos_token: 0, // MUST be overridden with value from SpecialTokenMap
             use_cache: true,
             kv_num_layers: None,
+            seed: None,
         }
     }
 }
@@ -238,9 +245,16 @@ impl MLXGenerator {
     /// Create a new generator with HKDF-derived seed
     ///
     /// # Arguments
-    /// * `base_seed` - Base seed (typically model hash)
+    /// * `base_seed` - Base seed (typically model hash). Overridden by `config.seed`
+    ///   when present — this allows callers to inject an explicit deterministic seed.
     /// * `config` - Generation configuration
     pub fn new(base_seed: B3Hash, config: GenerationConfig) -> Result<Self> {
+        // If config carries an explicit seed, use it instead of the caller-provided base_seed.
+        let base_seed = match config.seed {
+            Some(seed_bytes) => B3Hash::new(seed_bytes),
+            None => base_seed,
+        };
+
         // Derive RNG seed from base seed
         let rng_seed = derive_seed(&base_seed, "mlx-sampling");
         let rng = rand::rngs::StdRng::from_seed(rng_seed);
@@ -1500,5 +1514,37 @@ mod tests {
         let probs = vec![0.25, 0.25, 0.25, 0.25];
         let token = generator.sample_greedy(&probs).unwrap();
         assert_eq!(token, 3);
+    }
+
+    #[test]
+    fn test_generation_config_default_seed_is_none() {
+        let config = GenerationConfig::default();
+        assert!(config.seed.is_none());
+    }
+
+    #[test]
+    fn test_config_seed_overrides_base_seed() {
+        let explicit_seed = [42u8; 32];
+        let config_a = GenerationConfig {
+            seed: Some(explicit_seed),
+            ..config_no_cache()
+        };
+        let config_b = GenerationConfig {
+            seed: Some(explicit_seed),
+            ..config_no_cache()
+        };
+        let gen_a = MLXGenerator::new(B3Hash::hash(b"model-a"), config_a).unwrap();
+        let gen_b = MLXGenerator::new(B3Hash::hash(b"model-b"), config_b).unwrap();
+        assert_eq!(gen_a.derive_step_seed(0), gen_b.derive_step_seed(0));
+        assert_eq!(gen_a.derive_step_seed(7), gen_b.derive_step_seed(7));
+    }
+
+    #[test]
+    fn test_config_seed_none_uses_base_seed() {
+        let config_a = config_no_cache();
+        let config_b = config_no_cache();
+        let gen_a = MLXGenerator::new(B3Hash::hash(b"model-a"), config_a).unwrap();
+        let gen_b = MLXGenerator::new(B3Hash::hash(b"model-b"), config_b).unwrap();
+        assert_ne!(gen_a.derive_step_seed(0), gen_b.derive_step_seed(0));
     }
 }

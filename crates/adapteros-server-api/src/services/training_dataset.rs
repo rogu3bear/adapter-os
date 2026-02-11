@@ -108,6 +108,8 @@ pub struct DatasetFromUploadParams {
     pub name: Option<String>,
     pub description: Option<String>,
     pub training_strategy: Option<String>,
+    /// Enrichment mode: "strict_replay" | "power_save_coreml" | "off"
+    pub enrichment_mode: Option<String>,
 }
 
 /// Maximum document size (100MB) to keep parity with document upload handler
@@ -586,6 +588,183 @@ impl DefaultTrainingDatasetService {
         .await
     }
 
+    /// Build a dataset by running document chunks through the SynthesisEngine.
+    ///
+    /// Follows the same ingest → chunk → generate → JSONL → persist pattern
+    /// as `build_dataset_from_qa_bytes`, but delegates generation to the
+    /// SynthesisService for model-based enrichment with determinism controls.
+    #[cfg(feature = "embeddings")]
+    async fn build_dataset_from_synthesis(
+        &self,
+        claims: &crate::auth::Claims,
+        data: &[u8],
+        source_name: &str,
+        mime_type: &str,
+        name: Option<String>,
+        description: Option<String>,
+        enrichment_mode: Option<String>,
+    ) -> Result<DatasetResponse, (StatusCode, Json<ErrorResponse>)> {
+        use crate::services::synthesis::{
+            compute_synthesis_model_hash, derive_synthesis_seed_bytes_v1, SynthesisService,
+        };
+        use adapteros_core::B3Hash;
+        use adapteros_orchestrator::synthesis::{create_synthesis_request, EnrichmentMode};
+
+        let tokenizer_path =
+            resolve_tokenizer_path(None).map_err(|e| ApiError::bad_request(e.to_string()))?;
+        let tokenizer =
+            load_tokenizer(&tokenizer_path).map_err(|e| ApiError::bad_request(e.to_string()))?;
+
+        let ingestor = DocumentIngestor::new(default_ingest_options(), Some(tokenizer.clone()));
+        let ingested_doc = if mime_type.contains("pdf") {
+            ingestor.ingest_pdf_bytes(data, source_name)
+        } else if mime_type.contains("markdown") || source_name.ends_with(".md") {
+            ingestor.ingest_markdown_bytes(data, source_name)
+        } else if mime_type.starts_with("text/plain") || source_name.ends_with(".txt") {
+            ingestor.ingest_text_bytes(data, source_name)
+        } else {
+            return Err(ApiError::bad_request(format!(
+                "Unsupported document type for synthesis: {}",
+                mime_type
+            ))
+            .into());
+        }
+        .map_err(|e| ApiError::bad_request(format!("Failed to parse document: {}", e)))?;
+
+        let enrichment_mode = match enrichment_mode.as_deref() {
+            Some("strict_replay") => EnrichmentMode::StrictReplay,
+            Some("power_save_coreml") => EnrichmentMode::PowerSaveCoreml,
+            _ => EnrichmentMode::PowerSaveCoreml,
+        };
+
+        // Initialize synthesis service
+        let synth_service = SynthesisService::get_or_init(&self.state).await?;
+        let model_path = synth_service.model_path().clone();
+
+        // Compute content-based model hash for seed derivation
+        let model_hash = compute_synthesis_model_hash(&model_path)
+            .map_err(|e| ApiError::internal(format!("Failed to compute model hash: {}", e)))?;
+
+        let doc_hash = B3Hash::hash(data).to_hex();
+
+        // Build synthesis requests from chunks
+        let mut requests = Vec::new();
+        let mut seeds = Vec::new();
+        let doc_id = source_name;
+
+        for (chunk_idx, chunk) in ingested_doc.chunks.iter().enumerate() {
+            let request =
+                create_synthesis_request(&chunk.text, &format!("{}:{}", source_name, chunk_idx));
+            requests.push(request);
+
+            let chunk_hash = B3Hash::hash(chunk.text.as_bytes()).to_hex();
+            let seed = derive_synthesis_seed_bytes_v1(
+                &claims.tenant_id,
+                &doc_hash,
+                doc_id,
+                chunk_idx,
+                &chunk_hash,
+                &model_hash,
+            );
+            seeds.push(seed);
+        }
+
+        if requests.is_empty() {
+            return Err(ApiError::bad_request("No chunks extracted from document").into());
+        }
+
+        // Run synthesis
+        let engine = synth_service.engine();
+        let (results, stats) = {
+            let engine_guard = engine.read().await;
+            if enrichment_mode == EnrichmentMode::StrictReplay {
+                engine_guard
+                    .synthesize_batch_with_seeds(requests, seeds)
+                    .await
+            } else {
+                engine_guard.synthesize_batch(requests).await
+            }
+        }
+        .map_err(|e| ApiError::internal(format!("Synthesis failed: {}", e)))?;
+
+        // Convert synthesis results to JSONL
+        let max_examples = MAX_CHUNKS.saturating_mul(3);
+        let mut jsonl_lines = Vec::new();
+
+        for result in &results {
+            if result.parse_success {
+                let output = &result.output;
+                for qa in &output.qa_pairs {
+                    jsonl_lines.push(
+                        serde_json::json!({
+                            "prompt": qa.question,
+                            "completion": qa.answer,
+                            "type": "qa",
+                        })
+                        .to_string(),
+                    );
+                    if jsonl_lines.len() >= max_examples {
+                        break;
+                    }
+                }
+                for inst in &output.instructions {
+                    jsonl_lines.push(
+                        serde_json::json!({
+                            "prompt": inst.instruction,
+                            "completion": inst.response,
+                            "type": "instruction",
+                        })
+                        .to_string(),
+                    );
+                    if jsonl_lines.len() >= max_examples {
+                        break;
+                    }
+                }
+                for comp in &output.completions {
+                    jsonl_lines.push(
+                        serde_json::json!({
+                            "prompt": comp.context,
+                            "completion": comp.continuation,
+                            "type": "completion",
+                        })
+                        .to_string(),
+                    );
+                    if jsonl_lines.len() >= max_examples {
+                        break;
+                    }
+                }
+            }
+            if jsonl_lines.len() >= max_examples {
+                break;
+            }
+        }
+
+        if jsonl_lines.is_empty() {
+            return Err(
+                ApiError::bad_request("No training examples generated from synthesis").into(),
+            );
+        }
+
+        info!(
+            chunks_processed = stats.chunks_processed,
+            total_examples = jsonl_lines.len(),
+            success_rate = format!("{:.1}%", stats.success_rate() * 100.0),
+            deterministic = (enrichment_mode == EnrichmentMode::StrictReplay),
+            "Synthesis enrichment complete"
+        );
+
+        let dataset_name = name.unwrap_or_else(|| format!("Synthesis from: {}", source_name));
+
+        self.build_dataset_from_jsonl_lines(
+            claims,
+            dataset_name,
+            description,
+            jsonl_lines,
+            "synthesis-enriched",
+        )
+        .await
+    }
+
     async fn cleanup_dataset(&self, dataset_id: &str, dataset_path: &Path) {
         clean_dataset_dir(dataset_path).await;
         if let Err(cleanup_err) = self.state.db.delete_training_dataset(dataset_id).await {
@@ -968,6 +1147,7 @@ impl TrainingDatasetService for DefaultTrainingDatasetService {
             training_strategy.as_str(),
             "qa" | "question-answer" | "question_answer"
         );
+        let use_synthesis = matches!(training_strategy.as_str(), "synthesis");
 
         if params.data.is_empty() {
             return Err(ApiError::bad_request("No file uploaded").into());
@@ -1051,6 +1231,20 @@ impl TrainingDatasetService for DefaultTrainingDatasetService {
                     &file_bytes,
                 )
                 .await?;
+            }
+
+            if use_synthesis {
+                return self
+                    .build_dataset_from_synthesis(
+                        claims,
+                        &params.data,
+                        &existing_doc.name,
+                        &mime_type,
+                        params.name,
+                        params.description,
+                        params.enrichment_mode,
+                    )
+                    .await;
             }
 
             if generate_qa {
@@ -1174,6 +1368,20 @@ impl TrainingDatasetService for DefaultTrainingDatasetService {
             &params.data,
         )
         .await?;
+
+        if use_synthesis {
+            return self
+                .build_dataset_from_synthesis(
+                    claims,
+                    &params.data,
+                    &document_name,
+                    &mime_type,
+                    params.name,
+                    params.description,
+                    params.enrichment_mode,
+                )
+                .await;
+        }
 
         if generate_qa {
             return self

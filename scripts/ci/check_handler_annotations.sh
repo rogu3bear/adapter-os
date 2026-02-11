@@ -34,7 +34,7 @@ done
 echo "=== Handler Annotation Check ==="
 echo ""
 
-ROUTES_FILE="$ROOT/crates/adapteros-server-api/src/routes.rs"
+ROUTES_FILE="$ROOT/crates/adapteros-server-api/src/routes/mod.rs"
 HANDLERS_FILE="$ROOT/crates/adapteros-server-api/src/handlers.rs"
 HANDLERS_DIR="$ROOT/crates/adapteros-server-api/src/handlers"
 

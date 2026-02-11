@@ -57,6 +57,9 @@ use utoipa_swagger_ui::SwaggerUi;
         handlers::meta,
         handlers::search::global_search,
         handlers::client_errors::report_client_error_anonymous,
+        handlers::errors::get_error_instance,
+        handlers::errors::list_error_instances,
+        handlers::errors::list_error_buckets,
         handlers::get_status,
         handlers::health::get_invariant_status,
         handlers::auth_enhanced::dev_bypass_handler,
@@ -235,6 +238,7 @@ use utoipa_swagger_ui::SwaggerUi;
         handlers::datasets::create_dataset_from_chat,
         handlers::training_datasets::create_training_dataset_from_upload,
         handlers::datasets::generate_dataset_from_file,
+        handlers::datasets::synthesize_dataset,
         handlers::training_datasets::get_training_dataset_manifest,
         handlers::training_datasets::stream_training_dataset_rows,
         handlers::documents::upload_document,
@@ -1411,6 +1415,7 @@ pub fn build(state: AppState) -> Router {
             post(handlers::create_process_monitoring_report),
         )
         .route("/v1/jobs", get(handlers::list_jobs))
+        .route("/v1/jobs/{job_id}", get(handlers::get_job))
         .route("/v1/policies", get(handlers::list_policies))
         .route("/v1/policies/{cpid}", get(handlers::get_policy))
         .route(
@@ -1793,6 +1798,15 @@ pub fn build(state: AppState) -> Router {
             "/v1/training/datasets/from-upload",
             post(handlers::training_datasets::create_training_dataset_from_upload),
         )
+        .route(
+            "/v1/training/datasets/from-upload/async",
+            post(handlers::training_datasets::create_training_dataset_from_upload_async),
+        )
+        // Synthesize training data from document chunks
+        .route(
+            "/v1/datasets/synthesize",
+            post(handlers::datasets::synthesize_dataset),
+        )
         // Generate dataset from file using local inference
         .route(
             "/v1/training/datasets/generate",
@@ -2136,6 +2150,16 @@ pub fn build(state: AppState) -> Router {
             "/v1/telemetry/client-errors",
             get(handlers::client_errors::list_client_errors)
                 .post(handlers::client_errors::report_client_error),
+        )
+        // First-class errors (persisted 5xx + worker errors)
+        .route("/v1/errors", get(handlers::errors::list_error_instances))
+        .route(
+            "/v1/errors/{error_id}",
+            get(handlers::errors::get_error_instance),
+        )
+        .route(
+            "/v1/error-buckets",
+            get(handlers::errors::list_error_buckets),
         )
         .route(
             "/v1/telemetry/client-errors/stats",
