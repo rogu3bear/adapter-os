@@ -34,9 +34,13 @@ pub fn Reviews() -> impl IntoView {
     let (table_state, set_table_state) =
         signal::<LoadingState<Vec<PausedInferenceInfo>>>(LoadingState::Idle);
     Effect::new(move || {
-        let raw = queue.get();
-        let kind = kind_filter.get();
-        let query = search.get();
+        let Some(raw) = queue.try_get() else { return };
+        let Some(kind) = kind_filter.try_get() else {
+            return;
+        };
+        let Some(query) = search.try_get() else {
+            return;
+        };
 
         let next = match raw {
             LoadingState::Idle => LoadingState::Idle,
@@ -74,18 +78,23 @@ pub fn Reviews() -> impl IntoView {
             }
         };
 
-        set_table_state.set(next);
+        let _ = set_table_state.try_set(next);
     });
 
     // Counts (total from raw, filtered from table_state).
-    let total = Signal::derive(move || match queue.get() {
-        LoadingState::Loaded(items) => items.len(),
-        _ => 0,
-    });
-    let filtered = Signal::derive(move || match table_state.get() {
-        LoadingState::Loaded(items) => items.len(),
-        _ => 0,
-    });
+    let total = Signal::derive(
+        move || match queue.try_get().unwrap_or(LoadingState::Idle) {
+            LoadingState::Loaded(items) => items.len(),
+            _ => 0,
+        },
+    );
+    let filtered =
+        Signal::derive(
+            move || match table_state.try_get().unwrap_or(LoadingState::Idle) {
+                LoadingState::Loaded(items) => items.len(),
+                _ => 0,
+            },
+        );
 
     let kind_options = vec![
         ("all".to_string(), "All".to_string()),

@@ -40,7 +40,9 @@ pub fn Stacks() -> impl IntoView {
 
     // Respond to global refetch signal from training completion
     Effect::new(move || {
-        let counter = stacks_refetch_counter.get();
+        let Some(counter) = stacks_refetch_counter.try_get() else {
+            return;
+        };
         // Skip initial effect run (counter starts at 0)
         if counter > 0 {
             refetch.run(());

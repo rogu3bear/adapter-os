@@ -85,20 +85,20 @@ pub fn GenerateDatasetWizard(
 
     // Reset state when dialog opens
     Effect::new(move || {
-        if open.get() {
-            name.set(String::new());
-            strategy.set(GenerateStrategy::Qa);
-            chunk_size.set("2000".to_string());
-            max_tokens.set("512".to_string());
-            target_volume.set(String::new());
-            generation_seed.set(String::new());
-            seed_prompts.set(String::new());
-            show_advanced.set(false);
-            generating.set(false);
-            error.set(None);
-            preview.set(Vec::new());
-            result.set(None);
-            file_name.set(None);
+        if open.try_get().unwrap_or(false) {
+            let _ = name.try_set(String::new());
+            let _ = strategy.try_set(GenerateStrategy::Qa);
+            let _ = chunk_size.try_set("2000".to_string());
+            let _ = max_tokens.try_set("512".to_string());
+            let _ = target_volume.try_set(String::new());
+            let _ = generation_seed.try_set(String::new());
+            let _ = seed_prompts.try_set(String::new());
+            let _ = show_advanced.try_set(false);
+            let _ = generating.try_set(false);
+            let _ = error.try_set(None);
+            let _ = preview.try_set(Vec::new());
+            let _ = result.try_set(None);
+            let _ = file_name.try_set(None);
         }
     });
 

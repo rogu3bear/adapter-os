@@ -52,17 +52,19 @@ pub fn Adapters() -> impl IntoView {
 
     // Refetch when the global counter increments
     Effect::new(move || {
-        let _ = adapter_refetch_counter.get();
+        let Some(counter) = adapter_refetch_counter.try_get() else {
+            return;
+        };
         // Skip initial effect run (counter starts at 0)
-        if adapter_refetch_counter.get() > 0 {
+        if counter > 0 {
             refetch.run(());
         }
     });
 
     // Derive selected adapter from list (memoized to avoid recomputation)
     let selected_adapter = Memo::new(move |_| {
-        let id = selected_id.get()?;
-        match adapters.get() {
+        let id = selected_id.try_get()??;
+        match adapters.try_get()? {
             LoadingState::Loaded(data) => data.iter().find(|a| a.id == id).cloned(),
             _ => None,
         }
@@ -72,9 +74,11 @@ pub fn Adapters() -> impl IntoView {
     {
         Effect::new(move || {
             if let Some(route_ctx) = try_use_route_context() {
-                if let Some(id) = selected_id.get() {
+                if let Some(id) = selected_id.try_get().flatten() {
                     // Find the adapter name and status from loaded data
-                    if let LoadingState::Loaded(data) = adapters.get() {
+                    if let LoadingState::Loaded(data) =
+                        adapters.try_get().unwrap_or(LoadingState::Idle)
+                    {
                         if let Some(adapter) = data.iter().find(|a| a.id == id) {
                             route_ctx.set_selected(SelectedEntity::with_status(
                                 "adapter",
@@ -97,11 +101,14 @@ pub fn Adapters() -> impl IntoView {
 
     // Loading state
     let is_loading = Signal::derive(move || {
-        matches!(adapters.get(), LoadingState::Idle | LoadingState::Loading)
+        matches!(
+            adapters.try_get().unwrap_or(LoadingState::Idle),
+            LoadingState::Idle | LoadingState::Loading
+        )
     });
 
     // Has selection for split panel
-    let has_selection = Signal::derive(move || selected_id.get().is_some());
+    let has_selection = Signal::derive(move || selected_id.try_get().flatten().is_some());
 
     // Callbacks
     let on_select = Callback::new(move |id: String| {

@@ -88,7 +88,9 @@ pub fn SpawnWorkerDialog(
     // not user-edited ones.
     let last_auto_path = RwSignal::new(String::new());
     Effect::new(move || {
-        let node = node_id.get();
+        let Some(node) = node_id.try_get() else {
+            return;
+        };
         if node.is_empty() {
             return;
         }
@@ -98,8 +100,8 @@ pub fn SpawnWorkerDialog(
         if current.is_empty() || current == prev_auto {
             let timestamp = js_sys::Date::now() as u64;
             let generated = format!("var/run/aos-worker-{}-{}.sock", short_id(&node), timestamp);
-            last_auto_path.set(generated.clone());
-            uds_path.set(generated);
+            let _ = last_auto_path.try_set(generated.clone());
+            let _ = uds_path.try_set(generated);
         }
     });
 

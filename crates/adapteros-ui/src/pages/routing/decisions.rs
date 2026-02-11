@@ -169,7 +169,7 @@ fn FilterBar(
 ) -> impl IntoView {
     // Watch for filter_stack changes and trigger refetch
     Effect::new(move || {
-        let _ = filter_stack.get();
+        let _ = filter_stack.try_get();
         on_filter_change.run(());
     });
 

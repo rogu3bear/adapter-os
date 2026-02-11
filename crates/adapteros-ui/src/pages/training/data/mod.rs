@@ -23,7 +23,7 @@ pub use upload_dialog::{SafetyScanStatus, UploadResult};
 
 use crate::api::{report_error_with_toast, ApiClient};
 use crate::components::ErrorDisplay;
-use crate::hooks::{use_api_resource, LoadingState};
+use crate::hooks::{use_api_resource, use_navigate, LoadingState};
 use data_list::{DataList, DataListItem};
 use detail_panel::DataDetailPanel;
 use leptos::prelude::*;
@@ -231,9 +231,9 @@ pub fn TrainingData() -> impl IntoView {
         })
     };
 
+    let navigate = use_navigate();
     let on_start_training = Callback::new(move |dataset_id: String| {
-        // Navigate to training job creation with dataset pre-selected
-        tracing::info!("Start training for dataset: {}", dataset_id);
+        navigate(&format!("/training?dataset_id={}&open_wizard=1", dataset_id));
     });
 
     // Derive whether detail panel should be shown

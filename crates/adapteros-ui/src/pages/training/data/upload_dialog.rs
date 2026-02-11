@@ -93,16 +93,16 @@ pub fn DocumentUploadDialog(
 
     // Reset state when dialog closes
     Effect::new(move || {
-        if !open.get() {
-            uploading.set(false);
-            upload_progress.set(0);
-            error_msg.set(None);
-            selected_file.set(None);
-            selected_file_size.set(None);
-            is_dragging.set(false);
-            upload_result.set(None);
+        if !open.try_get().unwrap_or(true) {
+            let _ = uploading.try_set(false);
+            let _ = upload_progress.try_set(0);
+            let _ = error_msg.try_set(None);
+            let _ = selected_file.try_set(None);
+            let _ = selected_file_size.try_set(None);
+            let _ = is_dragging.try_set(false);
+            let _ = upload_result.try_set(None);
             #[cfg(target_arch = "wasm32")]
-            file_ref.set(None);
+            let _ = file_ref.try_set(None);
         }
     });
 

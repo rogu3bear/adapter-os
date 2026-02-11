@@ -19,7 +19,6 @@ mod components;
 pub mod config_presets;
 pub mod dataset_wizard;
 mod detail;
-mod dialogs;
 pub mod generate_wizard;
 mod readiness;
 mod state;
@@ -73,7 +72,9 @@ pub fn Training() -> impl IntoView {
     let params_consumed = RwSignal::new(false);
     let navigate = use_navigate();
     Effect::new(move || {
-        let params = query.get();
+        let Some(params) = query.try_get() else {
+            return;
+        };
         // Guard: only consume params once to prevent re-triggering on browser back
         if params_consumed.get_untracked() {
             return;
@@ -183,9 +184,10 @@ pub fn Training() -> impl IntoView {
     {
         Effect::new(move || {
             if let Some(route_ctx) = try_use_route_context() {
-                if let Some(job_id) = selected_job_id.get() {
+                if let Some(job_id) = selected_job_id.try_get().flatten() {
                     // Find the job name and status from loaded data
-                    if let LoadingState::Loaded(data) = jobs.get() {
+                    if let LoadingState::Loaded(data) = jobs.try_get().unwrap_or(LoadingState::Idle)
+                    {
                         if let Some(job) = data.jobs.iter().find(|j| j.id == job_id) {
                             route_ctx.set_selected(SelectedEntity::with_status(
                                 "training_job",

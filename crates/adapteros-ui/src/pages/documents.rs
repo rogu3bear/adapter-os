@@ -148,21 +148,21 @@ pub fn Documents() -> impl IntoView {
     // - doc-failed-keep: stays failed, so the Failed pill always has something
     // - doc-failed-demo: can be reprocessed live for the "watch it advance" step
     Effect::new(move || {
-        if seeded_demo_fixtures.get() {
+        if seeded_demo_fixtures.try_get().unwrap_or(true) {
             return;
         }
 
-        let counts = match status_counts.get() {
+        let counts = match status_counts.try_get().unwrap_or(LoadingState::Idle) {
             LoadingState::Loaded(c) => c,
             _ => return,
         };
 
         if counts.failed > 0 {
-            seeded_demo_fixtures.set(true);
+            let _ = seeded_demo_fixtures.try_set(true);
             return;
         }
 
-        seeded_demo_fixtures.set(true);
+        let _ = seeded_demo_fixtures.try_set(true);
 
         #[cfg(target_arch = "wasm32")]
         let set_refetch_trigger = set_refetch_trigger;
@@ -225,9 +225,9 @@ pub fn Documents() -> impl IntoView {
 
     // Refetch and reset page on filter change
     Effect::new(move || {
-        let _ = status_filter.get();
-        set_current_page.set(1);
-        set_refetch_trigger.update(|t| *t += 1);
+        let _ = status_filter.try_get();
+        let _ = set_current_page.try_set(1);
+        let _ = set_refetch_trigger.try_update(|t| *t += 1);
     });
 
     view! {
@@ -676,15 +676,15 @@ fn DocumentUploadDialog(open: RwSignal<bool>, on_success: Callback<String>) -> i
 
     // Reset state when dialog closes
     Effect::new(move || {
-        if !open.get() {
-            uploading.set(false);
-            error_msg.set(None);
-            selected_file_name.set(None);
-            selected_file_size.set(None);
-            upload_status.set(None);
-            uploaded_status.set(None);
+        if !open.try_get().unwrap_or(true) {
+            let _ = uploading.try_set(false);
+            let _ = error_msg.try_set(None);
+            let _ = selected_file_name.try_set(None);
+            let _ = selected_file_size.try_set(None);
+            let _ = upload_status.try_set(None);
+            let _ = uploaded_status.try_set(None);
             #[cfg(target_arch = "wasm32")]
-            file_ref.set(None);
+            let _ = file_ref.try_set(None);
         }
     });
 
@@ -894,7 +894,7 @@ pub fn DocumentDetail() -> impl IntoView {
     {
         Effect::new(move || {
             if let Some(route_ctx) = try_use_route_context() {
-                if let LoadingState::Loaded(doc) = document.get() {
+                if let Some(LoadingState::Loaded(doc)) = document.try_get() {
                     route_ctx.set_selected(SelectedEntity::with_status(
                         "document",
                         doc.document_id.clone(),

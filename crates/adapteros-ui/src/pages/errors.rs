@@ -251,8 +251,8 @@ fn HistorySection() -> impl IntoView {
 
     // Refetch on filter changes
     Effect::new(move || {
-        let _ = error_type_filter.get();
-        let _ = http_status_filter.get();
+        let _ = error_type_filter.try_get();
+        let _ = http_status_filter.try_get();
         refetch.run(());
     });
 
@@ -572,7 +572,7 @@ fn AlertHistoryPanel() -> impl IntoView {
     });
 
     Effect::new(move || {
-        let _ = status_filter.get();
+        let _ = status_filter.try_get();
         refetch_history.run(());
     });
 
@@ -818,23 +818,28 @@ fn CrashesSection() -> impl IntoView {
 
     // Auto-select a crashed worker (or first worker) once list loads
     Effect::new(move || {
-        if !selected_worker_id.get().is_empty() {
+        let Some(sel) = selected_worker_id.try_get() else {
+            return;
+        };
+        if !sel.is_empty() {
             return;
         }
-        if let LoadingState::Loaded(ref list) = workers.get() {
+        if let Some(LoadingState::Loaded(ref list)) = workers.try_get() {
             if let Some(worker) = list
                 .iter()
                 .find(|w| w.status == "crashed")
                 .or_else(|| list.first())
             {
-                selected_worker_id.set(worker.id.clone());
+                let _ = selected_worker_id.try_set(worker.id.clone());
             }
         }
     });
 
     // Refetch crashes when selection changes
     Effect::new(move || {
-        let id = selected_worker_id.get();
+        let Some(id) = selected_worker_id.try_get() else {
+            return;
+        };
         if !id.is_empty() {
             refetch_crashes.run(());
         }

@@ -24,6 +24,10 @@ pub fn SystemInfoSection() -> impl IntoView {
                         <span class="col-span-2 text-sm font-mono">{env!("CARGO_PKG_VERSION")}</span>
                     </div>
                     <div class="grid grid-cols-3 gap-4 items-center">
+                        <span class="text-sm font-medium text-muted-foreground">"Build ID"</span>
+                        <span class="col-span-2 text-sm font-mono">{option_env!("AOS_BUILD_ID").unwrap_or("unknown")}</span>
+                    </div>
+                    <div class="grid grid-cols-3 gap-4 items-center">
                         <span class="text-sm font-medium text-muted-foreground">"Framework"</span>
                         <span class="col-span-2 text-sm">"Leptos 0.7 (CSR)"</span>
                     </div>

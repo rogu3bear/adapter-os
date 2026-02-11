@@ -26,6 +26,8 @@ pub struct ClientErrorReport {
     pub timestamp: String,
     #[serde(skip_serializing_if = "Option::is_none")]
     pub details: Option<serde_json::Value>,
+    #[serde(skip_serializing_if = "Option::is_none")]
+    pub ui_build_id: Option<String>,
 }
 
 /// Report an API error to the server
@@ -96,6 +98,7 @@ pub fn report_ui_panic(message: &str, page: Option<&str>, stack_trace: Option<&s
             "source": "ui.panic_hook",
             "stack_trace": sanitized_stack,
         })),
+        ui_build_id: option_env!("AOS_BUILD_ID").map(|s| s.to_string()),
     };
 
     let base_url = api_base_url();
@@ -223,6 +226,7 @@ fn build_report(error: &ApiError, page: Option<&str>) -> ClientErrorReport {
                 user_agent: get_user_agent(),
                 timestamp: current_timestamp(),
                 details: details.clone(),
+                ui_build_id: option_env!("AOS_BUILD_ID").map(|s| s.to_string()),
             };
         }
     };
@@ -237,6 +241,7 @@ fn build_report(error: &ApiError, page: Option<&str>) -> ClientErrorReport {
         user_agent: get_user_agent(),
         timestamp: current_timestamp(),
         details: None,
+        ui_build_id: option_env!("AOS_BUILD_ID").map(|s| s.to_string()),
     }
 }
 

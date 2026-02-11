@@ -224,8 +224,10 @@ pub fn Dashboard() -> impl IntoView {
 
     // Update live_metrics from REST fallback when SSE is not providing data
     Effect::new(move || {
-        let sse_state = sse_status.get();
-        let has_live_metrics = live_metrics.get().is_some();
+        let Some(sse_state) = sse_status.try_get() else {
+            return;
+        };
+        let has_live_metrics = live_metrics.try_get().flatten().is_some();
 
         // If SSE is not connected/working and we don't have live metrics, use REST fallback
         if !has_live_metrics
@@ -234,7 +236,7 @@ pub fn Dashboard() -> impl IntoView {
                 SseState::Error | SseState::CircuitOpen | SseState::Disconnected
             )
         {
-            if let LoadingState::Loaded(ref resp) = metrics_fallback.get() {
+            if let Some(LoadingState::Loaded(ref resp)) = metrics_fallback.try_get() {
                 let now = js_sys::Date::now() as u64;
                 let _ = live_metrics.try_set(Some(MetricsSnapshot::from(resp)));
                 let _ = metrics_history.try_update(|h| h.push(resp, now));
@@ -245,7 +247,9 @@ pub fn Dashboard() -> impl IntoView {
     // Periodically refresh REST fallback when SSE is not connected
     let refetch_metrics_fallback_stored = StoredValue::new(refetch_metrics_fallback);
     Effect::new(move || {
-        let sse_state = sse_status.get();
+        let Some(sse_state) = sse_status.try_get() else {
+            return;
+        };
 
         // Only set up polling if SSE is not connected
         if matches!(

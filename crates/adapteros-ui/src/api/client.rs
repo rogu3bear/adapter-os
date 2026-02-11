@@ -209,6 +209,12 @@ impl ApiClient {
         // UI session correlation for all requests.
         req = req.header("X-Session-ID", &crate::utils::ui_session_id());
 
+        // UI build ID for version correlation across requests.
+        req = req.header(
+            "X-Build-Id",
+            option_env!("AOS_BUILD_ID").unwrap_or("unknown"),
+        );
+
         if matches!(method, "POST" | "PUT" | "PATCH" | "DELETE") {
             if let Some(token) = csrf_token_from_cookie() {
                 req = req.header("X-CSRF-Token", &token);

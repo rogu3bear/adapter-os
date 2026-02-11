@@ -1287,6 +1287,8 @@ pub struct ReadyzChecks {
 pub struct ReadyzResponse {
     pub ready: bool,
     pub checks: ReadyzChecks,
+    #[serde(skip_serializing_if = "Option::is_none", default)]
+    pub build_id: Option<String>,
 }
 
 /// System readiness response from /system/ready

@@ -30,9 +30,12 @@ pub fn StyleAudit() -> impl IntoView {
 
     // Toggle theme on the document
     Effect::new(move || {
+        let Some(dark) = is_dark.try_get() else {
+            return;
+        };
         if let Some(document) = web_sys::window().and_then(|w| w.document()) {
             if let Some(html) = document.document_element() {
-                if is_dark.get() {
+                if dark {
                     let _ = html.class_list().add_1("dark");
                 } else {
                     let _ = html.class_list().remove_1("dark");
@@ -58,13 +61,26 @@ pub fn StyleAudit() -> impl IntoView {
             client.get_process_health_metrics(None).await
         });
 
-    let chart_payload = Memo::new(move |_| match health_metrics.get() {
-        LoadingState::Loaded(metrics) => build_metric_series(&metrics),
-        _ => (TimeSeriesData::new(), Vec::new()),
-    });
+    let chart_payload =
+        Memo::new(
+            move |_| match health_metrics.try_get().unwrap_or(LoadingState::Idle) {
+                LoadingState::Loaded(metrics) => build_metric_series(&metrics),
+                _ => (TimeSeriesData::new(), Vec::new()),
+            },
+        );
 
-    let chart_data = Signal::derive(move || chart_payload.get().0.clone());
-    let sparkline_values = Signal::derive(move || chart_payload.get().1.clone());
+    let chart_data = Signal::derive(move || {
+        chart_payload
+            .try_get()
+            .map(|p| p.0.clone())
+            .unwrap_or_default()
+    });
+    let sparkline_values = Signal::derive(move || {
+        chart_payload
+            .try_get()
+            .map(|p| p.1.clone())
+            .unwrap_or_default()
+    });
 
     // Trace fetch state (live diagnostic)
     let trace_id_input = RwSignal::new(String::new());
@@ -99,12 +115,15 @@ pub fn StyleAudit() -> impl IntoView {
 
     // Auto-populate with most recent trace when loaded
     Effect::new(move || {
-        if let LoadingState::Loaded(traces) = recent_traces.get() {
+        let Some(state) = recent_traces.try_get() else {
+            return;
+        };
+        if let LoadingState::Loaded(traces) = state {
             if let Some(first) = traces.first() {
                 let tid = first.trace_id.clone();
                 if requested_trace_id.get_untracked().is_empty() {
-                    trace_id_input.set(tid.clone());
-                    requested_trace_id.set(tid);
+                    let _ = trace_id_input.try_set(tid.clone());
+                    let _ = requested_trace_id.try_set(tid);
                     refetch_trace.run(());
                 }
             }
