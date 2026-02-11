@@ -166,7 +166,13 @@ pub async fn policy_enforcement_middleware(
                 if !blocking_violations.is_empty() {
                     // Log all violations
                     for violation in &validation_result.violations {
-                        log_violation(&request_id, &operation, violation);
+                        log_violation(
+                            &request_id,
+                            &operation,
+                            violation,
+                            policy_request.tenant_id.as_deref(),
+                            policy_request.user_id.as_deref(),
+                        );
                     }
 
                     // Return 403 with detailed violation information
@@ -198,7 +204,13 @@ pub async fn policy_enforcement_middleware(
 
                 // Non-blocking violations (Info, Warning) - log and allow
                 for violation in &validation_result.violations {
-                    log_violation(&request_id, &operation, violation);
+                    log_violation(
+                        &request_id,
+                        &operation,
+                        violation,
+                        policy_request.tenant_id.as_deref(),
+                        policy_request.user_id.as_deref(),
+                    );
                 }
             }
 
@@ -454,12 +466,23 @@ fn contains_obfuscation_indicators(content: &str) -> bool {
 }
 
 /// Log a policy violation with appropriate severity
-fn log_violation(request_id: &str, operation: &str, violation: &PolicyViolation) {
+fn log_violation(
+    request_id: &str,
+    operation: &str,
+    violation: &PolicyViolation,
+    tenant_id: Option<&str>,
+    user_id: Option<&str>,
+) {
+    let tenant_id = tenant_id.unwrap_or("unknown");
+    let user_id = user_id.unwrap_or("unknown");
+
     match violation.severity {
         ViolationSeverity::Low => {
             info!(
                 request_id = %request_id,
                 operation = %operation,
+                tenant_id = %tenant_id,
+                user_id = %user_id,
                 policy_pack = %violation.policy_pack,
                 violation_id = %violation.violation_id,
                 message = %violation.message,
@@ -470,6 +493,8 @@ fn log_violation(request_id: &str, operation: &str, violation: &PolicyViolation)
             warn!(
                 request_id = %request_id,
                 operation = %operation,
+                tenant_id = %tenant_id,
+                user_id = %user_id,
                 policy_pack = %violation.policy_pack,
                 violation_id = %violation.violation_id,
                 message = %violation.message,
@@ -480,6 +505,8 @@ fn log_violation(request_id: &str, operation: &str, violation: &PolicyViolation)
             error!(
                 request_id = %request_id,
                 operation = %operation,
+                tenant_id = %tenant_id,
+                user_id = %user_id,
                 policy_pack = %violation.policy_pack,
                 violation_id = %violation.violation_id,
                 message = %violation.message,
@@ -491,6 +518,8 @@ fn log_violation(request_id: &str, operation: &str, violation: &PolicyViolation)
             error!(
                 request_id = %request_id,
                 operation = %operation,
+                tenant_id = %tenant_id,
+                user_id = %user_id,
                 policy_pack = %violation.policy_pack,
                 violation_id = %violation.violation_id,
                 message = %violation.message,
@@ -550,6 +579,33 @@ pub async fn enforce_at_hook(
         resource_type = %ctx.resource_type,
         "Enforcing policies at hook"
     );
+
+    // 0. Run prompt injection check if content is present in metadata
+    if let Some(serde_json::Value::String(content)) = ctx.metadata.get("content") {
+        let injection_result = check_prompt_injection(content);
+        if injection_result.detected {
+            warn!(
+                target: "security.policy",
+                tenant_id = %ctx.tenant_id,
+                request_id = %ctx.request_id,
+                hook = %hook_name,
+                risk_level = injection_result.risk_level,
+                matched_patterns = ?injection_result.matched_patterns,
+                "Prompt injection attempt detected"
+            );
+            if injection_result.risk_level >= 0.5 {
+                return Err(PolicyHookViolationError {
+                    violations: vec![],
+                    message: format!(
+                        "Prompt injection detected (risk={:.2}): {}",
+                        injection_result.risk_level,
+                        injection_result.matched_patterns.join(", ")
+                    ),
+                    code: Some("PROMPT_INJECTION_DETECTED".to_string()),
+                });
+            }
+        }
+    }
 
     // 1. Get tenant's active policies for this hook
     let active_policies = match state
@@ -637,7 +693,7 @@ pub async fn enforce_at_hook(
                     Some(ctx.request_id.clone()),
                 );
                 emit_observability_event(&event);
-                let _ = state
+                state
                     .metrics_registry
                     .record_metric(POLICY_OVERRIDE_METRIC.to_string(), 1.0)
                     .await;
@@ -686,7 +742,7 @@ pub async fn enforce_at_hook(
                     Some(ctx.request_id.clone()),
                 );
                 emit_observability_event(&event);
-                let _ = state
+                state
                     .metrics_registry
                     .record_metric(AUDIT_DIVERGENCE_METRIC.to_string(), 1.0)
                     .await;

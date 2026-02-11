@@ -16,6 +16,7 @@ use crate::api_error::{ApiError, ApiResult};
 use crate::audit_helper::{log_preflight_result, log_success_or_warn, resources};
 use crate::auth::Claims;
 use crate::handlers::adapters::preflight_adapter::run_api_preflight;
+use crate::ip_extraction::ClientIp;
 use crate::permissions::{require_permission, Permission};
 use crate::state::AppState;
 use crate::types::{AdapterSwapRequest, AdapterSwapResponse, ErrorResponse};
@@ -61,6 +62,7 @@ use tracing::{error, info, warn};
 pub async fn swap_adapters(
     State(state): State<AppState>,
     Extension(claims): Extension<Claims>,
+    Extension(client_ip): Extension<ClientIp>,
     Json(req): Json<AdapterSwapRequest>,
 ) -> ApiResult<AdapterSwapResponse> {
     // Require both load and unload permissions
@@ -83,7 +85,14 @@ pub async fn swap_adapters(
     let preflight_result = run_api_preflight(&new_adapter, &state.db, &preflight_config).await;
 
     // Audit log the preflight result including any bypasses used (Gap 4 fix)
-    log_preflight_result(&state.db, &claims, &req.new_adapter_id, &preflight_result).await;
+    log_preflight_result(
+        &state.db,
+        &claims,
+        &req.new_adapter_id,
+        &preflight_result,
+        Some(client_ip.0.as_str()),
+    )
+    .await;
 
     if !preflight_result.passed {
         let primary_code = preflight_result
@@ -300,6 +309,7 @@ pub async fn swap_adapters(
         "adapter.swap",
         resources::ADAPTER,
         Some(&format!("{} -> {}", req.old_adapter_id, req.new_adapter_id)),
+        Some(client_ip.0.as_str()),
     )
     .await;
 

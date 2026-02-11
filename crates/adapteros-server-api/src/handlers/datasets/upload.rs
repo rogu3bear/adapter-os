@@ -25,6 +25,7 @@ use crate::citations::build_dataset_index;
 use crate::handlers::chunked_upload::{
     CompressionFormat, DEFAULT_CHUNK_SIZE, MAX_CHUNK_SIZE, MIN_CHUNK_SIZE,
 };
+use crate::ip_extraction::ClientIp;
 use crate::middleware::request_id::RequestId;
 use crate::permissions::{require_permission, Permission};
 use crate::state::AppState;
@@ -133,6 +134,7 @@ fn build_training_rows_from_jsonl(
 pub async fn upload_dataset(
     State(state): State<AppState>,
     Extension(claims): Extension<Claims>,
+    Extension(client_ip): Extension<ClientIp>,
     request_id: Option<Extension<RequestId>>,
     mut multipart: Multipart,
 ) -> Result<impl IntoResponse, ApiError> {
@@ -1064,6 +1066,7 @@ pub async fn upload_dataset(
         crate::audit_helper::actions::DATASET_UPLOAD,
         crate::audit_helper::resources::DATASET,
         Some(&dataset_id),
+        Some(client_ip.0.as_str()),
     )
     .await
     {

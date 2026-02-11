@@ -16,6 +16,8 @@ use std::collections::HashMap;
 use std::sync::Arc;
 use tokio::sync::{broadcast, mpsc, RwLock};
 use tokio::time::{timeout, Duration};
+use futures::FutureExt;
+use std::panic::AssertUnwindSafe;
 use tracing::{debug, error, info, warn};
 
 /// Signal processing configuration
@@ -216,43 +218,47 @@ impl SignalDispatcher {
         let mut shutdown_rx = self.shutdown_rx;
 
         tokio::spawn(async move {
-            info!("Signal dispatcher running in multi-worker mode");
+            if let Err(panic) = AssertUnwindSafe(async move {
+                info!("Signal dispatcher running in multi-worker mode");
 
-            loop {
-                tokio::select! {
-                    _ = shutdown_rx.recv() => {
-                        info!("Signal dispatcher received shutdown signal");
-                        break;
-                    }
-                    _ = tokio::time::sleep(Duration::from_secs(1)) => {
-                        // Check all workers periodically
-                        let worker_ids: Vec<String> = {
-                            let workers = workers.read().await;
-                            workers.keys().cloned().collect()
-                        };
-
-                        for worker_id in worker_ids {
-                            let worker_info = {
+                loop {
+                    tokio::select! {
+                        _ = shutdown_rx.recv() => {
+                            info!("Signal dispatcher received shutdown signal");
+                            break;
+                        }
+                        _ = tokio::time::sleep(Duration::from_secs(1)) => {
+                            // Check all workers periodically
+                            let worker_ids: Vec<String> = {
                                 let workers = workers.read().await;
-                                workers.get(&worker_id).cloned()
+                                workers.keys().cloned().collect()
                             };
 
-                            if let Some(worker) = worker_info {
-                                Self::connect_to_worker(
-                                    worker_id.clone(),
-                                    worker,
-                                    config.clone(),
-                                    discovery_tx.clone(),
-                                    contact_tx.clone(),
-                                    public_key.clone(),
-                                    telemetry.clone(),
-                                    metrics.clone(),
-                                    workers.clone(),
-                                ).await;
+                            for worker_id in worker_ids {
+                                let worker_info = {
+                                    let workers = workers.read().await;
+                                    workers.get(&worker_id).cloned()
+                                };
+
+                                if let Some(worker) = worker_info {
+                                    Self::connect_to_worker(
+                                        worker_id.clone(),
+                                        worker,
+                                        config.clone(),
+                                        discovery_tx.clone(),
+                                        contact_tx.clone(),
+                                        public_key.clone(),
+                                        telemetry.clone(),
+                                        metrics.clone(),
+                                        workers.clone(),
+                                    ).await;
+                                }
                             }
                         }
                     }
                 }
+            }).catch_unwind().await {
+                error!(task = "signal_dispatcher_multi_worker", "background task panicked: {:?}", panic);
             }
         });
     }
@@ -268,30 +274,34 @@ impl SignalDispatcher {
         let metrics = self.metrics.clone();
 
         tokio::spawn(async move {
-            info!("Signal dispatcher running in single-worker mode");
+            if let Err(panic) = AssertUnwindSafe(async move {
+                info!("Signal dispatcher running in single-worker mode");
 
-            loop {
-                let worker_info = {
-                    let workers = workers.read().await;
-                    workers.values().next().cloned()
-                };
+                loop {
+                    let worker_info = {
+                        let workers = workers.read().await;
+                        workers.values().next().cloned()
+                    };
 
-                if let Some(worker) = worker_info {
-                    Self::connect_to_worker(
-                        "default".to_string(),
-                        worker,
-                        config.clone(),
-                        discovery_tx.clone(),
-                        contact_tx.clone(),
-                        public_key.clone(),
-                        telemetry.clone(),
-                        metrics.clone(),
-                        workers.clone(),
-                    ).await;
-                } else {
-                    warn!("No workers available, waiting...");
-                    tokio::time::sleep(Duration::from_secs(5)).await;
+                    if let Some(worker) = worker_info {
+                        Self::connect_to_worker(
+                            "default".to_string(),
+                            worker,
+                            config.clone(),
+                            discovery_tx.clone(),
+                            contact_tx.clone(),
+                            public_key.clone(),
+                            telemetry.clone(),
+                            metrics.clone(),
+                            workers.clone(),
+                        ).await;
+                    } else {
+                        warn!("No workers available, waiting...");
+                        tokio::time::sleep(Duration::from_secs(5)).await;
+                    }
                 }
+            }).catch_unwind().await {
+                error!(task = "signal_dispatcher_single_worker", "background task panicked: {:?}", panic);
             }
         });
     }

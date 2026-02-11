@@ -17,6 +17,7 @@ use axum::{
     middleware::Next,
     response::{IntoResponse, Response},
 };
+use futures::FutureExt;
 use lru::LruCache;
 use std::collections::HashMap;
 use std::num::NonZeroUsize;
@@ -250,26 +251,37 @@ impl DashboardCache {
         let pruning_interval = self.pruning_interval;
 
         tokio::spawn(async move {
-            let mut interval = tokio::time::interval(pruning_interval);
-            loop {
-                interval.tick().await;
+            if let Err(panic) = std::panic::AssertUnwindSafe(async move {
+                let mut interval = tokio::time::interval(pruning_interval);
+                loop {
+                    interval.tick().await;
 
-                let mut guard = tenant_exists.write().await;
-                let before_count = guard.len();
+                    let mut guard = tenant_exists.write().await;
+                    let before_count = guard.len();
 
-                // Remove expired entries
-                guard.retain(|_, (_, cached_at)| cached_at.elapsed() < tenant_ttl);
+                    // Remove expired entries
+                    guard.retain(|_, (_, cached_at)| cached_at.elapsed() < tenant_ttl);
 
-                let after_count = guard.len();
-                let pruned = before_count.saturating_sub(after_count);
+                    let after_count = guard.len();
+                    let pruned = before_count.saturating_sub(after_count);
 
-                if pruned > 0 {
-                    tracing::debug!(
-                        pruned_entries = pruned,
-                        remaining_entries = after_count,
-                        "Pruned expired tenant cache entries"
-                    );
+                    if pruned > 0 {
+                        tracing::debug!(
+                            pruned_entries = pruned,
+                            remaining_entries = after_count,
+                            "Pruned expired tenant cache entries"
+                        );
+                    }
                 }
+            })
+            .catch_unwind()
+            .await
+            {
+                tracing::error!(
+                    task = "cache_pruning",
+                    "background task panicked: {:?}",
+                    panic
+                );
             }
         });
     }

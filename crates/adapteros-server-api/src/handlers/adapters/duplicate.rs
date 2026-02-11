@@ -4,6 +4,7 @@
 // - Duplicating adapters
 
 use crate::auth::Claims;
+use crate::ip_extraction::ClientIp;
 use crate::permissions::{require_permission, Permission};
 use crate::state::AppState;
 use crate::types::*;
@@ -56,6 +57,7 @@ pub struct DuplicateAdapterRequest {
 pub async fn duplicate_adapter(
     State(state): State<AppState>,
     Extension(claims): Extension<Claims>,
+    Extension(client_ip): Extension<ClientIp>,
     Path(adapter_id): Path<String>,
     Json(req): Json<DuplicateAdapterRequest>,
 ) -> Result<(StatusCode, Json<AdapterDetailResponse>), (StatusCode, Json<ErrorResponse>)> {
@@ -115,6 +117,7 @@ pub async fn duplicate_adapter(
         crate::audit_helper::actions::ADAPTER_REGISTER,
         crate::audit_helper::resources::ADAPTER,
         Some(&new_adapter_id),
+        Some(client_ip.0.as_str()),
     )
     .await
     {

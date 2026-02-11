@@ -2,6 +2,7 @@ use crate::api_error::ApiError;
 use crate::audit_helper::{log_failure_or_warn, log_success_or_warn, resources};
 use crate::auth::Claims;
 use crate::handlers::guard_in_flight_requests;
+use crate::ip_extraction::ClientIp;
 use crate::permissions::{require_permission, Permission};
 use crate::security::validate_tenant_isolation;
 use crate::state::AppState;
@@ -173,6 +174,7 @@ async fn validate_stack_base_model_compatibility(
 pub async fn create_stack(
     State(state): State<AppState>,
     Extension(claims): Extension<Claims>,
+    Extension(client_ip): Extension<ClientIp>,
     Json(req): Json<CreateStackRequest>,
 ) -> Result<Response, (StatusCode, Json<ErrorResponse>)> {
     require_permission(&claims, Permission::AdapterRegister).map_err(|_| {
@@ -339,6 +341,7 @@ pub async fn create_stack(
                 resources::ADAPTER,
                 None,
                 &format!("Failed to create stack '{}': {}", req.name, e),
+                Some(client_ip.0.as_str()),
             )
             .await;
             return Err((status, Json(error_response)));
@@ -352,6 +355,7 @@ pub async fn create_stack(
         ACTION_STACK_CREATE,
         resources::ADAPTER,
         Some(&id),
+        Some(client_ip.0.as_str()),
     )
     .await;
 
@@ -563,6 +567,7 @@ const ACTION_STACK_UPDATE: &str = "stack.update";
 pub async fn update_stack(
     State(state): State<AppState>,
     Extension(claims): Extension<Claims>,
+    Extension(client_ip): Extension<ClientIp>,
     Path(id): Path<String>,
     Json(req): Json<UpdateStackRequest>,
 ) -> Result<Json<StackResponse>, (StatusCode, Json<ErrorResponse>)> {
@@ -652,6 +657,7 @@ pub async fn update_stack(
         ACTION_STACK_UPDATE,
         resources::ADAPTER,
         Some(&id),
+        Some(client_ip.0.as_str()),
     )
     .await;
 
@@ -709,6 +715,7 @@ pub async fn update_stack(
 pub async fn delete_stack(
     State(state): State<AppState>,
     Extension(claims): Extension<Claims>,
+    Extension(client_ip): Extension<ClientIp>,
     Path(id): Path<String>,
 ) -> Result<StatusCode, (StatusCode, Json<ErrorResponse>)> {
     require_permission(&claims, Permission::AdapterRegister)?;
@@ -730,6 +737,7 @@ pub async fn delete_stack(
                 resources::ADAPTER,
                 Some(&id),
                 &format!("Failed to delete stack: {}", e),
+                Some(client_ip.0.as_str()),
             )
             .await;
             return Err(ApiError::db_error(e).into());
@@ -745,6 +753,7 @@ pub async fn delete_stack(
             resources::ADAPTER,
             Some(&id),
             "Stack not found",
+            Some(client_ip.0.as_str()),
         )
         .await;
         return Err(ApiError::not_found("Stack").into());
@@ -757,6 +766,7 @@ pub async fn delete_stack(
         ACTION_STACK_DELETE,
         resources::ADAPTER,
         Some(&id),
+        Some(client_ip.0.as_str()),
     )
     .await;
 
@@ -779,6 +789,7 @@ pub async fn delete_stack(
 pub async fn activate_stack(
     State(state): State<AppState>,
     Extension(claims): Extension<Claims>,
+    Extension(client_ip): Extension<ClientIp>,
     Path(id): Path<String>,
 ) -> Result<Json<serde_json::Value>, (StatusCode, Json<ErrorResponse>)> {
     require_permission(&claims, Permission::AdapterLoad)?;
@@ -1005,6 +1016,7 @@ pub async fn activate_stack(
         crate::audit_helper::actions::STACK_ACTIVATE,
         crate::audit_helper::resources::ADAPTER_STACK,
         Some(&id),
+        Some(client_ip.0.as_str()),
     )
     .await
     {
@@ -1155,6 +1167,7 @@ pub struct ClearStackAdaptersResponse {
 pub async fn clear_stack_adapters(
     State(state): State<AppState>,
     Extension(claims): Extension<Claims>,
+    Extension(client_ip): Extension<ClientIp>,
     Path(id): Path<String>,
 ) -> Result<Json<ClearStackAdaptersResponse>, (StatusCode, Json<ErrorResponse>)> {
     require_permission(&claims, Permission::AdapterRegister)?;
@@ -1221,6 +1234,7 @@ pub async fn clear_stack_adapters(
         "stack.clear_adapters",
         crate::audit_helper::resources::ADAPTER_STACK,
         Some(&id),
+        Some(client_ip.0.as_str()),
     )
     .await
     {
@@ -1250,6 +1264,7 @@ pub async fn clear_stack_adapters(
 pub async fn deactivate_stack(
     State(state): State<AppState>,
     Extension(claims): Extension<Claims>,
+    Extension(client_ip): Extension<ClientIp>,
 ) -> Result<Json<serde_json::Value>, (StatusCode, Json<ErrorResponse>)> {
     require_permission(&claims, Permission::AdapterLoad)?;
 
@@ -1279,6 +1294,7 @@ pub async fn deactivate_stack(
                 crate::audit_helper::actions::STACK_DEACTIVATE,
                 crate::audit_helper::resources::ADAPTER_STACK,
                 Some(&stack_id),
+                Some(client_ip.0.as_str()),
             )
             .await
             {

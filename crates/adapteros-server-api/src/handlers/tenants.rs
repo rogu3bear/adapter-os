@@ -9,6 +9,7 @@ use super::utils::aos_error_to_response;
 use crate::api_error::ApiError;
 use crate::auth::Claims;
 use crate::handlers::event_applier::{apply_event, parse_event, TenantEvent};
+use crate::ip_extraction::ClientIp;
 use crate::middleware::require_role;
 use crate::permissions::{require_permission, Permission};
 use crate::security::validate_tenant_isolation;
@@ -88,6 +89,7 @@ pub async fn list_tenants(
 pub async fn create_tenant(
     State(state): State<AppState>,
     Extension(claims): Extension<Claims>,
+    Extension(client_ip): Extension<ClientIp>,
     Json(req): Json<CreateTenantRequest>,
 ) -> Result<Json<TenantResponse>, (StatusCode, Json<ErrorResponse>)> {
     // Require TenantManage permission (Admin role has this)
@@ -122,6 +124,7 @@ pub async fn create_tenant(
         crate::audit_helper::actions::TENANT_CREATE,
         crate::audit_helper::resources::TENANT,
         Some(&tenant.id),
+        Some(client_ip.0.as_str()),
     )
     .await
     {
@@ -203,6 +206,7 @@ pub async fn get_default_stack(
 pub async fn set_default_stack(
     State(state): State<AppState>,
     Extension(claims): Extension<Claims>,
+    Extension(client_ip): Extension<ClientIp>,
     Path(tenant_id): Path<String>,
     Json(req): Json<SetDefaultStackRequest>,
 ) -> Result<Json<DefaultStackResponse>, (StatusCode, Json<ErrorResponse>)> {
@@ -243,6 +247,7 @@ pub async fn set_default_stack(
         crate::audit_helper::actions::TENANT_UPDATE,
         crate::audit_helper::resources::TENANT,
         Some(&tenant_id),
+        Some(client_ip.0.as_str()),
     )
     .await
     {
@@ -272,6 +277,7 @@ pub async fn set_default_stack(
 pub async fn clear_default_stack(
     State(state): State<AppState>,
     Extension(claims): Extension<Claims>,
+    Extension(client_ip): Extension<ClientIp>,
     Path(tenant_id): Path<String>,
 ) -> Result<StatusCode, (StatusCode, Json<ErrorResponse>)> {
     let tenant_id = crate::id_resolver::resolve_any_id(&state.db, &tenant_id)
@@ -294,6 +300,7 @@ pub async fn clear_default_stack(
         crate::audit_helper::actions::TENANT_UPDATE,
         crate::audit_helper::resources::TENANT,
         Some(&tenant_id),
+        Some(client_ip.0.as_str()),
     )
     .await
     {
@@ -321,6 +328,7 @@ pub async fn clear_default_stack(
 pub async fn update_tenant(
     State(state): State<AppState>,
     Extension(claims): Extension<Claims>,
+    Extension(client_ip): Extension<ClientIp>,
     Path(tenant_id): Path<String>,
     Json(req): Json<UpdateTenantRequest>,
 ) -> Result<Json<TenantResponse>, (StatusCode, Json<ErrorResponse>)> {
@@ -393,6 +401,7 @@ pub async fn update_tenant(
         crate::audit_helper::actions::TENANT_UPDATE,
         crate::audit_helper::resources::TENANT,
         Some(&tenant.id),
+        Some(client_ip.0.as_str()),
     )
     .await
     {
@@ -422,6 +431,7 @@ pub async fn update_tenant(
 pub async fn pause_tenant(
     State(state): State<AppState>,
     Extension(claims): Extension<Claims>,
+    Extension(client_ip): Extension<ClientIp>,
     Path(tenant_id): Path<String>,
 ) -> Result<Json<TenantResponse>, (StatusCode, Json<ErrorResponse>)> {
     require_role(&claims, Role::Admin)?;
@@ -458,6 +468,7 @@ pub async fn pause_tenant(
         crate::audit_helper::actions::TENANT_UPDATE,
         crate::audit_helper::resources::TENANT,
         Some(&tenant.id),
+        Some(client_ip.0.as_str()),
     )
     .await
     {
@@ -487,6 +498,7 @@ pub async fn pause_tenant(
 pub async fn archive_tenant(
     State(state): State<AppState>,
     Extension(claims): Extension<Claims>,
+    Extension(client_ip): Extension<ClientIp>,
     Path(tenant_id): Path<String>,
 ) -> Result<Json<TenantResponse>, (StatusCode, Json<ErrorResponse>)> {
     // Require TenantManage permission (Admin role has this)
@@ -524,6 +536,7 @@ pub async fn archive_tenant(
         crate::audit_helper::actions::TENANT_UPDATE,
         crate::audit_helper::resources::TENANT,
         Some(&tenant.id),
+        Some(client_ip.0.as_str()),
     )
     .await
     {
@@ -697,6 +710,7 @@ pub async fn get_tenant_metrics(
 pub async fn assign_policies_to_tenant(
     State(state): State<AppState>,
     Extension(claims): Extension<Claims>,
+    Extension(client_ip): Extension<ClientIp>,
     Path(tenant_id): Path<String>,
     Json(req): Json<AssignPoliciesRequest>,
 ) -> Result<StatusCode, (StatusCode, Json<ErrorResponse>)> {
@@ -724,6 +738,7 @@ pub async fn assign_policies_to_tenant(
         crate::audit_helper::actions::TENANT_UPDATE,
         crate::audit_helper::resources::TENANT,
         Some(&tenant_id),
+        Some(client_ip.0.as_str()),
     )
     .await
     {
@@ -751,6 +766,7 @@ pub async fn assign_policies_to_tenant(
 pub async fn assign_adapters_to_tenant(
     State(state): State<AppState>,
     Extension(claims): Extension<Claims>,
+    Extension(client_ip): Extension<ClientIp>,
     Path(tenant_id): Path<String>,
     Json(req): Json<AssignAdaptersRequest>,
 ) -> Result<StatusCode, (StatusCode, Json<ErrorResponse>)> {
@@ -778,6 +794,7 @@ pub async fn assign_adapters_to_tenant(
         crate::audit_helper::actions::TENANT_UPDATE,
         crate::audit_helper::resources::TENANT,
         Some(&tenant_id),
+        Some(client_ip.0.as_str()),
     )
     .await
     {
@@ -1053,7 +1070,13 @@ pub async fn hydrate_tenant_from_bundle(
                 error = %e,
                 "Failed to apply event in hydration"
             );
-            let _ = tx.rollback().await;
+            if let Err(rollback_err) = tx.rollback().await {
+                tracing::warn!(
+                    tenant_id = %req.tenant_id,
+                    error = %rollback_err,
+                    "failed to rollback transaction after hydration error"
+                );
+            }
             return Err((
                 StatusCode::BAD_REQUEST,
                 Json(ErrorResponse::new(format!(

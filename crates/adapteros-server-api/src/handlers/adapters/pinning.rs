@@ -8,6 +8,7 @@
 use crate::adapter_helpers::fetch_adapter_for_tenant;
 use crate::api_error::{ApiError, ApiResult};
 use crate::auth::Claims;
+use crate::ip_extraction::ClientIp;
 use crate::middleware::require_any_role;
 use crate::permissions::{require_permission, Permission};
 use crate::state::AppState;
@@ -104,6 +105,7 @@ pub struct PinStatusResponse {
 pub async fn pin_adapter(
     State(state): State<AppState>,
     Extension(claims): Extension<Claims>,
+    Extension(client_ip): Extension<ClientIp>,
     Path(adapter_id): Path<String>,
     Json(req): Json<PinAdapterRequest>,
 ) -> ApiResult<PinAdapterResponse> {
@@ -208,6 +210,7 @@ pub async fn pin_adapter(
         crate::audit_helper::actions::ADAPTER_PIN,
         crate::audit_helper::resources::ADAPTER,
         Some(&adapter_id),
+        Some(client_ip.0.as_str()),
     )
     .await
     {
@@ -253,6 +256,7 @@ pub async fn pin_adapter(
 pub async fn unpin_adapter(
     State(state): State<AppState>,
     Extension(claims): Extension<Claims>,
+    Extension(client_ip): Extension<ClientIp>,
     Path(adapter_id): Path<String>,
 ) -> ApiResult<UnpinAdapterResponse> {
     // Require operator or admin role
@@ -307,6 +311,7 @@ pub async fn unpin_adapter(
         crate::audit_helper::actions::ADAPTER_UNPIN,
         crate::audit_helper::resources::ADAPTER,
         Some(&adapter_id),
+        Some(client_ip.0.as_str()),
     )
     .await
     {

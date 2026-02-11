@@ -512,6 +512,7 @@ pub async fn stop_worker(
         "worker.stop",
         crate::audit_helper::resources::WORKER,
         Some(&worker_id),
+        None,
     )
     .await
     {
@@ -648,6 +649,7 @@ pub async fn drain_worker(
         "worker.drain",
         crate::audit_helper::resources::WORKER,
         Some(&worker_id),
+        None,
     )
     .await
     {

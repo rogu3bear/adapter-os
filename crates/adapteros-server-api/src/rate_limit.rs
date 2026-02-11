@@ -30,6 +30,17 @@ use std::sync::atomic::{AtomicU64, Ordering};
 use std::sync::Arc;
 use std::time::Duration;
 
+/// Global counter for token-bucket rate limit violations (Prometheus exposure).
+static TOKEN_BUCKET_VIOLATION_COUNTER: AtomicU64 = AtomicU64::new(0);
+
+/// Metric name for token-bucket rate limit violation counters.
+pub const TOKEN_BUCKET_VIOLATION_METRIC: &str = "token_bucket_rate_limit_violation_total";
+
+/// Returns the current count of token-bucket rate limit violations.
+pub fn token_bucket_violation_count() -> u64 {
+    TOKEN_BUCKET_VIOLATION_COUNTER.load(Ordering::Relaxed)
+}
+
 /// Rate limiter configuration.
 #[derive(Debug, Clone, Serialize, Deserialize)]
 pub struct RateLimiterConfig {
@@ -287,10 +298,23 @@ impl RateLimiterState {
 
         match bucket.try_consume(now_ms) {
             Ok(()) => Ok(()),
-            Err(retry_after_ms) => Err(RateLimitError::Exceeded {
-                tenant_id: tenant_id.to_string(),
-                retry_after_ms,
-            }),
+            Err(retry_after_ms) => {
+                TOKEN_BUCKET_VIOLATION_COUNTER.fetch_add(1, Ordering::Relaxed);
+                tracing::warn!(
+                    target: "security.rate_limit",
+                    tenant_id = %tenant_id,
+                    retry_after_ms = %retry_after_ms,
+                    limit = %self.config.requests_per_minute,
+                    burst = %self.config.burst_size,
+                    window = "60s",
+                    metric = TOKEN_BUCKET_VIOLATION_METRIC,
+                    "Token bucket rate limit exceeded"
+                );
+                Err(RateLimitError::Exceeded {
+                    tenant_id: tenant_id.to_string(),
+                    retry_after_ms,
+                })
+            }
         }
     }
 

@@ -153,6 +153,7 @@ pub async fn audit_middleware(
                     config.action,
                     config.resource_type,
                     resource_id.as_deref(),
+                    Some(ctx.client_ip.as_str()),
                 )
                 .await
                 {
@@ -185,6 +186,7 @@ pub async fn audit_middleware(
                     config.resource_type,
                     resource_id.as_deref(),
                     &error_reason,
+                    Some(ctx.client_ip.as_str()),
                 )
                 .await
                 {
@@ -207,6 +209,24 @@ pub async fn audit_middleware(
                         "Audit: operation failed"
                     );
                 }
+            }
+        } else {
+            // Unauthenticated request on an audited route — no claims available
+            // so we cannot persist to the audit DB. Emit a structured tracing
+            // event so log aggregation pipelines can still capture these.
+            let status = response.status();
+            if (status.is_client_error() || status.is_server_error()) && config.audit_failure {
+                warn!(
+                    target: "audit.unauth",
+                    action = config.action,
+                    resource_type = config.resource_type,
+                    method = %method,
+                    path = %path,
+                    status = %status.as_u16(),
+                    request_id = %ctx.request_id,
+                    client_ip = %ctx.client_ip,
+                    "Audit: unauthenticated request failed"
+                );
             }
         }
     }

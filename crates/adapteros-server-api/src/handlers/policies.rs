@@ -1,4 +1,5 @@
 use crate::auth::Claims;
+use crate::ip_extraction::ClientIp;
 use crate::state::AppState;
 use crate::types::*;
 use adapteros_db::users::Role;
@@ -183,6 +184,7 @@ pub async fn get_policy(
 pub async fn validate_policy(
     State(state): State<AppState>,
     Extension(claims): Extension<Claims>,
+    Extension(client_ip): Extension<ClientIp>,
     Json(req): Json<ValidatePolicyRequest>,
 ) -> Result<Json<PolicyValidationResponse>, (StatusCode, Json<ErrorResponse>)> {
     // Role check: Compliance and Admin can validate policies
@@ -202,6 +204,7 @@ pub async fn validate_policy(
                 crate::audit_helper::resources::POLICY,
                 Some(&content_hash),
                 &format!("Invalid JSON: {}", e),
+                Some(client_ip.0.as_str()),
             )
             .await
             {
@@ -348,6 +351,7 @@ pub async fn validate_policy(
             crate::audit_helper::actions::POLICY_VALIDATE,
             crate::audit_helper::resources::POLICY,
             Some(&content_hash),
+            Some(client_ip.0.as_str()),
         )
         .await
         {
@@ -360,6 +364,7 @@ pub async fn validate_policy(
         crate::audit_helper::resources::POLICY,
         Some(&content_hash),
         &format!("Validation failed: {}", errors.join("; ")),
+        Some(client_ip.0.as_str()),
     )
     .await
     {
@@ -389,6 +394,7 @@ pub async fn validate_policy(
 pub async fn apply_policy(
     State(state): State<AppState>,
     Extension(claims): Extension<Claims>,
+    Extension(client_ip): Extension<ClientIp>,
     Json(req): Json<ApplyPolicyRequest>,
 ) -> Result<Json<PolicyPackResponse>, (StatusCode, Json<ErrorResponse>)> {
     // Role check: Admin-only (applying policies is a critical operation)
@@ -553,6 +559,7 @@ pub async fn apply_policy(
         crate::audit_helper::actions::POLICY_APPLY,
         crate::audit_helper::resources::POLICY,
         Some(&req.cpid),
+        Some(client_ip.0.as_str()),
     )
     .await
     {
@@ -584,6 +591,7 @@ pub async fn apply_policy(
 pub async fn sign_policy(
     State(state): State<AppState>,
     Extension(claims): Extension<Claims>,
+    Extension(client_ip): Extension<ClientIp>,
     Path(cpid): Path<String>,
 ) -> Result<Json<SignPolicyResponse>, (StatusCode, Json<ErrorResponse>)> {
     // Role check: Admin-only (signing policies is a critical operation)
@@ -613,6 +621,7 @@ pub async fn sign_policy(
         crate::audit_helper::actions::POLICY_SIGN,
         crate::audit_helper::resources::POLICY,
         Some(&cpid),
+        Some(client_ip.0.as_str()),
     )
     .await
     {
@@ -959,6 +968,7 @@ pub async fn export_policy(
 pub async fn assign_policy(
     State(state): State<AppState>,
     Extension(claims): Extension<Claims>,
+    Extension(client_ip): Extension<ClientIp>,
     Json(req): Json<AssignPolicyRequest>,
 ) -> Result<Json<PolicyAssignmentResponse>, (StatusCode, Json<ErrorResponse>)> {
     // Role check: Admin-only (policy assignment is a critical operation)
@@ -1018,6 +1028,7 @@ pub async fn assign_policy(
         crate::audit_helper::actions::POLICY_APPLY,
         crate::audit_helper::resources::POLICY,
         Some(&req.policy_pack_id),
+        Some(client_ip.0.as_str()),
     )
     .await
     {

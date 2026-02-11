@@ -6,6 +6,7 @@
 use crate::api_error::ApiError;
 use crate::audit_helper::{actions, log_success_or_warn, resources};
 use crate::auth::Claims;
+use crate::ip_extraction::ClientIp;
 use crate::permissions::{require_permission, Permission};
 use crate::state::AppState;
 use crate::types::{ErrorResponse, PaginatedResponse};
@@ -89,6 +90,7 @@ pub struct AddDocumentRequest {
 pub async fn create_collection(
     State(state): State<AppState>,
     Extension(claims): Extension<Claims>,
+    Extension(client_ip): Extension<ClientIp>,
     Json(req): Json<CreateCollectionRequest>,
 ) -> Result<impl IntoResponse, (StatusCode, Json<ErrorResponse>)> {
     // Check permission
@@ -118,6 +120,7 @@ pub async fn create_collection(
         actions::COLLECTION_CREATE,
         resources::COLLECTION,
         Some(&collection_id),
+        Some(client_ip.0.as_str()),
     )
     .await;
 
@@ -281,6 +284,7 @@ pub async fn get_collection(
 pub async fn delete_collection(
     State(state): State<AppState>,
     Extension(claims): Extension<Claims>,
+    Extension(client_ip): Extension<ClientIp>,
     Path(id): Path<String>,
 ) -> Result<impl IntoResponse, (StatusCode, Json<ErrorResponse>)> {
     // Check permission
@@ -315,6 +319,7 @@ pub async fn delete_collection(
         actions::COLLECTION_DELETE,
         resources::COLLECTION,
         Some(&id),
+        Some(client_ip.0.as_str()),
     )
     .await;
 
@@ -341,6 +346,7 @@ pub async fn delete_collection(
 pub async fn add_document_to_collection(
     State(state): State<AppState>,
     Extension(claims): Extension<Claims>,
+    Extension(client_ip): Extension<ClientIp>,
     Path(id): Path<String>,
     Json(req): Json<AddDocumentRequest>,
 ) -> Result<impl IntoResponse, (StatusCode, Json<ErrorResponse>)> {
@@ -394,6 +400,7 @@ pub async fn add_document_to_collection(
         actions::COLLECTION_ADD_DOCUMENT,
         resources::COLLECTION,
         Some(&id),
+        Some(client_ip.0.as_str()),
     )
     .await;
 
@@ -419,6 +426,7 @@ pub async fn add_document_to_collection(
 pub async fn remove_document_from_collection(
     State(state): State<AppState>,
     Extension(claims): Extension<Claims>,
+    Extension(client_ip): Extension<ClientIp>,
     Path((id, doc_id)): Path<(String, String)>,
 ) -> Result<impl IntoResponse, (StatusCode, Json<ErrorResponse>)> {
     // Check permission
@@ -455,6 +463,7 @@ pub async fn remove_document_from_collection(
         actions::COLLECTION_REMOVE_DOCUMENT,
         resources::COLLECTION,
         Some(&id),
+        Some(client_ip.0.as_str()),
     )
     .await;
 

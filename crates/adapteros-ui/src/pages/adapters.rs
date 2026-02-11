@@ -16,14 +16,13 @@
 //! - Click close button or press Escape to close
 //! - Mobile: Full-screen overlay with back button
 
-use crate::api::ApiClient;
+use crate::api::{report_error_with_toast, ApiClient};
 use crate::components::{
     AdapterDetailPanel, AsyncBoundary, AsyncBoundaryWithErrorRender, Badge, BadgeVariant, Button,
     ButtonSize, ButtonVariant, Card, CopyableId, EmptyState, EmptyStateVariant, ErrorDisplay, Link,
     PageBreadcrumbItem, PageScaffold, PageScaffoldActions, SplitPanel, SplitRatio, Table,
     TableBody, TableCell, TableHead, TableHeader, TableRow,
 };
-use crate::constants::urls::docs_link;
 use crate::contexts::use_in_flight;
 use crate::hooks::{use_api_resource, LoadingState};
 use crate::signals::refetch::{use_refetch_signal, RefetchTopic};
@@ -122,9 +121,6 @@ pub fn Adapters() -> impl IntoView {
             ]
         >
             <PageScaffoldActions slot>
-                <Link href="/training" class="btn btn-secondary btn-sm">
-                    "Train New"
-                </Link>
                 {
                     let navigate = use_navigate();
                     view! {
@@ -149,7 +145,14 @@ pub fn Adapters() -> impl IntoView {
                 state=adapters
                 on_retry=Callback::new(move |_| refetch_signal.with_value(|f| f.run(())))
                 render=move |data| {
-                    let adapters_for_list = data.clone();
+                    let mut adapters_for_list = data.clone();
+                    adapters_for_list.sort_by_key(|a| match a.lifecycle_state.as_str() {
+                        "active" => 0,
+                        "pending" | "staging" => 1,
+                        "deprecated" => 2,
+                        "retired" | "archived" => 3,
+                        _ => 4,
+                    });
                     view! {
                         <SplitPanel
                             has_selection=has_selection
@@ -209,8 +212,6 @@ fn AdaptersListInteractive(
                     on_action=Callback::new(move |_| {
                         navigate(NEW_ADAPTER_PATH, Default::default());
                     })
-                    secondary_label="View Documentation"
-                    secondary_href=docs_link("adapters")
                 />
             </Card>
         }
@@ -400,10 +401,9 @@ pub fn AdapterDetail() -> impl IntoView {
             web_sys::console::log_1(&format!("[AdapterDetail] Validating ID: '{}'", id).into());
 
             if let Err(validation_err) = validate_adapter_id(&id) {
-                web_sys::console::error_1(
-                    &format!("[AdapterDetail] Validation failed: {}", validation_err).into(),
-                );
-                return Err(crate::api::ApiError::Validation(validation_err.to_string()));
+                let api_err = crate::api::ApiError::Validation(validation_err.to_string());
+                report_error_with_toast(&api_err, "Invalid adapter ID", Some("/adapters"), false);
+                return Err(api_err);
             }
 
             // Log API call initiation
@@ -422,10 +422,8 @@ pub fn AdapterDetail() -> impl IntoView {
                         .into(),
                     );
                 }
-                Err(e) => {
-                    web_sys::console::error_1(
-                        &format!("[AdapterDetail] API error: {:?}", e).into(),
-                    );
+                Err(ref e) => {
+                    report_error_with_toast(e, "Failed to load adapter", Some("/adapters"), false);
                 }
             }
             result
@@ -544,12 +542,11 @@ fn AdapterDetailContent(adapter: AdapterResponse) -> impl IntoView {
     // Validate adapter data before rendering
     web_sys::console::log_1(&"[AdapterDetailContent] Validating data...".into());
     if let Err(validation_error) = validate_adapter_data(&adapter) {
-        web_sys::console::error_1(
-            &format!(
-                "[AdapterDetailContent] Validation failed: {}",
-                validation_error
-            )
-            .into(),
+        report_error_with_toast(
+            &crate::api::ApiError::Validation(validation_error.clone()),
+            "Invalid adapter data",
+            Some("/adapters"),
+            false,
         );
         return view! {
             <div class="flex items-center justify-center py-12">
@@ -576,6 +573,7 @@ fn AdapterDetailContent(adapter: AdapterResponse) -> impl IntoView {
 
     // Extract values needed before moving into closures
     let adapter_name_for_link = adapter.name.clone();
+    let intent = adapter.intent.clone();
     let languages = adapter.languages.clone();
     let framework = adapter.framework.clone();
     let framework_id = adapter.framework_id.clone();
@@ -591,6 +589,12 @@ fn AdapterDetailContent(adapter: AdapterResponse) -> impl IntoView {
                         <p class="text-sm text-muted-foreground">"Name"</p>
                         <p class="font-medium">{adapter.name.clone()}</p>
                     </div>
+                    {intent.map(|intent_text| view! {
+                        <div>
+                            <p class="text-sm text-muted-foreground">"Intent"</p>
+                            <p class="text-sm">{intent_text}</p>
+                        </div>
+                    })}
                     <CopyableId
                         id=adapter.adapter_id.clone()
                         label="Adapter ID".to_string()

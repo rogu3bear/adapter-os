@@ -18,9 +18,10 @@ mod utils;
 use crate::api::ApiClient;
 use crate::components::{
     Button, ButtonVariant, ErrorDisplay, LoadingDisplay, PageBreadcrumbItem, PageScaffold,
-    PageScaffoldActions, RefreshButton, SplitPanel, SplitRatio,
+    PageScaffoldActions, RefreshButton, SkeletonCard, SkeletonTable, SplitPanel, SplitRatio,
 };
 use crate::hooks::{use_api_resource, use_polling, LoadingState};
+use crate::signals::use_notifications;
 use adapteros_api_types::SpawnWorkerRequest;
 use leptos::prelude::*;
 use std::collections::HashMap;
@@ -65,6 +66,7 @@ pub fn Workers() -> impl IntoView {
     let show_history = RwSignal::new(false);
     let action_loading = RwSignal::new(false);
     let action_error = RwSignal::new(Option::<String>::None);
+    let notifications = use_notifications();
 
     // Debug logging for list sizes
     #[cfg(debug_assertions)]
@@ -182,7 +184,8 @@ pub fn Workers() -> impl IntoView {
             })}
 
             // Main content
-            {move || {
+            {let notifications = notifications.clone();
+            move || {
                 let workers_state = workers.get();
                 let nodes_list = match nodes.get() {
                     LoadingState::Loaded(n) => n,
@@ -206,7 +209,13 @@ pub fn Workers() -> impl IntoView {
                 match workers_state {
                     LoadingState::Idle | LoadingState::Loading => {
                         view! {
-                            <LoadingDisplay message="Loading workers..."/>
+                            <div class="grid gap-4 sm:grid-cols-2 lg:grid-cols-4">
+                                <SkeletonCard/>
+                                <SkeletonCard/>
+                                <SkeletonCard/>
+                                <SkeletonCard/>
+                            </div>
+                            <SkeletonTable rows=5 columns=5/>
                         }.into_any()
                     }
                     LoadingState::Loaded(workers_data) => {
@@ -291,7 +300,7 @@ pub fn Workers() -> impl IntoView {
                                                                 refetch_workers.run(());
                                                             }
                                                             Err(e) => {
-                                                                action_error.set(Some(format!("Failed to drain worker: {}", e)));
+                                                                action_error.set(Some(e.user_message()));
                                                             }
                                                         }
                                                         action_loading.set(false);
@@ -310,7 +319,7 @@ pub fn Workers() -> impl IntoView {
                                                                 refetch_workers.run(());
                                                             }
                                                             Err(e) => {
-                                                                action_error.set(Some(format!("Failed to stop worker: {}", e)));
+                                                                action_error.set(Some(e.user_message()));
                                                             }
                                                         }
                                                         action_loading.set(false);
@@ -346,18 +355,26 @@ pub fn Workers() -> impl IntoView {
                                 nodes=nodes_list
                                 plans=plans_list
                                 on_spawn=Callback::new({
+                                    let notifications = notifications.clone();
                                     move |request: SpawnWorkerRequest| {
                                         action_loading.set(true);
                                         show_spawn_dialog.set(false);
                                         let client = ApiClient::new();
+                                        let notifications = notifications.clone();
                                         wasm_bindgen_futures::spawn_local(async move {
                                             match client.spawn_worker(&request).await {
                                                 Ok(_) => {
                                                     action_error.set(None);
+                                                    notifications.success_with_action(
+                                                        "Worker spawned",
+                                                        "New worker is starting up.",
+                                                        "View Workers",
+                                                        "/workers",
+                                                    );
                                                     refetch_workers.run(());
                                                 }
                                                 Err(e) => {
-                                                    action_error.set(Some(format!("Failed to spawn worker: {}", e)));
+                                                    action_error.set(Some(e.user_message()));
                                                 }
                                             }
                                             action_loading.set(false);

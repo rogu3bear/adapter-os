@@ -22,10 +22,12 @@ use adapteros_types::training::{
 };
 use blake3::hash;
 use chrono::Utc;
+use futures::FutureExt;
 use prometheus::{IntCounterVec, Opts};
 use serde_json::json;
+use std::panic::AssertUnwindSafe;
 use tokio::time::sleep;
-use tracing::{debug, info, warn};
+use tracing::{debug, error, info, warn};
 
 use crate::state::{AppState, SelfHostingConfigApi};
 
@@ -114,8 +116,18 @@ pub fn spawn_self_hosting_agent(state: AppState) -> Option<tokio::task::JoinHand
         .background_task_tracker()
         .record_spawned("Self-hosting agent", false);
     Some(tokio::spawn(async move {
-        info!(mode = ?agent.mode, "Self-hosting agent started");
-        agent.run().await;
+        if let Err(panic) = AssertUnwindSafe(async move {
+            info!(mode = ?agent.mode, "Self-hosting agent started");
+            agent.run().await;
+        })
+        .catch_unwind()
+        .await
+        {
+            error!(
+                task = "self_hosting_agent",
+                "background task panicked: {:?}", panic
+            );
+        }
     }))
 }
 

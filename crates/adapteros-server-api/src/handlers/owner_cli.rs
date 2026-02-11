@@ -24,6 +24,7 @@
 
 use crate::audit_helper::log_action;
 use crate::auth::Claims;
+use crate::ip_extraction::ClientIp;
 use crate::state::AppState;
 use adapteros_api_types::ErrorResponse;
 use adapteros_core::AosError;
@@ -115,6 +116,7 @@ const ALLOWED_COMMANDS: &[&str] = &[
 pub async fn run_owner_cli_command(
     State(state): State<AppState>,
     Extension(claims): Extension<Claims>,
+    Extension(client_ip): Extension<ClientIp>,
     Json(req): Json<CliRunRequest>,
 ) -> Result<Json<CliRunResponse>, (StatusCode, Json<ErrorResponse>)> {
     let start = Instant::now();
@@ -136,6 +138,7 @@ pub async fn run_owner_cli_command(
             Some(&req.command),
             "failure",
             Some("Admin role required"),
+            Some(client_ip.0.as_str()),
         )
         .await
         .ok();
@@ -166,6 +169,7 @@ pub async fn run_owner_cli_command(
             Some(&req.command),
             "failure",
             Some(&e.to_string()),
+            Some(client_ip.0.as_str()),
         )
         .await
         .ok();
@@ -207,6 +211,7 @@ pub async fn run_owner_cli_command(
                 Some(&req.command),
                 "success",
                 None,
+                Some(client_ip.0.as_str()),
             )
             .await
             .ok();
@@ -230,6 +235,7 @@ pub async fn run_owner_cli_command(
                 Some(&req.command),
                 "failure",
                 Some(&e.to_string()),
+                Some(client_ip.0.as_str()),
             )
             .await
             .ok();

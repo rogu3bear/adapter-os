@@ -1,6 +1,6 @@
 //! Routing Rules management component
 
-use crate::api::ApiClient;
+use crate::api::{report_error_with_toast, ApiClient};
 use crate::components::{
     Button, ButtonVariant, Card, EmptyState, ErrorDisplay, Input, LoadingDisplay, RefreshButton,
     Select, Spinner, Table, TableBody, TableCell, TableHead, TableHeader, TableRow,
@@ -185,7 +185,7 @@ fn CreateRuleForm(
                     }
                 }
                 Err(e) => {
-                    error.set(Some(e.to_string()));
+                    error.set(Some(e.user_message()));
                 }
             }
             saving.set(false);
@@ -257,7 +257,9 @@ fn RulesTable(rules: Vec<RoutingRuleResponse>, on_delete: Callback<()>) -> impl 
                 let alive = alive.clone();
                 deleting.set(true);
                 wasm_bindgen_futures::spawn_local(async move {
-                    let _ = client.delete_routing_rule(&id).await;
+                    if let Err(e) = client.delete_routing_rule(&id).await {
+                        report_error_with_toast(&e, "Failed to delete routing rule", Some("/routing"), true);
+                    }
                     deleting.set(false);
                     if alive.load(std::sync::atomic::Ordering::SeqCst) {
                         on_delete.run(());

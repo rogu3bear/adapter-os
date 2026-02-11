@@ -1,5 +1,6 @@
 use crate::api_error::ApiError;
 use crate::auth::Claims;
+use crate::ip_extraction::ClientIp;
 use crate::middleware::require_any_role;
 use crate::state::AppState;
 use crate::types::*;
@@ -38,6 +39,7 @@ pub async fn list_nodes(
 pub async fn register_node(
     State(state): State<AppState>,
     Extension(claims): Extension<Claims>,
+    Extension(client_ip): Extension<ClientIp>,
     Json(req): Json<RegisterNodeRequest>,
 ) -> Result<Json<NodeResponse>, (StatusCode, Json<ErrorResponse>)> {
     require_any_role(&claims, &[Role::Operator])?;
@@ -59,11 +61,11 @@ pub async fn register_node(
         crate::audit_helper::actions::NODE_REGISTER,
         crate::audit_helper::resources::NODE,
         Some(&node.id),
+        Some(client_ip.0.as_str()),
     )
-    .await {
-
+    .await
+    {
         tracing::warn!(error = %e, "Audit log failed");
-
     }
 
     Ok(Json(NodeResponse {
@@ -147,6 +149,7 @@ pub async fn test_node_connection(
 pub async fn mark_node_offline(
     State(state): State<AppState>,
     Extension(claims): Extension<Claims>,
+    Extension(client_ip): Extension<ClientIp>,
     Path(node_id): Path<String>,
 ) -> Result<StatusCode, (StatusCode, Json<ErrorResponse>)> {
     require_any_role(&claims, &[Role::Operator])?;
@@ -168,11 +171,11 @@ pub async fn mark_node_offline(
         crate::audit_helper::actions::NODE_OFFLINE,
         crate::audit_helper::resources::NODE,
         Some(&node_id),
+        Some(client_ip.0.as_str()),
     )
-    .await {
-
+    .await
+    {
         tracing::warn!(error = %e, "Audit log failed");
-
     }
 
     Ok(StatusCode::NO_CONTENT)
@@ -182,6 +185,7 @@ pub async fn mark_node_offline(
 pub async fn evict_node(
     State(state): State<AppState>,
     Extension(claims): Extension<Claims>,
+    Extension(client_ip): Extension<ClientIp>,
     Path(node_id): Path<String>,
 ) -> Result<StatusCode, (StatusCode, Json<ErrorResponse>)> {
     require_any_role(&claims, &[Role::Operator])?;
@@ -208,11 +212,11 @@ pub async fn evict_node(
         crate::audit_helper::actions::NODE_EVICT,
         crate::audit_helper::resources::NODE,
         Some(&node_id),
+        Some(client_ip.0.as_str()),
     )
-    .await {
-
+    .await
+    {
         tracing::warn!(error = %e, "Audit log failed");
-
     }
 
     Ok(StatusCode::NO_CONTENT)

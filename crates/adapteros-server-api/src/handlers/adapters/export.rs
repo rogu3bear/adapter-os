@@ -8,6 +8,7 @@
 use crate::adapter_helpers::fetch_adapter_for_tenant;
 use crate::api_error::ApiError;
 use crate::auth::Claims;
+use crate::ip_extraction::ClientIp;
 use crate::permissions::{require_permission, Permission};
 use crate::state::AppState;
 use crate::types::*;
@@ -59,6 +60,7 @@ use tracing::{error, info, warn};
 pub async fn export_adapter(
     State(state): State<AppState>,
     Extension(claims): Extension<Claims>,
+    Extension(client_ip): Extension<ClientIp>,
     Path(adapter_id): Path<String>,
 ) -> Result<impl IntoResponse, ApiError> {
     // Permission check
@@ -269,6 +271,7 @@ pub async fn export_adapter(
         "adapter.exported",
         crate::audit_helper::resources::ADAPTER,
         Some(&adapter_id),
+        Some(client_ip.0.as_str()),
     )
     .await
     {

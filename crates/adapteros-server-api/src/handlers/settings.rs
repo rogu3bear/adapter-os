@@ -3,6 +3,7 @@
 //! Provides REST endpoints for system settings management.
 
 use crate::auth::Claims;
+use crate::ip_extraction::ClientIp;
 use crate::middleware::require_role;
 use crate::state::AppState;
 use crate::types::*;
@@ -96,6 +97,7 @@ pub async fn get_settings(
 pub async fn update_settings(
     State(state): State<AppState>,
     Extension(claims): Extension<Claims>,
+    Extension(client_ip): Extension<ClientIp>,
     Json(req): Json<UpdateSettingsRequest>,
 ) -> Result<Json<SettingsUpdateResponse>, (StatusCode, Json<ErrorResponse>)> {
     require_role(&claims, Role::Admin)?;
@@ -142,6 +144,7 @@ pub async fn update_settings(
             resources::SETTINGS,
             None,
             &format!("Failed to persist settings: {}", e),
+            Some(client_ip.0.as_str()),
         )
         .await;
 
@@ -162,6 +165,7 @@ pub async fn update_settings(
         actions::SETTINGS_UPDATE,
         resources::SETTINGS,
         Some(&updated_sections.join(",")),
+        Some(client_ip.0.as_str()),
     )
     .await;
 

@@ -50,17 +50,24 @@ pub fn check_path_traversal(path: impl AsRef<Path>) -> Result<()> {
 
     // Check path depth
     if components.len() > protection.max_depth as usize {
-        return Err(AosError::Io(format!(
+        let details = format!(
             "Path depth {} exceeds maximum {}",
             components.len(),
             protection.max_depth
-        )));
+        );
+        log_security_violation("path_depth_exceeded", &details, path);
+        return Err(AosError::Io(details));
     }
 
     // Check for blocked components
     for component in &components {
         match component {
             Component::ParentDir => {
+                log_security_violation(
+                    "parent_directory_traversal",
+                    "Parent directory traversal detected",
+                    path,
+                );
                 return Err(AosError::Io(
                     "Parent directory traversal detected".to_string(),
                 ));
@@ -70,17 +77,18 @@ pub fn check_path_traversal(path: impl AsRef<Path>) -> Result<()> {
 
                 // Check blocked components
                 if protection.blocked_components.contains(&name_str) {
-                    return Err(AosError::Io(format!(
-                        "Blocked component detected: {}",
-                        name_str
-                    )));
+                    let details = format!("Blocked component detected: {}", name_str);
+                    log_security_violation("blocked_path_component", &details, path);
+                    return Err(AosError::Io(details));
                 }
 
                 // Check allowed components (if specified)
                 if !protection.allowed_components.is_empty()
                     && !protection.allowed_components.contains(&name_str)
                 {
-                    return Err(AosError::Io(format!("Component not allowed: {}", name_str)));
+                    let details = format!("Component not allowed: {}", name_str);
+                    log_security_violation("disallowed_path_component", &details, path);
+                    return Err(AosError::Io(details));
                 }
             }
             Component::RootDir => {
@@ -148,10 +156,9 @@ fn check_raw_patterns(path_str: &str) -> Result<()> {
 
     for pattern in suspicious_patterns {
         if path_str.contains(pattern) {
-            return Err(AosError::Io(format!(
-                "Suspicious pattern detected in raw path: {}",
-                pattern
-            )));
+            let details = format!("Suspicious pattern detected in raw path: {}", pattern);
+            log_security_violation("suspicious_raw_pattern", &details, Path::new(path_str));
+            return Err(AosError::Io(details));
         }
     }
 
@@ -175,11 +182,17 @@ fn check_url_decoded_patterns(path_str: &str) -> Result<()> {
 
         for pattern in traversal_patterns {
             if decoded.contains(pattern) {
-                return Err(AosError::Io(format!(
+                let details = format!(
                     "Suspicious pattern detected after URL decoding (level {}): {}",
                     level + 1,
                     pattern
-                )));
+                );
+                log_security_violation(
+                    "suspicious_url_encoded_pattern",
+                    &details,
+                    Path::new(path_str),
+                );
+                return Err(AosError::Io(details));
             }
         }
     }
@@ -265,10 +278,9 @@ fn check_dangerous_absolute_paths(path_str: &str) -> Result<()> {
 
     for prefix in dangerous_prefixes {
         if normalized_path.starts_with(prefix) {
-            return Err(AosError::Io(format!(
-                "Access to sensitive system path not allowed: {}",
-                path_str
-            )));
+            let details = format!("Access to sensitive system path not allowed: {}", path_str);
+            log_security_violation("dangerous_absolute_path", &details, Path::new(path_str));
+            return Err(AosError::Io(details));
         }
     }
 
@@ -284,10 +296,12 @@ pub fn check_no_symlinks(path: impl AsRef<Path>) -> Result<()> {
     match std::fs::symlink_metadata(path) {
         Ok(metadata) => {
             if metadata.file_type().is_symlink() {
-                return Err(AosError::Io(format!(
+                let details = format!(
                     "Path is a symlink, which is not allowed: {}",
                     path.display()
-                )));
+                );
+                log_security_violation("symlink_detected", &details, path);
+                return Err(AosError::Io(details));
             }
         }
         Err(e) if e.kind() == std::io::ErrorKind::NotFound => {
@@ -319,10 +333,12 @@ pub fn check_no_symlinks(path: impl AsRef<Path>) -> Result<()> {
         match std::fs::symlink_metadata(&current) {
             Ok(metadata) => {
                 if metadata.file_type().is_symlink() {
-                    return Err(AosError::Io(format!(
+                    let details = format!(
                         "Path contains symlink component, which is not allowed: {}",
                         current.display()
-                    )));
+                    );
+                    log_security_violation("symlink_component_detected", &details, path);
+                    return Err(AosError::Io(details));
                 }
             }
             Err(e) if e.kind() == std::io::ErrorKind::NotFound => {
@@ -453,10 +469,12 @@ pub fn validate_path_within_bases(
     }
 
     // Path is not within any allowed base directory
-    Err(AosError::Io(format!(
+    let details = format!(
         "Path '{}' is not within any allowed base directory",
         canonical_path.display()
-    )))
+    );
+    log_security_violation("path_outside_allowed_bases", &details, &canonical_path);
+    Err(AosError::Io(details))
 }
 
 /// Resolve a path within allowed base directories using strict canonicalization.

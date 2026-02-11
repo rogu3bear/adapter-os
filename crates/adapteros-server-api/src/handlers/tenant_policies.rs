@@ -7,6 +7,7 @@
 
 use crate::api_error::ApiError;
 use crate::auth::Claims;
+use crate::ip_extraction::ClientIp;
 use crate::permissions::{require_permission, Permission};
 use crate::security::validate_tenant_isolation;
 use crate::state::AppState;
@@ -202,6 +203,7 @@ pub async fn list_tenant_policy_bindings(
 pub async fn toggle_tenant_policy(
     State(state): State<AppState>,
     Extension(claims): Extension<Claims>,
+    Extension(client_ip): Extension<ClientIp>,
     Path((tenant_id, policy_pack_id)): Path<(String, String)>,
     Json(req): Json<TogglePolicyRequest>,
 ) -> Result<Json<TenantPolicyBindingResponse>, (StatusCode, Json<ErrorResponse>)> {
@@ -262,6 +264,7 @@ pub async fn toggle_tenant_policy(
         action,
         crate::audit_helper::resources::POLICY_BINDING,
         Some(&format!("{}/{}", tenant_id, policy_pack_id)),
+        Some(client_ip.0.as_str()),
     )
     .await
     {

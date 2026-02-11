@@ -179,13 +179,24 @@ pub async fn streaming_inference_handler<
     if let Err(e) = spawn_deterministic(spawn_name, async move {
         if let Err(e) = generate_streaming_response(state_clone, req, tx_for_spawn.clone()).await {
             warn!("Streaming generation error: {}", e);
-            let _ = tx_for_spawn.send(StreamEvent::Error(e.to_string())).await;
+            if let Err(send_err) = tx_for_spawn.send(StreamEvent::Error(e.to_string())).await {
+                tracing::warn!(
+                    error = %send_err,
+                    "failed to send error event to stream — client may not receive error notification"
+                );
+            }
         }
     }) {
         warn!("Failed to spawn deterministic streaming task: {}", e);
-        let _ = tx
+        if let Err(send_err) = tx
             .send(StreamEvent::Error("spawn failed".to_string()))
-            .await;
+            .await
+        {
+            tracing::warn!(
+                error = %send_err,
+                "failed to send spawn-failure error to stream — client may not receive error notification"
+            );
+        }
     }
 
     // Convert channel to SSE stream
@@ -366,11 +377,22 @@ async fn generate_streaming_response<
             WorkerStreamEvent::Complete(response) => {
                 if let Some(refusal) = response.refusal {
                     let error_msg = format!("Request refused: {}", refusal.message);
-                    let _ = tx.send(StreamEvent::Error(error_msg)).await;
+                    if let Err(e) = tx.send(StreamEvent::Error(error_msg)).await {
+                        tracing::warn!(
+                            error = %e,
+                            "failed to send refusal error to stream — client may not receive error notification"
+                        );
+                    }
                 } else if response.text.is_none() {
-                    let _ = tx
+                    if let Err(e) = tx
                         .send(StreamEvent::Error("No text generated".to_string()))
-                        .await;
+                        .await
+                    {
+                        tracing::warn!(
+                            error = %e,
+                            "failed to send error event to stream — client may not receive error notification"
+                        );
+                    }
                 } else {
                     let _ = tx
                         .send(StreamEvent::Done {
@@ -382,7 +404,12 @@ async fn generate_streaming_response<
                 break;
             }
             WorkerStreamEvent::Error(error) => {
-                let _ = tx.send(StreamEvent::Error(error)).await;
+                if let Err(e) = tx.send(StreamEvent::Error(error)).await {
+                    tracing::warn!(
+                        error = %e,
+                        "failed to send error event to stream — client may not receive error notification"
+                    );
+                }
                 saw_terminal = true;
                 break;
             }
@@ -411,9 +438,15 @@ async fn generate_streaming_response<
         Ok(Ok(())) => Ok(()),
         Ok(Err(e)) => {
             if !client_disconnected && !saw_terminal {
-                let _ = tx
+                if let Err(send_err) = tx
                     .send(StreamEvent::Error(format!("Inference failed: {}", e)))
-                    .await;
+                    .await
+                {
+                    tracing::warn!(
+                        error = %send_err,
+                        "failed to send inference-failure error to stream — client may not receive error notification"
+                    );
+                }
             }
             Err(adapteros_core::AosError::Worker(format!(
                 "Inference failed: {}",
@@ -422,9 +455,15 @@ async fn generate_streaming_response<
         }
         Err(e) => {
             if !client_disconnected && !saw_terminal {
-                let _ = tx
+                if let Err(send_err) = tx
                     .send(StreamEvent::Error("Inference task failed".to_string()))
-                    .await;
+                    .await
+                {
+                    tracing::warn!(
+                        error = %send_err,
+                        "failed to send task-failure error to stream — client may not receive error notification"
+                    );
+                }
             }
             Err(adapteros_core::AosError::Worker(format!(
                 "Inference task failed: {}",

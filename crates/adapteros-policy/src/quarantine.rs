@@ -10,7 +10,7 @@
 
 use adapteros_core::{AosError, Result};
 use serde::{Deserialize, Serialize};
-use tracing::warn;
+use tracing::{info, warn};
 
 /// Operation types for quarantine checks
 #[derive(Debug, Clone, Copy, PartialEq, Eq, Serialize, Deserialize)]
@@ -91,6 +91,13 @@ impl QuarantineManager {
     pub fn set_quarantined(&mut self, quarantined: bool, violation_summary: String) {
         self.quarantined = quarantined;
         self.violation_summary = violation_summary;
+        if quarantined {
+            warn!(
+                target: "security.quarantine",
+                violation_summary = %self.violation_summary,
+                "quarantine entered"
+            );
+        }
     }
 
     /// Check if system is quarantined
@@ -110,6 +117,10 @@ impl QuarantineManager {
     pub fn release_quarantine(&mut self) {
         self.quarantined = false;
         self.violation_summary = String::new();
+        info!(
+            target: "security.quarantine",
+            "quarantine released"
+        );
     }
 
     /// Release quarantine if the violation matches a specific policy pack.
@@ -122,6 +133,11 @@ impl QuarantineManager {
 
         // Check if the violation summary mentions this pack
         if self.violation_summary.contains(pack_id) {
+            info!(
+                target: "security.quarantine",
+                pack = %pack_id,
+                "quarantine released for policy pack"
+            );
             self.release_quarantine();
             true
         } else {

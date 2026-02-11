@@ -12,6 +12,7 @@ use crate::handlers::datasets::{
     bind_dataset_to_tenant, dataset_quota_limits, ensure_dirs, hash_file, quota_error,
     resolve_dataset_root, DatasetPaths, STREAM_BUFFER_SIZE,
 };
+use crate::ip_extraction::ClientIp;
 use crate::permissions::{require_permission, Permission};
 use crate::state::AppState;
 use crate::storage_usage::compute_tenant_storage_usage;
@@ -54,6 +55,7 @@ const MAX_JSONL_SIZE: i64 = 100 * 1024 * 1024;
 pub async fn create_dataset_from_text(
     State(state): State<AppState>,
     Extension(claims): Extension<Claims>,
+    Extension(client_ip): Extension<ClientIp>,
     Json(request): Json<CreateDatasetFromTextRequest>,
 ) -> Result<impl IntoResponse, (StatusCode, Json<ErrorResponse>)> {
     require_permission(&claims, Permission::DatasetUpload)?;
@@ -260,6 +262,7 @@ pub async fn create_dataset_from_text(
         actions::DATASET_CREATE,
         resources::DATASET,
         Some(&dataset_id),
+        Some(client_ip.0.as_str()),
     )
     .await;
 
@@ -310,6 +313,7 @@ pub async fn create_dataset_from_text(
 pub async fn create_dataset_from_chat(
     State(state): State<AppState>,
     Extension(claims): Extension<Claims>,
+    Extension(client_ip): Extension<ClientIp>,
     Json(request): Json<CreateDatasetFromChatRequest>,
 ) -> Result<impl IntoResponse, (StatusCode, Json<ErrorResponse>)> {
     require_permission(&claims, Permission::DatasetUpload)?;
@@ -552,6 +556,7 @@ pub async fn create_dataset_from_chat(
         actions::DATASET_CREATE,
         resources::DATASET,
         Some(&dataset_id),
+        Some(client_ip.0.as_str()),
     )
     .await;
 
