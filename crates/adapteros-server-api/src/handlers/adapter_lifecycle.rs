@@ -5,6 +5,7 @@
 use crate::adapter_helpers::fetch_adapter_for_tenant;
 use crate::api_error::{ApiError, ApiResult};
 use crate::auth::Claims;
+use crate::ip_extraction::ClientIp;
 use crate::middleware::require_any_role;
 use crate::state::AppState;
 use crate::types::*;
@@ -35,6 +36,7 @@ use super::adapter_utils::{
 pub async fn load_adapter(
     State(state): State<AppState>,
     Extension(claims): Extension<Claims>,
+    Extension(client_ip): Extension<ClientIp>,
     Path(adapter_id): Path<String>,
 ) -> Result<Json<AdapterResponse>, (StatusCode, Json<ErrorResponse>)> {
     // Role check: Operator, SRE, and Admin can load adapters
@@ -64,6 +66,7 @@ pub async fn load_adapter(
                 crate::audit_helper::resources::ADAPTER,
                 Some(&adapter_id),
                 &format!("Error: {}", e),
+                Some(client_ip.0.as_str()),
             )
             .await;
             return Err((
@@ -110,6 +113,7 @@ pub async fn load_adapter(
                 crate::audit_helper::resources::ADAPTER,
                 Some(&adapter_id),
                 &format!("Error: {}", e),
+                Some(client_ip.0.as_str()),
             )
             .await;
             return Err((
@@ -133,6 +137,7 @@ pub async fn load_adapter(
                 crate::audit_helper::resources::ADAPTER,
                 Some(&adapter_id),
                 &format!("Error: {}", e),
+                Some(client_ip.0.as_str()),
             )
             .await;
             return Err((
@@ -167,6 +172,7 @@ pub async fn load_adapter(
                 crate::audit_helper::resources::ADAPTER,
                 Some(&adapter_id),
                 &format!("Failed to load adapter: {}", e),
+                Some(client_ip.0.as_str()),
             )
             .await;
             return Err((
@@ -233,6 +239,7 @@ pub async fn load_adapter(
                 crate::audit_helper::resources::ADAPTER,
                 Some(&adapter_id),
                 &format!("Error: {}", e),
+                Some(client_ip.0.as_str()),
             )
             .await;
             return Err((
@@ -260,6 +267,7 @@ pub async fn load_adapter(
         crate::audit_helper::actions::ADAPTER_LOAD,
         crate::audit_helper::resources::ADAPTER,
         Some(&adapter_id),
+        Some(client_ip.0.as_str()),
     )
     .await;
 
@@ -354,6 +362,7 @@ pub async fn load_adapter(
 pub async fn unload_adapter(
     State(state): State<AppState>,
     Extension(claims): Extension<Claims>,
+    Extension(client_ip): Extension<ClientIp>,
     Path(adapter_id): Path<String>,
 ) -> Result<StatusCode, (StatusCode, Json<ErrorResponse>)> {
     // Role check: Operator, SRE, and Admin can unload adapters
@@ -386,6 +395,7 @@ pub async fn unload_adapter(
                 crate::audit_helper::resources::ADAPTER,
                 Some(&adapter_id),
                 &format!("Error: {}", e),
+                Some(client_ip.0.as_str()),
             )
             .await;
             return Err((
@@ -432,6 +442,7 @@ pub async fn unload_adapter(
                 crate::audit_helper::resources::ADAPTER,
                 Some(&adapter_id),
                 &format!("Error: {}", e),
+                Some(client_ip.0.as_str()),
             )
             .await;
             return Err((
@@ -493,6 +504,7 @@ pub async fn unload_adapter(
                     crate::audit_helper::resources::ADAPTER,
                     Some(&adapter_id),
                     &format!("Error: {}", e),
+                    Some(client_ip.0.as_str()),
                 )
                 .await;
                 return Err((
@@ -530,6 +542,7 @@ pub async fn unload_adapter(
                 crate::audit_helper::resources::ADAPTER,
                 Some(&adapter_id),
                 &format!("Error: {}", e),
+                Some(client_ip.0.as_str()),
             )
             .await;
             return Err((
@@ -562,6 +575,7 @@ pub async fn unload_adapter(
         crate::audit_helper::actions::ADAPTER_UNLOAD,
         crate::audit_helper::resources::ADAPTER,
         Some(&adapter_id),
+        Some(client_ip.0.as_str()),
     )
     .await;
 

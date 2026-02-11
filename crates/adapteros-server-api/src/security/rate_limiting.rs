@@ -6,7 +6,19 @@ use adapteros_core::{AosError, Result};
 use adapteros_db::Db;
 use chrono::{DateTime, Utc};
 use serde::{Deserialize, Serialize};
+use std::sync::atomic::{AtomicU64, Ordering};
 use tracing::{debug, warn};
+
+/// Global counter for rate limit violations (Prometheus exposure).
+static RATE_LIMIT_VIOLATION_COUNTER: AtomicU64 = AtomicU64::new(0);
+
+/// Metric name for rate limit violation counters.
+pub const RATE_LIMIT_VIOLATION_METRIC: &str = "rate_limit_violation_total";
+
+/// Returns the current count of rate limit violations.
+pub fn rate_limit_violation_count() -> u64 {
+    RATE_LIMIT_VIOLATION_COUNTER.load(Ordering::Relaxed)
+}
 
 #[derive(Debug, Clone, Serialize, Deserialize, sqlx::FromRow)]
 pub struct RateLimitBucket {
@@ -109,10 +121,14 @@ pub async fn check_rate_limit(db: &Db, tenant_id: &str) -> Result<RateLimitResul
         let allowed = bucket.requests_count <= bucket.max_requests;
 
         if !allowed {
+            RATE_LIMIT_VIOLATION_COUNTER.fetch_add(1, Ordering::Relaxed);
             warn!(
+                target: "security.rate_limit",
                 tenant_id = %tenant_id,
                 count = %bucket.requests_count,
                 limit = %bucket.max_requests,
+                window_seconds = %bucket.window_size_seconds,
+                metric = RATE_LIMIT_VIOLATION_METRIC,
                 "Rate limit exceeded"
             );
         }

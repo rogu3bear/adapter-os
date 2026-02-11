@@ -6,6 +6,7 @@
 use crate::auth::Claims;
 use crate::handlers::event_applier::{apply_event, parse_event, TenantEvent};
 use crate::handlers::utils::aos_error_to_response;
+use crate::ip_extraction::ClientIp;
 use crate::middleware::{require_any_role, require_role};
 use crate::permissions::{require_permission, Permission};
 use crate::state::AppState;
@@ -27,6 +28,7 @@ use utoipa::ToSchema;
 pub async fn update_tenant(
     State(state): State<AppState>,
     Extension(claims): Extension<Claims>,
+    Extension(client_ip): Extension<ClientIp>,
     Path(tenant_id): Path<String>,
     Json(req): Json<UpdateTenantRequest>,
 ) -> Result<Json<TenantResponse>, (StatusCode, Json<ErrorResponse>)> {
@@ -98,6 +100,7 @@ pub async fn update_tenant(
         crate::audit_helper::actions::TENANT_UPDATE,
         crate::audit_helper::resources::TENANT,
         Some(&tenant_id_value),
+        Some(client_ip.0.as_str()),
     )
     .await;
 
@@ -111,6 +114,7 @@ pub async fn update_tenant(
 pub async fn pause_tenant(
     State(state): State<AppState>,
     Extension(claims): Extension<Claims>,
+    Extension(client_ip): Extension<ClientIp>,
     Path(tenant_id): Path<String>,
 ) -> Result<StatusCode, (StatusCode, Json<ErrorResponse>)> {
     require_role(&claims, Role::Admin)?;
@@ -139,6 +143,7 @@ pub async fn pause_tenant(
         crate::audit_helper::actions::TENANT_PAUSE,
         crate::audit_helper::resources::TENANT,
         Some(&tenant_id),
+        Some(client_ip.0.as_str()),
     )
     .await;
 
@@ -149,6 +154,7 @@ pub async fn pause_tenant(
 pub async fn archive_tenant(
     State(state): State<AppState>,
     Extension(claims): Extension<Claims>,
+    Extension(client_ip): Extension<ClientIp>,
     Path(tenant_id): Path<String>,
 ) -> Result<StatusCode, (StatusCode, Json<ErrorResponse>)> {
     require_role(&claims, Role::Admin)?;
@@ -177,6 +183,7 @@ pub async fn archive_tenant(
         crate::audit_helper::actions::TENANT_ARCHIVE,
         crate::audit_helper::resources::TENANT,
         Some(&tenant_id),
+        Some(client_ip.0.as_str()),
     )
     .await;
 

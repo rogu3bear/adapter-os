@@ -714,7 +714,13 @@ impl DeterministicExecutor {
 
                         // Record to global ledger if available
                         if let Some(ref ledger) = self.global_ledger {
-                            let _ = ledger.record_tick(task.id, &event).await;
+                            if let Err(e) = ledger.record_tick(task.id, &event).await {
+                                tracing::error!(
+                                    task_id = %task.id,
+                                    error = %e,
+                                    "tick ledger record failed — deterministic replay may diverge"
+                                );
+                            }
                         }
                     }
                 }
@@ -747,7 +753,13 @@ impl DeterministicExecutor {
                         // Note: record_tick now atomically assigns ticks internally (Issue C-6 fix)
                         if let Some(ref ledger) = self.global_ledger {
                             let dummy_task_id = TaskId::from_bytes([0u8; 32]);
-                            let _ = ledger.record_tick(dummy_task_id, &event).await;
+                            if let Err(e) = ledger.record_tick(dummy_task_id, &event).await {
+                                tracing::error!(
+                                    task_id = %dummy_task_id,
+                                    error = %e,
+                                    "tick ledger record failed — deterministic replay may diverge"
+                                );
+                            }
                         }
                     }
                 }

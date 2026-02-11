@@ -7,6 +7,7 @@
 use crate::api_error::ApiError;
 use crate::audit_helper::{actions, log_failure_or_warn, log_success_or_warn, resources};
 use crate::auth::Claims;
+use crate::ip_extraction::ClientIp;
 use crate::permissions::{require_permission, Permission};
 use crate::security::validate_tenant_isolation;
 use crate::state::AppState;
@@ -162,6 +163,7 @@ pub struct DiscrepancyExportRow {
 pub async fn create_discrepancy(
     State(state): State<AppState>,
     Extension(claims): Extension<Claims>,
+    Extension(client_ip): Extension<ClientIp>,
     Json(request): Json<CreateDiscrepancyRequest>,
 ) -> Result<impl IntoResponse, (StatusCode, Json<ErrorResponse>)> {
     // Require permission to manage inference
@@ -238,6 +240,7 @@ pub async fn create_discrepancy(
             resources::INFERENCE,
             None,
             &message,
+            Some(client_ip.0.as_str()),
         )
         .await;
         return Err((
@@ -254,6 +257,7 @@ pub async fn create_discrepancy(
         actions::INFERENCE_EXECUTE,
         resources::INFERENCE,
         Some(&id),
+        Some(client_ip.0.as_str()),
     )
     .await;
 
@@ -439,6 +443,7 @@ pub async fn list_discrepancies(
 pub async fn resolve_discrepancy(
     State(state): State<AppState>,
     Extension(claims): Extension<Claims>,
+    Extension(client_ip): Extension<ClientIp>,
     Path(id): Path<String>,
     Json(request): Json<ResolveDiscrepancyRequest>,
 ) -> Result<impl IntoResponse, (StatusCode, Json<ErrorResponse>)> {
@@ -518,6 +523,7 @@ pub async fn resolve_discrepancy(
             resources::TRAINING,
             Some(&id),
             &message,
+            Some(client_ip.0.as_str()),
         )
         .await;
         return Err((
@@ -535,6 +541,7 @@ pub async fn resolve_discrepancy(
         actions::TRAINING_START,
         resources::TRAINING,
         Some(&id),
+        Some(client_ip.0.as_str()),
     )
     .await;
 

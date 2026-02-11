@@ -4,6 +4,7 @@
 
 use crate::audit_helper::{actions, log_success_or_warn, resources};
 use crate::handlers::{AppState, Claims, ErrorResponse};
+use crate::ip_extraction::ClientIp;
 use crate::permissions::{require_permission, Permission};
 use crate::security::validate_tenant_isolation;
 use adapteros_db::notifications::NotificationType;
@@ -200,6 +201,7 @@ pub async fn get_notification_summary(
 pub async fn mark_notification_read(
     State(state): State<AppState>,
     Extension(claims): Extension<Claims>,
+    Extension(client_ip): Extension<ClientIp>,
     Path(notification_id): Path<String>,
 ) -> Result<Json<serde_json::Value>, (StatusCode, Json<ErrorResponse>)> {
     require_permission(&claims, Permission::NotificationManage)?;
@@ -287,6 +289,7 @@ pub async fn mark_notification_read(
         actions::NOTIFICATION_READ,
         resources::NOTIFICATION,
         Some(&notification_id),
+        Some(client_ip.0.as_str()),
     )
     .await;
 
@@ -310,6 +313,7 @@ pub async fn mark_notification_read(
 pub async fn mark_all_notifications_read(
     State(state): State<AppState>,
     Extension(claims): Extension<Claims>,
+    Extension(client_ip): Extension<ClientIp>,
     Query(params): Query<std::collections::HashMap<String, String>>,
 ) -> Result<Json<serde_json::Value>, (StatusCode, Json<ErrorResponse>)> {
     require_permission(&claims, Permission::NotificationManage)?;
@@ -337,6 +341,7 @@ pub async fn mark_all_notifications_read(
         actions::NOTIFICATION_READ_ALL,
         resources::NOTIFICATION,
         workspace_id,
+        Some(client_ip.0.as_str()),
     )
     .await;
 

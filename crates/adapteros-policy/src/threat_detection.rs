@@ -1,6 +1,7 @@
 use serde::{Deserialize, Serialize};
 use std::collections::{HashMap, VecDeque};
 use std::time::{Duration, SystemTime};
+use tracing;
 
 /// Severity levels for threat assessments.
 #[derive(Debug, Clone, Copy, PartialEq, Eq, PartialOrd, Ord, Serialize, Deserialize)]
@@ -152,6 +153,21 @@ impl ThreatDetectionEngine {
             assessment.severity = assessment.severity.escalate(ThreatSeverity::High);
         } else if assessment.risk_score > 0.4 {
             assessment.severity = assessment.severity.escalate(ThreatSeverity::Medium);
+        }
+
+        if !assessment.matched_patterns.is_empty()
+            || !assessment.anomalies.is_empty()
+            || assessment.severity >= ThreatSeverity::Medium
+        {
+            tracing::warn!(
+                target: "security.threat",
+                severity = ?assessment.severity,
+                risk_score = assessment.risk_score,
+                event_type = %signal.event_type,
+                matched_patterns = ?assessment.matched_patterns,
+                anomalies = ?assessment.anomalies,
+                "threat detected"
+            );
         }
 
         assessment.evidence.push(signal.metadata);

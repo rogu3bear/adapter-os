@@ -18,7 +18,7 @@
 //!
 //! Enable `show_telemetry_overlay` in settings for perf timing.
 
-use crate::api::{api_base_url, ApiClient};
+use crate::api::{api_base_url, report_error_with_toast, ApiClient};
 use crate::components::inference_guidance::guidance_for;
 use crate::components::status_center::use_status_center;
 use crate::components::{
@@ -349,8 +349,11 @@ fn ChatEmptyWorkspace() -> impl IntoView {
                     }
                     Err(e) => {
                         ChatSessionsManager::prune_placeholder_session(&placeholder_id);
-                        web_sys::console::error_1(
-                            &format!("[Chat] Failed to create backend session: {}", e).into(),
+                        report_error_with_toast(
+                            &e,
+                            "Failed to create chat session",
+                            Some("/chat"),
+                            false,
                         );
                         navigate(
                             "/chat",
@@ -488,8 +491,11 @@ fn SessionListPanel(
                     }
                     Err(e) => {
                         ChatSessionsManager::prune_placeholder_session(&placeholder_id);
-                        web_sys::console::error_1(
-                            &format!("[Chat] Failed to create backend session: {}", e).into(),
+                        report_error_with_toast(
+                            &e,
+                            "Failed to create chat session",
+                            Some("/chat"),
+                            false,
                         );
                         navigate(
                             "/chat",
@@ -537,8 +543,11 @@ fn SessionListPanel(
                     }
                     Err(e) => {
                         ChatSessionsManager::prune_placeholder_session(&placeholder_id);
-                        web_sys::console::error_1(
-                            &format!("[Chat] Failed to create backend session: {}", e).into(),
+                        report_error_with_toast(
+                            &e,
+                            "Failed to save dock messages to session",
+                            Some("/chat"),
+                            false,
                         );
                         navigate(
                             "/chat",

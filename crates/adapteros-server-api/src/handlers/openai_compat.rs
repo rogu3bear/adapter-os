@@ -12,6 +12,7 @@ use crate::handlers;
 use crate::handlers::streaming_infer::{Delta, StreamingChoice, StreamingChunk};
 use crate::inference_cache::{CachedInferenceResultBuilder, InferenceCacheKey};
 use crate::inference_core::InferenceCore;
+use crate::ip_extraction::ClientIp;
 use crate::middleware::canonicalization::CanonicalRequest;
 use crate::middleware::policy_enforcement::{
     compute_policy_mask_digest, create_hook_context, enforce_at_hook,
@@ -358,6 +359,7 @@ fn map_finish_reason(stop_reason_code: Option<StopReasonCode>) -> Option<String>
 pub async fn chat_completions(
     State(state): State<AppState>,
     Extension(claims): Extension<Claims>,
+    Extension(client_ip): Extension<ClientIp>,
     Extension(identity): Extension<IdentityEnvelope>,
     request_id: Option<Extension<RequestId>>,
     api_key: Option<Extension<ApiKeyToken>>,
@@ -383,7 +385,14 @@ pub async fn chat_completions(
     // Branch based on streaming mode
     if req.stream.unwrap_or(false) {
         // Note: streaming does not use cache (cache only after stream completes)
-        match chat_completions_streaming(State(state), Extension(claims), session_token, req).await
+        match chat_completions_streaming(
+            State(state),
+            Extension(claims),
+            Extension(client_ip),
+            session_token,
+            req,
+        )
+        .await
         {
             Ok(sse) => sse.into_response(),
             Err((status, Json(err))) => (status, Json(err)).into_response(),
@@ -392,6 +401,7 @@ pub async fn chat_completions(
         match chat_completions_non_streaming(
             State(state),
             Extension(claims),
+            Extension(client_ip),
             Extension(identity),
             request_id,
             api_key,
@@ -417,6 +427,7 @@ pub async fn chat_completions(
 async fn chat_completions_non_streaming(
     State(state): State<AppState>,
     Extension(claims): Extension<Claims>,
+    Extension(client_ip): Extension<ClientIp>,
     Extension(identity): Extension<IdentityEnvelope>,
     request_id: Option<Extension<RequestId>>,
     api_key: Option<Extension<ApiKeyToken>>,
@@ -537,6 +548,7 @@ async fn chat_completions_non_streaming(
     let infer_resp = match handlers::inference::infer(
         State(state.clone()),
         Extension(claims),
+        Extension(client_ip),
         Extension(identity),
         request_id,
         api_key,
@@ -679,6 +691,7 @@ fn embedding_inputs(prompt: &OpenAiCompletionPrompt) -> Result<Vec<String>, Open
 pub async fn completions_openai(
     State(state): State<AppState>,
     Extension(claims): Extension<Claims>,
+    Extension(client_ip): Extension<ClientIp>,
     Extension(identity): Extension<IdentityEnvelope>,
     request_id: Option<Extension<RequestId>>,
     api_key: Option<Extension<ApiKeyToken>>,
@@ -724,6 +737,7 @@ pub async fn completions_openai(
     let infer_resp = match handlers::inference::infer(
         State(state),
         Extension(claims),
+        Extension(client_ip),
         Extension(identity),
         request_id,
         api_key,
@@ -918,6 +932,7 @@ pub async fn embeddings_openai(
 async fn chat_completions_streaming(
     State(state): State<AppState>,
     Extension(claims): Extension<Claims>,
+    Extension(client_ip): Extension<ClientIp>,
     session_token: Option<Extension<SessionTokenContext>>,
     req: OpenAiChatCompletionsRequest,
 ) -> Result<
@@ -1044,6 +1059,7 @@ async fn chat_completions_streaming(
         crate::audit_helper::actions::INFERENCE_EXECUTE,
         crate::audit_helper::resources::ADAPTER,
         Some(&request_id),
+        Some(client_ip.0.as_str()),
     )
     .await
     {

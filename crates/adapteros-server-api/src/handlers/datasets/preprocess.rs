@@ -564,7 +564,9 @@ pub async fn get_preprocess_status(
     // Sort by started_at descending to get the most recent
     matching_jobs.sort_by(|a, b| b.1.started_at.cmp(&a.1.started_at));
 
-    let (job_id, job_state) = matching_jobs.first().unwrap();
+    let (job_id, job_state) = matching_jobs
+        .first()
+        .ok_or_else(|| ApiError::internal("no matching jobs found after filter".to_string()))?;
 
     Ok(Json(PreprocessStatusResponse {
         job_id: (*job_id).clone(),

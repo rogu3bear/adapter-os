@@ -8,6 +8,7 @@
 use crate::adapter_helpers::fetch_adapter_for_tenant;
 use crate::api_error::{ApiError, ApiResult};
 use crate::auth::Claims;
+use crate::ip_extraction::ClientIp;
 use crate::middleware::require_any_role;
 use crate::state::AppState;
 use crate::types::*;
@@ -101,6 +102,7 @@ pub struct ArchiveStatusResponse {
 pub async fn archive_adapter(
     State(state): State<AppState>,
     Extension(claims): Extension<Claims>,
+    Extension(client_ip): Extension<ClientIp>,
     Path(adapter_id): Path<String>,
     Json(req): Json<ArchiveAdapterRequest>,
 ) -> ApiResult<ArchiveAdapterResponse> {
@@ -166,6 +168,7 @@ pub async fn archive_adapter(
         crate::audit_helper::actions::ADAPTER_ARCHIVE,
         crate::audit_helper::resources::ADAPTER,
         Some(&adapter_id),
+        Some(client_ip.0.as_str()),
     )
     .await
     {
@@ -211,6 +214,7 @@ pub async fn archive_adapter(
 pub async fn unarchive_adapter(
     State(state): State<AppState>,
     Extension(claims): Extension<Claims>,
+    Extension(client_ip): Extension<ClientIp>,
     Path(adapter_id): Path<String>,
 ) -> ApiResult<UnarchiveAdapterResponse> {
     // Require operator or admin role
@@ -282,6 +286,7 @@ pub async fn unarchive_adapter(
         crate::audit_helper::actions::ADAPTER_UNARCHIVE,
         crate::audit_helper::resources::ADAPTER,
         Some(&adapter_id),
+        Some(client_ip.0.as_str()),
     )
     .await
     {

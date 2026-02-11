@@ -10,6 +10,7 @@ use super::progress::emit_adapter_progress;
 use super::repo::{map_repo_error, AdapterRepo, DefaultAdapterRepo, StoreBundleRequest};
 use crate::audit_helper::{actions, log_success_or_warn, resources};
 use crate::auth::Claims;
+use crate::ip_extraction::ClientIp;
 use crate::permissions::{require_permission, Permission};
 use crate::state::AppState;
 use crate::types::{AdapterResponse, ErrorResponse};
@@ -127,6 +128,7 @@ const KNOWN_MANIFEST_FIELDS: &[&str] = &[
 pub async fn import_adapter(
     State(state): State<AppState>,
     Extension(claims): Extension<Claims>,
+    Extension(client_ip): Extension<ClientIp>,
     Query(params): Query<HashMap<String, String>>,
     mut multipart: axum::extract::Multipart,
 ) -> Result<Json<AdapterResponse>, (StatusCode, Json<ErrorResponse>)> {
@@ -1108,6 +1110,7 @@ pub async fn import_adapter(
         actions::ADAPTER_REGISTER,
         resources::ADAPTER,
         Some(&adapter_id),
+        Some(client_ip.0.as_str()),
     )
     .await;
 

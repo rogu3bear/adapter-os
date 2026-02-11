@@ -6,6 +6,7 @@
 use crate::api_error::{ApiError, ApiResult};
 use crate::audit_helper::{log_failure_or_warn, log_success_or_warn};
 use crate::auth::Claims;
+use crate::ip_extraction::ClientIp;
 use crate::middleware::require_any_role;
 use crate::model_status::aggregate_status;
 use crate::state::AppState;
@@ -285,6 +286,7 @@ fn ane_usage_from_stats(stats: &UmaStats) -> Option<AneMemoryStatus> {
 pub async fn load_model(
     State(state): State<AppState>,
     Extension(claims): Extension<Claims>,
+    Extension(client_ip): Extension<ClientIp>,
     Path(model_id): Path<String>,
 ) -> ApiResult<ModelStatusResponse> {
     use tracing::{debug, error, info, warn};
@@ -434,6 +436,7 @@ pub async fn load_model(
         let claims = claims.clone();
         let op_id = op_id.clone();
         let now = now.clone();
+        let client_ip = client_ip.clone();
         async move {
             let _ = state
                 .db
@@ -456,6 +459,7 @@ pub async fn load_model(
                 RESOURCE_MODEL,
                 Some(&model_id),
                 &err_msg,
+                Some(client_ip.0.as_str()),
             )
             .await;
         }
@@ -631,6 +635,7 @@ pub async fn load_model(
             RESOURCE_MODEL,
             Some(&model_id),
             &format!("Failed to load model: {}", e),
+            Some(client_ip.0.as_str()),
         )
         .await;
         state
@@ -664,6 +669,7 @@ pub async fn load_model(
             RESOURCE_MODEL,
             Some(&model_id),
             &format!("Worker failed to load model: {}", error_msg),
+            Some(client_ip.0.as_str()),
         )
         .await;
         state
@@ -698,6 +704,7 @@ pub async fn load_model(
         ACTION_MODEL_LOAD,
         RESOURCE_MODEL,
         Some(&model_id),
+        Some(client_ip.0.as_str()),
     )
     .await;
 
@@ -783,6 +790,7 @@ pub async fn load_model(
 pub async fn unload_model(
     State(state): State<AppState>,
     Extension(claims): Extension<Claims>,
+    Extension(client_ip): Extension<ClientIp>,
     Path(model_id): Path<String>,
 ) -> Result<Json<ModelStatusResponse>, (StatusCode, Json<ErrorResponse>)> {
     use tracing::{debug, error, info, warn};
@@ -940,6 +948,7 @@ pub async fn unload_model(
             RESOURCE_MODEL,
             Some(&model_id),
             &format!("Failed to set unloading status: {}", e),
+            Some(client_ip.0.as_str()),
         )
         .await;
         state
@@ -985,6 +994,7 @@ pub async fn unload_model(
             RESOURCE_MODEL,
             Some(&model_id),
             &format!("Failed to unload model: {}", e),
+            Some(client_ip.0.as_str()),
         )
         .await;
         state
@@ -1019,6 +1029,7 @@ pub async fn unload_model(
         ACTION_MODEL_UNLOAD,
         RESOURCE_MODEL,
         Some(&model_id),
+        Some(client_ip.0.as_str()),
     )
     .await;
 
@@ -1435,6 +1446,7 @@ pub async fn validate_model(
 pub async fn import_model(
     State(state): State<AppState>,
     Extension(claims): Extension<Claims>,
+    Extension(client_ip): Extension<ClientIp>,
     Json(req): Json<ImportModelRequest>,
 ) -> Result<Json<ImportModelResponse>, (StatusCode, Json<ErrorResponse>)> {
     use tracing::{error, info, warn};
@@ -1542,6 +1554,7 @@ pub async fn import_model(
                 RESOURCE_MODEL,
                 None,
                 &format!("Failed to import model {}: {}", req.model_name, e),
+                Some(client_ip.0.as_str()),
             )
             .await;
             return Err((
@@ -1571,6 +1584,7 @@ pub async fn import_model(
         ACTION_MODEL_IMPORT,
         RESOURCE_MODEL,
         Some(&model_id),
+        Some(client_ip.0.as_str()),
     )
     .await;
 

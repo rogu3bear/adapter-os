@@ -8,6 +8,7 @@
 use crate::api_error::{ApiError, ApiResult};
 use crate::auth::Claims;
 use crate::handlers::testkit::e2e_enabled;
+use crate::ip_extraction::ClientIp;
 use crate::permissions::{require_permission, Permission};
 use crate::security::validate_tenant_isolation;
 use crate::services::{DefaultTrainingService, TrainingService};
@@ -1941,6 +1942,7 @@ pub async fn get_preprocess_status(
 pub async fn start_training(
     State(state): State<AppState>,
     Extension(claims): Extension<Claims>,
+    Extension(client_ip): Extension<ClientIp>,
     Json(request): Json<StartTrainingRequest>,
 ) -> Result<Json<TrainingJobResponse>, (StatusCode, Json<ErrorResponse>)> {
     require_permission(&claims, Permission::TrainingStart)?;
@@ -2887,6 +2889,7 @@ pub async fn start_training(
                 crate::audit_helper::resources::TRAINING_JOB,
                 Some(&request.adapter_name),
                 &e.to_string(),
+                Some(client_ip.0.as_str()),
             )
             .await
             {
@@ -2905,6 +2908,7 @@ pub async fn start_training(
         crate::audit_helper::actions::TRAINING_START,
         crate::audit_helper::resources::TRAINING_JOB,
         Some(&job.id),
+        Some(client_ip.0.as_str()),
     )
     .await
     {
@@ -3576,6 +3580,7 @@ pub async fn publish_version(
 pub async fn cancel_training(
     State(state): State<AppState>,
     Extension(claims): Extension<Claims>,
+    Extension(client_ip): Extension<ClientIp>,
     Path(job_id): Path<String>,
 ) -> Result<StatusCode, (StatusCode, Json<ErrorResponse>)> {
     require_permission(&claims, Permission::TrainingCancel)?;
@@ -3657,6 +3662,7 @@ pub async fn cancel_training(
                         crate::audit_helper::resources::TRAINING_JOB,
                         Some(&job_id),
                         &e.to_string(),
+                        Some(client_ip.0.as_str()),
                     )
                     .await
                     {
@@ -3692,6 +3698,7 @@ pub async fn cancel_training(
         crate::audit_helper::actions::TRAINING_CANCEL,
         crate::audit_helper::resources::TRAINING_JOB,
         Some(&job_id),
+        Some(client_ip.0.as_str()),
     )
     .await
     {
@@ -3722,6 +3729,7 @@ pub async fn cancel_training(
 pub async fn retry_training(
     State(state): State<AppState>,
     Extension(claims): Extension<Claims>,
+    Extension(client_ip): Extension<ClientIp>,
     Path(job_id): Path<String>,
 ) -> Result<(StatusCode, Json<TrainingJobResponse>), (StatusCode, Json<ErrorResponse>)> {
     require_permission(&claims, Permission::TrainingStart)?;
@@ -3857,6 +3865,7 @@ pub async fn retry_training(
                         crate::audit_helper::resources::TRAINING_JOB,
                         Some(&job_id),
                         &e.to_string(),
+                        Some(client_ip.0.as_str()),
                     )
                     .await
                     {
@@ -3881,6 +3890,7 @@ pub async fn retry_training(
         crate::audit_helper::actions::TRAINING_START,
         crate::audit_helper::resources::TRAINING_JOB,
         Some(&new_job.id),
+        Some(client_ip.0.as_str()),
     )
     .await
     {

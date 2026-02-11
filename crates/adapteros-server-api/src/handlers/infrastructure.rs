@@ -1,4 +1,5 @@
 use crate::auth::Claims;
+use crate::ip_extraction::ClientIp;
 use crate::middleware::require_any_role;
 use crate::permissions::{has_permission, require_permission, Permission};
 use crate::state::AppState;
@@ -68,6 +69,7 @@ pub async fn list_nodes(
 pub async fn register_node(
     State(state): State<AppState>,
     Extension(claims): Extension<Claims>,
+    Extension(client_ip): Extension<ClientIp>,
     Json(req): Json<RegisterNodeRequest>,
 ) -> Result<Json<NodeResponse>, (StatusCode, Json<ErrorResponse>)> {
     require_any_role(&claims, &[Role::Operator])?;
@@ -112,6 +114,7 @@ pub async fn register_node(
         crate::audit_helper::actions::NODE_REGISTER,
         crate::audit_helper::resources::NODE,
         Some(&node.id),
+        Some(client_ip.0.as_str()),
     )
     .await;
 
@@ -244,6 +247,7 @@ pub async fn test_node_connection(
 pub async fn mark_node_offline(
     State(state): State<AppState>,
     Extension(claims): Extension<Claims>,
+    Extension(client_ip): Extension<ClientIp>,
     Path(node_id): Path<String>,
 ) -> Result<StatusCode, (StatusCode, Json<ErrorResponse>)> {
     require_any_role(&claims, &[Role::Operator])?;
@@ -274,6 +278,7 @@ pub async fn mark_node_offline(
         crate::audit_helper::actions::NODE_OFFLINE,
         crate::audit_helper::resources::NODE,
         Some(&node_id),
+        Some(client_ip.0.as_str()),
     )
     .await;
 
@@ -297,6 +302,7 @@ pub async fn mark_node_offline(
 pub async fn evict_node(
     State(state): State<AppState>,
     Extension(claims): Extension<Claims>,
+    Extension(client_ip): Extension<ClientIp>,
     Path(node_id): Path<String>,
 ) -> Result<StatusCode, (StatusCode, Json<ErrorResponse>)> {
     require_any_role(&claims, &[Role::Operator])?;
@@ -348,6 +354,7 @@ pub async fn evict_node(
         crate::audit_helper::actions::NODE_EVICT,
         crate::audit_helper::resources::NODE,
         Some(&node_id),
+        Some(client_ip.0.as_str()),
     )
     .await;
 
@@ -664,8 +671,9 @@ pub async fn list_jobs(
     Query(query): Query<ListJobsQuery>,
 ) -> Result<Json<Vec<JobResponse>>, (StatusCode, Json<ErrorResponse>)> {
     // Generic job surfaces are read-only here; require an existing view permission.
-    require_permission(&claims, Permission::DatasetView)
-        .map_err(|e| <crate::api_error::ApiError as Into<(StatusCode, Json<ErrorResponse>)>>::into(e))?;
+    require_permission(&claims, Permission::DatasetView).map_err(|e| {
+        <crate::api_error::ApiError as Into<(StatusCode, Json<ErrorResponse>)>>::into(e)
+    })?;
 
     // Tenant scoping: default to the caller's tenant. Only tenant managers can
     // query other tenants or unscoped lists.
@@ -686,20 +694,16 @@ pub async fn list_jobs(
         Some(claims.tenant_id.as_str())
     };
 
-    let jobs = state
-        .db
-        .list_jobs(tenant_filter)
-        .await
-        .map_err(|e| {
-            (
-                StatusCode::INTERNAL_SERVER_ERROR,
-                Json(
-                    ErrorResponse::new("database error")
-                        .with_code("DATABASE_ERROR")
-                        .with_string_details(e.to_string()),
-                ),
-            )
-        })?;
+    let jobs = state.db.list_jobs(tenant_filter).await.map_err(|e| {
+        (
+            StatusCode::INTERNAL_SERVER_ERROR,
+            Json(
+                ErrorResponse::new("database error")
+                    .with_code("DATABASE_ERROR")
+                    .with_string_details(e.to_string()),
+            ),
+        )
+    })?;
 
     let response: Vec<JobResponse> = jobs
         .into_iter()
@@ -733,8 +737,9 @@ pub async fn get_job(
     Extension(claims): Extension<Claims>,
     Path(job_id): Path<String>,
 ) -> Result<Json<JobDetailResponse>, (StatusCode, Json<ErrorResponse>)> {
-    require_permission(&claims, Permission::DatasetView)
-        .map_err(|e| <crate::api_error::ApiError as Into<(StatusCode, Json<ErrorResponse>)>>::into(e))?;
+    require_permission(&claims, Permission::DatasetView).map_err(|e| {
+        <crate::api_error::ApiError as Into<(StatusCode, Json<ErrorResponse>)>>::into(e)
+    })?;
 
     let role = Role::from_str(&claims.role).map_err(|_| {
         (
@@ -845,7 +850,14 @@ mod jobs_tests {
         let jwt_secret = b"jobs-test-secret-32-bytes-xxxx!".to_vec();
         let base_tempdir = test_utils::tempdir_with_prefix("aos-test-jobs-");
         let base_dir = base_tempdir.into_path();
-        for dir in ["artifacts", "bundles", "adapters", "plan", "datasets", "documents"] {
+        for dir in [
+            "artifacts",
+            "bundles",
+            "adapters",
+            "plan",
+            "datasets",
+            "documents",
+        ] {
             let path = base_dir.join(dir);
             std::fs::create_dir_all(&path).unwrap();
         }
@@ -886,8 +898,9 @@ mod jobs_tests {
             Arc::new(MetricsExporter::new(vec![0.1, 1.0]).expect("metrics exporter"));
         let metrics_collector = Arc::new(MetricsCollector::new(TelemetryMetricsConfig::default()));
         let metrics_registry = Arc::new(MetricsRegistry::new());
-        let uma_monitor =
-            Arc::new(adapteros_lora_worker::memory::UmaPressureMonitor::new(10, None));
+        let uma_monitor = Arc::new(adapteros_lora_worker::memory::UmaPressureMonitor::new(
+            10, None,
+        ));
 
         AppState::new(
             db,

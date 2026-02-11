@@ -433,6 +433,7 @@ impl DefaultTrainingDatasetService {
             actions::DATASET_CREATE,
             resources::DATASET,
             Some(&dataset_id),
+            None,
         )
         .await;
 
@@ -972,6 +973,7 @@ impl DefaultTrainingDatasetService {
             actions::DOCUMENT_UPLOAD,
             resources::DOCUMENT,
             Some(document_id),
+            None,
         )
         .await;
 
@@ -1357,6 +1359,7 @@ impl TrainingDatasetService for DefaultTrainingDatasetService {
             actions::DOCUMENT_UPLOAD,
             resources::DOCUMENT,
             Some(&document_id),
+            None,
         )
         .await;
 

@@ -6,6 +6,7 @@
 use crate::api_error::ApiError;
 use crate::audit_helper::{actions, log_success_or_warn, resources};
 use crate::auth::Claims;
+use crate::ip_extraction::ClientIp;
 use crate::permissions::{require_permission, Permission};
 use crate::security::validate_tenant_isolation;
 use crate::state::AppState;
@@ -226,6 +227,7 @@ pub struct ChunkResponse {
 pub async fn upload_document(
     State(state): State<AppState>,
     Extension(claims): Extension<Claims>,
+    Extension(client_ip): Extension<ClientIp>,
     mut multipart: Multipart,
 ) -> Result<impl IntoResponse, (StatusCode, Json<ErrorResponse>)> {
     // Check permission
@@ -369,6 +371,7 @@ pub async fn upload_document(
             actions::DOCUMENT_UPLOAD,
             resources::DOCUMENT,
             Some(&existing_doc.id),
+            Some(client_ip.0.as_str()),
         )
         .await;
 
@@ -455,6 +458,7 @@ pub async fn upload_document(
         actions::DOCUMENT_UPLOAD,
         resources::DOCUMENT,
         Some(&document_id),
+        Some(client_ip.0.as_str()),
     )
     .await;
 
@@ -684,6 +688,7 @@ pub async fn get_document(
 pub async fn delete_document(
     State(state): State<AppState>,
     Extension(claims): Extension<Claims>,
+    Extension(client_ip): Extension<ClientIp>,
     Path(id): Path<String>,
 ) -> Result<impl IntoResponse, (StatusCode, Json<ErrorResponse>)> {
     // Check permission
@@ -738,6 +743,7 @@ pub async fn delete_document(
         actions::DOCUMENT_DELETE,
         resources::DOCUMENT,
         Some(&id),
+        Some(client_ip.0.as_str()),
     )
     .await;
 
@@ -924,6 +930,7 @@ pub struct ProcessDocumentResponse {
 pub async fn process_document(
     State(state): State<AppState>,
     Extension(claims): Extension<Claims>,
+    Extension(client_ip): Extension<ClientIp>,
     Path(id): Path<String>,
 ) -> Result<impl IntoResponse, (StatusCode, Json<ErrorResponse>)> {
     // Check permission
@@ -1262,6 +1269,7 @@ async fn process_document_inner(
         actions::DOCUMENT_UPLOAD,
         resources::DOCUMENT,
         Some(document_id),
+        None,
     )
     .await;
 
@@ -1346,6 +1354,7 @@ pub async fn process_document(
 pub async fn retry_document(
     State(state): State<AppState>,
     Extension(claims): Extension<Claims>,
+    Extension(client_ip): Extension<ClientIp>,
     Path(id): Path<String>,
 ) -> Result<impl IntoResponse, (StatusCode, Json<ErrorResponse>)> {
     require_permission(&claims, Permission::DatasetUpload)?;
@@ -1406,6 +1415,7 @@ pub async fn retry_document(
         actions::DOCUMENT_RETRY,
         resources::DOCUMENT,
         Some(&id),
+        Some(client_ip.0.as_str()),
     )
     .await;
 

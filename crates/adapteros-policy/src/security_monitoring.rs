@@ -4,6 +4,7 @@ use crate::threat_detection::{
 };
 use serde::{Deserialize, Serialize};
 use std::time::Duration;
+use tracing;
 
 /// Consolidated security report combining detection and response.
 #[derive(Debug, Clone, Serialize, Deserialize)]
@@ -36,6 +37,13 @@ impl SecurityMonitoringService {
 
     /// Process an individual security signal and generate a report.
     pub fn process_signal(&mut self, signal: ThreatSignal) -> SecurityReport {
+        tracing::debug!(
+            target: "security.monitoring",
+            event_type = %signal.event_type,
+            value = signal.value,
+            "processing security signal"
+        );
+
         let assessment = self.detector.ingest(signal);
         let response_plan = self.responder.execute(&assessment);
         self.detector.prune(self.retention);
@@ -47,6 +55,18 @@ impl SecurityMonitoringService {
                     crate::security_response::ResponseAction::Notify { .. }
                 )
             });
+
+        if !compliant {
+            tracing::warn!(
+                target: "security.monitoring",
+                severity = ?assessment.severity,
+                risk_score = assessment.risk_score,
+                matched_patterns = ?assessment.matched_patterns,
+                anomalies = ?assessment.anomalies,
+                actions_count = response_plan.actions.len(),
+                "non-compliant security signal detected"
+            );
+        }
 
         SecurityReport {
             assessment,

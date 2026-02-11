@@ -4,6 +4,7 @@
 
 use crate::audit_helper::{actions, log_success_or_warn, resources};
 use crate::auth::Claims;
+use crate::ip_extraction::ClientIp;
 use crate::state::AppState;
 use adapteros_api_types::{
     ClearQuarantineRequest, ClearQuarantineResponse, ErrorResponse, QuarantineStatusResponse,
@@ -107,6 +108,7 @@ pub async fn get_quarantine_status(
 pub async fn clear_policy_violations(
     State(state): State<AppState>,
     Extension(claims): Extension<Claims>,
+    Extension(client_ip): Extension<ClientIp>,
     Json(req): Json<ClearQuarantineRequest>,
 ) -> Result<Json<ClearQuarantineResponse>, (StatusCode, Json<ErrorResponse>)> {
     // Require admin role for quarantine clear
@@ -209,6 +211,7 @@ pub async fn clear_policy_violations(
         action,
         resources::POLICY,
         Some(resource_id),
+        Some(client_ip.0.as_str()),
     )
     .await;
 
@@ -264,6 +267,7 @@ pub async fn clear_policy_violations(
 pub async fn rollback_policy_config(
     State(state): State<AppState>,
     Extension(claims): Extension<Claims>,
+    Extension(client_ip): Extension<ClientIp>,
     Json(req): Json<RollbackQuarantineRequest>,
 ) -> Result<Json<RollbackQuarantineResponse>, (StatusCode, Json<ErrorResponse>)> {
     // Require admin role for rollback
@@ -321,6 +325,7 @@ pub async fn rollback_policy_config(
         actions::POLICY_QUARANTINE_ROLLBACK,
         resources::POLICY,
         Some("all"),
+        Some(client_ip.0.as_str()),
     )
     .await;
 

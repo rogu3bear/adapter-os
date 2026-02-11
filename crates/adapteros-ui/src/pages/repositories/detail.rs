@@ -2,8 +2,12 @@
 
 use super::helpers::format_datetime;
 use super::list::RepoStatusBadge;
-use crate::api::{ApiClient, RepositoryDetailResponse, ScanRepositoryRequest};
-use crate::components::{Button, ButtonSize, ButtonVariant, Card, DetailRow, Spinner};
+use crate::api::{
+    report_error_with_toast, ApiClient, RepositoryDetailResponse, ScanRepositoryRequest,
+};
+use crate::components::{
+    Button, ButtonSize, ButtonVariant, Card, DetailRow, ErrorDisplay, Spinner,
+};
 use crate::hooks::{use_api_resource, LoadingState};
 use crate::signals::use_auth;
 use leptos::prelude::*;
@@ -80,9 +84,7 @@ pub fn RepositoryDetailPanel(
                     }
                     LoadingState::Error(e) => {
                         view! {
-                            <div class="rounded-lg border border-destructive bg-destructive/10 p-4">
-                                <p class="text-destructive">{e.to_string()}</p>
-                            </div>
+                            <ErrorDisplay error=e/>
                         }.into_any()
                     }
                 }
@@ -133,9 +135,7 @@ pub fn RepositoryDetailStandalone(repo_id: String) -> impl IntoView {
                     }
                     LoadingState::Error(e) => {
                         view! {
-                            <div class="rounded-lg border border-destructive bg-destructive/10 p-4">
-                                <p class="text-destructive">{e.to_string()}</p>
-                            </div>
+                            <ErrorDisplay error=e/>
                         }.into_any()
                     }
                 }
@@ -184,7 +184,9 @@ fn RepositoryContent(
                                             commit: "HEAD".to_string(),
                                             full_scan: true,
                                         };
-                                        let _ = client.scan_repository(&request).await;
+                                        if let Err(e) = client.scan_repository(&request).await {
+                                            report_error_with_toast(&e, "Failed to scan repository", Some("/repositories"), true);
+                                        }
                                         syncing.set(false);
                                     });
                                 }

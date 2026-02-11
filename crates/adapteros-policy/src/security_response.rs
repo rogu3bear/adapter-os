@@ -1,6 +1,7 @@
 use crate::threat_detection::{ThreatAssessment, ThreatSeverity};
 use serde::{Deserialize, Serialize};
 use std::time::{Duration, SystemTime};
+use tracing;
 
 /// Response actions executed by the security response engine.
 #[derive(Debug, Clone, PartialEq, Serialize, Deserialize)]
@@ -96,6 +97,16 @@ impl SecurityResponseEngine {
         }
 
         self.audit_trail.extend(audit_entries.iter().cloned());
+
+        for action in &actions {
+            tracing::info!(
+                target: "security.response",
+                severity = ?assessment.severity,
+                risk_score = assessment.risk_score,
+                action = ?action,
+                "security response action executed"
+            );
+        }
 
         ResponsePlan {
             severity: assessment.severity,

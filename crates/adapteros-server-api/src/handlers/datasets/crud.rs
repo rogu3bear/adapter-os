@@ -7,6 +7,7 @@ use super::helpers::{
 use super::types::ListDatasetsQuery;
 use crate::api_error::ApiError;
 use crate::auth::Claims;
+use crate::ip_extraction::ClientIp;
 use crate::permissions::{require_permission, Permission};
 use crate::security::validate_tenant_isolation;
 use crate::state::AppState;
@@ -242,6 +243,7 @@ pub async fn get_dataset(
 pub async fn delete_dataset(
     State(state): State<AppState>,
     Extension(claims): Extension<crate::auth::Claims>,
+    Extension(client_ip): Extension<ClientIp>,
     Path(dataset_id): Path<String>,
 ) -> Result<impl IntoResponse, ApiError> {
     let dataset_id = crate::id_resolver::resolve_any_id(&state.db, &dataset_id).await?;
@@ -308,6 +310,7 @@ pub async fn delete_dataset(
         crate::audit_helper::actions::DATASET_DELETE,
         crate::audit_helper::resources::DATASET,
         Some(&dataset_id),
+        Some(client_ip.0.as_str()),
     )
     .await
     {

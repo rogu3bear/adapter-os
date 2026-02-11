@@ -24,6 +24,7 @@ use crate::api_error::{ApiError, ApiResult};
 use crate::auth::Claims;
 use crate::handlers::rag_common::reconstruct_rag_context;
 use crate::inference_core::InferenceCore;
+use crate::ip_extraction::ClientIp;
 use crate::permissions::{require_permission, Permission};
 use crate::security::validate_tenant_isolation;
 use crate::state::AppState;
@@ -389,6 +390,7 @@ pub async fn create_replay_session(
 pub async fn verify_replay_session(
     State(state): State<AppState>,
     Extension(claims): Extension<Claims>,
+    Extension(client_ip): Extension<ClientIp>,
     Path(session_id): Path<String>,
 ) -> ApiResult<ReplayVerificationResponse> {
     require_permission(&claims, Permission::ReplayManage)?;
@@ -528,6 +530,7 @@ pub async fn verify_replay_session(
         crate::audit_helper::resources::REPLAY_SESSION,
         Some(&session_id),
         audit_metadata,
+        Some(client_ip.0.as_str()),
     )
     .await
     {
@@ -1112,6 +1115,7 @@ fn compute_seed_lineage_hash(
 pub async fn verify_trace_receipt(
     State(state): State<AppState>,
     Extension(claims): Extension<Claims>,
+    Extension(client_ip): Extension<ClientIp>,
     Json(req): Json<TraceVerifyRequest>,
 ) -> ApiResult<ReceiptVerificationResult> {
     require_permission(&claims, Permission::ReplayManage)?;
@@ -1186,6 +1190,7 @@ pub async fn verify_trace_receipt(
         crate::audit_helper::resources::REPLAY_SESSION,
         Some(&req.trace_id),
         audit_metadata,
+        Some(client_ip.0.as_str()),
     )
     .await
     {
@@ -1277,6 +1282,7 @@ pub(crate) fn verify_bundle_bytes(bytes: &[u8]) -> Result<ReceiptVerificationRes
 pub async fn verify_bundle_receipt(
     State(state): State<AppState>,
     Extension(claims): Extension<Claims>,
+    Extension(client_ip): Extension<ClientIp>,
     mut multipart: Multipart,
 ) -> ApiResult<ReceiptVerificationResult> {
     require_permission(&claims, Permission::ReplayManage)?;
@@ -1324,6 +1330,7 @@ pub async fn verify_bundle_receipt(
         crate::audit_helper::resources::REPLAY_SESSION,
         Some(&report.trace_id),
         audit_metadata,
+        Some(client_ip.0.as_str()),
     )
     .await
     {

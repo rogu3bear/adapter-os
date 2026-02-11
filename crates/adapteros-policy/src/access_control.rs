@@ -1,5 +1,6 @@
 use serde::{Deserialize, Serialize};
 use std::collections::{HashMap, HashSet};
+use tracing;
 
 /// Role definition with explicit permissions.
 #[derive(Debug, Clone, Serialize, Deserialize, PartialEq, Eq)]
@@ -81,6 +82,16 @@ impl AccessControlManager {
             .get(&(user.to_string(), tenant.to_string()))
         else {
             reasons.push(format!("User {} has no roles in tenant {}", user, tenant));
+            tracing::warn!(
+                target: "security.authz",
+                user,
+                tenant,
+                action = %policy.action,
+                permission = %policy.required_permission,
+                allowed = false,
+                reasons = ?reasons,
+                "access denied"
+            );
             return AccessDecision {
                 allowed: false,
                 reasons,
@@ -100,6 +111,15 @@ impl AccessControlManager {
         }
 
         if permissions.contains(&policy.required_permission) {
+            tracing::debug!(
+                target: "security.authz",
+                user,
+                tenant,
+                action = %policy.action,
+                permission = %policy.required_permission,
+                allowed = true,
+                "access granted"
+            );
             AccessDecision {
                 allowed: true,
                 reasons,
@@ -109,6 +129,16 @@ impl AccessControlManager {
                 "Missing permission {} for action {}",
                 policy.required_permission, policy.action
             ));
+            tracing::warn!(
+                target: "security.authz",
+                user,
+                tenant,
+                action = %policy.action,
+                permission = %policy.required_permission,
+                allowed = false,
+                reasons = ?reasons,
+                "access denied"
+            );
             AccessDecision {
                 allowed: false,
                 reasons,

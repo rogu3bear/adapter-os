@@ -2,6 +2,7 @@
 #![allow(ambiguous_glob_reexports)]
 
 use crate::auth::Claims;
+use crate::ip_extraction::ClientIp;
 use crate::middleware::require_any_role;
 use crate::permissions::{require_permission, Permission};
 use crate::security::validate_tenant_isolation;
@@ -1707,6 +1708,7 @@ pub async fn get_adapter(
 pub async fn register_adapter(
     State(state): State<AppState>,
     Extension(claims): Extension<Claims>,
+    Extension(client_ip): Extension<ClientIp>,
     Json(req): Json<RegisterAdapterRequest>,
 ) -> Result<(StatusCode, Json<AdapterResponse>), (StatusCode, Json<ErrorResponse>)> {
     // Role check: Operator and Admin can register adapters
@@ -1870,6 +1872,7 @@ pub async fn register_adapter(
                             crate::audit_helper::resources::ADAPTER,
                             Some(&req.adapter_id),
                             &format!("Naming policy violation: {}", e),
+                            Some(client_ip.0.as_str()),
                         )
                         .await;
 
@@ -1924,6 +1927,7 @@ pub async fn register_adapter(
                 crate::audit_helper::resources::ADAPTER,
                 Some(&req.adapter_id),
                 &format!("Failed to register adapter: {}", e),
+                Some(client_ip.0.as_str()),
             )
             .await;
             return Err((
@@ -1944,6 +1948,7 @@ pub async fn register_adapter(
         crate::audit_helper::actions::ADAPTER_REGISTER,
         crate::audit_helper::resources::ADAPTER,
         Some(&req.adapter_id),
+        Some(client_ip.0.as_str()),
     )
     .await;
 
@@ -2014,6 +2019,7 @@ pub async fn register_adapter(
 pub async fn delete_adapter(
     State(state): State<AppState>,
     Extension(claims): Extension<Claims>,
+    Extension(client_ip): Extension<ClientIp>,
     Path(adapter_id): Path<String>,
 ) -> Result<StatusCode, (StatusCode, Json<ErrorResponse>)> {
     // Role check: Admin-only (destructive operation)
@@ -2057,6 +2063,7 @@ pub async fn delete_adapter(
             crate::audit_helper::resources::ADAPTER,
             Some(&adapter_id),
             &format!("Failed to delete adapter: {}", e),
+            Some(client_ip.0.as_str()),
         )
         .await;
         return Err((
@@ -2076,6 +2083,7 @@ pub async fn delete_adapter(
         crate::audit_helper::actions::ADAPTER_DELETE,
         crate::audit_helper::resources::ADAPTER,
         Some(&adapter_id),
+        Some(client_ip.0.as_str()),
     )
     .await;
 

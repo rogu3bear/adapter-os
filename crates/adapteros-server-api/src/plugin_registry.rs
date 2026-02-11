@@ -5,6 +5,7 @@
 use adapteros_core::{Plugin, PluginConfig, PluginHealth, PluginStatus, Result};
 use adapteros_db::tenants::Tenant;
 use adapteros_db::ProtectedDb;
+use futures::FutureExt;
 use std::collections::HashMap;
 use std::sync::Arc;
 use tokio::sync::RwLock;
@@ -14,7 +15,7 @@ use tracing::{error, warn};
 #[derive(Clone)]
 pub struct PluginRegistry {
     plugins: Arc<RwLock<HashMap<String, Arc<dyn Plugin + Send + Sync>>>>,
-    tasks: Arc<RwLock<HashMap<String, JoinHandle<Result<()>>>>>,
+    tasks: Arc<RwLock<HashMap<String, JoinHandle<()>>>>,
     db: ProtectedDb,
 }
 
@@ -64,22 +65,33 @@ impl PluginRegistry {
         let name_clone = name.to_string();
         let config_clone = config.clone();
         let handle = tokio::spawn(async move {
-            let mut interval = tokio::time::interval(tokio::time::Duration::from_secs(30));
-            loop {
-                interval.tick().await;
-                match plugin_clone.health_check().await {
-                    Ok(health) => {
-                        if let PluginStatus::Failed(_) = health.status {
-                            warn!("Plugin {} has failed, attempting restart", name_clone);
-                            if let Err(e) = plugin_clone.reload(&config_clone).await {
-                                error!("Failed to restart plugin {}: {}", name_clone, e);
+            if let Err(panic) = std::panic::AssertUnwindSafe(async move {
+                let mut interval = tokio::time::interval(tokio::time::Duration::from_secs(30));
+                loop {
+                    interval.tick().await;
+                    match plugin_clone.health_check().await {
+                        Ok(health) => {
+                            if let PluginStatus::Failed(_) = health.status {
+                                warn!("Plugin {} has failed, attempting restart", name_clone);
+                                if let Err(e) = plugin_clone.reload(&config_clone).await {
+                                    error!("Failed to restart plugin {}: {}", name_clone, e);
+                                }
                             }
                         }
-                    }
-                    Err(e) => {
-                        error!("Health check failed for plugin {}: {}", name_clone, e);
+                        Err(e) => {
+                            error!("Health check failed for plugin {}: {}", name_clone, e);
+                        }
                     }
                 }
+            })
+            .catch_unwind()
+            .await
+            {
+                tracing::error!(
+                    task = "plugin_supervisor",
+                    "background task panicked: {:?}",
+                    panic
+                );
             }
         });
 

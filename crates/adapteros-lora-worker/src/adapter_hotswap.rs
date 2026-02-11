@@ -28,11 +28,13 @@ use adapteros_core::{
 use adapteros_telemetry::{
     make_health_payload, CriticalComponentMetrics, HealthEventKind, TelemetryWriter,
 };
+use futures_util::FutureExt;
 use parking_lot::RwLock;
 use serde::{Deserialize, Serialize};
 use serde_json::json;
 use std::collections::{HashMap, HashSet};
 use std::fs;
+use std::panic::AssertUnwindSafe;
 use std::path::Path;
 use std::sync::atomic::{AtomicUsize, Ordering};
 use std::sync::Arc;
@@ -1532,105 +1534,109 @@ where
         // Spawn background retirement task with periodic processing and backoff
         // Workstream 7: Enhanced to include memory-pressure-based cleanup
         tokio::spawn(async move {
-            use crate::backoff::{BackoffConfig, CircuitBreaker as BackoffCircuitBreaker};
+            if let Err(panic) = AssertUnwindSafe(async move {
+                use crate::backoff::{BackoffConfig, CircuitBreaker as BackoffCircuitBreaker};
 
-            let backoff =
-                BackoffConfig::new(Duration::from_millis(500), Duration::from_secs(60), 2.0, 5);
-            let circuit_breaker = BackoffCircuitBreaker::new(5, Duration::from_secs(120));
-            let mut consecutive_failures = 0u32;
+                let backoff =
+                    BackoffConfig::new(Duration::from_millis(500), Duration::from_secs(60), 2.0, 5);
+                let circuit_breaker = BackoffCircuitBreaker::new(5, Duration::from_secs(120));
+                let mut consecutive_failures = 0u32;
 
-            // Periodic cleanup every 30 seconds
-            let mut cleanup_interval = tokio::time::interval(Duration::from_secs(30));
-            cleanup_interval.set_missed_tick_behavior(tokio::time::MissedTickBehavior::Skip);
+                // Periodic cleanup every 30 seconds
+                let mut cleanup_interval = tokio::time::interval(Duration::from_secs(30));
+                cleanup_interval.set_missed_tick_behavior(tokio::time::MissedTickBehavior::Skip);
 
-            loop {
-                tokio::select! {
-                    _ = rx.recv() => {
-                        tracing::debug!("Retirement signal received");
-                    }
-                    _ = sleep(Duration::from_secs(5)) => {
-                        tracing::debug!("Periodic retirement check");
-                    }
-                    _ = cleanup_interval.tick() => {
-                        // Workstream 7: Check memory pressure and force cleanup if needed
-                        if let Some(ref mem_monitor) = memory_monitor_for_task {
-                            let pressure = mem_monitor.get_current_pressure();
-                            if pressure >= crate::memory::MemoryPressureLevel::High {
-                                tracing::warn!(
-                                    pressure = %pressure,
-                                    "Memory pressure detected, forcing retired adapter cleanup"
-                                );
-                                match table_clone.force_cleanup_retired(kernels_clone.clone()).await {
-                                    Ok(cleaned) => {
-                                        if cleaned > 0 {
-                                            tracing::info!(
-                                                cleaned_stacks = cleaned,
-                                                "Force cleanup completed due to memory pressure"
+                loop {
+                    tokio::select! {
+                        _ = rx.recv() => {
+                            tracing::debug!("Retirement signal received");
+                        }
+                        _ = sleep(Duration::from_secs(5)) => {
+                            tracing::debug!("Periodic retirement check");
+                        }
+                        _ = cleanup_interval.tick() => {
+                            // Workstream 7: Check memory pressure and force cleanup if needed
+                            if let Some(ref mem_monitor) = memory_monitor_for_task {
+                                let pressure = mem_monitor.get_current_pressure();
+                                if pressure >= crate::memory::MemoryPressureLevel::High {
+                                    tracing::warn!(
+                                        pressure = %pressure,
+                                        "Memory pressure detected, forcing retired adapter cleanup"
+                                    );
+                                    match table_clone.force_cleanup_retired(kernels_clone.clone()).await {
+                                        Ok(cleaned) => {
+                                            if cleaned > 0 {
+                                                tracing::info!(
+                                                    cleaned_stacks = cleaned,
+                                                    "Force cleanup completed due to memory pressure"
+                                                );
+                                            }
+                                        }
+                                        Err(e) => {
+                                            tracing::error!(
+                                                error = %e,
+                                                "Force cleanup failed during memory pressure"
                                             );
                                         }
-                                    }
-                                    Err(e) => {
-                                        tracing::error!(
-                                            error = %e,
-                                            "Force cleanup failed during memory pressure"
-                                        );
                                     }
                                 }
                             }
                         }
                     }
-                }
 
-                // Check circuit breaker state
-                if circuit_breaker.is_open() {
-                    tracing::warn!(
-                        failure_count = circuit_breaker.failure_count(),
-                        "Retirement task circuit breaker is open, pausing"
-                    );
-                    sleep(circuit_breaker.reset_timeout()).await;
-                    continue;
-                }
-
-                // Process retired stacks
-                match table_clone
-                    .process_retired_stacks(kernels_clone.clone())
-                    .await
-                {
-                    Ok(_) => {
-                        // Success - reset backoff and circuit breaker
-                        circuit_breaker.record_success();
-                        consecutive_failures = 0;
-                    }
-                    Err(e) => {
-                        // Failure - record and apply backoff
-                        circuit_breaker.record_failure();
-                        consecutive_failures += 1;
-
-                        tracing::error!(
-                            error = %e,
-                            consecutive_failures = consecutive_failures,
-                            "Error in retirement task"
-                        );
-
-                        // Apply exponential backoff
-                        let delay = backoff.next_delay(consecutive_failures);
+                    // Check circuit breaker state
+                    if circuit_breaker.is_open() {
                         tracing::warn!(
-                            delay_ms = delay.as_millis(),
-                            "Applying backoff delay to retirement task"
+                            failure_count = circuit_breaker.failure_count(),
+                            "Retirement task circuit breaker is open, pausing"
                         );
-                        sleep(delay).await;
+                        sleep(circuit_breaker.reset_timeout()).await;
+                        continue;
+                    }
 
-                        // If we've exceeded max retries, wait longer before trying again
-                        if backoff.should_give_up(consecutive_failures) {
+                    // Process retired stacks
+                    match table_clone
+                        .process_retired_stacks(kernels_clone.clone())
+                        .await
+                    {
+                        Ok(_) => {
+                            // Success - reset backoff and circuit breaker
+                            circuit_breaker.record_success();
+                            consecutive_failures = 0;
+                        }
+                        Err(e) => {
+                            // Failure - record and apply backoff
+                            circuit_breaker.record_failure();
+                            consecutive_failures += 1;
+
                             tracing::error!(
-                                "Retirement task has failed {} times, entering extended backoff",
-                                consecutive_failures
+                                error = %e,
+                                consecutive_failures = consecutive_failures,
+                                "Error in retirement task"
                             );
-                            sleep(Duration::from_secs(300)).await; // 5 minute extended backoff
-                            consecutive_failures = 0; // Reset after extended backoff
+
+                            // Apply exponential backoff
+                            let delay = backoff.next_delay(consecutive_failures);
+                            tracing::warn!(
+                                delay_ms = delay.as_millis(),
+                                "Applying backoff delay to retirement task"
+                            );
+                            sleep(delay).await;
+
+                            // If we've exceeded max retries, wait longer before trying again
+                            if backoff.should_give_up(consecutive_failures) {
+                                tracing::error!(
+                                    "Retirement task has failed {} times, entering extended backoff",
+                                    consecutive_failures
+                                );
+                                sleep(Duration::from_secs(300)).await; // 5 minute extended backoff
+                                consecutive_failures = 0; // Reset after extended backoff
+                            }
                         }
                     }
                 }
+            }).catch_unwind().await {
+                tracing::error!(task = "adapter_retirement", "background task panicked: {:?}", panic);
             }
         });
 
@@ -2998,46 +3004,64 @@ where
     {
         let manager = self.clone();
         tokio::spawn(async move {
-            loop {
-                tokio::select! {
-                    _ = shutdown_rx.changed() => {
-                        tracing::info!("Retirement task received shutdown signal");
-                        break;
+            if let Err(panic) = AssertUnwindSafe(async move {
+                loop {
+                    tokio::select! {
+                        _ = shutdown_rx.changed() => {
+                            tracing::info!("Retirement task received shutdown signal");
+                            break;
+                        }
+                        _ = tokio::time::sleep(tokio::time::Duration::from_millis(50)) => {}
                     }
-                    _ = tokio::time::sleep(tokio::time::Duration::from_millis(50)) => {}
-                }
 
-                // Collect stacks to potentially unload (don't hold lock during processing)
-                let stacks_to_check: Vec<_> = {
-                    let retired_guard = manager.table.retired_stacks().lock().await;
-                    retired_guard.clone() // Clone the stacks to avoid holding lock
-                };
-
-                // Process each stack
-                for stack in stacks_to_check {
-                    let can_unload = {
-                        let refcounts_guard = manager.table.refcounts().lock().await;
-                        stack.active.iter().all(|(id, _)| {
-                            refcounts_guard
-                                .get(id)
-                                .is_some_and(|rc| rc.load(Ordering::Relaxed) == 0)
-                        })
+                    // Collect stacks to potentially unload (don't hold lock during processing)
+                    let stacks_to_check: Vec<_> = {
+                        let retired_guard = manager.table.retired_stacks().lock().await;
+                        retired_guard.clone() // Clone the stacks to avoid holding lock
                     };
 
-                    if can_unload {
-                        if let Some(kernels) = &manager.kernels {
-                            let mut k_lock = kernels.lock().await;
-                            let mut unload_failed = false;
-                            for id in stack.active.keys() {
-                                let id_u16 = adapter_id_to_u16(id);
-                                if let Err(e) = k_lock.detach_adapter(id_u16) {
-                                    tracing::warn!("Failed to unload adapter {}: {}", id, e);
-                                    unload_failed = true;
-                                    break; // Retry next time
+                    // Process each stack
+                    for stack in stacks_to_check {
+                        let can_unload = {
+                            let refcounts_guard = manager.table.refcounts().lock().await;
+                            stack.active.iter().all(|(id, _)| {
+                                refcounts_guard
+                                    .get(id)
+                                    .is_some_and(|rc| rc.load(Ordering::Relaxed) == 0)
+                            })
+                        };
+
+                        if can_unload {
+                            if let Some(kernels) = &manager.kernels {
+                                let mut k_lock = kernels.lock().await;
+                                let mut unload_failed = false;
+                                for id in stack.active.keys() {
+                                    let id_u16 = adapter_id_to_u16(id);
+                                    if let Err(e) = k_lock.detach_adapter(id_u16) {
+                                        tracing::warn!("Failed to unload adapter {}: {}", id, e);
+                                        unload_failed = true;
+                                        break; // Retry next time
+                                    }
                                 }
-                            }
-                            if !unload_failed {
-                                // Remove from retired stacks
+                                if !unload_failed {
+                                    // Remove from retired stacks
+                                    let mut retired_guard =
+                                        manager.table.retired_stacks().lock().await;
+                                    if let Some(pos) = retired_guard
+                                        .iter()
+                                        .position(|s| s.generation == stack.generation)
+                                    {
+                                        retired_guard.remove(pos);
+                                    }
+                                    tracing::info!(
+                                        "Unloaded retired stack generation {}",
+                                        stack.generation
+                                    );
+                                    drop(retired_guard);
+                                    manager.table.record_adapter_cache_bytes().await;
+                                }
+                            } else {
+                                // No kernel backend, just remove
                                 let mut retired_guard = manager.table.retired_stacks().lock().await;
                                 if let Some(pos) = retired_guard
                                     .iter()
@@ -3045,36 +3069,30 @@ where
                                 {
                                     retired_guard.remove(pos);
                                 }
-                                tracing::info!(
-                                    "Unloaded retired stack generation {}",
-                                    stack.generation
-                                );
+                                tracing::info!("Unloaded retired stack (no kernels)");
                                 drop(retired_guard);
                                 manager.table.record_adapter_cache_bytes().await;
                             }
-                        } else {
-                            // No kernel backend, just remove
-                            let mut retired_guard = manager.table.retired_stacks().lock().await;
-                            if let Some(pos) = retired_guard
-                                .iter()
-                                .position(|s| s.generation == stack.generation)
-                            {
-                                retired_guard.remove(pos);
-                            }
-                            tracing::info!("Unloaded retired stack (no kernels)");
-                            drop(retired_guard);
-                            manager.table.record_adapter_cache_bytes().await;
                         }
                     }
-                }
 
-                let drained = manager.table.store().drain_retired();
-                if !drained.is_empty() {
-                    tracing::debug!(
-                        generations = ?drained,
-                        "Drained adapter index generations"
-                    );
+                    let drained = manager.table.store().drain_retired();
+                    if !drained.is_empty() {
+                        tracing::debug!(
+                            generations = ?drained,
+                            "Drained adapter index generations"
+                        );
+                    }
                 }
+            })
+            .catch_unwind()
+            .await
+            {
+                tracing::error!(
+                    task = "hotswap_retirement",
+                    "background task panicked: {:?}",
+                    panic
+                );
             }
         })
     }

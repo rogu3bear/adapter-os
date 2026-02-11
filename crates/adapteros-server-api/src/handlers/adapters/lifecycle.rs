@@ -11,6 +11,7 @@ use crate::audit_helper::log_preflight_result;
 use crate::auth::Claims;
 use crate::handlers::adapters::preflight_adapter::run_api_preflight;
 use crate::handlers::workspaces::build_active_state_response;
+use crate::ip_extraction::ClientIp;
 use crate::permissions::{require_permission, Permission};
 use crate::services::{AdapterService, DefaultAdapterService};
 use crate::state::AppState;
@@ -123,6 +124,7 @@ pub struct AdapterActivateRequest {
 pub async fn activate_adapter(
     State(state): State<AppState>,
     Extension(claims): Extension<Claims>,
+    Extension(client_ip): Extension<ClientIp>,
     Path(adapter_id): Path<String>,
     Json(req): Json<AdapterActivateRequest>,
 ) -> Result<
@@ -213,7 +215,14 @@ pub async fn activate_adapter(
     let preflight_result = run_api_preflight(&adapter, &state.db, &preflight_config).await;
 
     // Audit log the preflight result including any bypasses used (Gap 4 fix)
-    log_preflight_result(&state.db, &claims, &adapter_id, &preflight_result).await;
+    log_preflight_result(
+        &state.db,
+        &claims,
+        &adapter_id,
+        &preflight_result,
+        Some(client_ip.0.as_str()),
+    )
+    .await;
 
     if !preflight_result.passed {
         // Get primary error code for the response
@@ -418,6 +427,7 @@ pub async fn activate_adapter(
 pub async fn promote_adapter_lifecycle(
     State(state): State<AppState>,
     Extension(claims): Extension<Claims>,
+    Extension(client_ip): Extension<ClientIp>,
     Path(adapter_id): Path<String>,
     Json(req): Json<LifecycleTransitionRequest>,
 ) -> Result<Json<LifecycleTransitionResponse>, (StatusCode, Json<ErrorResponse>)> {
@@ -481,6 +491,7 @@ pub async fn promote_adapter_lifecycle(
         crate::audit_helper::actions::ADAPTER_LIFECYCLE_PROMOTE,
         crate::audit_helper::resources::ADAPTER,
         Some(&adapter_id),
+        Some(client_ip.0.as_str()),
     )
     .await
     {
@@ -530,6 +541,7 @@ pub async fn promote_adapter_lifecycle(
 pub async fn demote_adapter_lifecycle(
     State(state): State<AppState>,
     Extension(claims): Extension<Claims>,
+    Extension(client_ip): Extension<ClientIp>,
     Path(adapter_id): Path<String>,
     Json(req): Json<LifecycleTransitionRequest>,
 ) -> Result<Json<LifecycleTransitionResponse>, (StatusCode, Json<ErrorResponse>)> {
@@ -593,6 +605,7 @@ pub async fn demote_adapter_lifecycle(
         crate::audit_helper::actions::ADAPTER_LIFECYCLE_DEMOTE,
         crate::audit_helper::resources::ADAPTER,
         Some(&adapter_id),
+        Some(client_ip.0.as_str()),
     )
     .await
     {

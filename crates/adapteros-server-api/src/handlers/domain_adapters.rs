@@ -2,6 +2,7 @@ use crate::adapter_helpers::fetch_adapter_for_tenant;
 use crate::api_error::{ApiError, ApiResult};
 use crate::auth::Claims;
 use crate::inference_core::InferenceCore;
+use crate::ip_extraction::ClientIp;
 use crate::permissions::{require_permission, Permission};
 use crate::security::validate_tenant_isolation;
 use crate::state::AppState;
@@ -148,6 +149,7 @@ pub async fn get_domain_adapter(
 pub async fn create_domain_adapter(
     State(state): State<AppState>,
     Extension(claims): Extension<Claims>,
+    Extension(client_ip): Extension<ClientIp>,
     Json(req): Json<CreateDomainAdapterRequest>,
 ) -> Result<Json<DomainAdapterResponse>, (StatusCode, Json<ErrorResponse>)> {
     require_permission(&claims, Permission::AdapterRegister)?;
@@ -244,6 +246,7 @@ pub async fn create_domain_adapter(
         crate::audit_helper::actions::DOMAIN_ADAPTER_CREATE,
         crate::audit_helper::resources::DOMAIN_ADAPTER,
         Some(&id),
+        Some(client_ip.0.as_str()),
     )
     .await
     {
@@ -291,6 +294,7 @@ pub async fn create_domain_adapter(
 pub async fn load_domain_adapter(
     State(state): State<AppState>,
     Extension(claims): Extension<Claims>,
+    Extension(client_ip): Extension<ClientIp>,
     Path(adapter_id): Path<String>,
     Json(_req): Json<LoadDomainAdapterRequest>,
 ) -> ApiResult<DomainAdapterResponse> {
@@ -383,6 +387,7 @@ pub async fn load_domain_adapter(
         crate::audit_helper::actions::DOMAIN_ADAPTER_LOAD,
         crate::audit_helper::resources::DOMAIN_ADAPTER,
         Some(&adapter_id),
+        Some(client_ip.0.as_str()),
     )
     .await
     {
@@ -407,6 +412,7 @@ pub async fn load_domain_adapter(
 pub async fn unload_domain_adapter(
     State(state): State<AppState>,
     Extension(claims): Extension<Claims>,
+    Extension(client_ip): Extension<ClientIp>,
     Path(adapter_id): Path<String>,
 ) -> ApiResult<DomainAdapterResponse> {
     require_permission(&claims, Permission::AdapterLoad)?;
@@ -452,6 +458,7 @@ pub async fn unload_domain_adapter(
         crate::audit_helper::actions::DOMAIN_ADAPTER_UNLOAD,
         crate::audit_helper::resources::DOMAIN_ADAPTER,
         Some(&adapter_id),
+        Some(client_ip.0.as_str()),
     )
     .await
     {
@@ -678,6 +685,7 @@ pub async fn get_domain_adapter_manifest(
 pub async fn execute_domain_adapter(
     State(state): State<AppState>,
     Extension(claims): Extension<Claims>,
+    Extension(client_ip): Extension<ClientIp>,
     Path(adapter_id): Path<String>,
     Json(input_data): Json<serde_json::Value>,
 ) -> ApiResult<DomainAdapterExecutionResponse> {
@@ -756,6 +764,7 @@ pub async fn execute_domain_adapter(
         crate::audit_helper::actions::DOMAIN_ADAPTER_EXECUTE,
         crate::audit_helper::resources::DOMAIN_ADAPTER,
         Some(&adapter_id),
+        Some(client_ip.0.as_str()),
     )
     .await
     {
@@ -792,6 +801,7 @@ pub async fn execute_domain_adapter(
 pub async fn delete_domain_adapter(
     State(state): State<AppState>,
     Extension(claims): Extension<Claims>,
+    Extension(client_ip): Extension<ClientIp>,
     Path(adapter_id): Path<String>,
 ) -> Result<StatusCode, ApiError> {
     require_permission(&claims, Permission::AdapterRegister)?;
@@ -824,6 +834,7 @@ pub async fn delete_domain_adapter(
             crate::audit_helper::resources::DOMAIN_ADAPTER,
             Some(&adapter_id),
             "Adapter is pinned and cannot be deleted",
+            Some(client_ip.0.as_str()),
         )
         .await
         {
@@ -856,6 +867,7 @@ pub async fn delete_domain_adapter(
         crate::audit_helper::actions::DOMAIN_ADAPTER_DELETE,
         crate::audit_helper::resources::DOMAIN_ADAPTER,
         Some(&adapter_id),
+        Some(client_ip.0.as_str()),
     )
     .await
     {

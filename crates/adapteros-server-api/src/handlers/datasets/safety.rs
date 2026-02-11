@@ -31,6 +31,7 @@ use super::types::{
 use crate::api_error::ApiError;
 use crate::audit_helper;
 use crate::auth::Claims;
+use crate::ip_extraction::ClientIp;
 use crate::permissions::{require_permission, Permission};
 use crate::security::validate_tenant_isolation;
 use crate::state::AppState;
@@ -766,6 +767,7 @@ async fn load_signal_evidence(
 pub async fn update_dataset_safety(
     State(state): State<AppState>,
     Extension(claims): Extension<Claims>,
+    Extension(client_ip): Extension<ClientIp>,
     Path(dataset_id): Path<String>,
     Json(body): Json<UpdateDatasetSafetyRequest>,
 ) -> Result<impl IntoResponse, ApiError> {
@@ -825,6 +827,7 @@ pub async fn update_dataset_safety(
         audit_helper::actions::DATASET_SAFETY_UPDATE,
         audit_helper::resources::DATASET_VERSION,
         Some(&version_id),
+        Some(client_ip.0.as_str()),
     )
     .await;
 
@@ -866,6 +869,7 @@ pub async fn update_dataset_safety(
 pub async fn override_dataset_trust(
     State(state): State<AppState>,
     Extension(claims): Extension<Claims>,
+    Extension(client_ip): Extension<ClientIp>,
     Path(dataset_id): Path<String>,
     Json(body): Json<TrustOverrideRequest>,
 ) -> Result<impl IntoResponse, ApiError> {
@@ -910,6 +914,7 @@ pub async fn override_dataset_trust(
         audit_helper::actions::DATASET_TRUST_OVERRIDE,
         audit_helper::resources::DATASET_VERSION,
         Some(&version_id),
+        Some(client_ip.0.as_str()),
     )
     .await;
 
@@ -1040,6 +1045,7 @@ pub async fn preview_dataset(
 pub async fn apply_dataset_trust_override(
     State(state): State<AppState>,
     Extension(claims): Extension<Claims>,
+    Extension(client_ip): Extension<ClientIp>,
     Path(dataset_id): Path<String>,
     Json(payload): Json<DatasetTrustOverrideRequest>,
 ) -> Result<impl IntoResponse, ApiError> {
@@ -1093,6 +1099,7 @@ pub async fn apply_dataset_trust_override(
         audit_helper::actions::DATASET_TRUST_OVERRIDE,
         audit_helper::resources::DATASET_VERSION,
         Some(&version_id),
+        Some(client_ip.0.as_str()),
     )
     .await;
 
@@ -1134,6 +1141,7 @@ pub async fn apply_dataset_trust_override(
 pub async fn apply_dataset_version_trust_override(
     State(state): State<AppState>,
     Extension(claims): Extension<Claims>,
+    Extension(client_ip): Extension<ClientIp>,
     Path((dataset_id, version_id)): Path<(String, String)>,
     Json(payload): Json<DatasetTrustOverrideRequest>,
 ) -> Result<impl IntoResponse, ApiError> {
@@ -1204,6 +1212,7 @@ pub async fn apply_dataset_version_trust_override(
         audit_helper::actions::DATASET_TRUST_OVERRIDE,
         audit_helper::resources::DATASET_VERSION,
         Some(&version_id),
+        Some(client_ip.0.as_str()),
     )
     .await;
 
@@ -1246,6 +1255,7 @@ pub async fn apply_dataset_version_trust_override(
 pub async fn update_dataset_version_safety(
     State(state): State<AppState>,
     Extension(claims): Extension<Claims>,
+    Extension(client_ip): Extension<ClientIp>,
     Path((dataset_id, version_id)): Path<(String, String)>,
     Json(body): Json<UpdateDatasetSafetyRequest>,
 ) -> Result<impl IntoResponse, ApiError> {
@@ -1321,6 +1331,7 @@ pub async fn update_dataset_version_safety(
         audit_helper::actions::DATASET_SAFETY_UPDATE,
         audit_helper::resources::DATASET_VERSION,
         Some(&version_id),
+        Some(client_ip.0.as_str()),
     )
     .await;
 

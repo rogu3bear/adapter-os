@@ -6,6 +6,7 @@
 use crate::api_error::ApiError;
 use crate::audit_helper::{actions, log_success_or_warn, resources};
 use crate::handlers::{AppState, Claims, ErrorResponse};
+use crate::ip_extraction::ClientIp;
 use crate::permissions::{require_permission, Permission};
 use crate::uds_client::UdsClient;
 use crate::PaginatedResponse;
@@ -246,6 +247,7 @@ pub async fn list_user_workspaces(
 pub async fn create_workspace(
     State(state): State<AppState>,
     Extension(claims): Extension<Claims>,
+    Extension(client_ip): Extension<ClientIp>,
     Json(req): Json<CreateWorkspaceRequest>,
 ) -> Result<Json<WorkspaceResponse>, (StatusCode, Json<ErrorResponse>)> {
     require_permission(&claims, Permission::WorkspaceManage)?;
@@ -316,6 +318,7 @@ pub async fn create_workspace(
         actions::WORKSPACE_CREATE,
         resources::WORKSPACE,
         Some(&workspace_id),
+        Some(client_ip.0.as_str()),
     )
     .await;
 
@@ -434,6 +437,7 @@ pub async fn get_workspace(
 pub async fn update_workspace(
     State(state): State<AppState>,
     Extension(claims): Extension<Claims>,
+    Extension(client_ip): Extension<ClientIp>,
     Path(workspace_id): Path<String>,
     Json(req): Json<UpdateWorkspaceRequest>,
 ) -> Result<Json<WorkspaceResponse>, (StatusCode, Json<ErrorResponse>)> {
@@ -529,6 +533,7 @@ pub async fn update_workspace(
         actions::WORKSPACE_UPDATE,
         resources::WORKSPACE,
         Some(&workspace_id),
+        Some(client_ip.0.as_str()),
     )
     .await;
 
@@ -561,6 +566,7 @@ pub async fn update_workspace(
 pub async fn delete_workspace(
     State(state): State<AppState>,
     Extension(claims): Extension<Claims>,
+    Extension(client_ip): Extension<ClientIp>,
     Path(workspace_id): Path<String>,
 ) -> Result<Json<serde_json::Value>, (StatusCode, Json<ErrorResponse>)> {
     require_permission(&claims, Permission::WorkspaceManage)?;
@@ -624,6 +630,7 @@ pub async fn delete_workspace(
         actions::WORKSPACE_DELETE,
         resources::WORKSPACE,
         Some(&workspace_id),
+        Some(client_ip.0.as_str()),
     )
     .await;
 
@@ -741,6 +748,7 @@ pub async fn list_workspace_members(
 pub async fn add_workspace_member(
     State(state): State<AppState>,
     Extension(claims): Extension<Claims>,
+    Extension(client_ip): Extension<ClientIp>,
     Path(workspace_id): Path<String>,
     Json(req): Json<AddWorkspaceMemberRequest>,
 ) -> Result<Json<serde_json::Value>, (StatusCode, Json<ErrorResponse>)> {
@@ -828,6 +836,7 @@ pub async fn add_workspace_member(
         actions::WORKSPACE_MEMBER_ADD,
         resources::WORKSPACE_MEMBER,
         Some(&format!("{}:{}", workspace_id, user_id)),
+        Some(client_ip.0.as_str()),
     )
     .await;
 
@@ -858,6 +867,7 @@ pub async fn add_workspace_member(
 pub async fn update_workspace_member(
     State(state): State<AppState>,
     Extension(claims): Extension<Claims>,
+    Extension(client_ip): Extension<ClientIp>,
     Path((workspace_id, member_id)): Path<(String, String)>,
     Json(req): Json<UpdateWorkspaceMemberRequest>,
 ) -> Result<Json<serde_json::Value>, (StatusCode, Json<ErrorResponse>)> {
@@ -969,6 +979,7 @@ pub async fn update_workspace_member(
         actions::WORKSPACE_MEMBER_UPDATE,
         resources::WORKSPACE_MEMBER,
         Some(&format!("{}:{}", workspace_id, member_id)),
+        Some(client_ip.0.as_str()),
     )
     .await;
 
@@ -995,6 +1006,7 @@ pub async fn update_workspace_member(
 pub async fn remove_workspace_member(
     State(state): State<AppState>,
     Extension(claims): Extension<Claims>,
+    Extension(client_ip): Extension<ClientIp>,
     Path((workspace_id, member_id)): Path<(String, String)>,
 ) -> Result<Json<serde_json::Value>, (StatusCode, Json<ErrorResponse>)> {
     require_permission(&claims, Permission::WorkspaceMemberManage)?;
@@ -1089,6 +1101,7 @@ pub async fn remove_workspace_member(
         actions::WORKSPACE_MEMBER_REMOVE,
         resources::WORKSPACE_MEMBER,
         Some(&format!("{}:{}", workspace_id, member_id)),
+        Some(client_ip.0.as_str()),
     )
     .await;
 
@@ -1204,6 +1217,7 @@ pub async fn list_workspace_resources(
 pub async fn share_workspace_resource(
     State(state): State<AppState>,
     Extension(claims): Extension<Claims>,
+    Extension(client_ip): Extension<ClientIp>,
     Path(workspace_id): Path<String>,
     Json(req): Json<ShareResourceRequest>,
 ) -> Result<Json<serde_json::Value>, (StatusCode, Json<ErrorResponse>)> {
@@ -1379,6 +1393,7 @@ pub async fn share_workspace_resource(
         actions::WORKSPACE_RESOURCE_SHARE,
         resources::WORKSPACE_RESOURCE,
         Some(&req.resource_id),
+        Some(client_ip.0.as_str()),
     )
     .await;
 
@@ -1408,6 +1423,7 @@ pub async fn share_workspace_resource(
 pub async fn unshare_workspace_resource(
     State(state): State<AppState>,
     Extension(claims): Extension<Claims>,
+    Extension(client_ip): Extension<ClientIp>,
     Path((workspace_id, resource_id)): Path<(String, String)>,
     Query(params): Query<std::collections::HashMap<String, String>>,
 ) -> Result<Json<serde_json::Value>, (StatusCode, Json<ErrorResponse>)> {
@@ -1496,6 +1512,7 @@ pub async fn unshare_workspace_resource(
         actions::WORKSPACE_RESOURCE_UNSHARE,
         resources::WORKSPACE_RESOURCE,
         Some(&resource_id),
+        Some(client_ip.0.as_str()),
     )
     .await;
 

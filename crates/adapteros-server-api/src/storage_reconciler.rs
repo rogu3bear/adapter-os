@@ -1,5 +1,6 @@
 //! Background reconciler to keep storage and DB metadata in sync.
 
+use futures::FutureExt;
 use std::collections::HashSet;
 use std::path::{Path, PathBuf};
 use std::sync::Arc;
@@ -457,9 +458,20 @@ pub fn spawn_storage_reconciler(state: Arc<AppState>) {
         .record_spawned("Storage reconciler", false);
     let reconciler = StorageReconciler::new(state);
     tokio::spawn(async move {
-        loop {
-            reconciler.run_once().await;
-            sleep(Duration::from_secs(900)).await; // 15 min cadence
+        if let Err(panic) = std::panic::AssertUnwindSafe(async move {
+            loop {
+                reconciler.run_once().await;
+                sleep(Duration::from_secs(900)).await; // 15 min cadence
+            }
+        })
+        .catch_unwind()
+        .await
+        {
+            tracing::error!(
+                task = "storage_reconciliation",
+                "background task panicked: {:?}",
+                panic
+            );
         }
     });
 }

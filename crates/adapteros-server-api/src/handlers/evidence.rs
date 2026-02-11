@@ -5,6 +5,7 @@
 use crate::api_error::ApiError;
 use crate::audit_helper::{actions, log_failure_or_warn, log_success_or_warn, resources};
 use crate::auth::Claims;
+use crate::ip_extraction::ClientIp;
 use crate::permissions::{require_permission, Permission};
 use crate::security::validate_tenant_isolation;
 use crate::state::AppState;
@@ -185,6 +186,7 @@ pub async fn list_evidence(
 pub async fn create_evidence(
     State(state): State<AppState>,
     Extension(claims): Extension<Claims>,
+    Extension(client_ip): Extension<ClientIp>,
     Json(request): Json<CreateEvidenceRequest>,
 ) -> Result<impl IntoResponse, (StatusCode, Json<ErrorResponse>)> {
     // Require permission to register adapters/datasets
@@ -288,6 +290,7 @@ pub async fn create_evidence(
             resources::ADAPTER,
             None,
             &message,
+            Some(client_ip.0.as_str()),
         )
         .await;
     }
@@ -307,6 +310,7 @@ pub async fn create_evidence(
         actions::ADAPTER_REGISTER,
         resources::ADAPTER,
         Some(&entry_id),
+        Some(client_ip.0.as_str()),
     )
     .await;
 
@@ -399,6 +403,7 @@ pub async fn get_evidence(
 pub async fn delete_evidence(
     State(state): State<AppState>,
     Extension(claims): Extension<Claims>,
+    Extension(client_ip): Extension<ClientIp>,
     Path(id): Path<String>,
 ) -> Result<impl IntoResponse, (StatusCode, Json<ErrorResponse>)> {
     // Require admin permission to delete evidence
@@ -450,6 +455,7 @@ pub async fn delete_evidence(
             resources::ADAPTER,
             Some(&id),
             &message,
+            Some(client_ip.0.as_str()),
         )
         .await;
     }
@@ -461,6 +467,7 @@ pub async fn delete_evidence(
         actions::ADAPTER_DELETE,
         resources::ADAPTER,
         Some(&id),
+        Some(client_ip.0.as_str()),
     )
     .await;
 

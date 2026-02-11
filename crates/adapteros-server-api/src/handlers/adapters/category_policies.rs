@@ -7,6 +7,7 @@
 
 use crate::audit_helper::{log_success_or_warn, resources};
 use crate::auth::Claims;
+use crate::ip_extraction::ClientIp;
 use crate::permissions::{require_permission, Permission};
 use crate::state::AppState;
 use crate::types::{
@@ -187,6 +188,7 @@ pub async fn get_category_policy(
 pub async fn update_category_policy(
     State(state): State<AppState>,
     Extension(claims): Extension<Claims>,
+    Extension(client_ip): Extension<ClientIp>,
     Path(category): Path<String>,
     Json(req): Json<CategoryPolicyRequest>,
 ) -> Result<Json<CategoryPolicyResponse>, (StatusCode, Json<ErrorResponse>)> {
@@ -225,6 +227,7 @@ pub async fn update_category_policy(
         "policy.category.update",
         resources::POLICY,
         Some(&category),
+        Some(client_ip.0.as_str()),
     )
     .await;
 

@@ -5,6 +5,7 @@
 
 use crate::audit_helper::{actions, log_success_or_warn, resources};
 use crate::handlers::{AppState, Claims, ErrorResponse};
+use crate::ip_extraction::ClientIp;
 use crate::permissions::{require_permission, Permission};
 use adapteros_api_types::activity::CreateActivityEventRequest;
 use adapteros_db::activity_events::ActivityEventType;
@@ -48,6 +49,7 @@ pub struct ActivityEventResponse {
 pub async fn create_activity_event(
     State(state): State<AppState>,
     Extension(claims): Extension<Claims>,
+    Extension(client_ip): Extension<ClientIp>,
     Json(req): Json<CreateActivityEventRequest>,
 ) -> Result<Json<Value>, (StatusCode, Json<ErrorResponse>)> {
     require_permission(&claims, Permission::ActivityCreate)?;
@@ -118,6 +120,7 @@ pub async fn create_activity_event(
         actions::ACTIVITY_EVENT_CREATE,
         resources::ACTIVITY_EVENT,
         Some(&event.id),
+        Some(client_ip.0.as_str()),
     )
     .await;
 

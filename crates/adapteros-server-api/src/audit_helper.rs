@@ -26,6 +26,7 @@ use tracing::{error, info, warn};
 /// * `resource_id` - ID of the resource being acted upon
 /// * `status` - "success" or "failure"
 /// * `error_message` - Error details if status = "failure"
+/// * `ip` - Client IP address from request extensions
 ///
 /// # Example
 /// ```no_run
@@ -42,6 +43,7 @@ use tracing::{error, info, warn};
 ///     Some("adapter-xyz"),
 ///     "success",
 ///     None,
+///     None,
 /// ).await?;
 /// # Ok(())
 /// # }
@@ -54,6 +56,7 @@ pub async fn log_action(
     resource_id: Option<&str>,
     status: &str,
     error_message: Option<&str>,
+    ip: Option<&str>,
 ) -> Result<()> {
     // Log to database
     db.log_audit(
@@ -65,7 +68,7 @@ pub async fn log_action(
         resource_id,
         status,
         error_message,
-        None, // IP address (could be extracted from request headers if needed)
+        ip,
         None, // Additional metadata
     )
     .await?;
@@ -81,6 +84,7 @@ pub async fn log_action(
         resource_id = ?resource_id,
         status = %status,
         error_message = ?error_message,
+        client_ip = ?ip,
         "Audit log recorded"
     );
 
@@ -96,6 +100,7 @@ pub async fn log_success(
     action: &str,
     resource_type: &str,
     resource_id: Option<&str>,
+    ip: Option<&str>,
 ) -> Result<()> {
     log_action(
         db,
@@ -105,6 +110,7 @@ pub async fn log_success(
         resource_id,
         "success",
         None,
+        ip,
     )
     .await
 }
@@ -119,6 +125,7 @@ pub async fn log_failure(
     resource_type: &str,
     resource_id: Option<&str>,
     error: &str,
+    ip: Option<&str>,
 ) -> Result<()> {
     log_action(
         db,
@@ -128,6 +135,7 @@ pub async fn log_failure(
         resource_id,
         "failure",
         Some(error),
+        ip,
     )
     .await
 }
@@ -152,6 +160,7 @@ pub async fn log_action_with_metadata(
     status: &str,
     error_message: Option<&str>,
     metadata: Option<serde_json::Value>,
+    ip: Option<&str>,
 ) -> Result<()> {
     // Serialize metadata to JSON string if provided
     let metadata_json = metadata
@@ -172,7 +181,7 @@ pub async fn log_action_with_metadata(
         resource_id,
         status,
         error_message,
-        None, // IP address
+        ip,
         metadata_json.as_deref(),
     )
     .await?;
@@ -189,6 +198,7 @@ pub async fn log_action_with_metadata(
         status = %status,
         error_message = ?error_message,
         metadata = ?metadata,
+        client_ip = ?ip,
         "Audit log recorded"
     );
 
@@ -211,6 +221,7 @@ pub async fn log_success_with_metadata(
     resource_type: &str,
     resource_id: Option<&str>,
     metadata: serde_json::Value,
+    ip: Option<&str>,
 ) -> Result<()> {
     log_action_with_metadata(
         db,
@@ -221,6 +232,7 @@ pub async fn log_success_with_metadata(
         "success",
         None,
         Some(metadata),
+        ip,
     )
     .await
 }
@@ -242,6 +254,7 @@ pub async fn log_failure_with_metadata(
     resource_id: Option<&str>,
     error: &str,
     metadata: serde_json::Value,
+    ip: Option<&str>,
 ) -> Result<()> {
     log_action_with_metadata(
         db,
@@ -252,6 +265,7 @@ pub async fn log_failure_with_metadata(
         "failure",
         Some(error),
         Some(metadata),
+        ip,
     )
     .await
 }
@@ -273,8 +287,9 @@ pub async fn log_success_or_warn(
     action: &str,
     resource_type: &str,
     resource_id: Option<&str>,
+    ip: Option<&str>,
 ) {
-    if let Err(e) = log_success(db, claims, action, resource_type, resource_id).await {
+    if let Err(e) = log_success(db, claims, action, resource_type, resource_id, ip).await {
         // CRITICAL: Primary audit chain failed - log via tracing as fallback evidence
         error!(
             event_type = "audit.chain_failure",
@@ -312,6 +327,7 @@ pub async fn log_preflight_result(
     claims: &Claims,
     adapter_id: &str,
     preflight_result: &adapteros_core::preflight::PreflightResult,
+    ip: Option<&str>,
 ) {
     use actions::*;
 
@@ -341,6 +357,7 @@ pub async fn log_preflight_result(
         } else {
             Some(&failure_summary)
         },
+        ip,
     )
     .await
     {
@@ -379,6 +396,7 @@ pub async fn log_preflight_result(
                     .and_then(|e| e.reason.as_deref())
                     .unwrap_or("unspecified")
             )),
+            ip,
         )
         .await
         {
@@ -414,6 +432,7 @@ pub async fn log_failure_or_warn(
     resource_type: &str,
     resource_id: Option<&str>,
     operation_error: &str,
+    ip: Option<&str>,
 ) {
     if let Err(e) = log_failure(
         db,
@@ -422,6 +441,7 @@ pub async fn log_failure_or_warn(
         resource_type,
         resource_id,
         operation_error,
+        ip,
     )
     .await
     {

@@ -23,6 +23,7 @@ use utoipa::ToSchema;
 
 use crate::audit_helper::{actions, log_failure_or_warn, log_success_or_warn, resources};
 use crate::auth::Claims;
+use crate::ip_extraction::ClientIp;
 use crate::permissions::{require_permission, Permission};
 use crate::state::AppState;
 use crate::types::ErrorResponse;
@@ -169,6 +170,7 @@ const MAX_ROLLBACK_HISTORY: i64 = 10;
 pub async fn request_promotion(
     State(state): State<AppState>,
     Extension(claims): Extension<Claims>,
+    Extension(client_ip): Extension<ClientIp>,
     Path(run_id): Path<String>,
     Json(req): Json<PromoteRequest>,
 ) -> Result<Json<PromoteResponse>, (StatusCode, Json<ErrorResponse>)> {
@@ -203,6 +205,7 @@ pub async fn request_promotion(
             resources::PROMOTION,
             Some(&run_id),
             "golden run not found",
+            Some(client_ip.0.as_str()),
         )
         .await;
 
@@ -294,6 +297,7 @@ pub async fn request_promotion(
                         actions::PROMOTION_EXECUTE,
                         resources::PROMOTION,
                         Some(&request_id),
+                        Some(client_ip.0.as_str()),
                     )
                     .await;
 
@@ -478,6 +482,7 @@ pub async fn get_promotion_status(
 pub async fn approve_or_reject_promotion(
     State(state): State<AppState>,
     Extension(claims): Extension<Claims>,
+    Extension(client_ip): Extension<ClientIp>,
     Path(run_id): Path<String>,
     Json(req): Json<ApproveRequest>,
 ) -> Result<Json<ApproveResponse>, (StatusCode, Json<ErrorResponse>)> {
@@ -615,6 +620,7 @@ pub async fn approve_or_reject_promotion(
                 actions::PROMOTION_EXECUTE,
                 resources::PROMOTION,
                 Some(&request_id),
+                Some(client_ip.0.as_str()),
             )
             .await;
 
@@ -655,6 +661,7 @@ pub async fn approve_or_reject_promotion(
 pub async fn record_ci_attestation(
     State(state): State<AppState>,
     Extension(claims): Extension<Claims>,
+    Extension(client_ip): Extension<ClientIp>,
     Path(run_id): Path<String>,
     Json(req): Json<CiAttestationRequest>,
 ) -> Result<Json<CiAttestationResponse>, (StatusCode, Json<ErrorResponse>)> {
@@ -766,6 +773,7 @@ pub async fn record_ci_attestation(
         actions::PROMOTION_EXECUTE,
         resources::PROMOTION,
         Some(&request.request_id),
+        Some(client_ip.0.as_str()),
     )
     .await;
 
@@ -795,6 +803,7 @@ pub async fn record_ci_attestation(
 pub async fn rollback_promotion(
     State(state): State<AppState>,
     Extension(claims): Extension<Claims>,
+    Extension(client_ip): Extension<ClientIp>,
     Path(stage): Path<String>,
     Json(req): Json<RollbackRequest>,
 ) -> Result<Json<RollbackResponse>, (StatusCode, Json<ErrorResponse>)> {
@@ -921,6 +930,7 @@ pub async fn rollback_promotion(
         actions::PROMOTION_ROLLBACK,
         resources::PROMOTION,
         Some(&request_id),
+        Some(client_ip.0.as_str()),
     )
     .await;
 

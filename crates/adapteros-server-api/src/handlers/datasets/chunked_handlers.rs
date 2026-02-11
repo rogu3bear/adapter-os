@@ -32,6 +32,7 @@ use crate::handlers::chunked_upload::{
     ChunkWriter, CompressionFormat, FileValidator, UploadSession, UploadSessionManager,
     MAX_CHUNK_SIZE, UPLOAD_TIMEOUT_SECS,
 };
+use crate::ip_extraction::ClientIp;
 use crate::middleware::request_id::RequestId;
 use crate::permissions::{require_permission, Permission};
 use crate::state::AppState;
@@ -290,6 +291,7 @@ pub async fn upload_chunk(
 pub async fn complete_chunked_upload(
     State(state): State<AppState>,
     Extension(claims): Extension<Claims>,
+    Extension(client_ip): Extension<ClientIp>,
     request_id: Option<Extension<RequestId>>,
     Path(session_id): Path<String>,
     Json(request): Json<CompleteChunkedUploadRequest>,
@@ -516,6 +518,7 @@ pub async fn complete_chunked_upload(
             let db = state.db.clone();
             let claims_clone = claims.clone();
             let error_msg_clone = error_msg.clone();
+            let ip_clone = client_ip.0.clone();
             if let Err(_e) =
                 spawn_deterministic("audit-log:dataset-upload-failure".to_string(), async move {
                     log_failure_or_warn(
@@ -525,6 +528,7 @@ pub async fn complete_chunked_upload(
                         resources::DATASET,
                         None,
                         &error_msg_clone,
+                        Some(ip_clone.as_str()),
                     )
                     .await;
                 })
@@ -532,6 +536,7 @@ pub async fn complete_chunked_upload(
                 let db_fallback = state.db.clone();
                 let claims_fallback = claims.clone();
                 let error_msg_fallback = error_msg.clone();
+                let ip_fallback = client_ip.0.clone();
                 tokio::spawn(async move {
                     log_failure_or_warn(
                         &db_fallback,
@@ -540,6 +545,7 @@ pub async fn complete_chunked_upload(
                         resources::DATASET,
                         None,
                         &error_msg_fallback,
+                        Some(ip_fallback.as_str()),
                     )
                     .await;
                 });
@@ -1144,6 +1150,7 @@ pub async fn complete_chunked_upload(
         actions::DATASET_UPLOAD,
         resources::DATASET,
         Some(&dataset_id),
+        Some(client_ip.0.as_str()),
     )
     .await;
 
@@ -1448,6 +1455,7 @@ pub async fn get_upload_session_status(
 pub async fn cancel_chunked_upload(
     State(state): State<AppState>,
     Extension(claims): Extension<Claims>,
+    Extension(client_ip): Extension<ClientIp>,
     Path(session_id): Path<String>,
 ) -> Result<impl IntoResponse, ApiError> {
     // Check permission
@@ -1485,6 +1493,7 @@ pub async fn cancel_chunked_upload(
         crate::audit_helper::actions::DATASET_CHUNKED_UPLOAD_CANCEL,
         crate::audit_helper::resources::DATASET,
         Some(&session_id),
+        Some(client_ip.0.as_str()),
     )
     .await
     {
@@ -1809,6 +1818,7 @@ pub async fn list_upload_sessions(
 pub async fn cleanup_expired_sessions(
     State(state): State<AppState>,
     Extension(claims): Extension<Claims>,
+    Extension(client_ip): Extension<ClientIp>,
 ) -> Result<impl IntoResponse, (StatusCode, Json<ErrorResponse>)> {
     // Require admin permission for manual cleanup
     require_permission(&claims, Permission::DatasetDelete)?;
@@ -1853,6 +1863,7 @@ pub async fn cleanup_expired_sessions(
         crate::audit_helper::actions::DATASET_CHUNKED_UPLOAD_CLEANUP,
         crate::audit_helper::resources::DATASET,
         None,
+        Some(client_ip.0.as_str()),
     )
     .await
     {

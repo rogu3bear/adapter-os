@@ -3,7 +3,7 @@
 //! Provides document list, detail, and management functionality.
 
 use crate::api::client::{ChunkListResponse, DocumentListParams, DocumentResponse};
-use crate::api::ApiClient;
+use crate::api::{report_error_with_toast, ApiClient};
 use crate::components::{
     Badge, BadgeVariant, Button, ButtonSize, ButtonVariant, Card, ConfirmationDialog,
     ConfirmationSeverity, CopyableId, Dialog, EmptyState, EmptyStateVariant, ErrorDisplay,
@@ -566,9 +566,13 @@ fn DocumentsList(
                                                                 reprocessing_id.set(Some(id.clone()));
                                                                 wasm_bindgen_futures::spawn_local(async move {
                                                                     if is_failed {
-                                                                        let _ = client.retry_document(&id).await;
+                                                                        if let Err(e) = client.retry_document(&id).await {
+                                                                            report_error_with_toast(&e, "Failed to retry document", Some("/documents"), true);
+                                                                        }
                                                                     } else {
-                                                                        let _ = client.process_document(&id).await;
+                                                                        if let Err(e) = client.process_document(&id).await {
+                                                                            report_error_with_toast(&e, "Failed to reprocess document", Some("/documents"), true);
+                                                                        }
                                                                     }
                                                                     let _ = reprocessing_id.try_set(None);
                                                                     on_refetch.run(());
@@ -766,7 +770,7 @@ fn DocumentUploadDialog(open: RwSignal<bool>, on_success: Callback<String>) -> i
                         on_success.run(response.document_id);
                     }
                     Err(e) => {
-                        let _ = error_msg.try_set(Some(e.to_string()));
+                        let _ = error_msg.try_set(Some(e.user_message()));
                         let _ = upload_status.try_set(None);
                         let _ = uploading.try_set(false);
                     }

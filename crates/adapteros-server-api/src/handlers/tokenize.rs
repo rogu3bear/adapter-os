@@ -1,5 +1,6 @@
 use crate::api_error::ApiError;
 use crate::auth::Claims;
+use crate::ip_extraction::ClientIp;
 use crate::middleware::request_id::RequestId;
 use crate::middleware::require_any_role;
 use crate::security;
@@ -27,6 +28,7 @@ use tracing::info;
 pub async fn tokenize(
     State(state): State<AppState>,
     Extension(claims): Extension<Claims>,
+    Extension(client_ip): Extension<ClientIp>,
     request_id: Option<Extension<RequestId>>,
     Json(req): Json<TokenizeRequest>,
 ) -> Result<Json<TokenizeResponse>, ApiError> {
@@ -133,6 +135,7 @@ pub async fn tokenize(
             crate::audit_helper::actions::TOKENIZE_EXECUTE,
             crate::audit_helper::resources::MODEL,
             Some(&req.model_id),
+            Some(client_ip.0.as_str()),
         )
         .await;
 
@@ -165,6 +168,7 @@ pub async fn tokenize(
                 crate::audit_helper::actions::TOKENIZE_EXECUTE,
                 crate::audit_helper::resources::MODEL,
                 Some(&req.model_id),
+                Some(client_ip.0.as_str()),
             )
             .await;
 
@@ -178,6 +182,7 @@ pub async fn tokenize(
                 crate::audit_helper::resources::MODEL,
                 Some(&req.model_id),
                 &err.to_string(),
+                Some(client_ip.0.as_str()),
             )
             .await
             .ok();

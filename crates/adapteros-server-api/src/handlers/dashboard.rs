@@ -5,6 +5,7 @@
 
 use crate::audit_helper::{actions, log_success_or_warn, resources};
 use crate::handlers::{AppState, Claims, ErrorResponse};
+use crate::ip_extraction::ClientIp;
 use crate::permissions::{require_permission, Permission};
 use adapteros_api_types::dashboard::*;
 use axum::{
@@ -86,6 +87,7 @@ pub async fn get_dashboard_config(
 pub async fn update_dashboard_config(
     State(state): State<AppState>,
     Extension(claims): Extension<Claims>,
+    Extension(client_ip): Extension<ClientIp>,
     Json(req): Json<UpdateDashboardConfigRequest>,
 ) -> Result<Json<UpdateDashboardConfigResponse>, (StatusCode, Json<ErrorResponse>)> {
     require_permission(&claims, Permission::DashboardManage)?;
@@ -136,6 +138,7 @@ pub async fn update_dashboard_config(
         actions::DASHBOARD_CONFIG_UPDATE,
         resources::DASHBOARD_CONFIG,
         Some(&claims.sub),
+        Some(client_ip.0.as_str()),
     )
     .await;
 
@@ -163,6 +166,7 @@ pub async fn update_dashboard_config(
 pub async fn reset_dashboard_config(
     State(state): State<AppState>,
     Extension(claims): Extension<Claims>,
+    Extension(client_ip): Extension<ClientIp>,
 ) -> Result<Json<ResetDashboardConfigResponse>, (StatusCode, Json<ErrorResponse>)> {
     require_permission(&claims, Permission::DashboardManage)?;
 
@@ -195,6 +199,7 @@ pub async fn reset_dashboard_config(
         actions::DASHBOARD_CONFIG_RESET,
         resources::DASHBOARD_CONFIG,
         Some(&claims.sub),
+        Some(client_ip.0.as_str()),
     )
     .await;
 

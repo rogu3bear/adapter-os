@@ -25,6 +25,7 @@ use crate::chat_context::build_chat_prompt;
 use crate::citations::collect_citations_for_adapters;
 use crate::handlers::rag_common::{retrieve_rag_context, store_rag_evidence};
 use crate::inference_core::InferenceCore;
+use crate::ip_extraction::ClientIp;
 use crate::middleware::policy_enforcement::{
     compute_policy_mask_digest, create_hook_context, enforce_at_hook,
 };
@@ -608,6 +609,7 @@ fn run_envelope_event(envelope: &adapteros_api_types::RunEnvelope) -> Event {
 pub async fn streaming_infer_with_progress(
     State(state): State<AppState>,
     Extension(claims): Extension<Claims>,
+    Extension(client_ip): Extension<ClientIp>,
     Extension(_identity): Extension<IdentityEnvelope>,
     session_token: Option<Extension<SessionTokenContext>>,
     Json(mut req): Json<StreamingInferRequest>,
@@ -782,6 +784,7 @@ pub async fn streaming_infer_with_progress(
         crate::audit_helper::actions::INFERENCE_EXECUTE,
         crate::audit_helper::resources::ADAPTER,
         Some(&adapter_id),
+        Some(client_ip.0.as_str()),
     )
     .await
     {
@@ -851,6 +854,7 @@ pub async fn streaming_infer_with_progress(
 pub async fn streaming_infer(
     State(state): State<AppState>,
     Extension(claims): Extension<Claims>,
+    Extension(client_ip): Extension<ClientIp>,
     Extension(_identity): Extension<IdentityEnvelope>,
     headers: axum::http::HeaderMap,
     session_token: Option<Extension<SessionTokenContext>>,
@@ -1250,6 +1254,7 @@ pub async fn streaming_infer(
         crate::audit_helper::actions::INFERENCE_EXECUTE,
         crate::audit_helper::resources::ADAPTER,
         adapters_requested.as_deref(),
+        Some(client_ip.0.as_str()),
     )
     .await
     {

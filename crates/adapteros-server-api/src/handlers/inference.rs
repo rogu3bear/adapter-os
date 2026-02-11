@@ -14,6 +14,7 @@ use crate::auth::{is_dev_bypass_enabled, Claims};
 use crate::backpressure::check_uma_backpressure;
 use crate::chat_context::build_chat_prompt;
 use crate::inference_core::InferenceCore;
+use crate::ip_extraction::ClientIp;
 use crate::middleware::policy_enforcement::{
     compute_policy_mask_digest, create_hook_context, enforce_at_hook,
 };
@@ -79,6 +80,7 @@ impl Drop for DispatchCancelGuard {
 pub async fn infer(
     State(state): State<AppState>,
     Extension(claims): Extension<Claims>,
+    Extension(client_ip): Extension<ClientIp>,
     Extension(identity): Extension<IdentityEnvelope>,
     request_id: Option<Extension<RequestId>>,
     api_key: Option<Extension<ApiKeyToken>>,
@@ -156,6 +158,7 @@ pub async fn infer(
         crate::audit_helper::resources::ADAPTER,
         adapters_requested.as_deref(),
         audit_metadata,
+        Some(client_ip.0.as_str()),
     )
     .await
     {
@@ -429,6 +432,7 @@ pub async fn infer(
                 adapters_requested.as_deref(),
                 &e.to_string(),
                 failure_metadata,
+                Some(client_ip.0.as_str()),
             )
             .await
             {
