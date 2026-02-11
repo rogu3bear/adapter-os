@@ -163,11 +163,14 @@ float deterministic_dropout(uint seed, uint position, float dropout_rate) {
 }
 
 // RoPE (Rotary Position Embedding) functions
-float2 apply_rope_2d(float2 q, uint position, float theta) {
-    float angle = float(position) / pow(theta, float(0) / 128.0f);
+// Standard formula: angle = position / theta^(2*dim_pair_index / head_dim)
+// Each dimension pair gets a unique frequency for proper position encoding.
+float2 apply_rope_2d(float2 q, uint position, float theta, uint dim_pair_index, uint head_dim) {
+    float freq_exponent = float(2 * dim_pair_index) / float(head_dim);
+    float angle = float(position) / pow(theta, freq_exponent);
     float cos_val = cos(angle);
     float sin_val = sin(angle);
-    
+
     return float2(
         q.x * cos_val - q.y * sin_val,
         q.x * sin_val + q.y * cos_val

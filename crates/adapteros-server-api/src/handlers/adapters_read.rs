@@ -179,7 +179,7 @@ pub async fn list_adapters(
                 selection_rate,
             }),
             version: adapter.version.clone(),
-            lifecycle_state: adapter.lifecycle_state.clone(),
+            lifecycle_state: adapter.lifecycle_state.clone().into(),
             runtime_state: Some(adapter.current_state.clone()),
             // Populate fields from DB that were previously hardcoded to None
             pinned: Some(adapter.pinned != 0),
@@ -1302,7 +1302,7 @@ pub async fn promote_adapter_version_handler(
             selection_rate,
         }),
         version: adapter.version.clone(),
-        lifecycle_state: adapter.lifecycle_state.clone(),
+        lifecycle_state: adapter.lifecycle_state.clone().into(),
         runtime_state: Some(adapter.current_state),
         // Populate fields from DB that were previously hardcoded to None
         pinned: Some(adapter.pinned != 0),

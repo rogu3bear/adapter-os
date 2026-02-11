@@ -4,6 +4,7 @@
 //! DIR: Orthogonal Multi-Path Low-Rank Adaptation for Parameter Efficient Fine-Tuning
 //! https://openreview.net/pdf?id=jqz6Msm3AF
 
+use crate::constants::MAX_ADAPTERS;
 use crate::ROUTER_GATE_Q15_DENOM;
 use adapteros_core::{cosine_similarity, Result};
 use std::collections::VecDeque;
@@ -83,10 +84,10 @@ impl OrthogonalConstraints {
     /// Convert Q15 gates to normalized activation vector
     fn gates_to_activation_vector(&self, adapter_indices: &[u16], gates: &[i16]) -> Vec<f32> {
         // Convert Q15 gates to normalized activation vector
-        let mut activation = vec![0.0; 256]; // Assume max 256 adapters
+        let mut activation = vec![0.0; MAX_ADAPTERS];
 
         for (idx, gate) in adapter_indices.iter().zip(gates.iter()) {
-            if *idx < 256 {
+            if (*idx as usize) < MAX_ADAPTERS {
                 let value = *gate as f32 / ROUTER_GATE_Q15_DENOM;
                 activation[*idx as usize] = (value * 10_000.0).round() / 10_000.0;
             }
@@ -153,7 +154,7 @@ impl OrthogonalConstraints {
     /// # Returns
     /// Penalty value (0.0 = no penalty, higher = more similar to recent selections)
     pub fn compute_adapter_penalty(&self, adapter_idx: usize) -> f32 {
-        if self.activation_history.is_empty() || adapter_idx >= 256 {
+        if self.activation_history.is_empty() || adapter_idx >= MAX_ADAPTERS {
             return 0.0;
         }
 

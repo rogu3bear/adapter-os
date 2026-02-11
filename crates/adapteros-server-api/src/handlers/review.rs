@@ -7,10 +7,10 @@
 
 use axum::{
     extract::{Path, Query, State},
-    http::StatusCode,
     Extension, Json,
 };
 use serde::Deserialize;
+use std::borrow::Cow;
 use std::sync::Arc;
 use tracing::{info, warn};
 use utoipa::IntoParams;
@@ -22,6 +22,7 @@ use adapteros_api_types::review::{
 };
 use adapteros_api_types::{schema_version, ErrorResponse};
 
+use crate::api_error::{ApiError, ApiResult};
 use crate::auth::Claims;
 use crate::net::http_client::{
     build_reqwest_client, truncate_body_chars, DEFAULT_CONNECT_TIMEOUT, DEFAULT_TOTAL_TIMEOUT,
@@ -32,25 +33,13 @@ use crate::security::{check_tenant_access, validate_tenant_isolation};
 use crate::state::AppState;
 use adapteros_core::AosError;
 
-/// Map AosError to appropriate HTTP status code and error response
-fn map_aos_error(e: AosError, default_code: &str) -> (StatusCode, Json<ErrorResponse>) {
+/// Map AosError to appropriate ApiError
+fn map_aos_error(e: AosError, default_code: &str) -> ApiError {
     match &e {
-        AosError::NotFound(msg) => (
-            StatusCode::NOT_FOUND,
-            Json(ErrorResponse::new(msg).with_code("NOT_FOUND")),
-        ),
-        AosError::Validation(msg) => (
-            StatusCode::BAD_REQUEST,
-            Json(ErrorResponse::new(msg).with_code("VALIDATION_ERROR")),
-        ),
-        AosError::Internal(msg) => (
-            StatusCode::INTERNAL_SERVER_ERROR,
-            Json(ErrorResponse::new(msg).with_code("INTERNAL_ERROR")),
-        ),
-        _ => (
-            StatusCode::INTERNAL_SERVER_ERROR,
-            Json(ErrorResponse::new(e.to_string()).with_code(default_code)),
-        ),
+        AosError::NotFound(msg) => ApiError::not_found_msg(msg),
+        AosError::Validation(msg) => ApiError::bad_request(msg).with_code("VALIDATION_ERROR"),
+        AosError::Internal(msg) => ApiError::internal(msg),
+        _ => ApiError::internal(e.to_string()).with_code(Cow::Owned(default_code.to_string())),
     }
 }
 
@@ -92,10 +81,8 @@ pub async fn get_inference_state(
     State(state): State<AppState>,
     Extension(claims): Extension<Claims>,
     Path(inference_id): Path<String>,
-) -> Result<Json<InferenceStateResponse>, (StatusCode, Json<ErrorResponse>)> {
-    let inference_id = crate::id_resolver::resolve_any_id(&state.db, &inference_id)
-        .await
-        .map_err(<(StatusCode, Json<ErrorResponse>)>::from)?;
+) -> ApiResult<InferenceStateResponse> {
+    let inference_id = crate::id_resolver::resolve_any_id(&state.db, &inference_id).await?;
 
     let tracker = get_pause_tracker(&state)?;
 
@@ -167,10 +154,8 @@ pub async fn submit_review(
     Extension(claims): Extension<Claims>,
     Path(inference_id): Path<String>,
     Json(request): Json<SubmitReviewRequest>,
-) -> Result<Json<SubmitReviewResponse>, (StatusCode, Json<ErrorResponse>)> {
-    let inference_id = crate::id_resolver::resolve_any_id(&state.db, &inference_id)
-        .await
-        .map_err(<(StatusCode, Json<ErrorResponse>)>::from)?;
+) -> ApiResult<SubmitReviewResponse> {
+    let inference_id = crate::id_resolver::resolve_any_id(&state.db, &inference_id).await?;
 
     let tracker = get_pause_tracker(&state)?;
 
@@ -178,27 +163,19 @@ pub async fn submit_review(
     let pause_info = tracker
         .get_state_by_pause_id(&request.pause_id)
         .ok_or_else(|| {
-            (
-                StatusCode::NOT_FOUND,
-                Json(
-                    ErrorResponse::new(format!("Pause ID not found: {}", request.pause_id))
-                        .with_code("PAUSE_NOT_FOUND"),
-                ),
-            )
+            ApiError::not_found_msg(format!("Pause ID not found: {}", request.pause_id))
+                .with_code("PAUSE_NOT_FOUND")
         })?;
     validate_tenant_isolation(&claims, &pause_info.tenant_id)?;
     if pause_info.inference_id != inference_id {
-        return Err((
-            StatusCode::BAD_REQUEST,
-            Json(
-                ErrorResponse::new("pause_id does not match inference_id")
-                    .with_code("PAUSE_INFERENCE_MISMATCH")
-                    .with_string_details(format!(
-                        "pause_id {} is associated with inference_id {} (path inference_id = {})",
-                        request.pause_id, pause_info.inference_id, inference_id
-                    )),
-            ),
-        ));
+        return Err(
+            ApiError::bad_request("pause_id does not match inference_id")
+                .with_code("PAUSE_INFERENCE_MISMATCH")
+                .with_details(format!(
+                    "pause_id {} is associated with inference_id {} (path inference_id = {})",
+                    request.pause_id, pause_info.inference_id, inference_id
+                )),
+        );
     }
 
     info!(
@@ -259,7 +236,7 @@ pub async fn list_paused(
     State(state): State<AppState>,
     Extension(claims): Extension<Claims>,
     Query(query): Query<ListPausedQuery>,
-) -> Result<Json<ListPausedResponse>, (StatusCode, Json<ErrorResponse>)> {
+) -> ApiResult<ListPausedResponse> {
     let tracker = get_pause_tracker(&state)?;
 
     let kind_filter = query.kind.as_deref().and_then(parse_pause_kind_filter);
@@ -320,7 +297,7 @@ pub async fn list_paused_reviews(
     State(state): State<AppState>,
     Extension(claims): Extension<Claims>,
     Query(query): Query<ListPausedQuery>,
-) -> Result<Json<ListPausedResponse>, (StatusCode, Json<ErrorResponse>)> {
+) -> ApiResult<ListPausedResponse> {
     // Delegate to existing handler
     list_paused(State(state), Extension(claims), Query(query)).await
 }
@@ -346,10 +323,8 @@ pub async fn get_pause_details(
     State(state): State<AppState>,
     Extension(claims): Extension<Claims>,
     Path(pause_id): Path<String>,
-) -> Result<Json<InferenceStateResponse>, (StatusCode, Json<ErrorResponse>)> {
-    let pause_id = crate::id_resolver::resolve_any_id(&state.db, &pause_id)
-        .await
-        .map_err(<(StatusCode, Json<ErrorResponse>)>::from)?;
+) -> ApiResult<InferenceStateResponse> {
+    let pause_id = crate::id_resolver::resolve_any_id(&state.db, &pause_id).await?;
 
     let tracker = get_pause_tracker(&state)?;
 
@@ -371,13 +346,10 @@ pub async fn get_pause_details(
         return Ok(Json(response));
     }
 
-    Err((
-        StatusCode::NOT_FOUND,
-        Json(
-            ErrorResponse::new(format!("Pause ID not found: {}", pause_id))
-                .with_code("PAUSE_NOT_FOUND"),
-        ),
-    ))
+    Err(
+        ApiError::not_found_msg(format!("Pause ID not found: {}", pause_id))
+            .with_code("PAUSE_NOT_FOUND"),
+    )
 }
 
 // =============================================================================
@@ -401,10 +373,8 @@ pub async fn export_review_context(
     State(state): State<AppState>,
     Extension(claims): Extension<Claims>,
     Path(pause_id): Path<String>,
-) -> Result<Json<ReviewContextExport>, (StatusCode, Json<ErrorResponse>)> {
-    let pause_id = crate::id_resolver::resolve_any_id(&state.db, &pause_id)
-        .await
-        .map_err(<(StatusCode, Json<ErrorResponse>)>::from)?;
+) -> ApiResult<ReviewContextExport> {
+    let pause_id = crate::id_resolver::resolve_any_id(&state.db, &pause_id).await?;
 
     let tracker = get_pause_tracker(&state)?;
 
@@ -438,13 +408,10 @@ pub async fn export_review_context(
         return Ok(Json(response));
     }
 
-    Err((
-        StatusCode::NOT_FOUND,
-        Json(
-            ErrorResponse::new(format!("Pause ID not found: {}", pause_id))
-                .with_code("PAUSE_NOT_FOUND"),
-        ),
-    ))
+    Err(
+        ApiError::not_found_msg(format!("Pause ID not found: {}", pause_id))
+            .with_code("PAUSE_NOT_FOUND"),
+    )
 }
 
 // =============================================================================
@@ -467,7 +434,7 @@ pub async fn submit_review_response(
     State(state): State<AppState>,
     Extension(claims): Extension<Claims>,
     Json(request): Json<SubmitReviewRequest>,
-) -> Result<Json<SubmitReviewResponse>, (StatusCode, Json<ErrorResponse>)> {
+) -> ApiResult<SubmitReviewResponse> {
     let tracker = get_pause_tracker(&state)?;
 
     info!(
@@ -481,13 +448,8 @@ pub async fn submit_review_response(
     let pause_info = tracker
         .get_state_by_pause_id(&request.pause_id)
         .ok_or_else(|| {
-            (
-                StatusCode::NOT_FOUND,
-                Json(
-                    ErrorResponse::new(format!("Pause ID not found: {}", request.pause_id))
-                        .with_code("PAUSE_NOT_FOUND"),
-                ),
-            )
+            ApiError::not_found_msg(format!("Pause ID not found: {}", request.pause_id))
+                .with_code("PAUSE_NOT_FOUND")
         })?;
     validate_tenant_isolation(&claims, &pause_info.tenant_id)?;
     let inference_id = Some(pause_info.inference_id.clone());
@@ -531,17 +493,10 @@ pub async fn submit_review_response(
 // =============================================================================
 
 /// Get the pause tracker from app state
-fn get_pause_tracker(
-    state: &AppState,
-) -> Result<Arc<ServerPauseTracker>, (StatusCode, Json<ErrorResponse>)> {
+fn get_pause_tracker(state: &AppState) -> Result<Arc<ServerPauseTracker>, ApiError> {
     state.pause_tracker.clone().ok_or_else(|| {
-        (
-            StatusCode::SERVICE_UNAVAILABLE,
-            Json(
-                ErrorResponse::new("Server pause tracker not initialized")
-                    .with_code("TRACKER_NOT_AVAILABLE"),
-            ),
-        )
+        ApiError::service_unavailable("Server pause tracker not initialized")
+            .with_code("TRACKER_NOT_AVAILABLE")
     })
 }
 

@@ -55,6 +55,14 @@ pub const LORA_TIER_MICRO_BOOST: f32 = 0.0;
 /// This catches practical ties caused by floating-point drift.
 pub const TIE_BREAK_RELATIVE_EPSILON: f32 = 1e-6;
 
+// =============================================================================
+// Adapter Limits
+// =============================================================================
+
+/// Maximum number of adapters supported in orthogonal constraint tracking.
+/// Adapter indices >= this value are silently ignored in activation vectors.
+pub const MAX_ADAPTERS: usize = 256;
+
 #[cfg(test)]
 #[allow(clippy::assertions_on_constants)]
 mod tests {

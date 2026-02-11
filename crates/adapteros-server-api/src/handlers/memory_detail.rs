@@ -5,11 +5,12 @@
 //! - Adapter memory usage
 //! - Auto-eviction configuration and candidates
 
+use crate::api_error::{ApiError, ApiResult};
 use crate::permissions::{require_permission, Permission};
 use crate::{AppState, Claims, ErrorResponse};
 use adapteros_api_types::system_status::DataAvailability;
 use adapteros_api_types::API_SCHEMA_VERSION;
-use axum::{extract::State, http::StatusCode, Extension, Json};
+use axum::{extract::State, Extension, Json};
 use serde::{Deserialize, Serialize};
 use std::time::{SystemTime, UNIX_EPOCH};
 use utoipa::ToSchema;
@@ -135,7 +136,7 @@ fn schema_version() -> String {
 pub async fn get_uma_memory_breakdown(
     State(state): State<AppState>,
     Extension(claims): Extension<Claims>,
-) -> Result<Json<UmaMemoryBreakdownResponse>, (StatusCode, Json<ErrorResponse>)> {
+) -> ApiResult<UmaMemoryBreakdownResponse> {
     // Role check: All roles can view memory metrics
     require_permission(&claims, Permission::MetricsView)?;
 
@@ -301,7 +302,7 @@ fn get_local_node_id() -> String {
 pub async fn get_adapter_memory_usage(
     State(state): State<AppState>,
     Extension(claims): Extension<Claims>,
-) -> Result<Json<AdapterMemoryUsageResponse>, (StatusCode, Json<ErrorResponse>)> {
+) -> ApiResult<AdapterMemoryUsageResponse> {
     // Role check: All roles can view memory metrics
     require_permission(&claims, Permission::MetricsView)?;
 
@@ -312,14 +313,7 @@ pub async fn get_adapter_memory_usage(
 
     // Get all adapters with memory info
     let adapters = state.db.get_adapter_memory_info().await.map_err(|e| {
-        (
-            StatusCode::INTERNAL_SERVER_ERROR,
-            Json(
-                ErrorResponse::new("failed to fetch adapter memory info")
-                    .with_code("INTERNAL_SERVER_ERROR")
-                    .with_string_details(e.to_string()),
-            ),
-        )
+        ApiError::internal("failed to fetch adapter memory info").with_details(e.to_string())
     })?;
 
     let mut total_memory_mb = 0.0;
@@ -483,7 +477,7 @@ pub struct CombinedAdapterMemoryInfo {
 pub async fn get_combined_memory_usage(
     State(state): State<AppState>,
     Extension(claims): Extension<Claims>,
-) -> Result<Json<CombinedMemoryUsageResponse>, (StatusCode, Json<ErrorResponse>)> {
+) -> ApiResult<CombinedMemoryUsageResponse> {
     require_permission(&claims, Permission::MetricsView)?;
 
     // Get system memory info
@@ -514,14 +508,7 @@ pub async fn get_combined_memory_usage(
             user_id = %claims.sub,
             "Failed to fetch adapter memory info"
         );
-        (
-            StatusCode::INTERNAL_SERVER_ERROR,
-            Json(
-                ErrorResponse::new("failed to fetch adapter memory info")
-                    .with_code("INTERNAL_SERVER_ERROR")
-                    .with_string_details(e.to_string()),
-            ),
-        )
+        ApiError::internal("failed to fetch adapter memory info").with_details(e.to_string())
     })?;
 
     let adapter_infos: Vec<CombinedAdapterMemoryInfo> = adapters

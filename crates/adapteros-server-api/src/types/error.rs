@@ -378,6 +378,50 @@ impl InferenceError {
             Self::DuplicateRequest { .. } => None,
         }
     }
+
+    /// Returns true if this error represents a determinism violation.
+    pub fn is_determinism_violation(&self) -> bool {
+        match self {
+            Self::DeterminismError(_) => true,
+            Self::WorkerError(msg) | Self::RoutingBypass(msg) => {
+                let lower = msg.to_ascii_lowercase();
+                lower.contains("determinism")
+                    || lower.contains("deterministic")
+                    || lower.contains("non-determin")
+                    || lower.contains("nondetermin")
+            }
+            _ => false,
+        }
+    }
+}
+
+#[cfg(test)]
+mod tests {
+    use super::InferenceError;
+
+    #[test]
+    fn determinism_error_is_violation() {
+        let err = InferenceError::DeterminismError("seed mismatch".to_string());
+        assert!(err.is_determinism_violation());
+    }
+
+    #[test]
+    fn worker_error_with_determinism_message_is_violation() {
+        let err = InferenceError::WorkerError("determinism violation detected".to_string());
+        assert!(err.is_determinism_violation());
+    }
+
+    #[test]
+    fn routing_bypass_with_determinism_message_is_violation() {
+        let err = InferenceError::RoutingBypass("non-deterministic routing bypass".to_string());
+        assert!(err.is_determinism_violation());
+    }
+
+    #[test]
+    fn worker_error_without_determinism_signal_is_not_violation() {
+        let err = InferenceError::WorkerError("cache load failed".to_string());
+        assert!(!err.is_determinism_violation());
+    }
 }
 
 /// FIXED (Issue 2.1): Implement HasECode for InferenceError to unify error code system

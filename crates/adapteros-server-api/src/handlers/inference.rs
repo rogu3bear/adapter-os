@@ -444,29 +444,23 @@ pub async fn infer(
                 );
             }
 
-            if matches!(
-                e,
-                InferenceError::WorkerError(_) | InferenceError::RoutingBypass(_)
-            ) {
-                let msg = e.to_string();
-                if msg.contains("DeterminismViolation") || msg.contains("strict") {
-                    let event = determinism_violation_event(
-                        DeterminismViolationKind::Unknown,
-                        None,
-                        None,
-                        None,
-                        true,
-                        Some(claims.tenant_id.clone()),
-                        Some(request_id_str.clone()),
-                    );
-                    emit_observability_event(&event);
-                    let metrics_registry = state.metrics_registry.clone();
-                    tokio::spawn(async move {
-                        let _ = metrics_registry
-                            .record_metric(STRICT_DETERMINISM_METRIC.to_string(), 1.0)
-                            .await;
-                    });
-                }
+            if e.is_determinism_violation() {
+                let event = determinism_violation_event(
+                    DeterminismViolationKind::Unknown,
+                    None,
+                    None,
+                    None,
+                    true,
+                    Some(claims.tenant_id.clone()),
+                    Some(request_id_str.clone()),
+                );
+                emit_observability_event(&event);
+                let metrics_registry = state.metrics_registry.clone();
+                tokio::spawn(async move {
+                    let _ = metrics_registry
+                        .record_metric(STRICT_DETERMINISM_METRIC.to_string(), 1.0)
+                        .await;
+                });
             }
 
             return Err(<(StatusCode, Json<ErrorResponse>)>::from(e).into());

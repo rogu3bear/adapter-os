@@ -25,6 +25,7 @@ pub use token_revocation::{
 // PRD-03: Per-tenant token baseline functions are exported directly from this module
 // get_tenant_token_baseline, set_tenant_token_baseline
 
+use crate::api_error::ApiError;
 use crate::auth::Claims;
 use crate::types::ErrorResponse;
 use adapteros_core::tenant_isolation::{
@@ -129,7 +130,7 @@ pub fn check_tenant_access(claims: &Claims, resource_tenant_id: &str) -> bool {
 pub fn validate_tenant_isolation(
     claims: &Claims,
     resource_tenant_id: &str,
-) -> std::result::Result<(), (StatusCode, Json<ErrorResponse>)> {
+) -> std::result::Result<(), ApiError> {
     // Use shared core logic for consistency
     if check_tenant_access_core(claims, resource_tenant_id) {
         // Log successful access (only for cross-tenant, not same-tenant)
@@ -169,17 +170,13 @@ pub fn validate_tenant_isolation(
         "Tenant isolation violation: access denied"
     );
 
-    Err((
-        StatusCode::FORBIDDEN,
-        Json(
-            ErrorResponse::new("tenant isolation violation")
-                .with_code("TENANT_ISOLATION_ERROR")
-                .with_string_details(format!(
-                    "user tenant '{}' cannot access resource in tenant '{}'. User role: {}, Admin tenants: {:?}",
-                    claims.tenant_id, resource_tenant_id, claims.role, claims.admin_tenants
-                )),
-        ),
-    ))
+    Err(
+        ApiError::new(StatusCode::FORBIDDEN, "TENANT_ISOLATION_ERROR", "tenant isolation violation")
+            .with_details(format!(
+                "user tenant '{}' cannot access resource in tenant '{}'. User role: {}, Admin tenants: {:?}",
+                claims.tenant_id, resource_tenant_id, claims.role, claims.admin_tenants
+            )),
+    )
 }
 
 /// Log cross-tenant access attempt to audit table
@@ -226,7 +223,7 @@ pub async fn validate_tenant_isolation_with_audit(
     claims: &Claims,
     resource_tenant_id: &str,
     request_path: Option<&str>,
-) -> std::result::Result<(), (StatusCode, Json<ErrorResponse>)> {
+) -> std::result::Result<(), ApiError> {
     // Use shared core logic for consistency
     let access_granted = check_tenant_access_core(claims, resource_tenant_id);
 
@@ -279,17 +276,13 @@ pub async fn validate_tenant_isolation_with_audit(
         "Tenant isolation violation: access denied"
     );
 
-    Err((
-        StatusCode::FORBIDDEN,
-        Json(
-            ErrorResponse::new("tenant isolation violation")
-                .with_code("TENANT_ISOLATION_ERROR")
-                .with_string_details(format!(
-                    "user tenant '{}' cannot access resource in tenant '{}'. User role: {}, Admin tenants: {:?}",
-                    claims.tenant_id, resource_tenant_id, claims.role, claims.admin_tenants
-                )),
-        ),
-    ))
+    Err(
+        ApiError::new(StatusCode::FORBIDDEN, "TENANT_ISOLATION_ERROR", "tenant isolation violation")
+            .with_details(format!(
+                "user tenant '{}' cannot access resource in tenant '{}'. User role: {}, Admin tenants: {:?}",
+                claims.tenant_id, resource_tenant_id, claims.role, claims.admin_tenants
+            )),
+    )
 }
 
 /// Get the per-tenant token revocation baseline timestamp
