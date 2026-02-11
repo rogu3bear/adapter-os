@@ -91,7 +91,6 @@ members = [
     "crates/adapteros-diagnostics",  # Diagnostic event contract and producer API
     "crates/adapteros-embeddings",  # Deterministic embedding generation
     "crates/adapteros-retrieval",  # Deterministic retrieval with receipts and benchmarking
-    "crates/adapteros-server-api-types",  # Shared types for server-api crates
     "crates/adapteros-server-api-admin",  # Admin and policy endpoints
     "crates/adapteros-server-api-models",  # Model management endpoints
     "crates/adapteros-model-server",  # Shared model server for worker memory efficiency
