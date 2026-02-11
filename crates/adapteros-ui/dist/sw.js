@@ -1,7 +1,7 @@
 // PRD-UI-170: Service Worker for adapterOS UI
 // Caches WASM, CSS, and static assets for faster subsequent loads
 
-const CACHE_VERSION = 'aos-v1';
+const CACHE_VERSION = 'aos-v2';
 const STATIC_CACHE = `${CACHE_VERSION}-static`;
 const WASM_CACHE = `${CACHE_VERSION}-wasm`;
 

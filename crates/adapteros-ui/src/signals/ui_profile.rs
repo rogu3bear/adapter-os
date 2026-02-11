@@ -65,7 +65,7 @@ pub fn use_ui_profile() -> Signal<UiProfile> {
         } else if let Some(runtime_profile) = state.get().runtime_profile {
             runtime_profile
         } else {
-            UiProfile::Full
+            UiProfile::Primary
         }
     })
 }

@@ -333,6 +333,63 @@ fn user_message_for_code(code: &str, failure_code: Option<FailureCode>, error: &
     message
 }
 
+/// Format structured error details (field-level validation errors) into a user-readable string.
+/// Extracts details from `ApiError::Structured` variant's `details` field.
+pub fn format_structured_details(error: &ApiError) -> String {
+    match error {
+        ApiError::Structured {
+            details: Some(details),
+            error: err_msg,
+            ..
+        } => {
+            if let Some(errors) = details.get("errors").and_then(|v| v.as_array()) {
+                let rendered: Vec<String> = errors
+                    .iter()
+                    .filter_map(|entry| {
+                        let msg = entry
+                            .get("message")
+                            .and_then(|m| m.as_str())
+                            .unwrap_or_default();
+                        if msg.is_empty() {
+                            return None;
+                        }
+                        let mut parts = vec![msg.to_string()];
+                        if let Some(field) = entry.get("field_name").and_then(|f| f.as_str()) {
+                            parts.push(format!("field {}", field));
+                        }
+                        if let Some(file) = entry.get("file_path").and_then(|f| f.as_str()) {
+                            parts.push(file.to_string());
+                        }
+                        if let Some(line) = entry.get("line_number").and_then(|l| l.as_i64()) {
+                            parts.push(format!("line {}", line));
+                        }
+                        Some(parts.join(" \u{00b7} "))
+                    })
+                    .collect();
+                if !rendered.is_empty() {
+                    return format!("{}: {}", err_msg, rendered.join("; "));
+                }
+            }
+
+            if let Some(obj) = details.as_object() {
+                let field_errors: Vec<String> = obj
+                    .iter()
+                    .filter(|(k, _)| k.as_str() != "errors")
+                    .filter_map(|(field, value)| {
+                        value.as_str().map(|msg| format!("{}: {}", field, msg))
+                    })
+                    .collect();
+                if !field_errors.is_empty() {
+                    return field_errors.join(". ");
+                }
+            }
+
+            error.user_message()
+        }
+        _ => error.user_message(),
+    }
+}
+
 impl From<gloo_net::Error> for ApiError {
     fn from(err: gloo_net::Error) -> Self {
         let msg = err.to_string();

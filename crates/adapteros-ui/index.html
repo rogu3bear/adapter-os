@@ -308,27 +308,7 @@
     </div>
     <!-- PRD-UI-000: Render probe -->
     <div id="aos-boot-probe">HTML: OK | WASM: loading...</div>
-    <!-- PRD-UI-000: Enhanced panic overlay with route/build info -->
-    <div id="aos-panic-overlay">
-        <h1>adapterOS UI Panic</h1>
-        <div class="panic-meta">
-            <div><span>Route:</span> <strong id="aos-panic-route">/</strong></div>
-            <div><span>Build:</span> <strong id="aos-panic-build">unknown</strong></div>
-            <div><span>Time:</span> <strong id="aos-panic-time">-</strong></div>
-        </div>
-        <p>The UI encountered a fatal error:</p>
-        <pre id="aos-panic-message">Unknown error</pre>
-        <details>
-            <summary>Stack Trace</summary>
-            <pre id="aos-panic-stack">No stack trace available</pre>
-        </details>
-        <div class="panic-actions">
-            <button onclick="location.reload()">Reload Page</button>
-            <button class="secondary" onclick="location.href='/safe'">Safe Mode</button>
-            <button class="secondary"
-                onclick="document.getElementById('aos-panic-overlay').classList.remove('visible')">Dismiss</button>
-        </div>
-    </div>
+    <!-- PRD-UI-000: Panic overlay is created dynamically by aosShowPanic() to prevent false positives -->
     <noscript>
         <div style="padding: 2rem; text-align: center;">
             <h1>JavaScript Required</h1>
@@ -848,27 +828,101 @@
                     });
             };
 
-            // Panic handler
+            // Panic handler - creates overlay dynamically to prevent false positives
             window.aosShowPanic = function (message, stackTrace) {
                 clearInterval(elapsedInterval);
                 var progress = document.getElementById('aos-boot-progress');
-                var overlay = document.getElementById('aos-panic-overlay');
-                var msgEl = document.getElementById('aos-panic-message');
-                var stackEl = document.getElementById('aos-panic-stack');
-                var routeEl = document.getElementById('aos-panic-route');
-                var buildEl = document.getElementById('aos-panic-build');
-                var timeEl = document.getElementById('aos-panic-time');
-
                 if (progress) progress.classList.add('hidden');
 
-                if (overlay && msgEl) {
-                    msgEl.textContent = message;
-                    overlay.classList.add('visible');
-                }
-                if (stackEl && stackTrace) stackEl.textContent = stackTrace;
-                if (routeEl) routeEl.textContent = window.location.pathname || '/';
-                if (buildEl) buildEl.textContent = buildHash.substring(0, 8);
-                if (timeEl) timeEl.textContent = new Date().toISOString();
+                // Remove any existing overlay before creating a new one
+                var existing = document.getElementById('aos-panic-overlay');
+                if (existing) existing.remove();
+
+                // Build the overlay using safe DOM construction (no innerHTML)
+                var overlay = document.createElement('div');
+                overlay.id = 'aos-panic-overlay';
+                overlay.classList.add('visible');
+
+                var h1 = document.createElement('h1');
+                h1.textContent = 'adapterOS UI Panic';
+                overlay.appendChild(h1);
+
+                var meta = document.createElement('div');
+                meta.className = 'panic-meta';
+
+                var routeDiv = document.createElement('div');
+                var routeSpan = document.createElement('span');
+                routeSpan.textContent = 'Route:';
+                var routeStrong = document.createElement('strong');
+                routeStrong.textContent = window.location.pathname || '/';
+                routeDiv.appendChild(routeSpan);
+                routeDiv.appendChild(document.createTextNode(' '));
+                routeDiv.appendChild(routeStrong);
+                meta.appendChild(routeDiv);
+
+                var buildDiv = document.createElement('div');
+                var buildSpan = document.createElement('span');
+                buildSpan.textContent = 'Build:';
+                var buildStrong = document.createElement('strong');
+                buildStrong.textContent = buildHash.substring(0, 8);
+                buildDiv.appendChild(buildSpan);
+                buildDiv.appendChild(document.createTextNode(' '));
+                buildDiv.appendChild(buildStrong);
+                meta.appendChild(buildDiv);
+
+                var timeDiv = document.createElement('div');
+                var timeSpan = document.createElement('span');
+                timeSpan.textContent = 'Time:';
+                var timeStrong = document.createElement('strong');
+                timeStrong.textContent = new Date().toISOString();
+                timeDiv.appendChild(timeSpan);
+                timeDiv.appendChild(document.createTextNode(' '));
+                timeDiv.appendChild(timeStrong);
+                meta.appendChild(timeDiv);
+
+                overlay.appendChild(meta);
+
+                var desc = document.createElement('p');
+                desc.textContent = 'The UI encountered a fatal error:';
+                overlay.appendChild(desc);
+
+                var msgPre = document.createElement('pre');
+                msgPre.id = 'aos-panic-message';
+                msgPre.textContent = message || 'Unknown error';
+                overlay.appendChild(msgPre);
+
+                var details = document.createElement('details');
+                var summary = document.createElement('summary');
+                summary.textContent = 'Stack Trace';
+                details.appendChild(summary);
+                var stackPre = document.createElement('pre');
+                stackPre.id = 'aos-panic-stack';
+                stackPre.textContent = stackTrace || 'No stack trace available';
+                details.appendChild(stackPre);
+                overlay.appendChild(details);
+
+                var actions = document.createElement('div');
+                actions.className = 'panic-actions';
+
+                var reloadBtn = document.createElement('button');
+                reloadBtn.textContent = 'Reload Page';
+                reloadBtn.onclick = function () { location.reload(); };
+                actions.appendChild(reloadBtn);
+
+                var safeBtn = document.createElement('button');
+                safeBtn.className = 'secondary';
+                safeBtn.textContent = 'Safe Mode';
+                safeBtn.onclick = function () { location.href = '/safe'; };
+                actions.appendChild(safeBtn);
+
+                var dismissBtn = document.createElement('button');
+                dismissBtn.className = 'secondary';
+                dismissBtn.textContent = 'Dismiss';
+                dismissBtn.onclick = function () { overlay.classList.remove('visible'); };
+                actions.appendChild(dismissBtn);
+
+                overlay.appendChild(actions);
+                document.body.appendChild(overlay);
 
                 var probe = document.getElementById('aos-boot-probe');
                 if (probe) { probe.textContent = 'PANIC'; probe.classList.add('error'); }

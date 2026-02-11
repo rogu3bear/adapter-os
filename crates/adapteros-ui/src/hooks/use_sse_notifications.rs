@@ -16,7 +16,9 @@ pub fn use_sse_notifications(state: ReadSignal<SseState>) {
     let cooldown_ms = 2500.0;
 
     Effect::new(move || {
-        let current = state.get();
+        let Some(current) = state.try_get() else {
+            return;
+        };
         let previous = last_state.get_value();
         if current == previous {
             return;

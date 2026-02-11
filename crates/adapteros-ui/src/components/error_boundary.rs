@@ -2,15 +2,31 @@
 //!
 //! Catches panics in route components and displays a recovery UI.
 //! Uses Leptos `ErrorBoundary` with custom fallback rendering.
+//! Errors are logged with a correlation ID for diagnostics.
 
 use leptos::prelude::*;
 
 use crate::components::{Button, ButtonVariant, Card, IconWarning};
 
+/// Generate a short correlation ID for error boundary events.
+fn generate_correlation_id() -> String {
+    #[cfg(target_arch = "wasm32")]
+    {
+        let ts = js_sys::Date::now() as u64;
+        let rand = (js_sys::Math::random() * 0xFFFF as f64) as u16;
+        format!("eb-{:x}-{:04x}", ts % 0xFFFFFF, rand)
+    }
+    #[cfg(not(target_arch = "wasm32"))]
+    {
+        "eb-test".to_string()
+    }
+}
+
 /// Route-level error boundary with recovery UI
 ///
 /// Wraps route content and catches any panics or errors,
 /// displaying a user-friendly recovery interface instead of a blank screen.
+/// Each error occurrence is assigned a correlation ID and logged to the console.
 ///
 /// # Example
 /// ```ignore
@@ -22,15 +38,27 @@ use crate::components::{Button, ButtonVariant, Card, IconWarning};
 pub fn RouteErrorBoundary(children: Children) -> impl IntoView {
     view! {
         <ErrorBoundary fallback=|errors| {
-            // Collect error messages at render time
-            let error_messages: Vec<String> = errors
-                .get()
-                .into_iter()
-                .map(|(_, e)| e.to_string())
-                .collect();
+            let correlation_id = generate_correlation_id();
 
+            // Collect error messages at render time (try_get for disposal safety)
+            let error_messages: Vec<String> = errors
+                .try_get()
+                .map(|errs| errs.into_iter().map(|(_, e)| e.to_string()).collect())
+                .unwrap_or_default();
+
+            // Log errors with correlation ID for diagnostics
+            #[cfg(target_arch = "wasm32")]
+            {
+                for msg in &error_messages {
+                    web_sys::console::error_1(
+                        &format!("[ErrorBoundary] corr={} error={}", correlation_id, msg).into(),
+                    );
+                }
+            }
+
+            let cid = correlation_id.clone();
             view! {
-                <ErrorRecoveryPanel error_messages=error_messages/>
+                <ErrorRecoveryPanel error_messages=error_messages correlation_id=cid/>
             }
         }>
             {children()}
@@ -38,9 +66,17 @@ pub fn RouteErrorBoundary(children: Children) -> impl IntoView {
     }
 }
 
-/// Error recovery panel displayed when an error occurs
+/// Error recovery panel displayed when an error occurs.
+///
+/// Shows a user-friendly card with recovery actions and a correlation ID.
+/// Error details are collapsed by default to avoid exposing raw internals.
 #[component]
-fn ErrorRecoveryPanel(error_messages: Vec<String>) -> impl IntoView {
+fn ErrorRecoveryPanel(
+    error_messages: Vec<String>,
+    /// Correlation ID for support/diagnostics
+    #[prop(into)]
+    correlation_id: String,
+) -> impl IntoView {
     let on_reload = move |_| {
         #[cfg(target_arch = "wasm32")]
         {
@@ -69,7 +105,7 @@ fn ErrorRecoveryPanel(error_messages: Vec<String>) -> impl IntoView {
                         <span class="font-medium">"An error occurred while loading this page"</span>
                     </div>
 
-                    // Error details (collapsible)
+                    // Error details (collapsible, sanitized)
                     {(!error_messages.is_empty()).then(|| {
                         let msgs = error_messages.clone();
                         view! {
@@ -79,7 +115,7 @@ fn ErrorRecoveryPanel(error_messages: Vec<String>) -> impl IntoView {
                                 </summary>
                                 <div class="mt-2 p-3 rounded-lg bg-muted/50 font-mono text-xs overflow-x-auto">
                                     {msgs.iter().map(|msg| view! {
-                                        <p class="text-destructive">{msg.clone()}</p>
+                                        <p class="text-destructive">{crate::redact_sensitive_info(msg)}</p>
                                     }).collect::<Vec<_>>()}
                                 </div>
                             </details>
@@ -102,9 +138,10 @@ fn ErrorRecoveryPanel(error_messages: Vec<String>) -> impl IntoView {
                         </Button>
                     </div>
 
-                    // Help text
+                    // Correlation ID for support
                     <p class="text-xs text-muted-foreground">
-                        "If this issue persists, please contact support or check the system logs."
+                        "If this issue persists, reference ID: "
+                        <code class="font-mono">{correlation_id}</code>
                     </p>
                 </div>
             </Card>
@@ -115,7 +152,7 @@ fn ErrorRecoveryPanel(error_messages: Vec<String>) -> impl IntoView {
 /// Minimal error boundary for inline error capture
 ///
 /// Lighter-weight version that shows inline error message
-/// without full recovery UI.
+/// without full recovery UI. Logs the error with a correlation ID.
 #[component]
 pub fn InlineErrorBoundary(
     /// Fallback message when error occurs
@@ -124,7 +161,24 @@ pub fn InlineErrorBoundary(
     children: Children,
 ) -> impl IntoView {
     view! {
-        <ErrorBoundary fallback=move |_errors| {
+        <ErrorBoundary fallback=move |errors| {
+            let cid = generate_correlation_id();
+
+            // Log inline boundary errors
+            #[cfg(target_arch = "wasm32")]
+            {
+                if let Some(errs) = errors.try_get() {
+                    for (_, e) in errs.iter() {
+                        web_sys::console::error_1(
+                            &format!("[InlineErrorBoundary] corr={} error={}", cid, e).into(),
+                        );
+                    }
+                }
+            }
+            // Suppress unused variable warning on non-wasm targets
+            #[cfg(not(target_arch = "wasm32"))]
+            let _ = (&errors, &cid);
+
             view! {
                 <div class="flex items-center gap-2 text-sm text-destructive p-2 rounded bg-destructive/10">
                     <IconWarning class="h-4 w-4".to_string()/>

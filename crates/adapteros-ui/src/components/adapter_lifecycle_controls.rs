@@ -147,9 +147,12 @@ pub fn AdapterLifecycleControls(
                     .await
                 {
                     Ok(_) => {
-                        notifications.success(
+                        let detail_href = format!("/adapters/{}", adapter_id);
+                        notifications.success_with_action(
                             "Lifecycle Updated",
                             &format!("Adapter transitioned to {}", target_state),
+                            "View Adapter",
+                            &detail_href,
                         );
                         show_dialog.set(false);
                         loading.set(false);

@@ -39,9 +39,8 @@ impl PageDefinition {
 }
 
 /// Get all searchable pages from nav_registry (canonical source of truth)
-pub fn get_pages() -> Vec<PageDefinition> {
-    // Use Full profile to get all pages for search
-    all_nav_items(UiProfile::Full)
+pub fn get_pages(profile: UiProfile) -> Vec<PageDefinition> {
+    all_nav_items(profile)
         .into_iter()
         .filter(|item| !item.hidden)
         .map(PageDefinition::from_nav_item)
@@ -156,7 +155,7 @@ impl SearchIndex {
 
     /// Search pages by query
     pub fn search_pages(&self, query: &str) -> Vec<SearchResult> {
-        let pages = get_pages();
+        let pages = get_pages(UiProfile::Full);
 
         if query.is_empty() {
             // Return all pages when query is empty (for browsing)
