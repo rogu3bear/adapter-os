@@ -436,10 +436,10 @@ fn PolicyActionsCard(
     let (apply_result, set_apply_result) = signal(None::<Result<(), String>>);
 
     Effect::new(move |_| {
-        let _ = content.get();
-        let _ = cpid.get();
-        set_validation_result.set(None);
-        set_apply_result.set(None);
+        let Some(_) = content.try_get() else { return };
+        let Some(_) = cpid.try_get() else { return };
+        let _ = set_validation_result.try_set(None);
+        let _ = set_apply_result.try_set(None);
     });
 
     let on_apply = move |_| {

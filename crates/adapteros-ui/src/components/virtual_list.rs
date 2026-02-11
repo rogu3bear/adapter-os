@@ -132,7 +132,9 @@ where
     // Log list size in debug builds
     #[cfg(debug_assertions)]
     Effect::new(move |_| {
-        let items_vec = items.get();
+        let Some(items_vec) = items.try_get() else {
+            return;
+        };
         if !items_vec.is_empty() {
             web_sys::console::log_1(
                 &format!("[list] VirtualList: {} items", items_vec.len()).into(),
@@ -238,7 +240,9 @@ where
     {
         let label = debug_label.clone();
         Effect::new(move |_| {
-            let items_vec = items.get();
+            let Some(items_vec) = items.try_get() else {
+                return;
+            };
             if !items_vec.is_empty() {
                 let name = if label.is_empty() {
                     "VirtualTableBody"
@@ -345,7 +349,9 @@ where
     {
         let label = debug_label.clone();
         Effect::new(move |_| {
-            let items_vec = items.get();
+            let Some(items_vec) = items.try_get() else {
+                return;
+            };
             if !items_vec.is_empty() {
                 let name = if label.is_empty() {
                     "CappedList"
