@@ -51,11 +51,8 @@ pub async fn fetch_adapter_for_tenant(
         })?
         .ok_or_else(|| ApiError::not_found("adapter"))?;
 
-    // Validate tenant isolation - converts to ApiError
-    validate_tenant_isolation(claims, &adapter.tenant_id).map_err(|(status, json)| {
-        ApiError::new(status, "TENANT_ISOLATION_ERROR", json.0.message.clone())
-            .with_details(json.0.details.map(|d| d.to_string()).unwrap_or_default())
-    })?;
+    // Validate tenant isolation - already returns ApiError after B-9 migration
+    validate_tenant_isolation(claims, &adapter.tenant_id)?;
 
     Ok(adapter)
 }

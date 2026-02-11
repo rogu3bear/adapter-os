@@ -2,11 +2,10 @@ use crate::api_error::ApiError;
 use crate::auth::Claims;
 use crate::ip_extraction::ClientIp;
 use crate::middleware::request_id::RequestId;
-use crate::middleware::require_any_role;
+use crate::permissions::{require_permission, Permission};
 use crate::security;
 use crate::state::AppState;
 use crate::types::{ErrorResponse, TokenizeRequest, TokenizeResponse, MAX_REPLAY_TEXT_SIZE};
-use adapteros_db::users::Role;
 use axum::{extract::State, Extension, Json};
 use std::path::PathBuf;
 use tokenizers::Tokenizer;
@@ -32,8 +31,7 @@ pub async fn tokenize(
     request_id: Option<Extension<RequestId>>,
     Json(req): Json<TokenizeRequest>,
 ) -> Result<Json<TokenizeResponse>, ApiError> {
-    // Enforce role guard
-    require_any_role(&claims, &[Role::Operator, Role::Admin])?;
+    require_permission(&claims, Permission::InferenceExecute)?;
 
     // Basic input guard aligned with inference validators
     if req.text.is_empty() {

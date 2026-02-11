@@ -105,17 +105,23 @@
 
 /* ===== Feature Detection with Fallback ===== */
 @supports (backdrop-filter: blur(1px)) {
-    .theme-glass .card,
-    .theme-glass .dialog-content,
     .theme-glass header,
     .theme-glass nav,
-    .theme-glass aside,
     .theme-glass .input,
-    .theme-glass textarea,
+    .theme-glass textarea {
+        backdrop-filter: blur(var(--glass-blur-1)) saturate(var(--glass-saturation));
+        -webkit-backdrop-filter: blur(var(--glass-blur-1)) saturate(var(--glass-saturation));
+    }
+    .theme-glass .card,
+    .theme-glass aside,
     .theme-glass .btn-ghost,
     .theme-glass .table-row:hover {
         backdrop-filter: blur(var(--glass-blur)) saturate(var(--glass-saturation));
         -webkit-backdrop-filter: blur(var(--glass-blur)) saturate(var(--glass-saturation));
+    }
+    .theme-glass .dialog-content {
+        backdrop-filter: blur(var(--glass-blur-3)) saturate(var(--glass-saturation));
+        -webkit-backdrop-filter: blur(var(--glass-blur-3)) saturate(var(--glass-saturation));
     }
 }
 

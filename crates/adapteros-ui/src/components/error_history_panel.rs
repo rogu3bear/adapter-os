@@ -17,6 +17,7 @@ pub fn ErrorHistoryPanel(
     let (state, action) = use_notification_context();
     let action_for_clear = action.clone();
     let action_for_mark = action.clone();
+    let confirm_clear = RwSignal::new(false);
 
     let close = move |_| open.set(false);
 
@@ -52,16 +53,40 @@ pub fn ErrorHistoryPanel(
                     "Error History"
                 </h2>
                 <div class="error-history-header-actions">
-                    // Clear all button
-                    <button
-                        class="error-history-clear-btn"
-                        on:click=move |_| action_for_clear.clear_notifications()
-                        title="Clear all"
-                    >
-                        <svg class="error-history-clear-icon" fill="none" stroke="currentColor" viewBox="0 0 24 24">
-                            <path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M19 7l-.867 12.142A2 2 0 0116.138 21H7.862a2 2 0 01-1.995-1.858L5 7m5 4v6m4-6v6m1-10V4a1 1 0 00-1-1h-4a1 1 0 00-1 1v3M4 7h16"/>
-                        </svg>
-                    </button>
+                    // Clear all button (two-step: click once to arm, again to confirm)
+                    {
+                        let action_for_clear_inner = action_for_clear.clone();
+                        move || {
+                            let action_for_clear = action_for_clear_inner.clone();
+                            if confirm_clear.get() {
+                                view! {
+                                    <button
+                                        class="error-history-clear-btn error-history-clear-btn-confirm"
+                                        on:click=move |_| {
+                                            action_for_clear.clear_notifications();
+                                            confirm_clear.set(false);
+                                        }
+                                        on:blur=move |_| confirm_clear.set(false)
+                                        title="Click again to confirm"
+                                    >
+                                        <span class="error-history-clear-confirm-text">"Clear?"</span>
+                                    </button>
+                                }.into_any()
+                            } else {
+                                view! {
+                                    <button
+                                        class="error-history-clear-btn"
+                                        on:click=move |_| confirm_clear.set(true)
+                                        title="Clear all"
+                                    >
+                                        <svg class="error-history-clear-icon" fill="none" stroke="currentColor" viewBox="0 0 24 24">
+                                            <path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M19 7l-.867 12.142A2 2 0 0116.138 21H7.862a2 2 0 01-1.995-1.858L5 7m5 4v6m4-6v6m1-10V4a1 1 0 00-1-1h-4a1 1 0 00-1 1v3M4 7h16"/>
+                                        </svg>
+                                    </button>
+                                }.into_any()
+                            }
+                        }
+                    }
 
                     // Mark all read button
                     <button

@@ -194,7 +194,7 @@ impl From<(&StreamingInferRequest, &Claims)> for InferenceRequestInternal {
             created_at: std::time::Instant::now(),
             router_seed: None, // Use default router behavior for streaming
             worker_auth_token: None,
-            policy_mask_digest_b3: None, // Streaming requests don't use policy hooks
+            policy_mask_digest_b3: None, // Computed and set later in pre-flight policy enforcement
             utf8_healing: None,
             abstention_threshold: None, // AARA lifecycle
             citation_mode: None,        // AARA lifecycle
@@ -202,15 +202,7 @@ impl From<(&StreamingInferRequest, &Claims)> for InferenceRequestInternal {
     }
 }
 
-fn default_max_tokens() -> usize {
-    512
-}
-
-fn default_temperature() -> f32 {
-    adapteros_config::try_effective_config()
-        .map(|c| c.inference.default_temperature)
-        .unwrap_or(0.7)
-}
+use crate::types::{default_max_tokens, default_temperature};
 
 /// OpenAI-compatible streaming chunk response
 #[derive(Debug, Clone, Serialize, Deserialize, ToSchema)]

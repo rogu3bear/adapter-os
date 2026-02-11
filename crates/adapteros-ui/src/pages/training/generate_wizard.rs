@@ -437,7 +437,7 @@ pub fn GenerateDatasetWizard(
 
                     // Result summary
                     <Show when=move || result.get().is_some()>
-                        <div class="p-4 rounded-lg border border-green-600/50 bg-green-100/30 space-y-3">
+                        <div class="p-4 rounded-lg border border-status-success/50 bg-status-success/10 space-y-3">
                             <div class="flex items-center gap-2">
                                 <span class="inline-flex items-center rounded-md bg-purple-100 px-2 py-1 text-xs font-medium text-purple-700">
                                     "Synthetic"

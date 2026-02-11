@@ -1,0 +1,22 @@
+# Runtime routes intentionally excluded from OpenAPI coverage checks.
+# Keep this file minimal and remove entries once coverage is added.
+
+/docs
+/internal/models
+/system/ready
+/v1/adapteros/sessions/mint
+/v1/datasets/upload
+/v1/metrics
+/v1/metrics/current
+/v1/repos/{repo_id}/rollback/{branch}
+/v1/tokenize
+/v1/ui/traces/inference/{trace_id}
+/v1/version
+/v1/workers/heartbeat
+
+# Known route/OpenAPI naming or registration drift pending contract cleanup.
+/v1/adapters/in-flight
+/v1/auth/sessions/{jti}
+/v1/jobs/{job_id}
+/v1/training/datasets/from-upload/async
+/v1/training/jobs/{job_id}/priority

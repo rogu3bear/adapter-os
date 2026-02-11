@@ -17,8 +17,9 @@ mod utils;
 
 use crate::api::ApiClient;
 use crate::components::{
-    Button, ButtonVariant, ErrorDisplay, LoadingDisplay, PageBreadcrumbItem, PageScaffold,
-    PageScaffoldActions, RefreshButton, SkeletonCard, SkeletonTable, SplitPanel, SplitRatio,
+    Button, ButtonVariant, ConfirmationDialog, ConfirmationSeverity, ErrorDisplay, LoadingDisplay,
+    PageBreadcrumbItem, PageScaffold, PageScaffoldActions, RefreshButton, SkeletonCard,
+    SkeletonTable, SplitPanel, SplitRatio,
 };
 use crate::hooks::{use_api_resource, use_polling, LoadingState};
 use crate::signals::use_notifications;
@@ -66,6 +67,10 @@ pub fn Workers() -> impl IntoView {
     let show_history = RwSignal::new(false);
     let action_loading = RwSignal::new(false);
     let action_error = RwSignal::new(Option::<String>::None);
+    let pending_drain_worker = RwSignal::new(Option::<String>::None);
+    let pending_stop_worker = RwSignal::new(Option::<String>::None);
+    let show_drain_confirm = RwSignal::new(false);
+    let show_stop_confirm = RwSignal::new(false);
     let notifications = use_notifications();
 
     // Debug logging for list sizes
@@ -292,40 +297,14 @@ pub fn Workers() -> impl IntoView {
                                             health_map=health_map
                                             on_drain=Callback::new({
                                                 move |worker_id: String| {
-                                                    action_loading.set(true);
-                                                    let client = ApiClient::new();
-                                                    let worker_id = worker_id.clone();
-                                                    wasm_bindgen_futures::spawn_local(async move {
-                                                        match client.drain_worker(&worker_id).await {
-                                                            Ok(_) => {
-                                                                action_error.set(None);
-                                                                refetch_workers.run(());
-                                                            }
-                                                            Err(e) => {
-                                                                action_error.set(Some(e.user_message()));
-                                                            }
-                                                        }
-                                                        action_loading.set(false);
-                                                    });
+                                                    pending_drain_worker.set(Some(worker_id));
+                                                    show_drain_confirm.set(true);
                                                 }
                                             })
                                             on_stop=Callback::new({
                                                 move |worker_id: String| {
-                                                    action_loading.set(true);
-                                                    let client = ApiClient::new();
-                                                    let worker_id = worker_id.clone();
-                                                    wasm_bindgen_futures::spawn_local(async move {
-                                                        match client.stop_worker(&worker_id).await {
-                                                            Ok(_) => {
-                                                                action_error.set(None);
-                                                                refetch_workers.run(());
-                                                            }
-                                                            Err(e) => {
-                                                                action_error.set(Some(e.user_message()));
-                                                            }
-                                                        }
-                                                        action_loading.set(false);
-                                                    });
+                                                    pending_stop_worker.set(Some(worker_id));
+                                                    show_stop_confirm.set(true);
                                                 }
                                             })
                                             on_spawn=Callback::new(move |_| show_spawn_dialog.set(true))
@@ -356,6 +335,7 @@ pub fn Workers() -> impl IntoView {
                                 open=show_spawn_dialog
                                 nodes=nodes_list
                                 plans=plans_list
+                                loading=Signal::from(action_loading)
                                 on_spawn=Callback::new({
                                     let notifications = notifications.clone();
                                     move |request: SpawnWorkerRequest| {
@@ -384,6 +364,92 @@ pub fn Workers() -> impl IntoView {
                                     }
                                 })
                             />
+
+                            // Drain confirmation dialog
+                            {
+                                let drain_desc = {
+                                    let wid = pending_drain_worker.get().unwrap_or_default();
+                                    let short = if wid.len() > 8 { format!("{}...", &wid[..8]) } else { wid };
+                                    format!("Drain worker '{}'? New requests will be rejected while existing ones complete.", short)
+                                };
+                                view! {
+                                    <ConfirmationDialog
+                                        open=show_drain_confirm
+                                        title="Drain Worker"
+                                        description=drain_desc
+                                        severity=ConfirmationSeverity::Warning
+                                        confirm_text="Drain"
+                                        on_confirm=Callback::new(move |_| {
+                                            show_drain_confirm.set(false);
+                                            if let Some(worker_id) = pending_drain_worker.get_untracked() {
+                                                action_loading.set(true);
+                                                let client = ApiClient::new();
+                                                wasm_bindgen_futures::spawn_local(async move {
+                                                    match client.drain_worker(&worker_id).await {
+                                                        Ok(_) => {
+                                                            action_error.set(None);
+                                                            refetch_workers.run(());
+                                                        }
+                                                        Err(e) => {
+                                                            action_error.set(Some(e.user_message()));
+                                                        }
+                                                    }
+                                                    action_loading.set(false);
+                                                });
+                                            }
+                                            pending_drain_worker.set(None);
+                                        })
+                                        on_cancel=Callback::new(move |_| {
+                                            show_drain_confirm.set(false);
+                                            pending_drain_worker.set(None);
+                                        })
+                                        loading=Signal::from(action_loading)
+                                    />
+                                }
+                            }
+
+                            // Stop confirmation dialog
+                            {
+                                let stop_desc = {
+                                    let wid = pending_stop_worker.get().unwrap_or_default();
+                                    let short = if wid.len() > 8 { format!("{}...", &wid[..8]) } else { wid };
+                                    format!("Stop worker '{}'? Active inference requests will be terminated.", short)
+                                };
+                                view! {
+                                    <ConfirmationDialog
+                                        open=show_stop_confirm
+                                        title="Stop Worker"
+                                        description=stop_desc
+                                        severity=ConfirmationSeverity::Warning
+                                        confirm_text="Stop"
+                                        on_confirm=Callback::new(move |_| {
+                                            show_stop_confirm.set(false);
+                                            if let Some(worker_id) = pending_stop_worker.get_untracked() {
+                                                action_loading.set(true);
+                                                let client = ApiClient::new();
+                                                wasm_bindgen_futures::spawn_local(async move {
+                                                    match client.stop_worker(&worker_id).await {
+                                                        Ok(_) => {
+                                                            action_error.set(None);
+                                                            refetch_workers.run(());
+                                                        }
+                                                        Err(e) => {
+                                                            action_error.set(Some(e.user_message()));
+                                                        }
+                                                    }
+                                                    action_loading.set(false);
+                                                });
+                                            }
+                                            pending_stop_worker.set(None);
+                                        })
+                                        on_cancel=Callback::new(move |_| {
+                                            show_stop_confirm.set(false);
+                                            pending_stop_worker.set(None);
+                                        })
+                                        loading=Signal::from(action_loading)
+                                    />
+                                }
+                            }
                         }.into_any()
                     }
                     LoadingState::Error(e) => {

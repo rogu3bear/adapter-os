@@ -28,6 +28,7 @@ use axum::{
     extract::FromRequestParts,
     http::{request::Parts, StatusCode},
 };
+use base64::Engine;
 use blake3;
 use chrono::{Duration, Utc};
 use jsonwebtoken::{
@@ -165,13 +166,17 @@ pub struct DevBypassStatus {
 /// Check if production mode is enabled via AOS_PRODUCTION_MODE env var.
 ///
 /// SECURITY: Production mode blocks dev bypass even in debug builds.
-fn is_production_mode() -> bool {
-    env::var("AOS_PRODUCTION_MODE")
-        .map(|v| {
-            let lower = v.to_ascii_lowercase();
-            matches!(lower.as_str(), "1" | "true")
-        })
-        .unwrap_or(false)
+/// Result is cached on first call for consistent behavior and performance.
+pub(crate) fn is_production_mode() -> bool {
+    static CACHED: OnceLock<bool> = OnceLock::new();
+    *CACHED.get_or_init(|| {
+        env::var("AOS_PRODUCTION_MODE")
+            .map(|v| {
+                let lower = v.to_ascii_lowercase();
+                matches!(lower.as_str(), "1" | "true")
+            })
+            .unwrap_or(false)
+    })
 }
 
 fn dev_bypass_requested() -> (bool, bool) {
@@ -625,66 +630,11 @@ pub fn encode_ed25519_public_key_pem(public_key_bytes: &[u8]) -> String {
     der_encoded.extend_from_slice(public_key_bytes);
 
     // Encode as PEM
+    let encoded = base64::engine::general_purpose::STANDARD.encode(&der_encoded);
     format!(
         "-----BEGIN PUBLIC KEY-----\n{}\n-----END PUBLIC KEY-----",
-        base64_encode(&der_encoded)
+        encoded
     )
-}
-
-/// Base64 encode bytes (standard Base64 without padding)
-fn base64_encode(data: &[u8]) -> String {
-    const BASE64_CHARS: &[u8] = b"ABCDEFGHIJKLMNOPQRSTUVWXYZabcdefghijklmnopqrstuvwxyz0123456789+/";
-
-    let mut result = String::new();
-    let mut i = 0;
-
-    while i < data.len() {
-        let b1 = data[i];
-        i += 1;
-
-        let (b2, b3) = if i < data.len() {
-            let b2 = data[i];
-            i += 1;
-            let b3 = if i < data.len() {
-                let b3 = data[i];
-                i += 1;
-                b3
-            } else {
-                0
-            };
-            (b2, b3)
-        } else {
-            (0, 0)
-        };
-
-        let idx1 = (b1 >> 2) as usize;
-        let idx2 = (((b1 & 0x03) << 4) | ((b2 >> 4) & 0x0f)) as usize;
-        let idx3 = if i - 1 < data.len() {
-            (((b2 & 0x0f) << 2) | ((b3 >> 6) & 0x03)) as usize
-        } else {
-            64
-        };
-        let idx4 = if i < data.len() {
-            (b3 & 0x3f) as usize
-        } else {
-            64
-        };
-
-        result.push(BASE64_CHARS[idx1] as char);
-        result.push(BASE64_CHARS[idx2] as char);
-        result.push(if idx3 == 64 {
-            '='
-        } else {
-            BASE64_CHARS[idx3] as char
-        });
-        result.push(if idx4 == 64 {
-            '='
-        } else {
-            BASE64_CHARS[idx4] as char
-        });
-    }
-
-    result
 }
 
 /// Encode a raw 32-byte Ed25519 private key into PKCS#8 DER format

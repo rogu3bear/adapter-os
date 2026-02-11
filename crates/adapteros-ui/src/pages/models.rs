@@ -40,8 +40,8 @@ pub fn Models() -> impl IntoView {
     // Merge status data with registered models: if a registered model has no
     // status entry, synthesize one with NoModel status so it appears in the list.
     let merged_models = Signal::derive(move || {
-        let status_state = models_status.get();
-        let registered_state = registered_models.get();
+        let status_state = models_status.try_get().unwrap_or(LoadingState::Loading);
+        let registered_state = registered_models.try_get().unwrap_or(LoadingState::Loading);
 
         match status_state {
             LoadingState::Idle | LoadingState::Loading => LoadingState::Loading,
@@ -141,7 +141,7 @@ pub fn Models() -> impl IntoView {
                         <div class="space-y-6">
                             // Model list
                             {move || {
-                                match merged_models.get() {
+                                match merged_models.try_get().unwrap_or(LoadingState::Loading) {
                                     LoadingState::Idle | LoadingState::Loading => {
                                         view! {
                                             <SkeletonTable rows=5 columns=4/>
@@ -190,7 +190,7 @@ pub fn Models() -> impl IntoView {
                     }
                 }
                 detail_panel=move || {
-                    let model_id = selected_model_id.get().unwrap_or_default();
+                    let model_id = selected_model_id.try_get().flatten().unwrap_or_default();
                     view! {
                         <ModelDetail
                             model_id=model_id
@@ -300,7 +300,7 @@ fn ModelList(
                             view! {
                                 <tr
                                     class="border-b transition-colors hover:bg-muted/50 cursor-pointer"
-                                    class:bg-muted=move || selected_id.get().as_ref() == Some(&model_id)
+                                    class:bg-muted=move || selected_id.try_get().flatten().as_ref() == Some(&model_id)
                                     on:click=move |_| on_select(model_id_for_click.clone())
                                 >
                                     <TableCell>
@@ -417,7 +417,7 @@ fn ModelDetail(model_id: String, on_close: impl Fn() + Copy + 'static) -> impl I
             </div>
 
             {move || {
-                match model_status.get() {
+                match model_status.try_get().unwrap_or(LoadingState::Loading) {
                     LoadingState::Idle | LoadingState::Loading => {
                         view! {
                             <LoadingDisplay message="Loading model details..."/>
@@ -515,7 +515,7 @@ fn ModelDetailContent(
                     </div>
                     <div class="flex gap-2">
                         {move || {
-                            if loading.get() {
+                            if loading.try_get().unwrap_or(false) {
                                 view! { <Spinner /> }.into_any()
                             } else if is_loaded {
                                 view! {

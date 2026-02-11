@@ -1,6 +1,7 @@
 #![allow(unused_variables)]
 #![allow(ambiguous_glob_reexports)]
 
+use crate::api_error::ApiResult;
 use crate::auth::Claims;
 use crate::ip_extraction::ClientIp;
 use crate::middleware::require_any_role;
@@ -1054,7 +1055,7 @@ pub async fn list_process_logs(
     Extension(claims): Extension<Claims>,
     Path(worker_id): Path<String>,
     Query(params): Query<HashMap<String, String>>,
-) -> Result<Json<Vec<ProcessLogResponse>>, (StatusCode, Json<ErrorResponse>)> {
+) -> ApiResult<Vec<ProcessLogResponse>> {
     debugging::list_process_logs(
         State(state),
         Extension(claims),
@@ -1080,7 +1081,7 @@ pub async fn list_process_crashes(
     State(state): State<AppState>,
     Extension(claims): Extension<Claims>,
     Path(worker_id): Path<String>,
-) -> Result<Json<Vec<ProcessCrashDumpResponse>>, (StatusCode, Json<ErrorResponse>)> {
+) -> ApiResult<Vec<ProcessCrashDumpResponse>> {
     debugging::list_process_crashes(State(state), Extension(claims), Path(worker_id)).await
 }
 
@@ -1102,7 +1103,7 @@ pub async fn start_debug_session(
     Extension(claims): Extension<Claims>,
     Path(worker_id): Path<String>,
     Json(req): Json<StartDebugSessionRequest>,
-) -> Result<Json<ProcessDebugSessionResponse>, (StatusCode, Json<ErrorResponse>)> {
+) -> ApiResult<ProcessDebugSessionResponse> {
     debugging::start_debug_session(State(state), Extension(claims), Path(worker_id), Json(req))
         .await
 }
@@ -1125,7 +1126,7 @@ pub async fn run_troubleshooting_step(
     Extension(claims): Extension<Claims>,
     Path(worker_id): Path<String>,
     Json(req): Json<RunTroubleshootingStepRequest>,
-) -> Result<Json<ProcessTroubleshootingStepResponse>, (StatusCode, Json<ErrorResponse>)> {
+) -> ApiResult<ProcessTroubleshootingStepResponse> {
     debugging::run_troubleshooting_step(State(state), Extension(claims), Path(worker_id), Json(req))
         .await
 }
@@ -1497,7 +1498,7 @@ pub async fn list_adapters(
                 selection_rate,
             }),
             version: adapter.version.clone(),
-            lifecycle_state: adapter.lifecycle_state.clone(),
+            lifecycle_state: adapter.lifecycle_state.clone().into(),
             runtime_state: Some(adapter.current_state.clone()),
             pinned: None,
             memory_bytes: None,
@@ -1672,7 +1673,7 @@ pub async fn get_adapter(
             selection_rate,
         }),
         version: adapter.version.clone(),
-        lifecycle_state: adapter.lifecycle_state.clone(),
+        lifecycle_state: adapter.lifecycle_state.clone().into(),
         runtime_state: Some(adapter.current_state),
         pinned: None,
         memory_bytes: None,
@@ -1964,7 +1965,7 @@ pub async fn register_adapter(
             tier: req.tier,
             assurance_tier: None,
             version: "1.0".to_string(),
-            lifecycle_state: "active".to_string(),
+            lifecycle_state: LifecycleState::Active,
             languages: req.languages,
             framework: req.framework,
             category: Some(req.category.clone()),

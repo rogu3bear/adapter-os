@@ -302,7 +302,7 @@ pub async fn load_adapter(
         tier: adapter.tier,
         assurance_tier: None,
         version: adapter.version.clone(),
-        lifecycle_state: adapter.lifecycle_state.clone(),
+        lifecycle_state: adapter.lifecycle_state.clone().into(),
         languages: serde_json::from_str(adapter.languages_json.as_deref().unwrap_or("[]"))
             .unwrap_or_default(),
         framework: adapter.framework,

@@ -642,10 +642,10 @@ pub fn WorkerDetailView(
     let action_loading = RwSignal::new(false);
     let action_error = RwSignal::new(Option::<String>::None);
     let show_stop_confirm = RwSignal::new(false);
+    let show_drain_confirm = RwSignal::new(false);
 
     let is_healthy = worker.status == "healthy";
     let is_draining = worker.status == "draining";
-    let worker_id = worker.id.clone();
     let worker_id_for_health = worker.id.clone();
 
     // Fetch worker health summary for health status + incidents
@@ -687,33 +687,12 @@ pub fn WorkerDetailView(
                         "Refresh"
                     </Button>
                     {is_healthy.then(|| {
-                        let worker_id = worker_id.clone();
                         view! {
                             <Button
                                 variant=ButtonVariant::Secondary
                                 disabled=Signal::from(action_loading)
-                                on_click=Callback::new({
-                                    let alive = alive.clone();
-                                    move |_| {
-                                        action_loading.set(true);
-                                        let client = ApiClient::new();
-                                        let worker_id = worker_id.clone();
-                                        let alive = alive.clone();
-                                        wasm_bindgen_futures::spawn_local(async move {
-                                            match client.drain_worker(&worker_id).await {
-                                                Ok(_) => {
-                                                    action_error.set(None);
-                                                    if alive.load(std::sync::atomic::Ordering::SeqCst) {
-                                                        on_refresh.run(());
-                                                    }
-                                                }
-                                                Err(e) => {
-                                                    action_error.set(Some(e.user_message()));
-                                                }
-                                            }
-                                            action_loading.set(false);
-                                        });
-                                    }
+                                on_click=Callback::new(move |_| {
+                                    show_drain_confirm.set(true);
                                 })
                             >
                                 <IconPause/>
@@ -738,6 +717,52 @@ pub fn WorkerDetailView(
                 </div>
             </div>
 
+            // Drain confirmation dialog
+            {
+                let worker_id = worker.id.clone();
+                let drain_desc = format!(
+                    "Drain worker '{}'? New requests will be rejected while existing ones complete.",
+                    short_id(&worker.id),
+                );
+                view! {
+                    <ConfirmationDialog
+                        open=show_drain_confirm
+                        title="Drain Worker"
+                        description=drain_desc
+                        severity=ConfirmationSeverity::Warning
+                        confirm_text="Drain"
+                        on_confirm=Callback::new({
+                            let alive = alive.clone();
+                            move |_| {
+                                show_drain_confirm.set(false);
+                                action_loading.set(true);
+                                let client = ApiClient::new();
+                                let worker_id = worker_id.clone();
+                                let alive = alive.clone();
+                                wasm_bindgen_futures::spawn_local(async move {
+                                    match client.drain_worker(&worker_id).await {
+                                        Ok(_) => {
+                                            action_error.set(None);
+                                            if alive.load(std::sync::atomic::Ordering::SeqCst) {
+                                                on_refresh.run(());
+                                            }
+                                        }
+                                        Err(e) => {
+                                            action_error.set(Some(e.user_message()));
+                                        }
+                                    }
+                                    action_loading.set(false);
+                                });
+                            }
+                        })
+                        on_cancel=Callback::new(move |_| {
+                            show_drain_confirm.set(false);
+                        })
+                        loading=Signal::from(action_loading)
+                    />
+                }
+            }
+
             // Stop confirmation dialog
             {
                 let worker_id = worker.id.clone();
@@ -753,6 +778,7 @@ pub fn WorkerDetailView(
                         severity=ConfirmationSeverity::Warning
                         confirm_text="Stop"
                         on_confirm=Callback::new(move |_| {
+                            show_stop_confirm.set(false);
                             action_loading.set(true);
                             let client = ApiClient::new();
                             let worker_id = worker_id.clone();
@@ -770,7 +796,9 @@ pub fn WorkerDetailView(
                                 action_loading.set(false);
                             });
                         })
-                        on_cancel=Callback::new(move |_| {})
+                        on_cancel=Callback::new(move |_| {
+                            show_stop_confirm.set(false);
+                        })
                         loading=Signal::from(action_loading)
                     />
                 }

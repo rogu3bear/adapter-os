@@ -412,22 +412,22 @@ pub async fn tenant_route_guard_middleware(
             .unwrap_or_else(|| "unknown".to_string());
         let is_cross_tenant = claims.tenant_id != path_tenant;
 
-        if let Err((_, Json(err_body))) = validate_tenant_isolation(&claims, &path_tenant) {
+        if let Err(api_err) = validate_tenant_isolation(&claims, &path_tenant) {
             tracing::warn!(
                 principal_id = %principal_id,
                 principal_type = %principal_type,
                 auth_mode = ?auth_mode,
                 requested_tenant = %path_tenant,
                 caller_tenant = %claims.tenant_id,
-                code = %err_body.code,
-                detail = ?err_body.details,
+                code = %api_err.code,
+                detail = ?api_err.details,
                 "Tenant isolation rejected"
             );
-            let detail = err_body
+            let detail = api_err
                 .details
                 .as_ref()
                 .and_then(|d| d.as_str())
-                .unwrap_or(err_body.message.as_str())
+                .unwrap_or(api_err.message.as_str())
                 .to_string();
             return Err(tenant_isolation_error(detail));
         }

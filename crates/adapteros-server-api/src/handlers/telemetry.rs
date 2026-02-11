@@ -1,7 +1,6 @@
 //! Telemetry endpoints for offline dashboard (logs, traces, metrics)
 
 use crate::auth::Claims;
-use crate::middleware::require_any_role;
 use crate::permissions::{require_permission, Permission};
 use crate::state::AppState;
 use crate::telemetry::{SpanStatus, TraceSearchQuery};
@@ -14,7 +13,6 @@ use adapteros_db::kv_metrics::{
     global_kv_metrics, KV_ALERT_METRIC_DEGRADATIONS, KV_ALERT_METRIC_DRIFT, KV_ALERT_METRIC_ERRORS,
     KV_ALERT_METRIC_FALLBACKS,
 };
-use adapteros_db::users::Role;
 use adapteros_db::ActivityEvent;
 use adapteros_db::{get_inference_trace_detail_for_tenant, list_inference_traces_for_tenant};
 use adapteros_telemetry::{LogLevel, TelemetryFilters, UnifiedTelemetryEvent};
@@ -996,7 +994,7 @@ pub async fn get_recent_activity(
     Extension(claims): Extension<Claims>,
     Query(query): Query<RecentActivityQuery>,
 ) -> Result<Json<serde_json::Value>, (StatusCode, Json<ErrorResponse>)> {
-    require_any_role(&claims, &[Role::Admin, Role::Operator, Role::Viewer])?;
+    require_permission(&claims, Permission::TelemetryView)?;
 
     let limit = query.limit.unwrap_or(50).clamp(1, 200);
     let event_type_filter = if query.event_types.is_empty() {
@@ -1044,7 +1042,7 @@ pub async fn recent_activity_stream(
     Sse<impl TokioStream<Item = Result<Event, Infallible>>>,
     (StatusCode, Json<ErrorResponse>),
 > {
-    require_any_role(&claims, &[Role::Admin, Role::Operator, Role::Viewer])?;
+    require_permission(&claims, Permission::TelemetryView)?;
 
     let limit = query.limit.unwrap_or(50).clamp(1, 200);
     let filter_set = if query.event_types.is_empty() {
