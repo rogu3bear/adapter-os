@@ -11,6 +11,7 @@ use std::time::{Duration, Instant};
 use tokio::sync::RwLock;
 use tracing::{info, warn};
 
+use adapteros_core::circuit_breaker::CircuitState;
 use adapteros_core::AosError;
 
 /// Configuration for embedding resilience behavior
@@ -79,20 +80,14 @@ impl EmbeddingBatchResult {
     }
 }
 
-/// Circuit breaker states
-#[derive(Debug, Clone, Copy, PartialEq, Eq)]
-pub enum CircuitState {
-    Closed,
-    Open,
-    HalfOpen,
-}
-
 /// Circuit breaker for embedding operations
+///
+/// Uses `adapteros_core::circuit_breaker::CircuitState` for state representation,
+/// ensuring the `Open { until }` variant carries the recovery deadline.
 pub struct EmbeddingCircuitBreaker {
     config: EmbeddingResilienceConfig,
     consecutive_failures: AtomicUsize,
     state: RwLock<CircuitState>,
-    last_failure_time: RwLock<Option<Instant>>,
 }
 
 impl EmbeddingCircuitBreaker {
@@ -101,7 +96,6 @@ impl EmbeddingCircuitBreaker {
             config,
             consecutive_failures: AtomicUsize::new(0),
             state: RwLock::new(CircuitState::Closed),
-            last_failure_time: RwLock::new(None),
         }
     }
 
@@ -109,13 +103,10 @@ impl EmbeddingCircuitBreaker {
         let mut state = self.state.write().await;
 
         // Check if we should transition from Open to HalfOpen
-        if *state == CircuitState::Open {
-            let last_failure = self.last_failure_time.read().await;
-            if let Some(time) = *last_failure {
-                if time.elapsed() >= self.config.circuit_reset_timeout {
-                    *state = CircuitState::HalfOpen;
-                    info!("Embedding circuit breaker transitioning to half-open");
-                }
+        if let CircuitState::Open { until } = *state {
+            if Instant::now() >= until {
+                *state = CircuitState::HalfOpen;
+                info!("Embedding circuit breaker transitioning to half-open");
             }
         }
 
@@ -133,12 +124,12 @@ impl EmbeddingCircuitBreaker {
 
     pub async fn record_failure(&self) {
         let failures = self.consecutive_failures.fetch_add(1, Ordering::SeqCst) + 1;
-        *self.last_failure_time.write().await = Some(Instant::now());
 
         if failures >= self.config.failure_threshold {
             let mut state = self.state.write().await;
             if *state == CircuitState::Closed {
-                *state = CircuitState::Open;
+                let until = Instant::now() + self.config.circuit_reset_timeout;
+                *state = CircuitState::Open { until };
                 warn!(
                     failures = failures,
                     threshold = self.config.failure_threshold,
@@ -149,7 +140,7 @@ impl EmbeddingCircuitBreaker {
     }
 
     pub async fn is_open(&self) -> bool {
-        self.state().await == CircuitState::Open
+        matches!(self.state().await, CircuitState::Open { .. })
     }
 }
 
