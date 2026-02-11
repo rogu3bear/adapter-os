@@ -275,7 +275,7 @@ mod tests {
         assert_eq!(cb.state().await, CircuitState::Closed);
 
         cb.record_failure().await;
-        assert_eq!(cb.state().await, CircuitState::Open);
+        assert!(matches!(cb.state().await, CircuitState::Open { .. }));
     }
 
     #[tokio::test]

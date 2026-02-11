@@ -1,7 +1,15 @@
-//! Retry logic with exponential backoff and jitter for resilient operations
+//! Retry logic with exponential backoff and jitter for resilient operations.
+//!
+//! This module provides a lightweight retry + circuit breaker for handler-level use.
+//! It delegates jitter calculation to `adapteros_core::compute_jitter_delay` but keeps
+//! its own `RetryConfig` because:
+//! - It supports an overall timeout-based abort (`RetryResult::Timeout`) that core's
+//!   `RetryPolicy`/`RetryManager` does not provide.
+//! - The closure signature is generic (`Fn() -> Fut`) vs core's boxed future.
+//! - Core's `RetryManager` bundles metrics, budgets, and circuit breaker integration
+//!   that are unnecessary at the handler retry level.
 
 use adapteros_core::CircuitState;
-use crate::state::OperationRetryConfig;
 use std::time::Duration;
 use tokio::time::sleep;
 use tracing::{debug, warn};
@@ -25,18 +33,6 @@ pub struct RetryConfig {
     pub max_delay: Duration,
     pub backoff_multiplier: f64,
     pub jitter: f64,
-}
-
-impl From<&OperationRetryConfig> for RetryConfig {
-    fn from(config: &OperationRetryConfig) -> Self {
-        Self {
-            max_attempts: config.max_retries + 1, // +1 for initial attempt
-            initial_delay: Duration::from_millis(config.initial_retry_delay_ms),
-            max_delay: Duration::from_millis(config.max_retry_delay_ms),
-            backoff_multiplier: config.backoff_multiplier,
-            jitter: config.jitter,
-        }
-    }
 }
 
 /// Execute an operation with retry logic
@@ -101,7 +97,11 @@ where
     }
 }
 
-// CircuitState is imported from adapteros_core::CircuitState
+// CircuitState is imported from adapteros_core::CircuitState.
+// This CircuitBreaker is intentionally separate from core's StandardCircuitBreaker:
+// - Uses tokio::sync::RwLock for async-first access (core uses tokio::sync::Mutex)
+// - Simpler API (FnOnce closure) suited for handler-level retry patterns
+// - No metrics/atomic caching overhead (core's version is heavier for infrastructure use)
 
 /// Circuit breaker for protecting against cascading failures
 #[derive(Debug)]
