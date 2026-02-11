@@ -103,8 +103,11 @@ async fn observability_middleware_inner(
         envelope.session_id = session_id.clone();
 
         // Persist 5xx failures as first-class ErrorInstance rows.
-        // Do not persist 4xx by default.
-        let (error_id, fingerprint) = if status.is_server_error() {
+        // Also persist worker-originated errors even when non-5xx.
+        let worker_originated = is_worker_originated_error(&code, &message, detail.as_deref());
+        let should_persist = status.is_server_error() || worker_originated;
+        let source = if worker_originated { "worker" } else { "api" };
+        let (error_id, fingerprint) = if should_persist {
             let git_sha = if GIT_COMMIT_HASH.is_empty() {
                 "unknown"
             } else {
@@ -119,7 +122,7 @@ async fn observability_middleware_inner(
                 method,
                 path,
                 status.as_u16(),
-                "api",
+                source,
                 git_sha
             );
             let fingerprint = B3Hash::hash(fp_input.as_bytes()).to_hex();
@@ -134,7 +137,7 @@ async fn observability_middleware_inner(
                 let tags_json = serde_json::json!({
                     "http": { "method": method.to_string(), "path": path },
                     "http_status": status.as_u16(),
-                    "component": "api",
+                    "component": source,
                     "git_sha": git_sha,
                 })
                 .to_string();
@@ -143,7 +146,7 @@ async fn observability_middleware_inner(
                     id: error_id.clone(),
                     created_at_unix_ms,
                     tenant_id: tenant_id_for_persist.clone(),
-                    source: "api".to_string(),
+                    source: source.to_string(),
                     error_code: code.clone(),
                     kind: kind.to_string(),
                     severity: severity.to_string(),
@@ -249,6 +252,7 @@ async fn observability_middleware_inner(
             error_message = %message,
             hint = %hint,
             detail = detail.as_deref().unwrap_or(""),
+            session_id = session_id.as_deref().unwrap_or(""),
             tenant_id = tenant_id.as_deref().unwrap_or(""),
             user_id = user_id.as_deref().unwrap_or(""),
             principal_id = principal_id.as_deref().unwrap_or(""),
@@ -306,6 +310,21 @@ fn classify_kind(code: &str, status: StatusCode) -> &'static str {
         return "worker";
     }
     "server"
+}
+
+fn is_worker_originated_error(code: &str, message: &str, detail: Option<&str>) -> bool {
+    let code_upper = code.to_ascii_uppercase();
+    if code_upper.contains("WORKER") || code_upper == "UDS_CONNECTION_FAILED" {
+        return true;
+    }
+
+    let msg_lower = message.to_ascii_lowercase();
+    let detail_lower = detail.unwrap_or("").to_ascii_lowercase();
+    let combined = format!("{msg_lower} {detail_lower}");
+    combined.contains("worker")
+        || combined.contains("uds")
+        || combined.contains("unix socket")
+        || combined.contains("socket")
 }
 
 async fn record_http_metrics(state: &AppState, status: StatusCode, duration_ms: f64) {
@@ -584,5 +603,38 @@ mod tests {
             .starts_with("err-"));
         assert!(!envelope.fingerprint.as_deref().unwrap_or("").is_empty());
         assert!(envelope.otel_trace_id.is_some() || envelope.request_id.is_some());
+    }
+
+    #[tokio::test]
+    async fn includes_error_id_on_worker_originated_non_5xx() {
+        let app = Router::new()
+            .route(
+                "/",
+                get(|| async {
+                    (
+                        StatusCode::BAD_REQUEST,
+                        Json(json!({
+                            "code": "WORKER_UNAVAILABLE",
+                            "message": "worker unavailable"
+                        })),
+                    )
+                }),
+            )
+            .layer(middleware::from_fn(observability_middleware_test));
+
+        let response = app
+            .oneshot(Request::builder().uri("/").body(Body::empty()).unwrap())
+            .await
+            .unwrap();
+
+        assert_eq!(response.status(), StatusCode::BAD_REQUEST);
+        let body_bytes = to_bytes(response.into_body(), 64 * 1024).await.unwrap();
+        let envelope: ErrorResponse = serde_json::from_slice(&body_bytes).unwrap();
+        assert!(envelope
+            .error_id
+            .as_deref()
+            .unwrap_or("")
+            .starts_with("err-"));
+        assert!(!envelope.fingerprint.as_deref().unwrap_or("").is_empty());
     }
 }
