@@ -8,7 +8,10 @@
 
 use crate::api::error::format_structured_details;
 use crate::api::ApiClient;
-use crate::components::{Button, ButtonVariant, Card, Dialog, DialogSize, FormField, Input};
+use crate::components::{
+    Button, ButtonVariant, Card, Dialog, DialogSize, FormField, Input, Spinner,
+};
+use crate::hooks::use_api_resource;
 use crate::pages::training::config_presets::{TrainingConfigPresets, TrainingPreset};
 use crate::pages::training::dataset_wizard::{DatasetUploadOutcome, DatasetUploadWizard};
 use crate::pages::training::generate_wizard::{GenerateDatasetOutcome, GenerateDatasetWizard};
@@ -149,9 +152,9 @@ pub fn CreateJobWizard(
     // Initialize dataset_id from initial_dataset_id if provided
     if let Some(init_ds) = initial_dataset_id {
         Effect::new(move || {
-            if let Some(ds_id) = init_ds.get() {
-                dataset_id.set(ds_id.clone());
-                dataset_message.set(Some(format!("Using dataset: {}", ds_id)));
+            if let Some(ds_id) = init_ds.try_get().flatten() {
+                let _ = dataset_id.try_set(ds_id.clone());
+                let _ = dataset_message.try_set(Some(format!("Using dataset: {}", ds_id)));
             }
         });
     }
@@ -159,8 +162,8 @@ pub fn CreateJobWizard(
     // Pre-populate from source document if provided
     if let Some(src_doc) = source_document_id {
         Effect::new(move || {
-            if let Some(doc_id) = src_doc.get() {
-                dataset_message.set(Some(format!(
+            if let Some(doc_id) = src_doc.try_get().flatten() {
+                let _ = dataset_message.try_set(Some(format!(
                     "From document: {} — generate or upload a dataset",
                     doc_id
                 )));
@@ -466,7 +469,9 @@ pub fn CreateJobWizard(
     // Reset form when dialog closes
     let was_open = StoredValue::new(open.get_untracked());
     Effect::new(move || {
-        let is_open = open.get();
+        let Some(is_open) = open.try_get() else {
+            return;
+        };
         let prev = was_open.get_value();
         was_open.set_value(is_open);
         if prev && !is_open {
@@ -695,6 +700,12 @@ fn ModelStepContent(
     category: RwSignal<String>,
     form_errors: RwSignal<FormErrors>,
 ) -> impl IntoView {
+    let (models, _) =
+        use_api_resource(
+            |client: std::sync::Arc<ApiClient>| async move { client.list_models().await },
+        );
+    let use_custom_model = RwSignal::new(false);
+
     view! {
         <div class="space-y-6">
             <FormField
@@ -717,10 +728,73 @@ fn ModelStepContent(
                 help="The foundation model to fine-tune"
                 error=Signal::derive(move || form_errors.get().get("base_model_id").cloned())
             >
-                <Input
-                    value=base_model_id
-                    placeholder="qwen2.5-coder-base".to_string()
-                />
+                {move || {
+                    if use_custom_model.get() {
+                        view! {
+                            <div class="space-y-2">
+                                <Input
+                                    value=base_model_id
+                                    placeholder="model-id".to_string()
+                                />
+                                <button
+                                    class="text-xs text-primary hover:underline"
+                                    type="button"
+                                    on:click=move |_| use_custom_model.set(false)
+                                >
+                                    "Back to model list"
+                                </button>
+                            </div>
+                        }.into_any()
+                    } else {
+                        match models.get() {
+                            crate::hooks::LoadingState::Idle | crate::hooks::LoadingState::Loading => view! {
+                                <div class="flex items-center gap-2 text-sm text-muted-foreground py-2">
+                                    <Spinner/>
+                                    "Loading models..."
+                                </div>
+                            }.into_any(),
+                            crate::hooks::LoadingState::Loaded(ref resp) => {
+                                let model_list = resp.models.clone();
+                                view! {
+                                    <div class="space-y-2">
+                                        <select
+                                            class="flex h-10 w-full rounded-md border border-input bg-background px-3 py-2 text-sm"
+                                            prop:value=Signal::derive(move || base_model_id.get())
+                                            on:change=move |ev| base_model_id.set(event_target_value(&ev))
+                                        >
+                                            <option value="" disabled=true>"Select a model..."</option>
+                                            {model_list.into_iter().map(|m| {
+                                                let id = m.id.clone();
+                                                let label = if let Some(q) = &m.quantization {
+                                                    format!("{} ({})", m.name, q)
+                                                } else {
+                                                    m.name.clone()
+                                                };
+                                                view! { <option value=id>{label}</option> }
+                                            }).collect::<Vec<_>>()}
+                                        </select>
+                                        <button
+                                            class="text-xs text-primary hover:underline"
+                                            type="button"
+                                            on:click=move |_| use_custom_model.set(true)
+                                        >
+                                            "Enter model ID manually"
+                                        </button>
+                                    </div>
+                                }.into_any()
+                            },
+                            crate::hooks::LoadingState::Error(_) => view! {
+                                <div class="space-y-2">
+                                    <Input
+                                        value=base_model_id
+                                        placeholder="model-id".to_string()
+                                    />
+                                    <p class="text-xs text-muted-foreground">"Could not load model list. Enter model ID manually."</p>
+                                </div>
+                            }.into_any(),
+                        }
+                    }
+                }}
             </FormField>
 
             <div class="space-y-2">

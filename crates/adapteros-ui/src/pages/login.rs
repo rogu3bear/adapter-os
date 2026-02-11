@@ -63,7 +63,10 @@ pub fn Login() -> impl IntoView {
 
     // Redirect if already authenticated
     Effect::new(move || {
-        if auth_state.get().is_authenticated() {
+        let Some(state) = auth_state.try_get() else {
+            return;
+        };
+        if state.is_authenticated() {
             // Navigate to returnUrl if present, otherwise dashboard
             let target = return_url
                 .get_value()

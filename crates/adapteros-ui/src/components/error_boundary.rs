@@ -49,9 +49,10 @@ pub fn RouteErrorBoundary(children: Children) -> impl IntoView {
             // Log errors with correlation ID for diagnostics
             #[cfg(target_arch = "wasm32")]
             {
+                let build_id = option_env!("AOS_BUILD_ID").unwrap_or("unknown");
                 for msg in &error_messages {
                     web_sys::console::error_1(
-                        &format!("[ErrorBoundary] corr={} error={}", correlation_id, msg).into(),
+                        &format!("[ErrorBoundary] corr={} build={} error={}", correlation_id, build_id, msg).into(),
                     );
                 }
             }
@@ -167,10 +168,11 @@ pub fn InlineErrorBoundary(
             // Log inline boundary errors
             #[cfg(target_arch = "wasm32")]
             {
+                let build_id = option_env!("AOS_BUILD_ID").unwrap_or("unknown");
                 if let Some(errs) = errors.try_get() {
                     for (_, e) in errs.iter() {
                         web_sys::console::error_1(
-                            &format!("[InlineErrorBoundary] corr={} error={}", cid, e).into(),
+                            &format!("[InlineErrorBoundary] corr={} build={} error={}", cid, build_id, e).into(),
                         );
                     }
                 }

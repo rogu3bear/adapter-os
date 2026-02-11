@@ -20,7 +20,7 @@ use crate::components::{
     Button, ButtonVariant, Card, ConfirmationDialog, ConfirmationSeverity, DetailRow, ErrorDisplay,
     Link, Spinner, TabButton, TabPanel,
 };
-use crate::hooks::{use_api_resource, use_polling, LoadingState};
+use crate::hooks::{use_api_resource, use_conditional_polling, LoadingState};
 use crate::signals::{use_notifications, use_refetch};
 use crate::utils::chat_path_with_adapter;
 use adapteros_api_types::TrainingJobResponse;
@@ -71,7 +71,7 @@ pub fn TrainingJobDetail(
     {
         let notifications = notifications.clone();
         Effect::new(move || {
-            if let LoadingState::Loaded(ref data) = job.get() {
+            if let Some(LoadingState::Loaded(ref data)) = job.try_get() {
                 let current_status = data.status.clone();
                 let previous = prev_status.get_untracked();
 
@@ -109,9 +109,13 @@ pub fn TrainingJobDetail(
         });
     }
 
-    // Poll for updates on running jobs
-    // Return value (stop fn) intentionally ignored - polling runs until unmount
-    let _ = use_polling(3000, move || async move {
+    // Only poll when job is still active (running/pending/queued)
+    let should_poll = Signal::derive(move || {
+        matches!(job.get(), LoadingState::Loaded(ref data) if {
+            matches!(data.status.as_str(), "running" | "pending" | "queued")
+        })
+    });
+    let _ = use_conditional_polling(3000, should_poll, move || async move {
         refetch.run(());
     });
 
@@ -318,6 +322,7 @@ pub fn JobDetailContent(
     let is_running = status == "running";
     let is_pending = status == "pending";
     let is_completed = status == "completed";
+    let is_failed = status == "failed" || status == "cancelled";
     let can_cancel = is_running || is_pending;
     let show_progress = is_running || is_completed;
 
@@ -383,6 +388,31 @@ pub fn JobDetailContent(
                         <div class="rounded-lg border border-status-error bg-status-error/10 p-3 mt-3">
                             <p class="text-sm text-status-error">{err}</p>
                         </div>
+                    })}
+
+                    // Retry banner for failed/cancelled jobs
+                    {is_failed.then(|| {
+                        let retry_href = if let Some(ref ds_id) = job.dataset_id {
+                            format!("/training?dataset_id={}&open_wizard=1", ds_id)
+                        } else {
+                            "/training?open_wizard=1".to_string()
+                        };
+                        view! {
+                            <div class="rounded-lg border border-muted bg-muted/30 p-4 mt-4">
+                                <div class="flex items-center justify-between">
+                                    <div>
+                                        <p class="text-sm font-medium">"Retry this training?"</p>
+                                        <p class="text-xs text-muted-foreground">"Create a new job with the same dataset."</p>
+                                    </div>
+                                    <a
+                                        href=retry_href
+                                        class="btn btn-primary btn-sm"
+                                    >
+                                        "Retry with same config"
+                                    </a>
+                                </div>
+                            </div>
+                        }
                     })}
 
                     // Completion banner with handoff actions
@@ -821,14 +851,14 @@ pub fn LogViewer(job_id: String) -> impl IntoView {
             let client = ApiClient::new();
             match client.get_training_logs(&job_id).await {
                 Ok(log_lines) => {
-                    logs.set(log_lines);
-                    error.set(None);
+                    let _ = logs.try_set(log_lines);
+                    let _ = error.try_set(None);
                 }
                 Err(e) => {
-                    error.set(Some(e.user_message()));
+                    let _ = error.try_set(Some(e.user_message()));
                 }
             }
-            loading.set(false);
+            let _ = loading.try_set(false);
         });
     });
 
@@ -839,7 +869,7 @@ pub fn LogViewer(job_id: String) -> impl IntoView {
         async move {
             let client = ApiClient::new();
             if let Ok(log_lines) = client.get_training_logs(&job_id).await {
-                logs.set(log_lines);
+                let _ = logs.try_set(log_lines);
             }
         }
     });
@@ -892,14 +922,14 @@ pub fn MetricsChart(job_id: String) -> impl IntoView {
             let client = ApiClient::new();
             match client.get_training_metrics(&job_id).await {
                 Ok(response) => {
-                    metrics.set(response.metrics);
-                    error.set(None);
+                    let _ = metrics.try_set(response.metrics);
+                    let _ = error.try_set(None);
                 }
                 Err(e) => {
-                    error.set(Some(e.user_message()));
+                    let _ = error.try_set(Some(e.user_message()));
                 }
             }
-            loading.set(false);
+            let _ = loading.try_set(false);
         });
     });
 

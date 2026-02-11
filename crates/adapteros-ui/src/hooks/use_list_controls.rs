@@ -71,8 +71,8 @@ where
 
     // Reset to page 1 when search changes
     Effect::new(move || {
-        let _ = search.get();
-        page.set(1);
+        let _ = search.try_get();
+        let _ = page.try_set(1);
     });
 
     let total_count = Signal::derive(move || items.get().len());
@@ -108,9 +108,11 @@ where
 
     // Clamp page if filtered count shrinks
     Effect::new(move || {
-        let max = total_pages.get();
+        let Some(max) = total_pages.try_get() else {
+            return;
+        };
         if page.get_untracked() > max {
-            page.set(max);
+            let _ = page.try_set(max);
         }
     });
 

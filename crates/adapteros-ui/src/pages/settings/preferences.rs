@@ -32,10 +32,20 @@ pub fn PreferencesSection() -> impl IntoView {
 
     // Sync all preference signals to settings store
     Effect::new(move || {
-        let new_theme = Theme::parse(&theme.get());
-        let compact = compact_mode.get();
-        let timestamps = show_timestamps.get();
-        let new_page = DefaultPage::parse(&default_page.get());
+        let Some(theme_val) = theme.try_get() else {
+            return;
+        };
+        let Some(compact) = compact_mode.try_get() else {
+            return;
+        };
+        let Some(timestamps) = show_timestamps.try_get() else {
+            return;
+        };
+        let Some(page_val) = default_page.try_get() else {
+            return;
+        };
+        let new_theme = Theme::parse(&theme_val);
+        let new_page = DefaultPage::parse(&page_val);
         update_setting(settings, |s| {
             s.theme = new_theme;
             s.apply_theme();
@@ -47,11 +57,13 @@ pub fn PreferencesSection() -> impl IntoView {
 
     // Keep UI profile selection in sync with runtime default when no override exists
     Effect::new(move || {
-        let override_profile = settings.get().ui_profile;
-        let runtime_profile = ui_profile_state.get().runtime_profile;
-        if override_profile.is_none() {
-            let effective = runtime_profile.unwrap_or(UiProfile::Full);
-            ui_profile_value.set(effective.as_str().to_string());
+        let Some(s) = settings.try_get() else { return };
+        let Some(profile_state) = ui_profile_state.try_get() else {
+            return;
+        };
+        if s.ui_profile.is_none() {
+            let effective = profile_state.runtime_profile.unwrap_or(UiProfile::Full);
+            let _ = ui_profile_value.try_set(effective.as_str().to_string());
         }
     });
 
@@ -78,13 +90,13 @@ pub fn PreferencesSection() -> impl IntoView {
         });
 
         Effect::new(move || {
-            let _ = theme.get();
-            let _ = compact_mode.get();
-            let _ = show_timestamps.get();
-            let _ = default_page.get();
-            let _ = ui_profile_value.get();
+            let _ = theme.try_get();
+            let _ = compact_mode.try_get();
+            let _ = show_timestamps.try_get();
+            let _ = default_page.try_get();
+            let _ = ui_profile_value.try_get();
 
-            save_feedback.set(true);
+            let _ = save_feedback.try_set(true);
 
             // Cancel previous timeout if any
             let old_id = timeout_id.swap(-1, Ordering::SeqCst);
@@ -97,7 +109,7 @@ pub fn PreferencesSection() -> impl IntoView {
             // Set new timeout to hide feedback after 2 seconds
             if let Some(window) = web_sys::window() {
                 let callback = Closure::once_into_js(move || {
-                    save_feedback.set(false);
+                    let _ = save_feedback.try_set(false);
                 });
                 if let Ok(id) = window.set_timeout_with_callback_and_timeout_and_arguments_0(
                     callback.unchecked_ref(),
@@ -111,12 +123,12 @@ pub fn PreferencesSection() -> impl IntoView {
 
     #[cfg(not(target_arch = "wasm32"))]
     Effect::new(move || {
-        let _ = theme.get();
-        let _ = compact_mode.get();
-        let _ = show_timestamps.get();
-        let _ = default_page.get();
-        let _ = ui_profile_value.get();
-        save_feedback.set(true);
+        let _ = theme.try_get();
+        let _ = compact_mode.try_get();
+        let _ = show_timestamps.try_get();
+        let _ = default_page.try_get();
+        let _ = ui_profile_value.try_get();
+        let _ = save_feedback.try_set(true);
     });
 
     // Theme options

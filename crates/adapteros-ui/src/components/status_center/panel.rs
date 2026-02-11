@@ -24,9 +24,9 @@ pub fn StatusCenterPanel(
     // Escape key closes the panel
     let escape_count = use_escape_key();
     Effect::new(move || {
-        let _ = escape_count.get();
-        if open.get() {
-            open.set(false);
+        let _ = escape_count.try_get();
+        if open.try_get().unwrap_or(false) {
+            let _ = open.try_set(false);
         }
     });
 
@@ -36,7 +36,7 @@ pub fn StatusCenterPanel(
     // Refetch when panel opens
     let refetch_clone = refetch.clone();
     Effect::new(move || {
-        if open.get() {
+        if open.try_get().unwrap_or(false) {
             refetch_clone();
         }
     });

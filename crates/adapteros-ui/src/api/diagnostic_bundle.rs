@@ -58,6 +58,8 @@ pub struct DiagnosticBundle {
     pub retryable: bool,
     /// UI build version
     pub ui_version: String,
+    /// UI build ID (set via AOS_BUILD_ID at compile time)
+    pub ui_build_id: String,
     /// User agent
     pub user_agent: String,
     /// Additional context details (JSON)
@@ -130,6 +132,7 @@ impl DiagnosticBundle {
             error_type,
             retryable: error.is_retryable(),
             ui_version: super::ui_build_version().to_string(),
+            ui_build_id: option_env!("AOS_BUILD_ID").unwrap_or("unknown").to_string(),
             user_agent: get_user_agent(),
             details,
         }
