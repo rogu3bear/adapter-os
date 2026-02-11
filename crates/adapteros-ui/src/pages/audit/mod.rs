@@ -113,7 +113,7 @@ pub fn Audit() -> impl IntoView {
     // Debug logging for list sizes
     #[cfg(debug_assertions)]
     Effect::new(move |_| {
-        if let LoadingState::Loaded(ref data) = logs.get() {
+        if let Some(LoadingState::Loaded(ref data)) = logs.try_get() {
             web_sys::console::log_1(
                 &format!(
                     "[list] audit logs: {} items (total: {})",

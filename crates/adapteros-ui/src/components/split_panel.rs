@@ -99,7 +99,9 @@ where
     #[cfg(debug_assertions)]
     {
         Effect::new(move |prev_mode: Option<SplitMode>| {
-            let current = mode.get();
+            let Some(current) = mode.try_get() else {
+                return prev_mode.unwrap_or(SplitMode::Desktop);
+            };
             if prev_mode != Some(current) {
                 web_sys::console::log_1(
                     &format!("[layout] split_panel mode: {:?}", current).into(),
