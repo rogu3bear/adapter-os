@@ -109,6 +109,15 @@ struct StatusFileEntry {
 async fn main() -> Result<()> {
     init_logging()?;
 
+    info!(
+        build_id = adapteros_core::version::BUILD_ID,
+        git_commit = adapteros_core::version::GIT_COMMIT_HASH,
+        version = adapteros_core::version::VERSION,
+        profile = adapteros_core::version::BUILD_PROFILE,
+        component = "aos",
+        "aos starting"
+    );
+
     // Initialize deterministic config (env + manifest + CLI)
     let raw_args: Vec<String> = std::env::args().skip(1).collect();
     let cli = Cli::parse();

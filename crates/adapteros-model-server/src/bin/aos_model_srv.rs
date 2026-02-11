@@ -83,14 +83,17 @@ async fn main() -> Result<(), Box<dyn std::error::Error>> {
         .init();
 
     info!(
+        build_id = adapteros_core::version::BUILD_ID,
+        git_commit = adapteros_core::version::GIT_COMMIT_HASH,
+        version = adapteros_core::version::VERSION,
+        profile = adapteros_core::version::BUILD_PROFILE,
         model_path = %args.model_path.display(),
         socket_path = %args.socket_path.display(),
         kv_cache_mb = args.kv_cache_mb,
         max_sessions = args.max_sessions,
         hot_threshold = args.hot_threshold,
         max_hot_adapters = args.max_hot_adapters,
-        version = env!("CARGO_PKG_VERSION"),
-        "Starting Model Server"
+        "aos-model-srv starting"
     );
 
     // Validate model path

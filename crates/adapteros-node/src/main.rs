@@ -119,6 +119,14 @@ async fn main() -> Result<()> {
 
     let cli = Cli::parse();
 
+    info!(
+        build_id = adapteros_core::version::BUILD_ID,
+        git_commit = adapteros_core::version::GIT_COMMIT_HASH,
+        version = adapteros_core::version::VERSION,
+        profile = adapteros_core::version::BUILD_PROFILE,
+        "aos-node starting"
+    );
+
     // Initialize CAS store
     let cas_path = PathBuf::from(&cli.cas_path);
     if !cas_path.exists() {

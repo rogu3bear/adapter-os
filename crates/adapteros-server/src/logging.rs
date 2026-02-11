@@ -109,12 +109,17 @@ impl LogProfile {
 struct StructuredJsonFormatter {
     component: &'static str,
     run_id: String,
+    build_id: &'static str,
 }
 
 impl StructuredJsonFormatter {
     fn new(component: &'static str) -> Self {
         let run_id = std::env::var("AOS_RUN_ID").unwrap_or_else(|_| "unknown".to_string());
-        Self { component, run_id }
+        Self {
+            component,
+            run_id,
+            build_id: adapteros_core::version::BUILD_ID,
+        }
     }
 }
 
@@ -178,6 +183,10 @@ where
         payload.insert(
             "run_id".to_string(),
             serde_json::Value::String(self.run_id.clone()),
+        );
+        payload.insert(
+            "build_id".to_string(),
+            serde_json::Value::String(self.build_id.to_string()),
         );
         for key in ["trace_id", "span_id", "request_id", "tenant", "error_code"] {
             payload.insert(key.to_string(), serde_json::Value::String(String::new()));

@@ -95,8 +95,12 @@ async fn main() -> Result<(), AosError> {
     );
 
     tracing::info!(
+        build_id = adapteros_core::version::BUILD_ID,
+        git_commit = adapteros_core::version::GIT_COMMIT_HASH,
+        version = adapteros_core::version::VERSION,
+        profile = adapteros_core::version::BUILD_PROFILE,
         component = "secd",
-        "adapterOS Secure Enclave Daemon starting"
+        "aos-secd starting"
     );
     tracing::info!(
         component = "secd",
