@@ -3,7 +3,7 @@
 //! List view and row components for adapter stacks.
 
 use super::helpers::{lifecycle_badge_variant, workflow_type_label};
-use crate::api::{ApiClient, StackResponse};
+use crate::api::StackResponse;
 use crate::components::{
     Badge, BadgeVariant, Card, ConfirmationDialog, ConfirmationSeverity, EmptyState, Table,
     TableBody, TableCell, TableHead, TableHeader, TableRow,
