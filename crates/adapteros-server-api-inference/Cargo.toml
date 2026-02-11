@@ -30,7 +30,7 @@ adapteros-types = { path = "../adapteros-types" }
 utoipa = { workspace = true }
 
 [dev-dependencies]
-tempfile = "3.0"
+tempfile = "3.25"
 
 [features]
 default = []

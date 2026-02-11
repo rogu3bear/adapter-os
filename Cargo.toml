@@ -258,7 +258,7 @@ security-framework = "2.9"
 
 # Filesystem
 cap-std = "4.0"
-tempfile = "3.8"
+tempfile = "3.25"
 
 # Utilities
 smallvec = { version = "1.11", features = ["serde"] }

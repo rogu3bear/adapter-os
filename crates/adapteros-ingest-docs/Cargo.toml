@@ -38,5 +38,5 @@ tracing = { workspace = true }
 tokio = { workspace = true, features = ["rt", "macros"] }
 [dev-dependencies]
 ahash = { workspace = true }
-tempfile = "3.8"
+tempfile = "3.25"
 adapteros-config = { path = "../adapteros-config" }

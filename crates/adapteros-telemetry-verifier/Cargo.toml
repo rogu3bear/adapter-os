@@ -10,4 +10,4 @@ serde_json = { workspace = true }
 
 [dev-dependencies]
 adapteros-core = { path = "../adapteros-core" }
-tempfile = "3.10"
+tempfile = "3.25"

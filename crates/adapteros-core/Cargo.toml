@@ -40,21 +40,21 @@ unicode-normalization = "0.1"
 tokenizers = { version = "0.22.2", default-features = false, features = ["onig"] }
 fs2 = { workspace = true }
 uuid = { workspace = true }
-tempfile = "3.8"
+tempfile = "3.25"
 walkdir.workspace = true
 [target.'cfg(unix)'.dependencies]
 libc = "0.2"
 
 [build-dependencies]
 # Used by build.rs tests to verify migration counting logic
-tempfile = "3.8"
+tempfile = "3.25"
 
 [dev-dependencies]
 futures = "0.3"
 proptest = { workspace = true }
 rand = { workspace = true }
 criterion = "0.5"
-tempfile = "3.8"
+tempfile = "3.25"
 [features]
 default = ["schemars-support", "rand"]
 test-utils = ["rand"]

@@ -62,7 +62,7 @@ dotenvy = "0.15"
 owo-colors = "4.0"
 serde_yaml = "0.9"
 toml = "0.8"
-tempfile = "3.8"
+tempfile = "3.25"
 glob = "0.3"
 regex = { workspace = true }
 walkdir = "2.4"

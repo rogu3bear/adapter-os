@@ -31,5 +31,5 @@ cap-std = { workspace = true }
 fs2 = { workspace = true }
 [dev-dependencies]
 tokio = { version = "1.35", features = ["full", "macros", "rt-multi-thread"] }
-tempfile = "3.8"
+tempfile = "3.25"
 # No additional dependencies needed - uses std and workspace deps
