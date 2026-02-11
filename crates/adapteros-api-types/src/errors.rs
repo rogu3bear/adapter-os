@@ -91,9 +91,18 @@ pub struct ErrorBucket {
 #[derive(Debug, Clone, Serialize, Deserialize, Default)]
 #[cfg_attr(feature = "server", derive(utoipa::IntoParams))]
 pub struct ListErrorsQuery {
+    /// Inclusive lower bound (unix ms). Preferred public query field.
+    pub since: Option<i64>,
+    /// Inclusive upper bound (unix ms). Preferred public query field.
+    pub until: Option<i64>,
+    /// Cursor for pagination (`created_at_unix_ms < after`). Preferred field.
+    pub after: Option<i64>,
+    /// Back-compat field name.
     pub since_unix_ms: Option<i64>,
+    /// Back-compat field name.
     pub until_unix_ms: Option<i64>,
     pub limit: Option<u32>,
+    /// Back-compat field name.
     pub after_created_at_unix_ms: Option<i64>,
     pub error_code: Option<String>,
     pub fingerprint: Option<String>,

@@ -959,7 +959,7 @@ fn DatasetsList(
         >
             <Card>
                 <div class="py-10 px-6 text-center space-y-3">
-                    <div class="heading-3">"No datasets yet"</div>
+                    <div class="heading-3">"No datasets"</div>
                     <p class="text-sm text-muted-foreground max-w-xl mx-auto">
                         "Start from documents (recommended) or upload a dataset file directly."
                     </p>

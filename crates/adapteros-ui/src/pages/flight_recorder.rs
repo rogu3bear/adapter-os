@@ -23,6 +23,7 @@ use adapteros_api_types::diagnostics::{
     DiagDiffRequest, DiagDiffResponse, DiagEventResponse, DiagExportResponse, DiagRunResponse,
     ListDiagRunsQuery, ListDiagRunsResponse, StageTiming,
 };
+use adapteros_api_types::errors::ErrorInstance;
 use adapteros_api_types::UiProfile;
 use leptos::prelude::*;
 use leptos::task::spawn_local;
@@ -356,6 +357,7 @@ pub enum RunDetailTab {
     Trace,
     Receipt,
     Routing,
+    Errors,
     Tokens,
     Diff,
     Events,
@@ -367,6 +369,7 @@ impl RunDetailTab {
             "trace" => Self::Trace,
             "receipt" => Self::Receipt,
             "routing" => Self::Routing,
+            "errors" => Self::Errors,
             "tokens" => Self::Tokens,
             "diff" => Self::Diff,
             "events" => Self::Events,
@@ -513,6 +516,7 @@ fn RunDetailHub(run_id: String, on_close: Callback<()>) -> impl IntoView {
                     <RunDetailTabButton tab=RunDetailTab::Trace active=active_tab label="Trace"/>
                     <RunDetailTabButton tab=RunDetailTab::Receipt active=active_tab label="Receipt"/>
                     <RunDetailTabButton tab=RunDetailTab::Routing active=active_tab label="Routing"/>
+                    <RunDetailTabButton tab=RunDetailTab::Errors active=active_tab label="Errors"/>
                     {move || {
                         if ui_profile.get() == UiProfile::Full {
                             Some(view! {
@@ -684,6 +688,9 @@ fn TabContent(
                 }
                 RunDetailTab::Routing => {
                     view! { <RoutingTab export=export trace_detail=trace_detail/> }.into_any()
+                }
+                RunDetailTab::Errors => {
+                    view! { <ErrorsTab trace_id=export.run.trace_id.clone()/> }.into_any()
                 }
                 RunDetailTab::Tokens => {
                     view! { <TokensTab export=export trace_detail=trace_detail/> }.into_any()
@@ -1581,6 +1588,9 @@ fn ReceiptsTab(
                     ReceiptPanelTab::Summary => {
                         view! {
                             <div class="space-y-4">
+                                <p class="text-sm text-muted-foreground">
+                                    "Receipts & Hashes"
+                                </p>
                                 <Card title="Receipt Summary".to_string()>
                                     {move || match trace_detail.get() {
                                         LoadingState::Loaded(detail) => {
@@ -2357,6 +2367,125 @@ fn EventsTab(export: DiagExportResponse) -> impl IntoView {
         </div>
     }
     .into_any()
+}
+
+#[component]
+fn ErrorsTab(trace_id: String) -> impl IntoView {
+    let trace_id_for_fetch = trace_id.clone();
+    let (errors, refetch) = use_api_resource(move |client: Arc<ApiClient>| {
+        let diag_trace_id = trace_id_for_fetch.clone();
+        async move {
+            client
+                .list_errors_by_diag_trace_id(&diag_trace_id, Some(100))
+                .await
+        }
+    });
+
+    view! {
+        <Card title="Persisted Errors".to_string()>
+            <div class="flex items-center justify-between gap-2 pb-3 border-b border-border mb-3">
+                <span class="text-sm text-muted-foreground">
+                    {format!("Trace ID: {}", truncate_id(&trace_id))}
+                </span>
+                <Button
+                    variant=ButtonVariant::Outline
+                    size=ButtonSize::Sm
+                    on_click=Callback::new(move |_| refetch.run(()))
+                >
+                    "Refresh"
+                </Button>
+            </div>
+            <AsyncBoundary
+                state=errors
+                on_retry=Callback::new(move |_| refetch.run(()))
+                render=move |response: adapteros_api_types::errors::ListErrorsResponse| {
+                    if response.items.is_empty() {
+                        view! {
+                            <div class="text-center py-8 text-muted-foreground">
+                                "No persisted errors recorded for this trace"
+                            </div>
+                        }.into_any()
+                    } else {
+                        let mut items = response.items;
+                        items.sort_by(|a, b| b.created_at_unix_ms.cmp(&a.created_at_unix_ms));
+
+                        view! {
+                            <Table>
+                                <TableHeader>
+                                    <TableRow>
+                                        <TableHead>"Debug ID"</TableHead>
+                                        <TableHead>"Code"</TableHead>
+                                        <TableHead>"Kind"</TableHead>
+                                        <TableHead>"Severity"</TableHead>
+                                        <TableHead>"Timestamp"</TableHead>
+                                        <TableHead>"Request ID"</TableHead>
+                                    </TableRow>
+                                </TableHeader>
+                                <TableBody>
+                                    {items.into_iter().map(|item| {
+                                        let error_link = format!("/v1/errors/{}", item.id);
+                                        let run_pivot_id = run_pivot_id(&item);
+                                        let request_id_display = item.request_id.clone();
+                                        view! {
+                                            <TableRow>
+                                                <TableCell>
+                                                    <a
+                                                        href=error_link
+                                                        class="font-mono text-xs text-primary hover:underline"
+                                                        target="_blank"
+                                                        rel="noopener noreferrer"
+                                                        title="Open error detail"
+                                                    >
+                                                        {truncate_id(&item.id)}
+                                                    </a>
+                                                </TableCell>
+                                                <TableCell>
+                                                    <span class="font-mono text-xs">{item.error_code}</span>
+                                                </TableCell>
+                                                <TableCell>{format!("{:?}", item.kind).to_lowercase()}</TableCell>
+                                                <TableCell>{format!("{:?}", item.severity).to_lowercase()}</TableCell>
+                                                <TableCell>
+                                                    <span class="text-xs text-muted-foreground">
+                                                        {format_timestamp_ms(item.created_at_unix_ms)}
+                                                    </span>
+                                                </TableCell>
+                                                <TableCell>
+                                                    {run_pivot_id.clone().map(|pivot_id| {
+                                                        let pivot_href = pivot_id.clone();
+                                                        let link_text = request_id_display
+                                                            .clone()
+                                                            .unwrap_or_else(|| pivot_id.clone());
+                                                        view! {
+                                                            <a
+                                                                href=format!("/runs/{}", pivot_href)
+                                                                class="font-mono text-xs text-primary hover:underline"
+                                                                title="Pivot to run detail"
+                                                            >
+                                                                {link_text}
+                                                            </a>
+                                                        }
+                                                        .into_any()
+                                                    }).unwrap_or_else(|| view! {
+                                                        <span class="font-mono text-xs text-muted-foreground">
+                                                            {request_id_display.unwrap_or_else(|| "-".to_string())}
+                                                        </span>
+                                                    }.into_any())}
+                                                </TableCell>
+                                            </TableRow>
+                                        }
+                                    }).collect::<Vec<_>>()}
+                                </TableBody>
+                            </Table>
+                        }.into_any()
+                    }
+                }
+            />
+        </Card>
+    }
+}
+
+fn run_pivot_id(item: &ErrorInstance) -> Option<String> {
+    item.diag_trace_id.clone().or_else(|| item.run_id.clone())
 }
 
 /// Collapsible event group
