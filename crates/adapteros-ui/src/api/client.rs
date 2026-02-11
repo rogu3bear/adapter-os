@@ -206,6 +206,9 @@ impl ApiClient {
             .credentials(RequestCredentials::Include)
             .header("Content-Type", "application/json");
 
+        // UI session correlation for all requests.
+        req = req.header("X-Session-ID", &crate::utils::ui_session_id());
+
         if matches!(method, "POST" | "PUT" | "PATCH" | "DELETE") {
             if let Some(token) = csrf_token_from_cookie() {
                 req = req.header("X-CSRF-Token", &token);
@@ -247,7 +250,7 @@ impl ApiClient {
         } else {
             let status = response.status();
             let text = response.text().await.unwrap_or_default();
-            Err(ApiError::from_response(status, &text))
+            Err(ApiError::from_response(status, &text, None))
         }
     }
 
@@ -270,7 +273,7 @@ impl ApiClient {
         } else {
             let status = response.status();
             let text = response.text().await.unwrap_or_default();
-            Err(ApiError::from_response(status, &text))
+            Err(ApiError::from_response(status, &text, None))
         }
     }
 
@@ -299,7 +302,7 @@ impl ApiClient {
         } else {
             let status = response.status();
             let text = response.text().await.unwrap_or_default();
-            Err(ApiError::from_response(status, &text))
+            Err(ApiError::from_response(status, &text, None))
         }
     }
 
@@ -319,8 +322,9 @@ impl ApiClient {
             Ok(json)
         } else {
             let status = response.status();
+            let request_id = response.headers().get("X-Request-ID");
             let text = response.text().await.unwrap_or_default();
-            Err(ApiError::from_response(status, &text))
+            Err(ApiError::from_response(status, &text, request_id))
         }
     }
 }
@@ -1222,7 +1226,7 @@ impl ApiClient {
                     .unwrap_or_default(),
                 Err(_) => String::new(),
             };
-            return Err(ApiError::from_response(status, &text));
+            return Err(ApiError::from_response(status, &text, None));
         }
 
         // Parse JSON response
@@ -1589,7 +1593,11 @@ impl ApiClient {
 
         if let Some(value) = name.and_then(|v| {
             let trimmed = v.trim();
-            if trimmed.is_empty() { None } else { Some(trimmed) }
+            if trimmed.is_empty() {
+                None
+            } else {
+                Some(trimmed)
+            }
         }) {
             form_data
                 .append_with_str("name", value)
@@ -1597,15 +1605,25 @@ impl ApiClient {
         }
         if let Some(value) = description.and_then(|v| {
             let trimmed = v.trim();
-            if trimmed.is_empty() { None } else { Some(trimmed) }
+            if trimmed.is_empty() {
+                None
+            } else {
+                Some(trimmed)
+            }
         }) {
             form_data
                 .append_with_str("description", value)
-                .map_err(|_| ApiError::Network("Failed to append description to FormData".into()))?;
+                .map_err(|_| {
+                    ApiError::Network("Failed to append description to FormData".into())
+                })?;
         }
         if let Some(value) = training_strategy.and_then(|v| {
             let trimmed = v.trim();
-            if trimmed.is_empty() { None } else { Some(trimmed) }
+            if trimmed.is_empty() {
+                None
+            } else {
+                Some(trimmed)
+            }
         }) {
             form_data
                 .append_with_str("training_strategy", value)
@@ -1655,7 +1673,7 @@ impl ApiClient {
                     .unwrap_or_default(),
                 Err(_) => String::new(),
             };
-            return Err(ApiError::from_response(status, &text));
+            return Err(ApiError::from_response(status, &text, None));
         }
 
         let json = JsFuture::from(
@@ -1733,7 +1751,7 @@ impl ApiClient {
                     .unwrap_or_default(),
                 Err(_) => String::new(),
             };
-            return Err(ApiError::from_response(status, &text));
+            return Err(ApiError::from_response(status, &text, None));
         }
 
         let json = JsFuture::from(

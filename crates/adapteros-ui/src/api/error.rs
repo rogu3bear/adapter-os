@@ -59,12 +59,18 @@ pub enum ApiError {
         failure_code: Option<FailureCode>,
         hint: Option<String>,
         details: Option<serde_json::Value>,
+        request_id: Option<String>,
+        error_id: Option<String>,
+        fingerprint: Option<String>,
+        session_id: Option<String>,
+        diag_trace_id: Option<String>,
+        otel_trace_id: Option<String>,
     },
 }
 
 impl ApiError {
     /// Create from HTTP status and body
-    pub fn from_response(status: u16, body: &str) -> Self {
+    pub fn from_response(status: u16, body: &str, request_id_header: Option<String>) -> Self {
         // Try to parse as ErrorResponse
         if let Ok(err) = serde_json::from_str::<ErrorResponse>(body) {
             return Self::Structured {
@@ -75,6 +81,12 @@ impl ApiError {
                     .or_else(|| FailureCode::parse_code(&err.code)),
                 hint: err.hint,
                 details: err.details,
+                request_id: err.request_id.or(request_id_header),
+                error_id: err.error_id,
+                fingerprint: err.fingerprint,
+                session_id: err.session_id,
+                diag_trace_id: err.diag_trace_id,
+                otel_trace_id: err.otel_trace_id,
             };
         }
 
@@ -89,6 +101,20 @@ impl ApiError {
                 status,
                 message: body.to_string(),
             },
+        }
+    }
+
+    /// Preferred debug identifier for user support: error_id (err-...) then request_id (req-...).
+    pub fn debug_id(&self) -> Option<&str> {
+        match self {
+            Self::Structured {
+                error_id: Some(id), ..
+            } => Some(id.as_str()),
+            Self::Structured {
+                request_id: Some(id),
+                ..
+            } => Some(id.as_str()),
+            _ => None,
         }
     }
 
@@ -330,7 +356,7 @@ mod tests {
 
     #[test]
     fn test_from_response_401() {
-        let error = ApiError::from_response(401, "Unauthorized");
+        let error = ApiError::from_response(401, "Unauthorized", None);
         assert!(matches!(error, ApiError::Unauthorized));
         assert!(error.requires_auth());
         assert_eq!(error.code(), Some("UNAUTHORIZED"));
@@ -338,7 +364,7 @@ mod tests {
 
     #[test]
     fn test_from_response_403() {
-        let error = ApiError::from_response(403, "Access denied");
+        let error = ApiError::from_response(403, "Access denied", None);
         assert!(matches!(error, ApiError::Forbidden(_)));
         assert!(!error.requires_auth());
         assert_eq!(error.code(), Some("FORBIDDEN"));
@@ -346,21 +372,21 @@ mod tests {
 
     #[test]
     fn test_from_response_404() {
-        let error = ApiError::from_response(404, "Resource not found");
+        let error = ApiError::from_response(404, "Resource not found", None);
         assert!(matches!(error, ApiError::NotFound(_)));
         assert_eq!(error.code(), Some("NOT_FOUND"));
     }
 
     #[test]
     fn test_from_response_429() {
-        let error = ApiError::from_response(429, "Too many requests");
+        let error = ApiError::from_response(429, "Too many requests", None);
         assert!(matches!(error, ApiError::RateLimited { .. }));
         assert!(error.is_retryable());
     }
 
     #[test]
     fn test_from_response_500() {
-        let error = ApiError::from_response(500, "Internal server error");
+        let error = ApiError::from_response(500, "Internal server error", None);
         assert!(matches!(error, ApiError::Server(_)));
         assert!(error.is_retryable());
         assert_eq!(error.code(), Some("SERVER_ERROR"));
@@ -370,7 +396,7 @@ mod tests {
     fn test_from_response_structured() {
         // FailureCode uses SCREAMING_SNAKE_CASE serde format
         let body = r#"{"error":"Worker is overloaded","code":"WORKER_OVERLOADED","failure_code":"WORKER_OVERLOADED"}"#;
-        let error = ApiError::from_response(503, body);
+        let error = ApiError::from_response(503, body, None);
 
         assert!(matches!(error, ApiError::Structured { .. }));
         if let ApiError::Structured {
@@ -389,7 +415,7 @@ mod tests {
     #[test]
     fn test_from_response_structured_without_failure_code() {
         let body = r#"{"error":"Invalid request","code":"VALIDATION_FAILED"}"#;
-        let error = ApiError::from_response(400, body);
+        let error = ApiError::from_response(400, body, None);
 
         assert!(matches!(error, ApiError::Structured { .. }));
         if let ApiError::Structured { error, code, .. } = &error {
@@ -413,7 +439,7 @@ mod tests {
     #[test]
     fn test_is_adapter_in_flight() {
         let body = r#"{"error":"Adapter is currently in use","code":"ADAPTER_IN_FLIGHT"}"#;
-        let error = ApiError::from_response(409, body);
+        let error = ApiError::from_response(409, body, None);
 
         assert!(error.is_adapter_in_flight());
         assert!(error
@@ -444,6 +470,12 @@ mod tests {
             failure_code: None,
             hint: None,
             details: None,
+            request_id: None,
+            error_id: None,
+            fingerprint: None,
+            session_id: None,
+            diag_trace_id: None,
+            otel_trace_id: None,
         };
         assert!(error.requires_auth());
     }
@@ -456,6 +488,12 @@ mod tests {
             failure_code: None,
             hint: Some("retry in a moment".to_string()),
             details: None,
+            request_id: None,
+            error_id: None,
+            fingerprint: None,
+            session_id: None,
+            diag_trace_id: None,
+            otel_trace_id: None,
         };
         assert_eq!(
             error.user_message(),

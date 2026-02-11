@@ -147,7 +147,11 @@ pub fn report_error_with_toast(
         let details = bundle.to_json_string();
 
         // Use user_message() for user-friendly display
-        let message = error.user_message();
+        let base_message = error.user_message();
+        let message = error
+            .debug_id()
+            .map(|id| format!("{base_message} (Debug ID: {id})"))
+            .unwrap_or(base_message);
 
         // Use warning variant for ADAPTER_IN_FLIGHT (user-recoverable)
         if error.is_adapter_in_flight() {
@@ -202,6 +206,12 @@ fn build_report(error: &ApiError, page: Option<&str>) -> ClientErrorReport {
             failure_code,
             hint: _,
             details,
+            request_id: _,
+            error_id: _,
+            fingerprint: _,
+            session_id: _,
+            diag_trace_id: _,
+            otel_trace_id: _,
         } => {
             return ClientErrorReport {
                 error_type: "Structured".to_string(),

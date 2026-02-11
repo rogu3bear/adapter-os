@@ -3,6 +3,7 @@ use crate::middleware::trace_context::TraceContextExtension;
 use crate::request_id::{RequestId, REQUEST_ID_HEADER};
 use crate::state::AppState;
 use adapteros_api_types::ErrorResponse; // Use standard type
+use adapteros_core::{version::GIT_COMMIT_HASH, B3Hash};
 use axum::body::to_bytes;
 use axum::{
     body::Body,
@@ -93,14 +94,118 @@ async fn observability_middleware_inner(
             .filter(|hint| !hint.trim().is_empty())
             .unwrap_or_else(|| derive_hint(&code, &message, detail.as_deref(), status));
 
-        let envelope = ErrorResponse::new(message.clone())
+        let mut envelope = ErrorResponse::new(message.clone())
             .with_code(code.clone())
             .with_request_id(request_id.clone());
 
-        // Add optional fields
-        let envelope = envelope.with_hint(hint.clone());
+        // Session correlation is best-effort; available when clients send X-Session-ID.
+        let session_id = ctx.as_ref().and_then(|c| c.session_id.clone());
+        envelope.session_id = session_id.clone();
 
-        let envelope = if let Some(d) = detail.clone() {
+        // Persist 5xx failures as first-class ErrorInstance rows.
+        // Do not persist 4xx by default.
+        let (error_id, fingerprint) = if status.is_server_error() {
+            let git_sha = if GIT_COMMIT_HASH.is_empty() {
+                "unknown"
+            } else {
+                GIT_COMMIT_HASH
+            };
+
+            // Fingerprint recipe (stable, deterministic):
+            // error_code + method + path + status + component + git_sha
+            let fp_input = format!(
+                "code={};method={};path={};status={};component={};git_sha={}",
+                code,
+                method,
+                path,
+                status.as_u16(),
+                "api",
+                git_sha
+            );
+            let fingerprint = B3Hash::hash(fp_input.as_bytes()).to_hex();
+            let error_id = adapteros_id::TypedId::new(adapteros_id::IdPrefix::Err).to_string();
+
+            if let Some(state) = state.as_ref() {
+                let created_at_unix_ms = state.clock.now_millis() as i64;
+                let tenant_id_for_persist = tenant_id.clone().unwrap_or_else(|| "system".into());
+                let kind = classify_kind(&code, status);
+                let severity = "error";
+
+                let tags_json = serde_json::json!({
+                    "http": { "method": method.to_string(), "path": path },
+                    "http_status": status.as_u16(),
+                    "component": "api",
+                    "git_sha": git_sha,
+                })
+                .to_string();
+
+                let row = adapteros_db::errors::ErrorInstanceRow {
+                    id: error_id.clone(),
+                    created_at_unix_ms,
+                    tenant_id: tenant_id_for_persist.clone(),
+                    source: "api".to_string(),
+                    error_code: code.clone(),
+                    kind: kind.to_string(),
+                    severity: severity.to_string(),
+                    message_user: message.clone(),
+                    message_dev: detail.clone(),
+                    fingerprint: fingerprint.clone(),
+                    tags_json,
+                    session_id: session_id.clone(),
+                    request_id: Some(request_id.clone()),
+                    diag_trace_id: None,
+                    otel_trace_id: if trace_id.is_empty() {
+                        None
+                    } else {
+                        Some(trace_id.clone())
+                    },
+                    http_method: Some(method.to_string()),
+                    http_path: Some(path.clone()),
+                    http_status: Some(status.as_u16() as i32),
+                    run_id: None,
+                    receipt_hash: None,
+                    route_digest: None,
+                };
+
+                // Best-effort persistence: never block the response envelope on DB failures.
+                match state.db.insert_error_instance(&row).await {
+                    Ok(_) => {
+                        let _ = state
+                            .db
+                            .upsert_error_bucket(
+                                &tenant_id_for_persist,
+                                &fingerprint,
+                                &code,
+                                &kind,
+                                severity,
+                                created_at_unix_ms,
+                                &error_id,
+                            )
+                            .await;
+                    }
+                    Err(e) => {
+                        error!(error = %e, "Failed to persist ErrorInstance");
+                    }
+                }
+            }
+
+            (Some(error_id), Some(fingerprint))
+        } else {
+            (None, None)
+        };
+
+        envelope.error_id = error_id;
+        envelope.fingerprint = fingerprint;
+        envelope.otel_trace_id = if trace_id.is_empty() {
+            None
+        } else {
+            Some(trace_id.clone())
+        };
+
+        // Add optional fields
+        envelope = envelope.with_hint(hint.clone());
+
+        envelope = if let Some(d) = detail.clone() {
             envelope.with_string_details(d) // Basic string detail if parsed as string, or we need to handle Value
         } else {
             envelope
@@ -181,6 +286,26 @@ async fn observability_middleware_inner(
         }
         response
     }
+}
+
+fn classify_kind(code: &str, status: StatusCode) -> &'static str {
+    let code_upper = code.to_ascii_uppercase();
+    if status == StatusCode::GATEWAY_TIMEOUT || code_upper.contains("TIMEOUT") {
+        return "timeout";
+    }
+    if code_upper.contains("UNAUTHORIZED") || code_upper.contains("FORBIDDEN") {
+        return "auth";
+    }
+    if code_upper.contains("VALIDATION") || status == StatusCode::UNPROCESSABLE_ENTITY {
+        return "validation";
+    }
+    if code_upper.contains("NETWORK") || status == StatusCode::BAD_GATEWAY {
+        return "network";
+    }
+    if code_upper.contains("WORKER") {
+        return "worker";
+    }
+    "server"
 }
 
 async fn record_http_metrics(state: &AppState, status: StatusCode, duration_ms: f64) {
@@ -433,5 +558,31 @@ mod tests {
 
         let body_bytes = to_bytes(response.into_body(), 64 * 1024).await.unwrap();
         assert_eq!(body_bytes.as_ref(), b"ok");
+    }
+
+    #[tokio::test]
+    async fn includes_error_id_and_fingerprint_on_5xx() {
+        let app = Router::new()
+            .route(
+                "/",
+                get(|| async { (StatusCode::INTERNAL_SERVER_ERROR, "boom") }),
+            )
+            .layer(middleware::from_fn(observability_middleware_test));
+
+        let response = app
+            .oneshot(Request::builder().uri("/").body(Body::empty()).unwrap())
+            .await
+            .unwrap();
+
+        assert_eq!(response.status(), StatusCode::INTERNAL_SERVER_ERROR);
+        let body_bytes = to_bytes(response.into_body(), 64 * 1024).await.unwrap();
+        let envelope: ErrorResponse = serde_json::from_slice(&body_bytes).unwrap();
+        assert!(envelope
+            .error_id
+            .as_deref()
+            .unwrap_or("")
+            .starts_with("err-"));
+        assert!(!envelope.fingerprint.as_deref().unwrap_or("").is_empty());
+        assert!(envelope.otel_trace_id.is_some() || envelope.request_id.is_some());
     }
 }
