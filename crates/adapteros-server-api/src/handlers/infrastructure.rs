@@ -788,6 +788,8 @@ pub async fn get_job(
         id: job.id,
         kind: job.kind,
         status: job.status,
+        tenant_id: job.tenant_id,
+        user_id: job.user_id,
         payload_json: job.payload_json,
         result_json: job.result_json,
         created_at: job.created_at,
