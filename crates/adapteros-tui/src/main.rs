@@ -23,7 +23,12 @@ async fn main() -> Result<()> {
         .with_writer(io::stderr)
         .init();
 
-    info!("Starting adapterOS TUI Control System");
+    info!(
+        build_id = option_env!("AOS_BUILD_ID").unwrap_or("unknown"),
+        git_commit = option_env!("CARGO_GIT_HASH").unwrap_or("unknown"),
+        version = env!("CARGO_PKG_VERSION"),
+        "aos-tui starting"
+    );
 
     // Setup terminal
     let mut terminal = setup_terminal()?;
