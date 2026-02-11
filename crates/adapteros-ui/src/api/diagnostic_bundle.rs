@@ -26,6 +26,24 @@ pub struct DiagnosticBundle {
     /// Trace ID for server-side correlation (if available)
     #[serde(skip_serializing_if = "Option::is_none")]
     pub trace_id: Option<String>,
+    /// Preferred debug id for support (err-... when present, else req-...)
+    #[serde(skip_serializing_if = "Option::is_none")]
+    pub debug_id: Option<String>,
+    /// Request ID for correlation (req-...)
+    #[serde(skip_serializing_if = "Option::is_none")]
+    pub request_id: Option<String>,
+    /// UI session id for correlation (ses-...)
+    #[serde(skip_serializing_if = "Option::is_none")]
+    pub session_id: Option<String>,
+    /// AdapterOS diagnostic trace id (trc-...) when present
+    #[serde(skip_serializing_if = "Option::is_none")]
+    pub diag_trace_id: Option<String>,
+    /// W3C trace id (32-hex) when present
+    #[serde(skip_serializing_if = "Option::is_none")]
+    pub otel_trace_id: Option<String>,
+    /// Stable fingerprint for bucketing/dedupe
+    #[serde(skip_serializing_if = "Option::is_none")]
+    pub fingerprint: Option<String>,
     /// ISO 8601 timestamp when the error occurred
     pub timestamp: String,
     /// Current page/route when error occurred
@@ -64,24 +82,48 @@ impl DiagnosticBundle {
             ApiError::Structured { .. } => ("Structured".to_string(), None),
         };
 
-        let (details, trace_id) = match error {
-            ApiError::Structured { details, .. } => {
-                // Try to extract trace_id from details if present
-                let tid = details
-                    .as_ref()
-                    .and_then(|d| d.get("trace_id"))
-                    .and_then(|v| v.as_str())
-                    .map(|s| s.to_string());
-                (details.clone(), tid)
+        let mut debug_id = None;
+        let mut request_id = None;
+        let mut session_id = None;
+        let mut diag_trace_id = None;
+        let mut otel_trace_id = None;
+        let mut fingerprint = None;
+
+        let details = match error {
+            ApiError::Structured {
+                request_id: rid,
+                error_id,
+                session_id: sid,
+                diag_trace_id: dtid,
+                otel_trace_id: otid,
+                fingerprint: fp,
+                details,
+                ..
+            } => {
+                debug_id = error_id.clone().or_else(|| rid.clone());
+                request_id = rid.clone();
+                session_id = sid.clone();
+                diag_trace_id = dtid.clone();
+                otel_trace_id = otid.clone();
+                fingerprint = fp.clone();
+                details.clone()
             }
-            _ => (None, None),
+            _ => None,
         };
+
+        let trace_id = otel_trace_id.clone();
 
         Self {
             schema_version: "1.0.0",
             error_code: error.code().unwrap_or("UNKNOWN").to_string(),
             message: error.to_string(),
             trace_id,
+            debug_id,
+            request_id,
+            session_id,
+            diag_trace_id,
+            otel_trace_id,
+            fingerprint,
             timestamp: current_timestamp(),
             page: page.map(|s| s.to_string()),
             http_status,

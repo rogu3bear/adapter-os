@@ -35,6 +35,7 @@ pub mod defaults;
 pub mod diagnostics;
 pub mod domain_adapters;
 pub mod embeddings;
+pub mod errors;
 pub mod execution_policy;
 pub mod failure_code;
 pub mod git;
@@ -103,6 +104,7 @@ pub use settings::*;
 pub use system_status::*;
 pub use tenant_settings::*;
 // Note: telemetry types are not re-exported to avoid conflicts with metrics types
+pub use errors::*;
 pub use model_status::*;
 pub use system_state::*;
 pub use tenants::*;
@@ -131,6 +133,21 @@ pub struct ErrorResponse {
     pub details: Option<serde_json::Value>,
     #[serde(skip_serializing_if = "Option::is_none")]
     pub request_id: Option<String>,
+    /// Stable debug identifier for a persisted server-side error instance (err-...)
+    #[serde(skip_serializing_if = "Option::is_none")]
+    pub error_id: Option<String>,
+    /// Stable fingerprint for bucketing/dedupe
+    #[serde(skip_serializing_if = "Option::is_none")]
+    pub fingerprint: Option<String>,
+    /// UI session correlation (ses-...)
+    #[serde(skip_serializing_if = "Option::is_none")]
+    pub session_id: Option<String>,
+    /// AdapterOS diagnostic trace id (trc-...) when available
+    #[serde(skip_serializing_if = "Option::is_none")]
+    pub diag_trace_id: Option<String>,
+    /// W3C trace id (32-hex) when available
+    #[serde(skip_serializing_if = "Option::is_none")]
+    pub otel_trace_id: Option<String>,
 }
 
 impl ErrorResponse {
@@ -144,6 +161,11 @@ impl ErrorResponse {
             hint: None,
             details: None,
             request_id: None,
+            error_id: None,
+            fingerprint: None,
+            session_id: None,
+            diag_trace_id: None,
+            otel_trace_id: None,
         }
     }
 

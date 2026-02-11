@@ -295,6 +295,41 @@ pub fn chat_path_with_adapter(adapter_id: &str) -> String {
     format!("/chat/{}?adapter={}", session_id, encoded)
 }
 
+/// Return a stable UI session id for correlation across requests (ses-...).
+///
+/// Stored in `sessionStorage` so refresh preserves it per-tab; users can rotate it by clearing
+/// session storage.
+#[cfg(target_arch = "wasm32")]
+pub fn ui_session_id() -> String {
+    const KEY: &str = "aos_ui_session_id";
+
+    let window = match web_sys::window() {
+        Some(w) => w,
+        None => return adapteros_id::TypedId::new(adapteros_id::IdPrefix::Ses).to_string(),
+    };
+
+    let storage = window.session_storage().ok().flatten();
+    let storage = match storage {
+        Some(s) => s,
+        None => return adapteros_id::TypedId::new(adapteros_id::IdPrefix::Ses).to_string(),
+    };
+
+    if let Ok(Some(existing)) = storage.get_item(KEY) {
+        if !existing.trim().is_empty() {
+            return existing;
+        }
+    }
+
+    let id = adapteros_id::TypedId::new(adapteros_id::IdPrefix::Ses).to_string();
+    let _ = storage.set_item(KEY, &id);
+    id
+}
+
+#[cfg(not(target_arch = "wasm32"))]
+pub fn ui_session_id() -> String {
+    adapteros_id::TypedId::new(adapteros_id::IdPrefix::Ses).to_string()
+}
+
 #[cfg(test)]
 mod tests {
     use super::*;

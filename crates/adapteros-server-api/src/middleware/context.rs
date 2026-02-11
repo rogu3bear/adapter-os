@@ -46,6 +46,8 @@ pub struct RequestContext {
     pub auth_mode: AuthMode,
     /// Unique request identifier for tracing
     pub request_id: String,
+    /// UI session identifier for correlation (ses-...), when provided by clients.
+    pub session_id: Option<String>,
     /// Client IP address
     pub client_ip: String,
 }
@@ -118,6 +120,11 @@ pub async fn context_middleware(req: Request<Body>, next: Next) -> Response {
         .get::<RequestId>()
         .map(|r| r.0.clone())
         .unwrap_or_else(crate::id_generator::readable_request_id);
+    let session_id = parts
+        .headers
+        .get("X-Session-ID")
+        .and_then(|v| v.to_str().ok())
+        .map(|s| s.to_string());
     let client_ip = parts
         .extensions
         .get::<ClientIp>()
@@ -130,6 +137,7 @@ pub async fn context_middleware(req: Request<Body>, next: Next) -> Response {
         principal,
         auth_mode,
         request_id,
+        session_id,
         client_ip,
     });
 
@@ -304,6 +312,7 @@ mod tests {
             principal: None,
             auth_mode: AuthMode::Unauthenticated,
             request_id: "test-123".to_string(),
+            session_id: None,
             client_ip: "127.0.0.1".to_string(),
         };
         assert_eq!(ctx.user_id(), "anonymous");

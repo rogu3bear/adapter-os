@@ -133,6 +133,7 @@ pub mod coreml_fusion_pairs;
 pub mod documents_kv;
 pub mod embedding_benchmarks;
 pub mod error_classification;
+pub mod errors;
 pub mod evidence_envelopes;
 pub mod factory;
 pub mod kv_backend;
