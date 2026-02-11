@@ -1125,6 +1125,7 @@ impl MLXFFIModel {
             eos_token: tokenizer.eos_token_id(),
             use_cache: true,
             kv_num_layers: Some(self.config.num_hidden_layers),
+            seed: None,
         };
 
         // Create generator with deterministic seed based on model path
@@ -1164,6 +1165,21 @@ impl MLXFFIModel {
         let mut generator = generation::MLXGenerator::new(base_seed, config)?;
 
         generator.generate_text(self, prompt, tokenizer)
+    }
+
+    /// Generate text with an explicit 32-byte seed for deterministic output.
+    ///
+    /// This is the entry point for synthesis pipelines that require strict
+    /// reproducibility: the seed flows through HKDF into every sampling step,
+    /// making the output a deterministic function of (prompt, seed, config).
+    pub fn generate_with_config_and_seed(
+        &self,
+        prompt: &str,
+        mut config: generation::GenerationConfig,
+        seed: [u8; 32],
+    ) -> Result<String> {
+        config.seed = Some(seed);
+        self.generate_with_config(prompt, config)
     }
 
     /// Get the tokenizer if loaded
@@ -2275,6 +2291,7 @@ mod tests {
             eos_token: 2,
             use_cache: true,
             kv_num_layers: Some(32),
+            seed: None,
         };
 
         let result = model.generate_with_config("test prompt", gen_config);

@@ -58,6 +58,7 @@ pub mod documents;
 pub mod domain_adapters;
 pub mod embeddings;
 pub mod error_alerts;
+pub mod errors;
 pub mod event_applier;
 pub mod evidence;
 pub mod execution_policy;
@@ -295,10 +296,10 @@ pub use domain_adapters::*;
 
 // Re-export infrastructure handlers (nodes & system operations)
 pub use infrastructure::{
-    __path_evict_node, __path_get_base_model_status, __path_get_node_details, __path_list_jobs,
-    __path_list_nodes, __path_mark_node_offline, __path_register_node, __path_test_node_connection,
-    evict_node, get_base_model_status, get_node_details, list_jobs, list_nodes, mark_node_offline,
-    register_node, test_node_connection, ListJobsQuery,
+    __path_evict_node, __path_get_base_model_status, __path_get_job, __path_get_node_details,
+    __path_list_jobs, __path_list_nodes, __path_mark_node_offline, __path_register_node,
+    __path_test_node_connection, evict_node, get_base_model_status, get_job, get_node_details,
+    list_jobs, list_nodes, mark_node_offline, register_node, test_node_connection, ListJobsQuery,
 };
 
 // Re-export worker handlers

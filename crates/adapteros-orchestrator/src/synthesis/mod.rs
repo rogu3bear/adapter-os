@@ -28,12 +28,13 @@ mod parser;
 mod types;
 
 pub use engine::{
-    create_synthesis_request, create_synthesis_request_with_provenance, SynthesisEngine,
-    SynthesisEngineConfig,
+    create_synthesis_request, create_synthesis_request_with_provenance, EnrichmentMode,
+    SynthesisEngine, SynthesisEngineConfig,
 };
 pub use parser::{parse_synthesis_output, SynthesisOutputParser};
 pub use types::{
-    CompletionExample, ExampleProvenance, ExampleType, InstructionExample, QAPair, SampleRole,
-    SynthesisBatchStats, SynthesisOutput, SynthesisRequest, SynthesisResult, TrainingExample,
-    ABSTENTION_THRESHOLD, POSITIVE_THRESHOLD,
+    CompletionExample, DocumentSynthesisProvenance, ExampleProvenance, ExampleType,
+    InstructionExample, QAPair, SampleRole, SynthesisBatchStats, SynthesisExampleCounts,
+    SynthesisOutput, SynthesisRequest, SynthesisResult, TrainingExample, ABSTENTION_THRESHOLD,
+    POSITIVE_THRESHOLD,
 };

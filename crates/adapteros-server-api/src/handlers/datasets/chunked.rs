@@ -114,20 +114,15 @@ pub async fn persist_chunk(
     if chunk_index >= expected_chunks {
         return Err((
             StatusCode::BAD_REQUEST,
-            Json(ErrorResponse {
-                schema_version: adapteros_api_types::API_SCHEMA_VERSION.to_string(),
-                message: format!(
+            Json(
+                ErrorResponse::new(format!(
                     "Invalid chunk index {}. Expected 0-{} for {} total chunks",
                     chunk_index,
                     expected_chunks - 1,
                     expected_chunks
-                ),
-                code: "INVALID_CHUNK_INDEX".to_string(),
-                failure_code: None,
-                details: None,
-                hint: None,
-                request_id: None,
-            }),
+                ))
+                .with_code("INVALID_CHUNK_INDEX"),
+            ),
         ));
     }
 
@@ -170,18 +165,13 @@ pub async fn persist_chunk(
 
         return Err((
             StatusCode::CONFLICT,
-            Json(ErrorResponse {
-                schema_version: adapteros_api_types::API_SCHEMA_VERSION.to_string(),
-                message: format!(
+            Json(
+                ErrorResponse::new(format!(
                     "Chunk {} has already been uploaded with a different hash",
                     chunk_index
-                ),
-                code: "CHUNK_HASH_MISMATCH".to_string(),
-                failure_code: None,
-                details: None,
-                hint: None,
-                request_id: None,
-            }),
+                ))
+                .with_code("CHUNK_HASH_MISMATCH"),
+            ),
         ));
     }
 
@@ -190,20 +180,15 @@ pub async fn persist_chunk(
     if body.len() != expected_chunk_size {
         return Err((
             StatusCode::BAD_REQUEST,
-            Json(ErrorResponse {
-                schema_version: adapteros_api_types::API_SCHEMA_VERSION.to_string(),
-                message: format!(
+            Json(
+                ErrorResponse::new(format!(
                     "Invalid chunk size {}. Expected {} bytes for chunk {}",
                     body.len(),
                     expected_chunk_size,
                     chunk_index
-                ),
-                code: "INVALID_CHUNK_SIZE".to_string(),
-                failure_code: None,
-                details: None,
-                hint: None,
-                request_id: None,
-            }),
+                ))
+                .with_code("INVALID_CHUNK_SIZE"),
+            ),
         ));
     }
 

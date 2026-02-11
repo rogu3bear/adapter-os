@@ -1,7 +1,15 @@
 //! Synthesis engine for generating training data from documents
 //!
-//! The SynthesisEngine wraps a GPU-accelerated inference backend to run
-//! the synthesis model locally on Apple Silicon using MLX/CoreML/Metal.
+//! The SynthesisEngine supports two backend paths for inference:
+//!
+//! - **CoreML/KernelBox** (default): Runs through the `FusedKernels` trait via
+//!   `create_backend_from_config`. Uses ANE acceleration when `use_ane` is true.
+//!   Non-deterministic (hardware-dependent scheduling on ANE).
+//!
+//! - **MLX direct** (feature `mlx-synthesis`): Loads `MLXFFIModel` directly and
+//!   calls `generate_with_config()` with `GenerationConfig.seed` set to an
+//!   explicit 32-byte seed for fully deterministic output. Selected when
+//!   `enrichment_mode` is `EnrichmentMode::StrictReplay`.
 
 use super::parser::SynthesisOutputParser;
 use super::types::{SynthesisBatchStats, SynthesisRequest, SynthesisResult};
@@ -15,10 +23,76 @@ use std::time::Instant;
 use tokio::sync::RwLock;
 use tracing::{debug, info, warn};
 
+// =============================================================================
+// Enrichment Mode
+// =============================================================================
+
+/// Controls which inference backend the synthesis engine uses.
+///
+/// - `PowerSaveCoreml`: Uses KernelBox via CoreML/ANE -- power-efficient
+///   but not bit-exact reproducible across runs.
+/// - `StrictReplay`: Uses MLX FFI model directly with an explicit 32-byte seed
+///   for fully deterministic output. Requires feature `mlx-synthesis`.
+/// - `Off`: No enrichment -- pass-through without synthesis.
+#[derive(Debug, Clone, Copy, PartialEq, Eq, Serialize, Deserialize, Default)]
+#[serde(rename_all = "snake_case")]
+pub enum EnrichmentMode {
+    /// Power-efficient CoreML/ANE path via KernelBox (non-deterministic)
+    PowerSaveCoreml,
+    /// Deterministic MLX path with explicit seed (requires `mlx-synthesis` feature)
+    StrictReplay,
+    /// No enrichment -- pass-through without synthesis
+    #[default]
+    Off,
+}
+
+impl std::fmt::Display for EnrichmentMode {
+    fn fmt(&self, f: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
+        match self {
+            Self::StrictReplay => write!(f, "strict_replay"),
+            Self::PowerSaveCoreml => write!(f, "power_save_coreml"),
+            Self::Off => write!(f, "off"),
+        }
+    }
+}
+
+impl std::str::FromStr for EnrichmentMode {
+    type Err = String;
+
+    fn from_str(s: &str) -> std::result::Result<Self, Self::Err> {
+        match s {
+            "strict_replay" => Ok(Self::StrictReplay),
+            "power_save_coreml" => Ok(Self::PowerSaveCoreml),
+            "off" => Ok(Self::Off),
+            other => Err(format!(
+                "Invalid enrichment mode: '{}'. Must be one of: strict_replay, power_save_coreml, off",
+                other
+            )),
+        }
+    }
+}
+
+// =============================================================================
+// Backend Mode (internal)
+// =============================================================================
+
+/// Internal enum holding the loaded backend.
+enum SynthesisBackendMode {
+    /// CoreML / generic KernelBox backend
+    CoremlKernelBox(Arc<RwLock<KernelBox>>),
+    /// MLX FFI model loaded directly (feature-gated)
+    #[cfg(feature = "mlx-synthesis")]
+    MlxModelDirect(Arc<adapteros_lora_mlx_ffi::MLXFFIModel>),
+}
+
+// =============================================================================
+// Configuration
+// =============================================================================
+
 /// Configuration for the synthesis engine
 #[derive(Debug, Clone, Serialize, Deserialize)]
 pub struct SynthesisEngineConfig {
-    /// Path to the CoreML model package
+    /// Path to the model package
     pub model_path: PathBuf,
     /// Maximum tokens to generate per chunk
     pub max_new_tokens: usize,
@@ -26,8 +100,10 @@ pub struct SynthesisEngineConfig {
     pub temperature: f32,
     /// Top-p (nucleus) sampling
     pub top_p: f32,
-    /// Whether to use ANE acceleration
+    /// Whether to use ANE acceleration (only relevant for CoreML path)
     pub use_ane: bool,
+    /// Enrichment mode -- selects the backend path
+    pub enrichment_mode: EnrichmentMode,
     /// System prompt for synthesis
     pub system_prompt: String,
     /// User prompt template (use {chunk} placeholder)
@@ -42,6 +118,7 @@ impl Default for SynthesisEngineConfig {
             temperature: 0.7,
             top_p: 0.9,
             use_ane: true,
+            enrichment_mode: EnrichmentMode::default(),
             system_prompt: DEFAULT_SYSTEM_PROMPT.to_string(),
             user_template: DEFAULT_USER_TEMPLATE.to_string(),
         }
@@ -80,12 +157,16 @@ const DEFAULT_USER_TEMPLATE: &str = r#"Document chunk:
 
 Generate training examples:"#;
 
+// =============================================================================
+// Engine
+// =============================================================================
+
 /// Engine for synthesizing training data from document chunks
 pub struct SynthesisEngine {
     config: SynthesisEngineConfig,
     parser: SynthesisOutputParser,
-    /// Inference backend for text generation (MLX/CoreML/Metal)
-    backend: Option<Arc<RwLock<KernelBox>>>,
+    /// Loaded inference backend (populated by `load_model()`)
+    backend: Option<SynthesisBackendMode>,
 }
 
 impl SynthesisEngine {
@@ -103,11 +184,20 @@ impl SynthesisEngine {
         Self::new(SynthesisEngineConfig::default())
     }
 
-    /// Load the synthesis model
+    /// Load the synthesis model.
     ///
-    /// This initializes the inference backend and loads the model.
+    /// Dispatches to the appropriate backend based on `enrichment_mode`:
+    /// - `PowerSaveCoreml` -> loads via `create_backend_from_config` (KernelBox)
+    /// - `StrictReplay` -> loads `MLXFFIModel` directly (requires `mlx-synthesis`)
+    /// - `Off` -> skips model loading entirely
+    ///
     /// Must be called before `synthesize()`.
     pub async fn load_model(&mut self) -> Result<()> {
+        if self.config.enrichment_mode == EnrichmentMode::Off {
+            info!("Enrichment mode is Off -- skipping model load");
+            return Ok(());
+        }
+
         if !self.config.model_path.exists() {
             return Err(AosError::NotFound(format!(
                 "Synthesis model not found at: {}",
@@ -115,13 +205,27 @@ impl SynthesisEngine {
             )));
         }
 
+        match self.config.enrichment_mode {
+            EnrichmentMode::StrictReplay => {
+                self.load_mlx_direct().await?;
+            }
+            EnrichmentMode::PowerSaveCoreml => {
+                self.load_kernelbox().await?;
+            }
+            EnrichmentMode::Off => unreachable!(),
+        }
+
+        Ok(())
+    }
+
+    /// Load the CoreML/KernelBox backend
+    async fn load_kernelbox(&mut self) -> Result<()> {
         info!(
             model_path = %self.config.model_path.display(),
             use_ane = self.config.use_ane,
-            "Loading synthesis model"
+            "Loading synthesis model via KernelBox (CoreML path)"
         );
 
-        // Create model configuration
         let mut model_config = ModelConfig::new(self.config.model_path.clone());
         model_config.backend = if self.config.use_ane {
             BackendPreference::CoreML
@@ -129,7 +233,6 @@ impl SynthesisEngine {
             BackendPreference::Mlx
         };
 
-        // Create the backend
         let backend = create_backend_from_config(&model_config).map_err(|e| {
             AosError::config(format!(
                 "Failed to create inference backend for synthesis: {}",
@@ -137,15 +240,47 @@ impl SynthesisEngine {
             ))
         })?;
 
-        // Verify the backend supports text generation
         if !backend.supports_streaming_text_generation() {
             warn!("Backend does not support streaming text generation, falling back to batch mode");
         }
 
-        info!("Synthesis model loaded successfully");
-
-        self.backend = Some(Arc::new(RwLock::new(backend)));
+        info!("Synthesis model loaded successfully (KernelBox)");
+        self.backend = Some(SynthesisBackendMode::CoremlKernelBox(Arc::new(
+            RwLock::new(backend),
+        )));
         Ok(())
+    }
+
+    /// Load the MLX FFI model directly for deterministic inference.
+    ///
+    /// Only available when the `mlx-synthesis` feature is enabled.
+    #[cfg(feature = "mlx-synthesis")]
+    async fn load_mlx_direct(&mut self) -> Result<()> {
+        info!(
+            model_path = %self.config.model_path.display(),
+            "Loading synthesis model via MLXFFIModel (StrictReplay path)"
+        );
+
+        let model =
+            adapteros_lora_mlx_ffi::MLXFFIModel::load(&self.config.model_path).map_err(|e| {
+                AosError::config(format!(
+                    "Failed to load MLX model for strict-replay synthesis: {}",
+                    e
+                ))
+            })?;
+
+        info!("Synthesis model loaded successfully (MLX direct)");
+        self.backend = Some(SynthesisBackendMode::MlxModelDirect(Arc::new(model)));
+        Ok(())
+    }
+
+    #[cfg(not(feature = "mlx-synthesis"))]
+    async fn load_mlx_direct(&mut self) -> Result<()> {
+        Err(AosError::config(
+            "StrictReplay enrichment mode requires the `mlx-synthesis` feature. \
+             Rebuild with `--features mlx-synthesis`."
+                .to_string(),
+        ))
     }
 
     /// Check if the model is loaded
@@ -153,19 +288,21 @@ impl SynthesisEngine {
         self.backend.is_some()
     }
 
-    /// Synthesize training data from a single chunk
-    pub async fn synthesize(&self, request: SynthesisRequest) -> Result<SynthesisResult> {
+    /// Synthesize training data from a single chunk.
+    ///
+    /// Pass `seed` for deterministic generation (StrictReplay mode). The seed
+    /// is ignored when using the KernelBox path.
+    pub async fn synthesize(
+        &self,
+        request: SynthesisRequest,
+        seed: Option<[u8; 32]>,
+    ) -> Result<SynthesisResult> {
         let start = Instant::now();
 
-        // Build prompt
         let prompt = self.build_prompt(&request);
-
-        // Generate output
-        let raw_output = self.generate(&prompt).await?;
-
+        let raw_output = self.generate(&prompt, seed).await?;
         let latency_ms = start.elapsed().as_millis() as u64;
 
-        // Parse output
         match self.parser.parse(&raw_output) {
             Ok(output) => {
                 debug!(
@@ -192,7 +329,7 @@ impl SynthesisEngine {
         }
     }
 
-    /// Synthesize training data from multiple chunks
+    /// Synthesize training data from multiple chunks (unseeded).
     pub async fn synthesize_batch(
         &self,
         requests: Vec<SynthesisRequest>,
@@ -207,7 +344,7 @@ impl SynthesisEngine {
                 "Processing chunk"
             );
 
-            let result = self.synthesize(request).await?;
+            let result = self.synthesize(request, None).await?;
             stats.add_result(&result);
             results.push(result);
         }
@@ -218,6 +355,50 @@ impl SynthesisEngine {
             success_rate = format!("{:.1}%", stats.success_rate() * 100.0),
             avg_latency_ms = stats.avg_latency_ms(),
             "Batch synthesis complete"
+        );
+
+        Ok((results, stats))
+    }
+
+    /// Synthesize training data from multiple chunks with per-chunk seeds.
+    ///
+    /// Each request gets its own 32-byte seed for deterministic generation.
+    /// `seeds` must be the same length as `requests`.
+    pub async fn synthesize_batch_with_seeds(
+        &self,
+        requests: Vec<SynthesisRequest>,
+        seeds: Vec<[u8; 32]>,
+    ) -> Result<(Vec<SynthesisResult>, SynthesisBatchStats)> {
+        if requests.len() != seeds.len() {
+            return Err(AosError::Validation(format!(
+                "synthesize_batch_with_seeds: requests ({}) and seeds ({}) length mismatch",
+                requests.len(),
+                seeds.len(),
+            )));
+        }
+
+        let mut results = Vec::with_capacity(requests.len());
+        let mut stats = SynthesisBatchStats::default();
+
+        for (i, (request, seed)) in requests.into_iter().zip(seeds.into_iter()).enumerate() {
+            debug!(
+                chunk = i + 1,
+                source = %request.source,
+                seed_prefix = hex::encode(&seed[..4]),
+                "Processing chunk (seeded)"
+            );
+
+            let result = self.synthesize(request, Some(seed)).await?;
+            stats.add_result(&result);
+            results.push(result);
+        }
+
+        info!(
+            chunks = stats.chunks_processed,
+            examples = stats.total_examples(),
+            success_rate = format!("{:.1}%", stats.success_rate() * 100.0),
+            avg_latency_ms = stats.avg_latency_ms(),
+            "Seeded batch synthesis complete"
         );
 
         Ok((results, stats))
@@ -236,36 +417,65 @@ impl SynthesisEngine {
         )
     }
 
-    /// Generate text from the model
-    async fn generate(&self, prompt: &str) -> Result<String> {
+    /// Generate text from the loaded backend.
+    ///
+    /// Dispatches to KernelBox or MLX direct depending on which backend was loaded.
+    /// The `seed` parameter is only used by the MLX direct path; the KernelBox
+    /// path ignores it (ANE scheduling is not seed-controllable).
+    async fn generate(&self, prompt: &str, seed: Option<[u8; 32]>) -> Result<String> {
         let backend = self.backend.as_ref().ok_or_else(|| {
             AosError::config("Synthesis model not loaded. Call load_model() first.")
         })?;
-
-        // Run inference on the backend
-        let backend_guard: tokio::sync::RwLockReadGuard<'_, KernelBox> = backend.read().await;
 
         debug!(
             prompt_len = prompt.len(),
             max_tokens = self.config.max_new_tokens,
             temperature = self.config.temperature,
+            has_seed = seed.is_some(),
             "Running synthesis inference"
         );
 
-        let result = backend_guard.generate_text_complete(
-            prompt,
-            self.config.max_new_tokens,
-            self.config.temperature,
-            self.config.top_p,
-        )?;
+        match backend {
+            SynthesisBackendMode::CoremlKernelBox(kb) => {
+                let backend_guard = kb.read().await;
+                let result = backend_guard.generate_text_complete(
+                    prompt,
+                    self.config.max_new_tokens,
+                    self.config.temperature,
+                    self.config.top_p,
+                )?;
 
-        debug!(
-            output_len = result.text.len(),
-            tokens = result.tokens_generated,
-            "Synthesis generation complete"
-        );
+                debug!(
+                    output_len = result.text.len(),
+                    tokens = result.tokens_generated,
+                    "Synthesis generation complete (KernelBox)"
+                );
 
-        Ok(result.text)
+                Ok(result.text)
+            }
+
+            #[cfg(feature = "mlx-synthesis")]
+            SynthesisBackendMode::MlxModelDirect(model) => {
+                use adapteros_lora_mlx_ffi::generation::GenerationConfig;
+
+                let gen_config = GenerationConfig {
+                    max_tokens: self.config.max_new_tokens,
+                    temperature: self.config.temperature,
+                    top_p: Some(self.config.top_p),
+                    seed,
+                    ..Default::default()
+                };
+
+                let text = model.generate_with_config(prompt, gen_config)?;
+
+                debug!(
+                    output_len = text.len(),
+                    "Synthesis generation complete (MLX direct)"
+                );
+
+                Ok(text)
+            }
+        }
     }
 
     /// Generate text from the model (stub mode for testing without model)
@@ -417,5 +627,25 @@ mod tests {
     fn test_is_loaded_false_initially() {
         let engine = SynthesisEngine::with_defaults();
         assert!(!engine.is_loaded());
+    }
+
+    #[test]
+    fn test_enrichment_mode_default() {
+        let config = SynthesisEngineConfig::default();
+        assert_eq!(config.enrichment_mode, EnrichmentMode::Off);
+    }
+
+    #[test]
+    fn test_enrichment_mode_serde_roundtrip() {
+        let json = serde_json::to_string(&EnrichmentMode::StrictReplay).unwrap();
+        assert_eq!(json, "\"strict_replay\"");
+        let back: EnrichmentMode = serde_json::from_str(&json).unwrap();
+        assert_eq!(back, EnrichmentMode::StrictReplay);
+
+        let json2 = serde_json::to_string(&EnrichmentMode::PowerSaveCoreml).unwrap();
+        assert_eq!(json2, "\"power_save_coreml\"");
+
+        let json3 = serde_json::to_string(&EnrichmentMode::Off).unwrap();
+        assert_eq!(json3, "\"off\"");
     }
 }

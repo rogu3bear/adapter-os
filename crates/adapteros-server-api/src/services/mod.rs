@@ -19,6 +19,7 @@ pub mod adapter_service;
 pub mod dataset_domain;
 pub mod error_alert_evaluator;
 pub mod repo_url;
+pub mod synthesis;
 pub mod training_dataset;
 pub mod training_service;
 
@@ -32,6 +33,11 @@ pub use dataset_domain::{
     SplitStats,
 };
 pub use error_alert_evaluator::ErrorAlertEvaluator;
+pub use synthesis::{
+    compute_synthesis_model_hash, derive_synthesis_seed, derive_synthesis_seed_bytes_v1,
+    derive_synthesis_seed_u64_v1, DeterministicSynthesisConfig, SynthesisProvenance,
+    SynthesisService,
+};
 pub use training_dataset::{
     DatasetFromCollectionParams, DatasetFromDocumentIdsParams, DatasetFromUploadParams,
     DatasetFromUploadedDocumentParams, DefaultTrainingDatasetService, TrainingDatasetService,

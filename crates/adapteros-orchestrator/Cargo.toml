@@ -9,6 +9,8 @@ license = "MIT OR Apache-2.0"
 default = []
 deterministic-only = []
 coreml-backend = ["adapteros-lora-worker/coreml-backend"]
+mlx-synthesis = ["dep:adapteros-lora-mlx-ffi"]
+
 [dependencies]
 # Core
 anyhow.workspace = true
@@ -60,6 +62,8 @@ rand = { workspace = true }
 tempfile = { workspace = true }
 regex = "1.10"
 adapteros-lora-lifecycle = { path = "../adapteros-lora-lifecycle" }
+adapteros-lora-mlx-ffi = { path = "../adapteros-lora-mlx-ffi", optional = true }
+
 [dev-dependencies]
 
 [[bin]]

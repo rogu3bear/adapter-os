@@ -62,6 +62,7 @@ async fn dataset_upload_respects_size_limit() {
                 name: Some("big-dataset".to_string()),
                 description: None,
                 training_strategy: None,
+                enrichment_mode: None,
             },
         )
         .await;
@@ -93,6 +94,7 @@ async fn dataset_upload_enforces_tenant_isolation() {
                 name: Some("tenant1-dataset".to_string()),
                 description: None,
                 training_strategy: None,
+                enrichment_mode: None,
             },
         )
         .await
@@ -142,6 +144,7 @@ async fn dataset_upload_requires_file() {
                 name: Some("empty-dataset".to_string()),
                 description: None,
                 training_strategy: None,
+                enrichment_mode: None,
             },
         )
         .await;

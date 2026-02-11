@@ -58,13 +58,33 @@ pub struct WorkerFatal {
     pub timestamp: String,
 }
 
-/// Job response
+/// Job response (lightweight, used by list endpoints and async-creation responses)
 #[derive(Debug, Serialize, Deserialize, ToSchema)]
 pub struct JobResponse {
     pub id: String,
     pub kind: String,
     pub status: String,
     pub created_at: String,
+}
+
+/// Full job detail response (used by GET /v1/jobs/{job_id})
+#[derive(Debug, Serialize, Deserialize, ToSchema)]
+pub struct JobDetailResponse {
+    pub id: String,
+    pub kind: String,
+    pub status: String,
+    #[serde(skip_serializing_if = "Option::is_none")]
+    pub tenant_id: Option<String>,
+    #[serde(skip_serializing_if = "Option::is_none")]
+    pub user_id: Option<String>,
+    pub payload_json: String,
+    #[serde(skip_serializing_if = "Option::is_none")]
+    pub result_json: Option<String>,
+    pub created_at: String,
+    #[serde(skip_serializing_if = "Option::is_none")]
+    pub started_at: Option<String>,
+    #[serde(skip_serializing_if = "Option::is_none")]
+    pub finished_at: Option<String>,
 }
 
 /// Rollback response

@@ -1578,20 +1578,15 @@ pub async fn retry_chunk(
     if chunk_index >= total_chunks {
         return Err((
             StatusCode::BAD_REQUEST,
-            Json(ErrorResponse {
-                schema_version: adapteros_api_types::API_SCHEMA_VERSION.to_string(),
-                message: format!(
+            Json(
+                ErrorResponse::new(format!(
                     "Invalid chunk index {}. Expected 0-{} for {} total chunks",
                     chunk_index,
                     total_chunks - 1,
                     total_chunks
-                ),
-                code: "INVALID_CHUNK_INDEX".to_string(),
-                failure_code: None,
-                details: None,
-                hint: None,
-                request_id: None,
-            }),
+                ))
+                .with_code("INVALID_CHUNK_INDEX"),
+            ),
         ));
     }
 
@@ -1600,20 +1595,15 @@ pub async fn retry_chunk(
     if body.len() != expected_size {
         return Err((
             StatusCode::BAD_REQUEST,
-            Json(ErrorResponse {
-                schema_version: adapteros_api_types::API_SCHEMA_VERSION.to_string(),
-                message: format!(
+            Json(
+                ErrorResponse::new(format!(
                     "Invalid chunk size {}. Expected {} bytes for chunk {}",
                     body.len(),
                     expected_size,
                     chunk_index
-                ),
-                code: "INVALID_CHUNK_SIZE".to_string(),
-                failure_code: None,
-                details: None,
-                hint: None,
-                request_id: None,
-            }),
+                ))
+                .with_code("INVALID_CHUNK_SIZE"),
+            ),
         ));
     }
 
@@ -1644,18 +1634,13 @@ pub async fn retry_chunk(
             let _ = tokio::fs::remove_file(&chunk_path).await;
             return Err((
                 StatusCode::BAD_REQUEST,
-                Json(ErrorResponse {
-                    schema_version: adapteros_api_types::API_SCHEMA_VERSION.to_string(),
-                    message: format!(
+                Json(
+                    ErrorResponse::new(format!(
                         "Chunk hash mismatch. Expected {}, got {}",
                         exp_hash, chunk_hash
-                    ),
-                    code: "HASH_MISMATCH".to_string(),
-                    failure_code: None,
-                    details: None,
-                    hint: None,
-                    request_id: None,
-                }),
+                    ))
+                    .with_code("HASH_MISMATCH"),
+                ),
             ));
         }
     }

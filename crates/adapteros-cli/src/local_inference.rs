@@ -142,6 +142,7 @@ impl LocalInferenceEngine {
             eos_token: self.tokenizer.eos_token_id(),
             use_cache: true,
             kv_num_layers: Some(self.model.config.num_hidden_layers),
+            seed: None,
         };
 
         // Create generator for this request
@@ -212,6 +213,7 @@ impl LocalInferenceEngine {
             eos_token: self.tokenizer.eos_token_id(),
             use_cache: true,
             kv_num_layers: Some(self.model.config.num_hidden_layers),
+            seed: None,
         };
 
         // Create generator for this request

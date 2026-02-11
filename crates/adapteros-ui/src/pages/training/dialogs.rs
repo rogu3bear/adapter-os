@@ -182,7 +182,10 @@ pub fn CreateJobDialog(
                                 }
                                 Err(e) => {
                                     let msg = format_upload_error(&e);
-                                    error.set(Some(format!("Failed to synthesize dataset: {}", msg)));
+                                    error.set(Some(format!(
+                                        "Failed to synthesize dataset: {}",
+                                        msg
+                                    )));
                                     uploading.set(false);
                                     upload_status.set(String::new());
                                     return;

@@ -2177,7 +2177,7 @@ async fn stream_inference_to_state(
                 .unwrap_or_else(|| status_text.clone()),
             Err(_) => status_text.clone(),
         };
-        let api_error = ApiError::from_response(status as u16, &body_text);
+        let api_error = ApiError::from_response(status as u16, &body_text, None);
         return Err(StreamFailure::new(
             api_error.to_string(),
             api_error.code().map(|c| c.to_string()),
