@@ -8,6 +8,7 @@ use crate::config::AgentSpawnConfig;
 use crate::error::{AgentSpawnError, Result};
 use crate::protocol::{AgentRequest, AgentResponse};
 use adapteros_deterministic_exec::multi_agent::AgentBarrier;
+use futures_util::FutureExt;
 use parking_lot::RwLock;
 use std::collections::HashMap;
 use std::sync::Arc;
@@ -142,47 +143,49 @@ impl AgentSupervisor {
         let interval = Duration::from_millis(self.config.health_check_interval_ms);
 
         tokio::spawn(async move {
-            loop {
-                tokio::select! {
-                    _ = shutdown.notified() => {
-                        info!("Health monitor shutting down");
-                        break;
-                    }
-                    _ = tokio::time::sleep(interval) => {
-                        // Check each agent's health
-                        let agent_list: Vec<_> = agents.read().iter()
-                            .map(|(id, handle)| (id.clone(), handle.clone()))
-                            .collect();
+            if let Err(panic) = std::panic::AssertUnwindSafe(async move {
+                loop {
+                    tokio::select! {
+                        _ = shutdown.notified() => {
+                            info!("Health monitor shutting down");
+                            break;
+                        }
+                        _ = tokio::time::sleep(interval) => {
+                            // Check each agent's health
+                            let agent_list: Vec<_> = agents.read().iter()
+                                .map(|(id, handle)| (id.clone(), handle.clone()))
+                                .collect();
 
-                        for (id, handle) in agent_list {
-                            if !handle.is_alive().await {
-                                warn!(agent_id = %id, "Agent not alive");
+                            for (id, handle) in agent_list {
+                                if !handle.is_alive().await {
+                                    warn!(agent_id = %id, "Agent not alive");
 
-                                let restart_count = *restart_counts.read().get(&id).unwrap_or(&0);
+                                    let restart_count = *restart_counts.read().get(&id).unwrap_or(&0);
 
-                                if restart_count >= max_restarts {
-                                    error!(agent_id = %id, attempts = restart_count, "Agent exceeded max restarts, marking dead");
-                                    if let Err(e) = barrier.mark_agent_dead(&id) {
-                                        error!(agent_id = %id, error = %e, "Failed to mark agent dead in barrier");
-                                    }
-                                    agents.write().remove(&id);
-                                } else {
-                                    // Attempt restart
-                                    info!(agent_id = %id, attempt = restart_count + 1, "Attempting to restart agent");
-                                    *restart_counts.write().entry(id.clone()).or_insert(0) += 1;
-
-                                    match AgentHandle::spawn(id.clone(), &config).await {
-                                        Ok(new_handle) => {
-                                            let timeout = Duration::from_secs(config.spawn_timeout_secs);
-                                            if let Err(e) = new_handle.wait_ready(timeout).await {
-                                                error!(agent_id = %id, error = %e, "Restarted agent failed to become ready");
-                                            } else {
-                                                agents.write().insert(id.clone(), Arc::new(new_handle));
-                                                info!(agent_id = %id, "Agent restarted successfully");
-                                            }
+                                    if restart_count >= max_restarts {
+                                        error!(agent_id = %id, attempts = restart_count, "Agent exceeded max restarts, marking dead");
+                                        if let Err(e) = barrier.mark_agent_dead(&id) {
+                                            error!(agent_id = %id, error = %e, "Failed to mark agent dead in barrier");
                                         }
-                                        Err(e) => {
-                                            error!(agent_id = %id, error = %e, "Failed to restart agent");
+                                        agents.write().remove(&id);
+                                    } else {
+                                        // Attempt restart
+                                        info!(agent_id = %id, attempt = restart_count + 1, "Attempting to restart agent");
+                                        *restart_counts.write().entry(id.clone()).or_insert(0) += 1;
+
+                                        match AgentHandle::spawn(id.clone(), &config).await {
+                                            Ok(new_handle) => {
+                                                let timeout = Duration::from_secs(config.spawn_timeout_secs);
+                                                if let Err(e) = new_handle.wait_ready(timeout).await {
+                                                    error!(agent_id = %id, error = %e, "Restarted agent failed to become ready");
+                                                } else {
+                                                    agents.write().insert(id.clone(), Arc::new(new_handle));
+                                                    info!(agent_id = %id, "Agent restarted successfully");
+                                                }
+                                            }
+                                            Err(e) => {
+                                                error!(agent_id = %id, error = %e, "Failed to restart agent");
+                                            }
                                         }
                                     }
                                 }
@@ -190,6 +193,8 @@ impl AgentSupervisor {
                         }
                     }
                 }
+            }).catch_unwind().await {
+                tracing::error!(task = "agent_health_monitor", "background task panicked: {:?}", panic);
             }
         })
     }

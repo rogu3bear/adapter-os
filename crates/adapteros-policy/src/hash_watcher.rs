@@ -512,32 +512,42 @@ impl PolicyHashWatcher {
         info!(interval_secs = ?interval.as_secs(), "Starting background policy hash watcher");
 
         tokio::spawn(async move {
-            let mut ticker = tokio::time::interval(interval);
-            ticker.set_missed_tick_behavior(tokio::time::MissedTickBehavior::Skip);
+            use futures_util::FutureExt;
+            use std::panic::AssertUnwindSafe;
+            if let Err(panic) = AssertUnwindSafe(async move {
+                let mut ticker = tokio::time::interval(interval);
+                ticker.set_missed_tick_behavior(tokio::time::MissedTickBehavior::Skip);
 
-            loop {
-                ticker.tick().await;
+                loop {
+                    ticker.tick().await;
 
-                debug!("Background policy hash validation sweep");
+                    debug!("Background policy hash validation sweep");
 
-                let hashes = match policy_hashes.read() {
-                    Ok(lock) => lock.clone(),
-                    Err(e) => {
-                        error!(error = %e, "Policy hashes lock poisoned, skipping validation sweep");
-                        continue;
+                    let hashes = match policy_hashes.read() {
+                        Ok(lock) => lock.clone(),
+                        Err(e) => {
+                            error!(error = %e, "Policy hashes lock poisoned, skipping validation sweep");
+                            continue;
+                        }
+                    };
+
+                    if let Err(e) = self.validate_all_policies(&hashes).await {
+                        error!(error = %e, "Background hash validation failed");
                     }
-                };
 
-                if let Err(e) = self.validate_all_policies(&hashes).await {
-                    error!(error = %e, "Background hash validation failed");
+                    if self.is_quarantined() {
+                        warn!(
+                            violation_count = self.violation_count(),
+                            "System quarantined due to policy hash violations"
+                        );
+                    }
                 }
-
-                if self.is_quarantined() {
-                    warn!(
-                        violation_count = self.violation_count(),
-                        "System quarantined due to policy hash violations"
-                    );
-                }
+            }).catch_unwind().await {
+                error!(
+                    task = "policy_hash_watcher",
+                    "policy hash watcher panicked — integrity monitoring lost: {:?}",
+                    panic
+                );
             }
         })
     }

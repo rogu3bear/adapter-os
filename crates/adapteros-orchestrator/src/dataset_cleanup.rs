@@ -9,6 +9,7 @@
 
 use adapteros_core::{AosError, Result};
 use adapteros_db::{Db, TrainingDataset};
+use futures_util::FutureExt;
 use std::collections::HashMap;
 use std::path::{Path, PathBuf};
 use tracing::{error, info, warn};
@@ -325,13 +326,23 @@ impl DatasetCleanupManager {
             }
         }
 
-        // Update dataset status in database (placeholder for actual compression)
-        drop(self.db.update_dataset_validation(
-            &dataset.id,
-            "archived",
-            Some(&format!("Archived at {}", archive_path.display())),
-            None,
-        ));
+        // Update dataset status in database
+        if let Err(e) = self
+            .db
+            .update_dataset_validation(
+                &dataset.id,
+                "archived",
+                Some(&format!("Archived at {}", archive_path.display())),
+                None,
+            )
+            .await
+        {
+            tracing::error!(
+                dataset_id = %dataset.id,
+                error = %e,
+                "failed to mark dataset as archived — status will be stale"
+            );
+        }
 
         Ok(freed_bytes)
     }
@@ -482,32 +493,44 @@ impl DatasetCleanupManager {
         let db = self.db.clone();
 
         tokio::spawn(async move {
-            if config.cleanup_interval_secs == 0 {
-                info!("Background cleanup task disabled");
-                return;
-            }
+            if let Err(panic) = std::panic::AssertUnwindSafe(async move {
+                if config.cleanup_interval_secs == 0 {
+                    info!("Background cleanup task disabled");
+                    return;
+                }
 
-            let mut interval =
-                tokio::time::interval(std::time::Duration::from_secs(config.cleanup_interval_secs));
+                let mut interval = tokio::time::interval(std::time::Duration::from_secs(
+                    config.cleanup_interval_secs,
+                ));
 
-            loop {
-                interval.tick().await;
+                loop {
+                    interval.tick().await;
 
-                let manager = DatasetCleanupManager::new(config.clone(), db.clone());
+                    let manager = DatasetCleanupManager::new(config.clone(), db.clone());
 
-                match manager.cleanup_orphaned_files().await {
-                    Ok(result) => {
-                        if result.orphaned_files_removed > 0 {
-                            info!(
-                                "Background cleanup: removed {} files, freed {} bytes",
-                                result.orphaned_files_removed, result.bytes_freed
-                            );
+                    match manager.cleanup_orphaned_files().await {
+                        Ok(result) => {
+                            if result.orphaned_files_removed > 0 {
+                                info!(
+                                    "Background cleanup: removed {} files, freed {} bytes",
+                                    result.orphaned_files_removed, result.bytes_freed
+                                );
+                            }
+                        }
+                        Err(e) => {
+                            error!("Background cleanup task failed: {}", e);
                         }
                     }
-                    Err(e) => {
-                        error!("Background cleanup task failed: {}", e);
-                    }
                 }
+            })
+            .catch_unwind()
+            .await
+            {
+                tracing::error!(
+                    task = "dataset_background_cleanup",
+                    "background task panicked: {:?}",
+                    panic
+                );
             }
         })
     }

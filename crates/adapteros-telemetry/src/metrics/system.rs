@@ -9,6 +9,7 @@
 use std::sync::Arc;
 use std::time::{Duration, SystemTime, UNIX_EPOCH};
 
+use futures_util::FutureExt;
 use serde_json::json;
 use sysinfo::{Disks, Networks, System};
 use tracing::warn;
@@ -141,47 +142,58 @@ pub fn spawn_system_metrics_emitter(
     interval: Duration,
 ) -> tokio::task::JoinHandle<()> {
     tokio::spawn(async move {
-        let mut collector = TelemetryMetricsCollector::new();
-        let mut ticker = tokio::time::interval(interval);
-        loop {
-            ticker.tick().await;
-            let payload = collector.collect();
-            // Attach payload as metadata on unified telemetry event.
-            let metadata = match serde_json::to_value(&payload) {
-                Ok(val) => val,
-                Err(err) => {
-                    warn!("Failed to encode system metrics payload: {}", err);
-                    json!({
-                        "serialization_error": err.to_string(),
-                    })
-                }
-            };
+        if let Err(panic) = std::panic::AssertUnwindSafe(async move {
+            let mut collector = TelemetryMetricsCollector::new();
+            let mut ticker = tokio::time::interval(interval);
+            loop {
+                ticker.tick().await;
+                let payload = collector.collect();
+                // Attach payload as metadata on unified telemetry event.
+                let metadata = match serde_json::to_value(&payload) {
+                    Ok(val) => val,
+                    Err(err) => {
+                        warn!("Failed to encode system metrics payload: {}", err);
+                        json!({
+                            "serialization_error": err.to_string(),
+                        })
+                    }
+                };
 
-            let identity = adapteros_core::identity::IdentityEnvelope::new(
-                "system".to_string(),
-                "metrics".to_string(),
-                "system-monitoring".to_string(),
-                adapteros_core::identity::IdentityEnvelope::default_revision(),
-            );
-            match crate::TelemetryEventBuilder::new(
-                crate::EventType::Custom("metrics.system".to_string()),
-                crate::LogLevel::Info,
-                "System metrics sample".to_string(),
-                identity,
-            )
-            .component("adapteros-server".to_string())
-            .metadata(metadata)
-            .build()
-            {
-                Ok(event) => {
-                    // Best-effort; keep server hot path resilient.
-                    let _ = writer.log_event(event);
-                }
-                Err(e) => {
-                    warn!("Failed to build telemetry event: {}", e);
-                    continue;
+                let identity = adapteros_core::identity::IdentityEnvelope::new(
+                    "system".to_string(),
+                    "metrics".to_string(),
+                    "system-monitoring".to_string(),
+                    adapteros_core::identity::IdentityEnvelope::default_revision(),
+                );
+                match crate::TelemetryEventBuilder::new(
+                    crate::EventType::Custom("metrics.system".to_string()),
+                    crate::LogLevel::Info,
+                    "System metrics sample".to_string(),
+                    identity,
+                )
+                .component("adapteros-server".to_string())
+                .metadata(metadata)
+                .build()
+                {
+                    Ok(event) => {
+                        // Best-effort; keep server hot path resilient.
+                        let _ = writer.log_event(event);
+                    }
+                    Err(e) => {
+                        warn!("Failed to build telemetry event: {}", e);
+                        continue;
+                    }
                 }
             }
+        })
+        .catch_unwind()
+        .await
+        {
+            tracing::error!(
+                task = "system_metrics_emitter",
+                "background task panicked: {:?}",
+                panic
+            );
         }
     })
 }

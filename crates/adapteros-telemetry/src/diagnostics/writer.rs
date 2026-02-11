@@ -8,6 +8,7 @@
 
 use super::DiagEnvelope;
 use crate::diagnostics::run_tracker::RunTracker;
+use futures_util::FutureExt;
 use std::collections::HashMap;
 use std::sync::Arc;
 use std::time::Duration;
@@ -265,8 +266,19 @@ pub fn spawn_diagnostics_writer<P: DiagPersister + 'static>(
     shutdown_rx: tokio::sync::broadcast::Receiver<()>,
 ) -> tokio::task::JoinHandle<()> {
     tokio::spawn(async move {
-        let writer = DiagnosticsWriter::new(persister, config, run_tracker);
-        writer.run(receiver, shutdown_rx).await;
+        if let Err(panic) = std::panic::AssertUnwindSafe(async move {
+            let writer = DiagnosticsWriter::new(persister, config, run_tracker);
+            writer.run(receiver, shutdown_rx).await;
+        })
+        .catch_unwind()
+        .await
+        {
+            tracing::error!(
+                task = "diagnostics_writer",
+                "background task panicked: {:?}",
+                panic
+            );
+        }
     })
 }
 

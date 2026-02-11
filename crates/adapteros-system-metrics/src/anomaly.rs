@@ -9,6 +9,7 @@ use crate::monitoring_types::*;
 use adapteros_core::Result;
 use adapteros_db::Db;
 use adapteros_telemetry::TelemetryWriter;
+use futures_util::FutureExt;
 use std::collections::HashMap;
 use std::sync::Arc;
 use std::time::{SystemTime, UNIX_EPOCH};
@@ -107,8 +108,19 @@ impl AnomalyDetector {
         let scan_handle = {
             let detector = self.clone();
             tokio::spawn(async move {
-                if let Err(e) = detector.scan_loop().await {
-                    error!("Anomaly detection scan loop failed: {}", e);
+                if let Err(panic) = std::panic::AssertUnwindSafe(async move {
+                    if let Err(e) = detector.scan_loop().await {
+                        error!("Anomaly detection scan loop failed: {}", e);
+                    }
+                })
+                .catch_unwind()
+                .await
+                {
+                    tracing::error!(
+                        task = "anomaly_scan_loop",
+                        "background task panicked: {:?}",
+                        panic
+                    );
                 }
             })
         };

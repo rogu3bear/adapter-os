@@ -204,7 +204,18 @@ impl RotationDaemon {
     pub fn start(self: Arc<Self>) -> tokio::task::JoinHandle<()> {
         let daemon = Arc::clone(&self);
         tokio::spawn(async move {
-            daemon.run_daemon_loop().await;
+            use futures_util::FutureExt;
+            use std::panic::AssertUnwindSafe;
+            if let Err(panic) = AssertUnwindSafe(daemon.run_daemon_loop())
+                .catch_unwind()
+                .await
+            {
+                tracing::error!(
+                    task = "crypto_key_rotation",
+                    "key rotation daemon panicked — security-critical background task crashed: {:?}",
+                    panic
+                );
+            }
         })
     }
 

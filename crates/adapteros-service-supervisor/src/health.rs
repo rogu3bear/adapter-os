@@ -1,6 +1,7 @@
 //! Health check system for services
 
 use async_trait::async_trait;
+use futures_util::FutureExt;
 use serde::{Deserialize, Serialize};
 use std::collections::HashMap;
 use std::sync::Arc;
@@ -72,38 +73,49 @@ impl HealthMonitor {
         let interval_duration = Duration::from_secs(self.interval_seconds);
 
         tokio::spawn(async move {
-            let mut interval = interval(interval_duration);
+            if let Err(panic) = std::panic::AssertUnwindSafe(async move {
+                let mut interval = interval(interval_duration);
 
-            loop {
-                interval.tick().await;
+                loop {
+                    interval.tick().await;
 
-                let check_ids: Vec<String> = checks.read().await.keys().cloned().collect();
+                    let check_ids: Vec<String> = checks.read().await.keys().cloned().collect();
 
-                for id in check_ids {
-                    if let Some(check) = checks.read().await.get(&id) {
-                        let result = check.check().await;
-                        let mut statuses_write = statuses.write().await;
+                    for id in check_ids {
+                        if let Some(check) = checks.read().await.get(&id) {
+                            let result = check.check().await;
+                            let mut statuses_write = statuses.write().await;
 
-                        let previous_result = statuses_write.get(&id).cloned();
-                        statuses_write.insert(id.clone(), result.clone());
+                            let previous_result = statuses_write.get(&id).cloned();
+                            statuses_write.insert(id.clone(), result.clone());
 
-                        // Log status changes
-                        match (&previous_result, &result) {
-                            (Some(HealthResult::Healthy), HealthResult::Unhealthy(msg)) => {
-                                error!("Service {} became unhealthy: {}", id, msg);
-                            }
-                            (Some(HealthResult::Unhealthy(_)), HealthResult::Healthy) => {
-                                info!("Service {} recovered to healthy", id);
-                            }
-                            (Some(HealthResult::Unknown), HealthResult::Healthy) => {
-                                info!("Service {} is now healthy", id);
-                            }
-                            _ => {
-                                debug!("Service {} health: {:?}", id, result);
+                            // Log status changes
+                            match (&previous_result, &result) {
+                                (Some(HealthResult::Healthy), HealthResult::Unhealthy(msg)) => {
+                                    error!("Service {} became unhealthy: {}", id, msg);
+                                }
+                                (Some(HealthResult::Unhealthy(_)), HealthResult::Healthy) => {
+                                    info!("Service {} recovered to healthy", id);
+                                }
+                                (Some(HealthResult::Unknown), HealthResult::Healthy) => {
+                                    info!("Service {} is now healthy", id);
+                                }
+                                _ => {
+                                    debug!("Service {} health: {:?}", id, result);
+                                }
                             }
                         }
                     }
                 }
+            })
+            .catch_unwind()
+            .await
+            {
+                tracing::error!(
+                    task = "health_monitor",
+                    "background task panicked: {:?}",
+                    panic
+                );
             }
         });
     }

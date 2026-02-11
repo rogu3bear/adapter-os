@@ -166,7 +166,18 @@ impl WorkerHealthMonitor {
     pub fn start_polling(self: Arc<Self>) -> tokio::task::JoinHandle<()> {
         let monitor = self.clone();
         tokio::spawn(async move {
-            monitor.run_polling_loop().await;
+            use futures_util::FutureExt;
+            use std::panic::AssertUnwindSafe;
+            if let Err(panic) = AssertUnwindSafe(monitor.run_polling_loop())
+                .catch_unwind()
+                .await
+            {
+                tracing::error!(
+                    task = "worker_health_polling",
+                    "worker health monitor panicked — health checks disabled: {:?}",
+                    panic
+                );
+            }
         })
     }
 

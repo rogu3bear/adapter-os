@@ -1341,39 +1341,52 @@ pub async fn run_worker() -> Result<()> {
     let tokenizer_vocab_health = manifest.base.vocab_size;
     let drain_flag_health = drain_flag.clone();
     let health_monitor_handle = tokio::spawn(async move {
-        if let Err(e) = health_monitor_for_task
-            .start_monitoring_with_hook(|monitor, tick| {
-                if let Some(t) = telemetry_for_health.as_ref() {
-                    if let HealthTick::Status { status, .. } = &tick {
-                        if let Ok(event) = HealthEvent::from_monitor(monitor, status) {
-                            let _ = t.log("worker_health", event);
+        use futures_util::FutureExt;
+        use std::panic::AssertUnwindSafe;
+        if let Err(panic) = AssertUnwindSafe(async move {
+            if let Err(e) = health_monitor_for_task
+                .start_monitoring_with_hook(|monitor, tick| {
+                    if let Some(t) = telemetry_for_health.as_ref() {
+                        if let HealthTick::Status { status, .. } = &tick {
+                            if let Ok(event) = HealthEvent::from_monitor(monitor, status) {
+                                let _ = t.log("worker_health", event);
+                            }
                         }
                     }
-                }
 
-                if matches!(tick, HealthTick::Shutdown { .. }) {
-                    if cp_enabled {
-                        // Health-triggered shutdown must notify CP to stop routing work.
-                        notify_cp_status(
-                            &cp_url_health,
-                            &worker_id_health,
-                            WorkerStatus::Error.as_str(),
-                            "health-shutdown",
-                            &backend_health,
-                            &model_hash_health,
-                            &manifest_hash_health,
-                            &tokenizer_hash_health,
-                            tokenizer_vocab_health,
-                        );
+                    if matches!(tick, HealthTick::Shutdown { .. }) {
+                        if cp_enabled {
+                            // Health-triggered shutdown must notify CP to stop routing work.
+                            notify_cp_status(
+                                &cp_url_health,
+                                &worker_id_health,
+                                WorkerStatus::Error.as_str(),
+                                "health-shutdown",
+                                &backend_health,
+                                &model_hash_health,
+                                &manifest_hash_health,
+                                &tokenizer_hash_health,
+                                tokenizer_vocab_health,
+                            );
+                        }
+                        drain_flag_health.store(true, Ordering::Relaxed);
                     }
-                    drain_flag_health.store(true, Ordering::Relaxed);
-                }
 
-                Ok(())
-            })
-            .await
+                    Ok(())
+                })
+                .await
+            {
+                warn!(error = %e, "Health monitor exited with error");
+            }
+        })
+        .catch_unwind()
+        .await
         {
-            warn!(error = %e, "Health monitor exited with error");
+            tracing::error!(
+                task = "worker_health_monitor",
+                "worker health monitor panicked — health checks disabled: {:?}",
+                panic
+            );
         }
     });
 
