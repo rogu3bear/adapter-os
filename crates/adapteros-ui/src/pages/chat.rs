@@ -1064,15 +1064,15 @@ fn ChatConversationPanel(
         Effect::new(move || {
             if !show_attach_dialog.try_get().unwrap_or(false) {
                 // Signal cancellation to abort any in-flight uploads
-                upload_cancelled.set(true);
-                attach_mode.set(AttachMode::Upload);
-                selected_file_name.set(None);
+                let _ = upload_cancelled.try_set(true);
+                let _ = attach_mode.try_set(AttachMode::Upload);
+                let _ = selected_file_name.try_set(None);
                 selected_file.set_value(None);
-                attach_status.set(None);
-                attach_error.set(None);
-                attach_busy.set(false);
-                pasted_text.set(String::new());
-                selected_msg_indices.set(std::collections::HashSet::new());
+                let _ = attach_status.try_set(None);
+                let _ = attach_error.try_set(None);
+                let _ = attach_busy.try_set(false);
+                let _ = pasted_text.try_set(String::new());
+                let _ = selected_msg_indices.try_set(std::collections::HashSet::new());
             }
         });
     }

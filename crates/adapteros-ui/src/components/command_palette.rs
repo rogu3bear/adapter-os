@@ -24,7 +24,11 @@ pub fn CommandPalette() -> impl IntoView {
 
     // Auto-focus input when opened
     Effect::new(move || {
-        if search_for_effect.command_palette_open.get() {
+        if search_for_effect
+            .command_palette_open
+            .try_get()
+            .unwrap_or(false)
+        {
             // Prefetch entities when palette opens
             search_for_effect.prefetch_entities();
 

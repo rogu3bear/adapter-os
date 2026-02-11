@@ -217,9 +217,11 @@ pub fn ErrorHistory() -> impl IntoView {
 
     // Toggle on shortcut
     Effect::new(move || {
-        let count = shortcut_count.get();
+        let Some(count) = shortcut_count.try_get() else {
+            return;
+        };
         if count > 0 {
-            open.update(|o| *o = !*o);
+            let _ = open.try_update(|o| *o = !*o);
         }
     });
 

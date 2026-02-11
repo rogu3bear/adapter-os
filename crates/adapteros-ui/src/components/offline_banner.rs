@@ -27,7 +27,9 @@ pub fn OfflineBanner() -> impl IntoView {
 
     // Watch for offline→online transitions
     Effect::new(move || {
-        let current_state = health.get();
+        let Some(current_state) = health.try_get() else {
+            return;
+        };
         let is_error = matches!(current_state, LoadingState::Error(_));
         let prev_was_offline = was_offline.get_untracked();
 

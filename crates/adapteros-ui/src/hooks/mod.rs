@@ -388,7 +388,7 @@ where
     Effect::new(move || {
         let fetch = fetch.clone();
         let interval_id = Arc::clone(&interval_id);
-        let is_polling = should_poll.get();
+        let is_polling = should_poll.try_get().unwrap_or(false);
         let cancelled = Arc::clone(&cancelled_for_effect);
 
         // If permanently cancelled, do nothing

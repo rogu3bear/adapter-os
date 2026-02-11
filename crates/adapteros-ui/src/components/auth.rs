@@ -38,13 +38,14 @@ pub fn ProtectedRoute(children: ChildrenFn) -> impl IntoView {
     });
 
     // Only redirect for Unauthenticated (not Error - we show UI for errors)
-    let needs_redirect = Memo::new(move |_| matches!(auth_state.get(), AuthState::Unauthenticated));
+    let needs_redirect =
+        Memo::new(move |_| matches!(auth_state.try_get(), Some(AuthState::Unauthenticated)));
 
     // Handle redirect for unauthenticated
     // Only redirect if not already on login page to prevent infinite loop
     // Capture current path as returnUrl so user returns after login
     Effect::new(move || {
-        if needs_redirect.get() {
+        if needs_redirect.try_get().unwrap_or(false) {
             if let Some(window) = web_sys::window() {
                 if let Ok(current) = window.location().pathname() {
                     // Only redirect if we're not already on login page
