@@ -2,6 +2,8 @@
 
 A guided tour of the Leptos web UI as it exists today: entry points, layout, and navigation.
 
+For the end-to-end canonical user journey (ingest -> dataset -> adapter -> chat routing -> receipts/replay), see `/Users/star/Dev/adapter-os/docs/CANONICAL_USER_WORKFLOW.md`.
+
 ## Prerequisites
 
 - Backend and UI served together: `./start` (or `AOS_DEV_NO_AUTH=1 ./start` for full access without login).
