@@ -232,7 +232,7 @@ fn TargetSelector() -> impl IntoView {
 
     // Fetch options when dropdown is first opened
     Effect::new(move || {
-        if show_dropdown.get() && !has_loaded.get() {
+        if show_dropdown.try_get().unwrap_or(false) && !has_loaded.try_get().unwrap_or(true) {
             has_loaded.set(true);
             options.update(|o| {
                 o.loading = true;

@@ -112,8 +112,8 @@ pub fn Combobox(
 
     // Reset selected index when filtered options change
     Effect::new(move || {
-        let _ = filtered_options.get();
-        selected_index.set(0);
+        let _ = filtered_options.try_get();
+        let _ = selected_index.try_set(0);
     });
 
     // Handle keyboard navigation

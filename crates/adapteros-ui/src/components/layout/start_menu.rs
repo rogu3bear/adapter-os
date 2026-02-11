@@ -29,8 +29,11 @@ pub fn StartMenu(on_close: impl Fn() + Clone + Send + Sync + 'static) -> impl In
     // Track which modules are expanded (Tools starts collapsed)
     let expanded_modules = RwSignal::new(Vec::new());
     Effect::new(move || {
-        let initial_expanded: Vec<bool> = modules.get().iter().map(|m| !m.collapsed).collect();
-        expanded_modules.set(initial_expanded);
+        let Some(mods) = modules.try_get() else {
+            return;
+        };
+        let initial_expanded: Vec<bool> = mods.iter().map(|m| !m.collapsed).collect();
+        let _ = expanded_modules.try_set(initial_expanded);
     });
 
     let on_escape = {

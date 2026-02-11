@@ -49,7 +49,9 @@ pub fn GlassThemeToggle() -> impl IntoView {
     let enabled = RwSignal::new(load_glass_enabled());
 
     Effect::new(move || {
-        let value = enabled.get();
+        let Some(value) = enabled.try_get() else {
+            return;
+        };
         apply_glass(value);
         persist_glass(value);
     });

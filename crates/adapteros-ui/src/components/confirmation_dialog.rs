@@ -205,8 +205,8 @@ pub fn ConfirmationDialog(
 
     // Reset typed input when dialog opens
     Effect::new(move || {
-        if open.get() {
-            typed_input.set(String::new());
+        if open.try_get().unwrap_or(false) {
+            let _ = typed_input.try_set(String::new());
         }
     });
 

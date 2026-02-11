@@ -42,7 +42,9 @@ pub fn Shell() -> impl IntoView {
     // Track route changes for contextual actions in Command Palette
     let location = use_location();
     Effect::new(move || {
-        let pathname = location.pathname.get();
+        let Some(pathname) = location.pathname.try_get() else {
+            return;
+        };
         route_context.set_route(&pathname);
         // Clear selection when route changes
         route_context.clear_selected();

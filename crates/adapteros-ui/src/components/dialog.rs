@@ -122,7 +122,9 @@ pub fn Dialog(
     // Focus management - focus first focusable element when dialog opens
     // and restore focus when it closes
     Effect::new(move || {
-        let is_open = open.get();
+        let Some(is_open) = open.try_get() else {
+            return;
+        };
         let dialog_id = dialog_id_for_focus.clone();
         let trigger_id = trigger_element_id_for_effect.clone();
 
@@ -194,7 +196,9 @@ pub fn Dialog(
     });
 
     Effect::new(move || {
-        let is_open = open.get();
+        let Some(is_open) = open.try_get() else {
+            return;
+        };
 
         if is_open {
             // Only register if we haven't already

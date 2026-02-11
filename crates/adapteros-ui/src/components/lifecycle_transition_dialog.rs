@@ -61,14 +61,14 @@ pub fn LifecycleTransitionDialog(
 
     // Validate reason is not empty
     let can_confirm = Memo::new(move |_| {
-        let r = reason.get();
+        let r = reason.try_get().unwrap_or_default();
         !r.trim().is_empty()
     });
 
     // Reset reason when dialog opens
     Effect::new(move || {
-        if open.get() {
-            reason.set(String::new());
+        if open.try_get().unwrap_or(false) {
+            let _ = reason.try_set(String::new());
         }
     });
 

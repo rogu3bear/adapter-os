@@ -151,9 +151,11 @@ pub fn TelemetryOverlay() -> impl IntoView {
     // Keyboard shortcut for toggle (Ctrl+Shift+T)
     let shortcut_count = use_keyboard_shortcut_t();
     Effect::new(move || {
-        let count = shortcut_count.get();
+        let Some(count) = shortcut_count.try_get() else {
+            return;
+        };
         if count > 0 {
-            settings.update(|s| {
+            let _ = settings.try_update(|s| {
                 s.show_telemetry_overlay = !s.show_telemetry_overlay;
                 s.save();
             });
