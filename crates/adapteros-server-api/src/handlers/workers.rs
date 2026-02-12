@@ -1,6 +1,7 @@
 use crate::api_error::{ApiError, ApiResult};
 use crate::auth::Claims;
 use crate::middleware::require_any_role;
+use crate::sse::{SseStreamType, SystemHealthEvent};
 use crate::state::AppState;
 use crate::types::*;
 use crate::worker_capabilities::{normalize_worker_capabilities, parse_worker_capabilities};
@@ -191,6 +192,7 @@ pub async fn worker_spawn(
         .map_err(ApiError::db_error)?;
 
     // Return worker info
+    let display_name = adapteros_id::display_name_for(&worker_id);
     Ok(Json(WorkerResponse {
         schema_version: adapteros_api_types::API_SCHEMA_VERSION.to_string(),
         id: worker_id,
@@ -216,7 +218,7 @@ pub async fn worker_spawn(
         cache_active_entries: None,
         coreml_failure_stage: None,
         coreml_failure_reason: None,
-        display_name: None,
+        display_name,
     }))
 }
 
@@ -325,6 +327,7 @@ pub async fn list_workers(
                     .and_then(|json| serde_json::from_str(json).ok())
             });
 
+        let display_name = adapteros_id::display_name_for(&w.id);
         response.push(WorkerResponse {
             schema_version: adapteros_api_types::API_SCHEMA_VERSION.to_string(),
             id: w.id,
@@ -354,7 +357,7 @@ pub async fn list_workers(
             coreml_failure_reason: runtime
                 .as_ref()
                 .and_then(|rt| rt.coreml_failure_reason.clone()),
-            display_name: None,
+            display_name,
         });
     }
 
@@ -496,6 +499,18 @@ pub async fn stop_worker(
 
     let stopped_at = chrono::Utc::now().to_rfc3339();
 
+    // Emit SSE lifecycle event for drain start
+    state
+        .sse_manager
+        .emit_lifecycle(
+            SseStreamType::Alerts,
+            &SystemHealthEvent::DrainStarted {
+                worker_id: worker_id.clone(),
+                previous_status: previous_status.clone(),
+            },
+        )
+        .await;
+
     // Emit telemetry event
     tracing::info!(
         event = "worker.stop.initiated",
@@ -610,6 +625,18 @@ pub async fn drain_worker(
         .await
     {
         Ok(_) => {
+            // Emit SSE lifecycle event for drain
+            state
+                .sse_manager
+                .emit_lifecycle(
+                    SseStreamType::Alerts,
+                    &SystemHealthEvent::DrainStarted {
+                        worker_id: worker_id.clone(),
+                        previous_status: previous_status.clone(),
+                    },
+                )
+                .await;
+
             info!(
                 event = "worker.drain",
                 worker_id = %worker_id,
@@ -1123,6 +1150,20 @@ pub async fn notify_worker_status(
         status = %req.status,
         "Worker status updated successfully"
     );
+
+    // Emit SSE lifecycle event for worker state change
+    state
+        .sse_manager
+        .emit_lifecycle(
+            SseStreamType::Alerts,
+            &SystemHealthEvent::WorkerStateChanged {
+                worker_id: req.worker_id.clone(),
+                previous: previous_status.clone().unwrap_or_default(),
+                current: req.status.clone(),
+                reason: req.reason.clone(),
+            },
+        )
+        .await;
 
     let event_kind = if req.status.eq_ignore_ascii_case("crashed") {
         HealthEventKind::FatalError

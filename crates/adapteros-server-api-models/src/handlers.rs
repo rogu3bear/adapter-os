@@ -1567,6 +1567,7 @@ pub async fn import_model(
             &backend,
             tenant_id,
             &claims.sub,
+            adapteros_core::ModelImportStatus::Available,
         )
         .await
     {
@@ -1595,14 +1596,7 @@ pub async fn import_model(
         }
     };
 
-    // Update status to available (in real implementation, this would be async)
-    if let Err(e) = state
-        .db
-        .update_model_import_status(&model_id, "available", None)
-        .await
-    {
-        error!("Failed to update import status: {}", e);
-    }
+    // Status is set atomically in import_model_from_path above
 
     // Audit log: model import success
     log_success_or_warn(

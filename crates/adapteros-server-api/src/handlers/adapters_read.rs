@@ -200,7 +200,7 @@ pub async fn list_adapters(
             stream_session_id: adapter.stream_session_id.clone(),
             versioning_threshold: adapter.versioning_threshold,
             coreml_package_hash: adapter.coreml_package_hash.clone(),
-            display_name: None,
+            display_name: adapteros_id::display_name_for(&adapter.id),
         });
     }
 
@@ -370,6 +370,7 @@ pub async fn get_adapter_repository(
         created_at: p.created_at,
     });
 
+    let display_name = adapteros_id::display_name_for(&repo.id);
     Ok(Json(AdapterRepositoryResponse {
         id: repo.id,
         tenant_id: repo.tenant_id,
@@ -381,7 +382,7 @@ pub async fn get_adapter_repository(
         created_at: repo.created_at,
         description: repo.description,
         training_policy,
-        display_name: None,
+        display_name,
     }))
 }
 
@@ -690,18 +691,21 @@ pub async fn list_adapter_repositories(
 
     let responses = repos
         .into_iter()
-        .map(|repo: AdapterRepository| AdapterRepositoryResponse {
-            id: repo.id,
-            tenant_id: repo.tenant_id,
-            name: repo.name,
-            base_model_id: repo.base_model_id,
-            default_branch: repo.default_branch,
-            archived: repo.archived != 0,
-            created_by: repo.created_by,
-            created_at: repo.created_at,
-            description: repo.description,
-            training_policy: None,
-            display_name: None,
+        .map(|repo: AdapterRepository| {
+            let display_name = adapteros_id::display_name_for(&repo.id);
+            AdapterRepositoryResponse {
+                id: repo.id,
+                tenant_id: repo.tenant_id,
+                name: repo.name,
+                base_model_id: repo.base_model_id,
+                default_branch: repo.default_branch,
+                archived: repo.archived != 0,
+                created_by: repo.created_by,
+                created_at: repo.created_at,
+                description: repo.description,
+                training_policy: None,
+                display_name,
+            }
         })
         .collect();
 
@@ -964,6 +968,7 @@ pub async fn list_adapter_versions(
         let (serveable, serveable_reason) =
             compute_serveable_state(&version.release_state, &version.adapter_trust_state);
 
+        let display_name = adapteros_id::display_name_for(&version.id);
         responses.push(AdapterVersionResponse {
             id: version.id,
             repo_id: version.repo_id,
@@ -992,7 +997,7 @@ pub async fn list_adapter_versions(
             runtime_state,
             serveable,
             serveable_reason,
-            display_name: None,
+            display_name,
         });
     }
 
@@ -1196,6 +1201,7 @@ pub async fn get_adapter_version(
     let (serveable, serveable_reason) =
         compute_serveable_state(&version.release_state, &version.adapter_trust_state);
 
+    let display_name = adapteros_id::display_name_for(&version.id);
     Ok(Json(AdapterVersionResponse {
         id: version.id,
         repo_id: version.repo_id,
@@ -1224,7 +1230,7 @@ pub async fn get_adapter_version(
         runtime_state: None,
         serveable,
         serveable_reason,
-        display_name: None,
+        display_name,
     }))
 }
 
@@ -1323,6 +1329,6 @@ pub async fn promote_adapter_version_handler(
         stream_session_id: adapter.stream_session_id.clone(),
         versioning_threshold: adapter.versioning_threshold,
         coreml_package_hash: adapter.coreml_package_hash.clone(),
-        display_name: None,
+        display_name: adapteros_id::display_name_for(&adapter.id),
     }))
 }

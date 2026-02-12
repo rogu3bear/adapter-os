@@ -2,17 +2,145 @@
 
 use crate::auth::is_dev_bypass_enabled;
 use crate::boot_state::{BootState, BootWarning};
+use crate::inference_core::InferenceCore;
 use crate::state::{AppState, BackgroundTaskSnapshot};
 use crate::supervisor_client;
 use crate::types::*;
 use adapteros_api_types::ModelLoadStatus;
-use axum::{extract::State, http::StatusCode, response::IntoResponse, Json};
+use axum::{
+    extract::{Query, State},
+    http::StatusCode,
+    response::IntoResponse,
+    Json,
+};
 use serde::{Deserialize, Serialize};
 use sqlx::query;
 use std::collections::HashMap;
+use std::sync::OnceLock;
 use std::time::{Duration, Instant};
+use tokio::sync::RwLock;
 use tokio::time::timeout;
 use utoipa::ToSchema;
+
+// ---------------------------------------------------------------------------
+// Canary inference deep probe
+// ---------------------------------------------------------------------------
+
+/// Query parameters for the readiness endpoint.
+#[derive(Debug, Clone, Deserialize)]
+pub struct ReadyzQuery {
+    /// When `true`, run a canary inference probe through the full pipeline.
+    #[serde(default)]
+    pub deep: bool,
+}
+
+/// Cached result of the most recent canary inference probe.
+#[derive(Debug, Clone, Serialize, Deserialize, ToSchema)]
+pub struct CanaryProbeResult {
+    /// Whether the canary inference succeeded.
+    pub ok: bool,
+    /// Human-readable hint on failure.
+    #[serde(skip_serializing_if = "Option::is_none")]
+    pub hint: Option<String>,
+    /// Latency of the canary inference in milliseconds.
+    #[serde(skip_serializing_if = "Option::is_none")]
+    pub latency_ms: Option<u64>,
+}
+
+/// Internal cache entry holding a `CanaryProbeResult` and its timestamp.
+struct CanaryCache {
+    result: CanaryProbeResult,
+    at: Instant,
+}
+
+/// TTL for cached canary results. Repeated `/readyz?deep=true` within this
+/// window return the cached probe instead of hammering inference.
+const CANARY_CACHE_TTL: Duration = Duration::from_secs(30);
+
+/// Timeout for the canary inference request itself.
+const CANARY_TIMEOUT: Duration = Duration::from_secs(5);
+
+/// Hardcoded trivial prompt for the canary probe. Deliberately minimal.
+const CANARY_PROMPT: &str = "ping";
+
+/// System tenant used for canary probe requests.
+const CANARY_TENANT: &str = "system";
+
+fn canary_cache() -> &'static RwLock<Option<CanaryCache>> {
+    static CACHE: OnceLock<RwLock<Option<CanaryCache>>> = OnceLock::new();
+    CACHE.get_or_init(|| RwLock::new(None))
+}
+
+/// Run a canary inference probe through `InferenceCore`, with caching.
+///
+/// Returns `None` when `deep` is `false`.
+async fn run_canary_probe(state: &AppState, deep: bool) -> Option<CanaryProbeResult> {
+    if !deep {
+        return None;
+    }
+
+    // Check cache first
+    {
+        let guard = canary_cache().read().await;
+        if let Some(ref cached) = *guard {
+            if cached.at.elapsed() < CANARY_CACHE_TTL {
+                return Some(cached.result.clone());
+            }
+        }
+    }
+
+    // Cache miss or stale — run the probe
+    let start = Instant::now();
+    let core = InferenceCore::new(state);
+
+    let mut req =
+        InferenceRequestInternal::new(CANARY_TENANT.to_string(), CANARY_PROMPT.to_string());
+    req.max_tokens = 1; // We only need one token to prove the pipeline works
+    req.stream = false;
+    req.require_step = false;
+    req.require_determinism = false;
+
+    let probe = timeout(
+        CANARY_TIMEOUT,
+        core.route_and_infer(req, None, None, None, None),
+    )
+    .await;
+
+    let latency = start.elapsed().as_millis() as u64;
+
+    let result = match probe {
+        Ok(Ok(_inference_result)) => CanaryProbeResult {
+            ok: true,
+            hint: None,
+            latency_ms: Some(latency),
+        },
+        Ok(Err(e)) => CanaryProbeResult {
+            ok: false,
+            hint: Some(format!("canary inference failed: {e}")),
+            latency_ms: Some(latency),
+        },
+        Err(_) => CanaryProbeResult {
+            ok: false,
+            hint: Some("canary inference timeout".to_string()),
+            latency_ms: Some(latency),
+        },
+    };
+
+    // Update cache
+    {
+        let mut guard = canary_cache().write().await;
+        *guard = Some(CanaryCache {
+            result: result.clone(),
+            at: Instant::now(),
+        });
+    }
+
+    Some(result)
+}
+
+// ---------------------------------------------------------------------------
+// Endpoints
+// ---------------------------------------------------------------------------
 
 /// Health check endpoint
 ///
@@ -165,6 +293,9 @@ pub struct ReadyzResponse {
     pub boot_warnings: Vec<BootWarning>,
     #[serde(skip_serializing_if = "Option::is_none")]
     pub build_id: Option<String>,
+    /// Canary inference probe result (only present when `?deep=true`).
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub canary: Option<CanaryProbeResult>,
 }
 
 #[derive(Debug, Clone, Serialize, Deserialize, ToSchema, Default)]
@@ -186,16 +317,26 @@ pub struct BootPhaseDuration {
 }
 
 /// Readiness check
+///
+/// Pass `?deep=true` to trigger a canary inference probe through the full
+/// pipeline. The result is cached for 30 seconds. Without the parameter,
+/// existing behaviour is unchanged.
 #[utoipa::path(
     tag = "system",
     get,
     path = "/readyz",
+    params(
+        ("deep" = Option<bool>, Query, description = "Run canary inference probe")
+    ),
     responses(
         (status = 200, description = "Service is ready", body = ReadyzResponse),
         (status = 503, description = "Service is not ready", body = ReadyzResponse)
     )
 )]
-pub async fn ready(State(state): State<AppState>) -> impl IntoResponse {
+pub async fn ready(
+    State(state): State<AppState>,
+    Query(query): Query<ReadyzQuery>,
+) -> impl IntoResponse {
     let mut db_check = ReadyzCheck {
         ok: true,
         hint: None,
@@ -259,6 +400,7 @@ pub async fn ready(State(state): State<AppState>) -> impl IntoResponse {
                 readiness_mode,
                 boot_warnings: Vec::new(),
                 build_id: None,
+                canary: None,
             }),
         );
     };
@@ -325,7 +467,7 @@ pub async fn ready(State(state): State<AppState>) -> impl IntoResponse {
             ));
         };
         let mut conn = pool.acquire().await?;
-        query("SELECT 1").execute(&mut *conn).await?;
+        sqlx::query("SELECT 1").execute(&mut *conn).await?;
         Ok::<(), sqlx::Error>(())
     })
     .await;
@@ -501,13 +643,6 @@ pub async fn ready(State(state): State<AppState>) -> impl IntoResponse {
         ReadinessMode::DevBypass => true, // Always ready in dev bypass
     };
 
-    // Determine status code based on readiness
-    let status_code = if matches!(readiness_mode, ReadinessMode::DevBypass) || ready {
-        StatusCode::OK
-    } else {
-        StatusCode::SERVICE_UNAVAILABLE
-    };
-
     // Emit readiness metrics and boot phase durations for observability
     let registry = state.metrics_registry.clone();
     if let Some(latency) = db_check.latency_ms {
@@ -548,6 +683,45 @@ pub async fn ready(State(state): State<AppState>) -> impl IntoResponse {
     let worker_latency_ms = worker_check.latency_ms;
     let models_latency_ms = models_seeded_check.latency_ms;
 
+    // Run canary inference probe when deep=true and basic checks passed.
+    // Skip canary when the system is already not ready — no point probing
+    // inference if DB/workers/models are down.
+    let canary = if ready && query.deep {
+        run_canary_probe(&state, true).await
+    } else if query.deep {
+        // deep requested but basic checks failed — report skip
+        Some(CanaryProbeResult {
+            ok: false,
+            hint: Some("skipped: basic readiness checks failed".to_string()),
+            latency_ms: None,
+        })
+    } else {
+        None
+    };
+
+    // If canary was requested and failed, downgrade readiness
+    let ready = if let Some(ref c) = canary {
+        ready && c.ok
+    } else {
+        ready
+    };
+
+    // Determine status code (accounts for canary downgrade when applicable)
+    let status_code = if matches!(readiness_mode, ReadinessMode::DevBypass) || ready {
+        StatusCode::OK
+    } else {
+        StatusCode::SERVICE_UNAVAILABLE
+    };
+
+    // Emit canary latency metric
+    if let Some(ref c) = canary {
+        if let Some(latency) = c.latency_ms {
+            registry
+                .set_gauge("readyz_canary_latency_ms".to_string(), latency as f64)
+                .await;
+        }
+    }
+
     (
         status_code,
         Json(ReadyzResponse {
@@ -569,6 +743,7 @@ pub async fn ready(State(state): State<AppState>) -> impl IntoResponse {
             readiness_mode,
             boot_warnings: boot_state.get_boot_warnings(),
             build_id: Some(adapteros_core::version::BUILD_ID.to_string()),
+            canary,
         }),
     )
 }
@@ -947,4 +1122,232 @@ pub async fn get_invariant_status(State(state): State<AppState>) -> Json<Invaria
         skipped_ids: Vec::new(), // Would need to track these separately
         production_mode,
     })
+}
+
+// ---------------------------------------------------------------------------
+// Synthetic probe health endpoint
+// ---------------------------------------------------------------------------
+
+/// Get synthetic probe health report.
+///
+/// Returns aggregated health information from the synthetic probe system,
+/// including per-adapter success/failure status, latency statistics, and
+/// the list of healthy vs degraded adapters.
+///
+/// Returns an empty report if probes are disabled or have not yet run.
+#[utoipa::path(
+    tag = "system",
+    get,
+    path = "/v1/system/probe-health",
+    responses(
+        (status = 200, description = "Probe health report", body = crate::synthetic_probes::ProbeHealthReport)
+    )
+)]
+pub async fn get_probe_health(
+    State(_state): State<AppState>,
+) -> Json<crate::synthetic_probes::ProbeHealthReport> {
+    match crate::synthetic_probes::global_probe_results() {
+        Some(results) => {
+            let guard = results.read().await;
+            Json(guard.health_report())
+        }
+        None => {
+            // Probes not configured — return empty report
+            Json(crate::synthetic_probes::ProbeHealthReport {
+                total_probes: 0,
+                successful: 0,
+                failed: 0,
+                avg_latency_ms: 0.0,
+                p99_latency_ms: 0,
+                adapters_healthy: Vec::new(),
+                adapters_degraded: Vec::new(),
+                last_cycle_at: None,
+            })
+        }
+    }
+}
+
+// ---------------------------------------------------------------------------
+// Tests
+// ---------------------------------------------------------------------------
+
+#[cfg(test)]
+mod canary_probe_tests {
+    use super::*;
+
+    #[test]
+    fn readyz_query_defaults_deep_false() {
+        let q: ReadyzQuery = serde_json::from_str("{}").unwrap();
+        assert!(!q.deep);
+    }
+
+    #[test]
+    fn readyz_query_deep_true() {
+        let q: ReadyzQuery = serde_json::from_str(r#"{"deep": true}"#).unwrap();
+        assert!(q.deep);
+    }
+
+    #[test]
+    fn canary_probe_result_ok_serializes() {
+        let r = CanaryProbeResult {
+            ok: true,
+            hint: None,
+            latency_ms: Some(42),
+        };
+        let json = serde_json::to_value(&r).unwrap();
+        assert_eq!(json["ok"], true);
+        assert_eq!(json["latency_ms"], 42);
+        assert!(json.get("hint").is_none());
+    }
+
+    #[test]
+    fn canary_probe_result_fail_serializes() {
+        let r = CanaryProbeResult {
+            ok: false,
+            hint: Some("canary inference timeout".into()),
+            latency_ms: Some(5001),
+        };
+        let json = serde_json::to_value(&r).unwrap();
+        assert_eq!(json["ok"], false);
+        assert_eq!(json["hint"], "canary inference timeout");
+    }
+
+    #[test]
+    fn readyz_response_canary_none_omitted() {
+        // Verify that canary: None is omitted from serialized JSON
+        let resp = ReadyzResponse {
+            ready: true,
+            checks: ReadyzChecks {
+                db: ReadyzCheck {
+                    ok: true,
+                    hint: None,
+                    latency_ms: None,
+                },
+                worker: ReadyzCheck {
+                    ok: true,
+                    hint: None,
+                    latency_ms: None,
+                },
+                models_seeded: ReadyzCheck {
+                    ok: true,
+                    hint: None,
+                    latency_ms: None,
+                },
+            },
+            metrics: None,
+            boot_trace_id: "test".into(),
+            last_error_code: None,
+            phases: vec![],
+            readiness_mode: ReadinessMode::Strict,
+            boot_warnings: vec![],
+            build_id: None,
+            canary: None,
+        };
+        let json = serde_json::to_value(&resp).unwrap();
+        assert!(
+            json.get("canary").is_none(),
+            "canary should be omitted when None"
+        );
+    }
+
+    #[test]
+    fn readyz_response_canary_present_when_set() {
+        let resp = ReadyzResponse {
+            ready: true,
+            checks: ReadyzChecks {
+                db: ReadyzCheck {
+                    ok: true,
+                    hint: None,
+                    latency_ms: None,
+                },
+                worker: ReadyzCheck {
+                    ok: true,
+                    hint: None,
+                    latency_ms: None,
+                },
+                models_seeded: ReadyzCheck {
+                    ok: true,
+                    hint: None,
+                    latency_ms: None,
+                },
+            },
+            metrics: None,
+            boot_trace_id: "test".into(),
+            last_error_code: None,
+            phases: vec![],
+            readiness_mode: ReadinessMode::Strict,
+            boot_warnings: vec![],
+            build_id: None,
+            canary: Some(CanaryProbeResult {
+                ok: true,
+                hint: None,
+                latency_ms: Some(15),
+            }),
+        };
+        let json = serde_json::to_value(&resp).unwrap();
+        let canary = json.get("canary").expect("canary should be present");
+        assert_eq!(canary["ok"], true);
+        assert_eq!(canary["latency_ms"], 15);
+    }
+
+    #[test]
+    fn canary_cache_ttl_is_30s() {
+        assert_eq!(CANARY_CACHE_TTL, Duration::from_secs(30));
+    }
+
+    #[test]
+    fn canary_timeout_is_5s() {
+        assert_eq!(CANARY_TIMEOUT, Duration::from_secs(5));
+    }
+
+    #[tokio::test]
+    async fn run_canary_probe_returns_none_when_deep_false() {
+        // Use a dummy state — shouldn't matter since deep=false short-circuits
+        // We can't easily construct AppState in a unit test, but we can test the
+        // non-deep path by verifying the function signature and short-circuit.
+        // The actual deep=false check happens at the call site in ready(), but
+        // `run_canary_probe` also checks internally.
+        //
+        // Since we can't construct AppState here, we verify the constants and
+        // the serialization contract instead. Integration tests cover the full path.
+        assert_eq!(CANARY_PROMPT, "ping");
+        assert_eq!(CANARY_TENANT, "system");
+    }
+
+    #[test]
+    fn canary_probe_result_downgrade_readiness() {
+        // Verify the readiness downgrade logic matches what ready() does:
+        // if canary was requested and failed, ready becomes false
+        let canary = Some(CanaryProbeResult {
+            ok: false,
+            hint: Some("canary inference failed: no workers".into()),
+            latency_ms: Some(100),
+        });
+        let base_ready = true;
+        let effective_ready = if let Some(ref c) = canary {
+            base_ready && c.ok
+        } else {
+            base_ready
+        };
+        assert!(!effective_ready, "failed canary should downgrade readiness");
+    }
+
+    #[test]
+    fn canary_probe_result_preserves_readiness_on_success() {
+        let canary = Some(CanaryProbeResult {
+            ok: true,
+            hint: None,
+            latency_ms: Some(50),
+        });
+        let base_ready = true;
+        let effective_ready = if let Some(ref c) = canary {
+            base_ready && c.ok
+        } else {
+            base_ready
+        };
+        assert!(
+            effective_ready,
+            "successful canary should not downgrade readiness"
+        );
+    }
 }

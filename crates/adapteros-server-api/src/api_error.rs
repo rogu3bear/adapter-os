@@ -907,7 +907,8 @@ impl From<AosError> for ApiError {
             | AosError::OutputFormatMismatch { .. }
             | AosError::CliWritePermissionDenied { .. }
             | AosError::InvalidInputEncoding { .. }
-            | AosError::InvalidRetryAttempt { .. } => {
+            | AosError::InvalidRetryAttempt { .. }
+            | AosError::CheckpointIntegrity(_) => {
                 error!("Internal error: {}", err);
                 ApiError::internal(err.to_string())
             }
