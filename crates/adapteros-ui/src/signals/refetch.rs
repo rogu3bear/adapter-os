@@ -3,12 +3,7 @@
 //! Provides a way to trigger refetches across components without prop drilling.
 //! Components can register for specific "topics" and trigger refetches globally.
 //!
-//! Lifecycle event dispatchers (`dispatch_adapter_event`, `dispatch_training_event`,
-//! `dispatch_health_event`) translate typed SSE events into refetch topic triggers.
-
-use crate::api::types::{
-    AdapterLifecycleEvent, AdapterVersionEvent, SystemHealthTransitionEvent, TrainingLifecycleEvent,
-};
+//! Lifecycle event dispatchers map SSE event type strings to refetch topics.
 use leptos::prelude::*;
 use std::collections::HashMap;
 
@@ -151,57 +146,58 @@ impl RefetchAction {
         self.trigger(RefetchTopic::All);
     }
 
-    /// Dispatch an adapter lifecycle event to the appropriate refetch topics.
-    pub fn dispatch_adapter_event(&self, event: &AdapterLifecycleEvent) {
-        match event {
-            AdapterLifecycleEvent::Promoted { .. }
-            | AdapterLifecycleEvent::Loaded { .. }
-            | AdapterLifecycleEvent::LoadFailed { .. }
-            | AdapterLifecycleEvent::Evicted { .. } => {
-                self.adapters();
-                self.models();
-            }
+    /// Dispatch an adapter lifecycle event type to the appropriate refetch topics.
+    pub fn dispatch_adapter_event(&self, event_type: &str) {
+        if matches!(
+            event_type,
+            "adapter.promoted" | "adapter.loaded" | "adapter.load_failed" | "adapter.evicted"
+        ) {
+            self.adapters();
+            self.models();
         }
     }
 
-    /// Dispatch an adapter version event to the appropriate refetch topics.
-    pub fn dispatch_adapter_version_event(&self, event: &AdapterVersionEvent) {
-        match event {
-            AdapterVersionEvent::VersionPromoted { .. }
-            | AdapterVersionEvent::VersionRolledBack { .. } => {
-                self.adapters();
-                self.repositories();
-                self.models();
-            }
+    /// Dispatch an adapter version event type to the appropriate refetch topics.
+    pub fn dispatch_adapter_version_event(&self, event_type: &str) {
+        if matches!(
+            event_type,
+            "adapter.version_promoted" | "adapter.version_rolled_back"
+        ) {
+            self.adapters();
+            self.repositories();
+            self.models();
         }
     }
 
-    /// Dispatch a training lifecycle event to the appropriate refetch topics.
-    pub fn dispatch_training_event(&self, event: &TrainingLifecycleEvent) {
-        match event {
-            TrainingLifecycleEvent::JobStarted { .. }
-            | TrainingLifecycleEvent::EpochCompleted { .. }
-            | TrainingLifecycleEvent::CheckpointSaved { .. }
-            | TrainingLifecycleEvent::JobFailed { .. } => {
-                self.training_jobs();
-            }
-            TrainingLifecycleEvent::JobCompleted { .. } => {
-                // Completed training may produce a new adapter
-                self.training_jobs();
-                self.adapters();
-                self.models();
-            }
+    /// Dispatch a training lifecycle event type to the appropriate refetch topics.
+    pub fn dispatch_training_event(&self, event_type: &str) {
+        if matches!(
+            event_type,
+            "training.job_started"
+                | "training.epoch_completed"
+                | "training.checkpoint_saved"
+                | "training.job_failed"
+        ) {
+            self.training_jobs();
+            return;
+        }
+
+        if event_type == "training.job_completed" {
+            // Completed training may produce a new adapter.
+            self.training_jobs();
+            self.adapters();
+            self.models();
         }
     }
 
-    /// Dispatch a system health transition event to the appropriate refetch topics.
-    pub fn dispatch_health_event(&self, event: &SystemHealthTransitionEvent) {
-        match event {
-            SystemHealthTransitionEvent::WorkerStateChanged { .. }
-            | SystemHealthTransitionEvent::DrainStarted { .. } => {
-                self.workers();
-                self.health();
-            }
+    /// Dispatch a system health transition event type to the appropriate refetch topics.
+    pub fn dispatch_health_event(&self, event_type: &str) {
+        if matches!(
+            event_type,
+            "system.worker_state_changed" | "system.drain_started"
+        ) {
+            self.workers();
+            self.health();
         }
     }
 }

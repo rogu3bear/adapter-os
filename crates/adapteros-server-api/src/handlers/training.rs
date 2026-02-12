@@ -1398,16 +1398,20 @@ pub async fn create_training_job(
             )
         })?;
 
-    // Emit SSE lifecycle event for training job start
-    state
+    // Emit lifecycle hint on training stream for immediate UI updates.
+    let lifecycle_event = serde_json::json!({
+        "type": "training.job_started",
+        "job_id": job.id.clone(),
+        "adapter_name": job.adapter_name.clone(),
+        "config_summary": format!("epochs={}", job.config.epochs),
+        "timestamp": chrono::Utc::now().to_rfc3339(),
+    });
+    let _ = state
         .sse_manager
-        .emit_lifecycle(
+        .create_event(
             crate::sse::SseStreamType::Training,
-            &crate::sse::lifecycle_events::TrainingLifecycleEvent::JobStarted {
-                job_id: job.id.clone(),
-                adapter_id: job.adapter_name.clone(),
-                config_summary: format!("epochs={}", job.config.epochs),
-            },
+            "training",
+            lifecycle_event.to_string(),
         )
         .await;
 

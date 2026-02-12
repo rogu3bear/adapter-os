@@ -7,7 +7,7 @@ use crate::api_error::{ApiError, ApiResult};
 use crate::auth::Claims;
 use crate::ip_extraction::ClientIp;
 use crate::middleware::require_any_role;
-use crate::sse::{AdapterLifecycleEvent, SseStreamType};
+use crate::sse::SseStreamType;
 use crate::state::AppState;
 use crate::types::*;
 use adapteros_db::users::Role;
@@ -165,15 +165,19 @@ pub async fn load_adapter(
             tracing::error!(adapter_id = %adapter_id, error = %e, "Failed to load adapter via lifecycle manager");
             // Must drop the lock before awaiting
             drop(manager);
-            // Emit SSE lifecycle event for load failure
-            state
+            // Emit lifecycle hint on adapter stream for immediate UI updates.
+            let lifecycle_event = serde_json::json!({
+                "type": "adapter.load_failed",
+                "adapter_id": adapter_id,
+                "error": e.to_string(),
+                "timestamp": chrono::Utc::now().to_rfc3339(),
+            });
+            let _ = state
                 .sse_manager
-                .emit_lifecycle(
+                .create_event(
                     SseStreamType::AdapterState,
-                    &AdapterLifecycleEvent::LoadFailed {
-                        adapter_id: adapter_id.clone(),
-                        error: e.to_string(),
-                    },
+                    "adapters",
+                    lifecycle_event.to_string(),
                 )
                 .await;
             // Audit log: adapter load failure
@@ -283,15 +287,19 @@ pub async fn load_adapter(
     )
     .await;
 
-    // Emit SSE lifecycle event for adapter load
-    state
+    // Emit lifecycle hint on adapter stream for immediate UI updates.
+    let lifecycle_event = serde_json::json!({
+        "type": "adapter.loaded",
+        "adapter_id": adapter_id.clone(),
+        "load_time_ms": 0,
+        "timestamp": chrono::Utc::now().to_rfc3339(),
+    });
+    let _ = state
         .sse_manager
-        .emit_lifecycle(
+        .create_event(
             SseStreamType::AdapterState,
-            &AdapterLifecycleEvent::Loaded {
-                adapter_id: adapter_id.clone(),
-                load_time_ms: 0, // Actual load time not tracked yet
-            },
+            "adapters",
+            lifecycle_event.to_string(),
         )
         .await;
 
@@ -316,7 +324,6 @@ pub async fn load_adapter(
         .adapter_id
         .clone()
         .unwrap_or_else(|| adapter.id.clone());
-    let display_name = adapteros_id::display_name_for(&adapter.id);
     Ok(Json(AdapterResponse {
         schema_version: adapteros_api_types::API_SCHEMA_VERSION.to_string(),
         id: adapter.id,
@@ -367,7 +374,7 @@ pub async fn load_adapter(
         stream_session_id: None,
         versioning_threshold: None,
         coreml_package_hash: None,
-        display_name,
+        display_name: None,
     }))
 }
 
@@ -604,15 +611,19 @@ pub async fn unload_adapter(
     )
     .await;
 
-    // Emit SSE lifecycle event for adapter eviction/unload
-    state
+    // Emit lifecycle hint on adapter stream for immediate UI updates.
+    let lifecycle_event = serde_json::json!({
+        "type": "adapter.evicted",
+        "adapter_id": adapter_id,
+        "reason": "user_request",
+        "timestamp": chrono::Utc::now().to_rfc3339(),
+    });
+    let _ = state
         .sse_manager
-        .emit_lifecycle(
+        .create_event(
             SseStreamType::AdapterState,
-            &AdapterLifecycleEvent::Evicted {
-                adapter_id: adapter_id.clone(),
-                reason: "user_request".to_string(),
-            },
+            "adapters",
+            lifecycle_event.to_string(),
         )
         .await;
 
@@ -671,16 +682,20 @@ pub async fn promote_adapter_state(
             ApiError::internal("failed to update adapter tier").with_details(e.to_string())
         })?;
 
-    // Emit SSE lifecycle event for adapter tier promotion
-    state
+    // Emit lifecycle hint on adapter stream for immediate UI updates.
+    let lifecycle_event = serde_json::json!({
+        "type": "adapter.promoted",
+        "adapter_id": adapter_id.clone(),
+        "from_state": old_tier.clone(),
+        "to_state": new_tier.clone(),
+        "timestamp": chrono::Utc::now().to_rfc3339(),
+    });
+    let _ = state
         .sse_manager
-        .emit_lifecycle(
+        .create_event(
             SseStreamType::AdapterState,
-            &AdapterLifecycleEvent::Promoted {
-                adapter_id: adapter_id.clone(),
-                from_state: old_tier.clone(),
-                to_state: new_tier.clone(),
-            },
+            "adapters",
+            lifecycle_event.to_string(),
         )
         .await;
 

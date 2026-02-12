@@ -63,7 +63,7 @@ impl CheckpointSignature {
     /// Verify that `content` matches the stored hash and that the signature is valid.
     pub fn verify(&self, content: &[u8]) -> Result<()> {
         if self.schema_version != CHECKPOINT_SIG_SCHEMA_VERSION {
-            return Err(AosError::CheckpointIntegrity(format!(
+            return Err(AosError::integrity_violation(format!(
                 "Signature schema version mismatch: expected {}, got {}",
                 CHECKPOINT_SIG_SCHEMA_VERSION, self.schema_version
             )));
@@ -71,7 +71,7 @@ impl CheckpointSignature {
 
         let actual_hash = B3Hash::hash(content);
         if actual_hash != self.blake3_hash {
-            return Err(AosError::CheckpointIntegrity(format!(
+            return Err(AosError::integrity_violation(format!(
                 "BLAKE3 hash mismatch: expected {}, got {}",
                 self.blake3_hash.to_hex(),
                 actual_hash.to_hex()
@@ -81,7 +81,7 @@ impl CheckpointSignature {
         self.public_key
             .verify(self.blake3_hash.as_bytes(), &self.signature)
             .map_err(|e| {
-                AosError::CheckpointIntegrity(format!(
+                AosError::integrity_violation(format!(
                     "Ed25519 signature verification failed: {}",
                     e
                 ))
@@ -91,14 +91,14 @@ impl CheckpointSignature {
     /// Serialize to JSON bytes.
     fn to_json(&self) -> Result<Vec<u8>> {
         serde_json::to_vec_pretty(self).map_err(|e| {
-            AosError::CheckpointIntegrity(format!("Failed to serialize signature: {}", e))
+            AosError::integrity_violation(format!("Failed to serialize signature: {}", e))
         })
     }
 
     /// Deserialize from JSON bytes.
     fn from_json(bytes: &[u8]) -> Result<Self> {
         serde_json::from_slice(bytes).map_err(|e| {
-            AosError::CheckpointIntegrity(format!("Failed to deserialize signature: {}", e))
+            AosError::integrity_violation(format!("Failed to deserialize signature: {}", e))
         })
     }
 }
@@ -248,7 +248,7 @@ impl TrainingCheckpoint {
         if let Some(ref sig) = sig_sidecar {
             let sig_json = sig.to_json()?;
             tokio::fs::write(&sig_temp, &sig_json).await.map_err(|e| {
-                AosError::CheckpointIntegrity(format!("Failed to write signature temp file: {}", e))
+                AosError::integrity_violation(format!("Failed to write signature temp file: {}", e))
             })?;
         }
 
@@ -331,7 +331,7 @@ impl TrainingCheckpoint {
             }
             Err(e) if e.kind() == std::io::ErrorKind::NotFound => {
                 if is_release_build() {
-                    return Err(AosError::CheckpointIntegrity(format!(
+                    return Err(AosError::integrity_violation(format!(
                         "Signature sidecar missing for checkpoint: {}",
                         path.display()
                     )));
@@ -342,7 +342,7 @@ impl TrainingCheckpoint {
                 );
             }
             Err(e) => {
-                return Err(AosError::CheckpointIntegrity(format!(
+                return Err(AosError::integrity_violation(format!(
                     "Failed to read signature sidecar: {}",
                     e
                 )));
