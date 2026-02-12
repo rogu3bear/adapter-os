@@ -11,18 +11,52 @@
 //!
 //! ```no_run
 //! use adapteros_server_api::event_bus::EventBus;
-//! use adapteros_core::{PluginEvent, Plugin};
+//! use adapteros_core::{
+//!     AdapterEvent, EventHookType, Plugin, PluginConfig, PluginEvent, PluginHealth, PluginStatus,
+//! };
+//! use async_trait::async_trait;
 //! use std::sync::Arc;
+//! use std::collections::HashMap;
+//!
+//! struct ExamplePlugin;
+//!
+//! #[async_trait]
+//! impl Plugin for ExamplePlugin {
+//!     fn name(&self) -> &'static str { "example-plugin" }
+//!     async fn load(&self, _config: &PluginConfig) -> adapteros_core::Result<()> { Ok(()) }
+//!     async fn start(&self) -> adapteros_core::Result<()> { Ok(()) }
+//!     async fn stop(&self) -> adapteros_core::Result<()> { Ok(()) }
+//!     async fn reload(&self, _config: &PluginConfig) -> adapteros_core::Result<()> { Ok(()) }
+//!     async fn health_check(&self) -> adapteros_core::Result<PluginHealth> {
+//!         Ok(PluginHealth { status: PluginStatus::Started, details: None })
+//!     }
+//!     async fn set_tenant_enabled(&self, _tenant_id: &str, _enabled: bool) -> adapteros_core::Result<()> {
+//!         Ok(())
+//!     }
+//!     fn subscribed_events(&self) -> Vec<EventHookType> {
+//!         vec![EventHookType::OnAdapterRegistered]
+//!     }
+//! }
 //!
 //! # async fn example() -> Result<(), Box<dyn std::error::Error>> {
 //! let event_bus = EventBus::new(1000);
 //!
 //! // Register plugins
-//! let plugin: Arc<dyn Plugin> = todo!();
+//! let plugin: Arc<dyn Plugin> = Arc::new(ExamplePlugin);
 //! event_bus.register_plugin("my-plugin".to_string(), plugin).await;
 //!
 //! // Emit events
-//! let event = PluginEvent::AdapterRegistered(todo!());
+//! let event = PluginEvent::AdapterRegistered(AdapterEvent {
+//!     adapter_id: "adapter-123".to_string(),
+//!     action: "registered".to_string(),
+//!     hash: Some("hash-abc".to_string()),
+//!     tier: Some("tier_1".to_string()),
+//!     rank: Some(8),
+//!     tenant_id: Some("tenant-1".to_string()),
+//!     lifecycle_state: Some("warm".to_string()),
+//!     timestamp: "2026-02-12T12:00:00Z".to_string(),
+//!     metadata: HashMap::new(),
+//! });
 //! event_bus.emit(event).await?;
 //! # Ok(())
 //! # }

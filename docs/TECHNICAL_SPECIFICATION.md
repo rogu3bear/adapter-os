@@ -2268,7 +2268,7 @@ updates the worker's health status, and triggers supervisor restart if configure
 | Area | Limitation | Impact |
 |------|-----------|--------|
 | **Training determinism** | Determinism guards disabled due to dependency issues between training subsystem and deterministic executor | Training outputs may vary across runs |
-| **Federation** | Architecturally complete but partially wired. `get_latest_tick_hash()` returns `None`. Tick ledger integration with `FederationManager` uses stubs. | Multi-node sync is not production-ready |
+| **Federation** | Architecturally complete but partially wired. Tick linkage now uses the latest tenant tick entry, but cross-host federation hardening remains incomplete. | Multi-node sync is not production-ready |
 | **StorageMode** | Only `SqlOnly` is production-tested. `DualWrite`, `KvPrimary`, and `KvOnly` are code-complete but not validated in production. | ReDB migration path untested under load |
 | **Model server benchmarks** | Only M2 Pro benchmarks exist. No M3 Max or M4 data. | Performance claims extrapolated, not measured |
 | **PostgreSQL** | Multi-node deployment with PostgreSQL is designed but not implemented | Single-node SQLite only |

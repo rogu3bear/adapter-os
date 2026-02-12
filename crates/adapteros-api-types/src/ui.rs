@@ -50,4 +50,10 @@ pub struct UiConfigResponse {
     #[serde(default = "crate::schema_version")]
     pub schema_version: String,
     pub ui_profile: UiProfile,
+    #[serde(default = "default_docs_url")]
+    pub docs_url: String,
+}
+
+fn default_docs_url() -> String {
+    "/docs".to_string()
 }

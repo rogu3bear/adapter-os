@@ -28,7 +28,7 @@ use crate::components::{
 };
 use crate::hooks::{use_api_resource, LoadingState};
 use crate::signals::{
-    use_chat, ChatSessionMeta, ChatSessionsManager, ChatTarget, StreamNoticeTone,
+    use_chat, use_settings, ChatSessionMeta, ChatSessionsManager, ChatTarget, StreamNoticeTone,
 };
 use adapteros_api_types::training::ChatMessageInput;
 use adapteros_api_types::InferenceReadyState;
@@ -738,8 +738,11 @@ fn SessionListItem(
     selected: Signal<bool>,
     on_delete: Callback<()>,
 ) -> impl IntoView {
+    let settings = use_settings();
     let id = session.id.clone();
     let href = format!("/chat/{}", id);
+    let updated_at = session.updated_at.clone();
+    let message_count = session.message_count;
 
     view! {
         <a
@@ -771,9 +774,24 @@ fn SessionListItem(
 
                     // Metadata
                     <div class="flex items-center gap-2 mt-1 text-2xs text-muted-foreground">
-                        <span>{format_relative_time(&session.updated_at)}</span>
-                        <span>"·"</span>
-                        <span>{format!("{} msgs", session.message_count)}</span>
+                        {move || {
+                            let show_timestamps = settings
+                                .try_get()
+                                .map(|s| s.show_timestamps)
+                                .unwrap_or(true);
+                            if show_timestamps {
+                                view! {
+                                    <>
+                                        <span>{format_relative_time(&updated_at)}</span>
+                                        <span>"·"</span>
+                                    </>
+                                }
+                                .into_any()
+                            } else {
+                                view! {}.into_any()
+                            }
+                        }}
+                        <span>{format!("{} msgs", message_count)}</span>
                     </div>
                 </div>
 
