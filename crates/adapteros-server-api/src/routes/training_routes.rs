@@ -102,6 +102,15 @@ pub fn training_routes() -> Router<AppState> {
             "/v1/training/templates/{template_id}",
             get(handlers::training::get_training_template),
         )
+        // Checkpoint verification
+        .route(
+            "/v1/training/checkpoints/verify",
+            post(handlers::checkpoint_verify::verify_checkpoint),
+        )
+        .route(
+            "/v1/training/jobs/{job_id}/checkpoints/{epoch}/verify",
+            get(handlers::checkpoint_verify::verify_job_checkpoint),
+        )
 }
 
 #[cfg(test)]

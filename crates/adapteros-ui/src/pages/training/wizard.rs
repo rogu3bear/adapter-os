@@ -483,14 +483,14 @@ pub fn CreateJobWizard(
         <Dialog
             open=open
             title="New Training Job".to_string()
-            description=Signal::derive(move || current_step.get().label().to_string()).get()
+            description=Signal::derive(move || current_step.try_get().unwrap_or_default().label().to_string()).get()
             size=DialogSize::Lg
             scrollable=true
         >
             <StepIndicator current=current_step.get()/>
 
             // Error message
-            {move || error.get().map(|e| view! {
+            {move || error.try_get().flatten().map(|e| view! {
                 <div class="mb-4 rounded-lg border border-destructive bg-destructive/10 p-3">
                     <p class="text-sm text-destructive">{e}</p>
                 </div>
@@ -498,7 +498,7 @@ pub fn CreateJobWizard(
 
             // Step content
             <div class="wizard-step-content min-w-0">
-                {move || match current_step.get() {
+                {move || match current_step.try_get().unwrap_or_default() {
                     WizardStep::Dataset => view! {
                         <DatasetStepContent
                             dataset_id=dataset_id
@@ -530,24 +530,24 @@ pub fn CreateJobWizard(
                             backend_policy=backend_policy
                             coreml_fallback=coreml_training_fallback
                             form_errors=form_errors
-                            sample_count=dataset_sample_count.get()
+                            sample_count=dataset_sample_count.try_get().flatten()
                         />
                     }.into_any(),
                     WizardStep::Review => view! {
                         <ReviewStepContent
-                            adapter_name=adapter_name.get()
-                            base_model_id=base_model_id.get()
-                            dataset_id=dataset_id.get()
-                            category=category.get()
-                            preset=training_preset.get()
-                            epochs=epochs.get()
-                            learning_rate=learning_rate.get()
-                            validation_split=validation_split.get()
-                            early_stopping=early_stopping.get()
-                            batch_size=batch_size.get()
-                            rank=rank.get()
-                            alpha=alpha.get()
-                            backend=preferred_backend.get()
+                            adapter_name=adapter_name.try_get().unwrap_or_default()
+                            base_model_id=base_model_id.try_get().unwrap_or_default()
+                            dataset_id=dataset_id.try_get().unwrap_or_default()
+                            category=category.try_get().unwrap_or_default()
+                            preset=training_preset.try_get().unwrap_or_default()
+                            epochs=epochs.try_get().unwrap_or_default()
+                            learning_rate=learning_rate.try_get().unwrap_or_default()
+                            validation_split=validation_split.try_get().unwrap_or_default()
+                            early_stopping=early_stopping.try_get().unwrap_or(true)
+                            batch_size=batch_size.try_get().unwrap_or_default()
+                            rank=rank.try_get().unwrap_or_default()
+                            alpha=alpha.try_get().unwrap_or_default()
+                            backend=preferred_backend.try_get().unwrap_or_default()
                         />
                     }.into_any(),
                 }}
@@ -566,7 +566,7 @@ pub fn CreateJobWizard(
             // Footer navigation
             <div class="flex justify-between mt-6 pt-4 border-t">
                 <div>
-                    {move || (current_step.get() != WizardStep::Dataset).then(|| view! {
+                    {move || (current_step.try_get().unwrap_or_default() != WizardStep::Dataset).then(|| view! {
                         <Button
                             variant=ButtonVariant::Outline
                             on_click=Callback::new(go_back)
@@ -582,26 +582,25 @@ pub fn CreateJobWizard(
                     >
                         "Cancel"
                     </Button>
-                    {move || if current_step.get() == WizardStep::Review {
-                        view! {
-                            <Button
-                                variant=ButtonVariant::Primary
-                                loading=submitting.get()
-                                on_click=Callback::new(submit.clone())
-                            >
-                                "Start Training"
-                            </Button>
-                        }.into_any()
-                    } else {
-                        view! {
+                    <Show
+                        when=move || current_step.try_get().unwrap_or_default() == WizardStep::Review
+                        fallback=move || view! {
                             <Button
                                 variant=ButtonVariant::Primary
                                 on_click=Callback::new(go_next)
                             >
                                 "Next"
                             </Button>
-                        }.into_any()
-                    }}
+                        }
+                    >
+                        <Button
+                            variant=ButtonVariant::Primary
+                            loading=submitting.try_get().unwrap_or(false)
+                            on_click=Callback::new(submit.clone())
+                        >
+                            "Start Training"
+                        </Button>
+                    </Show>
                 </div>
             </div>
         </Dialog>
@@ -626,7 +625,7 @@ fn DatasetStepContent(
             </div>
 
             // Dataset ready message
-            {move || dataset_message.get().map(|msg| view! {
+            {move || dataset_message.try_get().flatten().map(|msg| view! {
                 <div class="rounded-lg border border-status-success/50 bg-status-success/10 p-4 text-center">
                     <svg class="w-6 h-6 mx-auto mb-2 text-status-success" fill="none" viewBox="0 0 24 24" stroke="currentColor">
                         <path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M5 13l4 4L19 7"/>
@@ -713,7 +712,7 @@ fn ModelStepContent(
                 name="adapter_name"
                 required=true
                 help="A unique name for your trained adapter (letters, numbers, hyphens)"
-                error=Signal::derive(move || form_errors.get().get("adapter_name").cloned())
+                error=Signal::derive(move || form_errors.try_get().unwrap_or_default().get("adapter_name").cloned())
             >
                 <Input
                     value=adapter_name
@@ -726,10 +725,10 @@ fn ModelStepContent(
                 name="base_model_id"
                 required=true
                 help="The foundation model to fine-tune"
-                error=Signal::derive(move || form_errors.get().get("base_model_id").cloned())
+                error=Signal::derive(move || form_errors.try_get().unwrap_or_default().get("base_model_id").cloned())
             >
                 {move || {
-                    if use_custom_model.get() {
+                    if use_custom_model.try_get().unwrap_or(false) {
                         view! {
                             <div class="space-y-2">
                                 <Input
@@ -746,7 +745,7 @@ fn ModelStepContent(
                             </div>
                         }.into_any()
                     } else {
-                        match models.get() {
+                        match models.try_get().unwrap_or(crate::hooks::LoadingState::Loading) {
                             crate::hooks::LoadingState::Idle | crate::hooks::LoadingState::Loading => view! {
                                 <div class="flex items-center gap-2 text-sm text-muted-foreground py-2">
                                     <Spinner/>
@@ -759,7 +758,7 @@ fn ModelStepContent(
                                     <div class="space-y-2">
                                         <select
                                             class="flex h-10 w-full rounded-md border border-input bg-background px-3 py-2 text-sm"
-                                            prop:value=Signal::derive(move || base_model_id.get())
+                                            prop:value=Signal::derive(move || base_model_id.try_get().unwrap_or_default())
                                             on:change=move |ev| base_model_id.set(event_target_value(&ev))
                                         >
                                             <option value="" disabled=true>"Select a model..."</option>
@@ -801,7 +800,7 @@ fn ModelStepContent(
                 <label class="text-sm font-medium">"Category"</label>
                 <select
                     class="flex h-10 w-full rounded-md border border-input bg-background px-3 py-2 text-sm"
-                    prop:value=Signal::derive(move || category.get())
+                    prop:value=Signal::derive(move || category.try_get().unwrap_or_default())
                     on:change=move |ev| category.set(event_target_value(&ev))
                 >
                     <option value="code">"Code"</option>
@@ -870,7 +869,7 @@ fn ConfigStepContent(
                     on:click=move |_| show_advanced.update(|v| *v = !*v)
                 >
                     <svg
-                        class=move || if show_advanced.get() { "w-4 h-4 transition-transform rotate-90" } else { "w-4 h-4 transition-transform" }
+                        class=move || if show_advanced.try_get().unwrap_or(false) { "w-4 h-4 transition-transform rotate-90" } else { "w-4 h-4 transition-transform" }
                         fill="none" viewBox="0 0 24 24" stroke="currentColor"
                     >
                         <path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M9 5l7 7-7 7"/>
@@ -878,7 +877,7 @@ fn ConfigStepContent(
                     "Advanced Options"
                 </button>
 
-                {move || show_advanced.get().then(|| view! {
+                {move || show_advanced.try_get().unwrap_or(false).then(|| view! {
                     <div class="mt-4 space-y-6 pl-6">
                         // Batch size and LoRA config
                         <div>
@@ -889,7 +888,7 @@ fn ConfigStepContent(
                                     name="batch_size"
                                     required=true
                                     help="Examples per step (1-256)"
-                                    error=Signal::derive(move || form_errors.get().get("batch_size").cloned())
+                                    error=Signal::derive(move || form_errors.try_get().unwrap_or_default().get("batch_size").cloned())
                                 >
                                     <Input value=batch_size input_type="number".to_string()/>
                                 </FormField>
@@ -898,7 +897,7 @@ fn ConfigStepContent(
                                     name="rank"
                                     required=true
                                     help="Adapter dimension (4, 8, 16 typical)"
-                                    error=Signal::derive(move || form_errors.get().get("rank").cloned())
+                                    error=Signal::derive(move || form_errors.try_get().unwrap_or_default().get("rank").cloned())
                                 >
                                     <Input value=rank input_type="number".to_string()/>
                                 </FormField>
@@ -907,7 +906,7 @@ fn ConfigStepContent(
                                     name="alpha"
                                     required=true
                                     help="Scaling factor (typically 2x rank)"
-                                    error=Signal::derive(move || form_errors.get().get("alpha").cloned())
+                                    error=Signal::derive(move || form_errors.try_get().unwrap_or_default().get("alpha").cloned())
                                 >
                                     <Input value=alpha input_type="number".to_string()/>
                                 </FormField>
@@ -925,7 +924,7 @@ fn ConfigStepContent(
                                     <label class="text-sm font-medium">"Preferred Backend"</label>
                                     <select
                                         class="flex h-10 w-full rounded-md border border-input bg-background px-3 py-2 text-sm"
-                                        prop:value=Signal::derive(move || preferred_backend.get())
+                                        prop:value=Signal::derive(move || preferred_backend.try_get().unwrap_or_default())
                                         on:change=move |ev| preferred_backend.set(event_target_value(&ev))
                                     >
                                         <option value="auto">"Auto (recommended)"</option>
@@ -938,7 +937,7 @@ fn ConfigStepContent(
                                     <label class="text-sm font-medium">"Backend Policy"</label>
                                     <select
                                         class="flex h-10 w-full rounded-md border border-input bg-background px-3 py-2 text-sm"
-                                        prop:value=Signal::derive(move || backend_policy.get())
+                                        prop:value=Signal::derive(move || backend_policy.try_get().unwrap_or_default())
                                         on:change=move |ev| backend_policy.set(event_target_value(&ev))
                                     >
                                         <option value="auto">"Auto"</option>
@@ -947,12 +946,12 @@ fn ConfigStepContent(
                                     </select>
                                 </div>
                             </div>
-                            {move || (preferred_backend.get() == "coreml" || backend_policy.get() == "coreml_else_fallback").then(|| view! {
+                            {move || (preferred_backend.try_get().unwrap_or_default() == "coreml" || backend_policy.try_get().unwrap_or_default() == "coreml_else_fallback").then(|| view! {
                                 <div class="mt-4 space-y-2">
                                     <label class="text-sm font-medium">"Fallback Backend"</label>
                                     <select
                                         class="flex h-10 w-full rounded-md border border-input bg-background px-3 py-2 text-sm"
-                                        prop:value=Signal::derive(move || coreml_fallback.get())
+                                        prop:value=Signal::derive(move || coreml_fallback.try_get().unwrap_or_default())
                                         on:change=move |ev| coreml_fallback.set(event_target_value(&ev))
                                     >
                                         <option value="mlx">"MLX"</option>

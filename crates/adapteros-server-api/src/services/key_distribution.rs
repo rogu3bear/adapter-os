@@ -197,8 +197,7 @@ impl KeyDistributionService {
         let results = self.distribute_to_workers(&workers, &update_request).await;
 
         // Count successes and failures
-        let (successes, failures): (Vec<_>, Vec<_>) =
-            results.iter().partition(|r| r.success);
+        let (successes, failures): (Vec<_>, Vec<_>) = results.iter().partition(|r| r.success);
 
         let workers_updated = successes.len();
         let workers_failed = failures.len();
@@ -341,10 +340,13 @@ impl KeyDistributionService {
         );
 
         // Send request
-        tokio::time::timeout(self.worker_timeout, stream.write_all(http_request.as_bytes()))
-            .await
-            .map_err(|_| anyhow::anyhow!("Write timeout"))?
-            .map_err(|e| anyhow::anyhow!("Write failed: {}", e))?;
+        tokio::time::timeout(
+            self.worker_timeout,
+            stream.write_all(http_request.as_bytes()),
+        )
+        .await
+        .map_err(|_| anyhow::anyhow!("Write timeout"))?
+        .map_err(|e| anyhow::anyhow!("Write failed: {}", e))?;
 
         // Read response (simple HTTP parsing)
         let mut response_buf = vec![0u8; 4096];
@@ -362,8 +364,9 @@ impl KeyDistributionService {
             + 4;
 
         let json_body = &response_str[body_start..];
-        let response: KeyUpdateResponse = serde_json::from_str(json_body)
-            .map_err(|e| anyhow::anyhow!("Failed to parse response: {} (body: {})", e, json_body))?;
+        let response: KeyUpdateResponse = serde_json::from_str(json_body).map_err(|e| {
+            anyhow::anyhow!("Failed to parse response: {} (body: {})", e, json_body)
+        })?;
 
         Ok(response)
     }

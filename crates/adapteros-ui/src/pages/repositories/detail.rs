@@ -61,7 +61,7 @@ pub fn RepositoryDetailPanel(
 
             {move || {
                 let repo_id_sync = repo_id_for_sync.clone();
-                match repo.get() {
+                match repo.try_get().unwrap_or(LoadingState::Idle) {
                     LoadingState::Idle | LoadingState::Loading => {
                         view! {
                             <div class="flex items-center justify-center py-12">
@@ -80,6 +80,26 @@ pub fn RepositoryDetailPanel(
                                 syncing=syncing
                                 repo_id_sync=repo_id_sync
                             />
+                        }.into_any()
+                    }
+                    LoadingState::Error(e) if e.is_not_found() => {
+                        view! {
+                            <div class="flex flex-col items-center justify-center py-12 px-4">
+                                <div class="text-center">
+                                    <div class="text-4xl font-bold text-muted-foreground mb-2">"404"</div>
+                                    <h2 class="heading-3 mb-2">"Repository not found"</h2>
+                                    <p class="text-muted-foreground mb-4">
+                                        "This repository may have been deleted or doesn\u{2019}t exist."
+                                    </p>
+                                    <Button
+                                        variant=ButtonVariant::Secondary
+                                        size=ButtonSize::Sm
+                                        on_click=Callback::new(move |_| selected_repo_id.set(None))
+                                    >
+                                        "Back to list"
+                                    </Button>
+                                </div>
+                            </div>
                         }.into_any()
                     }
                     LoadingState::Error(e) => {
@@ -112,7 +132,7 @@ pub fn RepositoryDetailStandalone(repo_id: String) -> impl IntoView {
         <div class="space-y-4">
             {move || {
                 let repo_id_sync = repo_id_for_sync.clone();
-                match repo.get() {
+                match repo.try_get().unwrap_or(LoadingState::Idle) {
                     LoadingState::Idle | LoadingState::Loading => {
                         view! {
                             <div class="flex items-center justify-center py-12">
@@ -131,6 +151,22 @@ pub fn RepositoryDetailStandalone(repo_id: String) -> impl IntoView {
                                 syncing=syncing
                                 repo_id_sync=repo_id_sync
                             />
+                        }.into_any()
+                    }
+                    LoadingState::Error(e) if e.is_not_found() => {
+                        view! {
+                            <div class="flex min-h-[40vh] flex-col items-center justify-center px-4">
+                                <div class="card p-8 max-w-md w-full text-center">
+                                    <div class="text-4xl font-bold text-muted-foreground mb-2">"404"</div>
+                                    <h2 class="heading-3 mb-2">"Repository not found"</h2>
+                                    <p class="text-muted-foreground mb-6">
+                                        "This repository may have been deleted or doesn\u{2019}t exist."
+                                    </p>
+                                    <a href="/repositories" class="btn btn-primary btn-md">
+                                        "View all repositories"
+                                    </a>
+                                </div>
+                            </div>
                         }.into_any()
                     }
                     LoadingState::Error(e) => {
@@ -153,7 +189,11 @@ fn RepositoryContent(
     repo_id_sync: String,
 ) -> impl IntoView {
     let (auth_state, _) = use_auth();
-    let tenant_id = move || auth_state.get().user().map(|u| u.tenant_id.clone());
+    let tenant_id = move || {
+        auth_state
+            .try_get()
+            .and_then(|s| s.user().map(|u| u.tenant_id.clone()))
+    };
 
     view! {
         // Status and actions
@@ -165,7 +205,7 @@ fn RepositoryContent(
                         <Button
                             variant=ButtonVariant::Secondary
                             size=ButtonSize::Sm
-                            disabled=Signal::derive(move || syncing.get() || is_scanning)
+                            disabled=Signal::derive(move || syncing.try_get().unwrap_or(false) || is_scanning)
                             on_click=Callback::new({
                                 let repo_id = repo_id_sync.clone();
                                 move |_| {
@@ -192,7 +232,7 @@ fn RepositoryContent(
                                 }
                             })
                         >
-                            {move || if syncing.get() || is_scanning { "Syncing..." } else { "Sync Now" }}
+                            {move || if syncing.try_get().unwrap_or(false) || is_scanning { "Syncing..." } else { "Sync Now" }}
                         </Button>
                     </div>
                 </div>

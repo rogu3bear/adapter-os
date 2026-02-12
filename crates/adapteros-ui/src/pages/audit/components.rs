@@ -251,11 +251,7 @@ pub fn ChainStatusSummary(
                                         .merkle_root
                                         .clone()
                                         .unwrap_or_else(|| "N/A".to_string());
-                                    let short = if root.len() > 12 {
-                                        format!("{}...", &root[..12])
-                                    } else {
-                                        root
-                                    };
+                                    let short = adapteros_id::format_hash_short(&root);
                                     view! {
                                         <p
                                             class="text-sm font-mono text-muted-foreground"

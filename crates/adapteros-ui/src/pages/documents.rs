@@ -109,7 +109,7 @@ pub fn Documents() -> impl IntoView {
     let refetch = move || set_refetch_trigger.update(|t| *t += 1);
 
     let (status_counts, _) = use_api_resource(move |client: Arc<ApiClient>| {
-        let _trigger = refetch_trigger.get();
+        let _trigger = refetch_trigger.try_get().unwrap_or_default();
         async move {
             let base_params = |status: Option<String>| DocumentListParams {
                 status,
@@ -204,14 +204,14 @@ pub fn Documents() -> impl IntoView {
     });
 
     let (documents, _) = use_api_resource(move |client: Arc<ApiClient>| {
-        let status_val = status_filter.get();
+        let status_val = status_filter.try_get().unwrap_or_default();
         let status = if status_val.is_empty() {
             None
         } else {
             Some(status_val)
         };
-        let page = current_page.get();
-        let _trigger = refetch_trigger.get();
+        let page = current_page.try_get().unwrap_or(1);
+        let _trigger = refetch_trigger.try_get().unwrap_or_default();
         async move {
             let params = DocumentListParams {
                 status,
@@ -270,7 +270,7 @@ pub fn Documents() -> impl IntoView {
             </PageScaffoldActions>
 
             {move || {
-                match documents.get() {
+                match documents.try_get().unwrap_or(LoadingState::Idle) {
                     LoadingState::Idle | LoadingState::Loading => {
                         view! {
                             <LoadingDisplay message="Loading documents..."/>
@@ -278,13 +278,13 @@ pub fn Documents() -> impl IntoView {
                     }
                     LoadingState::Loaded(data) => {
                         let total_pages = data.pages;
-                        let current = current_page.get();
+                        let current = current_page.try_get().unwrap_or(1);
                         view! {
                             // Pipeline summary (click to filter)
                             <div class="rounded-lg border bg-card p-3">
                                 <div class="flex flex-wrap items-center gap-2">
                                     {move || {
-                                        let active = status_filter.get();
+                                        let active = status_filter.try_get().unwrap_or_default();
                                         let button = |label: &'static str,
                                                       count: Option<u64>,
                                                       value: &'static str,
@@ -308,7 +308,7 @@ pub fn Documents() -> impl IntoView {
                                             }
                                         };
 
-                                        match status_counts.get() {
+                                        match status_counts.try_get().unwrap_or(LoadingState::Idle) {
                                             LoadingState::Loaded(counts) => view! {
                                                 {button("Ready/Indexed", Some(counts.indexed), "indexed", BadgeVariant::Success)}
                                                 {button("Processing", Some(counts.processing), "processing", BadgeVariant::Warning)}
@@ -337,7 +337,7 @@ pub fn Documents() -> impl IntoView {
                                         <Button
                                             variant=ButtonVariant::Outline
                                             size=ButtonSize::Sm
-                                            disabled=Signal::derive(move || current <= 1)
+                                            disabled=Signal::derive(move || current_page.try_get().unwrap_or(1) <= 1)
                                             on_click=Callback::new(move |_| set_current_page.update(|p| *p = p.saturating_sub(1).max(1)))
                                         >
                                             "Previous"
@@ -348,7 +348,7 @@ pub fn Documents() -> impl IntoView {
                                         <Button
                                             variant=ButtonVariant::Outline
                                             size=ButtonSize::Sm
-                                            disabled=Signal::derive(move || current >= total_pages)
+                                            disabled=Signal::derive(move || current_page.try_get().unwrap_or(1) >= total_pages)
                                             on_click=Callback::new(move |_| set_current_page.update(|p| *p = (*p + 1).min(total_pages)))
                                         >
                                             "Next"
@@ -554,7 +554,7 @@ fn DocumentsList(
                                                         aria_label=aria
                                                         disabled=Signal::derive({
                                                             let id = id_reprocess.clone();
-                                                            move || reprocessing_id.get().as_deref() == Some(id.as_str())
+                                                            move || reprocessing_id.try_get().flatten().as_deref() == Some(id.as_str())
                                                         })
                                                         on_click=Callback::new({
                                                             let client = Arc::clone(&client);
@@ -568,10 +568,8 @@ fn DocumentsList(
                                                                         if let Err(e) = client.retry_document(&id).await {
                                                                             report_error_with_toast(&e, "Failed to retry document", Some("/documents"), true);
                                                                         }
-                                                                    } else {
-                                                                        if let Err(e) = client.process_document(&id).await {
-                                                                            report_error_with_toast(&e, "Failed to reprocess document", Some("/documents"), true);
-                                                                        }
+                                                                    } else if let Err(e) = client.process_document(&id).await {
+                                                                        report_error_with_toast(&e, "Failed to reprocess document", Some("/documents"), true);
                                                                     }
                                                                     let _ = reprocessing_id.try_set(None);
                                                                     on_refetch.run(());
@@ -646,7 +644,7 @@ fn DocumentsList(
             cancel_text="Cancel"
             on_confirm=on_confirm_delete
             on_cancel=on_cancel_delete
-            loading=Signal::derive(move || delete_state_for_loading.is_deleting())
+            loading=Signal::derive(move || delete_state_for_loading.deleting.try_get().unwrap_or(false))
         />
     }
     .into_any()
@@ -778,8 +776,9 @@ fn DocumentUploadDialog(open: RwSignal<bool>, on_success: Callback<String>) -> i
         }
     });
 
-    let upload_disabled =
-        Signal::derive(move || uploading.get() || selected_file_name.get().is_none());
+    let upload_disabled = Signal::derive(move || {
+        uploading.try_get().unwrap_or(false) || selected_file_name.try_get().flatten().is_none()
+    });
 
     view! {
         <Dialog
@@ -794,14 +793,14 @@ fn DocumentUploadDialog(open: RwSignal<bool>, on_success: Callback<String>) -> i
                         type="file"
                         accept=".pdf,.txt,.md"
                         class="block w-full text-sm"
-                        disabled=move || uploading.get()
+                        disabled=move || uploading.try_get().unwrap_or(false)
                         on:change=handle_file_change
                     />
                     <p class="text-xs text-muted-foreground">
                         "Supported: PDF, TXT, Markdown, HTML, JSON, JSONL · Max 50 MB"
                     </p>
-                    {move || selected_file_name.get().map(|name| {
-                        let size = selected_file_size.get().unwrap_or_default();
+                    {move || selected_file_name.try_get().flatten().map(|name| {
+                        let size = selected_file_size.try_get().flatten().unwrap_or_default();
                         view! {
                             <div class="text-sm text-muted-foreground">
                                 {name} " · " {format_bytes(size as i64)}
@@ -810,18 +809,18 @@ fn DocumentUploadDialog(open: RwSignal<bool>, on_success: Callback<String>) -> i
                     })}
                 </div>
 
-                {move || upload_status.get().map(|status| view! {
+                {move || upload_status.try_get().flatten().map(|status| view! {
                     <div class="text-sm text-muted-foreground">{status}</div>
                 })}
 
-                {move || uploaded_status.get().map(|status| view! {
+                {move || uploaded_status.try_get().flatten().map(|status| view! {
                     <div class="flex items-center gap-2 text-sm">
                         <span class="text-muted-foreground">"Indexing Status"</span>
                         <Badge variant=status_badge_variant(&status)>{status}</Badge>
                     </div>
                 })}
 
-                {move || error_msg.get().map(|err| view! {
+                {move || error_msg.try_get().flatten().map(|err| view! {
                     <div class="rounded-md border border-destructive bg-destructive/10 p-3 text-sm text-destructive">
                         {err}
                     </div>
@@ -832,13 +831,13 @@ fn DocumentUploadDialog(open: RwSignal<bool>, on_success: Callback<String>) -> i
                 <Button
                     variant=ButtonVariant::Outline
                     on_click=Callback::new(move |_| open.set(false))
-                    disabled=Signal::derive(move || uploading.get())
+                    disabled=Signal::derive(move || uploading.try_get().unwrap_or(false))
                 >
                     "Cancel"
                 </Button>
                 <Button
                     variant=ButtonVariant::Primary
-                    loading=Signal::derive(move || uploading.get())
+                    loading=Signal::derive(move || uploading.try_get().unwrap_or(false))
                     disabled=upload_disabled
                     on_click=handle_upload
                 >
@@ -856,7 +855,13 @@ pub fn DocumentDetail() -> impl IntoView {
     let navigate = use_navigate();
 
     // Get document ID from URL
-    let document_id = Memo::new(move |_| params.get().get("id").unwrap_or_default());
+    let document_id = Memo::new(move |_| {
+        params
+            .try_get()
+            .unwrap_or_default()
+            .get("id")
+            .unwrap_or_default()
+    });
 
     // Refetch trigger
     let (refetch_trigger, set_refetch_trigger) = signal(0u32);
@@ -864,14 +869,14 @@ pub fn DocumentDetail() -> impl IntoView {
 
     // Fetch document details
     let (document, _) = use_api_resource(move |client: Arc<ApiClient>| {
-        let id = document_id.get();
-        let _trigger = refetch_trigger.get();
+        let id = document_id.try_get().unwrap_or_default();
+        let _trigger = refetch_trigger.try_get().unwrap_or_default();
         async move { client.get_document(&id).await }
     });
 
     // Poll while the document is mid-pipeline so the "stages" UI advances during demos.
     let should_poll = Signal::derive(
-        move || matches!(document.get(), LoadingState::Loaded(ref doc) if !matches!(doc.status.as_str(), "indexed" | "ready" | "failed")),
+        move || matches!(document.try_get().unwrap_or(LoadingState::Idle), LoadingState::Loaded(ref doc) if !matches!(doc.status.as_str(), "indexed" | "ready" | "failed")),
     );
     let _ = use_conditional_polling(2000, should_poll, move || async move {
         set_refetch_trigger.update(|t| *t += 1);
@@ -879,8 +884,8 @@ pub fn DocumentDetail() -> impl IntoView {
 
     // Fetch document chunks
     let (chunks, _) = use_api_resource(move |client: Arc<ApiClient>| {
-        let id = document_id.get();
-        let _trigger = refetch_trigger.get();
+        let id = document_id.try_get().unwrap_or_default();
+        let _trigger = refetch_trigger.try_get().unwrap_or_default();
         async move { client.get_document_chunks(&id).await }
     });
 
@@ -911,7 +916,7 @@ pub fn DocumentDetail() -> impl IntoView {
             breadcrumbs=vec![
                 PageBreadcrumbItem::new("Data", "/documents"),
                 PageBreadcrumbItem::new("Documents", "/documents"),
-                PageBreadcrumbItem::current(document_id.get()),
+                PageBreadcrumbItem::current(document_id.try_get().unwrap_or_default()),
             ]
         >
             <PageScaffoldActions slot>
@@ -924,7 +929,7 @@ pub fn DocumentDetail() -> impl IntoView {
                         // UI-only: synthesis from an already-uploaded document requires
                         // either re-upload or a dedicated backend endpoint. We route the user
                         // into the training flow with the document preselected.
-                        let doc_id = document_id.get();
+                        let doc_id = document_id.try_get().unwrap_or_default();
                         navigate(
                             &format!("/training?source=document&document_id={}", doc_id),
                             Default::default(),
@@ -936,21 +941,21 @@ pub fn DocumentDetail() -> impl IntoView {
             </PageScaffoldActions>
 
             // Action error message
-            {move || action_error.get().map(|err| view! {
+            {move || action_error.try_get().flatten().map(|err| view! {
                 <div class="rounded-lg border border-destructive bg-destructive/10 p-4">
                     <p class="text-destructive">{err}</p>
                 </div>
             })}
 
             {move || {
-                match document.get() {
+                match document.try_get().unwrap_or(LoadingState::Idle) {
                     LoadingState::Idle | LoadingState::Loading => {
                         view! {
                             <LoadingDisplay message="Loading document..."/>
                         }.into_any()
                     }
                     LoadingState::Loaded(data) => {
-                        let chunks_data = match chunks.get() {
+                        let chunks_data = match chunks.try_get().unwrap_or(LoadingState::Idle) {
                             LoadingState::Loaded(c) => Some(c),
                             _ => None,
                         };
@@ -1255,28 +1260,28 @@ fn DocumentDetailContent(
                                     <Button
                                         variant=ButtonVariant::Secondary
                                         size=ButtonSize::Sm
-                                        disabled=Signal::derive(move || processing.get())
+                                        disabled=Signal::derive(move || processing.try_get().unwrap_or(false))
                                         on_click=Callback::new(retry_action)
                                     >
-                                        {move || if processing.get() { "Retrying..." } else { "Retry" }}
+                                        {move || if processing.try_get().unwrap_or(false) { "Retrying..." } else { "Retry" }}
                                     </Button>
                                 }
                             })}
                             <Button
                                 variant=ButtonVariant::Secondary
                                 size=ButtonSize::Sm
-                                disabled=Signal::derive(move || processing.get())
+                                disabled=Signal::derive(move || processing.try_get().unwrap_or(false))
                                 on_click=Callback::new(process_action)
                             >
-                                {move || if processing.get() { "Processing..." } else { "Reprocess" }}
+                                {move || if processing.try_get().unwrap_or(false) { "Processing..." } else { "Reprocess" }}
                             </Button>
                             <Button
                                 variant=ButtonVariant::Destructive
                                 size=ButtonSize::Sm
-                                disabled=Signal::derive(move || deleting.get())
+                                disabled=Signal::derive(move || deleting.try_get().unwrap_or(false))
                                 on_click=Callback::new(open_delete_dialog)
                             >
-                                {move || if deleting.get() { "Deleting..." } else { "Delete" }}
+                                {move || if deleting.try_get().unwrap_or(false) { "Deleting..." } else { "Delete" }}
                             </Button>
                             {is_failed.then(|| {
                                 // Current /errors UI does not expose a document-id filter, so keep this as a plain link.
@@ -1328,7 +1333,7 @@ fn DocumentDetailContent(
                 typed_confirmation=doc_name_for_confirm.clone()
                 on_confirm=delete_action
                 on_cancel=on_cancel_delete
-                loading=Signal::derive(move || deleting.get())
+                loading=Signal::derive(move || deleting.try_get().unwrap_or(false))
             />
         </div>
 

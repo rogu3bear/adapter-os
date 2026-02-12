@@ -97,6 +97,7 @@ pub async fn list_datasets(
             .unwrap_or((None, None));
         let validation_errors = d.validation_errors.clone();
 
+        let display_name = adapteros_id::display_name_for(&d.id);
         responses.push(DatasetResponse {
             schema_version: "1.0".to_string(),
             dataset_id: d.id,
@@ -119,7 +120,7 @@ pub async fn list_datasets(
             created_at: d.created_at,
             updated_at: d.updated_at,
             dataset_type: d.dataset_type,
-            display_name: None,
+            display_name,
         });
     }
 
@@ -199,6 +200,7 @@ pub async fn get_dataset(
         .map(|(v, trust)| (Some(v.id), Some(trust)))
         .unwrap_or((None, None));
 
+    let display_name = adapteros_id::display_name_for(&dataset.id);
     Ok(Json(DatasetResponse {
         schema_version: "1.0".to_string(),
         dataset_id: dataset.id,
@@ -221,7 +223,7 @@ pub async fn get_dataset(
         created_at: dataset.created_at,
         updated_at: dataset.updated_at,
         dataset_type: dataset.dataset_type,
-        display_name: None,
+        display_name,
     }))
 }
 

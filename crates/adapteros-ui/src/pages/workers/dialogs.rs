@@ -6,7 +6,7 @@ use crate::components::{Button, ButtonVariant, Dialog, Input, Select};
 use adapteros_api_types::{NodeResponse, SpawnWorkerRequest};
 use leptos::prelude::*;
 
-use super::utils::{format_relative_date, short_id};
+use super::utils::format_relative_date;
 
 /// Local plan option type for spawn form
 #[derive(Debug, Clone, serde::Serialize, serde::Deserialize)]
@@ -28,13 +28,9 @@ fn format_config_label(plan: &PlanOption) -> String {
     };
 
     // Use a short ID prefix for identification
-    let id_prefix = if plan.id.len() > 8 {
-        &plan.id[..8]
-    } else {
-        &plan.id
-    };
+    let id_prefix = adapteros_id::short_id(&plan.id);
 
-    format!("Config {}...{}", id_prefix, date_part)
+    format!("Config {}{}", id_prefix, date_part)
 }
 
 #[component]
@@ -73,7 +69,11 @@ pub fn SpawnWorkerDialog(
             .chain(nodes.iter().map(|n| {
                 (
                     n.node.id.clone(),
-                    format!("{} ({})", n.node.hostname, short_id(&n.node.id)),
+                    format!(
+                        "{} ({})",
+                        n.node.hostname,
+                        adapteros_id::short_id(&n.node.id)
+                    ),
                 )
             }))
             .collect();
@@ -100,7 +100,11 @@ pub fn SpawnWorkerDialog(
         // Only overwrite if empty or still matches the last auto-generated value
         if current.is_empty() || current == prev_auto {
             let timestamp = js_sys::Date::now() as u64;
-            let generated = format!("var/run/aos-worker-{}-{}.sock", short_id(&node), timestamp);
+            let generated = format!(
+                "var/run/aos-worker-{}-{}.sock",
+                adapteros_id::short_id(&node),
+                timestamp
+            );
             let _ = last_auto_path.try_set(generated.clone());
             let _ = uds_path.try_set(generated);
         }
@@ -192,7 +196,7 @@ pub fn SpawnWorkerDialog(
                                 // Ensure UDS path has a value
                                 let socket_path = if uds_path.get().is_empty() {
                                     let timestamp = js_sys::Date::now() as u64;
-                                    format!("var/run/aos-worker-{}-{}.sock", short_id(&node_id.get()), timestamp)
+                                    format!("var/run/aos-worker-{}-{}.sock", adapteros_id::short_id(&node_id.get()), timestamp)
                                 } else {
                                     uds_path.get()
                                 };

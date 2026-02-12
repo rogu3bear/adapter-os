@@ -2592,6 +2592,11 @@ impl LifecycleManager {
 
     fn resolve_local_model_path(&self, model_id: &str, repo_id: Option<&str>) -> Option<PathBuf> {
         let direct_path = Path::new(model_id);
+        // Reject paths under /tmp, /private/tmp, /var/tmp
+        if adapteros_core::is_forbidden_tmp_path(direct_path) {
+            tracing::warn!(path = %direct_path.display(), "Rejecting model path under forbidden tmp directory");
+            return None;
+        }
         if direct_path.exists() {
             return Some(direct_path.to_path_buf());
         }
@@ -2607,15 +2612,23 @@ impl LifecycleManager {
             adapteros_core::rebase_var_path("var/models").join(repo),
         ];
 
-        for candidate in candidates {
+        for candidate in &candidates {
+            if adapteros_core::is_forbidden_tmp_path(candidate) {
+                tracing::warn!(path = %candidate.display(), "Skipping candidate under forbidden tmp directory");
+                continue;
+            }
             if candidate.exists() {
-                return Some(candidate);
+                return Some(candidate.clone());
             }
         }
 
         let loader = self.loader.read();
         let base_path = loader.adapters_base_path();
         let adapter_path = base_path.join(format!("{}.aos", model_id));
+        if adapteros_core::is_forbidden_tmp_path(&adapter_path) {
+            tracing::warn!(path = %adapter_path.display(), "Rejecting adapter path under forbidden tmp directory");
+            return None;
+        }
         if adapter_path.exists() {
             return Some(adapter_path);
         }

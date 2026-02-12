@@ -36,14 +36,12 @@ const ACTION_MODEL_UNLOAD: &str = "model.unload";
 /// Audit action: model import
 const ACTION_MODEL_IMPORT: &str = "model.import";
 
-/// Normalize backend label strings (e.g. "mlx-ffi" / "mlx_ffi" -> "mlx").
+/// Normalize backend label strings to canonical form via `BackendKind` parsing.
 pub fn normalize_backend_label(backend: &str) -> &str {
-    let trimmed = backend.trim();
-    if trimmed.eq_ignore_ascii_case("mlx-ffi") || trimmed.eq_ignore_ascii_case("mlx_ffi") {
-        "mlx"
-    } else {
-        trimmed
-    }
+    use std::str::FromStr;
+    adapteros_core::BackendKind::from_str(backend)
+        .map(|k| k.as_str())
+        .unwrap_or(backend.trim())
 }
 use axum::{
     extract::{Extension, Path, Query, State},
@@ -1541,6 +1539,7 @@ pub async fn import_model(
             &backend,
             tenant_id,
             &claims.sub,
+            adapteros_core::ModelImportStatus::Available,
         )
         .await
     {
@@ -1568,15 +1567,6 @@ pub async fn import_model(
             ));
         }
     };
-
-    // Update status to available (in real implementation, this would be async)
-    if let Err(e) = state
-        .db
-        .update_model_import_status(&model_id, "available", None)
-        .await
-    {
-        error!("Failed to update import status: {}", e);
-    }
 
     // Audit log: model import success
     log_success_or_warn(

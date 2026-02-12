@@ -100,7 +100,7 @@ impl SystemMetrics {
     ) -> Self {
         let timestamp = SystemTime::now()
             .duration_since(UNIX_EPOCH)
-            .expect("System time before UNIX epoch")
+            .unwrap_or_default()
             .as_secs() as i64;
 
         Self {
@@ -368,7 +368,7 @@ impl SystemMetricsDbOps for Db {
     async fn get_metrics_history(&self, hours: u32, limit: usize) -> Result<Vec<SystemMetrics>> {
         let start_time = SystemTime::now()
             .duration_since(UNIX_EPOCH)
-            .expect("System time before UNIX epoch")
+            .unwrap_or_default()
             .as_secs() as i64
             - (hours as i64 * 3600);
 
@@ -435,7 +435,7 @@ impl SystemMetricsDbOps for Db {
     ) -> Result<i64> {
         let timestamp = SystemTime::now()
             .duration_since(UNIX_EPOCH)
-            .expect("System time before UNIX epoch")
+            .unwrap_or_default()
             .as_secs() as i64;
 
         let result = sqlx::query(
@@ -460,7 +460,7 @@ impl SystemMetricsDbOps for Db {
     async fn resolve_violation(&self, violation_id: i64) -> Result<()> {
         let timestamp = SystemTime::now()
             .duration_since(UNIX_EPOCH)
-            .expect("System time before UNIX epoch")
+            .unwrap_or_default()
             .as_secs() as i64;
 
         sqlx::query("UPDATE threshold_violations SET resolved_at = ? WHERE id = ?")
@@ -496,7 +496,7 @@ impl SystemMetricsDbOps for Db {
     async fn cleanup_old_metrics(&self, retention_days: u32) -> Result<u64> {
         let cutoff_time = SystemTime::now()
             .duration_since(UNIX_EPOCH)
-            .expect("System time before UNIX epoch")
+            .unwrap_or_default()
             .as_secs() as i64
             - (retention_days as i64 * 24 * 3600);
 
@@ -609,7 +609,7 @@ impl SystemMetricsDbOps for Db {
     async fn set_config(&self, key: &str, value: &str) -> Result<()> {
         let timestamp = SystemTime::now()
             .duration_since(UNIX_EPOCH)
-            .expect("System time before UNIX epoch")
+            .unwrap_or_default()
             .as_secs() as i64;
 
         sqlx::query(

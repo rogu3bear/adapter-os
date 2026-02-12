@@ -776,17 +776,15 @@ pub async fn get_job(
     };
 
     // Tenant isolation: do not leak existence across tenants.
-    if !can_manage_tenants {
-        if job.tenant_id.as_deref() != Some(claims.tenant_id.as_str()) {
-            return Err((
-                StatusCode::NOT_FOUND,
-                Json(
-                    ErrorResponse::new("job not found")
-                        .with_code("NOT_FOUND")
-                        .with_string_details(format!("Job ID: {}", job_id)),
-                ),
-            ));
-        }
+    if !can_manage_tenants && job.tenant_id.as_deref() != Some(claims.tenant_id.as_str()) {
+        return Err((
+            StatusCode::NOT_FOUND,
+            Json(
+                ErrorResponse::new("job not found")
+                    .with_code("NOT_FOUND")
+                    .with_string_details(format!("Job ID: {}", job_id)),
+            ),
+        ));
     }
 
     Ok(Json(JobDetailResponse {

@@ -835,12 +835,11 @@ pub async fn run_worker() -> Result<()> {
     }
 
     // Compute and verify CoreML fused package hash when CoreML is in play.
-    #[allow(unused_variables)]
-    let coreml_in_use = backend_choice == BackendChoice::CoreML
+    let _coreml_in_use = backend_choice == BackendChoice::CoreML
         || matches!(available_backends.fallback, Some(BackendChoice::CoreML));
 
     #[cfg(all(target_os = "macos", feature = "coreml-backend"))]
-    let (coreml_package_hash_hex, coreml_verification) = if coreml_in_use {
+    let (coreml_package_hash_hex, coreml_verification) = if _coreml_in_use {
         let coreml_db = match Db::connect_env().await {
             Ok(db) => Some(db),
             Err(e) => {

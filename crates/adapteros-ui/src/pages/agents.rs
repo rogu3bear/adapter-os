@@ -74,7 +74,7 @@ pub fn Agents() -> impl IntoView {
             title="Agent Orchestration"
             subtitle="Manage multi-agent sessions and worker executors"
             breadcrumbs=vec![
-                PageBreadcrumbItem::new("Org", "/agents"),
+                PageBreadcrumbItem::label("Org"),
                 PageBreadcrumbItem::current("Agents"),
             ]
         >
@@ -93,7 +93,7 @@ pub fn Agents() -> impl IntoView {
             <div class="grid gap-6 md:grid-cols-3">
                 <Card class="md:col-span-1">
                     <h3 class="text-sm font-semibold mb-4">"Orchestration Detail"</h3>
-                    {move || match config.get() {
+                    {move || match config.try_get().unwrap_or(LoadingState::Idle) {
                         LoadingState::Loaded(cfg) => {
                             let default_stack_label = cfg
                                 .default_adapter_stack
@@ -209,7 +209,7 @@ pub fn Agents() -> impl IntoView {
                         <div class="flex items-center justify-between mb-4">
                             <h3 class="text-sm font-semibold">"Active Sessions"</h3>
                             {move || {
-                                if let LoadingState::Loaded(data) = sessions.get() {
+                                if let LoadingState::Loaded(data) = sessions.try_get().unwrap_or(LoadingState::Idle) {
                                     if data.is_empty() {
                                         None
                                     } else {
@@ -222,7 +222,7 @@ pub fn Agents() -> impl IntoView {
                                 }
                             }}
                         </div>
-                        {move || match sessions.get() {
+                        {move || match sessions.try_get().unwrap_or(LoadingState::Idle) {
                             LoadingState::Idle | LoadingState::Loading => {
                                 view! { <LoadingDisplay message="Loading sessions..."/> }.into_any()
                             }

@@ -49,7 +49,7 @@ async fn test_checkpoint_atomic_write_prevents_corruption() {
     let checkpoint = TrainingCheckpoint::new(5, 100, 0.5, 0.001, config.clone(), weights.clone());
 
     // Save checkpoint - should use atomic write pattern
-    checkpoint.save(&checkpoint_path).await.unwrap();
+    checkpoint.save(&checkpoint_path, None).await.unwrap();
 
     // Verify temp file was cleaned up
     let temp_path = checkpoint_path.with_extension("ckpt.tmp");

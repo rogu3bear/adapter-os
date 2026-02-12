@@ -138,18 +138,7 @@ async fn run_seed(
     }
 
     // Collect model directories to seed
-    let model_dirs: Vec<PathBuf> = if model_path.join("config.json").exists() {
-        // Single model directory
-        vec![model_path.clone()]
-    } else if model_path.is_dir() {
-        // Directory containing multiple models
-        std::fs::read_dir(&model_path)?
-            .filter_map(|e| e.ok().map(|e| e.path()))
-            .filter(|p| p.is_dir() && p.join("config.json").exists())
-            .collect()
-    } else {
-        vec![]
-    };
+    let model_dirs = adapteros_core::discover_model_dirs(&model_path);
 
     if model_dirs.is_empty() {
         output.warning(format!(
@@ -187,31 +176,40 @@ async fn run_seed(
             }
         }
 
-        let (format, backend) = detect_model_format_backend(&path);
+        let format = adapteros_core::ModelFormat::detect_from_dir(&path);
+        let backend = format.default_backend();
         output.progress(format!(
             "  {} (format: {}, backend: {})",
             name, format, backend
         ));
 
         let result = if force {
-            db.upsert_model_from_path(&name, path_str, &format, &backend, "system", "system")
-                .await
+            db.upsert_model_from_path(
+                &name,
+                path_str,
+                format.as_str(),
+                backend.as_str(),
+                "system",
+                "system",
+                adapteros_core::ModelImportStatus::Available,
+            )
+            .await
         } else {
-            db.import_model_from_path(&name, path_str, &format, &backend, "system", "system")
-                .await
+            db.import_model_from_path(
+                &name,
+                path_str,
+                format.as_str(),
+                backend.as_str(),
+                "system",
+                "system",
+                adapteros_core::ModelImportStatus::Available,
+            )
+            .await
         };
         match result {
             Ok(model_id) => {
-                if let Err(e) = db
-                    .update_model_import_status(&model_id, "available", None)
-                    .await
-                {
-                    warn!(model_id = %model_id, error = %e, "Failed to mark model available");
-                    errors += 1;
-                } else {
-                    output.kv("  Seeded", &format!("{} (id: {})", name, model_id));
-                    seeded += 1;
-                }
+                output.kv("  Seeded", &format!("{} (id: {})", name, model_id));
+                seeded += 1;
             }
             Err(e) => {
                 warn!(model = %name, error = %e, "Failed to seed model");
@@ -293,30 +291,4 @@ async fn run_list(db_path: Option<PathBuf>, json: bool, output: &OutputWriter) -
     }
 
     Ok(())
-}
-
-/// Detect model format and backend from directory contents
-fn detect_model_format_backend(path: &std::path::Path) -> (String, String) {
-    // Default to safetensors + mlx backend, override if we detect a CoreML package.
-    let mut format = "safetensors".to_string();
-    let mut backend = "mlx".to_string();
-
-    if let Ok(entries) = std::fs::read_dir(path) {
-        for entry in entries.flatten() {
-            let p = entry.path();
-            if let Some(ext) = p.extension().and_then(|s| s.to_str()) {
-                if ext.eq_ignore_ascii_case("mlpackage") {
-                    format = "mlpackage".to_string();
-                    backend = "coreml".to_string();
-                    break;
-                }
-                if ext.eq_ignore_ascii_case("gguf") {
-                    format = "gguf".to_string();
-                    backend = "metal".to_string();
-                }
-            }
-        }
-    }
-
-    (format, backend)
 }

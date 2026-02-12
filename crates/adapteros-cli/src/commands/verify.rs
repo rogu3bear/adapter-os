@@ -179,6 +179,19 @@ pub enum VerifyCommand {
         #[arg(long)]
         expected_pubkey: Option<String>,
     },
+
+    /// Verify a training checkpoint signature (BLAKE3 + Ed25519)
+    #[command(after_help = r#"Examples:
+  # Verify checkpoint (sidecar assumed at .ckpt.sig)
+  aosctl verify checkpoint var/adapters/model_epoch_0005.ckpt
+
+  # JSON output
+  aosctl --json verify checkpoint var/adapters/model_epoch_0005.ckpt
+"#)]
+    Checkpoint {
+        /// Path to .ckpt file (sidecar assumed at .ckpt.sig)
+        path: PathBuf,
+    },
 }
 
 /// Run bundle verification (public entry point for Commands::Verify)
@@ -254,7 +267,45 @@ pub async fn handle_verify_command(cmd: VerifyCommand, output: &OutputWriter) ->
             )
             .await
         }
+        VerifyCommand::Checkpoint { path } => verify_checkpoint(&path, output),
     }
+}
+
+/// Verify a training checkpoint's BLAKE3 hash and Ed25519 signature.
+fn verify_checkpoint(path: &Path, output: &OutputWriter) -> Result<()> {
+    use adapteros_crypto::checkpoint_verify::verify_checkpoint_file;
+
+    output.info(format!("Verifying checkpoint: {}", path.display()));
+
+    let report = verify_checkpoint_file(path)
+        .map_err(|e| anyhow::anyhow!("Checkpoint verification failed: {}", e))?;
+
+    if output.is_json() {
+        #[derive(Serialize)]
+        struct CheckpointVerifyJson {
+            blake3_hash: String,
+            signer_key_id: String,
+            signed_at: String,
+            schema_version: u8,
+            verified: bool,
+        }
+        output.json(&CheckpointVerifyJson {
+            blake3_hash: report.blake3_hash.to_hex(),
+            signer_key_id: report.signer_key_id,
+            signed_at: report.signed_at,
+            schema_version: report.schema_version,
+            verified: true,
+        })?;
+        return Ok(());
+    }
+
+    output.success("Checkpoint signature verified");
+    output.kv("BLAKE3 hash", &report.blake3_hash.to_hex());
+    output.kv("Signer key ID", &report.signer_key_id);
+    output.kv("Signed at", &report.signed_at);
+    output.kv("Schema version", &report.schema_version.to_string());
+
+    Ok(())
 }
 
 #[derive(Debug, Serialize, Deserialize)]

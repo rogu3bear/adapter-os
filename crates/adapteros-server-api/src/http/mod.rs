@@ -217,7 +217,11 @@ pub async fn serve_uds_with_worker<
                                                 Ok(hyper::Response::builder()
                                                     .status(500)
                                                     .body(body)
-                                                    .expect("Failed to build error response"))
+                                                    .unwrap_or_else(|_| {
+                                                        hyper::Response::new(axum::body::Body::from(
+                                                            "Internal Server Error",
+                                                        ))
+                                                    }))
                                             }
                                         }
                                     }

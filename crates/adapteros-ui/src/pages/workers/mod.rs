@@ -369,7 +369,7 @@ pub fn Workers() -> impl IntoView {
                             {
                                 let drain_desc = {
                                     let wid = pending_drain_worker.get().unwrap_or_default();
-                                    let short = if wid.len() > 8 { format!("{}...", &wid[..8]) } else { wid };
+                                    let short = adapteros_id::short_id(&wid);
                                     format!("Drain worker '{}'? New requests will be rejected while existing ones complete.", short)
                                 };
                                 view! {
@@ -412,7 +412,7 @@ pub fn Workers() -> impl IntoView {
                             {
                                 let stop_desc = {
                                     let wid = pending_stop_worker.get().unwrap_or_default();
-                                    let short = if wid.len() > 8 { format!("{}...", &wid[..8]) } else { wid };
+                                    let short = adapteros_id::short_id(&wid);
                                     format!("Stop worker '{}'? Active inference requests will be terminated.", short)
                                 };
                                 view! {
@@ -477,7 +477,14 @@ pub fn WorkerDetail() -> impl IntoView {
     let (worker, refetch_worker) = use_api_resource({
         move |client: Arc<ApiClient>| {
             let id = worker_id();
-            async move { client.get_worker(&id).await }
+            async move {
+                if id.is_empty() {
+                    return Err(crate::api::ApiError::Validation(
+                        "Missing worker ID in route".to_string(),
+                    ));
+                }
+                client.get_worker(&id).await
+            }
         }
     });
 
@@ -485,7 +492,14 @@ pub fn WorkerDetail() -> impl IntoView {
     let (metrics, refetch_metrics) = use_api_resource({
         move |client: Arc<ApiClient>| {
             let id = worker_id();
-            async move { client.get_worker_metrics(&id).await }
+            async move {
+                if id.is_empty() {
+                    return Err(crate::api::ApiError::Validation(
+                        "Missing worker ID in route".to_string(),
+                    ));
+                }
+                client.get_worker_metrics(&id).await
+            }
         }
     });
 

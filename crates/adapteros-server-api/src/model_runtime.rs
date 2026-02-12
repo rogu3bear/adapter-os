@@ -659,7 +659,6 @@ impl ModelRuntimeImpl {
     }
 
     /// Load a model asynchronously with timeout (legacy method, kept for compatibility)
-    #[allow(unused_variables)]
     pub async fn load_model_async(
         &mut self,
         tenant_id: &str,

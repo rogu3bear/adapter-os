@@ -1054,6 +1054,7 @@ impl From<TrainingJob> for TrainingJobResponse {
             warnings
         };
 
+        let display_name = adapteros_id::display_name_for(&job.id);
         Self {
             schema_version: schema_version(),
             id: job.id,
@@ -1185,7 +1186,7 @@ impl From<TrainingJob> for TrainingJobResponse {
             signature_status: job.signature_status,
             metrics_snapshot_id: None,
             hyperparameters: None,
-            display_name: None,
+            display_name,
         }
     }
 }

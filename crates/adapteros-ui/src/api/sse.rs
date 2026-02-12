@@ -1015,3 +1015,90 @@ impl Default for StreamingInferenceHandler {
         Self::new()
     }
 }
+
+// =============================================================================
+// Lifecycle SSE Subscriptions
+//
+// These hooks connect to the backend lifecycle SSE streams and dispatch
+// incoming events to the refetch system so that UI components automatically
+// refresh when adapters, training jobs, or system health change.
+// =============================================================================
+
+/// Subscribe to adapter lifecycle events via SSE.
+///
+/// Connects to `/v1/stream/adapters` and dispatches incoming
+/// [`AdapterLifecycleEvent`] / [`AdapterVersionEvent`] to the refetch system.
+///
+/// Returns `(sse_state, reconnect_fn)`.
+pub fn use_adapter_lifecycle_sse() -> (RwSignal<SseState>, impl Fn()) {
+    use crate::api::types::{AdapterLifecycleEvent, AdapterVersionEvent};
+    use crate::signals::refetch::use_refetch;
+
+    let refetch = use_refetch();
+
+    use_sse("/v1/stream/adapters", move |event: SseEvent| {
+        let data = event.data.trim();
+        if data.is_empty() || data == "[DONE]" {
+            return;
+        }
+
+        // Try adapter lifecycle event first
+        if let Ok(parsed) = serde_json::from_str::<AdapterLifecycleEvent>(data) {
+            refetch.dispatch_adapter_event(&parsed);
+            return;
+        }
+
+        // Try adapter version event
+        if let Ok(parsed) = serde_json::from_str::<AdapterVersionEvent>(data) {
+            refetch.dispatch_adapter_version_event(&parsed);
+        }
+    })
+}
+
+/// Subscribe to training lifecycle events via SSE.
+///
+/// Connects to `/v1/streams/training` and dispatches incoming
+/// [`TrainingLifecycleEvent`] to the refetch system.
+///
+/// Returns `(sse_state, reconnect_fn)`.
+pub fn use_training_lifecycle_sse() -> (RwSignal<SseState>, impl Fn()) {
+    use crate::api::types::TrainingLifecycleEvent;
+    use crate::signals::refetch::use_refetch;
+
+    let refetch = use_refetch();
+
+    use_sse("/v1/streams/training", move |event: SseEvent| {
+        let data = event.data.trim();
+        if data.is_empty() || data == "[DONE]" {
+            return;
+        }
+
+        if let Ok(parsed) = serde_json::from_str::<TrainingLifecycleEvent>(data) {
+            refetch.dispatch_training_event(&parsed);
+        }
+    })
+}
+
+/// Subscribe to system health transition events via SSE.
+///
+/// Connects to `/v1/stream/telemetry` and dispatches incoming
+/// [`SystemHealthTransitionEvent`] to the refetch system.
+///
+/// Returns `(sse_state, reconnect_fn)`.
+pub fn use_health_lifecycle_sse() -> (RwSignal<SseState>, impl Fn()) {
+    use crate::api::types::SystemHealthTransitionEvent;
+    use crate::signals::refetch::use_refetch;
+
+    let refetch = use_refetch();
+
+    use_sse("/v1/stream/telemetry", move |event: SseEvent| {
+        let data = event.data.trim();
+        if data.is_empty() || data == "[DONE]" {
+            return;
+        }
+
+        if let Ok(parsed) = serde_json::from_str::<SystemHealthTransitionEvent>(data) {
+            refetch.dispatch_health_event(&parsed);
+        }
+    })
+}

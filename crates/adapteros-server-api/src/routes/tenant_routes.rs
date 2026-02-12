@@ -86,6 +86,20 @@ pub fn tenant_routes() -> Router<AppState> {
             "/v1/tenants/{tenant_id}/events",
             post(handlers::event_applier::apply_tenant_event),
         )
+        // Tenant weight encryption key management
+        .route(
+            "/v1/tenants/{tenant_id}/encryption/keys",
+            get(handlers::weight_encryption::list_tenant_keys)
+                .post(handlers::weight_encryption::register_tenant_key),
+        )
+        .route(
+            "/v1/tenants/{tenant_id}/encryption/keys/{key_id}",
+            delete(handlers::weight_encryption::revoke_tenant_key),
+        )
+        .route(
+            "/v1/tenants/{tenant_id}/encryption/status",
+            get(handlers::weight_encryption::get_encryption_status),
+        )
 }
 
 #[cfg(test)]

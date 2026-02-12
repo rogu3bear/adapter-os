@@ -74,10 +74,9 @@ pub async fn run(all: bool, node_ids: Option<Vec<String>>) -> Result<()> {
         let symbol = if consistent { "✓" } else { "✗" };
 
         if consistent {
-            let hash = node_hashes[0].1.to_hex();
-            let short_hash = &hash[..12];
+            let short_hash = adapteros_id::format_hash_short(&node_hashes[0].1.to_hex());
             println!(
-                "  {} {}: b3:{}... ({}/{} nodes)",
+                "  {} {}: {} ({}/{} nodes)",
                 symbol,
                 component,
                 short_hash,
@@ -95,8 +94,8 @@ pub async fn run(all: bool, node_ids: Option<Vec<String>>) -> Result<()> {
 
             // Show which nodes have which hashes
             for (node, hash) in node_hashes {
-                let short_hash = &hash.to_hex()[..12];
-                println!("      {} → b3:{}...", node, short_hash);
+                let short_hash = adapteros_id::format_hash_short(&hash.to_hex());
+                println!("      {} -> {}", node, short_hash);
             }
 
             all_consistent = false;

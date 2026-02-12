@@ -1,6 +1,7 @@
 //! aos-secd audit command
 
 use adapteros_db::Db;
+use adapteros_id::format_hash_short;
 use anyhow::Result;
 use comfy_table::{presets::UTF8_FULL, Cell, Color, ContentArrangement, Table};
 use std::path::Path;
@@ -51,7 +52,7 @@ pub async fn run(db_path: &Path, limit: i64, operation_type: Option<&str>) -> Re
         let hash_display = op
             .artifact_hash
             .as_ref()
-            .map(|h| truncate_hash(h))
+            .map(|h| format_hash_short(h))
             .unwrap_or_else(|| "-".to_string());
 
         let result_cell = if op.result == "success" {
@@ -111,14 +112,6 @@ fn format_timestamp(timestamp: i64) -> String {
         .single()
         .unwrap_or_else(Local::now);
     dt.format("%Y-%m-%d %H:%M:%S").to_string()
-}
-
-fn truncate_hash(hash: &str) -> String {
-    if hash.len() > 12 {
-        format!("{}...", &hash[..12])
-    } else {
-        hash.to_string()
-    }
 }
 
 fn truncate_error(error: &str) -> String {

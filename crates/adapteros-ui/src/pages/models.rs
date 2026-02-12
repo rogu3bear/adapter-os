@@ -1,27 +1,166 @@
 //! Models page
 //!
-//! Model management with list view and status display.
+//! Model management with list view, status display, polling, and deep-link detail page.
 
 use crate::api::{
-    report_error_with_toast, AllModelsStatusResponse, ApiClient, ApiError, BaseModelStatusResponse,
-    ModelLoadStatus, ModelStatusResponse,
+    report_error_with_toast, AllModelsStatusResponse, ApiClient, ApiError,
+    ModelArchitectureSummary, ModelListResponse, ModelLoadStatus, ModelStatusResponse,
+    ModelWithStatsResponse,
 };
 use crate::components::{
-    Badge, BadgeVariant, Button, ButtonVariant, Card, CopyableId, ErrorDisplay, LoadingDisplay,
-    PageBreadcrumbItem, PageScaffold, PageScaffoldActions, SkeletonTable, Spinner, SplitPanel,
-    Table, TableBody, TableCell, TableHead, TableHeader, TableRow,
+    AsyncBoundary, Badge, BadgeVariant, Button, ButtonVariant, Card, CopyableId, ErrorDisplay,
+    ListEmptyCard, LoadingDisplay, PageBreadcrumbItem, PageScaffold, PageScaffoldActions,
+    SkeletonTable, Spinner, SplitPanel, Table, TableBody, TableCell, TableHead, TableHeader,
+    TableRow,
 };
-use crate::hooks::{use_api_resource, LoadingState, Refetch};
-use crate::utils::format_datetime;
+use crate::hooks::{use_api, use_api_resource, use_polling, LoadingState, Refetch};
+use crate::signals::{try_use_route_context, use_refetch_signal, RefetchTopic};
+use crate::utils::{format_bytes, format_datetime};
 use leptos::prelude::*;
-use std::collections::HashSet;
+use leptos_router::hooks::use_params_map;
+use std::collections::HashMap;
 use std::sync::Arc;
+
+// ============================================================================
+// Merged data types
+// ============================================================================
+
+/// Combined model data from runtime status + registered metadata.
+#[derive(Clone, Debug)]
+struct MergedModelRow {
+    // Runtime (from BaseModelStatusResponse)
+    model_id: String,
+    model_name: String,
+    status: ModelLoadStatus,
+    memory_usage_mb: Option<i32>,
+    loaded_at: Option<String>,
+    // Registered metadata (from ModelWithStatsResponse, may be absent)
+    format: Option<String>,
+    backend: Option<String>,
+    size_bytes: Option<i64>,
+    quantization: Option<String>,
+    adapter_count: Option<i64>,
+    training_job_count: Option<i64>,
+    import_status: Option<String>,
+    architecture: Option<ModelArchitectureSummary>,
+}
+
+/// Merged models data with aggregate fields.
+#[derive(Clone, Debug)]
+struct MergedModelsData {
+    rows: Vec<MergedModelRow>,
+    active_model_count: i64,
+    total_memory_mb: i64,
+}
+
+// ============================================================================
+// Merge logic
+// ============================================================================
+
+/// Merge runtime status with registered model metadata.
+fn merge_models(
+    status: &AllModelsStatusResponse,
+    registered: Option<&ModelListResponse>,
+) -> MergedModelsData {
+    // Build lookup of registered models by ID
+    let reg_map: HashMap<&str, &ModelWithStatsResponse> = registered
+        .map(|r| r.models.iter().map(|m| (m.id.as_str(), m)).collect())
+        .unwrap_or_default();
+
+    let mut rows: Vec<MergedModelRow> = status
+        .models
+        .iter()
+        .map(|s| {
+            let reg = reg_map.get(s.model_id.as_str());
+            MergedModelRow {
+                model_id: s.model_id.clone(),
+                model_name: s.model_name.clone(),
+                status: s.status,
+                memory_usage_mb: s.memory_usage_mb,
+                loaded_at: s.loaded_at.clone(),
+                format: reg.and_then(|r| r.format.clone()),
+                backend: reg.and_then(|r| r.backend.clone()),
+                size_bytes: reg.and_then(|r| r.size_bytes),
+                quantization: reg.and_then(|r| r.quantization.clone()),
+                adapter_count: reg.map(|r| r.adapter_count),
+                training_job_count: reg.map(|r| r.training_job_count),
+                import_status: reg.and_then(|r| r.import_status.clone()),
+                architecture: reg.and_then(|r| r.architecture.clone()),
+            }
+        })
+        .collect();
+
+    // Append registered-only models (not in status) as NoModel
+    if let Some(reg) = registered {
+        let known_ids: std::collections::HashSet<&str> =
+            status.models.iter().map(|m| m.model_id.as_str()).collect();
+        for m in &reg.models {
+            if !known_ids.contains(m.id.as_str()) {
+                rows.push(MergedModelRow {
+                    model_id: m.id.clone(),
+                    model_name: m.name.clone(),
+                    status: ModelLoadStatus::NoModel,
+                    memory_usage_mb: None,
+                    loaded_at: None,
+                    format: m.format.clone(),
+                    backend: m.backend.clone(),
+                    size_bytes: m.size_bytes,
+                    quantization: m.quantization.clone(),
+                    adapter_count: Some(m.adapter_count),
+                    training_job_count: Some(m.training_job_count),
+                    import_status: m.import_status.clone(),
+                    architecture: m.architecture.clone(),
+                });
+            }
+        }
+    }
+
+    MergedModelsData {
+        rows,
+        active_model_count: status.active_model_count,
+        total_memory_mb: status.total_memory_mb,
+    }
+}
+
+/// Build a synthetic AllModelsStatusResponse from registered models when status endpoint fails.
+fn registered_as_fallback(reg: &ModelListResponse) -> MergedModelsData {
+    let rows = reg
+        .models
+        .iter()
+        .map(|m| MergedModelRow {
+            model_id: m.id.clone(),
+            model_name: m.name.clone(),
+            status: ModelLoadStatus::NoModel,
+            memory_usage_mb: None,
+            loaded_at: None,
+            format: m.format.clone(),
+            backend: m.backend.clone(),
+            size_bytes: m.size_bytes,
+            quantization: m.quantization.clone(),
+            adapter_count: Some(m.adapter_count),
+            training_job_count: Some(m.training_job_count),
+            import_status: m.import_status.clone(),
+            architecture: m.architecture.clone(),
+        })
+        .collect();
+
+    MergedModelsData {
+        rows,
+        active_model_count: 0,
+        total_memory_mb: 0,
+    }
+}
+
+// ============================================================================
+// Models list page
+// ============================================================================
 
 /// Models management page
 #[component]
 pub fn Models() -> impl IntoView {
-    // Selected model ID for detail panel
-    let selected_model_id = RwSignal::new(None::<String>);
+    // Shared selection state
+    let sel = crate::components::use_split_panel_selection_state();
+    let selected_id = sel.selected_id;
 
     // Fetch base model status list (models with load status)
     let (models_status, refetch_models_status) = use_api_resource(
@@ -37,83 +176,91 @@ pub fn Models() -> impl IntoView {
         refetch_registered.run(());
     };
 
-    // Merge status data with registered models: if a registered model has no
-    // status entry, synthesize one with NoModel status so it appears in the list.
-    let merged_models = Signal::derive(move || {
+    // SSE-driven refetch subscription
+    let refetch_counter = use_refetch_signal(RefetchTopic::Models);
+    let refetch_all_for_sse = refetch_all;
+    Effect::new(move || {
+        let _ = refetch_counter.try_get();
+        refetch_all_for_sse(());
+    });
+
+    // 5-second polling for load status changes
+    let refetch_status_for_poll = refetch_models_status;
+    let _cancel_polling = use_polling(5_000, move || {
+        refetch_status_for_poll.run(());
+        async {}
+    });
+
+    // Merge status + registered data into MergedModelsData
+    let merged = Signal::derive(move || {
         let status_state = models_status.try_get().unwrap_or(LoadingState::Loading);
         let registered_state = registered_models.try_get().unwrap_or(LoadingState::Loading);
 
         match status_state {
             LoadingState::Idle | LoadingState::Loading => LoadingState::Loading,
             LoadingState::Error(e) => {
-                // If status endpoint failed but registered models loaded,
-                // still show registered models with unknown status
-                if let LoadingState::Loaded(reg) = registered_state {
+                // Graceful degradation: if status fails but registered loaded, show registered as NoModel
+                if let LoadingState::Loaded(ref reg) = registered_state {
                     if !reg.models.is_empty() {
-                        let models: Vec<BaseModelStatusResponse> = reg
-                            .models
-                            .iter()
-                            .map(|m| BaseModelStatusResponse {
-                                model_id: m.id.clone(),
-                                model_name: m.name.clone(),
-                                model_path: None,
-                                status: ModelLoadStatus::NoModel,
-                                loaded_at: None,
-                                unloaded_at: None,
-                                error_message: None,
-                                memory_usage_mb: None,
-                                is_loaded: false,
-                                updated_at: m.updated_at.clone().unwrap_or_default(),
-                            })
-                            .collect();
-                        return LoadingState::Loaded(AllModelsStatusResponse {
-                            schema_version: String::new(),
-                            active_model_count: 0,
-                            total_memory_mb: 0,
-                            available_memory_mb: None,
-                            models,
-                        });
+                        return LoadingState::Loaded(registered_as_fallback(reg));
                     }
                 }
                 LoadingState::Error(e)
             }
-            LoadingState::Loaded(mut data) => {
-                // Merge registered models that have no status entry
-                if let LoadingState::Loaded(reg) = registered_state {
-                    let known_ids: HashSet<String> =
-                        data.models.iter().map(|m| m.model_id.clone()).collect();
-                    for m in &reg.models {
-                        if !known_ids.contains(&m.id) {
-                            data.models.push(BaseModelStatusResponse {
-                                model_id: m.id.clone(),
-                                model_name: m.name.clone(),
-                                model_path: None,
-                                status: ModelLoadStatus::NoModel,
-                                loaded_at: None,
-                                unloaded_at: None,
-                                error_message: None,
-                                memory_usage_mb: None,
-                                is_loaded: false,
-                                updated_at: m.updated_at.clone().unwrap_or_default(),
-                            });
-                        }
-                    }
-                }
-                LoadingState::Loaded(data)
+            LoadingState::Loaded(ref status_data) => {
+                let reg = if let LoadingState::Loaded(ref r) = registered_state {
+                    Some(r)
+                } else {
+                    None
+                };
+                LoadingState::Loaded(merge_models(status_data, reg))
             }
         }
     });
 
-    let on_model_select = move |model_id: String| {
-        selected_model_id.set(Some(model_id));
-    };
+    // RouteContext publishing
+    Effect::new(move || {
+        if let Some(route_ctx) = try_use_route_context() {
+            let id = selected_id.try_get().flatten();
+            if let Some(ref sel_id) = id {
+                // Try to find display name from merged data
+                let display_name = if let Some(LoadingState::Loaded(ref data)) = merged.try_get() {
+                    data.rows
+                        .iter()
+                        .find(|r| &r.model_id == sel_id)
+                        .map(|r| r.model_name.clone())
+                } else {
+                    None
+                };
+                let status = if let Some(LoadingState::Loaded(ref data)) = merged.try_get() {
+                    data.rows
+                        .iter()
+                        .find(|r| &r.model_id == sel_id)
+                        .map(|r| model_status_label(r.status).1.to_string())
+                } else {
+                    None
+                };
+                crate::components::publish_route_selection(
+                    &route_ctx,
+                    "model",
+                    Some(sel_id.clone()),
+                    display_name,
+                    status,
+                );
+            } else {
+                route_ctx.clear_selected();
+            }
+        }
+    });
 
-    let on_close_detail = move || {
-        selected_model_id.set(None);
-    };
-
-    // Derive selection state for SplitPanel
-    let has_selection = Signal::derive(move || selected_model_id.get().is_some());
+    // Store merged rows for the detail panel
+    let merged_rows_for_detail = Signal::derive(move || {
+        if let Some(LoadingState::Loaded(ref data)) = merged.try_get() {
+            data.rows.clone()
+        } else {
+            vec![]
+        }
+    });
 
     view! {
         <PageScaffold
@@ -133,22 +280,22 @@ pub fn Models() -> impl IntoView {
             </PageScaffoldActions>
 
             <SplitPanel
-                has_selection=has_selection
-                on_close=Callback::new(move |_| on_close_detail())
+                has_selection=sel.has_selection
+                on_close=sel.on_close
                 back_label="Back to Models"
                 list_panel=move || {
+                    let on_select = sel.on_select;
                     view! {
                         <div class="space-y-6">
-                            // Model list
                             {move || {
-                                match merged_models.try_get().unwrap_or(LoadingState::Loading) {
+                                match merged.try_get().unwrap_or(LoadingState::Loading) {
                                     LoadingState::Idle | LoadingState::Loading => {
                                         view! {
-                                            <SkeletonTable rows=5 columns=4/>
+                                            <SkeletonTable rows=5 columns=6/>
                                         }.into_any()
                                     }
                                     LoadingState::Loaded(mut data) => {
-                                        data.models.sort_by_key(|m| match m.status {
+                                        data.rows.sort_by_key(|m| match m.status {
                                             ModelLoadStatus::Ready => 0,
                                             ModelLoadStatus::Loading => 1,
                                             ModelLoadStatus::Checking => 2,
@@ -159,8 +306,8 @@ pub fn Models() -> impl IntoView {
                                         view! {
                                             <ModelList
                                                 models=data
-                                                selected_id=selected_model_id
-                                                on_select=on_model_select
+                                                selected_id=selected_id
+                                                on_select=on_select
                                             />
                                         }.into_any()
                                     }
@@ -190,11 +337,13 @@ pub fn Models() -> impl IntoView {
                     }
                 }
                 detail_panel=move || {
-                    let model_id = selected_model_id.try_get().flatten().unwrap_or_default();
+                    let model_id = selected_id.try_get().flatten().unwrap_or_default();
+                    let merged_rows = merged_rows_for_detail.try_get().unwrap_or_default();
                     view! {
-                        <ModelDetail
+                        <ModelDetailPanel
                             model_id=model_id
-                            on_close=on_close_detail
+                            on_close=move || selected_id.set(None)
+                            merged_rows=merged_rows
                         />
                     }
                 }
@@ -203,74 +352,34 @@ pub fn Models() -> impl IntoView {
     }
 }
 
+// ============================================================================
+// Model list component
+// ============================================================================
+
 /// Model list component
 #[component]
 fn ModelList(
-    models: AllModelsStatusResponse,
+    models: MergedModelsData,
     selected_id: RwSignal<Option<String>>,
-    on_select: impl Fn(String) + Copy + Send + 'static,
+    on_select: Callback<String>,
 ) -> impl IntoView {
-    if models.models.is_empty() {
-        // Check if the system reports active models despite empty list (worker connected, model pending)
+    if models.rows.is_empty() {
         let has_active_context = models.active_model_count > 0 || models.total_memory_mb > 0;
 
         return if has_active_context {
             view! {
-                <Card>
-                    <div class="py-8 text-center">
-                        <div class="rounded-full bg-muted p-3 mx-auto w-fit mb-4">
-                            <svg
-                                xmlns="http://www.w3.org/2000/svg"
-                                class="h-8 w-8 text-muted-foreground"
-                                viewBox="0 0 24 24"
-                                fill="none"
-                                stroke="currentColor"
-                                stroke-width="1.5"
-                            >
-                                <path stroke-linecap="round" stroke-linejoin="round" d="M9.663 17h4.673M12 3v1m6.364 1.636l-.707.707M21 12h-1M4 12H3m3.343-5.657l-.707-.707m2.828 9.9a5 5 0 117.072 0l-.548.547A3.374 3.374 0 0014 18.469V19a2 2 0 11-4 0v-.531c0-.895-.356-1.754-.988-2.386l-.548-.547z"/>
-                            </svg>
-                        </div>
-                        <p class="text-muted-foreground">"Worker connected, model pending registration"</p>
-                        <p class="text-sm text-muted-foreground mt-1">
-                            "A worker is active but no model has been registered yet. Seed a model with "
-                            <code class="font-mono text-xs bg-muted px-1 py-0.5 rounded">"aosctl models seed"</code>
-                            " to begin."
-                        </p>
-                    </div>
-                </Card>
+                <ListEmptyCard
+                    title="Worker connected, model pending"
+                    description="A worker is active but no model has been registered yet. Seed a model with `aosctl models seed` to begin.".to_string()
+                />
             }
             .into_any()
         } else {
             view! {
-                <Card>
-                    <div class="py-8 text-center">
-                        <div class="rounded-full bg-muted p-3 mx-auto w-fit mb-4">
-                            <svg
-                                xmlns="http://www.w3.org/2000/svg"
-                                class="h-8 w-8 text-muted-foreground"
-                                viewBox="0 0 24 24"
-                                fill="none"
-                                stroke="currentColor"
-                                stroke-width="1.5"
-                            >
-                                <path stroke-linecap="round" stroke-linejoin="round" d="M9.663 17h4.673M12 3v1m6.364 1.636l-.707.707M21 12h-1M4 12H3m3.343-5.657l-.707-.707m2.828 9.9a5 5 0 117.072 0l-.548.547A3.374 3.374 0 0014 18.469V19a2 2 0 11-4 0v-.531c0-.895-.356-1.754-.988-2.386l-.548-.547z"/>
-                            </svg>
-                        </div>
-                        <p class="text-muted-foreground">"No models registered."</p>
-                        <p class="text-sm text-muted-foreground mt-1">
-                            "Seed a model with "
-                            <code class="font-mono text-xs bg-muted px-1 py-0.5 rounded">"aosctl models seed"</code>
-                            ", then load it into a worker to enable inference."
-                        </p>
-                        <p class="text-xs text-muted-foreground mt-2">
-                            "Check "
-                            <a class="link link-default" href="/system">"System"</a>
-                            " for readiness and "
-                            <a class="link link-default" href="/workers">"Workers"</a>
-                            " for a connected worker."
-                        </p>
-                    </div>
-                </Card>
+                <ListEmptyCard
+                    title="No models registered"
+                    description="Seed a model with `aosctl models seed`, then load it into a worker to enable inference.".to_string()
+                />
             }
             .into_any()
         };
@@ -283,43 +392,69 @@ fn ModelList(
                     <TableRow>
                         <TableHead>"Model"</TableHead>
                         <TableHead>"Status"</TableHead>
-                        <TableHead>"Load State"</TableHead>
+                        <TableHead>"Format"</TableHead>
+                        <TableHead>"Size"</TableHead>
+                        <TableHead>"Adapters"</TableHead>
                         <TableHead>"Memory"</TableHead>
                         <TableHead>"Loaded At"</TableHead>
-                        <TableHead>"Updated"</TableHead>
-                        <TableHead>"Error"</TableHead>
                     </TableRow>
                 </TableHeader>
                 <TableBody>
-                    {models.models
+                    {models.rows
                         .into_iter()
-                        .map(|model| {
-                            let model_id = model.model_id.clone();
+                        .map(|row| {
+                            let model_id = row.model_id.clone();
                             let model_id_for_click = model_id.clone();
+
+                            // Format column: format + optional quantization suffix
+                            let format_display = match (&row.format, &row.quantization) {
+                                (Some(fmt), Some(q)) => format!("{} ({})", fmt, q),
+                                (Some(fmt), None) => fmt.clone(),
+                                (None, Some(q)) => q.clone(),
+                                (None, None) => "-".to_string(),
+                            };
+
+                            // Size column
+                            let size_display = row
+                                .size_bytes
+                                .map(format_bytes)
+                                .unwrap_or_else(|| "-".to_string());
+
+                            // Adapters column
+                            let adapters_display = row
+                                .adapter_count
+                                .map(|c| c.to_string())
+                                .unwrap_or_else(|| "-".to_string());
 
                             view! {
                                 <tr
                                     class="border-b transition-colors hover:bg-muted/50 cursor-pointer"
                                     class:bg-muted=move || selected_id.try_get().flatten().as_ref() == Some(&model_id)
-                                    on:click=move |_| on_select(model_id_for_click.clone())
+                                    on:click=move |_| on_select.run(model_id_for_click.clone())
                                 >
                                     <TableCell>
                                         <div>
-                                            <p class="font-medium">{model.model_name.clone()}</p>
+                                            <p class="font-medium">{row.model_name.clone()}</p>
                                             <p class="text-xs text-muted-foreground font-mono">
-                                                {model.model_id.clone().chars().take(8).collect::<String>()}"..."
+                                                {adapteros_id::short_id(&row.model_id)}
                                             </p>
                                         </div>
                                     </TableCell>
                                     <TableCell>
-                                        <ModelStatusBadge status=model.status/>
+                                        <ModelStatusBadge status=row.status/>
                                     </TableCell>
                                     <TableCell>
-                                        <LoadStateBadge loaded=model.is_loaded/>
+                                        <span class="text-sm text-muted-foreground">{format_display}</span>
+                                    </TableCell>
+                                    <TableCell>
+                                        <span class="text-sm text-muted-foreground">{size_display}</span>
+                                    </TableCell>
+                                    <TableCell>
+                                        <span class="text-sm text-muted-foreground">{adapters_display}</span>
                                     </TableCell>
                                     <TableCell>
                                         <span class="text-sm text-muted-foreground">
-                                            {model
+                                            {row
                                                 .memory_usage_mb
                                                 .map(|m| format!("{} MB", m))
                                                 .unwrap_or_else(|| "-".to_string())}
@@ -327,17 +462,7 @@ fn ModelList(
                                     </TableCell>
                                     <TableCell>
                                         <span class="text-sm text-muted-foreground">
-                                            {model.loaded_at.clone().map(|ts| format_datetime(&ts)).unwrap_or_else(|| "-".to_string())}
-                                        </span>
-                                    </TableCell>
-                                    <TableCell>
-                                        <span class="text-sm text-muted-foreground">
-                                            {format_datetime(&model.updated_at)}
-                                        </span>
-                                    </TableCell>
-                                    <TableCell>
-                                        <span class=if model.error_message.is_some() { "text-sm text-destructive truncate max-w-60" } else { "text-sm text-muted-foreground" } title=model.error_message.clone().unwrap_or_default()>
-                                            {model.error_message.clone().unwrap_or_else(|| "-".to_string())}
+                                            {row.loaded_at.clone().map(|ts| format_datetime(&ts)).unwrap_or_else(|| "-".to_string())}
                                         </span>
                                     </TableCell>
                                 </tr>
@@ -351,7 +476,10 @@ fn ModelList(
     .into_any()
 }
 
-/// Model status badge
+// ============================================================================
+// Model status badge
+// ============================================================================
+
 #[component]
 fn ModelStatusBadge(status: ModelLoadStatus) -> impl IntoView {
     let (variant, label) = model_status_label(status);
@@ -363,32 +491,27 @@ fn ModelStatusBadge(status: ModelLoadStatus) -> impl IntoView {
     }
 }
 
-/// Model load state badge
-#[component]
-fn LoadStateBadge(loaded: bool) -> impl IntoView {
-    let (variant, label) = if loaded {
-        (BadgeVariant::Success, "Loaded")
-    } else {
-        (BadgeVariant::Secondary, "Unloaded")
-    };
+// ============================================================================
+// Split-panel detail view
+// ============================================================================
 
-    view! {
-        <Badge variant=variant>
-            {label}
-        </Badge>
-    }
-}
-
-/// Model detail panel
+/// Model detail panel (split-panel inline view).
 #[component]
-fn ModelDetail(model_id: String, on_close: impl Fn() + Copy + 'static) -> impl IntoView {
+fn ModelDetailPanel(
+    model_id: String,
+    on_close: impl Fn() + Copy + 'static,
+    merged_rows: Vec<MergedModelRow>,
+) -> impl IntoView {
     let model_id_for_fetch = model_id.clone();
 
-    // Fetch model status
+    // Fetch per-model status (has UMA pressure, etc.)
     let (model_status, refetch) = use_api_resource(move |client: Arc<ApiClient>| {
         let id = model_id_for_fetch.clone();
         async move { client.get_model(&id).await }
     });
+
+    // Look up merged row for enriched metadata
+    let merged_row = merged_rows.iter().find(|r| r.model_id == model_id).cloned();
 
     view! {
         <div class="space-y-4">
@@ -424,9 +547,9 @@ fn ModelDetail(model_id: String, on_close: impl Fn() + Copy + 'static) -> impl I
                         }.into_any()
                     }
                     LoadingState::Loaded(data) => {
-                        let model_id_clone = model_id.clone();
+                        let merged = merged_row.clone();
                         view! {
-                            <ModelDetailContent model=data model_id=model_id_clone on_update=refetch/>
+                            <ModelDetailContent model=data merged_row=merged on_update=refetch/>
                         }.into_any()
                     }
                     LoadingState::Error(e) => {
@@ -443,11 +566,15 @@ fn ModelDetail(model_id: String, on_close: impl Fn() + Copy + 'static) -> impl I
     }
 }
 
+// ============================================================================
+// Model detail content (shared between panel and standalone page)
+// ============================================================================
+
 /// Model detail content
 #[component]
 fn ModelDetailContent(
     model: ModelStatusResponse,
-    model_id: String,
+    merged_row: Option<MergedModelRow>,
     on_update: Refetch,
 ) -> impl IntoView {
     let status_variant = if model.is_loaded {
@@ -458,17 +585,22 @@ fn ModelDetailContent(
     let status_label = model_status_label(model.status);
 
     let is_loaded = model.is_loaded;
-    let model_id_load = model_id.clone();
-    let model_id_unload = model_id.clone();
+    let model_id_load = model.model_id.clone();
+    let model_id_unload = model.model_id.clone();
     let (loading, set_loading) = signal(false);
+
+    // Use shared API client instead of ApiClient::new() in handlers
+    let client = use_api();
+    let client_load = Arc::clone(&client);
+    let client_unload = Arc::clone(&client);
 
     // Load model handler
     let on_load = move |_| {
         let id = model_id_load.clone();
+        let client = Arc::clone(&client_load);
         let on_update = on_update;
         set_loading.set(true);
         wasm_bindgen_futures::spawn_local(async move {
-            let client = ApiClient::new();
             match client.load_model(&id).await {
                 Ok(_) => {
                     on_update.run(());
@@ -484,10 +616,10 @@ fn ModelDetailContent(
     // Unload model handler
     let on_unload = move |_| {
         let id = model_id_unload.clone();
+        let client = Arc::clone(&client_unload);
         let on_update = on_update;
         set_loading.set(true);
         wasm_bindgen_futures::spawn_local(async move {
-            let client = ApiClient::new();
             match client.unload_model(&id).await {
                 Ok(_) => {
                     on_update.run(());
@@ -610,6 +742,214 @@ fn ModelDetailContent(
                 </Card>
             }
         })}
+
+        // Model Info (from registered metadata)
+        {merged_row.as_ref().and_then(|row| {
+            let has_info = row.format.is_some() || row.backend.is_some()
+                || row.quantization.is_some() || row.import_status.is_some();
+            if !has_info { return None; }
+            let row = row.clone();
+            Some(view! {
+                <Card title="Model Info".to_string() class="mt-4".to_string()>
+                    <div class="grid gap-3 text-sm">
+                        {row.format.clone().map(|fmt| view! {
+                            <div class="flex justify-between">
+                                <span class="text-muted-foreground">"Format"</span>
+                                <span class="font-medium">{fmt}</span>
+                            </div>
+                        })}
+                        {row.backend.clone().map(|be| view! {
+                            <div class="flex justify-between">
+                                <span class="text-muted-foreground">"Backend"</span>
+                                <span class="font-medium">{be}</span>
+                            </div>
+                        })}
+                        {row.quantization.clone().map(|q| view! {
+                            <div class="flex justify-between">
+                                <span class="text-muted-foreground">"Quantization"</span>
+                                <span class="font-medium">{q}</span>
+                            </div>
+                        })}
+                        {row.import_status.clone().map(|is| view! {
+                            <div class="flex justify-between">
+                                <span class="text-muted-foreground">"Import Status"</span>
+                                <span class="font-medium">{is}</span>
+                            </div>
+                        })}
+                    </div>
+                </Card>
+            })
+        })}
+
+        // Architecture (conditional)
+        {merged_row.as_ref().and_then(|row| {
+            row.architecture.as_ref().map(|arch| {
+                let arch = arch.clone();
+                view! {
+                    <Card title="Architecture".to_string() class="mt-4".to_string()>
+                        <div class="grid gap-3 text-sm">
+                            {arch.architecture.clone().map(|name| view! {
+                                <div class="flex justify-between">
+                                    <span class="text-muted-foreground">"Architecture"</span>
+                                    <span class="font-medium">{name}</span>
+                                </div>
+                            })}
+                            {arch.num_layers.map(|n| view! {
+                                <div class="flex justify-between">
+                                    <span class="text-muted-foreground">"Layers"</span>
+                                    <span class="font-medium">{n.to_string()}</span>
+                                </div>
+                            })}
+                            {arch.hidden_size.map(|n| view! {
+                                <div class="flex justify-between">
+                                    <span class="text-muted-foreground">"Hidden Size"</span>
+                                    <span class="font-medium">{n.to_string()}</span>
+                                </div>
+                            })}
+                            {arch.vocab_size.map(|n| view! {
+                                <div class="flex justify-between">
+                                    <span class="text-muted-foreground">"Vocab Size"</span>
+                                    <span class="font-medium">{n.to_string()}</span>
+                                </div>
+                            })}
+                        </div>
+                    </Card>
+                }
+            })
+        })}
+
+        // Statistics (from registered metadata)
+        {merged_row.as_ref().and_then(|row| {
+            let has_stats = row.adapter_count.is_some() || row.training_job_count.is_some();
+            if !has_stats { return None; }
+            let row = row.clone();
+            Some(view! {
+                <Card title="Statistics".to_string() class="mt-4".to_string()>
+                    <div class="grid gap-3 text-sm">
+                        {row.adapter_count.map(|c| view! {
+                            <div class="flex justify-between">
+                                <span class="text-muted-foreground">"Adapters"</span>
+                                <span class="font-medium">{c.to_string()}</span>
+                            </div>
+                        })}
+                        {row.training_job_count.map(|c| view! {
+                            <div class="flex justify-between">
+                                <span class="text-muted-foreground">"Training Jobs"</span>
+                                <span class="font-medium">{c.to_string()}</span>
+                            </div>
+                        })}
+                    </div>
+                </Card>
+            })
+        })}
+    }
+}
+
+// ============================================================================
+// Standalone model detail page (/models/:id)
+// ============================================================================
+
+/// Standalone model detail page
+#[component]
+pub fn ModelDetail() -> impl IntoView {
+    let params = use_params_map();
+
+    let model_id = Memo::new(move |_| {
+        let params_map = params.try_get().unwrap_or_default();
+        params_map.get("id").unwrap_or_default()
+    });
+
+    let (model_status, refetch) = use_api_resource(move |client: Arc<ApiClient>| {
+        let id = model_id.get_untracked();
+        async move {
+            if id.is_empty() {
+                let err = ApiError::Validation("Missing model ID in route".to_string());
+                report_error_with_toast(&err, "Missing model ID", Some("/models"), false);
+                return Err(err);
+            }
+            let result = client.get_model(&id).await;
+            if let Err(ref e) = result {
+                report_error_with_toast(e, "Failed to load model", Some("/models"), false);
+            }
+            result
+        }
+    });
+
+    // Also fetch registered model metadata so we can build a MergedModelRow
+    let (registered_models, refetch_registered) =
+        use_api_resource(move |client: Arc<ApiClient>| async move { client.list_models().await });
+
+    let refetch_all = move |()| {
+        refetch.run(());
+        refetch_registered.run(());
+    };
+
+    let refetch_stored = StoredValue::new(refetch);
+
+    let model_name_for_breadcrumb = Signal::derive(move || model_id.try_get().unwrap_or_default());
+
+    // Build a merged row from the registered model data when available
+    let merged_row_signal = Signal::derive(move || {
+        let id = model_id.try_get().unwrap_or_default();
+        let status_data = model_status.try_get();
+        let reg_data = registered_models.try_get();
+
+        // Find matching registered model
+        let reg_model = if let Some(LoadingState::Loaded(ref reg)) = reg_data {
+            reg.models.iter().find(|m| m.id == id)
+        } else {
+            None
+        };
+
+        // Build MergedModelRow from runtime status + registered metadata
+        if let Some(LoadingState::Loaded(ref status)) = status_data {
+            Some(MergedModelRow {
+                model_id: status.model_id.clone(),
+                model_name: status.model_name.clone(),
+                status: status.status,
+                memory_usage_mb: status.memory_usage_mb,
+                loaded_at: status.loaded_at.clone(),
+                format: reg_model.and_then(|r| r.format.clone()),
+                backend: reg_model.and_then(|r| r.backend.clone()),
+                size_bytes: reg_model.and_then(|r| r.size_bytes),
+                quantization: reg_model.and_then(|r| r.quantization.clone()),
+                adapter_count: reg_model.map(|r| r.adapter_count),
+                training_job_count: reg_model.map(|r| r.training_job_count),
+                import_status: reg_model.and_then(|r| r.import_status.clone()),
+                architecture: reg_model.and_then(|r| r.architecture.clone()),
+            })
+        } else {
+            None
+        }
+    });
+
+    view! {
+        <PageScaffold
+            title="Model Details"
+            breadcrumbs=vec![
+                PageBreadcrumbItem::new("Deploy", "/models"),
+                PageBreadcrumbItem::new("Models", "/models"),
+                PageBreadcrumbItem::current(model_name_for_breadcrumb.get()),
+            ]
+        >
+            <PageScaffoldActions slot>
+                <Button
+                    variant=ButtonVariant::Outline
+                    on_click=Callback::new(move |_| refetch_all(()))
+                >
+                    "Refresh"
+                </Button>
+            </PageScaffoldActions>
+
+            <AsyncBoundary
+                state=model_status
+                on_retry=Callback::new(move |_| refetch_stored.with_value(|f| f.run(())))
+                render=move |data| {
+                    let merged = merged_row_signal.get_untracked();
+                    view! { <ModelDetailContent model=data merged_row=merged on_update=refetch/> }
+                }
+            />
+        </PageScaffold>
     }
 }
 

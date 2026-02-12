@@ -101,11 +101,10 @@ impl RecentItem {
 
     /// Create a worker item
     pub fn worker(id: &str, status: &str) -> Self {
-        let short_id = &id[..8.min(id.len())];
         Self::new(
             RecentItemType::Worker,
             id,
-            format!("Worker {}", short_id),
+            format!("Worker {}", adapteros_id::short_id(id)),
             format!("/workers/{}", id),
         )
         .with_subtitle(status)

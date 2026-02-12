@@ -238,6 +238,30 @@ pub fn adapter_routes() -> Router<AppState> {
             "/v1/adapter-stacks/deactivate",
             post(handlers::adapter_stacks::deactivate_stack),
         )
+        // Provenance certificate routes
+        .route(
+            "/v1/adapters/{adapter_id}/provenance",
+            get(handlers::provenance::list_provenance_certificates)
+                .post(handlers::provenance::generate_provenance_certificate),
+        )
+        .route(
+            "/v1/provenance/{certificate_id}",
+            get(handlers::provenance::get_provenance_certificate),
+        )
+        // Note: /v1/provenance/{certificate_id}/verify is on public routes
+        // (no auth required) to support external audit workflows
+        // Key rotation event routes
+        .route(
+            "/v1/security/key-rotations",
+            get(handlers::key_rotation::list_key_rotations)
+                .post(handlers::key_rotation::trigger_key_rotation)
+                .delete(handlers::key_rotation::prune_key_rotations),
+        )
+        // Adapter weight encryption status
+        .route(
+            "/v1/adapters/{adapter_id}/encryption",
+            get(handlers::weight_encryption::list_adapter_encryption),
+        )
 }
 
 #[cfg(test)]

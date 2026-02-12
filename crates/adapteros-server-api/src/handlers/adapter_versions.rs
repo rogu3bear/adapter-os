@@ -4,6 +4,7 @@
 
 use crate::auth::Claims;
 use crate::permissions::{require_permission, Permission};
+use crate::sse::{AdapterVersionEvent, SseStreamType};
 use crate::state::AppState;
 use crate::types::*;
 use adapteros_core::AosError;
@@ -176,6 +177,7 @@ pub async fn list_adapter_versions(
         let (serveable, serveable_reason) =
             compute_serveable_state(&version.release_state, &version.adapter_trust_state);
 
+        let display_name = adapteros_id::display_name_for(&version.id);
         responses.push(AdapterVersionResponse {
             id: version.id,
             repo_id: version.repo_id,
@@ -204,7 +206,7 @@ pub async fn list_adapter_versions(
             runtime_state,
             serveable,
             serveable_reason,
-            display_name: None,
+            display_name,
         });
     }
 
@@ -390,6 +392,7 @@ pub async fn get_adapter_version(
     let (serveable, serveable_reason) =
         compute_serveable_state(&version.release_state, &version.adapter_trust_state);
 
+    let display_name = adapteros_id::display_name_for(&version.id);
     Ok(Json(AdapterVersionResponse {
         id: version.id,
         repo_id: version.repo_id,
@@ -418,7 +421,7 @@ pub async fn get_adapter_version(
         runtime_state: None,
         serveable,
         serveable_reason,
-        display_name: None,
+        display_name,
     }))
 }
 
@@ -520,6 +523,19 @@ pub async fn promote_adapter_version_handler(
         "Adapter version promoted"
     );
 
+    // Emit SSE lifecycle event for version promotion
+    state
+        .sse_manager
+        .emit_lifecycle(
+            SseStreamType::AdapterState,
+            &AdapterVersionEvent::VersionPromoted {
+                version_id: version_id.clone(),
+                repo_id: version.repo_id.clone(),
+                branch: version.branch.clone(),
+            },
+        )
+        .await;
+
     Ok(StatusCode::NO_CONTENT)
 }
 
@@ -596,6 +612,19 @@ pub async fn rollback_adapter_version_handler(
                 ),
             )
         })?;
+
+    // Emit SSE lifecycle event for version rollback
+    state
+        .sse_manager
+        .emit_lifecycle(
+            SseStreamType::AdapterState,
+            &AdapterVersionEvent::VersionRolledBack {
+                repo_id: repo_id.clone(),
+                branch: req.branch.clone(),
+                target_version_id: req.target_version_id.clone(),
+            },
+        )
+        .await;
 
     Ok(StatusCode::NO_CONTENT)
 }

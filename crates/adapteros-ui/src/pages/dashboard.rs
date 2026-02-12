@@ -2,7 +2,7 @@
 
 use crate::api::{use_sse_json_events, ActivityEventResponse, ApiClient, SseState};
 use crate::boot_log;
-use crate::components::inference_guidance::guidance_for;
+use crate::components::inference_guidance::{guidance_for, primary_blocker};
 use crate::components::status_center::use_status_center;
 use crate::components::{
     Button, ButtonVariant, Card, ChartPoint, DataSeries, EmptyState, EmptyStateVariant,
@@ -37,6 +37,12 @@ struct MetricsSnapshot {
     load_1min: f64,
     load_5min: f64,
     load_15min: f64,
+    /// 95th percentile inference latency (None if server doesn't report it)
+    latency_p95_ms: Option<f32>,
+    /// Tokens generated per second across all workers
+    tokens_per_second: Option<f32>,
+    /// Error rate as fraction (0.0-1.0)
+    error_rate: Option<f32>,
 }
 
 impl From<&SystemMetricsResponse> for MetricsSnapshot {
@@ -53,6 +59,9 @@ impl From<&SystemMetricsResponse> for MetricsSnapshot {
             load_1min: m.load_average.load_1min,
             load_5min: m.load_average.load_5min,
             load_15min: m.load_average.load_15min,
+            latency_p95_ms: m.latency_p95_ms,
+            tokens_per_second: m.tokens_per_second,
+            error_rate: m.error_rate,
         }
     }
 }
@@ -169,9 +178,11 @@ pub fn Dashboard() -> impl IntoView {
     let (auth_state, _) = use_auth();
     let can_view_activity = Memo::new(move |_| {
         auth_state
-            .get()
-            .user()
-            .map(|u| u.role == "admin" || u.permissions.iter().any(|p| p == "ActivityView"))
+            .try_get()
+            .and_then(|s| {
+                s.user()
+                    .map(|u| u.role == "admin" || u.permissions.iter().any(|p| p == "ActivityView"))
+            })
             .unwrap_or(false)
     });
 
@@ -290,7 +301,7 @@ pub fn Dashboard() -> impl IntoView {
             </PageScaffoldActions>
 
             {move || {
-                match status.get() {
+                match status.try_get().unwrap_or(LoadingState::Loading) {
                     LoadingState::Idle | LoadingState::Loading => {
                         view! {
                             <SkeletonStatsGrid count=3/>
@@ -307,11 +318,11 @@ pub fn Dashboard() -> impl IntoView {
                         }.into_any()
                     }
                     LoadingState::Loaded(data) => {
-                        let workers_data = match workers.get() {
+                        let workers_data = match workers.try_get().unwrap_or(LoadingState::Loading) {
                             LoadingState::Loaded(w) => w,
                             _ => Vec::new(),
                         };
-                        let workers_error = matches!(workers.get(), LoadingState::Error(_));
+                        let workers_error = matches!(workers.try_get().unwrap_or(LoadingState::Loading), LoadingState::Error(_));
                         view! {
                             <DashboardContent
                                 status=data
@@ -380,8 +391,12 @@ fn DashboardContent(
     let is_ready = matches!(status.readiness.overall, ApiStatusIndicator::Ready);
     let db_status = matches!(status.readiness.checks.db.status, ApiStatusIndicator::Ready);
     let inference_needs_attention = !matches!(status.inference_ready, InferenceReadyState::True);
-    let inference_guidance = inference_needs_attention
-        .then(|| guidance_for(status.inference_ready, status.inference_blockers.first()));
+    let inference_guidance = inference_needs_attention.then(|| {
+        guidance_for(
+            status.inference_ready,
+            primary_blocker(&status.inference_blockers),
+        )
+    });
 
     let inference_text = match status.inference_ready {
         InferenceReadyState::True => "Ready",
@@ -391,6 +406,7 @@ fn DashboardContent(
 
     let healthy_workers = workers.iter().filter(|w| w.status == "healthy").count();
     let total_workers = workers.len();
+    let slo_status = status.clone();
 
     view! {
         // ═══════════════════════════════════════════════════════════════════════════
@@ -475,6 +491,12 @@ fn DashboardContent(
         </div>
 
         // ═══════════════════════════════════════════════════════════════════════════
+        // SLO PERFORMANCE: Secondary indicators alongside readiness checks
+        // Muted treatment - operational context, not primary health signal
+        // ═══════════════════════════════════════════════════════════════════════════
+        <SloPerformanceSection status=slo_status live_metrics=live_metrics/>
+
+        // ═══════════════════════════════════════════════════════════════════════════
         // MAIN CONTENT: Two-column layout for desktop, stacked for mobile
         // Left: Performance (metrics + charts) | Right: Operations (activity + workers)
         // ═══════════════════════════════════════════════════════════════════════════
@@ -530,14 +552,14 @@ fn DashboardContent(
                 // Activity feed
                 <Card title="Recent Activity".to_string()>
                     {move || {
-                        if !can_view_activity.get() {
+                        if !can_view_activity.try_get().unwrap_or(false) {
                             return view! {
                                 <div class="text-sm text-muted-foreground">
                                     "Activity requires permission."
                                 </div>
                             }.into_any();
                         }
-                        match activity.get() {
+                        match activity.try_get().unwrap_or(LoadingState::Loading) {
                             LoadingState::Idle | LoadingState::Loading => view! {
                                 <div class="text-sm text-muted-foreground">"Loading activity..."</div>
                             }.into_any(),
@@ -585,6 +607,165 @@ fn DashboardContent(
     }
 }
 
+/// SLO performance section - secondary indicators alongside readiness checks.
+///
+/// Sources data from two places:
+/// - `SystemStatusResponse.kernel` for adapter count, model inventory, memory pressure
+/// - `MetricsSnapshot` (SSE/REST) for P95 latency, tokens/sec, error rate
+///
+/// Uses muted Liquid Glass Tier 1 styling to remain secondary to readiness cards.
+#[component]
+fn SloPerformanceSection(
+    status: SystemStatusResponse,
+    live_metrics: RwSignal<Option<MetricsSnapshot>>,
+) -> impl IntoView {
+    let kernel = status.kernel.clone();
+
+    // Extract kernel-sourced data (static per status fetch)
+    let active_adapters = kernel
+        .as_ref()
+        .and_then(|k| k.adapters.as_ref())
+        .and_then(|a| a.total_active);
+    let models_loaded = kernel
+        .as_ref()
+        .and_then(|k| k.models.as_ref())
+        .and_then(|m| m.loaded);
+    let models_total = kernel
+        .as_ref()
+        .and_then(|k| k.models.as_ref())
+        .and_then(|m| m.total);
+    let memory_pressure = kernel
+        .as_ref()
+        .and_then(|k| k.memory.as_ref())
+        .and_then(|m| m.pressure.clone());
+
+    view! {
+        <div class="slo-performance-strip mt-4">
+            <div class="slo-performance-header">
+                <span class="slo-performance-title">"Performance"</span>
+                <span class="slo-performance-subtitle">"SLO indicators"</span>
+            </div>
+            <div class="slo-performance-grid">
+                // P95 Latency (from live metrics SSE stream)
+                {move || {
+                    let val = live_metrics
+                        .try_get()
+                        .flatten()
+                        .and_then(|m| m.latency_p95_ms);
+                    view! {
+                        <SloMetric
+                            label="P95 Latency"
+                            value=val.map(|v| format!("{:.0} ms", v))
+                            warn=val.map(|v| v > 500.0).unwrap_or(false)
+                        />
+                    }
+                }}
+
+                // Avg Latency as P50 proxy (from live metrics)
+                {move || {
+                    let val = live_metrics
+                        .try_get()
+                        .flatten()
+                        .map(|m| m.avg_latency_ms);
+                    view! {
+                        <SloMetric
+                            label="P50 Latency"
+                            value=val.map(|v| format!("{:.0} ms", v))
+                            warn=val.map(|v| v > 300.0).unwrap_or(false)
+                        />
+                    }
+                }}
+
+                // Tokens/sec (from live metrics)
+                {move || {
+                    let val = live_metrics
+                        .try_get()
+                        .flatten()
+                        .and_then(|m| m.tokens_per_second);
+                    view! {
+                        <SloMetric
+                            label="Tokens/sec"
+                            value=val.map(|v| format!("{:.1}", v))
+                            warn=false
+                        />
+                    }
+                }}
+
+                // Error rate (from live metrics)
+                {move || {
+                    let val = live_metrics
+                        .try_get()
+                        .flatten()
+                        .and_then(|m| m.error_rate);
+                    view! {
+                        <SloMetric
+                            label="Error Rate"
+                            value=val.map(|v| format!("{:.1}%", v * 100.0))
+                            warn=val.map(|v| v > 0.05).unwrap_or(false)
+                        />
+                    }
+                }}
+
+                // Active adapters (from system status)
+                <SloMetric
+                    label="Active Adapters"
+                    value=active_adapters.map(|v| v.to_string())
+                    warn=false
+                />
+
+                // Models (from system status)
+                <SloMetric
+                    label="Models"
+                    value=match (models_loaded, models_total) {
+                        (Some(l), Some(t)) => Some(format!("{}/{}", l, t)),
+                        (Some(l), None) => Some(format!("{} loaded", l)),
+                        (None, Some(t)) => Some(format!("{} total", t)),
+                        (None, None) => None,
+                    }
+                    warn=false
+                />
+
+                // Memory pressure (from system status)
+                <SloMetric
+                    label="Memory"
+                    value=memory_pressure.clone()
+                    warn=memory_pressure
+                        .as_deref()
+                        .map(|p| p == "critical" || p == "warning")
+                        .unwrap_or(false)
+                />
+            </div>
+        </div>
+    }
+}
+
+/// Single SLO metric cell with graceful degradation.
+#[component]
+fn SloMetric(
+    label: &'static str,
+    #[prop(into)] value: Option<String>,
+    #[prop(optional)] warn: bool,
+) -> impl IntoView {
+    let (display, available) = match value {
+        Some(v) => (v, true),
+        None => ("--".to_string(), false),
+    };
+    let class = if warn {
+        "slo-metric slo-metric--warn"
+    } else if !available {
+        "slo-metric slo-metric--unavailable"
+    } else {
+        "slo-metric"
+    };
+
+    view! {
+        <div class=class>
+            <span class="slo-metric-value">{display}</span>
+            <span class="slo-metric-label">{label}</span>
+        </div>
+    }
+}
+
 /// Live metrics section - displays real-time metrics from SSE stream with charts
 #[component]
 fn LiveMetricsSection(
@@ -609,7 +790,7 @@ fn LiveMetricsSection(
             // ─────────────────────────────────────────────────────────────────────
             <Card title="Request Performance".to_string() description="Real-time inference throughput".to_string()>
                 {move || {
-                    match metrics.get() {
+                    match metrics.try_get().flatten() {
                         Some(m) => view! {
                             <div class="grid gap-4 sm:grid-cols-2 lg:grid-cols-3">
                                 // Requests/sec - primary metric
@@ -657,7 +838,7 @@ fn LiveMetricsSection(
             // ─────────────────────────────────────────────────────────────────────
             <Card title="Resource Utilization".to_string()>
                 {move || {
-                    match metrics.get() {
+                    match metrics.try_get().flatten() {
                         Some(m) => view! {
                             <div class="grid gap-4 sm:grid-cols-2 lg:grid-cols-4">
                                 // CPU

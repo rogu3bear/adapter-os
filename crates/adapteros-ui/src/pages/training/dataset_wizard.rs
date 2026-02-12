@@ -641,7 +641,7 @@ pub fn DatasetUploadWizard(
 
     let dialog = move || -> AnyView {
         let data_handler = handle_data_file;
-        if !open.get() {
+        if !open.try_get().unwrap_or(false) {
             view! {}.into_any()
         } else {
             view! {
@@ -660,7 +660,7 @@ pub fn DatasetUploadWizard(
                             <FormField label="Description" name="description" required=false>
                                 <textarea
                                     class="flex min-h-[80px] w-full rounded-md border border-input bg-background px-3 py-2 text-sm"
-                                    prop:value=move || description.get()
+                                    prop:value=move || description.try_get().unwrap_or_default()
                                     on:input=move |ev| description.set(event_target_value(&ev))
                                     placeholder="What is in this dataset?"
                                 />
@@ -693,7 +693,7 @@ pub fn DatasetUploadWizard(
                                         view! {
                                             <button
                                                 class=move || {
-                                                    if mode.get() == value {
+                                                    if mode.try_get().unwrap_or(UploadMode::ManifestJsonl) == value {
                                                         "px-3 py-2 rounded-md bg-primary text-primary-foreground text-sm"
                                                     } else {
                                                         "px-3 py-2 rounded-md border text-sm"
@@ -723,7 +723,7 @@ pub fn DatasetUploadWizard(
                         </div>
 
                         <div class="space-y-4 md:col-span-2">
-                            {move || match mode.get() {
+                            {move || match mode.try_get().unwrap_or(UploadMode::ManifestJsonl) {
                             UploadMode::ManifestJsonl => view! {
                                 <div class="rounded-lg border p-4 space-y-3">
                                     <div class="flex items-center justify-between">
@@ -754,11 +754,11 @@ pub fn DatasetUploadWizard(
                                     </div>
                                         <input type="file" accept=".csv" class="mt-1 block w-full text-sm" on:change=data_handler/>
                                     {move || {
-                                        let headers = csv_headers.get();
+                                        let headers = csv_headers.try_get().unwrap_or_default();
                                         if headers.is_empty() {
                                             view! {}.into_any()
                                         } else {
-                                            let mapping = csv_mapping.get().unwrap_or_else(|| CsvMapping {
+                                            let mapping = csv_mapping.try_get().flatten().unwrap_or_else(|| CsvMapping {
                                                 input_col: headers[0].clone(),
                                                 target_col: headers.get(1).cloned().unwrap_or_default(),
                                                 weight_col: headers.get(2).cloned(),
@@ -849,7 +849,7 @@ pub fn DatasetUploadWizard(
                                             view! {
                                                 <button
                                                     class=move || {
-                                                        if text_strategy.get() == value {
+                                                        if text_strategy.try_get().unwrap_or(TextStrategy::Echo) == value {
                                                             "px-3 py-2 rounded-md bg-primary text-primary-foreground text-xs"
                                                         } else {
                                                             "px-3 py-2 rounded-md border text-xs"
@@ -870,7 +870,7 @@ pub fn DatasetUploadWizard(
                         }}
 
                         {move || {
-                            let errors = parse_errors.get();
+                            let errors = parse_errors.try_get().unwrap_or_default();
                             if errors.is_empty() {
                                 view! {}.into_any()
                             } else {
@@ -883,7 +883,7 @@ pub fn DatasetUploadWizard(
                         }}
 
                         {move || {
-                            let rows = preview_rows.get();
+                            let rows = preview_rows.try_get().unwrap_or_default();
                             if rows.is_empty() {
                                 view! {
                                     <div class="rounded-md border border-dashed p-6 text-center text-sm text-muted-foreground">
@@ -924,13 +924,13 @@ pub fn DatasetUploadWizard(
                             }
                         }}
 
-                        {move || upload_error.get().map(|err| view! {
+                        {move || upload_error.try_get().flatten().map(|err| view! {
                             <div class="rounded-md border border-destructive bg-destructive/10 p-3 text-sm text-destructive">
                                 {err}
                             </div>
                         })}
                         {move || {
-                            let msg = status.get();
+                            let msg = status.try_get().unwrap_or_default();
                             if msg.is_empty() {
                                 view! {}.into_any()
                             } else {
@@ -949,11 +949,12 @@ pub fn DatasetUploadWizard(
                                 disabled=submitting
                                 on_click=on_upload
                             >
-                                {move || if submitting.get() {
-                                    view! { <div class="flex items-center gap-2"><Spinner size=SpinnerSize::Sm/> "Uploading..."</div> }.into_any()
-                                } else {
-                                    view! { "Upload dataset" }.into_any()
-                                }}
+                                <Show
+                                    when=move || submitting.try_get().unwrap_or(false)
+                                    fallback=move || view! { "Upload dataset" }
+                                >
+                                    <div class="flex items-center gap-2"><Spinner size=SpinnerSize::Sm/> "Uploading..."</div>
+                                </Show>
                             </Button>
                         </div>
                     </div>
