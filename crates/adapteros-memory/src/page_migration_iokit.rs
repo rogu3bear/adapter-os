@@ -208,87 +208,70 @@ extern "C" {
 
 // Stub implementations when C++ is not compiled
 #[cfg(not(all(target_os = "macos", feature = "iokit-cpp")))]
-#[allow(dead_code)]
 pub fn iokit_vm_init() -> i32 {
     1
 }
 #[cfg(not(all(target_os = "macos", feature = "iokit-cpp")))]
-#[allow(dead_code)]
 pub fn iokit_vm_get_stats(_: *mut FFIVMStats) -> i32 {
     0
 }
 #[cfg(not(all(target_os = "macos", feature = "iokit-cpp")))]
-#[allow(dead_code)]
 pub fn iokit_vm_get_pagein_delta() -> i64 {
     0
 }
 #[cfg(not(all(target_os = "macos", feature = "iokit-cpp")))]
-#[allow(dead_code)]
 pub fn iokit_vm_get_pageout_delta() -> i64 {
     0
 }
 #[cfg(not(all(target_os = "macos", feature = "iokit-cpp")))]
-#[allow(dead_code)]
 pub fn iokit_memory_pressure_level() -> i32 {
     0
 }
 #[cfg(not(all(target_os = "macos", feature = "iokit-cpp")))]
-#[allow(dead_code)]
 pub fn iokit_memory_pressure_enable() -> i32 {
     1
 }
 #[cfg(not(all(target_os = "macos", feature = "iokit-cpp")))]
-#[allow(dead_code)]
 pub fn iokit_memory_pressure_disable() -> i32 {
     1
 }
 #[cfg(not(all(target_os = "macos", feature = "iokit-cpp")))]
-#[allow(dead_code)]
 pub fn iokit_unified_memory_supported() -> i32 {
     0
 }
 #[cfg(not(all(target_os = "macos", feature = "iokit-cpp")))]
-#[allow(dead_code)]
 pub fn iokit_unified_memory_info(_: *mut FFIUnifiedMemoryInfo) -> i32 {
     -1
 }
 #[cfg(not(all(target_os = "macos", feature = "iokit-cpp")))]
-#[allow(dead_code)]
 pub fn iokit_gpu_memory_usage() -> i64 {
     -1
 }
 #[cfg(not(all(target_os = "macos", feature = "iokit-cpp")))]
-#[allow(dead_code)]
 pub fn iokit_ane_memory_usage() -> i64 {
     -1
 }
 #[cfg(not(all(target_os = "macos", feature = "iokit-cpp")))]
-#[allow(dead_code)]
 pub fn iokit_vm_region_info(_: u64, _: *mut FFIMachVMRegion) -> i32 {
     -1
 }
 #[cfg(not(all(target_os = "macos", feature = "iokit-cpp")))]
-#[allow(dead_code)]
 pub fn iokit_vm_scan_regions(_: extern "C" fn(*mut FFIMachVMRegion) -> i32) -> i32 {
     0
 }
 #[cfg(not(all(target_os = "macos", feature = "iokit-cpp")))]
-#[allow(dead_code)]
 pub fn iokit_migration_get_events(_: *mut FFIPageMigrationInfo, _: u32) -> i32 {
     0
 }
 #[cfg(not(all(target_os = "macos", feature = "iokit-cpp")))]
-#[allow(dead_code)]
 pub fn iokit_migration_clear_events() -> i32 {
     1
 }
 #[cfg(not(all(target_os = "macos", feature = "iokit-cpp")))]
-#[allow(dead_code)]
 pub fn iokit_get_last_error(_: *mut i8, _: usize) -> usize {
     0
 }
 #[cfg(not(all(target_os = "macos", feature = "iokit-cpp")))]
-#[allow(dead_code)]
 pub fn iokit_vm_cleanup() -> i32 {
     1
 }
