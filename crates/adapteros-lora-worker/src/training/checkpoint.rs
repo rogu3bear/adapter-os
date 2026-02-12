@@ -2,15 +2,130 @@
 //!
 //! Enables saving and restoring training state, allowing training to resume
 //! from interruptions or to implement strategies like best-model-restore.
+//!
+//! ## Cryptographic Integrity
+//!
+//! Checkpoints are signed with BLAKE3 + Ed25519 on save and verified on load.
+//! A `.sig` sidecar file accompanies each `.ckpt` file. In release builds,
+//! unsigned or tampered checkpoints are rejected. In debug builds, a warning
+//! is emitted but loading proceeds.
 #![allow(clippy::useless_vec)]
 
 use super::trainer::{LoRAWeights, MultiModuleOptimizerState, TrainingConfig};
-use adapteros_core::{AosError, Result};
+use adapteros_core::{AosError, B3Hash, Result};
+use adapteros_crypto::{Keypair, PublicKey, Signature};
 use adapteros_types::training::TRAINING_DATA_CONTRACT_VERSION;
 use serde::{Deserialize, Serialize};
 use std::collections::{BTreeMap, HashMap};
 use std::path::{Path, PathBuf};
-use tracing::{debug, info};
+use tracing::{debug, info, warn};
+
+// ---------------------------------------------------------------------------
+// Checkpoint signature sidecar
+// ---------------------------------------------------------------------------
+
+/// Schema version for checkpoint signatures. Bump when the sidecar format changes.
+const CHECKPOINT_SIG_SCHEMA_VERSION: u8 = 1;
+
+/// Sidecar file containing BLAKE3 hash + Ed25519 signature for a checkpoint.
+///
+/// Written atomically alongside the `.ckpt` file during save.
+/// Verified before parsing checkpoint JSON during load.
+#[derive(Debug, Clone, Serialize, Deserialize)]
+pub struct CheckpointSignature {
+    /// Schema version (for forward compatibility)
+    pub schema_version: u8,
+    /// BLAKE3 hash of the checkpoint JSON bytes
+    pub blake3_hash: B3Hash,
+    /// Ed25519 signature over the BLAKE3 hash bytes
+    pub signature: Signature,
+    /// Public key used for signing (embedded for standalone verification)
+    pub public_key: PublicKey,
+    /// ISO 8601 timestamp when the signature was created
+    pub signed_at: String,
+}
+
+impl CheckpointSignature {
+    /// Sign checkpoint content bytes, producing a sidecar structure.
+    pub fn sign(content: &[u8], keypair: &Keypair) -> Self {
+        let blake3_hash = B3Hash::hash(content);
+        let signature = keypair.sign(blake3_hash.as_bytes());
+        let public_key = keypair.public_key();
+        Self {
+            schema_version: CHECKPOINT_SIG_SCHEMA_VERSION,
+            blake3_hash,
+            signature,
+            public_key,
+            signed_at: chrono::Utc::now().to_rfc3339(),
+        }
+    }
+
+    /// Verify that `content` matches the stored hash and that the signature is valid.
+    pub fn verify(&self, content: &[u8]) -> Result<()> {
+        if self.schema_version != CHECKPOINT_SIG_SCHEMA_VERSION {
+            return Err(AosError::CheckpointIntegrity(format!(
+                "Signature schema version mismatch: expected {}, got {}",
+                CHECKPOINT_SIG_SCHEMA_VERSION, self.schema_version
+            )));
+        }
+
+        let actual_hash = B3Hash::hash(content);
+        if actual_hash != self.blake3_hash {
+            return Err(AosError::CheckpointIntegrity(format!(
+                "BLAKE3 hash mismatch: expected {}, got {}",
+                self.blake3_hash.to_hex(),
+                actual_hash.to_hex()
+            )));
+        }
+
+        self.public_key
+            .verify(self.blake3_hash.as_bytes(), &self.signature)
+            .map_err(|e| {
+                AosError::CheckpointIntegrity(format!(
+                    "Ed25519 signature verification failed: {}",
+                    e
+                ))
+            })
+    }
+
+    /// Serialize to JSON bytes.
+    fn to_json(&self) -> Result<Vec<u8>> {
+        serde_json::to_vec_pretty(self).map_err(|e| {
+            AosError::CheckpointIntegrity(format!("Failed to serialize signature: {}", e))
+        })
+    }
+
+    /// Deserialize from JSON bytes.
+    fn from_json(bytes: &[u8]) -> Result<Self> {
+        serde_json::from_slice(bytes).map_err(|e| {
+            AosError::CheckpointIntegrity(format!("Failed to deserialize signature: {}", e))
+        })
+    }
+}
+
+/// Derive the `.sig` sidecar path from a checkpoint path.
+fn sig_path_for(ckpt_path: &Path) -> PathBuf {
+    if let Some(file_name) = ckpt_path.file_name() {
+        let mut sig_name = file_name.to_os_string();
+        sig_name.push(".sig");
+        let mut sig_path = ckpt_path.to_path_buf();
+        sig_path.set_file_name(sig_name);
+        sig_path
+    } else {
+        let mut fallback = ckpt_path.as_os_str().to_owned();
+        fallback.push(".sig");
+        PathBuf::from(fallback)
+    }
+}
+
+/// Check whether we are running a release build (used for strict vs. permissive mode).
+fn is_release_build() -> bool {
+    !cfg!(debug_assertions)
+}
+
+// ---------------------------------------------------------------------------
+// TrainingCheckpoint
+// ---------------------------------------------------------------------------
 
 /// Training checkpoint containing complete state
 #[derive(Debug, Clone, Serialize, Deserialize)]
@@ -94,8 +209,12 @@ impl TrainingCheckpoint {
         }
     }
 
-    /// Save checkpoint to file using atomic write pattern to prevent corruption
-    pub async fn save<P: AsRef<Path>>(&self, path: P) -> Result<()> {
+    /// Save checkpoint to file using atomic write pattern to prevent corruption.
+    ///
+    /// When a `signing_key` is provided, a `.sig` sidecar is written atomically
+    /// alongside the checkpoint file. The sidecar contains a BLAKE3 hash of the
+    /// checkpoint JSON and an Ed25519 signature over that hash.
+    pub async fn save<P: AsRef<Path>>(&self, path: P, signing_key: Option<&Keypair>) -> Result<()> {
         let path = path.as_ref();
 
         // Ensure parent directory exists
@@ -108,60 +227,133 @@ impl TrainingCheckpoint {
         // Serialize to JSON
         let json = serde_json::to_string_pretty(self)
             .map_err(|e| AosError::Training(format!("Failed to serialize checkpoint: {}", e)))?;
+        let json_bytes = json.as_bytes();
 
-        // Atomic write pattern: write to temp file, then rename
-        // This ensures the checkpoint file is never corrupted if write fails mid-way
+        // Compute signature sidecar if signing key is provided
+        let sig_sidecar = signing_key.map(|kp| CheckpointSignature::sign(json_bytes, kp));
+
+        // -- Atomic write: checkpoint -------------------------------------------
         let temp_path = path.with_extension("ckpt.tmp");
 
-        tokio::fs::write(&temp_path, &json).await.map_err(|e| {
-            AosError::Training(format!("Failed to write checkpoint to temp file: {}", e))
-        })?;
+        tokio::fs::write(&temp_path, json_bytes)
+            .await
+            .map_err(|e| {
+                AosError::Training(format!("Failed to write checkpoint to temp file: {}", e))
+            })?;
 
-        // Rename is atomic on POSIX systems
+        // -- Atomic write: signature sidecar ------------------------------------
+        let sig_file = sig_path_for(path);
+        let sig_temp = sig_file.with_extension("sig.tmp");
+
+        if let Some(ref sig) = sig_sidecar {
+            let sig_json = sig.to_json()?;
+            tokio::fs::write(&sig_temp, &sig_json).await.map_err(|e| {
+                AosError::CheckpointIntegrity(format!("Failed to write signature temp file: {}", e))
+            })?;
+        }
+
+        // Rename checkpoint (atomic on POSIX)
         if let Err(e) = tokio::fs::rename(&temp_path, path).await {
-            // Clean up temp file on error using async delete
-            if let Err(cleanup_err) = tokio::fs::remove_file(&temp_path).await {
-                tracing::warn!(
-                    path = %temp_path.display(),
-                    error = %cleanup_err,
-                    "Failed to clean up temp checkpoint file"
-                );
-            }
+            let _ = tokio::fs::remove_file(&temp_path).await;
+            let _ = tokio::fs::remove_file(&sig_temp).await;
             return Err(AosError::Training(format!(
                 "Failed to rename checkpoint file: {}",
                 e
             )));
         }
 
+        // Rename signature sidecar
+        if sig_sidecar.is_some() {
+            if let Err(e) = tokio::fs::rename(&sig_temp, &sig_file).await {
+                // Checkpoint was already committed — warn but don't fail the save.
+                // The next save will overwrite with a correct pair.
+                warn!(
+                    path = %sig_file.display(),
+                    error = %e,
+                    "Failed to rename signature sidecar (checkpoint saved without signature)"
+                );
+            }
+        }
+
         info!(
             path = %path.display(),
             epoch = self.epoch,
             loss = self.loss,
+            signed = sig_sidecar.is_some(),
             "Checkpoint saved successfully"
         );
 
         Ok(())
     }
 
-    /// Load checkpoint from file with checksum validation
+    /// Load checkpoint from file with integrity verification.
+    ///
+    /// If a `.sig` sidecar exists, the BLAKE3 hash and Ed25519 signature are
+    /// verified before the JSON is parsed. In release builds, a missing or
+    /// invalid signature causes a hard error. In debug builds, a warning is
+    /// emitted but the checkpoint is still loaded.
     pub async fn load<P: AsRef<Path>>(path: P) -> Result<Self> {
         let path = path.as_ref();
 
-        // Read file
-        let json = tokio::fs::read_to_string(path)
+        // Read checkpoint bytes
+        let json_bytes = tokio::fs::read(path)
             .await
             .map_err(|e| AosError::Training(format!("Failed to read checkpoint: {}", e)))?;
 
-        // Validate JSON is well-formed before deserializing
-        // This provides early detection of file corruption
-        if json.is_empty() {
+        if json_bytes.is_empty() {
             return Err(AosError::Training(format!(
                 "Checkpoint file is empty: {}",
                 path.display()
             )));
         }
 
-        // Deserialize with detailed error reporting
+        // -- Signature verification --------------------------------------------
+        let sig_file = sig_path_for(path);
+        match tokio::fs::read(&sig_file).await {
+            Ok(sig_bytes) => {
+                let sig = CheckpointSignature::from_json(&sig_bytes)?;
+                if let Err(e) = sig.verify(&json_bytes) {
+                    if is_release_build() {
+                        return Err(e);
+                    }
+                    warn!(
+                        path = %path.display(),
+                        error = %e,
+                        "Checkpoint signature verification failed (dev mode — proceeding)"
+                    );
+                } else {
+                    debug!(
+                        path = %path.display(),
+                        blake3 = %sig.blake3_hash.to_hex(),
+                        "Checkpoint signature verified"
+                    );
+                }
+            }
+            Err(e) if e.kind() == std::io::ErrorKind::NotFound => {
+                if is_release_build() {
+                    return Err(AosError::CheckpointIntegrity(format!(
+                        "Signature sidecar missing for checkpoint: {}",
+                        path.display()
+                    )));
+                }
+                warn!(
+                    path = %sig_file.display(),
+                    "Checkpoint signature file not found (dev mode — proceeding unsigned)"
+                );
+            }
+            Err(e) => {
+                return Err(AosError::CheckpointIntegrity(format!(
+                    "Failed to read signature sidecar: {}",
+                    e
+                )));
+            }
+        }
+
+        // -- Deserialize -------------------------------------------------------
+        let json = String::from_utf8(json_bytes).map_err(|e| {
+            AosError::Training(format!("Checkpoint file is not valid UTF-8: {}", e))
+        })?;
+
         let checkpoint: Self = serde_json::from_str(&json).map_err(|e| {
             AosError::Training(format!(
                 "Failed to deserialize checkpoint (possible corruption): {} at line {}, column {}",
@@ -171,7 +363,7 @@ impl TrainingCheckpoint {
             ))
         })?;
 
-        // Basic sanity checks on loaded checkpoint
+        // Basic sanity checks
         if checkpoint.epoch > 10000 {
             return Err(AosError::Training(format!(
                 "Invalid checkpoint: epoch {} exceeds reasonable bounds (possible corruption)",
@@ -220,6 +412,10 @@ impl TrainingCheckpoint {
     }
 }
 
+// ---------------------------------------------------------------------------
+// CheckpointManager
+// ---------------------------------------------------------------------------
+
 /// Checkpoint manager for handling multiple checkpoints.
 /// Implements Clone to allow spawning background checkpoint saves.
 #[derive(Clone)]
@@ -232,6 +428,8 @@ pub struct CheckpointManager {
     max_checkpoints: usize,
     /// Adapter ID for this training session
     adapter_id: String,
+    /// Optional signing keypair for checkpoint integrity
+    signing_key: Option<Keypair>,
 }
 
 impl CheckpointManager {
@@ -247,6 +445,24 @@ impl CheckpointManager {
             save_frequency,
             max_checkpoints,
             adapter_id,
+            signing_key: None,
+        }
+    }
+
+    /// Create a new checkpoint manager with a signing keypair for integrity verification
+    pub fn new_with_signing_key<P: AsRef<Path>>(
+        checkpoint_dir: P,
+        save_frequency: u32,
+        max_checkpoints: usize,
+        adapter_id: String,
+        signing_key: Keypair,
+    ) -> Self {
+        Self {
+            checkpoint_dir: checkpoint_dir.as_ref().to_path_buf(),
+            save_frequency,
+            max_checkpoints,
+            adapter_id,
+            signing_key: Some(signing_key),
         }
     }
 
@@ -271,11 +487,15 @@ impl CheckpointManager {
     pub async fn save_checkpoint(&self, checkpoint: &TrainingCheckpoint) -> Result<()> {
         // Save to epoch-specific file
         let epoch_path = self.checkpoint_path(checkpoint.epoch);
-        checkpoint.save(&epoch_path).await?;
+        checkpoint
+            .save(&epoch_path, self.signing_key.as_ref())
+            .await?;
 
         // Save to latest checkpoint (for easy resumption)
         let latest_path = self.latest_checkpoint_path();
-        checkpoint.save(&latest_path).await?;
+        checkpoint
+            .save(&latest_path, self.signing_key.as_ref())
+            .await?;
 
         // Clean up old checkpoints
         self.cleanup_old_checkpoints().await?;
@@ -351,7 +571,7 @@ impl CheckpointManager {
         // Sort in descending order (newest first)
         checkpoints.sort_by(|a, b| b.cmp(a));
 
-        // Delete old checkpoints
+        // Delete old checkpoints and their signature sidecars
         for epoch in checkpoints.iter().skip(self.max_checkpoints) {
             let path = self.checkpoint_path(*epoch);
             if let Err(e) = tokio::fs::remove_file(&path).await {
@@ -368,6 +588,9 @@ impl CheckpointManager {
                     "Deleted old checkpoint"
                 );
             }
+            // Also remove the sidecar if present
+            let sig = sig_path_for(&path);
+            let _ = tokio::fs::remove_file(&sig).await;
         }
 
         Ok(())
@@ -382,14 +605,17 @@ impl CheckpointManager {
             tokio::fs::remove_file(&path)
                 .await
                 .map_err(|e| AosError::Training(format!("Failed to delete checkpoint: {}", e)))?;
+            // Also remove signature sidecar
+            let _ = tokio::fs::remove_file(sig_path_for(&path)).await;
         }
 
-        // Also delete latest checkpoint
+        // Also delete latest checkpoint and its sidecar
         let latest_path = self.latest_checkpoint_path();
         if tokio::fs::metadata(&latest_path).await.is_ok() {
             tokio::fs::remove_file(&latest_path).await.map_err(|e| {
                 AosError::Training(format!("Failed to delete latest checkpoint: {}", e))
             })?;
+            let _ = tokio::fs::remove_file(sig_path_for(&latest_path)).await;
         }
 
         info!(
@@ -414,12 +640,8 @@ mod tests {
             .expect("failed to create temporary directory for checkpoint test - filesystem may be full or permissions denied")
     }
 
-    #[tokio::test]
-    async fn test_checkpoint_save_load() {
-        let temp_dir = new_test_tempdir();
-        let checkpoint_path = temp_dir.path().join("test.ckpt");
-
-        let config = TrainingConfig {
+    fn test_config() -> TrainingConfig {
+        TrainingConfig {
             rank: 8,
             alpha: 16.0,
             learning_rate: 0.001,
@@ -458,21 +680,32 @@ mod tests {
             multi_module_training: false,
             lora_layer_indices: Vec::new(),
             mlx_version: None,
-        };
+        }
+    }
 
-        let weights = LoRAWeights {
+    fn test_weights() -> LoRAWeights {
+        LoRAWeights {
             lora_a: vec![vec![1.0, 2.0], vec![3.0, 4.0]],
             lora_b: vec![vec![5.0, 6.0], vec![7.0, 8.0]],
             modules: BTreeMap::new(),
             moe_config: None,
             precomputed_delta: None,
-        };
+        }
+    }
+
+    #[tokio::test]
+    async fn test_checkpoint_save_load() {
+        let temp_dir = new_test_tempdir();
+        let checkpoint_path = temp_dir.path().join("test.ckpt");
+
+        let config = test_config();
+        let weights = test_weights();
 
         let checkpoint =
             TrainingCheckpoint::new(5, 100, 0.5, 0.001, config.clone(), weights.clone());
 
-        // Save checkpoint
-        checkpoint.save(&checkpoint_path).await.unwrap();
+        // Save checkpoint (unsigned)
+        checkpoint.save(&checkpoint_path, None).await.unwrap();
 
         // Load checkpoint
         let loaded = TrainingCheckpoint::load(&checkpoint_path).await.unwrap();
@@ -482,6 +715,104 @@ mod tests {
         assert_eq!(loaded.loss, 0.5);
         assert_eq!(loaded.config.rank, 8);
         assert_eq!(loaded.weights.lora_a.len(), 2);
+    }
+
+    #[tokio::test]
+    async fn test_signed_checkpoint_roundtrip() {
+        let temp_dir = new_test_tempdir();
+        let checkpoint_path = temp_dir.path().join("signed.ckpt");
+        let keypair = Keypair::generate();
+
+        let checkpoint =
+            TrainingCheckpoint::new(3, 50, 0.25, 0.0005, test_config(), test_weights());
+
+        // Save with signing
+        checkpoint
+            .save(&checkpoint_path, Some(&keypair))
+            .await
+            .unwrap();
+
+        // Verify sidecar was created
+        let sig_file = sig_path_for(&checkpoint_path);
+        assert!(
+            tokio::fs::metadata(&sig_file).await.is_ok(),
+            "Signature sidecar should exist"
+        );
+
+        // Load should succeed (signature is valid)
+        let loaded = TrainingCheckpoint::load(&checkpoint_path).await.unwrap();
+        assert_eq!(loaded.epoch, 3);
+        assert_eq!(loaded.step, 50);
+    }
+
+    #[tokio::test]
+    async fn test_tampered_checkpoint_detected() {
+        let temp_dir = new_test_tempdir();
+        let checkpoint_path = temp_dir.path().join("tampered.ckpt");
+        let keypair = Keypair::generate();
+
+        let checkpoint = TrainingCheckpoint::new(1, 10, 0.9, 0.001, test_config(), test_weights());
+
+        // Save signed
+        checkpoint
+            .save(&checkpoint_path, Some(&keypair))
+            .await
+            .unwrap();
+
+        // Tamper with the checkpoint file (change a byte)
+        let mut bytes = tokio::fs::read(&checkpoint_path).await.unwrap();
+        if let Some(b) = bytes.iter_mut().find(|b| **b == b'1') {
+            *b = b'2';
+        }
+        tokio::fs::write(&checkpoint_path, &bytes).await.unwrap();
+
+        // In debug mode, load succeeds with warning; we test that the
+        // signature verification itself detects tampering.
+        let sig_bytes = tokio::fs::read(sig_path_for(&checkpoint_path))
+            .await
+            .unwrap();
+        let sig = CheckpointSignature::from_json(&sig_bytes).unwrap();
+        assert!(
+            sig.verify(&bytes).is_err(),
+            "Tampered content should fail signature verification"
+        );
+    }
+
+    #[tokio::test]
+    async fn test_missing_sig_in_debug_mode_warns_but_loads() {
+        // In debug builds (cfg(debug_assertions)), a missing .sig file should
+        // still allow loading.
+        let temp_dir = new_test_tempdir();
+        let checkpoint_path = temp_dir.path().join("nosig.ckpt");
+
+        let checkpoint = TrainingCheckpoint::new(2, 0, 0.6, 0.001, test_config(), test_weights());
+
+        // Save without signing
+        checkpoint.save(&checkpoint_path, None).await.unwrap();
+
+        // In debug builds this should succeed
+        #[cfg(debug_assertions)]
+        {
+            let loaded = TrainingCheckpoint::load(&checkpoint_path).await.unwrap();
+            assert_eq!(loaded.epoch, 2);
+        }
+    }
+
+    #[tokio::test]
+    async fn test_checkpoint_signature_struct_roundtrip() {
+        let keypair = Keypair::generate();
+        let content = b"some checkpoint json content here";
+
+        let sig = CheckpointSignature::sign(content, &keypair);
+        assert!(sig.verify(content).is_ok());
+
+        // Serialize and deserialize
+        let json = sig.to_json().unwrap();
+        let restored = CheckpointSignature::from_json(&json).unwrap();
+        assert!(restored.verify(content).is_ok());
+
+        // Different content should fail
+        assert!(restored.verify(b"tampered content").is_err());
     }
 
     #[tokio::test]
@@ -517,6 +848,37 @@ mod tests {
         assert_eq!(latest.epoch, 8);
     }
 
+    #[tokio::test]
+    async fn test_signed_checkpoint_manager() {
+        let temp_dir = new_test_tempdir();
+        let keypair = Keypair::generate();
+        let manager = CheckpointManager::new_with_signing_key(
+            temp_dir.path(),
+            1,
+            5,
+            "signed-adapter".to_string(),
+            keypair,
+        );
+
+        let checkpoint = TrainingCheckpoint::new(1, 0, 0.4, 0.001, test_config(), test_weights());
+
+        manager.save_checkpoint(&checkpoint).await.unwrap();
+
+        // Both checkpoint files and their sidecars should exist
+        let epoch_path = manager.checkpoint_path(1);
+        let latest_path = manager.latest_checkpoint_path();
+        assert!(tokio::fs::metadata(&epoch_path).await.is_ok());
+        assert!(tokio::fs::metadata(sig_path_for(&epoch_path)).await.is_ok());
+        assert!(tokio::fs::metadata(&latest_path).await.is_ok());
+        assert!(tokio::fs::metadata(sig_path_for(&latest_path))
+            .await
+            .is_ok());
+
+        // Load should verify and succeed
+        let loaded = manager.load_latest().await.unwrap();
+        assert_eq!(loaded.epoch, 1);
+    }
+
     #[test]
     fn test_should_save() {
         let temp_dir = new_test_tempdir();
@@ -527,5 +889,15 @@ mod tests {
         assert!(manager.should_save(5));
         assert!(manager.should_save(10));
         assert!(!manager.should_save(11));
+    }
+
+    #[test]
+    fn test_sig_path_derivation() {
+        let ckpt = PathBuf::from("/var/checkpoints/adapter_epoch_0001.ckpt");
+        let sig = sig_path_for(&ckpt);
+        assert_eq!(
+            sig,
+            PathBuf::from("/var/checkpoints/adapter_epoch_0001.ckpt.sig")
+        );
     }
 }
