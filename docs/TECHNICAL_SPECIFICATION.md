@@ -2268,7 +2268,6 @@ updates the worker's health status, and triggers supervisor restart if configure
 | Area | Limitation | Impact |
 |------|-----------|--------|
 | **Training determinism** | Determinism guards disabled due to dependency issues between training subsystem and deterministic executor | Training outputs may vary across runs |
-| **Federation** | Architecturally complete but partially wired. Tick linkage now uses the latest tenant tick entry, but cross-host federation hardening remains incomplete. | Multi-node sync is not production-ready |
 | **StorageMode** | Only `SqlOnly` is production-tested. `DualWrite`, `KvPrimary`, and `KvOnly` are code-complete but not validated in production. | ReDB migration path untested under load |
 | **Model server benchmarks** | Only M2 Pro benchmarks exist. No M3 Max or M4 data. | Performance claims extrapolated, not measured |
 | **PostgreSQL** | Multi-node deployment with PostgreSQL is designed but not implemented | Single-node SQLite only |
@@ -2292,7 +2291,6 @@ Review pauses are intentionally minimal and in-memory in v0.14.1. Key limitation
 | Feature | Description | Priority |
 |---------|-------------|----------|
 | **Training determinism guards** | Re-enable determinism enforcement for training pipeline | High |
-| **Federation tick integration** | Wire `FederationManager` to real tick ledger | High |
 | **DualWrite validation** | Production testing of SQLite + ReDB dual-write mode | Medium |
 | **M3/M4 benchmarks** | Official benchmark suite on M3 Max and M4 hardware | Medium |
 | **MFA in UI** | Expose TOTP MFA setup and verification in Leptos frontend | Medium |
