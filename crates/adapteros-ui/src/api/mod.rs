@@ -85,31 +85,79 @@ impl std::fmt::Display for ApiBaseUrlError {
 
 impl std::error::Error for ApiBaseUrlError {}
 
+fn validate_base_url(candidate: String) -> Result<String, ApiBaseUrlError> {
+    let trimmed = candidate.trim().to_string();
+    if trimmed.is_empty() || trimmed == "null" || trimmed.starts_with("file://") {
+        return Err(ApiBaseUrlError::Missing);
+    }
+    if !(trimmed.starts_with("http://") || trimmed.starts_with("https://")) {
+        return Err(ApiBaseUrlError::Invalid(trimmed));
+    }
+    Ok(trimmed)
+}
+
+#[cfg(target_arch = "wasm32")]
+fn settings_api_base_url_override() -> Option<String> {
+    const SETTINGS_KEY: &str = "adapteros_settings";
+    web_sys::window()
+        .and_then(|w| w.local_storage().ok().flatten())
+        .and_then(|s| s.get_item(SETTINGS_KEY).ok().flatten())
+        .and_then(|json| serde_json::from_str::<serde_json::Value>(&json).ok())
+        .and_then(|settings| {
+            settings
+                .get("api_endpoint")
+                .and_then(|value| value.as_str())
+                .map(str::to_string)
+        })
+        .and_then(|value| {
+            let trimmed = value.trim().to_string();
+            if trimmed.is_empty() {
+                None
+            } else {
+                Some(trimmed)
+            }
+        })
+}
+
+#[cfg(not(target_arch = "wasm32"))]
+fn settings_api_base_url_override() -> Option<String> {
+    None
+}
+
+fn browser_origin_base_url() -> Result<String, ApiBaseUrlError> {
+    let candidate = web_sys::window()
+        .and_then(|w| w.location().origin().ok())
+        .unwrap_or_default();
+    validate_base_url(candidate)
+}
+
 /// Base URL for API requests (configured at runtime)
 pub fn api_base_url_checked() -> Result<String, ApiBaseUrlError> {
     // Prefer a compile-time override when provided (e.g., via build env)
     if let Some(env_base) = option_env!("AOS_API_BASE_URL") {
-        let trimmed = env_base.trim();
-        if trimmed.is_empty() {
-            return Err(ApiBaseUrlError::Missing);
-        }
-        return Ok(trimmed.to_string());
+        return validate_base_url(env_base.to_string());
+    }
+
+    // Prefer persisted UI settings override when configured.
+    if let Some(override_base) = settings_api_base_url_override() {
+        return validate_base_url(override_base);
     }
 
     // Fallback to browser origin when available
-    let candidate = web_sys::window()
-        .and_then(|w| w.location().origin().ok())
-        .unwrap_or_default();
+    browser_origin_base_url()
+}
 
-    if candidate.is_empty() || candidate == "null" || candidate.starts_with("file://") {
-        return Err(ApiBaseUrlError::Missing);
+/// Base URL that ignores user settings overrides.
+pub fn api_base_url_default_checked() -> Result<String, ApiBaseUrlError> {
+    if let Some(env_base) = option_env!("AOS_API_BASE_URL") {
+        return validate_base_url(env_base.to_string());
     }
+    browser_origin_base_url()
+}
 
-    if !(candidate.starts_with("http://") || candidate.starts_with("https://")) {
-        return Err(ApiBaseUrlError::Invalid(candidate));
-    }
-
-    Ok(candidate)
+pub fn api_base_url_default() -> String {
+    api_base_url_default_checked()
+        .unwrap_or_else(|_| adapteros_api_types::defaults::DEFAULT_SERVER_URL.to_string())
 }
 
 pub fn api_base_url() -> String {

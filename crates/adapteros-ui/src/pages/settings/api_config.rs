@@ -220,7 +220,7 @@ enum ConnectionTestStatus {
 
 /// Get default API endpoint
 fn get_default_api_endpoint() -> String {
-    crate::api::api_base_url()
+    crate::api::api_base_url_default()
 }
 
 /// Format ISO timestamp to human-readable form
