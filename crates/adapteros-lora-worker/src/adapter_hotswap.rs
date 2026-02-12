@@ -258,6 +258,44 @@ pub struct MemoryStateEntry {
     pub active: bool,
 }
 
+/// A candidate adapter for fallback loading, ordered by routing score (highest first).
+///
+/// Constructed from `DecisionCandidate` in the routing layer and passed to
+/// `HotSwapManager::try_load_with_fallback()`.
+#[derive(Debug, Clone)]
+pub struct FallbackCandidate {
+    /// Adapter ID to attempt loading
+    pub adapter_id: String,
+    /// Expected BLAKE3 hash of the adapter weights
+    pub hash: B3Hash,
+}
+
+/// Outcome of a fallback load attempt that succeeded.
+#[derive(Debug)]
+pub struct FallbackLoadOutcome {
+    /// The adapter ID that was successfully loaded
+    pub adapter_id: String,
+    /// The preload result from the successful candidate
+    pub result: AdapterCommandResult,
+    /// Number of candidates attempted (1 = primary succeeded, >1 = fell back)
+    pub attempts: usize,
+    /// Details of each failed attempt before the successful one
+    pub failures: Vec<FallbackAttemptFailure>,
+    /// Total wall-clock duration across all attempts
+    pub total_duration: Duration,
+}
+
+/// Details of a single failed fallback attempt.
+#[derive(Debug, Clone)]
+pub struct FallbackAttemptFailure {
+    /// Which adapter was attempted
+    pub adapter_id: String,
+    /// Human-readable reason for the failure
+    pub reason: String,
+    /// How long this attempt took
+    pub duration: Duration,
+}
+
 /// Double-buffered adapter table for atomic swaps
 ///
 /// Lock ordering (to prevent deadlocks):
@@ -2902,6 +2940,160 @@ where
         Ok(result)
     }
 
+    /// Attempt to load the first available adapter from an ordered list of candidates.
+    ///
+    /// Candidates are tried in order (highest routing score first). When a candidate
+    /// fails to preload (timeout, memory pressure, integrity rejection, etc.), the
+    /// next candidate is attempted. Telemetry events are emitted for every attempt.
+    ///
+    /// # Returns
+    ///
+    /// - `Ok(FallbackLoadOutcome)` with the result from the first successful candidate
+    /// - `Err(AosError::ResourceExhaustion)` if ALL candidates fail, listing every
+    ///   attempted adapter ID and its failure reason
+    ///
+    /// # Example
+    ///
+    /// ```ignore
+    /// let candidates = vec![
+    ///     FallbackCandidate { adapter_id: "best".into(), hash: hash_a },
+    ///     FallbackCandidate { adapter_id: "second".into(), hash: hash_b },
+    /// ];
+    /// let outcome = manager.try_load_with_fallback(&candidates, timeout).await?;
+    /// println!("loaded adapter {} after {} attempts", outcome.adapter_id, outcome.attempts);
+    /// ```
+    pub async fn try_load_with_fallback(
+        &self,
+        candidates: &[FallbackCandidate],
+        per_candidate_timeout: Duration,
+    ) -> Result<FallbackLoadOutcome> {
+        if candidates.is_empty() {
+            return Err(AosError::ResourceExhaustion(
+                "No adapter candidates provided for fallback load".to_string(),
+            ));
+        }
+
+        let mut failures: Vec<FallbackAttemptFailure> = Vec::with_capacity(candidates.len());
+        let total_start = Instant::now();
+
+        for (idx, candidate) in candidates.iter().enumerate() {
+            let attempt_start = Instant::now();
+            let is_primary = idx == 0;
+
+            tracing::info!(
+                adapter_id = %candidate.adapter_id,
+                candidate_index = idx,
+                total_candidates = candidates.len(),
+                is_primary = is_primary,
+                "Attempting adapter load (fallback candidate)"
+            );
+
+            let load_result = tokio::time::timeout(
+                per_candidate_timeout,
+                self.execute(AdapterCommand::Preload {
+                    adapter_id: candidate.adapter_id.clone(),
+                    hash: candidate.hash,
+                }),
+            )
+            .await;
+
+            let attempt_duration = attempt_start.elapsed();
+
+            match load_result {
+                Ok(Ok(result)) if result.success => {
+                    if !is_primary {
+                        tracing::warn!(
+                            adapter_id = %candidate.adapter_id,
+                            candidate_index = idx,
+                            failed_candidates = failures.len(),
+                            duration_ms = total_start.elapsed().as_millis() as u64,
+                            "Adapter load succeeded via fallback candidate"
+                        );
+                    } else {
+                        tracing::info!(
+                            adapter_id = %candidate.adapter_id,
+                            duration_ms = attempt_duration.as_millis() as u64,
+                            "Primary adapter load succeeded"
+                        );
+                    }
+
+                    return Ok(FallbackLoadOutcome {
+                        adapter_id: candidate.adapter_id.clone(),
+                        result,
+                        attempts: idx + 1,
+                        failures,
+                        total_duration: total_start.elapsed(),
+                    });
+                }
+                Ok(Ok(result)) => {
+                    // Preload returned success=false (rejection)
+                    let reason = result
+                        .reject_reason
+                        .clone()
+                        .unwrap_or_else(|| result.message.clone());
+                    tracing::warn!(
+                        adapter_id = %candidate.adapter_id,
+                        candidate_index = idx,
+                        reason = %reason,
+                        "Adapter load rejected, trying next candidate"
+                    );
+                    failures.push(FallbackAttemptFailure {
+                        adapter_id: candidate.adapter_id.clone(),
+                        reason,
+                        duration: attempt_duration,
+                    });
+                }
+                Ok(Err(err)) => {
+                    let reason = err.to_string();
+                    tracing::warn!(
+                        adapter_id = %candidate.adapter_id,
+                        candidate_index = idx,
+                        error = %reason,
+                        "Adapter load failed, trying next candidate"
+                    );
+                    failures.push(FallbackAttemptFailure {
+                        adapter_id: candidate.adapter_id.clone(),
+                        reason,
+                        duration: attempt_duration,
+                    });
+                }
+                Err(_elapsed) => {
+                    tracing::warn!(
+                        adapter_id = %candidate.adapter_id,
+                        candidate_index = idx,
+                        timeout_ms = per_candidate_timeout.as_millis() as u64,
+                        "Adapter load timed out, trying next candidate"
+                    );
+                    failures.push(FallbackAttemptFailure {
+                        adapter_id: candidate.adapter_id.clone(),
+                        reason: format!("Timed out after {}ms", per_candidate_timeout.as_millis()),
+                        duration: attempt_duration,
+                    });
+                }
+            }
+        }
+
+        // All candidates exhausted
+        let attempted_ids: Vec<&str> = failures.iter().map(|f| f.adapter_id.as_str()).collect();
+        let failure_summary: Vec<String> = failures
+            .iter()
+            .map(|f| format!("{}:{}", f.adapter_id, f.reason))
+            .collect();
+
+        tracing::error!(
+            attempted_ids = ?attempted_ids,
+            total_candidates = candidates.len(),
+            total_duration_ms = total_start.elapsed().as_millis() as u64,
+            "All adapter candidates exhausted"
+        );
+
+        Err(AosError::ResourceExhaustion(format!(
+            "All {} adapter candidates failed: [{}]",
+            candidates.len(),
+            failure_summary.join("; ")
+        )))
+    }
+
     pub fn set_cache_identity(&self, identity: AdapterCacheIdentity) {
         self.table.set_cache_identity(identity);
     }
@@ -3300,6 +3492,22 @@ mod tests {
             .expect("write test adapter");
 
         B3Hash::hash(weights)
+    }
+
+    fn new_fallback_test_manager(
+        repo_root: std::path::PathBuf,
+        tenant_id: &str,
+    ) -> HotSwapManager<MockKernels> {
+        let kernels = Arc::new(tokio::sync::Mutex::new(MockKernels::default()));
+        let integrity = Arc::new(AdapterIntegrityVerifier::disabled(tenant_id.to_string()));
+        HotSwapManager::new_with_kernels(
+            kernels,
+            repo_root,
+            tenant_id.to_string(),
+            integrity,
+            None,
+            None,
+        )
     }
 
     fn tamper_adapter_payload(path: &Path) -> B3Hash {
@@ -4466,5 +4674,137 @@ mod tests {
             manager.table.staged.read().contains_key(adapter_c),
             "unrelated adapter_c must survive the failed swap cleanup"
         );
+    }
+
+    #[tokio::test]
+    async fn fallback_load_empty_candidates_returns_resource_exhaustion() {
+        let dir = tempdir().expect("tempdir");
+        let manager = new_fallback_test_manager(dir.path().to_path_buf(), SYSTEM_TENANT);
+        let err = manager
+            .try_load_with_fallback(&[], Duration::from_secs(5))
+            .await
+            .expect_err("empty candidates should fail");
+        assert!(
+            matches!(err, AosError::ResourceExhaustion(_)),
+            "expected ResourceExhaustion, got: {err:?}"
+        );
+    }
+
+    #[tokio::test]
+    async fn fallback_load_primary_succeeds_no_fallback() {
+        let dir = tempdir().expect("tempdir");
+        let tenant_dir = dir.path().join(SYSTEM_TENANT);
+        std::fs::create_dir_all(&tenant_dir).expect("create tenant dir");
+
+        let weights = make_payload("fallback-primary", 256);
+        let adapter_path = tenant_dir.join("good-adapter.aos");
+        let hash = write_test_adapter(
+            &adapter_path,
+            "good-adapter",
+            "test-base",
+            "standard",
+            "general",
+            "good-adapter",
+            &weights,
+        );
+
+        let manager = new_fallback_test_manager(dir.path().to_path_buf(), SYSTEM_TENANT);
+
+        let candidates = vec![FallbackCandidate {
+            adapter_id: "good-adapter".to_string(),
+            hash,
+        }];
+
+        let outcome = manager
+            .try_load_with_fallback(&candidates, Duration::from_secs(10))
+            .await
+            .expect("primary should succeed");
+
+        assert_eq!(outcome.adapter_id, "good-adapter");
+        assert_eq!(outcome.attempts, 1);
+        assert!(outcome.failures.is_empty());
+        assert!(outcome.result.success);
+    }
+
+    #[tokio::test]
+    async fn fallback_load_skips_missing_adapter_loads_second() {
+        let dir = tempdir().expect("tempdir");
+        let tenant_dir = dir.path().join(SYSTEM_TENANT);
+        std::fs::create_dir_all(&tenant_dir).expect("create tenant dir");
+
+        // Only create the second adapter on disk; first is missing
+        let weights = make_payload("fallback-second", 256);
+        let adapter_path = tenant_dir.join("second-adapter.aos");
+        let hash_second = write_test_adapter(
+            &adapter_path,
+            "second-adapter",
+            "test-base",
+            "standard",
+            "general",
+            "second-adapter",
+            &weights,
+        );
+
+        let manager = new_fallback_test_manager(dir.path().to_path_buf(), SYSTEM_TENANT);
+
+        let candidates = vec![
+            FallbackCandidate {
+                adapter_id: "missing-adapter".to_string(),
+                hash: B3Hash::hash(b"missing"),
+            },
+            FallbackCandidate {
+                adapter_id: "second-adapter".to_string(),
+                hash: hash_second,
+            },
+        ];
+
+        let outcome = manager
+            .try_load_with_fallback(&candidates, Duration::from_secs(10))
+            .await
+            .expect("fallback to second should succeed");
+
+        assert_eq!(outcome.adapter_id, "second-adapter");
+        assert_eq!(outcome.attempts, 2);
+        assert_eq!(outcome.failures.len(), 1);
+        assert_eq!(outcome.failures[0].adapter_id, "missing-adapter");
+    }
+
+    #[tokio::test]
+    async fn fallback_load_all_fail_returns_resource_exhaustion() {
+        let dir = tempdir().expect("tempdir");
+        let tenant_dir = dir.path().join(SYSTEM_TENANT);
+        std::fs::create_dir_all(&tenant_dir).expect("create tenant dir");
+
+        let manager = new_fallback_test_manager(dir.path().to_path_buf(), SYSTEM_TENANT);
+
+        let candidates = vec![
+            FallbackCandidate {
+                adapter_id: "missing-a".to_string(),
+                hash: B3Hash::hash(b"a"),
+            },
+            FallbackCandidate {
+                adapter_id: "missing-b".to_string(),
+                hash: B3Hash::hash(b"b"),
+            },
+            FallbackCandidate {
+                adapter_id: "missing-c".to_string(),
+                hash: B3Hash::hash(b"c"),
+            },
+        ];
+
+        let err = manager
+            .try_load_with_fallback(&candidates, Duration::from_secs(5))
+            .await
+            .expect_err("all candidates missing should fail");
+
+        match err {
+            AosError::ResourceExhaustion(msg) => {
+                assert!(msg.contains("3 adapter candidates failed"), "msg: {msg}");
+                assert!(msg.contains("missing-a"), "msg: {msg}");
+                assert!(msg.contains("missing-b"), "msg: {msg}");
+                assert!(msg.contains("missing-c"), "msg: {msg}");
+            }
+            other => panic!("expected ResourceExhaustion, got: {other:?}"),
+        }
     }
 }
