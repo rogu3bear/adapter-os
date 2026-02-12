@@ -152,6 +152,23 @@ impl ApiError {
         matches!(self, Self::Aborted)
     }
 
+    /// Check if this error indicates a 404/not-found condition
+    pub fn is_not_found(&self) -> bool {
+        match self {
+            Self::NotFound(_) => true,
+            Self::Http { status, .. } if *status == 404 => true,
+            Self::Structured { code, .. } => matches!(
+                code.as_str(),
+                "NOT_FOUND"
+                    | "ENDPOINT_NOT_FOUND"
+                    | "MODEL_NOT_FOUND"
+                    | "ADAPTER_NOT_FOUND"
+                    | "RESOURCE_NOT_FOUND"
+            ),
+            _ => false,
+        }
+    }
+
     /// Get the error code if available
     pub fn code(&self) -> Option<&str> {
         match self {
@@ -238,15 +255,41 @@ impl ApiError {
                     code,
                     failure_code,
                     hint,
+                    details,
                     ..
                 } => {
-                    let base = user_message_for_code(code, *failure_code, error);
+                    let base = user_message_for_code(code, *failure_code, error, details.as_ref());
                     apply_hint(base, hint.as_deref())
                 }
                 _ => self.to_string(),
             }
         }
     }
+}
+
+/// Extract the specific violation reason for POLICY_VIOLATION errors.
+///
+/// The server sends violation details in two places:
+/// - `details`: string with "Request violates N policy pack(s): pack: reason; ..."
+/// - `error` (message): either generic "policy violation" or specific error text
+///
+/// We prefer `details` (most specific), then fall back to `error` if it carries
+/// more information than the bare "policy violation" string.
+fn policy_violation_message(error: &str, details: Option<&serde_json::Value>) -> String {
+    const GENERIC: &str = "Blocked by policy. Contact an admin if you need access.";
+
+    // 1. Try the details field — server puts the full violation text there
+    if let Some(detail_str) = details.and_then(|v| v.as_str()).filter(|s| !s.is_empty()) {
+        return format!("Blocked by policy: {detail_str}");
+    }
+
+    // 2. Fall back to the error message if it's more specific than "policy violation"
+    let lower = error.to_lowercase();
+    if !error.is_empty() && lower != "policy violation" {
+        return format!("Blocked by policy: {error}");
+    }
+
+    GENERIC.to_string()
 }
 
 fn apply_hint(mut message: String, hint: Option<&str>) -> String {
@@ -261,17 +304,166 @@ fn apply_hint(mut message: String, hint: Option<&str>) -> String {
     message
 }
 
-fn user_message_for_code(code: &str, failure_code: Option<FailureCode>, error: &str) -> String {
+fn user_message_for_code(
+    code: &str,
+    failure_code: Option<FailureCode>,
+    error: &str,
+    details: Option<&serde_json::Value>,
+) -> String {
     let message = match code {
+        // -- 401 Unauthorized: authentication errors --
         "UNAUTHORIZED" | "TOKEN_EXPIRED" | "TOKEN_REVOKED" | "INVALID_TOKEN" | "MISSING_AUTH" => {
             "Session expired. Log in again.".to_string()
         }
-        "FORBIDDEN" | "PERMISSION_DENIED" | "AUTHORIZATION_ERROR" | "POLICY_VIOLATION" => {
+        "TOKEN_MISSING" => "No authentication token provided. Log in to continue.".to_string(),
+        "TOKEN_INVALID" => "Authentication token is invalid. Log in again.".to_string(),
+        "TOKEN_SIGNATURE_INVALID" => {
+            "Token signature verification failed. Log in again.".to_string()
+        }
+        "INVALID_ISSUER" => {
+            "Token issuer mismatch. Check your authentication provider.".to_string()
+        }
+        "INVALID_AUDIENCE" => {
+            "Token audience mismatch. Check your authentication configuration.".to_string()
+        }
+        "INVALID_API_KEY" => "API key is invalid or not found.".to_string(),
+        "SESSION_EXPIRED" => "Your session has expired. Log in again.".to_string(),
+        "SESSION_LOCKED" => {
+            "Session is locked due to suspicious activity. Contact an admin.".to_string()
+        }
+        "DEVICE_MISMATCH" => "Device mismatch detected. Log in again from this device.".to_string(),
+        "INVALID_CREDENTIALS" => "Invalid username or password.".to_string(),
+
+        // -- 403 Forbidden: authorization and policy errors --
+        "POLICY_VIOLATION" => policy_violation_message(error, details),
+        "FORBIDDEN" | "PERMISSION_DENIED" | "AUTHORIZATION_ERROR" => {
             "You don't have access to this action. Contact an admin if you need access.".to_string()
         }
+        "TENANT_ISOLATION_ERROR" => {
+            "Cross-tenant access denied. You can only access your own workspace.".to_string()
+        }
+        "CSRF_ERROR" => "Security token expired. Refresh the page and try again.".to_string(),
+        "INSUFFICIENT_ROLE" => "Your role does not have permission for this action.".to_string(),
+        "MFA_REQUIRED" => {
+            "Multi-factor authentication required. Complete MFA to continue.".to_string()
+        }
+        "POLICY_ERROR" => "Policy evaluation failed. Contact an admin.".to_string(),
+        "DETERMINISM_VIOLATION" => {
+            "Determinism invariant violated. This operation cannot proceed.".to_string()
+        }
+        "EGRESS_VIOLATION" => "Network egress blocked by security policy.".to_string(),
+        "SSRF_BLOCKED" => {
+            "Request blocked: target resolves to a private network address.".to_string()
+        }
+        "ISOLATION_VIOLATION" => "Tenant isolation boundary violated.".to_string(),
+        "PERFORMANCE_VIOLATION" => "Performance budget exceeded for this operation.".to_string(),
+        "ANOMALY_DETECTED" => {
+            "Anomalous behavior detected. Operation paused for review.".to_string()
+        }
+        "SYSTEM_QUARANTINED" => {
+            "System is in quarantine mode. Operations are restricted.".to_string()
+        }
+        "ADAPTER_TENANT_MISMATCH" => "This adapter belongs to a different workspace.".to_string(),
+        "INTEGRITY_VIOLATION" => {
+            "Data integrity check failed. The data may be corrupted.".to_string()
+        }
+        "CHECKPOINT_INTEGRITY_FAILED" => {
+            "Checkpoint signature verification failed. The checkpoint may be tampered.".to_string()
+        }
+
+        // -- 404 Not Found --
         "NOT_FOUND" | "ENDPOINT_NOT_FOUND" | "MODEL_NOT_FOUND" | "ADAPTER_NOT_FOUND" => {
             "Not found. Check the URL or try again.".to_string()
         }
+        "CACHE_ENTRY_NOT_FOUND" => "Cache entry not found. It may have been evicted.".to_string(),
+
+        // -- 400 Bad Request: validation and parse errors --
+        "BAD_REQUEST" => "Invalid request. Check your input and try again.".to_string(),
+        "VALIDATION_ERROR" => {
+            "Some fields are invalid. Fix the highlighted fields and retry.".to_string()
+        }
+        "SERIALIZATION_ERROR" => "Data format error. Check your request format.".to_string(),
+        "PARSE_ERROR" => "Could not parse the request. Check the input format.".to_string(),
+        "INVALID_HASH" => "Invalid hash format. Expected a BLAKE3 hex string.".to_string(),
+        "INVALID_CPID" => "Invalid checkpoint ID format.".to_string(),
+        "INVALID_MANIFEST" => "Adapter manifest is malformed. Check required fields.".to_string(),
+        "ADAPTER_NOT_IN_MANIFEST" => "Adapter not found in the manifest.".to_string(),
+        "ADAPTER_NOT_IN_EFFECTIVE_SET" => {
+            "Adapter is not in the effective adapter set for this request.".to_string()
+        }
+        "KERNEL_LAYOUT_MISMATCH" => {
+            "Kernel layout does not match expected configuration. Rebuild the plan.".to_string()
+        }
+        "CHAT_TEMPLATE_ERROR" => {
+            "Chat template processing failed. Check the template format.".to_string()
+        }
+        "MISSING_FIELD" => "A required field is missing from the request.".to_string(),
+        "INVALID_TENANT_ID" => "Invalid tenant ID format.".to_string(),
+        "INVALID_SESSION_ID" => "Invalid session ID format.".to_string(),
+        "INVALID_SEALED_DATA" => "Sealed data integrity check failed.".to_string(),
+        "FEATURE_DISABLED" => "This feature is currently disabled.".to_string(),
+        "PREFLIGHT_FAILED" => {
+            "Preflight checks failed. Run 'aosctl doctor' for details.".to_string()
+        }
+        "INCOMPATIBLE_SCHEMA_VERSION" => {
+            "Schema version is incompatible. Update required.".to_string()
+        }
+        "ADAPTER_BASE_MODEL_MISMATCH" => {
+            "Adapter was trained on a different base model than the one loaded.".to_string()
+        }
+        "DETERMINISM_ERROR" => {
+            "Determinism validation failed. Check seed configuration.".to_string()
+        }
+
+        // -- 409 Conflict --
+        "CONFLICT" => "Conflict detected. Another operation may be in progress.".to_string(),
+        "ADAPTER_HASH_MISMATCH" => {
+            "Adapter content hash mismatch. Re-upload or verify the adapter.".to_string()
+        }
+        "ADAPTER_LAYER_HASH_MISMATCH" => {
+            "Adapter layer hash mismatch. The adapter file may be corrupted.".to_string()
+        }
+        "POLICY_HASH_MISMATCH" => {
+            "Policy hash mismatch. The policy pack may have been updated.".to_string()
+        }
+        "PROMOTION_ERROR" => "Adapter promotion failed. Check promotion requirements.".to_string(),
+        "MODEL_ACQUISITION_IN_PROGRESS" => {
+            "Model download is already in progress. Please wait.".to_string()
+        }
+        "DUPLICATE_REQUEST" => {
+            "Duplicate request detected. Your previous request is being processed.".to_string()
+        }
+
+        // -- 422 Unprocessable --
+        "REASONING_LOOP_DETECTED" => {
+            "Reasoning loop detected. The model is repeating itself. Try rephrasing.".to_string()
+        }
+
+        // -- 429 Too Many Requests --
+        "TOO_MANY_REQUESTS" => "Too many requests. Retry in a moment.".to_string(),
+
+        // -- 499 Client Closed --
+        "CLIENT_CLOSED_REQUEST" => "Request cancelled.".to_string(),
+
+        // -- 500 Internal Server Error --
+        "INTERNAL_ERROR" => "Internal server error. Retry in a moment.".to_string(),
+        "EXPORT_FAILED" => "Export operation failed. Check storage and retry.".to_string(),
+        "DATABASE_ERROR" => "Database error. Retry in a moment.".to_string(),
+        "CRYPTO_ERROR" => "Cryptographic operation failed. Check key configuration.".to_string(),
+        "CONFIG_ERROR" => "Server configuration error. Contact an admin.".to_string(),
+        "RAG_ERROR" => "Document retrieval failed. Check the knowledge base.".to_string(),
+        "ROUTING_BYPASS" => "Internal routing error. Retry in a moment.".to_string(),
+        "REPLAY_ERROR" => "Replay operation failed. Check the replay bundle.".to_string(),
+
+        // -- 502 Bad Gateway --
+        "BASE_LLM_ERROR" => "Base model error. Retry in a moment or check worker logs.".to_string(),
+        "UDS_CONNECTION_FAILED" => {
+            "Worker connection failed. Check if the worker is running.".to_string()
+        }
+        "INVALID_RESPONSE" => "Invalid response from worker. Retry in a moment.".to_string(),
+        "DOWNLOAD_FAILED" => "File download failed. Check network connectivity.".to_string(),
+
+        // -- 503 Service Unavailable --
         "WORKER_NOT_RESPONDING" | "NO_COMPATIBLE_WORKER" | "WORKER_DEGRADED" => {
             "Worker unavailable. Retry in a moment or check worker health.".to_string()
         }
@@ -290,9 +482,33 @@ fn user_message_for_code(code: &str, failure_code: Option<FailureCode>, error: &
         "SERVICE_UNAVAILABLE" | "BAD_GATEWAY" | "NETWORK_ERROR" | "CIRCUIT_BREAKER_OPEN" => {
             "Service temporarily unavailable. Retry in a moment.".to_string()
         }
+        "CIRCUIT_BREAKER_HALF_OPEN" => "Service is recovering. Retry in a moment.".to_string(),
+        "HEALTH_CHECK_FAILED" => "Health check failed. The system may be starting up.".to_string(),
+        "CPU_THROTTLED" => "System is CPU-throttled. Reduce load or retry later.".to_string(),
+        "DISK_FULL" => "Disk space exhausted. Free storage and retry.".to_string(),
+        "FD_EXHAUSTED" => "System file descriptor limit reached. Contact an admin.".to_string(),
+        "THREAD_POOL_SATURATED" => "All worker threads are busy. Retry in a moment.".to_string(),
+        "TEMP_DIR_UNAVAILABLE" => "Temporary storage unavailable. Contact an admin.".to_string(),
+        "WORKER_ID_UNAVAILABLE" => {
+            "Worker identification unavailable. Retry in a moment.".to_string()
+        }
+
+        // -- 504 Gateway Timeout --
         "REQUEST_TIMEOUT" | "GATEWAY_TIMEOUT" | "TIMEOUT" => {
             "Request timed out. Retry in a moment.".to_string()
         }
+
+        // -- Boot-time errors --
+        "DEV_BYPASS_IN_RELEASE" => "Dev bypass is not allowed in release builds.".to_string(),
+        "JWT_MODE_NOT_CONFIGURED" => "JWT authentication is not properly configured.".to_string(),
+        "API_KEY_MODE_NOT_CONFIGURED" => {
+            "API key authentication is not properly configured.".to_string()
+        }
+
+        // -- Payload --
+        "PAYLOAD_TOO_LARGE" => "Request is too large. Reduce the payload size.".to_string(),
+
+        // -- Fallback --
         _ => {
             let lower = error.to_lowercase();
             if lower.contains("inference failed") {
@@ -538,6 +754,57 @@ mod tests {
     }
 
     #[test]
+    fn test_policy_violation_with_details_string() {
+        let body = r#"{"error":"policy violation","code":"POLICY_VIOLATION","details":"Request violates 1 policy pack(s): safety: prohibited content detected"}"#;
+        let error = ApiError::from_response(403, body, None);
+        assert_eq!(
+            error.user_message(),
+            "Blocked by policy: Request violates 1 policy pack(s): safety: prohibited content detected"
+        );
+    }
+
+    #[test]
+    fn test_policy_violation_with_specific_error_message() {
+        let body =
+            r#"{"error":"adapter exceeds maximum rank for tenant","code":"POLICY_VIOLATION"}"#;
+        let error = ApiError::from_response(403, body, None);
+        assert_eq!(
+            error.user_message(),
+            "Blocked by policy: adapter exceeds maximum rank for tenant"
+        );
+    }
+
+    #[test]
+    fn test_policy_violation_generic_fallback() {
+        let body = r#"{"error":"policy violation","code":"POLICY_VIOLATION"}"#;
+        let error = ApiError::from_response(403, body, None);
+        assert_eq!(
+            error.user_message(),
+            "Blocked by policy. Contact an admin if you need access."
+        );
+    }
+
+    #[test]
+    fn test_policy_violation_details_preferred_over_error_message() {
+        let body = r#"{"error":"some specific error","code":"POLICY_VIOLATION","details":"detailed violation: egress denied for endpoint api.example.com"}"#;
+        let error = ApiError::from_response(403, body, None);
+        // details should take precedence over error message
+        assert!(error
+            .user_message()
+            .contains("egress denied for endpoint api.example.com"));
+    }
+
+    #[test]
+    fn test_policy_violation_with_hint() {
+        let body = r#"{"error":"policy violation","code":"POLICY_VIOLATION","details":"training blocked: insufficient quota","hint":"upgrade your plan"}"#;
+        let error = ApiError::from_response(403, body, None);
+        assert_eq!(
+            error.user_message(),
+            "Blocked by policy: training blocked: insufficient quota. Next: upgrade your plan"
+        );
+    }
+
+    #[test]
     fn test_user_message_applies_hint() {
         let error = ApiError::Structured {
             error: "Service unavailable".to_string(),
@@ -556,5 +823,196 @@ mod tests {
             error.user_message(),
             "Service temporarily unavailable. Retry in a moment. Next: retry in a moment"
         );
+    }
+
+    /// Helper: build a structured error from a code string and return its user_message().
+    fn msg_for(code: &str) -> String {
+        let body = format!(r#"{{"error":"test error","code":"{}"}}"#, code);
+        ApiError::from_response(400, &body, None).user_message()
+    }
+
+    // --- New error code mapping tests ---
+
+    #[test]
+    fn test_user_message_bad_request_codes() {
+        assert_eq!(
+            msg_for("BAD_REQUEST"),
+            "Invalid request. Check your input and try again."
+        );
+        assert_eq!(
+            msg_for("VALIDATION_ERROR"),
+            "Some fields are invalid. Fix the highlighted fields and retry."
+        );
+        assert_eq!(
+            msg_for("INVALID_HASH"),
+            "Invalid hash format. Expected a BLAKE3 hex string."
+        );
+        assert_eq!(
+            msg_for("MISSING_FIELD"),
+            "A required field is missing from the request."
+        );
+        assert_eq!(
+            msg_for("ADAPTER_BASE_MODEL_MISMATCH"),
+            "Adapter was trained on a different base model than the one loaded."
+        );
+    }
+
+    #[test]
+    fn test_user_message_auth_codes() {
+        assert_eq!(
+            msg_for("TOKEN_MISSING"),
+            "No authentication token provided. Log in to continue."
+        );
+        assert_eq!(
+            msg_for("TOKEN_SIGNATURE_INVALID"),
+            "Token signature verification failed. Log in again."
+        );
+        assert_eq!(
+            msg_for("INVALID_API_KEY"),
+            "API key is invalid or not found."
+        );
+        assert_eq!(
+            msg_for("SESSION_EXPIRED"),
+            "Your session has expired. Log in again."
+        );
+        assert_eq!(
+            msg_for("INVALID_CREDENTIALS"),
+            "Invalid username or password."
+        );
+    }
+
+    #[test]
+    fn test_user_message_forbidden_codes() {
+        assert_eq!(
+            msg_for("TENANT_ISOLATION_ERROR"),
+            "Cross-tenant access denied. You can only access your own workspace."
+        );
+        assert_eq!(
+            msg_for("CSRF_ERROR"),
+            "Security token expired. Refresh the page and try again."
+        );
+        assert_eq!(
+            msg_for("EGRESS_VIOLATION"),
+            "Network egress blocked by security policy."
+        );
+        assert_eq!(
+            msg_for("CHECKPOINT_INTEGRITY_FAILED"),
+            "Checkpoint signature verification failed. The checkpoint may be tampered."
+        );
+    }
+
+    #[test]
+    fn test_user_message_conflict_codes() {
+        assert_eq!(
+            msg_for("CONFLICT"),
+            "Conflict detected. Another operation may be in progress."
+        );
+        assert_eq!(
+            msg_for("ADAPTER_HASH_MISMATCH"),
+            "Adapter content hash mismatch. Re-upload or verify the adapter."
+        );
+        assert_eq!(
+            msg_for("DUPLICATE_REQUEST"),
+            "Duplicate request detected. Your previous request is being processed."
+        );
+    }
+
+    #[test]
+    fn test_user_message_server_error_codes() {
+        assert_eq!(
+            msg_for("INTERNAL_ERROR"),
+            "Internal server error. Retry in a moment."
+        );
+        assert_eq!(
+            msg_for("DATABASE_ERROR"),
+            "Database error. Retry in a moment."
+        );
+        assert_eq!(
+            msg_for("CONFIG_ERROR"),
+            "Server configuration error. Contact an admin."
+        );
+    }
+
+    #[test]
+    fn test_user_message_gateway_codes() {
+        assert_eq!(
+            msg_for("BASE_LLM_ERROR"),
+            "Base model error. Retry in a moment or check worker logs."
+        );
+        assert_eq!(
+            msg_for("UDS_CONNECTION_FAILED"),
+            "Worker connection failed. Check if the worker is running."
+        );
+        assert_eq!(
+            msg_for("DOWNLOAD_FAILED"),
+            "File download failed. Check network connectivity."
+        );
+    }
+
+    #[test]
+    fn test_user_message_resource_exhaustion_codes() {
+        assert_eq!(
+            msg_for("DISK_FULL"),
+            "Disk space exhausted. Free storage and retry."
+        );
+        assert_eq!(
+            msg_for("FD_EXHAUSTED"),
+            "System file descriptor limit reached. Contact an admin."
+        );
+        assert_eq!(
+            msg_for("THREAD_POOL_SATURATED"),
+            "Workers are at capacity. Retry in a moment or check worker health."
+        );
+        assert_eq!(
+            msg_for("CIRCUIT_BREAKER_HALF_OPEN"),
+            "Service is recovering. Retry in a moment."
+        );
+    }
+
+    #[test]
+    fn test_user_message_misc_codes() {
+        assert_eq!(
+            msg_for("REASONING_LOOP_DETECTED"),
+            "Reasoning loop detected. The model is repeating itself. Try rephrasing."
+        );
+        assert_eq!(
+            msg_for("TOO_MANY_REQUESTS"),
+            "Too many requests. Retry in a moment."
+        );
+        assert_eq!(msg_for("CLIENT_CLOSED_REQUEST"), "Request cancelled.");
+        assert_eq!(
+            msg_for("PAYLOAD_TOO_LARGE"),
+            "Request is too large. Reduce the payload size."
+        );
+    }
+
+    #[test]
+    fn test_user_message_boot_time_codes() {
+        assert_eq!(
+            msg_for("DEV_BYPASS_IN_RELEASE"),
+            "Dev bypass is not allowed in release builds."
+        );
+        assert_eq!(
+            msg_for("JWT_MODE_NOT_CONFIGURED"),
+            "JWT authentication is not properly configured."
+        );
+        assert_eq!(
+            msg_for("API_KEY_MODE_NOT_CONFIGURED"),
+            "API key authentication is not properly configured."
+        );
+    }
+
+    #[test]
+    fn test_user_message_cache_entry_not_found() {
+        assert_eq!(
+            msg_for("CACHE_ENTRY_NOT_FOUND"),
+            "Cache entry not found. It may have been evicted."
+        );
+    }
+
+    #[test]
+    fn test_user_message_fallback_still_works() {
+        // Unknown codes should fall through to the error message
+        assert_eq!(msg_for("TOTALLY_UNKNOWN_CODE"), "test error");
     }
 }

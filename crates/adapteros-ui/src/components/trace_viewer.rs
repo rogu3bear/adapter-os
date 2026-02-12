@@ -59,29 +59,40 @@ pub fn TraceViewer(
             return;
         };
 
-        wasm_bindgen_futures::spawn_local(async move {
-            if let Some(tid) = selected {
-                // Load detailed trace
-                set_state.set(TraceViewState::Loading);
-                match api
-                    .get_inference_trace_detail(&tid, Some(TOKEN_DECISIONS_PAGE_SIZE), None)
-                    .await
-                {
-                    Ok(detail) => set_state.set(TraceViewState::Detail(Box::new(detail))),
-                    Err(e) => set_state.set(TraceViewState::Error(e.to_string())),
+        gloo_timers::callback::Timeout::new(0, move || {
+            wasm_bindgen_futures::spawn_local(async move {
+                if let Some(tid) = selected {
+                    // Load detailed trace
+                    let _ = set_state.try_set(TraceViewState::Loading);
+                    match api
+                        .get_inference_trace_detail(&tid, Some(TOKEN_DECISIONS_PAGE_SIZE), None)
+                        .await
+                    {
+                        Ok(detail) => {
+                            let _ = set_state.try_set(TraceViewState::Detail(Box::new(detail)));
+                        }
+                        Err(e) => {
+                            let _ = set_state.try_set(TraceViewState::Error(e.to_string()));
+                        }
+                    }
+                } else if request_id.is_some() || has_initial_trace {
+                    // Load trace list
+                    let _ = set_state.try_set(TraceViewState::Loading);
+                    match api
+                        .list_inference_traces(request_id.as_deref(), Some(20))
+                        .await
+                    {
+                        Ok(traces) => {
+                            let _ = set_state.try_set(TraceViewState::List(traces));
+                        }
+                        Err(e) => {
+                            let _ = set_state.try_set(TraceViewState::Error(e.to_string()));
+                        }
+                    }
                 }
-            } else if request_id.is_some() || has_initial_trace {
-                // Load trace list
-                set_state.set(TraceViewState::Loading);
-                match api
-                    .list_inference_traces(request_id.as_deref(), Some(20))
-                    .await
-                {
-                    Ok(traces) => set_state.set(TraceViewState::List(traces)),
-                    Err(e) => set_state.set(TraceViewState::Error(e.to_string())),
-                }
-            }
-        });
+            });
+        })
+        .forget();
     });
 
     let container_class = if compact {
@@ -92,7 +103,7 @@ pub fn TraceViewer(
 
     view! {
         <div class=container_class data-testid="receipt-verification">
-            {move || match state.get() {
+            {move || match state.try_get().unwrap_or(TraceViewState::Empty) {
                 TraceViewState::Empty => view! {
                     <div class="text-muted-foreground text-center py-8">
                         <svg class="w-12 h-12 mx-auto mb-3 opacity-50" fill="none" stroke="currentColor" viewBox="0 0 24 24">
@@ -197,7 +208,7 @@ fn TraceListItem(
         _ => "bg-muted text-muted-foreground",
     };
 
-    let trace_id_short = trace.trace_id.chars().take(8).collect::<String>();
+    let trace_id_short = adapteros_id::short_id(&trace.trace_id);
     let finish_reason_display = trace
         .finish_reason
         .clone()
@@ -208,7 +219,7 @@ fn TraceListItem(
             <div class="flex items-center gap-3">
                 <div class="flex flex-col">
                     <span class="font-mono text-xs text-muted-foreground">
-                        {trace_id_short}"..."
+                        {trace_id_short}
                     </span>
                     <span class="text-xs text-muted-foreground">{trace.created_at}</span>
                 </div>
@@ -442,10 +453,10 @@ pub fn TokenDecisions(
                 on:click=move |_| set_expanded.update(|e| *e = !*e)
             >
                 <h4 class={format!("{} font-medium", label_class)}>
-                    "Token Routing Decisions ("{move || decisions.get().len()}")"
+                    "Token Routing Decisions ("{move || decisions.try_get().map(|d| d.len()).unwrap_or(0)}")"
                 </h4>
                 <svg
-                    class={move || format!("w-4 h-4 transition-transform {}", if expanded.get() { "rotate-180" } else { "" })}
+                    class={move || format!("w-4 h-4 transition-transform {}", if expanded.try_get().unwrap_or(false) { "rotate-180" } else { "" })}
                     fill="none"
                     stroke="currentColor"
                     viewBox="0 0 24 24"
@@ -454,60 +465,60 @@ pub fn TokenDecisions(
                 </svg>
             </button>
 
-            {move || if expanded.get() {
-                let decisions = decisions.get();
-                let total = decisions.len();
-                let cap = TOKEN_DECISIONS_DOM_CAP;
-                let truncated = total > cap;
-                let visible = if truncated {
-                    decisions.into_iter().skip(total.saturating_sub(cap)).collect::<Vec<_>>()
-                } else {
-                    decisions
-                };
-                Some(view! {
-                    <div class="mt-3 space-y-2" data-testid="token-decisions-list">
-                        {truncated.then(|| view! {
-                            <p class="text-xs text-muted-foreground">
-                                {format!("Showing last {} of {} token decisions.", cap, total)}
-                            </p>
-                        })}
-                        {visible.into_iter().map(|d| {
-                            view! {
-                                <TokenDecisionRow decision=d compact=compact/>
-                            }
-                        }).collect::<Vec<_>>()}
-                        {move || {
-                            if has_more.get() {
-                                let loading = loading_more.get();
-                                let on_load_more = on_load_more;
-                                Some(view! {
-                                    <div class="flex justify-center pt-2">
-                                        <button
-                                            class=move || {
-                                                format!(
-                                                    "text-xs px-3 py-1 rounded border border-border hover:bg-muted transition-colors {}",
-                                                    if loading { "opacity-60 cursor-not-allowed" } else { "" }
-                                                )
-                                            }
-                                            disabled=move || loading
-                                            data-testid="token-decisions-show-more"
-                                            on:click=move |_| {
-                                                on_load_more.run(());
-                                            }
-                                        >
-                                            {move || if loading { "Loading..." } else { "Show more" }}
-                                        </button>
-                                    </div>
-                                })
-                            } else {
-                                None
-                            }
-                        }}
-                    </div>
-                })
-            } else {
-                None
-            }}
+            <Show when=move || expanded.try_get().unwrap_or(false)>
+                {move || {
+                    let decisions = decisions.try_get().unwrap_or_default();
+                    let total = decisions.len();
+                    let cap = TOKEN_DECISIONS_DOM_CAP;
+                    let truncated = total > cap;
+                    let visible = if truncated {
+                        decisions.into_iter().skip(total.saturating_sub(cap)).collect::<Vec<_>>()
+                    } else {
+                        decisions
+                    };
+                    view! {
+                        <div class="mt-3 space-y-2" data-testid="token-decisions-list">
+                            {truncated.then(|| view! {
+                                <p class="text-xs text-muted-foreground">
+                                    {format!("Showing last {} of {} token decisions.", cap, total)}
+                                </p>
+                            })}
+                            {visible.into_iter().map(|d| {
+                                view! {
+                                    <TokenDecisionRow decision=d compact=compact/>
+                                }
+                            }).collect::<Vec<_>>()}
+                            {move || {
+                                if has_more.try_get().unwrap_or(false) {
+                                    let loading = loading_more.try_get().unwrap_or(false);
+                                    let on_load_more = on_load_more;
+                                    Some(view! {
+                                        <div class="flex justify-center pt-2">
+                                            <button
+                                                class=move || {
+                                                    format!(
+                                                        "text-xs px-3 py-1 rounded border border-border hover:bg-muted transition-colors {}",
+                                                        if loading { "opacity-60 cursor-not-allowed" } else { "" }
+                                                    )
+                                                }
+                                                disabled=move || loading
+                                                data-testid="token-decisions-show-more"
+                                                on:click=move |_| {
+                                                    on_load_more.run(());
+                                                }
+                                            >
+                                                {move || if loading { "Loading..." } else { "Show more" }}
+                                            </button>
+                                        </div>
+                                    })
+                                } else {
+                                    None
+                                }
+                            }}
+                        </div>
+                    }
+                }}
+            </Show>
         </div>
     }
 }
@@ -531,10 +542,10 @@ pub fn TokenDecisionsPaged(
     let perf_enabled = perf_logging_enabled();
 
     let on_load_more = Callback::new(move |_| {
-        if loading_more.get() || !has_more.get() {
+        if loading_more.try_get().unwrap_or(true) || !has_more.try_get().unwrap_or(false) {
             return;
         }
-        let Some(after) = next_cursor.get() else {
+        let Some(after) = next_cursor.try_get().flatten() else {
             return;
         };
         loading_more.set(true);
@@ -606,7 +617,7 @@ fn TokenDecisionRow(decision: TokenDecision, #[prop(optional)] compact: bool) ->
         .iter()
         .zip(decision.gates_q15.iter())
         .map(|(id, g)| {
-            let id_short = id.chars().take(8).collect::<String>();
+            let id_short = adapteros_id::short_id(id);
             let gate_pct = format!("{:.1}%", (*g as f64 / 327.67));
             (id_short, gate_pct)
         })
@@ -673,14 +684,8 @@ fn ReceiptVerification(
             "Pending: receipt digest has not been recomputed/verified yet.",
         ),
     };
-    let receipt_short = format!(
-        "{}...",
-        receipt.receipt_digest.chars().take(16).collect::<String>()
-    );
-    let output_short = format!(
-        "{}...",
-        receipt.output_digest.chars().take(16).collect::<String>()
-    );
+    let receipt_short = adapteros_id::format_hash_short(&receipt.receipt_digest);
+    let output_short = adapteros_id::format_hash_short(&receipt.output_digest);
     let cache_hit = receipt.prefix_cache_hit.unwrap_or(false);
 
     view! {
@@ -760,7 +765,7 @@ pub fn TraceButton(
     #[prop(optional, into)] data_testid: Option<String>,
 ) -> impl IntoView {
     let tid = trace_id.clone();
-    let trace_id_short = trace_id.chars().take(8).collect::<String>();
+    let trace_id_short = adapteros_id::short_id(&trace_id);
 
     let data_testid = data_testid.filter(|value| !value.is_empty());
 
@@ -843,15 +848,22 @@ fn TraceViewerInner(trace_id: String, #[prop(optional)] compact: bool) -> impl I
         let api = api.clone();
         let trace_id = tid.clone();
 
-        wasm_bindgen_futures::spawn_local(async move {
-            match api
-                .get_inference_trace_detail(&trace_id, Some(TOKEN_DECISIONS_PAGE_SIZE), None)
-                .await
-            {
-                Ok(detail) => set_state.set(TraceViewState::Detail(Box::new(detail))),
-                Err(e) => set_state.set(TraceViewState::Error(e.to_string())),
-            }
-        });
+        gloo_timers::callback::Timeout::new(0, move || {
+            wasm_bindgen_futures::spawn_local(async move {
+                match api
+                    .get_inference_trace_detail(&trace_id, Some(TOKEN_DECISIONS_PAGE_SIZE), None)
+                    .await
+                {
+                    Ok(detail) => {
+                        let _ = set_state.try_set(TraceViewState::Detail(Box::new(detail)));
+                    }
+                    Err(e) => {
+                        let _ = set_state.try_set(TraceViewState::Error(e.to_string()));
+                    }
+                }
+            });
+        })
+        .forget();
     });
 
     let container_class = if compact {
@@ -862,7 +874,7 @@ fn TraceViewerInner(trace_id: String, #[prop(optional)] compact: bool) -> impl I
 
     view! {
         <div class=container_class>
-            {move || match state.get() {
+            {move || match state.try_get().unwrap_or(TraceViewState::Loading) {
                 TraceViewState::Empty | TraceViewState::Loading => view! {
                     <div class="flex items-center justify-center py-8">
                         <div class="animate-spin rounded-full h-8 w-8 border-b-2 border-primary"></div>
@@ -977,7 +989,7 @@ pub fn TraceViewerWithData(
 
     view! {
         <div class=container_class>
-            {move || match trace_detail.get() {
+            {move || match trace_detail.try_get().unwrap_or(LoadingState::Loading) {
                 LoadingState::Idle | LoadingState::Loading => view! {
                     <div class="flex items-center justify-center py-8">
                         <Spinner/>

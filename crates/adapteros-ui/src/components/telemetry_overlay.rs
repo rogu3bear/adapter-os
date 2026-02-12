@@ -66,7 +66,9 @@ pub fn TelemetryOverlay() -> impl IntoView {
 
     // Derive streaming status from chat state
     let streaming_status = Memo::new(move |_| {
-        let state = chat_state.get();
+        let Some(state) = chat_state.try_get() else {
+            return StreamingStatus::Idle;
+        };
         if state.streaming {
             StreamingStatus::Active
         } else if state.error.is_some() {
@@ -78,75 +80,71 @@ pub fn TelemetryOverlay() -> impl IntoView {
 
     // Get last trace ID from most recent assistant message
     let last_digest = Memo::new(move |_| {
-        let state = chat_state.get();
+        let state = chat_state.try_get()?;
         state
             .messages
             .iter()
             .rev()
             .find_map(|m| m.trace_id.clone())
-            .map(|id| {
-                // Short form: first 8 chars
-                if id.len() > 8 {
-                    format!("{}...", &id[..8])
-                } else {
-                    id
-                }
-            })
+            .map(|id| adapteros_id::short_id(&id))
     });
 
     // Extract backend and adapter count from system status
-    let backend_info = Memo::new(move |_| match system_status.get() {
-        LoadingState::Loaded(status) => {
-            // Determine backend from kernel status
-            let backend = status
-                .kernel
-                .as_ref()
-                .and_then(|k| k.model.as_ref())
-                .map(|m| {
-                    // Parse status field for backend indicator
-                    let status_lower = m.status.to_lowercase();
-                    if status_lower.contains("coreml") {
-                        "CoreML"
-                    } else if status_lower.contains("mlx") {
-                        "MLX"
-                    } else if status_lower.contains("metal") {
-                        "Metal"
-                    } else {
-                        "Auto"
-                    }
-                })
-                .unwrap_or("--");
+    let backend_info =
+        Memo::new(
+            move |_| match system_status.try_get().unwrap_or(LoadingState::Loading) {
+                LoadingState::Loaded(status) => {
+                    // Determine backend from kernel status
+                    let backend = status
+                        .kernel
+                        .as_ref()
+                        .and_then(|k| k.model.as_ref())
+                        .map(|m| {
+                            // Parse status field for backend indicator
+                            let status_lower = m.status.to_lowercase();
+                            if status_lower.contains("coreml") {
+                                "CoreML"
+                            } else if status_lower.contains("mlx") {
+                                "MLX"
+                            } else if status_lower.contains("metal") {
+                                "Metal"
+                            } else {
+                                "Auto"
+                            }
+                        })
+                        .unwrap_or("--");
 
-            // Get adapter count from kernel.adapters
-            let adapter_count = status
-                .kernel
-                .as_ref()
-                .and_then(|k| k.adapters.as_ref())
-                .and_then(|a| a.total_active)
-                .unwrap_or(0);
+                    // Get adapter count from kernel.adapters
+                    let adapter_count = status
+                        .kernel
+                        .as_ref()
+                        .and_then(|k| k.adapters.as_ref())
+                        .and_then(|a| a.total_active)
+                        .unwrap_or(0);
 
-            // Get model count from kernel.models
-            let model_count = status
-                .kernel
-                .as_ref()
-                .and_then(|k| k.models.as_ref())
-                .and_then(|m| m.loaded)
-                .unwrap_or(0);
+                    // Get model count from kernel.models
+                    let model_count = status
+                        .kernel
+                        .as_ref()
+                        .and_then(|k| k.models.as_ref())
+                        .and_then(|m| m.loaded)
+                        .unwrap_or(0);
 
-            // Check memory availability for status indicator
-            let memory_ok = status
-                .kernel
-                .as_ref()
-                .and_then(|k| k.memory.as_ref())
-                .and_then(|m| m.uma.as_ref())
-                .map(|uma| uma.availability == DataAvailability::Available)
-                .unwrap_or(false);
+                    // Check memory availability for status indicator
+                    let memory_ok = status
+                        .kernel
+                        .as_ref()
+                        .and_then(|k| k.memory.as_ref())
+                        .and_then(|m| m.uma.as_ref())
+                        .map(|uma| uma.availability == DataAvailability::Available)
+                        .unwrap_or(false);
 
-            (backend.to_string(), adapter_count, model_count, memory_ok)
-        }
-        LoadingState::Loading | LoadingState::Idle => ("...".to_string(), 0, 0, false),
-        LoadingState::Error(_) => ("Err".to_string(), 0, 0, false),
-    });
+                    (backend.to_string(), adapter_count, model_count, memory_ok)
+                }
+                LoadingState::Loading | LoadingState::Idle => ("...".to_string(), 0, 0, false),
+                LoadingState::Error(_) => ("Err".to_string(), 0, 0, false),
+            },
+        );
 
     // Keyboard shortcut for toggle (Ctrl+Shift+T)
     let shortcut_count = use_keyboard_shortcut_t();
@@ -164,13 +162,16 @@ pub fn TelemetryOverlay() -> impl IntoView {
 
     view! {
         {move || {
-            if !settings.get().show_telemetry_overlay {
+            let Some(s) = settings.try_get() else {
+                return view! {}.into_any();
+            };
+            if !s.show_telemetry_overlay {
                 return view! {}.into_any();
             }
 
-            let (backend, adapters, models, memory_ok) = backend_info.get();
-            let stream_status = streaming_status.get();
-            let digest = last_digest.get();
+            let (backend, adapters, models, memory_ok) = backend_info.try_get().unwrap_or_else(|| ("...".to_string(), 0, 0, false));
+            let stream_status = streaming_status.try_get().unwrap_or(StreamingStatus::Idle);
+            let digest = last_digest.try_get().flatten();
 
             view! {
                 <div class="telemetry-overlay" role="status" aria-label="System telemetry">
@@ -260,9 +261,10 @@ fn use_keyboard_shortcut_t() -> ReadSignal<u32> {
         if let Err(e) =
             document.add_event_listener_with_callback("keydown", closure.as_ref().unchecked_ref())
         {
-            web_sys::console::error_1(
+            web_sys::console::warn_1(
                 &format!("Failed to add telemetry overlay shortcut listener: {:?}", e).into(),
             );
+            // Shortcut unavailable is non-critical; overlay is still accessible via settings
             return;
         }
 

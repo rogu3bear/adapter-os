@@ -59,12 +59,12 @@ pub fn SidebarNav() -> impl IntoView {
     let sidebar = use_sidebar();
     let ui_profile = use_ui_profile();
     let location = use_location();
-    let groups = Signal::derive(move || nav_groups(ui_profile.get()));
+    let groups = Signal::derive(move || ui_profile.try_get().map(nav_groups).unwrap_or_default());
 
     view! {
         <aside
             class=move || {
-                if sidebar.get().is_expanded() {
+                if sidebar.try_get().map(|s| s.is_expanded()).unwrap_or(false) {
                     "sidebar sidebar--expanded"
                 } else {
                     "sidebar sidebar--collapsed"
@@ -78,13 +78,13 @@ pub fn SidebarNav() -> impl IntoView {
                 <button
                     class="sidebar-toggle"
                     on:click=move |_| sidebar.update(|s| *s = s.toggle())
-                    title=move || if sidebar.get().is_expanded() { "Collapse sidebar" } else { "Expand sidebar" }
-                    aria-label=move || if sidebar.get().is_expanded() { "Collapse sidebar" } else { "Expand sidebar" }
+                    title=move || if sidebar.try_get().map(|s| s.is_expanded()).unwrap_or(false) { "Collapse sidebar" } else { "Expand sidebar" }
+                    aria-label=move || if sidebar.try_get().map(|s| s.is_expanded()).unwrap_or(false) { "Collapse sidebar" } else { "Expand sidebar" }
                 >
                     <svg
                         class=move || format!(
                             "sidebar-toggle-icon {}",
-                            if sidebar.get().is_expanded() { "" } else { "sidebar-toggle-icon--flipped" }
+                            if sidebar.try_get().map(|s| s.is_expanded()).unwrap_or(false) { "" } else { "sidebar-toggle-icon--flipped" }
                         )
                         width="16" height="16" viewBox="0 0 24 24"
                         fill="none" stroke="currentColor" stroke-width="2"
@@ -101,9 +101,9 @@ pub fn SidebarNav() -> impl IntoView {
                 // Dashboard - pinned at top
                 <SidebarItem
                     item=&DASHBOARD_ITEM
-                    is_expanded=Signal::derive(move || sidebar.get().is_expanded())
+                    is_expanded=Signal::derive(move || sidebar.try_get().map(|s| s.is_expanded()).unwrap_or(false))
                     is_active=Signal::derive(move || {
-                        let path = location.pathname.get();
+                        let path = location.pathname.try_get().unwrap_or_default();
                         path == "/" || path == "/dashboard"
                     })
                 />
@@ -112,11 +112,11 @@ pub fn SidebarNav() -> impl IntoView {
 
                 // Workflow groups
                 {move || {
-                    groups.get().into_iter().map(|group| {
+                    groups.try_get().unwrap_or_default().into_iter().map(|group| {
                         view! {
                             <SidebarGroup
                                 group=group
-                                is_expanded=Signal::derive(move || sidebar.get().is_expanded())
+                                is_expanded=Signal::derive(move || sidebar.try_get().map(|s| s.is_expanded()).unwrap_or(false))
                             />
                         }
                     }).collect::<Vec<_>>()
@@ -138,7 +138,7 @@ fn SidebarGroup(group: &'static NavGroup, is_expanded: Signal<bool>) -> impl Int
 
     // Check if any item in this group is active
     let group_is_active = move || {
-        let path = location.pathname.get();
+        let path = location.pathname.try_get().unwrap_or_default();
         items.iter().any(|item| {
             if item.route == "/" {
                 path == "/" || path == "/dashboard"
@@ -165,7 +165,7 @@ fn SidebarGroup(group: &'static NavGroup, is_expanded: Signal<bool>) -> impl Int
                             if group_is_active() { "sidebar-group-header--active" } else { "" }
                         )
                         title=move || {
-                            if is_expanded.get() {
+                            if is_expanded.try_get().unwrap_or(false) {
                                 label.to_string()
                             } else {
                                 match alt_shortcut {
@@ -181,7 +181,7 @@ fn SidebarGroup(group: &'static NavGroup, is_expanded: Signal<bool>) -> impl Int
                         >
                             <path d=icon_path/>
                         </svg>
-                        <Show when=move || is_expanded.get()>
+                        <Show when=move || is_expanded.try_get().unwrap_or(false)>
                             <span class="sidebar-label">{label}</span>
                             {alt_shortcut.map(|n| view! {
                                 <kbd class="sidebar-kbd">{format!("Alt+{}", n)}</kbd>
@@ -199,7 +199,7 @@ fn SidebarGroup(group: &'static NavGroup, is_expanded: Signal<bool>) -> impl Int
                         )
                         on:click=move |_| set_group_open.update(|v| *v = !*v)
                         title=move || {
-                            if is_expanded.get() {
+                            if is_expanded.try_get().unwrap_or(false) {
                                 label.to_string()
                             } else {
                                 match alt_shortcut {
@@ -215,7 +215,7 @@ fn SidebarGroup(group: &'static NavGroup, is_expanded: Signal<bool>) -> impl Int
                         >
                             <path d=icon_path/>
                         </svg>
-                        <Show when=move || is_expanded.get()>
+                        <Show when=move || is_expanded.try_get().unwrap_or(false)>
                             <span class="sidebar-label">{label}</span>
                             {alt_shortcut.map(|n| view! {
                                 <kbd class="sidebar-kbd">{format!("Alt+{}", n)}</kbd>
@@ -223,7 +223,7 @@ fn SidebarGroup(group: &'static NavGroup, is_expanded: Signal<bool>) -> impl Int
                             <svg
                                 class=move || format!(
                                     "sidebar-chevron {}",
-                                    if group_open.get() { "sidebar-chevron--open" } else { "" }
+                                    if group_open.try_get().unwrap_or(true) { "sidebar-chevron--open" } else { "" }
                                 )
                                 width="14" height="14" viewBox="0 0 24 24"
                                 fill="none" stroke="currentColor" stroke-width="2"
@@ -236,9 +236,9 @@ fn SidebarGroup(group: &'static NavGroup, is_expanded: Signal<bool>) -> impl Int
             }}
 
             // Sub-items (only for multi-item groups, when expanded)
-            <Show when=move || !is_single && (group_open.get() || !is_expanded.get())>
+            <Show when=move || !is_single && (group_open.try_get().unwrap_or(true) || !is_expanded.try_get().unwrap_or(false))>
                 <div class=move || {
-                    if is_expanded.get() { "sidebar-items" } else { "sidebar-items sidebar-items--collapsed" }
+                    if is_expanded.try_get().unwrap_or(false) { "sidebar-items" } else { "sidebar-items sidebar-items--collapsed" }
                 }>
                     {items.iter().filter(|i| !i.hidden).map(|item| {
                         view! {
@@ -246,7 +246,7 @@ fn SidebarGroup(group: &'static NavGroup, is_expanded: Signal<bool>) -> impl Int
                                 item=item
                                 is_expanded=is_expanded
                                 is_active=Signal::derive(move || {
-                                    let path = location.pathname.get();
+                                    let path = location.pathname.try_get().unwrap_or_default();
                                     if item.route == "/" {
                                         path == "/" || path == "/dashboard"
                                     } else {
@@ -278,12 +278,12 @@ fn SidebarItem(
             href=route
             class=move || format!(
                 "sidebar-item {}",
-                if is_active.get() { "sidebar-item--active" } else { "" }
+                if is_active.try_get().unwrap_or(false) { "sidebar-item--active" } else { "" }
             )
             title=move || {
-                if !is_expanded.get() { label.to_string() } else { String::new() }
+                if !is_expanded.try_get().unwrap_or(false) { label.to_string() } else { String::new() }
             }
-            aria-current=move || if is_active.get() { Some("page") } else { None }
+            aria-current=move || if is_active.try_get().unwrap_or(false) { Some("page") } else { None }
         >
             {icon_path.map(|path| view! {
                 <svg class="sidebar-icon" width="16" height="16" viewBox="0 0 24 24"
@@ -293,7 +293,7 @@ fn SidebarItem(
                     <path d=path/>
                 </svg>
             })}
-            <Show when=move || is_expanded.get()>
+            <Show when=move || is_expanded.try_get().unwrap_or(false)>
                 <span class="sidebar-label">{label}</span>
             </Show>
         </a>

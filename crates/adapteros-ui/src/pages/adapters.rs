@@ -244,9 +244,9 @@ fn AdaptersListInteractive(
                 </TableHeader>
                 <TableBody>
                     {move || {
-                        let count = visible_count.get();
-                        let current_selected = selected_id.get();
-                        let current_in_flight = in_flight_ids.get();
+                        let count = visible_count.try_get().unwrap_or(PAGE_SIZE);
+                        let current_selected = selected_id.try_get().flatten();
+                        let current_in_flight = in_flight_ids.try_get().unwrap_or_default();
                         adapters_for_rows.iter().take(count).map(|adapter| {
                             let id = adapter.id.clone();
                             let id_for_click = id.clone();
@@ -316,7 +316,7 @@ fn AdaptersListInteractive(
 
             // Show more button if there are hidden items
             {move || {
-                let count = visible_count.get();
+                let count = visible_count.try_get().unwrap_or(PAGE_SIZE);
                 let remaining = total.saturating_sub(count);
                 if remaining > 0 {
                     let aria_label = if remaining == 1 {
@@ -370,7 +370,7 @@ pub fn AdapterDetail() -> impl IntoView {
 
     // Extract adapter ID from URL - must be called unconditionally
     let adapter_id = Memo::new(move |_| {
-        let params_map = params.get();
+        let params_map = params.try_get().unwrap_or_default();
         params_map.get("id").unwrap_or_default()
     });
 
@@ -397,7 +397,8 @@ pub fn AdapterDetail() -> impl IntoView {
     let refetch_signal = StoredValue::new(refetch);
 
     // Derive adapter name for breadcrumb (shows ID until loaded)
-    let adapter_name_for_breadcrumb = Signal::derive(move || adapter_id.get());
+    let adapter_name_for_breadcrumb =
+        Signal::derive(move || adapter_id.try_get().unwrap_or_default());
 
     view! {
         <PageScaffold
@@ -552,6 +553,7 @@ fn AdapterDetailContent(adapter: AdapterResponse) -> impl IntoView {
                     <CopyableId
                         id=adapter.adapter_id.clone()
                         label="Adapter ID".to_string()
+                        display_name=adapter.display_name.clone().unwrap_or_default()
                         truncate=28
                     />
                     <div>

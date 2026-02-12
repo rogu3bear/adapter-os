@@ -16,9 +16,9 @@ pub use client::{csrf_token_from_cookie, ApiClient};
 
 // Re-export types from types module
 pub use types::{
-    AdapterScoreResponse, AddDocumentRequest, ApplyPolicyRequest, AuditChainEntry,
-    AuditChainResponse, AuditLogEntry, AuditLogsQuery, AuditLogsResponse,
-    ChainVerificationResponse, ChunkListResponse, ChunkResponse, CodePolicy,
+    AdapterLifecycleEvent, AdapterScoreResponse, AdapterVersionEvent, AddDocumentRequest,
+    ApplyPolicyRequest, AuditChainEntry, AuditChainResponse, AuditLogEntry, AuditLogsQuery,
+    AuditLogsResponse, ChainVerificationResponse, ChunkListResponse, ChunkResponse, CodePolicy,
     CollectionDetailResponse, CollectionDocumentInfo, CollectionListResponse, CollectionResponse,
     ComplianceAuditResponse, ComplianceControl, ComponentHealth, ComponentStatus,
     CreateCollectionRequest, CreateErrorAlertRuleRequest, CreateMonitoringRuleRequest,
@@ -36,12 +36,12 @@ pub use types::{
     ResourceUsageInfo, RoutingCandidateResponse, RoutingDebugRequest, RoutingDebugResponse,
     RoutingDecisionChainResponse, RoutingDecisionResponse, RoutingDecisionsQuery,
     RoutingDecisionsResponse, SafetySignals, SearchResponse, SearchResultItem, ServiceStatus,
-    StackResponse, SystemHealthResponse, SystemOverviewResponse, SystemReadyResponse,
-    TimingBreakdown, TokenDecision, TraceEvent, TraceReceiptSummary, TraceSearchQuery,
-    TrainingConfigRequest, UiInferenceTraceDetailResponse, UiTraceReceiptSummary,
-    UpdateCodePolicyRequest, UpdateErrorAlertRuleRequest, UpdateStackRequest,
-    ValidateAllFilesResponse, ValidateFileRequest, ValidateFileResponse, ValidatePolicyRequest,
-    WorkflowType,
+    StackResponse, SystemHealthResponse, SystemHealthTransitionEvent, SystemOverviewResponse,
+    SystemReadyResponse, TimingBreakdown, TokenDecision, TraceEvent, TraceReceiptSummary,
+    TraceSearchQuery, TrainingConfigRequest, TrainingLifecycleEvent,
+    UiInferenceTraceDetailResponse, UiTraceReceiptSummary, UpdateCodePolicyRequest,
+    UpdateErrorAlertRuleRequest, UpdateStackRequest, ValidateAllFilesResponse, ValidateFileRequest,
+    ValidateFileResponse, ValidatePolicyRequest, WorkflowType,
 };
 
 // Re-export types from adapteros-api-types via client module
@@ -62,7 +62,8 @@ pub use diagnostic_bundle::DiagnosticBundle;
 pub use error::{ApiError, ApiResult};
 pub use error_reporter::{report_error, report_error_with_toast, report_ui_panic};
 pub use sse::{
-    use_sse, use_sse_json, use_sse_json_events, use_sse_json_with_config, use_sse_with_config,
+    use_adapter_lifecycle_sse, use_health_lifecycle_sse, use_sse, use_sse_json,
+    use_sse_json_events, use_sse_json_with_config, use_sse_with_config, use_training_lifecycle_sse,
     CircuitBreakerConfig, SseConnection, SseEvent, SseState,
 };
 

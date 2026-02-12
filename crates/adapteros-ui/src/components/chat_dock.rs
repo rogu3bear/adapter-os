@@ -4,7 +4,7 @@
 //! Provides a command console for interacting with adapterOS.
 
 use crate::api::ApiClient;
-use crate::components::{Button, ButtonSize, Spinner, Textarea};
+use crate::components::{Button, ButtonSize, ButtonVariant, Spinner, Textarea};
 use crate::hooks::{use_api_resource, LoadingState};
 use crate::signals::{use_chat, ChatTarget, ContextToggle, DockState, MessageStatus, PendingPhase};
 use adapteros_api_types::InferenceReadyState;
@@ -574,7 +574,14 @@ fn MessageItem(msg_id: String) -> impl IntoView {
                             if user { "bg-primary text-primary-foreground" } else { "bg-muted" },
                             if is_pending.get() { "chat-message-pending" } else { "" }
                         )>
-                            <p class="text-sm whitespace-pre-wrap break-words">{move || content.get()}</p>
+                            {move || {
+                                if is_user.get() {
+                                    view! { <p class="text-sm whitespace-pre-wrap break-words">{content.get()}</p> }.into_any()
+                                } else {
+                                    let md = content.get();
+                                    view! { <div class="text-sm break-words"><crate::components::Markdown content=md /></div> }.into_any()
+                                }
+                            }}
                             <div class=format!(
                                 "mt-1 text-2xs flex items-center gap-1.5 {}",
                                 if user { "text-primary-foreground/70" } else { "text-muted-foreground" }
@@ -937,6 +944,10 @@ fn ChatInput() -> impl IntoView {
     });
     let has_queued = Memo::new(move |_| chat_state.get().queued_count() > 0);
     let can_send = Memo::new(move |_| !message.get().trim().is_empty());
+    let has_recovery = Memo::new(move |_| {
+        let state = chat_state.get();
+        state.stream_recovery.is_some() && !state.loading && !state.streaming
+    });
 
     // Check if inference is ready
     let inference_ready = Memo::new(move |_| match system_status.get() {
@@ -971,7 +982,10 @@ fn ChatInput() -> impl IntoView {
         let action_for_tick = chat_action.clone();
         Effect::new(move |_| {
             if let Some(LoadingState::Loaded(status)) = system_status.try_get() {
-                let blocker_text = status.inference_blockers.first().map(humanize_blocker);
+                let blocker_text = crate::components::inference_guidance::primary_blocker(
+                    &status.inference_blockers,
+                )
+                .map(humanize_blocker);
                 action_for_tick.tick_pending_phases(blocker_text);
             }
         });
@@ -1003,6 +1017,13 @@ fn ChatInput() -> impl IntoView {
         let action = chat_action.clone();
         Callback::new(move |_: ()| {
             action.cancel_stream();
+        })
+    };
+
+    let do_retry = {
+        let action = chat_action.clone();
+        Callback::new(move |_: ()| {
+            action.retry_last_stream();
         })
     };
 
@@ -1044,17 +1065,28 @@ fn ChatInput() -> impl IntoView {
                                 </Button>
                             }.into_any()
                         } else {
-                            // Show Send button - always enabled if there's text
-                            let disabled = !can_send.get();
                             view! {
-                                <Button
-                                    size=ButtonSize::Sm
-                                    loading=is_loading.get()
-                                    disabled=disabled
-                                    on_click=send_callback
-                                >
-                                    "Send"
-                                </Button>
+                                <>
+                                    // Retry button when last stream failed
+                                    {move || has_recovery.get().then(|| view! {
+                                        <Button
+                                            size=ButtonSize::Sm
+                                            variant=ButtonVariant::Outline
+                                            on_click=do_retry
+                                        >
+                                            "Retry"
+                                        </Button>
+                                    })}
+                                    // Send button - always enabled if there's text
+                                    <Button
+                                        size=ButtonSize::Sm
+                                        loading=is_loading.get()
+                                        disabled=!can_send.get()
+                                        on_click=send_callback
+                                    >
+                                        "Send"
+                                    </Button>
+                                </>
                             }.into_any()
                         }
                     }}

@@ -282,7 +282,7 @@ pub fn DocumentUploadDialog(
     };
 
     // Derived signal for button disabled state
-    let upload_disabled = Signal::derive(move || uploading.get() || selected_file.get().is_none());
+    let upload_disabled = Signal::derive(move || uploading.try_get().unwrap_or(false) || selected_file.try_get().flatten().is_none());
 
     // Helper to format bytes
     let format_bytes = |bytes: u64| -> String {
@@ -298,7 +298,7 @@ pub fn DocumentUploadDialog(
     };
 
     view! {
-        <Show when=move || open.get()>
+        <Show when=move || open.try_get().unwrap_or(false)>
             <div class="dialog-overlay" on:click=close_dialog>
                 <div class="dialog-content upload-dialog" on:click=|ev| ev.stop_propagation()>
                     <div class="dialog-header">
@@ -319,13 +319,13 @@ pub fn DocumentUploadDialog(
                         <div
                             class=move || {
                                 let mut classes = "upload-dropzone".to_string();
-                                if is_dragging.get() {
+                                if is_dragging.try_get().unwrap_or(false) {
                                     classes.push_str(" upload-dropzone-active");
                                 }
-                                if selected_file.get().is_some() {
+                                if selected_file.try_get().flatten().is_some() {
                                     classes.push_str(" upload-dropzone-has-file");
                                 }
-                                if uploading.get() {
+                                if uploading.try_get().unwrap_or(false) {
                                     classes.push_str(" upload-dropzone-uploading");
                                 }
                                 classes
@@ -336,24 +336,9 @@ pub fn DocumentUploadDialog(
                             on:drop=handle_drop
                         >
                             <div class="upload-dropzone-content">
-                                {move || if selected_file.get().is_some() {
-                                    view! {
-                                        <div class="upload-dropzone-file">
-                                            <span class="upload-dropzone-icon">"📄"</span>
-                                            <span class="upload-dropzone-filename">
-                                                {selected_file.get().unwrap_or_default()}
-                                            </span>
-                                            {move || selected_file_size.get().map(|size| {
-                                                view! {
-                                                    <span class="upload-dropzone-filesize">
-                                                        {format_bytes(size)}
-                                                    </span>
-                                                }
-                                            })}
-                                        </div>
-                                    }.into_any()
-                                } else {
-                                    view! {
+                                <Show
+                                    when=move || selected_file.try_get().flatten().is_some()
+                                    fallback=move || view! {
                                         <div class="upload-dropzone-prompt">
                                             <span class="upload-dropzone-icon-large">"📁"</span>
                                             <p class="upload-dropzone-text">
@@ -366,8 +351,22 @@ pub fn DocumentUploadDialog(
                                                 {format!("Maximum size: {} MB", MAX_FILE_SIZE / 1024 / 1024)}
                                             </p>
                                         </div>
-                                    }.into_any()
-                                }}
+                                    }
+                                >
+                                    <div class="upload-dropzone-file">
+                                        <span class="upload-dropzone-icon">"📄"</span>
+                                        <span class="upload-dropzone-filename">
+                                            {move || selected_file.try_get().flatten().unwrap_or_default()}
+                                        </span>
+                                        {move || selected_file_size.try_get().flatten().map(|size| {
+                                            view! {
+                                                <span class="upload-dropzone-filesize">
+                                                    {format_bytes(size)}
+                                                </span>
+                                            }
+                                        })}
+                                    </div>
+                                </Show>
 
                                 <input
                                     type="file"
@@ -381,8 +380,8 @@ pub fn DocumentUploadDialog(
 
                         // Progress bar (shown during upload)
                         {move || {
-                            let progress = upload_progress.get();
-                            if uploading.get() || progress > 0 {
+                            let progress = upload_progress.try_get().unwrap_or(0);
+                            if uploading.try_get().unwrap_or(false) || progress > 0 {
                                 Some(view! {
                                     <div class="upload-progress">
                                         <div class="upload-progress-bar">
@@ -406,7 +405,7 @@ pub fn DocumentUploadDialog(
                         }}
 
                         // Upload result with validation details
-                        {move || upload_result.get().map(|result| {
+                        {move || upload_result.try_get().flatten().map(|result| {
                             view! {
                                 <Card title="Upload Results">
                                     <dl class="upload-result-list">
@@ -416,8 +415,7 @@ pub fn DocumentUploadDialog(
                                                 <div class="upload-result-item">
                                                     <dt class="upload-result-label">"Checksum (BLAKE3)"</dt>
                                                     <dd class="upload-result-value font-mono text-sm">
-                                                        {checksum.chars().take(16).collect::<String>()}
-                                                        "..."
+                                                        {adapteros_id::format_hash_short(checksum)}
                                                     </dd>
                                                 </div>
                                             }
@@ -465,7 +463,7 @@ pub fn DocumentUploadDialog(
                         })}
 
                         // Error message
-                        {move || error_msg.get().map(|err| {
+                        {move || error_msg.try_get().flatten().map(|err| {
                             view! {
                                 <div class="upload-error">
                                     {err}
@@ -487,16 +485,15 @@ pub fn DocumentUploadDialog(
                             disabled=upload_disabled
                             on_click=handle_upload
                         >
-                            {move || if uploading.get() {
-                                view! {
-                                    <div class="button-loading">
-                                        <Spinner size=SpinnerSize::Sm />
-                                        " Uploading..."
-                                    </div>
-                                }.into_any()
-                            } else {
-                                view! { "Upload" }.into_any()
-                            }}
+                            <Show
+                                when=move || uploading.try_get().unwrap_or(false)
+                                fallback=move || view! { "Upload" }
+                            >
+                                <div class="button-loading">
+                                    <Spinner size=SpinnerSize::Sm />
+                                    " Uploading..."
+                                </div>
+                            </Show>
                         </Button>
                     </div>
                 </div>

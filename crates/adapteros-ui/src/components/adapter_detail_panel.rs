@@ -14,23 +14,11 @@ use adapteros_api_types::{AdapterResponse, LifecycleState};
 use leptos::prelude::*;
 
 use crate::components::{
-    AdapterLifecycleControls, Badge, BadgeVariant, Button, ButtonVariant, Card, CopyableId, Spinner,
+    AdapterLifecycleControls, Badge, BadgeVariant, Button, ButtonVariant, Card, CopyableId,
+    HashDisplay, ProvenanceBadge, Spinner,
 };
 use crate::contexts::use_in_flight;
 use crate::utils::format_bytes;
-
-/// Truncate a hash for display, showing first and last characters.
-fn truncate_hash(hash: &str, prefix_len: usize, suffix_len: usize) -> String {
-    if hash.len() <= prefix_len + suffix_len + 3 {
-        hash.to_string()
-    } else {
-        format!(
-            "{}...{}",
-            &hash[..prefix_len],
-            &hash[hash.len() - suffix_len..]
-        )
-    }
-}
 
 /// Suggestion context explaining why an adapter was suggested.
 #[derive(Clone, Debug, Default, PartialEq)]
@@ -192,8 +180,7 @@ fn AdapterDetailContent(
     // Extract display values
     let name = adapter.name.clone();
     let adapter_id = adapter.adapter_id.clone();
-    let hash_display = truncate_hash(&adapter.hash_b3, 8, 8);
-    let hash_full = adapter.hash_b3.clone();
+    let hash_b3 = adapter.hash_b3.clone();
     let tier = adapter.tier.clone();
     let category = adapter.category.clone().unwrap_or_else(|| "N/A".into());
     let scope = adapter.scope.clone().unwrap_or_else(|| "N/A".into());
@@ -264,6 +251,7 @@ fn AdapterDetailContent(
                         </span>
                     </Badge>
                 })}
+                <ProvenanceBadge />
             </div>
 
             // Why Suggested section (if context provided)
@@ -305,7 +293,7 @@ fn AdapterDetailContent(
                 <dl class="adapter-detail-metadata">
                     <div class="adapter-detail-metadata-item">
                         <dt>"Hash (BLAKE3)"</dt>
-                        <dd class="font-mono text-sm" title=hash_full>{hash_display}</dd>
+                        <dd><HashDisplay hash=hash_b3 /></dd>
                     </div>
                     <div class="adapter-detail-metadata-item">
                         <dt>"Version"</dt>

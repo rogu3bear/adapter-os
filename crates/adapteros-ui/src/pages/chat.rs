@@ -24,7 +24,7 @@ use crate::components::status_center::use_status_center;
 use crate::components::{
     use_is_tablet_or_smaller, AdapterHeat, AdapterMagnet, Badge, BadgeVariant, Button, ButtonSize,
     ButtonVariant, ChatAdaptersRegion, Checkbox, ConfirmationDialog, ConfirmationSeverity, Dialog,
-    Input, Spinner, SuggestedAdapterView, Textarea, TraceButton, TracePanel,
+    Input, Markdown, Spinner, SuggestedAdapterView, Textarea, TraceButton, TracePanel,
 };
 use crate::hooks::{use_api_resource, LoadingState};
 use crate::signals::{
@@ -97,7 +97,7 @@ pub fn Chat() -> impl IntoView {
         <>
             <h1 class="sr-only">"Chat"</h1>
             <Show when=move || mounted.try_get().unwrap_or(false) fallback=|| view! {
-                <div class="chat-loading-placeholder" style="display:flex;align-items:center;justify-content:center;height:100%;opacity:0.5;">
+                <div class="chat-loading-placeholder flex items-center justify-center h-full opacity-50">
                     <Spinner />
                 </div>
             }>
@@ -119,7 +119,11 @@ pub fn Chat() -> impl IntoView {
 pub fn ChatSession() -> impl IntoView {
     let params = use_params_map();
     let selected_id = Signal::derive(move || {
-        let id = params.get().get("session_id").unwrap_or_default();
+        let id = params
+            .try_get()
+            .unwrap_or_default()
+            .get("session_id")
+            .unwrap_or_default();
         if id.is_empty() {
             None
         } else {
@@ -139,7 +143,7 @@ pub fn ChatSession() -> impl IntoView {
         <>
             <h1 class="sr-only">"Chat Session"</h1>
             <Show when=move || mounted.try_get().unwrap_or(false) fallback=|| view! {
-                <div class="chat-loading-placeholder" style="display:flex;align-items:center;justify-content:center;height:100%;opacity:0.5;">
+                <div class="chat-loading-placeholder flex items-center justify-center h-full opacity-50">
                     <Spinner />
                 </div>
             }>
@@ -178,7 +182,8 @@ fn ChatWorkspace(
         Signal::derive(move || selected_session_id.try_get().flatten().unwrap_or_default());
     let has_selection = Signal::derive(move || {
         selected_session_id
-            .get()
+            .try_get()
+            .flatten()
             .map(|s| !s.is_empty())
             .unwrap_or(false)
     });
@@ -233,11 +238,22 @@ fn ChatWorkspace(
 
             // Conversation area
             <div class="flex-1 min-w-0 flex flex-col h-full">
-                // Mobile: sessions toggle button
+                // Mobile: back-nav breadcrumb + sessions toggle
                 {move || {
                     if is_compact.try_get().unwrap_or(false) {
                         Some(view! {
                             <div class="flex items-center gap-2 px-4 py-2 border-b border-border bg-background/80 shrink-0">
+                                <a
+                                    href="/chat"
+                                    class="inline-flex items-center gap-1 text-xs text-muted-foreground hover:text-foreground transition-colors"
+                                    aria-label="Back to chat sessions"
+                                >
+                                    <svg xmlns="http://www.w3.org/2000/svg" class="h-3.5 w-3.5" fill="none" viewBox="0 0 24 24" stroke="currentColor" stroke-width="2">
+                                        <path stroke-linecap="round" stroke-linejoin="round" d="M15 19l-7-7 7-7"/>
+                                    </svg>
+                                    "Chat"
+                                </a>
+                                <span class="text-xs text-muted-foreground/50">"/"</span>
                                 <button
                                     class="inline-flex items-center gap-1.5 px-3 py-1.5 text-xs font-medium rounded-md border border-border hover:bg-muted/50 transition-colors"
                                     on:click=move |_| show_mobile_sessions.update(|v| *v = !*v)
@@ -565,6 +581,19 @@ fn SessionListPanel(
     // Delete confirmation state
     let pending_delete_id = RwSignal::new(Option::<String>::None);
     let show_delete_confirm = RwSignal::new(false);
+    let pending_delete_title = Memo::new(move |_| {
+        let id = pending_delete_id.try_get().flatten().unwrap_or_default();
+        if id.is_empty() {
+            return String::new();
+        }
+        sessions
+            .try_get()
+            .unwrap_or_default()
+            .iter()
+            .find(|s| s.id == id)
+            .map(|s| s.title.clone())
+            .unwrap_or_default()
+    });
 
     let request_delete = move |id: String| {
         pending_delete_id.set(Some(id));
@@ -677,15 +706,25 @@ fn SessionListPanel(
             </div>
 
             // Delete confirmation dialog
-            <ConfirmationDialog
-                open=show_delete_confirm
-                title="Delete Session"
-                description="Are you sure you want to delete this chat session? This action cannot be undone."
-                severity=ConfirmationSeverity::Destructive
-                confirm_text="Delete"
-                on_confirm=Callback::new(confirm_delete)
-                on_cancel=Callback::new(cancel_delete)
-            />
+            {move || {
+                let title = pending_delete_title.try_get().unwrap_or_default();
+                let description = format!(
+                    "Are you sure you want to delete '{}'? This action cannot be undone.",
+                    title,
+                );
+                view! {
+                    <ConfirmationDialog
+                        open=show_delete_confirm
+                        title="Delete Session"
+                        description=description
+                        severity=ConfirmationSeverity::Destructive
+                        confirm_text="Delete"
+                        typed_confirmation=title
+                        on_confirm=Callback::new(confirm_delete)
+                        on_cancel=Callback::new(cancel_delete)
+                    />
+                }
+            }}
         </div>
     }
 }
@@ -1744,20 +1783,39 @@ fn ChatConversationPanel(
                 </div>
             </div>
 
-            // Stream status notice (transient info like "Waiting for server...", "Retrying...")
-            // Warning/Error notices are shown in the error banner below for better UX
+            // Stream status notice (progressive latency + TTFT feedback)
+            // Error-tone notices with state.error are shown in the error banner below.
+            // Info + Warning (without error) are shown here as inline status.
             {move || {
-                chat_state.try_get().unwrap_or_default().stream_notice.clone().and_then(|notice| {
-                    // Only show Info notices in header; Warning/Error go to error banner
-                    if notice.tone != StreamNoticeTone::Info {
-                        return None;
-                    }
-                    let message = notice.message.clone();
-                    Some(view! {
-                        <div class="flex items-center gap-3 text-xs" data-testid="chat-stream-status">
-                            <Badge variant=BadgeVariant::Secondary>{message}</Badge>
-                        </div>
-                    })
+                let state = chat_state.try_get().unwrap_or_default();
+                let notice = state.stream_notice.clone()?;
+                // Error-tone notices paired with an actual error use the error banner
+                if notice.tone == StreamNoticeTone::Error && state.error.is_some() {
+                    return None;
+                }
+                // Paused notices have their own dedicated section
+                if notice.tone == StreamNoticeTone::Paused {
+                    return None;
+                }
+                let message = notice.message.clone();
+                let is_ttft = message.ends_with("to first token");
+                let is_warning = notice.tone == StreamNoticeTone::Warning;
+                let variant = if is_warning {
+                    BadgeVariant::Warning
+                } else {
+                    BadgeVariant::Secondary
+                };
+                let css_class = if is_ttft {
+                    "latency-status latency-status--ttft"
+                } else if is_warning {
+                    "latency-status latency-status--slow"
+                } else {
+                    "latency-status"
+                };
+                Some(view! {
+                    <div class=css_class data-testid="chat-stream-status">
+                        <Badge variant=variant>{message}</Badge>
+                    </div>
                 })
             }}
 
@@ -1809,6 +1867,41 @@ fn ChatConversationPanel(
                 aria-live="polite"
                 aria-label="Chat messages"
             >
+                // Context overflow indicator
+                {
+                    let dismiss_action = chat_action.clone();
+                    move || {
+                        let notice = chat_state.try_get().unwrap_or_default().overflow_notice();
+                        notice.map(|msg| {
+                            let dismiss = dismiss_action.clone();
+                            let evicted = chat_state.try_get().unwrap_or_default().total_messages_evicted > 0;
+                            let severity_class = if evicted {
+                                "chat-overflow-notice chat-overflow-notice--evicted"
+                            } else {
+                                "chat-overflow-notice chat-overflow-notice--warning"
+                            };
+                            view! {
+                                <div
+                                    class=severity_class
+                                    role="status"
+                                    aria-live="polite"
+                                    data-testid="chat-overflow-notice"
+                                >
+                                    <span class="chat-overflow-notice-text">{msg}</span>
+                                    <button
+                                        class="chat-overflow-notice-dismiss"
+                                        type="button"
+                                        title="Dismiss"
+                                        aria-label="Dismiss overflow notice"
+                                        on:click=move |_| dismiss.dismiss_overflow_notice()
+                                    >
+                                        {"\u{00d7}"}
+                                    </button>
+                                </div>
+                            }
+                        })
+                    }
+                }
                 <div class="p-5">
                     {move || {
                         let msgs = chat_state.try_get().unwrap_or_default().messages;
@@ -1890,25 +1983,38 @@ fn ChatConversationPanel(
                                                             // Add min-height during streaming to prevent layout jump
                                                             if is_streaming { "min-h-[2.5rem]" } else { "" }
                                                         )>
-                                                            <p class="text-sm whitespace-pre-wrap break-words leading-relaxed">
-                                                                {msg.content.clone()}
-                                                                {if is_streaming && !msg.content.is_empty() {
-                                                                    // Pulsing cursor at end of streaming content
-                                                                    view! {
-                                                                        <span class="inline-block animate-pulse text-primary/70 ml-0.5">"▍"</span>
-                                                                    }.into_any()
-                                                                } else if is_streaming {
-                                                                    // Spinner while waiting for first token
-                                                                    view! {
-                                                                        <span class="inline-flex items-center gap-1.5 text-muted-foreground">
-                                                                            <Spinner/>
-                                                                            <span class="text-xs">"Routing..."</span>
-                                                                        </span>
-                                                                    }.into_any()
-                                                                } else {
-                                                                    view! { <span></span> }.into_any()
-                                                                }}
-                                                            </p>
+                                                            {if is_user {
+                                                                view! {
+                                                                    <p class="text-sm whitespace-pre-wrap break-words leading-relaxed">
+                                                                        {msg.content.clone()}
+                                                                    </p>
+                                                                }.into_any()
+                                                            } else if is_streaming {
+                                                                let content = msg.content.clone();
+                                                                view! {
+                                                                    <div class="text-sm break-words leading-relaxed">
+                                                                        <Markdown content=content.clone() />
+                                                                        {if !content.is_empty() {
+                                                                            view! {
+                                                                                <span class="inline-block animate-pulse text-primary/70 ml-0.5">"▍"</span>
+                                                                            }.into_any()
+                                                                        } else {
+                                                                            view! {
+                                                                                <span class="inline-flex items-center gap-1.5 text-muted-foreground">
+                                                                                    <Spinner/>
+                                                                                    <span class="text-xs">"Routing..."</span>
+                                                                                </span>
+                                                                            }.into_any()
+                                                                        }}
+                                                                    </div>
+                                                                }.into_any()
+                                                            } else {
+                                                                view! {
+                                                                    <div class="text-sm break-words leading-relaxed">
+                                                                        <Markdown content=msg.content.clone() />
+                                                                    </div>
+                                                                }.into_any()
+                                                            }}
                                                         </div>
                                                         // Run/Receipt links for assistant messages (placeholder if trace unavailable)
                                                         {if !is_user && !is_streaming {
@@ -2218,7 +2324,7 @@ fn ChatConversationPanel(
                         } else {
                             let guidance = guidance_for(
                                 status.inference_ready,
-                                status.inference_blockers.first(),
+                                crate::components::inference_guidance::primary_blocker(&status.inference_blockers),
                             );
                             let action = guidance.action;
                             view! {

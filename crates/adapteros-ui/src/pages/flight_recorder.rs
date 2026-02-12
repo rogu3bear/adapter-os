@@ -42,7 +42,7 @@ pub fn FlightRecorder() -> impl IntoView {
 
     // Fetch diagnostic runs with filtering
     let (runs, refetch_runs) = use_api_resource(move |client: Arc<ApiClient>| {
-        let filter = status_filter.get();
+        let filter = status_filter.try_get().unwrap_or_default();
         async move {
             let query = ListDiagRunsQuery {
                 status: if filter.is_empty() {
@@ -84,7 +84,7 @@ pub fn FlightRecorder() -> impl IntoView {
             </PageScaffoldActions>
 
             <SplitPanel
-                has_selection=Signal::derive(move || selected_run_id.get().is_some())
+                has_selection=Signal::derive(move || selected_run_id.try_get().flatten().is_some())
                 on_close=Callback::new(move |_| on_close_detail())
                 back_label="Back to Runs"
                 ratio=SplitRatio::Half
@@ -120,7 +120,7 @@ pub fn FlightRecorder() -> impl IntoView {
                 detail_panel=move || {
                     view! {
                         {move || {
-                            selected_run_id.get().map(|run_id| {
+                            selected_run_id.try_get().flatten().map(|run_id| {
                                 view! {
                                     <RunDetailHub
                                         run_id=run_id
@@ -152,15 +152,25 @@ pub fn FlightRecorderDetail() -> impl IntoView {
                 PageBreadcrumbItem::current(run_id()),
             ]
         >
-            <RunDetailHub
-                run_id=run_id()
-                on_close=Callback::new(|_| {
-                    // Navigate back to list
-                    if let Some(window) = web_sys::window() {
-                        let _ = window.history().and_then(|h| h.back());
-                    }
-                })
-            />
+            {move || {
+                let id = run_id();
+                if id.is_empty() {
+                    view! {
+                        <crate::components::ErrorDisplay error=crate::api::ApiError::Validation("Missing run ID in URL".to_string())/>
+                    }.into_any()
+                } else {
+                    view! {
+                        <RunDetailHub
+                            run_id=id
+                            on_close=Callback::new(|_| {
+                                if let Some(window) = web_sys::window() {
+                                    let _ = window.history().and_then(|h| h.back());
+                                }
+                            })
+                        />
+                    }.into_any()
+                }
+            }}
         </PageScaffold>
     }
 }
@@ -219,8 +229,8 @@ fn RunsTable(
                 />
                 <span class="text-xs text-muted-foreground whitespace-nowrap">
                     {move || {
-                        let filtered = controls.filtered_count.get();
-                        let total = controls.total_count.get();
+                        let filtered = controls.filtered_count.try_get().unwrap_or_default();
+                        let total = controls.total_count.try_get().unwrap_or_default();
                         if filtered == total {
                             format!("{} runs", total)
                         } else {
@@ -242,7 +252,7 @@ fn RunsTable(
                 </TableHeader>
                 <TableBody>
                     {move || {
-                        controls.visible_items.get().into_iter().map(|run| {
+                        controls.visible_items.try_get().unwrap_or_default().into_iter().map(|run| {
                             let run_id_for_row_click = run.id.clone();
                             let run_id_for_link = run.id.clone();
                             let run_id_for_display = truncate_id(&run.id);
@@ -251,7 +261,7 @@ fn RunsTable(
                             view! {
                                 <tr
                                     class="table-row cursor-pointer hover:bg-muted/50"
-                                    class:bg-accent=move || selected_id.get().as_ref() == Some(&rid)
+                                    class:bg-accent=move || selected_id.try_get().flatten().as_ref() == Some(&rid)
                                     on:click=move |_| on_select.run(run_id_for_row_click.clone())
                                 >
                                     <TableCell>
@@ -299,15 +309,15 @@ fn RunsTable(
 
             // Pagination
             {move || {
-                let total_pages = controls.total_pages.get();
+                let total_pages = controls.total_pages.try_get().unwrap_or_default();
                 (total_pages > 1).then(|| {
-                    let current = controls.page.get();
+                    let current = controls.page.try_get().unwrap_or_default();
                     view! {
                         <div class="flex items-center justify-center gap-2 py-3 border-t border-border">
                             <Button
                                 variant=ButtonVariant::Outline
                                 size=ButtonSize::Sm
-                                disabled=Signal::derive(move || !controls.has_prev.get())
+                                disabled=Signal::derive(move || !controls.has_prev.try_get().unwrap_or(false))
                                 on_click=Callback::new({
                                     let controls = controls.clone();
                                     move |_| controls.prev_page()
@@ -321,7 +331,7 @@ fn RunsTable(
                             <Button
                                 variant=ButtonVariant::Outline
                                 size=ButtonSize::Sm
-                                disabled=Signal::derive(move || !controls.has_next.get())
+                                disabled=Signal::derive(move || !controls.has_next.try_get().unwrap_or(false))
                                 on_click=Callback::new({
                                     let controls = controls.clone();
                                     move |_| controls.next_page()
@@ -500,7 +510,7 @@ fn RunDetailHub(run_id: String, on_close: Callback<()>) -> impl IntoView {
                     action=QuickAction::DownloadSignature(run_id.clone())
                 />
                 {move || {
-                    if ui_profile.get() == UiProfile::Full {
+                    if ui_profile.try_get().unwrap_or(UiProfile::Full) == UiProfile::Full {
                         Some(view! {
                             <a
                                 href=format!("/diff?run={}", run_id_for_diff_link.clone())
@@ -525,7 +535,7 @@ fn RunDetailHub(run_id: String, on_close: Callback<()>) -> impl IntoView {
                     <RunDetailTabButton tab=RunDetailTab::Routing active=active_tab label="Routing"/>
                     <RunDetailTabButton tab=RunDetailTab::Errors active=active_tab label="Errors"/>
                     {move || {
-                        if ui_profile.get() == UiProfile::Full {
+                        if ui_profile.try_get().unwrap_or(UiProfile::Full) == UiProfile::Full {
                             Some(view! {
                                 <RunDetailTabButton tab=RunDetailTab::Tokens active=active_tab label="Tokens"/>
                                 <RunDetailTabButton tab=RunDetailTab::Diff active=active_tab label="Diff"/>
@@ -539,7 +549,7 @@ fn RunDetailHub(run_id: String, on_close: Callback<()>) -> impl IntoView {
             </div>
 
             // Tab content
-            {move || match export_data.get() {
+            {move || match export_data.try_get().unwrap_or_default() {
                 LoadingState::Idle => view! {
                     <div class="flex items-center justify-center py-12">
                         <Spinner/>
@@ -684,7 +694,7 @@ fn TabContent(
     view! {
         {move || {
             let export = export.clone();
-            match active_tab.get() {
+            match active_tab.try_get().unwrap_or_default() {
                 RunDetailTab::Overview => {
                     view! { <OverviewTab export=export trace_detail=trace_detail/> }.into_any()
                 }
@@ -721,7 +731,7 @@ fn RunDetailTabButton(
     active: RwSignal<RunDetailTab>,
     label: &'static str,
 ) -> impl IntoView {
-    let is_active = move || active.get() == tab;
+    let is_active = move || active.try_get().unwrap_or_default() == tab;
     view! {
         <button
             class=move || {
@@ -769,7 +779,7 @@ fn QuickActionButton(
                 copy_to_clipboard(&text, set_copied, notifications.clone(), "Run ID");
             }
             QuickAction::CopyReceiptHash(run_id) => {
-                let Some(digest) = run_id.get() else {
+                let Some(digest) = run_id.try_get().flatten() else {
                     notifications.error(
                         "Receipt hash unavailable",
                         "Receipt hash is not available for this run yet.",
@@ -840,7 +850,7 @@ fn QuickActionButton(
             }
             QuickAction::DownloadReceipt(digest_signal) => {
                 // Download receipt JSON file
-                let Some(digest) = digest_signal.get() else {
+                let Some(digest) = digest_signal.try_get().flatten() else {
                     notifications.error(
                         "Receipt unavailable",
                         "Receipt digest is not available for this run yet.",
@@ -885,7 +895,7 @@ fn QuickActionButton(
             title=label
         >
             <span>{icon}</span>
-            <span>{move || if copied.get() { "Copied!" } else { label }}</span>
+            <span>{move || if copied.try_get().unwrap_or(false) { "Copied!" } else { label }}</span>
         </button>
     }
 }
@@ -930,7 +940,7 @@ fn copy_to_clipboard(
         .await;
 
         if success.is_some() {
-            set_copied.set(true);
+            let _ = set_copied.try_set(true);
             notifications.success(
                 "Copied to clipboard",
                 &format!("{} copied to clipboard.", label),
@@ -940,7 +950,7 @@ fn copy_to_clipboard(
             let window = web_sys::window();
             if let Some(window) = window {
                 let callback = Closure::once(Box::new(move || {
-                    set_copied.set(false);
+                    let _ = set_copied.try_set(false);
                 }) as Box<dyn FnOnce()>);
 
                 let _ = window.set_timeout_with_callback_and_timeout_and_arguments_0(
@@ -1090,7 +1100,7 @@ fn OverviewTab(
                     <div>
                         <p class="text-sm text-muted-foreground">"Stack"</p>
                         {move || {
-                            match trace_detail.get() {
+                            match trace_detail.try_get().unwrap_or_default() {
                                 LoadingState::Loaded(detail) => {
                                     if let Some(stack_id) = detail.stack_id.clone() {
                                         view! { <p class="font-medium text-sm">{stack_id}</p> }.into_any()
@@ -1107,7 +1117,7 @@ fn OverviewTab(
                     <div>
                         <p class="text-sm text-muted-foreground">"Model"</p>
                         {move || {
-                            match trace_detail.get() {
+                            match trace_detail.try_get().unwrap_or_default() {
                                 LoadingState::Loaded(detail) => {
                                     if let Some(model_id) = detail.model_id.clone() {
                                         view! { <p class="font-medium text-sm">{model_id}</p> }.into_any()
@@ -1124,7 +1134,7 @@ fn OverviewTab(
                     <div>
                         <p class="text-sm text-muted-foreground">"Policy"</p>
                         {move || {
-                            match trace_detail.get() {
+                            match trace_detail.try_get().unwrap_or_default() {
                                 LoadingState::Loaded(detail) => {
                                     if let Some(policy_id) = detail.policy_id.clone() {
                                         view! { <p class="font-medium text-sm">{policy_id}</p> }.into_any()
@@ -1141,7 +1151,7 @@ fn OverviewTab(
                     <div>
                         <p class="text-sm text-muted-foreground">"Backend"</p>
                         {move || {
-                            match trace_detail.get() {
+                            match trace_detail.try_get().unwrap_or_default() {
                                 LoadingState::Loaded(detail) => {
                                     if let Some(backend) = detail.backend_id.clone() {
                                         view! {
@@ -1164,7 +1174,7 @@ fn OverviewTab(
                     <div>
                         <p class="text-sm text-muted-foreground">"Adapters"</p>
                         {move || {
-                            match trace_detail.get() {
+                            match trace_detail.try_get().unwrap_or_default() {
                                 LoadingState::Loaded(detail) => {
                                     // Clone to avoid lifetime issues with view rendering
                                     let adapters = detail.adapters_used.clone();
@@ -1207,7 +1217,7 @@ fn OverviewTab(
                     </div>
                 </div>
                 {move || {
-                    match trace_detail.get() {
+                    match trace_detail.try_get().unwrap_or_default() {
                         LoadingState::Loaded(detail) => {
                             let missing_ids = detail.stack_id.is_none()
                                 && detail.model_id.is_none()
@@ -1236,7 +1246,7 @@ fn OverviewTab(
             // Provenance summary (UI-only receipt fields)
             <Card title="Provenance Summary".to_string()>
                 <div data-testid="run-provenance-summary">
-                    {move || match trace_detail.get() {
+                    {move || match trace_detail.try_get().unwrap_or_default() {
                         LoadingState::Loaded(detail) => {
                             if let Some(receipt) = detail.receipt.clone() {
                                 let (verified_label, verified_variant, verified_note) =
@@ -1372,7 +1382,7 @@ fn OverviewTab(
                         centered=true
                     />
                     {move || {
-                        if ui_profile.get() == UiProfile::Full {
+                        if ui_profile.try_get().unwrap_or(UiProfile::Full) == UiProfile::Full {
                             Some(view! {
                                 <ActionCard
                                     href="?tab=routing"
@@ -1544,7 +1554,7 @@ fn ReceiptsTab(
                 <nav class="flex gap-1">
                     <button
                         class=move || {
-                            if active_tab.get() == ReceiptPanelTab::Summary {
+                            if active_tab.try_get().unwrap_or(ReceiptPanelTab::Summary) == ReceiptPanelTab::Summary {
                                 "px-3 py-1.5 text-xs rounded-md bg-muted text-foreground".to_string()
                             } else {
                                 "px-3 py-1.5 text-xs rounded-md text-muted-foreground hover:text-foreground hover:bg-muted/50".to_string()
@@ -1557,7 +1567,7 @@ fn ReceiptsTab(
                     </button>
                     <button
                         class=move || {
-                            if active_tab.get() == ReceiptPanelTab::Details {
+                            if active_tab.try_get().unwrap_or(ReceiptPanelTab::Summary) == ReceiptPanelTab::Details {
                                 "px-3 py-1.5 text-xs rounded-md bg-muted text-foreground".to_string()
                             } else {
                                 "px-3 py-1.5 text-xs rounded-md text-muted-foreground hover:text-foreground hover:bg-muted/50".to_string()
@@ -1570,7 +1580,7 @@ fn ReceiptsTab(
                     </button>
                     <button
                         class=move || {
-                            if active_tab.get() == ReceiptPanelTab::Export {
+                            if active_tab.try_get().unwrap_or(ReceiptPanelTab::Summary) == ReceiptPanelTab::Export {
                                 "px-3 py-1.5 text-xs rounded-md bg-muted text-foreground".to_string()
                             } else {
                                 "px-3 py-1.5 text-xs rounded-md text-muted-foreground hover:text-foreground hover:bg-muted/50".to_string()
@@ -1593,7 +1603,7 @@ fn ReceiptsTab(
                 let exported_at = exported_at.clone();
                 let events_str = events_str.clone();
                 let notifications = notifications.clone();
-                match active_tab.get() {
+                match active_tab.try_get().unwrap_or(ReceiptPanelTab::Summary) {
                     ReceiptPanelTab::Summary => {
                         view! {
                             <div class="space-y-4">
@@ -1601,7 +1611,7 @@ fn ReceiptsTab(
                                     "Receipts & Hashes"
                                 </p>
                                 <Card title="Receipt Summary".to_string()>
-                                    {move || match trace_detail.get() {
+                                    {move || match trace_detail.try_get().unwrap_or_default() {
                                         LoadingState::Loaded(detail) => {
                                             if let Some(receipt) = detail.receipt.clone() {
                                                 let (verified_label, verified_variant) =
@@ -1643,7 +1653,7 @@ fn ReceiptsTab(
                                                                         if verifying.get_untracked() {
                                                                             return;
                                                                         }
-                                                                        verifying.set(true);
+                                                                        let _ = verifying.try_set(true);
                                                                         let trace_id =
                                                                             trace_id.clone();
                                                                         let notifications =
@@ -1681,22 +1691,18 @@ fn ReceiptsTab(
                                                                                     );
                                                                                 }
                                                                             }
-                                                                            verifying.set(false);
+                                                                            let _ = verifying.try_set(false);
                                                                         });
                                                                     }
                                                                 })
                                                                 disabled=verifying
                                                             >
-                                                                {move || if verifying.get() {
-                                                                    view! {
-                                                                        <span class="inline-flex items-center gap-2">
-                                                                            <Spinner/>
-                                                                            <span>"Verifying"</span>
-                                                                        </span>
-                                                                    }.into_any()
-                                                                } else {
-                                                                    view! { <span>"Verify on server"</span> }.into_any()
-                                                                }}
+                                                                <Show when=move || verifying.try_get().unwrap_or(false) fallback=move || view! { <span>"Verify on server"</span> }>
+                                                                    <span class="inline-flex items-center gap-2">
+                                                                        <Spinner/>
+                                                                        <span>"Verifying"</span>
+                                                                    </span>
+                                                                </Show>
                                                             </Button>
                                                         </div>
                                                         <div class="grid grid-cols-1 md:grid-cols-2 gap-4 text-sm">
@@ -1799,7 +1805,7 @@ fn ReceiptsTab(
                                 </Card>
 
                                 <Card title="Training Lineage".to_string()>
-                                    {move || match trace_detail.get() {
+                                    {move || match trace_detail.try_get().unwrap_or_default() {
                                         LoadingState::Loaded(detail) => {
                                             if let Some(receipt) = detail.receipt.clone() {
                                                 if let Some(digests) = receipt.adapter_training_digests {
@@ -1881,7 +1887,7 @@ fn ReceiptsTab(
 /// Hash row with verification badge
 #[component]
 fn HashRow(label: &'static str, hash: String, verified: Option<bool>) -> impl IntoView {
-    let hash_display = truncate_hash(&hash);
+    let hash_display = adapteros_id::format_hash_short(&hash);
     let (variant, text) = match verified {
         Some(true) => (BadgeVariant::Success, "Verified"),
         Some(false) => (BadgeVariant::Destructive, "Invalid"),
@@ -1987,7 +1993,7 @@ fn RoutingTab(
 
             // Link to full routing debug
             {move || {
-                if ui_profile.get() == UiProfile::Full {
+                if ui_profile.try_get().unwrap_or(UiProfile::Full) == UiProfile::Full {
                     Some(view! {
                         <Card>
                             <div class="text-center py-4">
@@ -2155,13 +2161,13 @@ fn DiffTab(export: DiagExportResponse, compare_trace: Option<String>) -> impl In
         let run_a_trace_id = run_a_trace_id.clone();
         Callback::new(move |trace_b: String| {
             if trace_b.is_empty() {
-                diff_error.set(Some("Select a run to compare".to_string()));
+                let _ = diff_error.try_set(Some("Select a run to compare".to_string()));
                 return;
             }
 
-            diff_loading.set(true);
-            diff_error.set(None);
-            diff_result.set(None);
+            let _ = diff_loading.try_set(true);
+            let _ = diff_error.try_set(None);
+            let _ = diff_result.try_set(None);
 
             let trace_a = run_a_trace_id.clone();
             spawn_local(async move {
@@ -2176,12 +2182,12 @@ fn DiffTab(export: DiagExportResponse, compare_trace: Option<String>) -> impl In
 
                 match client.diff_diag_runs(&request).await {
                     Ok(result) => {
-                        diff_result.set(Some(result));
-                        diff_loading.set(false);
+                        let _ = diff_result.try_set(Some(result));
+                        let _ = diff_loading.try_set(false);
                     }
                     Err(e) => {
-                        diff_error.set(Some(e.user_message()));
-                        diff_loading.set(false);
+                        let _ = diff_error.try_set(Some(e.user_message()));
+                        let _ = diff_loading.try_set(false);
                     }
                 }
             });
@@ -2198,8 +2204,8 @@ fn DiffTab(export: DiagExportResponse, compare_trace: Option<String>) -> impl In
     });
 
     let selected_run_id = Signal::derive(move || {
-        let selected_trace = run_b_trace_id.get();
-        match runs.get() {
+        let selected_trace = run_b_trace_id.try_get().unwrap_or_default();
+        match runs.try_get().unwrap_or_default() {
             LoadingState::Loaded(ref data) => data
                 .runs
                 .iter()
@@ -2240,10 +2246,10 @@ fn DiffTab(export: DiagExportResponse, compare_trace: Option<String>) -> impl In
                     <div class="flex flex-wrap items-center gap-3">
                         <Button
                             variant=ButtonVariant::Primary
-                            disabled=Signal::derive(move || diff_loading.get() || run_b_trace_id.get().is_empty())
-                            on_click=Callback::new(move |_| start_compare.run(run_b_trace_id.get()))
+                            disabled=Signal::derive(move || diff_loading.try_get().unwrap_or(false) || run_b_trace_id.try_get().unwrap_or_default().is_empty())
+                            on_click=Callback::new(move |_| start_compare.run(run_b_trace_id.try_get().unwrap_or_default()))
                         >
-                            {move || if diff_loading.get() { "Comparing..." } else { "Compare Runs" }}
+                            {move || if diff_loading.try_get().unwrap_or(false) { "Comparing..." } else { "Compare Runs" }}
                         </Button>
                         <Button
                             variant=ButtonVariant::Secondary
@@ -2251,15 +2257,15 @@ fn DiffTab(export: DiagExportResponse, compare_trace: Option<String>) -> impl In
                         >
                             "Refresh Runs"
                         </Button>
-                        {move || diff_error.get().map(|e| view! {
+                        {move || diff_error.try_get().flatten().map(|e| view! {
                             <span class="text-destructive text-sm">{e}</span>
                         })}
                         {move || {
-                            let compare_id = run_b_trace_id.get();
+                            let compare_id = run_b_trace_id.try_get().unwrap_or_default();
                             if compare_id.is_empty() {
                                 return view! {}.into_any();
                             }
-                            let run_id = selected_run_id.get().unwrap_or(compare_id.clone());
+                            let run_id = selected_run_id.try_get().flatten().unwrap_or(compare_id.clone());
                             let href = format!("/runs/{}?tab=diff&compare={}", run_id, run_a_trace_id_for_link);
                             view! {
                                 <Link href=href class="text-sm">
@@ -2272,7 +2278,7 @@ fn DiffTab(export: DiagExportResponse, compare_trace: Option<String>) -> impl In
             </Card>
 
             {move || {
-                if diff_loading.get() {
+                if diff_loading.try_get().unwrap_or(false) {
                     view! {
                         <Card>
                             <div class="flex items-center justify-center py-12">
@@ -2281,7 +2287,7 @@ fn DiffTab(export: DiagExportResponse, compare_trace: Option<String>) -> impl In
                             </div>
                         </Card>
                     }.into_any()
-                } else if let Some(result) = diff_result.get() {
+                } else if let Some(result) = diff_result.try_get().flatten() {
                     view! { <DiffResults result=result/> }.into_any()
                 } else {
                     view! {
@@ -2307,11 +2313,11 @@ fn RunCompareSelector(
         <select
             class="flex h-10 w-full rounded-md border border-input bg-background px-3 py-2 text-sm"
             on:change=move |ev| selected.set(event_target_value(&ev))
-            prop:value=move || selected.get()
+            prop:value=move || selected.try_get().unwrap_or_default()
         >
             <option value="">"-- Select a run --"</option>
             {move || {
-                match runs.get() {
+                match runs.try_get().unwrap_or_default() {
                     LoadingState::Loaded(data) => {
                         data.runs
                             .into_iter()
@@ -2512,7 +2518,7 @@ fn EventGroup(event_type: String, events: Vec<DiagEventResponse>) -> impl IntoVi
             >
                 <div class="flex items-center gap-2">
                     <svg
-                        class=move || format!("w-4 h-4 transition-transform {}", if expanded.get() { "rotate-90" } else { "" })
+                        class=move || format!("w-4 h-4 transition-transform {}", if expanded.try_get().unwrap_or(false) { "rotate-90" } else { "" })
                         fill="none"
                         stroke="currentColor"
                         viewBox="0 0 24 24"
@@ -2525,7 +2531,7 @@ fn EventGroup(event_type: String, events: Vec<DiagEventResponse>) -> impl IntoVi
             </button>
 
             {move || {
-                if expanded.get() {
+                if expanded.try_get().unwrap_or(false) {
                     view! {
                         <div class="mt-2 space-y-1 pl-6">
                             {events.iter().map(|event| {
@@ -2585,15 +2591,6 @@ fn EventRow(event: DiagEventResponse) -> impl IntoView {
 /// Truncate an ID for display.
 fn truncate_id(id: &str) -> String {
     adapteros_id::short_id(id)
-}
-
-/// Truncate a hash for display
-fn truncate_hash(hash: &str) -> String {
-    if hash.len() > 16 {
-        format!("{}...{}", &hash[..8], &hash[hash.len() - 8..])
-    } else {
-        hash.to_string()
-    }
 }
 
 /// Format duration in milliseconds

@@ -6,6 +6,7 @@ use super::hooks::{use_escape_key, use_status_data, StatusLoadingState};
 use super::items::{StatusItem, StatusItemMemory, StatusItemSeverity};
 use super::sections::{StatusDivider, StatusSection, StatusSectionBadgeVariant};
 use crate::components::Spinner;
+use crate::signals::{use_notification_context, Notification, NotificationSeverity};
 use adapteros_api_types::{
     DataAvailability, InferenceBlocker, InferenceReadyState, MemoryPressureLevel, RagStatus,
     ServiceHealthStatus, StatusIndicator as ApiStatusIndicator,
@@ -48,7 +49,7 @@ pub fn StatusCenterPanel(
         // Backdrop
         <div
             class=move || {
-                if open.get() {
+                if open.try_get().unwrap_or(false) {
                     "status-center-backdrop status-center-backdrop-visible"
                 } else {
                     "status-center-backdrop status-center-backdrop-hidden"
@@ -60,7 +61,7 @@ pub fn StatusCenterPanel(
         // Panel
         <div
             class=move || {
-                if open.get() {
+                if open.try_get().unwrap_or(false) {
                     "status-center-panel status-center-panel-open"
                 } else {
                     "status-center-panel status-center-panel-closed"
@@ -81,11 +82,11 @@ pub fn StatusCenterPanel(
                         class="status-center-refresh-btn"
                         on:click=move |_| refetch_for_button()
                         title="Refresh status"
-                        disabled=move || status_state.get().is_loading()
+                        disabled=move || status_state.try_get().map(|s| s.is_loading()).unwrap_or(false)
                     >
                         <svg
                             class=move || {
-                                if status_state.get().is_loading() {
+                                if status_state.try_get().map(|s| s.is_loading()).unwrap_or(false) {
                                     "status-center-refresh-icon status-center-refresh-spinning"
                                 } else {
                                     "status-center-refresh-icon"
@@ -115,8 +116,12 @@ pub fn StatusCenterPanel(
 
             // Content
             <div class="status-center-content">
+                // Notifications section (always visible, independent of status loading)
+                <NotificationsSection />
+                <StatusDivider />
+
                 {move || {
-                    match status_state.get() {
+                    match status_state.try_get().unwrap_or(StatusLoadingState::Loading) {
                         StatusLoadingState::Idle | StatusLoadingState::Loading => {
                             view! {
                                 <div class="status-center-loading">
@@ -307,11 +312,7 @@ fn StatusCenterSections(
             {rag_status.map(|rag| {
                 let (value, severity, detail) = match rag {
                     RagStatus::Enabled { model_hash, dimension } => {
-                        let short_hash = if model_hash.len() > 8 {
-                            format!("{}...", &model_hash[..8])
-                        } else {
-                            model_hash
-                        };
+                        let short_hash = adapteros_id::format_hash_short(&model_hash);
                         (
                             "Enabled".to_string(),
                             StatusItemSeverity::Success,
@@ -503,6 +504,187 @@ fn StatusCenterSections(
                 detail=status.integrity.drift.summary.clone().unwrap_or_default()
             />
         </StatusSection>
+    }
+}
+
+/// Notifications section showing error/warning history
+#[component]
+fn NotificationsSection() -> impl IntoView {
+    let (state, action) = use_notification_context();
+    let action_for_clear = action.clone();
+    let action_for_mark = action.clone();
+
+    let unread_count = move || {
+        state
+            .try_get()
+            .map(|s| s.notifications.iter().filter(|n| !n.read).count())
+            .unwrap_or(0)
+    };
+
+    let has_notifications = move || {
+        state
+            .try_get()
+            .map(|s| !s.notifications.is_empty())
+            .unwrap_or(false)
+    };
+
+    // Determine badge variant from most severe unread notification
+    let badge_variant = move || {
+        let notifications = state
+            .try_get()
+            .map(|s| s.notifications.clone())
+            .unwrap_or_default();
+        let worst = notifications
+            .iter()
+            .filter(|n| !n.read)
+            .map(|n| &n.severity)
+            .fold(None, |acc: Option<&NotificationSeverity>, s| {
+                Some(match (acc, s) {
+                    (Some(NotificationSeverity::Error), _) | (_, NotificationSeverity::Error) => {
+                        &NotificationSeverity::Error
+                    }
+                    (Some(NotificationSeverity::Warning), _)
+                    | (_, NotificationSeverity::Warning) => &NotificationSeverity::Warning,
+                    _ => s,
+                })
+            });
+        match worst {
+            Some(NotificationSeverity::Error) => StatusSectionBadgeVariant::Error,
+            Some(NotificationSeverity::Warning) => StatusSectionBadgeVariant::Warning,
+            _ => StatusSectionBadgeVariant::Info,
+        }
+    };
+
+    view! {
+        <StatusSection
+            title="Notifications"
+            badge_count=unread_count()
+            badge_variant=badge_variant()
+            initially_expanded=true
+        >
+            // Header actions (mark all read + clear)
+            {move || {
+                let mark_action = action_for_mark.clone();
+                let clear_action = action_for_clear.clone();
+                has_notifications().then(|| view! {
+                    <div class="status-notifications-actions" style="margin-bottom: 0.5rem;">
+                        <button
+                            class="status-notifications-action-btn"
+                            on:click=move |_| mark_action.mark_all_read()
+                            title="Mark all read"
+                        >
+                            <svg fill="none" stroke="currentColor" viewBox="0 0 24 24" stroke-width="2">
+                                <path stroke-linecap="round" stroke-linejoin="round" d="M5 13l4 4L19 7"/>
+                            </svg>
+                        </button>
+                        <button
+                            class="status-notifications-action-btn"
+                            on:click=move |_| clear_action.clear_notifications()
+                            title="Clear all"
+                        >
+                            <svg fill="none" stroke="currentColor" viewBox="0 0 24 24" stroke-width="2">
+                                <path stroke-linecap="round" stroke-linejoin="round" d="M19 7l-.867 12.142A2 2 0 0116.138 21H7.862a2 2 0 01-1.995-1.858L5 7m5 4v6m4-6v6m1-10V4a1 1 0 00-1-1h-4a1 1 0 00-1 1v3M4 7h16"/>
+                            </svg>
+                        </button>
+                    </div>
+                })
+            }}
+
+            {move || {
+                let notifications = state
+                    .try_get()
+                    .map(|s| s.notifications.clone())
+                    .unwrap_or_default();
+                if notifications.is_empty() {
+                    view! {
+                        <div class="status-notifications-empty">
+                            <svg class="status-notifications-empty-icon" fill="none" stroke="currentColor" viewBox="0 0 24 24" stroke-width="2">
+                                <path stroke-linecap="round" stroke-linejoin="round" d="M9 12l2 2 4-4m6 2a9 9 0 11-18 0 9 9 0 0118 0z"/>
+                            </svg>
+                            <span style="font-size: 0.75rem;">"No notifications"</span>
+                        </div>
+                    }.into_any()
+                } else {
+                    let items: Vec<_> = notifications.into_iter().rev().collect();
+                    view! {
+                        <div>
+                            {items.into_iter().map(|n| {
+                                view! { <NotificationItem notification=n /> }
+                            }).collect::<Vec<_>>()}
+                        </div>
+                    }.into_any()
+                }
+            }}
+        </StatusSection>
+    }
+}
+
+/// Individual notification item for the Status Center
+#[component]
+fn NotificationItem(notification: Notification) -> impl IntoView {
+    let severity_class = match notification.severity {
+        NotificationSeverity::Error => "status-notification-item-error",
+        NotificationSeverity::Warning => "status-notification-item-warning",
+        NotificationSeverity::Info => "status-notification-item-info",
+        NotificationSeverity::Success => "status-notification-item-success",
+    };
+
+    let severity_icon = match notification.severity {
+        NotificationSeverity::Error => "M12 9v4m0 4h.01M10.29 3.86l-7.29 12.6A1 1 0 003.86 18h16.28a1 1 0 00.86-1.5l-7.29-12.6a1 1 0 00-1.72 0z",
+        NotificationSeverity::Warning => "M12 9v4m0 4h.01M10.29 3.86l-7.29 12.6A1 1 0 003.86 18h16.28a1 1 0 00.86-1.5l-7.29-12.6a1 1 0 00-1.72 0z",
+        NotificationSeverity::Info => "M12 8v4m0 4h.01M21 12a9 9 0 11-18 0 9 9 0 0118 0z",
+        NotificationSeverity::Success => "M5 13l4 4L19 7",
+    };
+
+    let time_str = format_notification_timestamp(notification.timestamp);
+    let unread_class = if notification.read {
+        ""
+    } else {
+        "status-notification-item-unread"
+    };
+    let details = notification.details.clone();
+
+    view! {
+        <div class=format!("status-notification-item {} {}", severity_class, unread_class)>
+            <div class="status-notification-item-icon">
+                <svg class="w-4 h-4" fill="none" stroke="currentColor" viewBox="0 0 24 24" stroke-width="2">
+                    <path stroke-linecap="round" stroke-linejoin="round" d=severity_icon/>
+                </svg>
+            </div>
+            <div class="status-notification-item-content">
+                <div class="status-notification-item-header">
+                    <span class="status-notification-item-title">{notification.title}</span>
+                    <span class="status-notification-item-time">{time_str}</span>
+                </div>
+                <p class="status-notification-item-message">{notification.message}</p>
+                {details.map(|d| view! {
+                    <details class="status-notification-item-details">
+                        <summary>"Details"</summary>
+                        <pre class="status-notification-item-details-content">{d}</pre>
+                    </details>
+                })}
+            </div>
+        </div>
+    }
+}
+
+/// Format timestamp to relative time string
+fn format_notification_timestamp(timestamp: f64) -> String {
+    let now = js_sys::Date::now();
+    let diff_ms = now - timestamp;
+    let diff_secs = (diff_ms / 1000.0) as u64;
+
+    if diff_secs < 60 {
+        "just now".to_string()
+    } else if diff_secs < 3600 {
+        let mins = diff_secs / 60;
+        format!("{}m ago", mins)
+    } else if diff_secs < 86400 {
+        let hours = diff_secs / 3600;
+        format!("{}h ago", hours)
+    } else {
+        let days = diff_secs / 86400;
+        format!("{}d ago", days)
     }
 }
 

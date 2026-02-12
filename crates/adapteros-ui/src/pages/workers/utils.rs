@@ -52,20 +52,6 @@ pub fn format_uptime(seconds: u64) -> String {
     }
 }
 
-/// Truncate an ID for display.
-pub fn short_id(id: &str) -> String {
-    adapteros_id::short_id(id)
-}
-
-/// Truncate a hash for display (first 8 chars)
-pub fn short_hash(hash: &str) -> String {
-    if hash.len() > 8 {
-        format!("{}...", &hash[..8])
-    } else {
-        hash.to_string()
-    }
-}
-
 /// Format an ISO date string into a human-readable relative date
 /// e.g., "Today", "Yesterday", "Jan 5", "Dec 28, 2025"
 pub fn format_relative_date(iso_date: &str) -> String {

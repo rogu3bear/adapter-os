@@ -112,6 +112,12 @@ pub enum LoadingState<T> {
     Error(ApiError),
 }
 
+impl<T> Default for LoadingState<T> {
+    fn default() -> Self {
+        Self::Loading
+    }
+}
+
 impl<T> LoadingState<T> {
     /// Check if loading
     pub fn is_loading(&self) -> bool {

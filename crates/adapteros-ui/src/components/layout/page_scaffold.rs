@@ -44,6 +44,14 @@ impl BreadcrumbItem {
         }
     }
 
+    /// Create a non-clickable breadcrumb label (e.g. nav group name)
+    pub fn label(label: impl Into<String>) -> Self {
+        Self {
+            label: label.into(),
+            href: None,
+        }
+    }
+
     /// Create a breadcrumb for the current page (no link)
     pub fn current(label: impl Into<String>) -> Self {
         Self {
@@ -99,9 +107,12 @@ pub fn PageScaffold(
                     view! {
                         <nav class="page-scaffold-breadcrumbs" aria-label="Breadcrumb">
                             <ol class="flex items-center gap-1.5 text-sm text-muted-foreground mb-3">
-                                {crumbs.into_iter().enumerate().map(|(idx, crumb)| {
+                                {
+                                let crumb_count = crumbs.len();
+                                crumbs.into_iter().enumerate().map(|(idx, crumb)| {
                                     let label = crumb.label.clone();
                                     let href = crumb.href.clone();
+                                    let is_last = idx == crumb_count - 1;
 
                                     view! {
                                         <li class="flex items-center">
@@ -122,16 +133,21 @@ pub fn PageScaffold(
                                                         {label}
                                                     </a>
                                                 }.into_any()
-                                            } else {
+                                            } else if is_last {
                                                 view! {
                                                     <span class="text-foreground font-medium" aria-current="page">
                                                         {label}
                                                     </span>
                                                 }.into_any()
+                                            } else {
+                                                view! {
+                                                    <span>{label}</span>
+                                                }.into_any()
                                             }}
                                         </li>
                                     }
-                                }).collect::<Vec<_>>()}
+                                }).collect::<Vec<_>>()
+                            }
                             </ol>
                         </nav>
                     }

@@ -36,7 +36,7 @@ pub fn Errors() -> impl IntoView {
             title="Incidents"
             subtitle="Real-time error monitoring and analysis"
             breadcrumbs=vec![
-                PageBreadcrumbItem::new("Observe", "/errors"),
+                PageBreadcrumbItem::label("Observe"),
                 PageBreadcrumbItem::current("Errors"),
             ]
         >
@@ -104,15 +104,15 @@ fn LiveFeedSection() -> impl IntoView {
                 <div class="flex items-center gap-2">
                     <SseIndicator state=sse_status/>
                     <span class="text-sm text-muted-foreground">
-                        {move || format!("{} errors in buffer", live_errors.get().len())}
+                        {move || format!("{} errors in buffer", live_errors.try_get().unwrap_or_default().len())}
                     </span>
                 </div>
                 <div class="flex items-center gap-2">
                     <Button
-                        variant=if is_paused.get() { ButtonVariant::Primary } else { ButtonVariant::Outline }
+                        variant=if is_paused.try_get().unwrap_or(false) { ButtonVariant::Primary } else { ButtonVariant::Outline }
                         on:click=move |_| is_paused.update(|p| *p = !*p)
                     >
-                        {move || if is_paused.get() { "Resume" } else { "Pause" }}
+                        {move || if is_paused.try_get().unwrap_or(false) { "Resume" } else { "Pause" }}
                     </Button>
                     <Button
                         variant=ButtonVariant::Outline
@@ -126,7 +126,7 @@ fn LiveFeedSection() -> impl IntoView {
             // Live errors list
             <Card>
                 {move || {
-                    let errors = live_errors.get();
+                    let errors = live_errors.try_get().unwrap_or_default();
                     if errors.is_empty() {
                         view! {
                             <div class="py-12 text-center">
@@ -225,7 +225,7 @@ fn HistorySection() -> impl IntoView {
     // Fetch errors from API
     let (errors, refetch) = use_api_resource(move |client: Arc<ApiClient>| async move {
         let error_type = {
-            let val = error_type_filter.get();
+            let val = error_type_filter.try_get().unwrap_or_default();
             if val.is_empty() {
                 None
             } else {
@@ -233,7 +233,7 @@ fn HistorySection() -> impl IntoView {
             }
         };
         let http_status = {
-            let val = http_status_filter.get();
+            let val = http_status_filter.try_get().unwrap_or_default();
             val.parse::<i32>().ok()
         };
         client
@@ -332,7 +332,7 @@ fn HistorySection() -> impl IntoView {
                                         </TableHeader>
                                         <TableBody>
                                             {move || {
-                                                let count = visible_count.get().min(error_count);
+                                                let count = visible_count.try_get().unwrap_or(ERROR_HISTORY_PAGE_SIZE).min(error_count);
                                                 errors_data
                                                     .iter()
                                                     .take(count)
@@ -347,7 +347,7 @@ fn HistorySection() -> impl IntoView {
 
                                     // Show more button
                                     {move || {
-                                        let count = visible_count.get();
+                                        let count = visible_count.try_get().unwrap_or(ERROR_HISTORY_PAGE_SIZE);
                                         let remaining = error_count.saturating_sub(count);
                                         (remaining > 0).then(|| view! {
                                             <div class="flex items-center justify-center py-3 border-t">
@@ -559,7 +559,7 @@ fn AlertHistoryPanel() -> impl IntoView {
     let status_filter = RwSignal::new("unresolved".to_string());
 
     let (history, refetch_history) = use_api_resource(move |client: Arc<ApiClient>| {
-        let unresolved_only = if status_filter.get() == "unresolved" {
+        let unresolved_only = if status_filter.try_get().unwrap_or_default() == "unresolved" {
             Some(true)
         } else {
             None
@@ -806,7 +806,7 @@ fn CrashesSection() -> impl IntoView {
         use_api_resource(move |client: Arc<ApiClient>| async move { client.list_workers().await });
 
     let (crashes, refetch_crashes) = use_api_resource(move |client: Arc<ApiClient>| {
-        let worker_id = selected_worker_id.get();
+        let worker_id = selected_worker_id.try_get().unwrap_or_default();
         async move {
             if worker_id.is_empty() {
                 Ok(Vec::new())
@@ -856,7 +856,7 @@ fn CrashesSection() -> impl IntoView {
                 </div>
                 <div class="flex items-center gap-2">
                     {move || {
-                        match workers.get() {
+                        match workers.try_get().unwrap_or(LoadingState::Loading) {
                             LoadingState::Loaded(list) if !list.is_empty() => {
                                 let options: Vec<(String, String)> = list
                                     .iter()
@@ -898,7 +898,7 @@ fn CrashesSection() -> impl IntoView {
                 </div>
             </div>
 
-            {move || match workers.get() {
+            {move || match workers.try_get().unwrap_or(LoadingState::Loading) {
                 LoadingState::Idle | LoadingState::Loading => {
                     view! { <LoadingDisplay message="Loading workers..."/> }.into_any()
                 }
@@ -940,7 +940,7 @@ fn CrashesSection() -> impl IntoView {
                                     loading_message="Loading crash dumps...".to_string()
                                     render=move |data| {
                                         let data: Vec<ProcessCrashDumpResponse> = data;
-                                        if selected_worker_id.get().is_empty() {
+                                        if selected_worker_id.try_get().unwrap_or_default().is_empty() {
                                             view! {
                                                 <EmptyState
                                                     title="Select a worker"
@@ -1175,17 +1175,17 @@ fn AlertRuleRow(rule: ErrorAlertRuleResponse, on_update: Callback<()>) -> impl I
                         variant=ButtonVariant::Ghost
                         size=ButtonSize::Sm
                         on_click=Callback::new(on_toggle)
-                        disabled=Signal::derive(move || toggling.get())
+                        disabled=Signal::derive(move || toggling.try_get().unwrap_or(false))
                     >
-                        {move || if toggling.get() { "..." } else if is_active { "Disable" } else { "Enable" }}
+                        {move || if toggling.try_get().unwrap_or(false) { "..." } else if is_active { "Disable" } else { "Enable" }}
                     </Button>
                     <Button
                         variant=ButtonVariant::Ghost
                         size=ButtonSize::Sm
                         on_click=Callback::new(on_delete)
-                        disabled=Signal::derive(move || deleting.get())
+                        disabled=Signal::derive(move || deleting.try_get().unwrap_or(false))
                     >
-                        {move || if deleting.get() { "..." } else { "Delete" }}
+                        {move || if deleting.try_get().unwrap_or(false) { "..." } else { "Delete" }}
                     </Button>
                 </div>
             </TableCell>
@@ -1207,36 +1207,52 @@ fn CreateAlertRuleDialog(open: RwSignal<bool>, on_created: Callback<()>) -> impl
     let error = RwSignal::new(None::<String>);
 
     let on_submit = move |_| {
-        let name_val = name.get();
+        let name_val = name.try_get().unwrap_or_default();
         if name_val.trim().is_empty() {
             error.set(Some("Name is required".to_string()));
             return;
         }
 
-        let threshold_count_val = threshold_count.get().parse::<i32>().unwrap_or(5).max(1);
-        let threshold_window_val = threshold_window.get().parse::<i32>().unwrap_or(5).max(1);
+        let threshold_count_val = threshold_count
+            .try_get()
+            .unwrap_or_default()
+            .parse::<i32>()
+            .unwrap_or(5)
+            .max(1);
+        let threshold_window_val = threshold_window
+            .try_get()
+            .unwrap_or_default()
+            .parse::<i32>()
+            .unwrap_or(5)
+            .max(1);
 
         submitting.set(true);
         error.set(None);
 
         let request = CreateErrorAlertRuleRequest {
             name: name_val,
-            description: if description.get().is_empty() {
-                None
-            } else {
-                Some(description.get())
+            description: {
+                let val = description.try_get().unwrap_or_default();
+                if val.is_empty() {
+                    None
+                } else {
+                    Some(val)
+                }
             },
-            error_type_pattern: if error_pattern.get().is_empty() {
-                None
-            } else {
-                Some(error_pattern.get())
+            error_type_pattern: {
+                let val = error_pattern.try_get().unwrap_or_default();
+                if val.is_empty() {
+                    None
+                } else {
+                    Some(val)
+                }
             },
             http_status_pattern: None,
             page_pattern: None,
             threshold_count: threshold_count_val,
             threshold_window_minutes: threshold_window_val,
             cooldown_minutes: 15,
-            severity: severity.get(),
+            severity: severity.try_get().unwrap_or_else(|| "warning".to_string()),
             notification_channels: None,
         };
 
@@ -1263,7 +1279,7 @@ fn CreateAlertRuleDialog(open: RwSignal<bool>, on_created: Callback<()>) -> impl
             title="Create Alert Rule"
             description="Configure a new alert rule for error monitoring"
         >
-            {move || error.get().map(|e| view! {
+            {move || error.try_get().flatten().map(|e| view! {
                 <div class="rounded-md border border-destructive bg-destructive/10 p-3 text-sm text-destructive">
                     {e}
                 </div>
@@ -1328,9 +1344,9 @@ fn CreateAlertRuleDialog(open: RwSignal<bool>, on_created: Callback<()>) -> impl
                 <Button
                     variant=ButtonVariant::Primary
                     on_click=Callback::new(on_submit)
-                    disabled=Signal::derive(move || submitting.get())
+                    disabled=Signal::derive(move || submitting.try_get().unwrap_or(false))
                 >
-                    {move || if submitting.get() { "Creating..." } else { "Create Rule" }}
+                    {move || if submitting.try_get().unwrap_or(false) { "Creating..." } else { "Create Rule" }}
                 </Button>
             </div>
         </Dialog>
