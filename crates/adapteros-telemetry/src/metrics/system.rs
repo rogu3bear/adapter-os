@@ -94,14 +94,20 @@ impl TelemetryMetricsCollector {
         ((used_memory as f32 / total_memory as f32) * 100.0) as f64
     }
 
-    /// Collect cumulative disk I/O bytes (read, write).
-    /// Note: sysinfo 0.30+ removed I/O counter methods from the Disk API,
-    /// so we return 0 for now (space metrics are still available).
+    /// Collect cumulative disk I/O bytes (read, write) from process stats.
     fn collect_disk_io(&self) -> (u64, u64) {
         let _disks = Disks::new_with_refreshed_list();
-        // Disk I/O counters require platform-specific implementations.
-        // Return 0 as placeholders - full metrics are in adapteros-system-metrics.
-        (0, 0)
+
+        let mut total_read_bytes = 0u64;
+        let mut total_write_bytes = 0u64;
+
+        for process in self.sys.processes().values() {
+            let usage = process.disk_usage();
+            total_read_bytes = total_read_bytes.saturating_add(usage.total_read_bytes);
+            total_write_bytes = total_write_bytes.saturating_add(usage.total_written_bytes);
+        }
+
+        (total_read_bytes, total_write_bytes)
     }
 
     /// Collect cumulative network I/O bytes (rx, tx).
