@@ -2,7 +2,13 @@
 //!
 //! Provides a way to trigger refetches across components without prop drilling.
 //! Components can register for specific "topics" and trigger refetches globally.
+//!
+//! Lifecycle event dispatchers (`dispatch_adapter_event`, `dispatch_training_event`,
+//! `dispatch_health_event`) translate typed SSE events into refetch topic triggers.
 
+use crate::api::types::{
+    AdapterLifecycleEvent, AdapterVersionEvent, SystemHealthTransitionEvent, TrainingLifecycleEvent,
+};
 use leptos::prelude::*;
 use std::collections::HashMap;
 
@@ -23,6 +29,10 @@ pub enum RefetchTopic {
     Users,
     /// System health
     Health,
+    /// Models
+    Models,
+    /// Workers list
+    Workers,
     /// All topics
     All,
 }
@@ -37,6 +47,8 @@ impl RefetchTopic {
             Self::ApiKeys => "api_keys",
             Self::Users => "users",
             Self::Health => "health",
+            Self::Models => "models",
+            Self::Workers => "workers",
             Self::All => "all",
         }
     }
@@ -89,6 +101,8 @@ impl RefetchAction {
                     RefetchTopic::ApiKeys,
                     RefetchTopic::Users,
                     RefetchTopic::Health,
+                    RefetchTopic::Models,
+                    RefetchTopic::Workers,
                 ] {
                     let counter = state.counters.entry(t).or_insert(0);
                     *counter = counter.wrapping_add(1);
@@ -117,9 +131,78 @@ impl RefetchAction {
         self.trigger(RefetchTopic::Repositories);
     }
 
+    /// Trigger refetch for models
+    pub fn models(&self) {
+        self.trigger(RefetchTopic::Models);
+    }
+
+    /// Trigger refetch for workers
+    pub fn workers(&self) {
+        self.trigger(RefetchTopic::Workers);
+    }
+
+    /// Trigger refetch for system health
+    pub fn health(&self) {
+        self.trigger(RefetchTopic::Health);
+    }
+
     /// Trigger refetch for all topics
     pub fn all(&self) {
         self.trigger(RefetchTopic::All);
+    }
+
+    /// Dispatch an adapter lifecycle event to the appropriate refetch topics.
+    pub fn dispatch_adapter_event(&self, event: &AdapterLifecycleEvent) {
+        match event {
+            AdapterLifecycleEvent::Promoted { .. }
+            | AdapterLifecycleEvent::Loaded { .. }
+            | AdapterLifecycleEvent::LoadFailed { .. }
+            | AdapterLifecycleEvent::Evicted { .. } => {
+                self.adapters();
+                self.models();
+            }
+        }
+    }
+
+    /// Dispatch an adapter version event to the appropriate refetch topics.
+    pub fn dispatch_adapter_version_event(&self, event: &AdapterVersionEvent) {
+        match event {
+            AdapterVersionEvent::VersionPromoted { .. }
+            | AdapterVersionEvent::VersionRolledBack { .. } => {
+                self.adapters();
+                self.repositories();
+                self.models();
+            }
+        }
+    }
+
+    /// Dispatch a training lifecycle event to the appropriate refetch topics.
+    pub fn dispatch_training_event(&self, event: &TrainingLifecycleEvent) {
+        match event {
+            TrainingLifecycleEvent::JobStarted { .. }
+            | TrainingLifecycleEvent::EpochCompleted { .. }
+            | TrainingLifecycleEvent::CheckpointSaved { .. }
+            | TrainingLifecycleEvent::JobFailed { .. } => {
+                self.training_jobs();
+            }
+            TrainingLifecycleEvent::JobCompleted { .. } => {
+                // Completed training may produce a new adapter
+                self.training_jobs();
+                self.adapters();
+                self.models();
+            }
+        }
+    }
+
+    /// Dispatch a system health transition event to the appropriate refetch topics.
+    pub fn dispatch_health_event(&self, event: &SystemHealthTransitionEvent) {
+        match event {
+            SystemHealthTransitionEvent::WorkerStateChanged { .. }
+            | SystemHealthTransitionEvent::DrainStarted { .. } => {
+                self.workers();
+                self.health();
+            }
+        }
     }
 }
 
@@ -160,5 +243,5 @@ pub fn use_refetch_state() -> ReadSignal<RefetchState> {
 /// ```
 pub fn use_refetch_signal(topic: RefetchTopic) -> Signal<u32> {
     let state = use_refetch_state();
-    Signal::derive(move || state.get().get_counter(topic))
+    Signal::derive(move || state.try_get().map(|s| s.get_counter(topic)).unwrap_or(0))
 }
