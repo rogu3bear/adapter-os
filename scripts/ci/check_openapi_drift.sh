@@ -122,7 +122,11 @@ mkdir -p "$(dirname "$TMP_SPEC")"
 rm -f "$TMP_SPEC"
 
 echo "Generating OpenAPI spec via export-openapi..."
-cargo run --locked -p adapteros-server-api --bin export-openapi -- "$TMP_SPEC"
+# Deterministic builds: rely on the committed SQLx offline cache.
+# This avoids compile-time DB access (and failures) during spec generation.
+SQLX_OFFLINE_DIR="${SQLX_OFFLINE_DIR:-$ROOT_DIR/crates/adapteros-db/.sqlx}"
+env SQLX_OFFLINE=1 SQLX_OFFLINE_DIR="$SQLX_OFFLINE_DIR" \
+  cargo run --locked -p adapteros-server-api --bin export-openapi -- "$TMP_SPEC"
 
 if [ ! -f "$TMP_SPEC" ]; then
     echo "ERROR: Export failed to create $TMP_SPEC"
