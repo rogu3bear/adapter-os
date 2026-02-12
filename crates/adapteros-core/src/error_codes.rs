@@ -180,6 +180,9 @@ pub const ADAPTER_TENANT_MISMATCH: &str = "ADAPTER_TENANT_MISMATCH";
 /// Data integrity violation (checksum, hash, or validation failure)
 pub const INTEGRITY_VIOLATION: &str = "INTEGRITY_VIOLATION";
 
+/// Checkpoint cryptographic integrity verification failed (BLAKE3 + Ed25519)
+pub const CHECKPOINT_INTEGRITY_FAILED: &str = "CHECKPOINT_INTEGRITY_FAILED";
+
 // =============================================================================
 // 404 Not Found
 // =============================================================================
@@ -220,6 +223,9 @@ pub const MODEL_ACQUISITION_IN_PROGRESS: &str = "MODEL_ACQUISITION_IN_PROGRESS";
 
 /// Duplicate request (idempotency violation)
 pub const DUPLICATE_REQUEST: &str = "DUPLICATE_REQUEST";
+
+/// Adapter is currently in flight (loading/unloading in progress)
+pub const ADAPTER_IN_FLIGHT: &str = "ADAPTER_IN_FLIGHT";
 
 // =============================================================================
 // 422 Unprocessable Entity
@@ -404,6 +410,7 @@ mod tests {
             INVALID_CPID,
             POLICY_VIOLATION,
             SERVICE_UNAVAILABLE,
+            CHECKPOINT_INTEGRITY_FAILED,
         ];
 
         for code in codes {

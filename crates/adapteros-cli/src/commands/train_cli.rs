@@ -680,6 +680,11 @@ mod tests {
             details: None,
             hint: None,
             request_id: None,
+            error_id: None,
+            fingerprint: None,
+            session_id: None,
+            diag_trace_id: None,
+            otel_trace_id: None,
         };
         let msg = map_trust_error(&err, Some(&"dsv-1".to_string())).unwrap();
         assert!(msg.contains("dsv-1"));
@@ -696,6 +701,11 @@ mod tests {
             details: None,
             hint: None,
             request_id: None,
+            error_id: None,
+            fingerprint: None,
+            session_id: None,
+            diag_trace_id: None,
+            otel_trace_id: None,
         };
         let msg = map_trust_error(&err, Some(&"dsv-2".to_string())).unwrap();
         assert!(msg.contains("approval"));
@@ -712,6 +722,11 @@ mod tests {
             details: None,
             hint: None,
             request_id: None,
+            error_id: None,
+            fingerprint: None,
+            session_id: None,
+            diag_trace_id: None,
+            otel_trace_id: None,
         };
         let hash = ErrorResponse {
             schema_version: API_SCHEMA_VERSION.into(),
@@ -721,6 +736,11 @@ mod tests {
             details: None,
             hint: None,
             request_id: None,
+            error_id: None,
+            fingerprint: None,
+            session_id: None,
+            diag_trace_id: None,
+            otel_trace_id: None,
         };
         let lineage_msg = map_trust_error(&lineage, None).unwrap();
         assert!(lineage_msg.contains("--dataset-version-ids"));
