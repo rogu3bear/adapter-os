@@ -708,7 +708,7 @@ impl FederationManager {
         );
 
         // Query tick_ledger_consistency_reports for this bundle's tick range
-        // to see if there are any known inconsistencies
+        // to see if there are any known inconsistencies.
         let pool = self.db.pool();
 
         if local_entries.is_empty() {
@@ -723,6 +723,76 @@ impl FederationManager {
             .last()
             .and_then(|row| row.try_get("tick").ok())
             .unwrap_or(0);
+
+        let active_peers = self.list_active_peer_ids().await?;
+        if active_peers.len() <= 1 {
+            debug!(
+                bundle_hash = %bundle_hash,
+                "Single-peer federation context detected; skipping cross-host consistency gate"
+            );
+            return Ok(true);
+        }
+
+        // Hardening: require at least one coverage report against each active remote peer.
+        // This avoids silently passing when cross-host checks have not run.
+        let mut missing_reports = Vec::new();
+        for remote_host in active_peers
+            .iter()
+            .filter(|host_id| host_id.as_str() != self.host_id.as_str())
+        {
+            let report = sqlx::query(
+                r#"
+                SELECT consistent, divergence_count
+                FROM tick_ledger_consistency_reports
+                WHERE tenant_id = ?
+                  AND ((host_a = ? AND host_b = ?) OR (host_a = ? AND host_b = ?))
+                  AND tick_range_start <= ?
+                  AND tick_range_end >= ?
+                ORDER BY created_at DESC
+                LIMIT 1
+                "#,
+            )
+            .bind(&self.tenant_id)
+            .bind(&self.host_id)
+            .bind(remote_host)
+            .bind(remote_host)
+            .bind(&self.host_id)
+            .bind(first_tick)
+            .bind(last_tick)
+            .fetch_optional(pool)
+            .await
+            .map_err(|e| {
+                AosError::Database(format!("Failed to fetch consistency report: {}", e))
+            })?;
+
+            let Some(row) = report else {
+                missing_reports.push(remote_host.clone());
+                continue;
+            };
+
+            let consistent: i64 = row.try_get("consistent").map_err(|e| {
+                AosError::Database(format!("Failed to get consistency flag from report: {}", e))
+            })?;
+            if consistent == 0 {
+                let divergence_count: i64 = row.try_get("divergence_count").unwrap_or(0);
+                warn!(
+                    bundle_hash = %bundle_hash,
+                    remote_host = %remote_host,
+                    divergence_count = divergence_count,
+                    "Cross-host consistency report indicates divergence"
+                );
+                return Ok(false);
+            }
+        }
+
+        if !missing_reports.is_empty() {
+            warn!(
+                bundle_hash = %bundle_hash,
+                missing_reports = ?missing_reports,
+                "Missing required cross-host consistency coverage reports"
+            );
+            return Ok(false);
+        }
 
         let inconsistencies = sqlx::query(
             r#"
@@ -791,6 +861,28 @@ impl FederationManager {
         );
 
         Ok(true)
+    }
+
+    async fn list_active_peer_ids(&self) -> Result<Vec<String>> {
+        let pool = self.db.pool();
+        let rows = sqlx::query(
+            r#"
+            SELECT host_id
+            FROM federation_peers
+            WHERE active = 1
+            ORDER BY host_id ASC
+            "#,
+        )
+        .fetch_all(pool)
+        .await
+        .map_err(|e| AosError::Database(format!("Failed to list active peers: {}", e)))?;
+
+        rows.into_iter()
+            .map(|row| {
+                row.try_get("host_id")
+                    .map_err(|e| AosError::Database(format!("Failed to get host_id: {}", e)))
+            })
+            .collect()
     }
 
     /// Get all signatures for a bundle hash
@@ -920,35 +1012,55 @@ impl FederationManager {
         .await
         .map_err(|e| AosError::Database(format!("Failed to store signature: {}", e)))?;
 
-        // Link to tick ledger if we have the latest tick hash
+        // Link to tick ledger if we have the latest tick hash.
         if let Some(tick_hash) = self.get_latest_tick_hash().await {
-            let _ = self
-                .link_to_tick_ledger(&signature.bundle_hash, &tick_hash)
-                .await;
+            self.link_to_tick_ledger(
+                &signature.bundle_hash,
+                &tick_hash,
+                &signature.signature,
+                signature.prev_host_hash.as_deref(),
+            )
+            .await?;
         }
 
         Ok(())
     }
 
     /// Link federation signature to tick ledger
-    async fn link_to_tick_ledger(&self, bundle_hash: &str, tick_hash: &str) -> Result<()> {
+    async fn link_to_tick_ledger(
+        &self,
+        bundle_hash: &str,
+        tick_hash: &str,
+        federation_signature: &str,
+        prev_host_hash: Option<&str>,
+    ) -> Result<()> {
         let pool = self.db.pool();
 
-        sqlx::query(
+        let result = sqlx::query(
             r#"
-            UPDATE tick_ledger
-            SET bundle_hash = ?, federation_signature = (
-                SELECT signature FROM federation_bundle_signatures WHERE bundle_hash = ? LIMIT 1
-            )
-            WHERE tick_hash = ?
+            UPDATE tick_ledger_entries
+            SET bundle_hash = ?,
+                federation_signature = ?,
+                prev_host_hash = COALESCE(?, prev_host_hash)
+            WHERE tenant_id = ?
+              AND event_hash = ?
             "#,
         )
         .bind(bundle_hash)
-        .bind(bundle_hash)
+        .bind(federation_signature)
+        .bind(prev_host_hash)
+        .bind(&self.tenant_id)
         .bind(tick_hash)
         .execute(pool)
         .await
         .map_err(|e| AosError::Database(format!("Failed to link to tick ledger: {}", e)))?;
+
+        if result.rows_affected() == 0 {
+            return Err(AosError::Validation(format!(
+                "No tick ledger entry updated for tenant '{}' and tick hash '{}'",
+                self.tenant_id, tick_hash
+            )));
+        }
 
         Ok(())
     }
@@ -1168,6 +1280,216 @@ mod tests {
 
         let latest = manager.get_latest_tick_hash().await;
         assert_eq!(latest.as_deref(), Some("hash-tenant-001-b"));
+
+        Ok(())
+    }
+
+    #[tokio::test]
+    async fn test_link_to_tick_ledger_fails_when_tick_hash_missing() -> Result<()> {
+        let db = setup_test_db().await?;
+        let keypair = Keypair::generate();
+        let manager = FederationManager::with_host_id(
+            db,
+            keypair,
+            "test-host".to_string(),
+            "tenant-001".to_string(),
+        )?;
+
+        let result = manager
+            .link_to_tick_ledger(
+                "bundle-001",
+                "missing-hash",
+                "deadbeef",
+                Some("prev-bundle-000"),
+            )
+            .await;
+        assert!(result.is_err());
+        let err = result.unwrap_err();
+        assert!(err.to_string().contains("No tick ledger entry updated"));
+
+        Ok(())
+    }
+
+    #[tokio::test]
+    async fn test_sign_bundle_links_latest_tick_ledger_entry() -> Result<()> {
+        let db = setup_test_db().await?;
+        let keypair = Keypair::generate();
+        let manager = FederationManager::with_host_id(
+            db.clone(),
+            keypair,
+            "test-host".to_string(),
+            "tenant-001".to_string(),
+        )?;
+
+        let pool = db.pool();
+        sqlx::query(
+            r#"
+            INSERT INTO tick_ledger_entries
+            (id, tick, tenant_id, host_id, task_id, event_type, event_hash, timestamp_us, prev_entry_hash)
+            VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?)
+            "#,
+        )
+        .bind("entry-link-target")
+        .bind(21i64)
+        .bind("tenant-001")
+        .bind("host-a")
+        .bind("task-link")
+        .bind("TaskCompleted")
+        .bind("tick-hash-link")
+        .bind(21_000i64)
+        .bind(None::<String>)
+        .execute(pool)
+        .await
+        .map_err(|e| AosError::Database(format!("Failed to insert link target tick: {}", e)))?;
+
+        let prev_bundle = B3Hash::hash(b"prev-bundle");
+        let metadata = StoredBundleMetadata {
+            bundle_hash: B3Hash::hash(b"test-bundle"),
+            cpid: Some("cpid-001".to_string()),
+            tenant_id: Some("tenant-001".to_string()),
+            event_count: 7,
+            sequence_no: Some(1),
+            merkle_root: B3Hash::hash(b"merkle-link"),
+            signature: "test_sig".to_string(),
+            public_key: "test_pubkey".to_string(),
+            key_id: "test_key_id".to_string(),
+            schema_version: 1,
+            signed_at_us: 0,
+            created_at: std::time::SystemTime::now(),
+            prev_bundle_hash: Some(prev_bundle),
+            is_incident_bundle: false,
+            is_promotion_bundle: false,
+            tags: vec![],
+            stack_id: None,
+            stack_version: None,
+        };
+
+        let signed = manager.sign_bundle(&metadata).await?;
+        let row = sqlx::query(
+            r#"
+            SELECT bundle_hash, federation_signature, prev_host_hash
+            FROM tick_ledger_entries
+            WHERE tenant_id = ? AND event_hash = ?
+            "#,
+        )
+        .bind("tenant-001")
+        .bind("tick-hash-link")
+        .fetch_one(pool)
+        .await
+        .map_err(|e| AosError::Database(format!("Failed to fetch linked tick entry: {}", e)))?;
+
+        let linked_bundle_hash: Option<String> = row.try_get("bundle_hash").ok();
+        let linked_signature: Option<String> = row.try_get("federation_signature").ok();
+        let linked_prev_host_hash: Option<String> = row.try_get("prev_host_hash").ok();
+
+        assert_eq!(
+            linked_bundle_hash.as_deref(),
+            Some(signed.bundle_hash.as_str())
+        );
+        assert_eq!(linked_signature.as_deref(), Some(signed.signature.as_str()));
+        assert_eq!(
+            linked_prev_host_hash.as_deref(),
+            signed.prev_host_hash.as_deref()
+        );
+
+        Ok(())
+    }
+
+    #[tokio::test]
+    async fn test_cross_host_tick_consistency_requires_peer_coverage_reports() -> Result<()> {
+        let db = setup_test_db().await?;
+        let manager = FederationManager::with_host_id(
+            db.clone(),
+            Keypair::generate(),
+            "host-a".to_string(),
+            "tenant-001".to_string(),
+        )?;
+
+        let pool = db.pool();
+        let host_a_key = hex::encode(Keypair::generate().public_key().to_bytes());
+        let host_b_key = hex::encode(Keypair::generate().public_key().to_bytes());
+
+        sqlx::query(
+            r#"
+            INSERT INTO federation_peers (host_id, pubkey, active)
+            VALUES (?, ?, 1)
+            "#,
+        )
+        .bind("host-a")
+        .bind(host_a_key)
+        .execute(pool)
+        .await
+        .map_err(|e| AosError::Database(format!("Failed to insert host-a peer: {}", e)))?;
+
+        sqlx::query(
+            r#"
+            INSERT INTO federation_peers (host_id, pubkey, active)
+            VALUES (?, ?, 1)
+            "#,
+        )
+        .bind("host-b")
+        .bind(host_b_key)
+        .execute(pool)
+        .await
+        .map_err(|e| AosError::Database(format!("Failed to insert host-b peer: {}", e)))?;
+
+        sqlx::query(
+            r#"
+            INSERT INTO tick_ledger_entries
+            (id, tick, tenant_id, host_id, task_id, event_type, event_hash, timestamp_us, prev_entry_hash, bundle_hash)
+            VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
+            "#,
+        )
+        .bind("entry-consistency")
+        .bind(110i64)
+        .bind("tenant-001")
+        .bind("host-a")
+        .bind("task-consistency")
+        .bind("TaskCompleted")
+        .bind("event-consistency")
+        .bind(110_000i64)
+        .bind(None::<String>)
+        .bind("bundle-consistency")
+        .execute(pool)
+        .await
+        .map_err(|e| AosError::Database(format!("Failed to insert consistency tick: {}", e)))?;
+
+        let local_entries = sqlx::query(
+            "SELECT tick FROM tick_ledger_entries WHERE tenant_id = ? ORDER BY tick ASC",
+        )
+        .bind("tenant-001")
+        .fetch_all(pool)
+        .await
+        .map_err(|e| AosError::Database(format!("Failed to fetch local entries: {}", e)))?;
+
+        let without_reports = manager
+            .verify_cross_host_tick_consistency("bundle-consistency", &local_entries)
+            .await?;
+        assert!(!without_reports);
+
+        sqlx::query(
+            r#"
+            INSERT INTO tick_ledger_consistency_reports
+            (tenant_id, host_a, host_b, tick_range_start, tick_range_end, consistent, divergence_count, created_at)
+            VALUES (?, ?, ?, ?, ?, ?, ?, ?)
+            "#,
+        )
+        .bind("tenant-001")
+        .bind("host-a")
+        .bind("host-b")
+        .bind(100i64)
+        .bind(120i64)
+        .bind(1i64)
+        .bind(0i64)
+        .bind("2026-02-12T06:30:00Z")
+        .execute(pool)
+        .await
+        .map_err(|e| AosError::Database(format!("Failed to insert consistency report: {}", e)))?;
+
+        let with_reports = manager
+            .verify_cross_host_tick_consistency("bundle-consistency", &local_entries)
+            .await?;
+        assert!(with_reports);
 
         Ok(())
     }
