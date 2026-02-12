@@ -26,8 +26,8 @@ pub fn CopyableId(
     };
     let truncate = if truncate == 0 { None } else { Some(truncate) };
 
-    // When display_name (word alias) is provided, show it as primary text.
-    // Otherwise fall back to TypedId::short() via adapteros_id, or truncate.
+    // When display_name (word alias) is provided by the server, show it as primary text.
+    // Otherwise fall back to short_id — the server is the single authority for word aliases.
     let display_id = if let Some(ref alias) = display_name_opt {
         alias.clone()
     } else {

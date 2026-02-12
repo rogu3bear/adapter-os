@@ -55,8 +55,10 @@ pub fn Login() -> impl IntoView {
     let password_rules = vec![ValidationRule::Required, ValidationRule::MinLength(1)];
 
     // Derived signals for field errors
-    let username_error = Signal::derive(move || errors.get().get("username").cloned());
-    let password_error = Signal::derive(move || errors.get().get("password").cloned());
+    let username_error =
+        Signal::derive(move || errors.try_get().and_then(|e| e.get("username").cloned()));
+    let password_error =
+        Signal::derive(move || errors.try_get().and_then(|e| e.get("password").cloned()));
 
     let (auth_state, auth_action) = use_auth();
     let auth_action = Arc::new(auth_action);
@@ -83,8 +85,8 @@ pub fn Login() -> impl IntoView {
         let password_rules = password_rules.clone();
         let is_mounted = Arc::clone(&is_mounted);
         move || {
-            let username_val = username.get();
-            let password_val = password.get();
+            let username_val = username.try_get().unwrap_or_default();
+            let password_val = password.try_get().unwrap_or_default();
 
             // Clear previous errors (both field and API errors)
             errors.update(|e| e.clear_all());
@@ -188,14 +190,14 @@ pub fn Login() -> impl IntoView {
                     // "Remember me" checkbox - UI ready for when backend supports session duration control
                     <div class="flex items-center justify-between">
                         <Checkbox
-                            checked=Signal::derive(move || remember_me.get())
+                            checked=Signal::derive(move || remember_me.try_get().unwrap_or(false))
                             on_change=Callback::new(move |checked| remember_me.set(checked))
                             label="Remember me".to_string()
                         />
                     </div>
 
                     {move || {
-                        error.get().map(|e| view! {
+                        error.try_get().flatten().map(|e| view! {
                             <div class="rounded-md border border-destructive bg-destructive/10 p-3 text-sm text-destructive">
                                 {e}
                             </div>

@@ -32,10 +32,10 @@ pub fn RoutingDecisions() -> impl IntoView {
     // Build query from filters
     let query = Signal::derive(move || {
         let mut q = RoutingDecisionsQuery::default();
-        if filter_anomalies.get() {
+        if filter_anomalies.try_get().unwrap_or(false) {
             q.anomalies_only = Some(true);
         }
-        let stack = filter_stack.get();
+        let stack = filter_stack.try_get().unwrap_or_default();
         if !stack.is_empty() {
             q.stack_id = Some(stack);
         }
@@ -45,7 +45,7 @@ pub fn RoutingDecisions() -> impl IntoView {
 
     // Fetch routing decisions
     let (decisions, refetch_decisions) = use_api_resource(move |client: Arc<ApiClient>| {
-        let q = query.get();
+        let q = query.try_get().unwrap_or_default();
         async move { client.get_routing_decisions(&q).await }
     });
 
@@ -58,7 +58,7 @@ pub fn RoutingDecisions() -> impl IntoView {
     };
 
     // Derive selection state for SplitPanel
-    let has_selection = Signal::derive(move || selected_decision_id.get().is_some());
+    let has_selection = Signal::derive(move || selected_decision_id.try_get().flatten().is_some());
 
     view! {
         <div class="space-y-6">
@@ -80,9 +80,9 @@ pub fn RoutingDecisions() -> impl IntoView {
                                 <div class="flex items-center gap-2">
                                     <Button
                                         variant=ButtonVariant::Outline
-                                        on_click=Callback::new(move |_| show_debug_panel.set(!show_debug_panel.get()))
+                                        on_click=Callback::new(move |_| show_debug_panel.update(|v| *v = !*v))
                                     >
-                                        {move || if show_debug_panel.get() { "Hide Debug" } else { "Debug Router" }}
+                                        {move || if show_debug_panel.try_get().unwrap_or(false) { "Hide Debug" } else { "Debug Router" }}
                                     </Button>
                                     <Button
                                         variant=ButtonVariant::Outline
@@ -95,7 +95,7 @@ pub fn RoutingDecisions() -> impl IntoView {
 
                             // Debug panel (collapsible)
                             {move || {
-                                if show_debug_panel.get() {
+                                if show_debug_panel.try_get().unwrap_or(false) {
                                     Some(view! {
                                         <DebugPanel />
                                     })
@@ -116,7 +116,7 @@ pub fn RoutingDecisions() -> impl IntoView {
 
                             // Decisions list
                             {move || {
-                                match decisions.get() {
+                                match decisions.try_get().unwrap_or(LoadingState::Idle) {
                                     LoadingState::Idle | LoadingState::Loading => {
                                         view! {
                                             <div class="flex items-center justify-center py-12">
@@ -147,7 +147,7 @@ pub fn RoutingDecisions() -> impl IntoView {
                     }
                 }
                 detail_panel=move || {
-                    let decision_id = selected_decision_id.get().unwrap_or_default();
+                    let decision_id = selected_decision_id.try_get().flatten().unwrap_or_default();
                     view! {
                         <DecisionDetail
                             decision_id=decision_id
@@ -215,36 +215,50 @@ fn FilterBar(
 /// Summary stats row
 #[component]
 fn SummaryStats(decisions: ReadSignal<LoadingState<RoutingDecisionsResponse>>) -> impl IntoView {
-    let total = Signal::derive(move || match decisions.get() {
-        LoadingState::Loaded(ref d) => d.total,
-        _ => 0,
-    });
+    let total = Signal::derive(
+        move || match decisions.try_get().unwrap_or(LoadingState::Idle) {
+            LoadingState::Loaded(ref d) => d.total,
+            _ => 0,
+        },
+    );
 
-    let avg_entropy = Signal::derive(move || match decisions.get() {
-        LoadingState::Loaded(ref d) if !d.decisions.is_empty() => {
-            let sum: f64 = d.decisions.iter().map(|x| x.entropy).sum();
-            sum / d.decisions.len() as f64
-        }
-        _ => 0.0,
-    });
+    let avg_entropy =
+        Signal::derive(
+            move || match decisions.try_get().unwrap_or(LoadingState::Idle) {
+                LoadingState::Loaded(ref d) if !d.decisions.is_empty() => {
+                    let sum: f64 = d.decisions.iter().map(|x| x.entropy).sum();
+                    sum / d.decisions.len() as f64
+                }
+                _ => 0.0,
+            },
+        );
 
-    let avg_k = Signal::derive(move || match decisions.get() {
-        LoadingState::Loaded(ref d) if !d.decisions.is_empty() => {
-            let sum: i32 = d.decisions.iter().map(|x| x.k_value).sum();
-            sum as f64 / d.decisions.len() as f64
-        }
-        _ => 0.0,
-    });
+    let avg_k = Signal::derive(
+        move || match decisions.try_get().unwrap_or(LoadingState::Idle) {
+            LoadingState::Loaded(ref d) if !d.decisions.is_empty() => {
+                let sum: i32 = d.decisions.iter().map(|x| x.k_value).sum();
+                sum as f64 / d.decisions.len() as f64
+            }
+            _ => 0.0,
+        },
+    );
 
-    let high_entropy_count = Signal::derive(move || match decisions.get() {
-        LoadingState::Loaded(ref d) => d.decisions.iter().filter(|x| x.entropy > 1.5).count(),
-        _ => 0,
-    });
+    let high_entropy_count =
+        Signal::derive(
+            move || match decisions.try_get().unwrap_or(LoadingState::Idle) {
+                LoadingState::Loaded(ref d) => {
+                    d.decisions.iter().filter(|x| x.entropy > 1.5).count()
+                }
+                _ => 0,
+            },
+        );
 
-    let total_str = Signal::derive(move || total.get().to_string());
-    let entropy_str = Signal::derive(move || format!("{:.3}", avg_entropy.get()));
-    let k_str = Signal::derive(move || format!("{:.1}", avg_k.get()));
-    let high_entropy_str = Signal::derive(move || high_entropy_count.get().to_string());
+    let total_str = Signal::derive(move || total.try_get().unwrap_or(0).to_string());
+    let entropy_str =
+        Signal::derive(move || format!("{:.3}", avg_entropy.try_get().unwrap_or(0.0)));
+    let k_str = Signal::derive(move || format!("{:.1}", avg_k.try_get().unwrap_or(0.0)));
+    let high_entropy_str =
+        Signal::derive(move || high_entropy_count.try_get().unwrap_or(0).to_string());
 
     view! {
         <div class="grid gap-4 md:grid-cols-4">
@@ -271,7 +285,7 @@ fn StatCard(
         <Card>
             <div class="flex items-center justify-between">
                 <span class="text-sm font-medium text-muted-foreground">{label}</span>
-                <Badge variant=variant>{move || value.get()}</Badge>
+                <Badge variant=variant>{move || value.try_get().unwrap_or_default()}</Badge>
             </div>
         </Card>
     }
@@ -316,7 +330,7 @@ fn DecisionsList(
         view! {
             <tr
                 class="border-b transition-colors hover:bg-muted/50 cursor-pointer"
-                class:bg-muted=move || selected_id.get().as_ref() == Some(&decision_id)
+                class:bg-muted=move || selected_id.try_get().flatten().as_ref() == Some(&decision_id)
                 on:click=move |_| on_select(decision_id_for_click.clone())
             >
                 <TableCell>
@@ -416,7 +430,7 @@ fn DecisionDetail(decision_id: String, on_close: impl Fn() + Copy + 'static) -> 
             </div>
 
             {move || {
-                match decision.get() {
+                match decision.try_get().unwrap_or(LoadingState::Idle) {
                     LoadingState::Idle | LoadingState::Loading => {
                         view! {
                             <div class="flex items-center justify-center py-12">
@@ -587,7 +601,7 @@ fn DebugPanel() -> impl IntoView {
     let error = RwSignal::new(None::<String>);
 
     let on_debug = move |_| {
-        let prompt_val = prompt.get();
+        let prompt_val = prompt.try_get().unwrap_or_default();
         if prompt_val.is_empty() {
             return;
         }
@@ -596,7 +610,7 @@ fn DebugPanel() -> impl IntoView {
         error.set(None);
         result.set(None);
 
-        let context_val = context.get();
+        let context_val = context.try_get().unwrap_or_default();
         let request = RoutingDebugRequest {
             prompt: prompt_val,
             context: if context_val.is_empty() {
@@ -641,8 +655,8 @@ fn DebugPanel() -> impl IntoView {
 
                 // Submit button
                 {move || {
-                    let is_disabled = prompt.get().is_empty() || loading.get();
-                    let is_loading = loading.get();
+                    let is_disabled = prompt.try_get().unwrap_or_default().is_empty() || loading.try_get().unwrap_or(false);
+                    let is_loading = loading.try_get().unwrap_or(false);
                     view! {
                         <Button
                             variant=ButtonVariant::Primary
@@ -656,14 +670,14 @@ fn DebugPanel() -> impl IntoView {
                 }}
 
                 // Error display
-                {move || error.get().map(|e| view! {
+                {move || error.try_get().flatten().map(|e| view! {
                     <div class="rounded-lg border border-destructive bg-destructive/10 p-3">
                         <p class="text-sm text-destructive">{e}</p>
                     </div>
                 })}
 
                 // Result display
-                {move || result.get().map(|r| view! {
+                {move || result.try_get().flatten().map(|r| view! {
                     <DebugResult response=r/>
                 })}
             </div>

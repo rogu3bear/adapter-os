@@ -143,13 +143,13 @@ pub fn StyleAudit() -> impl IntoView {
                     </div>
                     <div class="flex items-center gap-4">
                         <span class="text-sm text-muted-foreground">
-                            {move || if is_dark.get() { "Dark Mode" } else { "Light Mode" }}
+                            {move || if is_dark.try_get().unwrap_or(false) { "Dark Mode" } else { "Light Mode" }}
                         </span>
                         <button
                             class="px-4 py-2 rounded-md border border-input bg-background hover:bg-accent text-sm font-medium"
                             on:click=move |_| is_dark.update(|v| *v = !*v)
                         >
-                            {move || if is_dark.get() { "Switch to Light" } else { "Switch to Dark" }}
+                            {move || if is_dark.try_get().unwrap_or(false) { "Switch to Light" } else { "Switch to Dark" }}
                         </button>
                     </div>
                 </div>
@@ -207,7 +207,7 @@ pub fn StyleAudit() -> impl IntoView {
                                     <Button
                                         variant=ButtonVariant::Primary
                                         on_click=Callback::new(move |_| {
-                                            let trace_id = trace_id_input.get().trim().to_string();
+                                            let trace_id = trace_id_input.try_get().unwrap_or_default().trim().to_string();
                                             requested_trace_id.set(trace_id.clone());
                                             if !trace_id.is_empty() {
                                                 refetch_trace.run(());
@@ -217,7 +217,7 @@ pub fn StyleAudit() -> impl IntoView {
                                         "Load Trace"
                                     </Button>
                                     {move || {
-                                        let current = requested_trace_id.get();
+                                        let current = requested_trace_id.try_get().unwrap_or_default();
                                         if current.trim().is_empty() {
                                             None
                                         } else {
@@ -232,8 +232,8 @@ pub fn StyleAudit() -> impl IntoView {
                                 <div>
                                     {move || {
                                         // Show loading state while fetching recent traces
-                                        if matches!(recent_traces.get(), LoadingState::Idle | LoadingState::Loading)
-                                            && requested_trace_id.get().is_empty()
+                                        if matches!(recent_traces.try_get().unwrap_or(LoadingState::Idle), LoadingState::Idle | LoadingState::Loading)
+                                            && requested_trace_id.try_get().unwrap_or_default().is_empty()
                                         {
                                             return view! {
                                                 <div class="flex items-center gap-2 text-muted-foreground">
@@ -245,8 +245,8 @@ pub fn StyleAudit() -> impl IntoView {
                                         }
 
                                         // No traces available
-                                        if let LoadingState::Loaded(traces) = recent_traces.get() {
-                                            if traces.is_empty() && requested_trace_id.get().is_empty() {
+                                        if let LoadingState::Loaded(traces) = recent_traces.try_get().unwrap_or(LoadingState::Idle) {
+                                            if traces.is_empty() && requested_trace_id.try_get().unwrap_or_default().is_empty() {
                                                 return view! {
                                                     <div class="text-sm text-muted-foreground">
                                                         "No inference traces available. Run an inference to generate traces."
@@ -257,8 +257,8 @@ pub fn StyleAudit() -> impl IntoView {
                                         }
 
                                         // Error fetching recent traces
-                                        if let LoadingState::Error(err) = recent_traces.get() {
-                                            if requested_trace_id.get().is_empty() {
+                                        if let LoadingState::Error(err) = recent_traces.try_get().unwrap_or(LoadingState::Idle) {
+                                            if requested_trace_id.try_get().unwrap_or_default().is_empty() {
                                                 return view! {
                                                     <ErrorDisplay error=err.clone()/>
                                                 }
@@ -267,7 +267,7 @@ pub fn StyleAudit() -> impl IntoView {
                                         }
 
                                         // Show trace detail or loading state
-                                        if requested_trace_id.get().trim().is_empty() {
+                                        if requested_trace_id.try_get().unwrap_or_default().trim().is_empty() {
                                             view! {
                                                 <div class="text-sm text-muted-foreground">
                                                     "Enter a trace ID to load trace data."
@@ -275,7 +275,7 @@ pub fn StyleAudit() -> impl IntoView {
                                             }
                                             .into_any()
                                         } else {
-                                            match trace_detail.get() {
+                                            match trace_detail.try_get().unwrap_or(LoadingState::Idle) {
                                                 LoadingState::Idle | LoadingState::Loading => view! {
                                                     <div class="flex items-center gap-2 text-muted-foreground">
                                                         <Spinner/>

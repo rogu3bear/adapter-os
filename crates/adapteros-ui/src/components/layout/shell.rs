@@ -9,8 +9,10 @@ use super::nav_registry::route_for_alt_shortcut;
 use super::sidebar::{provide_sidebar_context, SidebarNav};
 use super::taskbar::Taskbar;
 use super::topbar::TopBar;
+use crate::api::sse::{
+    use_adapter_lifecycle_sse, use_health_lifecycle_sse, use_training_lifecycle_sse,
+};
 use crate::components::chat_dock::{ChatDockPanel, MobileChatOverlay, NarrowChatDock};
-use crate::components::error_history_panel::ErrorHistory;
 use crate::components::inference_banner::InferenceBanner;
 use crate::components::offline_banner::OfflineBanner;
 use crate::components::status_center::StatusCenterProvider;
@@ -38,6 +40,13 @@ pub fn Shell() -> impl IntoView {
     let search = use_search();
     let route_context = use_route_context();
     web_sys::console::log_1(&"[Shell] Got chat context".into());
+
+    // SSE lifecycle subscriptions — Shell is inside ProtectedRoute so these
+    // only activate when the user is authenticated. The hooks dispatch into
+    // the refetch system so UI components auto-refresh on backend events.
+    let _adapter_sse = use_adapter_lifecycle_sse();
+    let _training_sse = use_training_lifecycle_sse();
+    let _health_sse = use_health_lifecycle_sse();
 
     // Track route changes for contextual actions in Command Palette
     let location = use_location();
@@ -243,8 +252,6 @@ pub fn Shell() -> impl IntoView {
                 // Telemetry overlay (Ctrl+Shift+T toggle, off by default)
                 <TelemetryOverlay/>
 
-                // Error history panel (Ctrl+Shift+E toggle)
-                <ErrorHistory/>
             </div>
         </StatusCenterProvider>
     }

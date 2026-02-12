@@ -62,7 +62,7 @@ pub fn Audit() -> impl IntoView {
     // Build query from filters
     let query = Memo::new(move |_| AuditLogsQuery {
         action: {
-            let a = action_filter.get();
+            let a = action_filter.try_get().unwrap_or_default();
             if a.is_empty() {
                 None
             } else {
@@ -70,7 +70,7 @@ pub fn Audit() -> impl IntoView {
             }
         },
         status: {
-            let s = status_filter.get();
+            let s = status_filter.try_get().unwrap_or_default();
             if s.is_empty() {
                 None
             } else {
@@ -78,7 +78,7 @@ pub fn Audit() -> impl IntoView {
             }
         },
         resource_type: {
-            let r = resource_filter.get();
+            let r = resource_filter.try_get().unwrap_or_default();
             if r.is_empty() {
                 None
             } else {
@@ -91,7 +91,7 @@ pub fn Audit() -> impl IntoView {
 
     // Fetch audit logs
     let (logs, refetch_logs) = use_api_resource(move |client: Arc<ApiClient>| {
-        let q = query.get();
+        let q = query.try_get().unwrap_or_default();
         async move { client.query_audit_logs(&q).await }
     });
 
@@ -138,8 +138,8 @@ pub fn Audit() -> impl IntoView {
 
     // Export handler
     let on_export = move |_| {
-        set_exporting.set(true);
-        let logs_data = logs.get();
+        let _ = set_exporting.try_set(true);
+        let logs_data = logs.try_get().unwrap_or_default();
         wasm_bindgen_futures::spawn_local(async move {
             // Get current logs data
             if let LoadingState::Loaded(data) = logs_data {
@@ -161,7 +161,7 @@ pub fn Audit() -> impl IntoView {
                     );
                 }
             }
-            set_exporting.set(false);
+            let _ = set_exporting.try_set(false);
         });
     };
 
@@ -170,7 +170,7 @@ pub fn Audit() -> impl IntoView {
             title="Audit Log"
             subtitle="Immutable record of all system events with cryptographic verification"
             breadcrumbs=vec![
-                PageBreadcrumbItem::new("Govern", "/audit"),
+                PageBreadcrumbItem::label("Govern"),
                 PageBreadcrumbItem::current("Audit Log"),
             ]
         >
@@ -181,13 +181,11 @@ pub fn Audit() -> impl IntoView {
                 <Button
                     variant=ButtonVariant::Outline
                     on:click=on_export
-                    disabled=Signal::derive(move || exporting.get())
+                    disabled=Signal::derive(move || exporting.try_get().unwrap_or(false))
                 >
-                    {move || if exporting.get() {
-                        view! { <Spinner/> }.into_any()
-                    } else {
-                        view! { "Export" }.into_any()
-                    }}
+                    <Show when=move || exporting.try_get().unwrap_or(false) fallback=move || view! { "Export" }>
+                        <Spinner/>
+                    </Show>
                 </Button>
             </PageScaffoldActions>
 
@@ -221,7 +219,7 @@ pub fn Audit() -> impl IntoView {
 
             // Tab content
             {move || {
-                match active_tab.get() {
+                match active_tab.try_get().unwrap_or(AuditTab::Timeline) {
                     AuditTab::Timeline => {
                         view! { <TimelineTab logs=logs on_retry=Callback::new(move |_| refetch_logs.run(()))/> }.into_any()
                     }

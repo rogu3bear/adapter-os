@@ -3,12 +3,12 @@
 //! Thin top bar with branding, command palette hint, and user menu.
 //! Responsive: collapses to hamburger menu on mobile viewports.
 
-use crate::components::error_history_panel::use_error_history;
 use crate::components::glass_toggle::GlassThemeToggle;
 use crate::components::global_search::GlobalSearchBox;
 use crate::components::layout::nav_registry::build_mobile_nav_items;
 use crate::components::responsive::use_is_mobile;
 use crate::components::status::{Badge, BadgeVariant};
+use crate::components::status_center::use_status_center;
 use crate::constants::urls::docs_url;
 use crate::signals::{use_auth, use_notification_state, use_search, use_ui_profile};
 use leptos::prelude::*;
@@ -421,7 +421,7 @@ fn MobileMenu(
 #[component]
 fn ErrorHistoryButton() -> impl IntoView {
     let notification_state = use_notification_state();
-    let error_history = use_error_history();
+    let status_center = use_status_center();
 
     // Count unread errors/warnings
     let unread_count = move || {
@@ -434,7 +434,7 @@ fn ErrorHistoryButton() -> impl IntoView {
     };
 
     let on_click = move |_| {
-        if let Some(ctx) = error_history {
+        if let Some(ctx) = status_center {
             ctx.toggle();
         }
     };
@@ -444,8 +444,8 @@ fn ErrorHistoryButton() -> impl IntoView {
         <button
             class="topbar-action relative flex items-center justify-center w-8 h-8 rounded-md hover:bg-muted/50 transition-colors"
             on:click=on_click
-            title="Error History (Ctrl+Shift+E)"
-            aria-label="Open error history"
+            title="Notifications (Ctrl+Shift+S)"
+            aria-label="Open notifications"
         >
             // Bell/notification icon
             <svg class="w-4 h-4 text-muted-foreground" fill="none" stroke="currentColor" viewBox="0 0 24 24" stroke-width="2">

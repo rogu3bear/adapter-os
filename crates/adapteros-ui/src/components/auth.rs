@@ -70,7 +70,7 @@ pub fn ProtectedRoute(children: ChildrenFn) -> impl IntoView {
             });
         })
     };
-    let retry_auth_error = retry_auth.clone();
+    let retry_auth_error = retry_auth;
 
     view! {
         // Mount/unmount auth UI states (avoid hidden overlays intercepting clicks).
@@ -95,7 +95,7 @@ pub fn ProtectedRoute(children: ChildrenFn) -> impl IntoView {
                     <div class="flex gap-3 justify-center">
                         <Button
                             on_click=Callback::new({
-                                let retry = retry_auth.clone();
+                                let retry = retry_auth;
                                 move |_| retry.run(())
                             })
                         >
@@ -120,7 +120,7 @@ pub fn ProtectedRoute(children: ChildrenFn) -> impl IntoView {
             <div class="flex min-h-screen items-center justify-center bg-muted/40">
                 {move || {
                     error_info.get().map(|(message, is_retryable, requires_login)| {
-                        let retry_handler = retry_auth_error.clone();
+                        let retry_handler = retry_auth_error;
                         view! {
                             <Card class="max-w-md text-center".to_string()>
                                 <div class="text-destructive text-4xl mb-4">"!"</div>

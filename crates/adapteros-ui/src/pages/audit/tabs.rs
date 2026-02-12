@@ -369,22 +369,12 @@ fn ChainEntryRow(entry: AuditChainEntry, is_first: bool) -> impl IntoView {
         "text-status-error"
     };
 
-    let hash_short = if entry.entry_hash.len() > 16 {
-        format!("{}...", &entry.entry_hash[..16])
-    } else {
-        entry.entry_hash.clone()
-    };
+    let hash_short = adapteros_id::format_hash_short(&entry.entry_hash);
 
     let prev_hash_display = entry
         .previous_hash
         .clone()
-        .map(|h| {
-            if h.len() > 16 {
-                format!("{}...", &h[..16])
-            } else {
-                h
-            }
-        })
+        .map(|h| adapteros_id::format_hash_short(&h))
         .unwrap_or_else(|| "GENESIS".to_string());
 
     let border_class = if entry.verified {
@@ -513,11 +503,7 @@ pub fn MerkleTreeTab(
                                 .merkle_root
                                 .clone()
                                 .unwrap_or_else(|| "Not Available".to_string());
-                            let merkle_root_short = if merkle_root.len() > 16 {
-                                format!("{}...{}", &merkle_root[..8], &merkle_root[merkle_root.len()-8..])
-                            } else {
-                                merkle_root.clone()
-                            };
+                            let merkle_root_short = adapteros_id::format_hash_short(&merkle_root);
                             let entry_count = data.total_entries;
                             let tree_depth = if entry_count > 0 {
                                 ((entry_count as f64).log2().ceil() as usize).max(1)
@@ -1088,11 +1074,7 @@ fn EmbeddingBenchmarkRowView(report: EmbeddingBenchmarkReport) -> impl IntoView 
         report.model_name.clone()
     };
 
-    let hash_short = if report.model_hash.len() > 8 {
-        format!("{}...", &report.model_hash[..8])
-    } else {
-        report.model_hash.clone()
-    };
+    let hash_short = adapteros_id::format_hash_short(&report.model_hash);
 
     let determinism_variant = if report.determinism_pass {
         BadgeVariant::Success

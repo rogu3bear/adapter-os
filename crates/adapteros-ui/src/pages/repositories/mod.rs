@@ -148,7 +148,18 @@ pub fn RepositoryDetail() -> impl IntoView {
                 PageBreadcrumbItem::current(repo_id.get()),
             ]
         >
-            <RepositoryDetailStandalone repo_id=repo_id.get()/>
+            {move || {
+                let id = repo_id.get();
+                if id.is_empty() {
+                    view! {
+                        <ErrorDisplay error=crate::api::ApiError::Validation("Missing repository ID in URL".to_string())/>
+                    }.into_any()
+                } else {
+                    view! {
+                        <RepositoryDetailStandalone repo_id=id/>
+                    }.into_any()
+                }
+            }}
         </PageScaffold>
     }
 }

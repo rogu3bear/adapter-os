@@ -25,11 +25,16 @@ pub fn Taskbar() -> impl IntoView {
     let ui_profile = use_ui_profile();
     let sidebar = use_sidebar();
     let is_mobile = use_is_mobile();
-    let modules = Signal::derive(move || build_taskbar_modules(ui_profile.get()));
+    let modules = Signal::derive(move || {
+        ui_profile
+            .try_get()
+            .map(build_taskbar_modules)
+            .unwrap_or_default()
+    });
 
     // On desktop: toggle sidebar. On mobile: toggle start menu popup.
     let on_menu_click = move |_| {
-        if is_mobile.get() {
+        if is_mobile.try_get().unwrap_or(false) {
             set_start_menu_open.update(|v| *v = !*v);
         } else {
             sidebar.update(|s| *s = s.toggle());
@@ -43,7 +48,7 @@ pub fn Taskbar() -> impl IntoView {
                 <button
                     class=move || format!(
                         "start-btn taskbar-btn flex items-center gap-2 px-3 py-1.5 rounded-md transition-colors {}",
-                        if start_menu_open.get() || sidebar.get().is_expanded() {
+                        if start_menu_open.try_get().unwrap_or(false) || sidebar.try_get().map(|s| s.is_expanded()).unwrap_or(false) {
                             "bg-primary text-primary-foreground"
                         } else {
                             "hover:bg-muted/50 text-foreground"
@@ -52,7 +57,7 @@ pub fn Taskbar() -> impl IntoView {
                     on:click=on_menu_click
                     title="Toggle navigation"
                     aria-label="Toggle navigation sidebar"
-                    aria-expanded=move || (start_menu_open.get() || sidebar.get().is_expanded()).to_string()
+                    aria-expanded=move || (start_menu_open.try_get().unwrap_or(false) || sidebar.try_get().map(|s| s.is_expanded()).unwrap_or(false)).to_string()
                 >
                     <svg class="w-4 h-4" viewBox="0 0 24 24" fill="currentColor" aria-hidden="true">
                         <rect x="3" y="3" width="8" height="8" rx="1"/>
@@ -64,7 +69,7 @@ pub fn Taskbar() -> impl IntoView {
                 </button>
 
                 // Start menu dropdown (mobile fallback only)
-                <Show when=move || start_menu_open.get()>
+                <Show when=move || start_menu_open.try_get().unwrap_or(false)>
                     <StartMenu on_close=move || set_start_menu_open.set(false)/>
                 </Show>
             </div>
@@ -73,7 +78,8 @@ pub fn Taskbar() -> impl IntoView {
             <div class="flex items-center gap-1 flex-1 min-w-0 overflow-auto">
                 {move || {
                     modules
-                        .get()
+                        .try_get()
+                        .unwrap_or_default()
                         .into_iter()
                         .map(|item| {
                             let href = item.href;
@@ -88,7 +94,7 @@ pub fn Taskbar() -> impl IntoView {
                                     label=label
                                     icon_path=icon_path
                                     is_active=move || {
-                                        let path = location.pathname.get();
+                                        let path = location.pathname.try_get().unwrap_or_default();
                                         // Check if current path matches any route in this module
                                         // Use try_with_value to avoid panic when StoredValue is
                                         // disposed during SPA navigation re-renders
@@ -121,7 +127,7 @@ pub fn Taskbar() -> impl IntoView {
                         <button
                             class=move || format!(
                                 "taskbar-btn shrink-0 relative flex items-center gap-2 px-3 py-1.5 rounded-md transition-colors {}",
-                                if chat_state.get().dock_state == DockState::Docked {
+                                if chat_state.try_get().unwrap_or_default().dock_state == DockState::Docked {
                                     "bg-primary/20 text-primary"
                                 } else {
                                     "hover:bg-muted/50 text-muted-foreground hover:text-foreground"
@@ -133,10 +139,10 @@ pub fn Taskbar() -> impl IntoView {
                             }
                             title="Toggle chat panel"
                             aria-label=move || {
-                                if chat_state.get().dock_state == DockState::Docked {
+                                if chat_state.try_get().unwrap_or_default().dock_state == DockState::Docked {
                                     "Close chat panel".to_string()
                                 } else {
-                                    let unread = chat_state.get().unread_count();
+                                    let unread = chat_state.try_get().unwrap_or_default().unread_count();
                                     if unread > 0 {
                                         format!("Open chat panel ({} unread messages)", unread)
                                     } else {
@@ -144,7 +150,7 @@ pub fn Taskbar() -> impl IntoView {
                                     }
                                 }
                             }
-                            aria-expanded=move || (chat_state.get().dock_state == DockState::Docked).to_string()
+                            aria-expanded=move || (chat_state.try_get().unwrap_or_default().dock_state == DockState::Docked).to_string()
                         >
                             <svg class="w-4 h-4" fill="none" stroke="currentColor" viewBox="0 0 24 24" aria-hidden="true">
                                 <path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M8 12h.01M12 12h.01M16 12h.01M21 12c0 4.418-4.03 8-9 8a9.863 9.863 0 01-4.255-.949L3 20l1.395-3.72C3.512 15.042 3 13.574 3 12c0-4.418 4.03-8 9-8s9 3.582 9 8z"/>
@@ -152,8 +158,8 @@ pub fn Taskbar() -> impl IntoView {
 
                             // Unread badge
                             {move || {
-                                let unread = chat_state.get().unread_count();
-                                if unread > 0 && chat_state.get().dock_state != DockState::Docked {
+                                let unread = chat_state.try_get().unwrap_or_default().unread_count();
+                                if unread > 0 && chat_state.try_get().unwrap_or_default().dock_state != DockState::Docked {
                                     view! {
                                         <span class="absolute -top-1 -right-1 flex h-4 w-4 items-center justify-center rounded-full bg-destructive text-[9px] font-medium text-destructive-foreground">
                                             {if unread > 9 { "9+".to_string() } else { unread.to_string() }}

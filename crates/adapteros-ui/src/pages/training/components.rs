@@ -34,9 +34,9 @@ pub fn StatusFilter(filter: RwSignal<String>) -> impl IntoView {
 /// CoreML filter checkboxes
 #[component]
 pub fn CoremlFilters(filter: RwSignal<CoremlFilterState>) -> impl IntoView {
-    let requested_checked = Signal::derive(move || filter.get().requested);
-    let exported_checked = Signal::derive(move || filter.get().exported);
-    let fallback_checked = Signal::derive(move || filter.get().fallback);
+    let requested_checked = Signal::derive(move || filter.try_get().unwrap_or_default().requested);
+    let exported_checked = Signal::derive(move || filter.try_get().unwrap_or_default().exported);
+    let fallback_checked = Signal::derive(move || filter.try_get().unwrap_or_default().fallback);
 
     view! {
         <div class="flex items-center gap-3 px-3 py-2 rounded-md border">
@@ -140,14 +140,14 @@ pub fn TrainingJobList(
                             view! {
                                 <tr
                                     class="border-b transition-colors hover:bg-muted/50 cursor-pointer"
-                                    class:bg-muted=move || selected_id.get().as_ref() == Some(&job_id)
+                                    class:bg-muted=move || selected_id.try_get().flatten().as_ref() == Some(&job_id)
                                     on:click=move |_| on_select(job_id_for_click.clone())
                                 >
                                     <TableCell>
                                         <div>
                                             <p class="font-medium">{job.adapter_name.clone()}</p>
                                             <p class="text-xs text-muted-foreground font-mono">
-                                                {job.id.clone().chars().take(8).collect::<String>()}"..."
+                                                {adapteros_id::short_id(&job.id)}
                                             </p>
                                             <CoremlBadges state=coreml_state_for_badges/>
                                         </div>

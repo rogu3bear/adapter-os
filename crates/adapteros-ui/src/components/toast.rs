@@ -55,7 +55,7 @@ pub fn ToastItem(
                     <span class="toast-title">{toast.title.clone()}</span>
                     {move || {
                         if has_details {
-                            let is_expanded = expanded.get();
+                            let is_expanded = expanded.try_get().unwrap_or(false);
                             view! {
                                 <button
                                     class="toast-expand"
@@ -64,7 +64,7 @@ pub fn ToastItem(
                                     aria-label={if is_expanded { "Collapse details" } else { "Expand details" }}
                                 >
                                     <svg
-                                        class=move || if expanded.get() { "toast-expand-icon toast-expand-icon-open" } else { "toast-expand-icon" }
+                                        class=move || if expanded.try_get().unwrap_or(false) { "toast-expand-icon toast-expand-icon-open" } else { "toast-expand-icon" }
                                         xmlns="http://www.w3.org/2000/svg"
                                         fill="none"
                                         viewBox="0 0 24 24"
@@ -90,7 +90,7 @@ pub fn ToastItem(
                     </a>
                 })}
                 {move || {
-                    if has_details && expanded.get() {
+                    if has_details && expanded.try_get().unwrap_or(false) {
                         let details_for_copy = toast.details.clone().unwrap_or_default();
                         let title_for_copy = toast.title.clone();
                         let message_for_copy = toast.message.clone();
@@ -126,7 +126,7 @@ pub fn ToastItem(
                                     }
                                     title="Copy diagnostic bundle to clipboard for error reporting"
                                 >
-                                    {move || if copy_clicked.get() { "Copied!" } else { "Copy Diagnostic Bundle" }}
+                                    {move || if copy_clicked.try_get().unwrap_or(false) { "Copied!" } else { "Copy Diagnostic Bundle" }}
                                 </button>
                             </div>
                         }.into_any()
@@ -185,7 +185,7 @@ pub fn ToastContainer() -> impl IntoView {
             aria-atomic="false"
         >
             <For
-                each=move || state.get().toasts.clone()
+                each=move || state.try_get().map(|s| s.toasts.clone()).unwrap_or_default()
                 key=|toast| toast.id.clone()
                 children=move |toast| {
                     let action = action.clone();
