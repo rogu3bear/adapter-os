@@ -559,6 +559,7 @@ pub async fn import_adapter(
         );
 
         let now = chrono::Utc::now().to_rfc3339();
+        let display_name = adapteros_id::display_name_for(&existing.id);
         return Ok(Json(AdapterResponse {
             schema_version: "v1".to_string(),
             id: existing.id.clone(),
@@ -603,7 +604,7 @@ pub async fn import_adapter(
             stream_session_id: None,
             versioning_threshold: None,
             coreml_package_hash: None,
-            display_name: None,
+            display_name,
         }));
     }
 
@@ -1172,6 +1173,6 @@ pub async fn import_adapter(
         stream_session_id: None,
         versioning_threshold: None,
         coreml_package_hash: None,
-        display_name: None,
+        display_name: adapteros_id::display_name_for(&adapter_id),
     }))
 }

@@ -8,6 +8,9 @@ pub use adapteros_server_api::lifecycle::{
     ShutdownConfig, ShutdownCoordinator, ShutdownError, ShutdownProgress, ShutdownStatus,
 };
 
+use adapteros_core::drain::{
+    phase_for_elapsed, should_emit_warning_sample, DrainPhase, DrainPhaseConfig, DrainStats,
+};
 use adapteros_deterministic_exec::select::select_3;
 use adapteros_server_api::boot_state::BootStateManager;
 use adapteros_server_api::state::BackgroundTaskTracker;
@@ -47,64 +50,6 @@ pub async fn apply_background_task_degraded(
         .degrade_component("background-tasks", &reason)
         .await;
     true
-}
-
-// ---------------------------------------------------------------------------
-// Graduated drain configuration
-// ---------------------------------------------------------------------------
-
-/// Phase durations for graduated drain escalation.
-///
-/// The drain proceeds through four phases, each with increasing urgency:
-/// 1. **Graceful**: silently wait for in-flight requests to complete
-/// 2. **Warning**: log structured warnings about lingering requests
-/// 3. **Notify**: broadcast shutdown to SSE streams, continue draining
-/// 4. **Force**: cancel remaining requests, log each one
-#[derive(Debug, Clone)]
-pub struct DrainPhaseConfig {
-    /// Duration of Phase 1: graceful silent wait (default 15s).
-    pub graceful: Duration,
-    /// Duration of Phase 2: warning logging (default 10s, ends at 25s).
-    pub warning: Duration,
-    /// Duration of Phase 3: SSE notification (default 5s, ends at 30s).
-    pub notify: Duration,
-}
-
-impl Default for DrainPhaseConfig {
-    fn default() -> Self {
-        Self {
-            graceful: Duration::from_secs(15),
-            warning: Duration::from_secs(10),
-            notify: Duration::from_secs(5),
-        }
-    }
-}
-
-impl DrainPhaseConfig {
-    /// Total drain duration across all phases.
-    pub fn total(&self) -> Duration {
-        self.graceful + self.warning + self.notify
-    }
-}
-
-/// Internal drain phase state machine.
-#[derive(Debug, Clone, Copy, PartialEq, Eq)]
-enum DrainPhase {
-    Graceful,
-    Warning,
-    Notify,
-    Force,
-}
-
-impl DrainPhase {
-    fn as_str(&self) -> &'static str {
-        match self {
-            DrainPhase::Graceful => "graceful",
-            DrainPhase::Warning => "warning",
-            DrainPhase::Notify => "notify",
-            DrainPhase::Force => "force",
-        }
-    }
 }
 
 // ---------------------------------------------------------------------------
@@ -198,8 +143,7 @@ pub async fn shutdown_signal_with_graduated_drain(
     boot_state.drain().await;
 
     // --- Phase boundaries ---
-    let phase1_end = phases.graceful;
-    let phase2_end = phase1_end + phases.warning;
+    let (phase1_end, phase2_end) = phases.phase_boundaries();
     let total = drain_timeout;
 
     info!(
@@ -213,9 +157,7 @@ pub async fn shutdown_signal_with_graduated_drain(
 
     let start = tokio::time::Instant::now();
     let mut current_phase = DrainPhase::Graceful;
-    let mut sample_count = 0u64;
-    let mut total_in_flight = 0u64;
-    let mut peak_in_flight = 0usize;
+    let mut stats = DrainStats::default();
     let mut sse_notified = false;
 
     loop {
@@ -223,9 +165,7 @@ pub async fn shutdown_signal_with_graduated_drain(
         let elapsed = start.elapsed();
 
         // Track statistics
-        sample_count += 1;
-        total_in_flight += count as u64;
-        peak_in_flight = peak_in_flight.max(count);
+        stats.record(count);
 
         // All requests drained — exit early
         if count == 0 {
@@ -238,13 +178,7 @@ pub async fn shutdown_signal_with_graduated_drain(
         }
 
         // Determine current phase
-        let new_phase = if elapsed >= phase2_end {
-            DrainPhase::Notify
-        } else if elapsed >= phase1_end {
-            DrainPhase::Warning
-        } else {
-            DrainPhase::Graceful
-        };
+        let new_phase = phase_for_elapsed(elapsed, phase1_end, phase2_end);
 
         // Phase transition logging
         if new_phase != current_phase {
@@ -261,7 +195,7 @@ pub async fn shutdown_signal_with_graduated_drain(
         match current_phase {
             DrainPhase::Graceful => {
                 // Phase 1: silent wait, log only on first iteration
-                if sample_count == 1 {
+                if stats.sample_count == 1 {
                     info!(
                         in_flight = count,
                         timeout_secs = total.as_secs(),
@@ -272,10 +206,10 @@ pub async fn shutdown_signal_with_graduated_drain(
             DrainPhase::Warning => {
                 // Phase 2: periodic structured warnings
                 // Log every ~2s (20 iterations at 100ms)
-                if sample_count % 20 == 0 {
+                if should_emit_warning_sample(stats.sample_count) {
                     warn!(
                         in_flight = count,
-                        peak = peak_in_flight,
+                        peak = stats.peak_in_flight,
                         elapsed_secs = elapsed.as_secs(),
                         remaining_secs = total.saturating_sub(elapsed).as_secs(),
                         "Drain warning: requests still in flight"
@@ -315,20 +249,16 @@ pub async fn shutdown_signal_with_graduated_drain(
     // --- Phase 4: Force ---
     if current_phase == DrainPhase::Force {
         let count = in_flight_requests.load(Ordering::SeqCst);
-        let avg_in_flight = if sample_count > 0 {
-            total_in_flight as f64 / sample_count as f64
-        } else {
-            0.0
-        };
+        let avg_in_flight = stats.average_in_flight();
 
         error!(
             phase = "force",
             in_flight_current = count,
-            in_flight_peak = peak_in_flight,
+            in_flight_peak = stats.peak_in_flight,
             in_flight_avg = format!("{:.2}", avg_in_flight),
             elapsed_secs = start.elapsed().as_secs(),
             total_timeout_secs = total.as_secs(),
-            sample_count,
+            sample_count = stats.sample_count,
             "Drain timeout exceeded — force-cancelling remaining requests"
         );
 
@@ -345,7 +275,7 @@ pub async fn shutdown_signal_with_graduated_drain(
              Investigate: database locks, slow network I/O, or stuck async tasks.",
             count,
             total.as_secs(),
-            peak_in_flight,
+            stats.peak_in_flight,
             avg_in_flight
         );
     }

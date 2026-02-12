@@ -84,12 +84,15 @@ pub async fn get_topology(
         clusters: graph
             .clusters
             .into_iter()
-            .map(|c| adapteros_api_types::topology::ClusterDefinition {
-                id: c.id,
-                description: c.description,
-                default_adapter_id: c.default_adapter_id,
-                version: c.version,
-                display_name: None,
+            .map(|c| {
+                let display_name = adapteros_id::display_name_for(&c.id);
+                adapteros_api_types::topology::ClusterDefinition {
+                    id: c.id,
+                    description: c.description,
+                    default_adapter_id: c.default_adapter_id,
+                    version: c.version,
+                    display_name,
+                }
             })
             .collect(),
         adapters,

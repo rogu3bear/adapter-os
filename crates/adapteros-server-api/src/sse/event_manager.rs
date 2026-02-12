@@ -277,6 +277,23 @@ impl SseEventManager {
             entry.value().clear().await;
         }
     }
+
+    /// Emit a typed lifecycle event on the given stream
+    ///
+    /// Serializes `payload` to JSON and stores it as a new event with the
+    /// stream type's default event name. If serialization fails, the event
+    /// is silently dropped (callers should ensure payloads are always
+    /// serializable).
+    pub async fn emit_lifecycle<T: serde::Serialize>(&self, stream: SseStreamType, payload: &T) {
+        let data = match serde_json::to_string(payload) {
+            Ok(json) => json,
+            Err(e) => {
+                tracing::warn!(error = %e, "Failed to serialize lifecycle event payload");
+                return;
+            }
+        };
+        self.create_event(stream, stream.event_name(), data).await;
+    }
 }
 
 impl Default for SseEventManager {

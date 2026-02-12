@@ -519,7 +519,8 @@ async fn test_resolved_prefix_builder() {
         .mode(PrefixMode::User)
         .template_text("You are helpful.")
         .token_ids(vec![100, 200, 300])
-        .build();
+        .build()
+        .expect("test builder should succeed");
 
     assert_eq!(resolved.template.id, "tpl-123");
     assert_eq!(resolved.template.tenant_id, "tenant-1");
@@ -539,7 +540,8 @@ async fn test_resolved_prefix_builder_defaults() {
     let resolved = ResolvedPrefixBuilder::new()
         .template_text("Test")
         .token_ids(vec![1, 2, 3])
-        .build();
+        .build()
+        .expect("test builder should succeed");
 
     assert_eq!(resolved.template.id, "test-template");
     assert_eq!(resolved.template.tenant_id, "test-tenant");
