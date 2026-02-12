@@ -387,14 +387,25 @@ pub fn GenerateDatasetWizard(
 
                     // Generating status
                     <Show when=move || generating.get()>
-                        <div class="flex items-center gap-3 p-4 rounded-lg border bg-muted/30">
-                            <Spinner/>
-                            <div>
-                                <p class="text-sm font-medium">"Generating samples..."</p>
-                                <p class="text-xs text-muted-foreground">
-                                    "This may take a few minutes depending on file size"
-                                </p>
+                        <div class="flex items-center justify-between gap-3 p-4 rounded-lg border bg-muted/30">
+                            <div class="flex items-center gap-3">
+                                <Spinner/>
+                                <div>
+                                    <p class="text-sm font-medium">"Generating samples..."</p>
+                                    <p class="text-xs text-muted-foreground">
+                                        "This may take a few minutes depending on file size"
+                                    </p>
+                                </div>
                             </div>
+                            <Button
+                                variant=ButtonVariant::Outline
+                                on_click=Callback::new(move |_| {
+                                    generating.set(false);
+                                    error.set(Some("Generation cancelled by user".to_string()));
+                                })
+                            >
+                                "Cancel"
+                            </Button>
                         </div>
                     </Show>
 
@@ -466,7 +477,7 @@ pub fn GenerateDatasetWizard(
                                     <p>
                                         "Source Model: "
                                         <code class="bg-muted px-1 rounded">
-                                            {move || result.get().and_then(|r| r.source_model_hash.clone()).map(|h| format!("{}...", &h[..16])).unwrap_or_default()}
+                                            {move || result.get().and_then(|r| r.source_model_hash.clone()).map(|h| adapteros_id::format_hash_short(&h)).unwrap_or_default()}
                                         </code>
                                     </p>
                                 </Show>

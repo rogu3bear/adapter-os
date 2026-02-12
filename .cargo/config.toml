@@ -76,6 +76,10 @@ bv = "build --workspace -v"
 # Test with nextest (install: cargo install cargo-nextest)
 nt = "nextest run --workspace"
 ntf = "nextest run --workspace --failure-output=immediate"
+# Server dual-mode local loop (fast vs full)
+svr-fast-test = "test -p adapteros-core drain::tests::"
+svr-fast-check = "check -p adapteros-server"
+svr-full-test = "test -p adapteros-server --bin aos-server"
 # Quick check (faster than build, just type checking)
 c = "check --workspace"
 # Clippy with error visibility lints (catches silent error swallowing)

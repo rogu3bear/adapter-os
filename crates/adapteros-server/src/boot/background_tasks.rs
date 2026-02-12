@@ -22,7 +22,7 @@
 //! - TTL cleanup (prevents DB bloat)
 //! - Log cleanup (prevents disk bloat, reduced frequency in dev)
 //!
-//! ## Production Mode Tasks (15 tasks)
+//! ## Production Mode Tasks (17 tasks)
 //!
 //! 1. Status writer task (5s interval)
 //! 2. KV metrics alert monitor task (5s interval)
@@ -31,14 +31,16 @@
 //! 5. WAL checkpoint task (5m interval)
 //! 6. Upload session cleanup task (1h interval)
 //! 7. Security cleanup task (1h interval)
-//! 8. Telemetry bundle GC task (6h interval)
-//! 9. Orphaned training job cleanup task (1h interval)
-//! 10. Stale worker reaper task (60s interval)
-//! 11. Rate limiter eviction task (60s interval)
-//! 12. Inference cache cleanup task (5m interval)
-//! 13. Idempotency store cleanup task (5m interval)
-//! 14. Inference state tracker cleanup task (5m interval)
-//! 15. Telemetry rate limiter cleanup task (60s interval)
+//! 8. Egress re-verification monitor (60s interval, configurable)
+//! 9. Telemetry bundle GC task (6h interval)
+//! 10. Orphaned training job cleanup task (1h interval)
+//! 11. Stale worker reaper task (60s interval)
+//! 12. Rate limiter eviction task (60s interval)
+//! 13. Inference cache cleanup task (5m interval)
+//! 14. Idempotency store cleanup task (5m interval)
+//! 15. Inference state tracker cleanup task (5m interval)
+//! 16. Telemetry rate limiter cleanup task (60s interval)
+//! 17. Synthetic probe runner (configurable interval, disabled by default)
 //!
 //! Each task uses the `BackgroundTaskSpawner` to integrate with the shutdown coordinator
 //! and task tracking system.
@@ -656,6 +658,79 @@ pub async fn spawn_all_background_tasks(
             shutdown_coordinator = spawner.into_coordinator();
         } else {
             info!("Security cleanup disabled via AOS_SECURITY_CLEANUP_SECS=0");
+        }
+    }
+
+    // Spawn egress re-verification monitor
+    // SKIPPED in dev mode - production security only
+    // Periodically re-checks firewall rules to detect rule changes after boot.
+    // Default interval: 60s (configurable via AOS_EGRESS_MONITOR_SECS)
+    if !dev_mode && !crate::boot::egress_monitor::is_monitor_disabled() {
+        let require_pf_deny = {
+            let cfg = server_config.read().map_err(|e| {
+                error!(error = %e, "Config lock poisoned during egress monitor setup");
+                anyhow::anyhow!("config lock poisoned")
+            })?;
+            cfg.security.require_pf_deny
+        };
+
+        if require_pf_deny {
+            let interval_secs = crate::boot::egress_monitor::monitor_interval_secs();
+            let mut spawner = BackgroundTaskSpawner::new(shutdown_coordinator)
+                .with_task_tracker(Arc::clone(&background_tasks));
+            let mut shutdown_rx = spawner.coordinator().subscribe_shutdown();
+            if spawner
+                .spawn_optional(
+                    "Egress re-verification",
+                    async move {
+                        use crate::boot::egress_monitor::run_egress_check;
+
+                        let mut interval =
+                            tokio::time::interval(Duration::from_secs(interval_secs));
+                        interval.set_missed_tick_behavior(MissedTickBehavior::Skip);
+
+                        // First check establishes baseline
+                        let mut previous = run_egress_check(None);
+                        if previous.is_none() {
+                            warn!(
+                                "Egress monitor: pfctl/iptables unavailable, disabling periodic check"
+                            );
+                            return;
+                        }
+
+                        loop {
+                            tokio::select! {
+                                biased;
+                                _ = shutdown_rx.recv() => {
+                                    info!("Egress re-verification received shutdown signal, exiting gracefully");
+                                    break;
+                                }
+                                _ = interval.tick() => {
+                                    match run_egress_check(previous.as_ref()) {
+                                        Some(snapshot) => {
+                                            previous = Some(snapshot);
+                                        }
+                                        None => {
+                                            warn!("Egress monitor: pfctl/iptables became unavailable, disabling");
+                                            break;
+                                        }
+                                    }
+                                }
+                            }
+                        }
+                    },
+                    "Egress rules will not be monitored after boot",
+                )
+                .is_ok()
+            {
+                info!(
+                    interval_secs = interval_secs,
+                    "Egress re-verification monitor started"
+                );
+            }
+            shutdown_coordinator = spawner.into_coordinator();
+        } else {
+            info!("Egress monitor skipped: require_pf_deny is false");
         }
     }
 
@@ -1551,6 +1626,46 @@ pub async fn spawn_all_background_tasks(
             info!("Stale task monitor started (60s interval, 5min threshold)");
         }
         shutdown_coordinator = spawner.into_coordinator();
+    }
+
+    // Spawn synthetic probe runner if enabled
+    // SKIPPED in dev mode - production monitoring only
+    if !dev_mode {
+        let probe_config = adapteros_server_api::synthetic_probes::SyntheticProbeConfig::from_env();
+        if probe_config.enabled {
+            let (runner, probe_results) =
+                adapteros_server_api::synthetic_probes::SyntheticProbeRunner::new(
+                    state.clone(),
+                    probe_config.clone(),
+                );
+
+            // Register the shared results handle globally so the health endpoint
+            // can read probe results without requiring AppState mutation after boot.
+            adapteros_server_api::synthetic_probes::register_global_results(probe_results);
+
+            let mut spawner = BackgroundTaskSpawner::new(shutdown_coordinator)
+                .with_task_tracker(Arc::clone(&background_tasks));
+            let shutdown_rx = spawner.coordinator().subscribe_shutdown();
+            if spawner
+                .spawn_optional(
+                    "Synthetic probe runner",
+                    async move {
+                        runner.run(shutdown_rx).await;
+                    },
+                    "Synthetic probes disabled: adapters will not be continuously validated",
+                )
+                .is_ok()
+            {
+                info!(
+                    cycle_interval_secs = probe_config.cycle_interval.as_secs(),
+                    max_probes_per_cycle = probe_config.max_probes_per_cycle,
+                    "Synthetic probe runner task started"
+                );
+            }
+            shutdown_coordinator = spawner.into_coordinator();
+        } else {
+            info!("Synthetic probes disabled (set AOS_SYNTHETIC_PROBES_ENABLED=true to enable)");
+        }
     }
 
     Ok(shutdown_coordinator)

@@ -21,10 +21,15 @@ use std::sync::Arc;
 pub fn StackDetail() -> impl IntoView {
     let params = use_params_map();
 
-    let stack_id = Memo::new(move |_| params.get().get("id").unwrap_or_default());
+    let stack_id = Memo::new(move |_| {
+        params
+            .try_get()
+            .map(|p| p.get("id").unwrap_or_default())
+            .unwrap_or_default()
+    });
 
     let (stack, refetch) = use_api_resource(move |client: Arc<ApiClient>| {
-        let id = stack_id.get();
+        let id = stack_id.try_get().unwrap_or_default();
         async move { client.get_stack(&id).await }
     });
 
@@ -35,10 +40,13 @@ pub fn StackDetail() -> impl IntoView {
     let show_edit_dialog = RwSignal::new(false);
 
     // Derive breadcrumb label: show name once loaded, fall back to ID
-    let breadcrumb_label = Signal::derive(move || match stack.get() {
-        LoadingState::Loaded(ref data) => data.name.clone(),
-        _ => stack_id.get(),
-    });
+    let breadcrumb_label =
+        Signal::derive(
+            move || match stack.try_get().unwrap_or(LoadingState::Idle) {
+                LoadingState::Loaded(ref data) => data.name.clone(),
+                _ => stack_id.try_get().unwrap_or_default(),
+            },
+        );
 
     view! {
         <PageScaffold
@@ -46,7 +54,7 @@ pub fn StackDetail() -> impl IntoView {
             breadcrumbs=vec![
                 PageBreadcrumbItem::new("Deploy", "/stacks"),
                 PageBreadcrumbItem::new("Stacks", "/stacks"),
-                PageBreadcrumbItem::current(breadcrumb_label.get()),
+                PageBreadcrumbItem::current(breadcrumb_label.try_get().unwrap_or_default()),
             ]
         >
             <PageScaffoldActions slot>
@@ -60,12 +68,12 @@ pub fn StackDetail() -> impl IntoView {
             </PageScaffoldActions>
 
             {move || {
-                match stack.get() {
+                match stack.try_get().unwrap_or(LoadingState::Idle) {
                     LoadingState::Idle | LoadingState::Loading => {
                         view! { <LoadingDisplay message="Loading stack details..."/> }.into_any()
                     }
                     LoadingState::Loaded(data) => {
-                        let adapter_data = match adapters.get() {
+                        let adapter_data = match adapters.try_get().unwrap_or(LoadingState::Idle) {
                             LoadingState::Loaded(a) => a,
                             _ => vec![],
                         };
@@ -80,6 +88,22 @@ pub fn StackDetail() -> impl IntoView {
                                 stack=data
                                 refetch=refetch
                             />
+                        }.into_any()
+                    }
+                    LoadingState::Error(e) if e.is_not_found() => {
+                        view! {
+                            <div class="flex min-h-[40vh] flex-col items-center justify-center px-4">
+                                <div class="card p-8 max-w-md w-full text-center">
+                                    <div class="text-4xl font-bold text-muted-foreground mb-2">"404"</div>
+                                    <h2 class="heading-3 mb-2">"Stack not found"</h2>
+                                    <p class="text-muted-foreground mb-6">
+                                        "This stack may have been deleted or doesn\u{2019}t exist."
+                                    </p>
+                                    <a href="/stacks" class="btn btn-primary btn-md">
+                                        "View all stacks"
+                                    </a>
+                                </div>
+                            </div>
                         }.into_any()
                     }
                     LoadingState::Error(e) => {
@@ -126,7 +150,7 @@ pub fn StackDetailContent(
                         <p class="text-sm text-muted-foreground">"Name"</p>
                         <p class="font-medium">{stack.name.clone()}</p>
                     </div>
-                    <CopyableId id=stack.id.clone() label="Stack ID".to_string() truncate=24 />
+                    <CopyableId id=stack.id.clone() display_name=stack.display_name.clone().unwrap_or_default() label="Stack ID".to_string() truncate=24 />
                     {stack.description.clone().map(|desc| view! {
                         <div>
                             <p class="text-sm text-muted-foreground">"Description"</p>
@@ -289,7 +313,7 @@ pub fn StackDetailContent(
                                                 <Badge variant=badge_variant>
                                                     {lifecycle_label}
                                                 </Badge>
-                                                {move || is_in_flight.get().then(|| view! {
+                                                {move || is_in_flight.try_get().unwrap_or(false).then(|| view! {
                                                     <Badge variant=BadgeVariant::Warning>"In Use"</Badge>
                                                 })}
                                             </div>

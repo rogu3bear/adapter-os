@@ -14,8 +14,8 @@ use leptos::prelude::*;
 use std::sync::Arc;
 
 use super::utils::{
-    format_timestamp, format_uptime, health_badge_variant, short_hash, short_id,
-    status_badge_variant, WorkerHealthRecord, WorkerHealthSummary, WORKERS_PAGE_SIZE,
+    format_timestamp, format_uptime, health_badge_variant, status_badge_variant,
+    WorkerHealthRecord, WorkerHealthSummary, WORKERS_PAGE_SIZE,
 };
 use crate::components::{IconPause, IconRefresh, IconStop, IconX};
 
@@ -261,12 +261,8 @@ pub fn WorkerRow(
     let health_variant = health_badge_variant(health_status.as_str());
     let errors_24h = health.as_ref().map(|h| h.recent_incidents_24h).unwrap_or(0);
 
-    let short_worker_id = if worker.id.len() > 12 {
-        format!("{}...", &worker.id[..12])
-    } else {
-        worker.id.clone()
-    };
-    let short_tenant_id = short_id(&worker.tenant_id);
+    let short_worker_id = adapteros_id::short_id(&worker.id);
+    let short_tenant_id = adapteros_id::short_id(&worker.tenant_id);
 
     let backend = worker
         .backend
@@ -459,7 +455,7 @@ pub fn WorkerDetailPanel(
                 // Header
                 <div class="flex items-center justify-between">
                     <div class="flex items-center gap-3">
-                        <span class="font-mono text-lg">{short_id(&worker.id)}</span>
+                        <span class="font-mono text-lg">{adapteros_id::short_id(&worker.id)}</span>
                         <Badge variant=status_badge_variant(&worker.status)>
                             {worker.status.clone()}
                         </Badge>
@@ -669,7 +665,7 @@ pub fn WorkerDetailView(
             // Header
             <div class="flex items-center justify-between">
                 <div class="flex items-center gap-4">
-                    <h2 class="heading-2 font-mono">{short_id(&worker.id)}</h2>
+                    <h2 class="heading-2 font-mono">{adapteros_id::short_id(&worker.id)}</h2>
                     <Badge variant=status_badge_variant(&worker.status)>
                         {worker.status.clone()}
                     </Badge>
@@ -722,7 +718,7 @@ pub fn WorkerDetailView(
                 let worker_id = worker.id.clone();
                 let drain_desc = format!(
                     "Drain worker '{}'? New requests will be rejected while existing ones complete.",
-                    short_id(&worker.id),
+                    adapteros_id::short_id(&worker.id),
                 );
                 view! {
                     <ConfirmationDialog
@@ -768,7 +764,7 @@ pub fn WorkerDetailView(
                 let worker_id = worker.id.clone();
                 let stop_desc = format!(
                     "Stop worker '{}'? Active inference requests will be terminated.",
-                    short_id(&worker.id),
+                    adapteros_id::short_id(&worker.id),
                 );
                 view! {
                     <ConfirmationDialog
@@ -846,7 +842,7 @@ pub fn WorkerDetailView(
                     }}
                     <DetailItem label="Backend" value=worker.backend.clone().filter(|b| !b.is_empty()).unwrap_or_else(|| "Unknown".to_string())/>
                     <DetailItem label="Model ID" value=worker.model_id.clone().filter(|m| !m.is_empty()).unwrap_or_else(|| "Not assigned".to_string())/>
-                    <DetailItem label="Model Hash" value=worker.model_hash.clone().map(|h| short_hash(&h)).unwrap_or("-".to_string())/>
+                    <DetailItem label="Model Hash" value=worker.model_hash.clone().map(|h| adapteros_id::format_hash_short(&h)).unwrap_or("-".to_string())/>
                     <DetailItem label="Model Loaded" value=if worker.model_loaded { "Yes".to_string() } else { "No".to_string() }/>
                     <DetailItem label="PID" value=worker.pid.map(|p| p.to_string()).unwrap_or("-".to_string())/>
                     <DetailItem label="UDS Path" value=worker.uds_path.clone()/>

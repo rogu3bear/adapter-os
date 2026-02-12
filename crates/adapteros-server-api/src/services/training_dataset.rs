@@ -456,6 +456,7 @@ impl DefaultTrainingDatasetService {
             "Created dataset from jsonl rows"
         );
 
+        let display_name = adapteros_id::display_name_for(&dataset_id);
         Ok(DatasetResponse {
             schema_version: "1.0".to_string(),
             dataset_id,
@@ -478,7 +479,7 @@ impl DefaultTrainingDatasetService {
             created_at: now.clone(),
             updated_at: now,
             dataset_type: Some("standard".to_string()), // Defaulting to standard
-            display_name: None,
+            display_name,
         })
     }
 

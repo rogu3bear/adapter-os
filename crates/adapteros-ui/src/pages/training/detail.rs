@@ -73,7 +73,7 @@ pub fn TrainingJobDetail(
         Effect::new(move || {
             if let Some(LoadingState::Loaded(ref data)) = job.try_get() {
                 let current_status = data.status.clone();
-                let previous = prev_status.get_untracked();
+                let previous = prev_status.try_get_untracked().unwrap_or_default();
 
                 // Detect transition to completed from a non-completed state
                 if current_status == "completed" && previous != "completed" && !previous.is_empty()
@@ -104,14 +104,14 @@ pub fn TrainingJobDetail(
                 }
 
                 // Update previous status for next comparison
-                prev_status.set(current_status);
+                let _ = prev_status.try_set(current_status);
             }
         });
     }
 
     // Only poll when job is still active (running/pending/queued)
     let should_poll = Signal::derive(move || {
-        matches!(job.get(), LoadingState::Loaded(ref data) if {
+        matches!(job.try_get(), Some(LoadingState::Loaded(ref data)) if {
             matches!(data.status.as_str(), "running" | "pending" | "queued")
         })
     });
@@ -255,7 +255,7 @@ pub fn TrainingJobDetail(
             })}
 
             {move || {
-                match job.get() {
+                match job.try_get().unwrap_or(LoadingState::Loading) {
                     LoadingState::Idle | LoadingState::Loading => {
                         view! {
                             <div class="flex items-center justify-center py-12">
@@ -360,7 +360,7 @@ pub fn JobDetailContent(
                             })}
                         </div>
                         {can_cancel.then(|| {
-                            let is_cancelling = Signal::derive(move || cancelling.get());
+                            let is_cancelling = Signal::derive(move || cancelling.try_get().unwrap_or(false));
                             view! {
                                 <Button
                                     variant=ButtonVariant::Destructive
@@ -368,7 +368,7 @@ pub fn JobDetailContent(
                                     loading=is_cancelling
                                     disabled=is_cancelling
                                 >
-                                    {move || if cancelling.get() { "Cancelling..." } else { "Cancel job" }}
+                                    {move || if cancelling.try_get().unwrap_or(false) { "Cancelling..." } else { "Cancel job" }}
                                 </Button>
                             }
                         })}
@@ -417,7 +417,7 @@ pub fn JobDetailContent(
 
                     // Completion banner with handoff actions
                     {(is_completed && adapter_id_for_detail.is_some()).then(|| {
-                        let adapter_id = adapter_id_for_detail.clone().unwrap();
+                        let adapter_id = adapter_id_for_detail.clone().unwrap_or_default();
                         let adapter_href = format!("/adapters/{}", adapter_id);
                         let chat_href = chat_path_with_adapter(&adapter_id);
                         view! {
@@ -567,7 +567,7 @@ pub fn JobDetailContent(
             confirm_text="Cancel Job"
             on_confirm=on_cancel
             on_cancel=on_cancel_dismiss
-            loading=Signal::derive(move || cancelling.get())
+            loading=Signal::derive(move || cancelling.try_get().unwrap_or(false))
         />
     }
 }
@@ -845,21 +845,24 @@ pub fn LogViewer(job_id: String) -> impl IntoView {
 
     // Initial fetch
     let job_id_clone = job_id.clone();
-    Effect::new(move || {
+    Effect::new(move |_| {
         let job_id = job_id_clone.clone();
-        wasm_bindgen_futures::spawn_local(async move {
-            let client = ApiClient::new();
-            match client.get_training_logs(&job_id).await {
-                Ok(log_lines) => {
-                    let _ = logs.try_set(log_lines);
-                    let _ = error.try_set(None);
+        gloo_timers::callback::Timeout::new(0, move || {
+            wasm_bindgen_futures::spawn_local(async move {
+                let client = ApiClient::new();
+                match client.get_training_logs(&job_id).await {
+                    Ok(log_lines) => {
+                        let _ = logs.try_set(log_lines);
+                        let _ = error.try_set(None);
+                    }
+                    Err(e) => {
+                        let _ = error.try_set(Some(e.user_message()));
+                    }
                 }
-                Err(e) => {
-                    let _ = error.try_set(Some(e.user_message()));
-                }
-            }
-            let _ = loading.try_set(false);
-        });
+                let _ = loading.try_set(false);
+            });
+        })
+        .forget();
     });
 
     // Poll for updates every 3 seconds
@@ -877,22 +880,22 @@ pub fn LogViewer(job_id: String) -> impl IntoView {
     view! {
         <div class="h-48 overflow-auto bg-muted rounded-md p-3 font-mono text-xs text-status-success">
             {move || {
-                if loading.get() {
+                if loading.try_get().unwrap_or(true) {
                     view! {
                         <div class="text-muted-foreground">"Loading logs..."</div>
                     }.into_any()
-                } else if let Some(err) = error.get() {
+                } else if let Some(err) = error.try_get().flatten() {
                     view! {
                         <div class="text-status-error">"Error: "{err}</div>
                     }.into_any()
-                } else if logs.get().is_empty() {
+                } else if logs.try_get().unwrap_or_default().is_empty() {
                     view! {
                         <div class="text-muted-foreground">"No logs available yet..."</div>
                     }.into_any()
                 } else {
                     view! {
                         <div>
-                            {logs.get().into_iter().map(|line| {
+                            {logs.try_get().unwrap_or_default().into_iter().map(|line| {
                                 view! { <div>{line}</div> }
                             }).collect::<Vec<_>>()}
                         </div>
@@ -916,21 +919,24 @@ pub fn MetricsChart(job_id: String) -> impl IntoView {
 
     // Initial fetch
     let job_id_clone = job_id.clone();
-    Effect::new(move || {
+    Effect::new(move |_| {
         let job_id = job_id_clone.clone();
-        wasm_bindgen_futures::spawn_local(async move {
-            let client = ApiClient::new();
-            match client.get_training_metrics(&job_id).await {
-                Ok(response) => {
-                    let _ = metrics.try_set(response.metrics);
-                    let _ = error.try_set(None);
+        gloo_timers::callback::Timeout::new(0, move || {
+            wasm_bindgen_futures::spawn_local(async move {
+                let client = ApiClient::new();
+                match client.get_training_metrics(&job_id).await {
+                    Ok(response) => {
+                        let _ = metrics.try_set(response.metrics);
+                        let _ = error.try_set(None);
+                    }
+                    Err(e) => {
+                        let _ = error.try_set(Some(e.user_message()));
+                    }
                 }
-                Err(e) => {
-                    let _ = error.try_set(Some(e.user_message()));
-                }
-            }
-            let _ = loading.try_set(false);
-        });
+                let _ = loading.try_set(false);
+            });
+        })
+        .forget();
     });
 
     // Poll for updates every 3 seconds
@@ -940,7 +946,7 @@ pub fn MetricsChart(job_id: String) -> impl IntoView {
         async move {
             let client = ApiClient::new();
             if let Ok(response) = client.get_training_metrics(&job_id).await {
-                metrics.set(response.metrics);
+                let _ = metrics.try_set(response.metrics);
             }
         }
     });
@@ -948,26 +954,26 @@ pub fn MetricsChart(job_id: String) -> impl IntoView {
     view! {
         <div class="space-y-4">
             {move || {
-                if loading.get() {
+                if loading.try_get().unwrap_or(true) {
                     view! {
                         <div class="h-32 flex items-center justify-center text-muted-foreground">
                             "Loading metrics..."
                         </div>
                     }.into_any()
-                } else if let Some(err) = error.get() {
+                } else if let Some(err) = error.try_get().flatten() {
                     view! {
                         <div class="h-32 flex items-center justify-center text-status-error text-sm">
                             "Metrics unavailable: "{err}
                         </div>
                     }.into_any()
-                } else if metrics.get().is_empty() {
+                } else if metrics.try_get().unwrap_or_default().is_empty() {
                     view! {
                         <div class="h-32 flex items-center justify-center text-muted-foreground">
                             "No metrics data yet..."
                         </div>
                     }.into_any()
                 } else {
-                    let data = metrics.get();
+                    let data = metrics.try_get().unwrap_or_default();
                     let latest = data.last();
 
                     // Calculate min/max loss for scaling

@@ -77,23 +77,24 @@ pub fn Monitoring() -> impl IntoView {
     });
 
     // Count active alerts
-    let active_alert_count = Signal::derive(move || match alerts.get() {
+    let active_alert_count = Signal::derive(move || match alerts.try_get().unwrap_or_default() {
         LoadingState::Loaded(ref a) => a.iter().filter(|x| x.status == "active").count(),
         _ => 0,
     });
 
     // Count unresolved anomalies
-    let unresolved_anomaly_count = Signal::derive(move || match anomalies.get() {
-        LoadingState::Loaded(ref a) => a.iter().filter(|x| x.status != "resolved").count(),
-        _ => 0,
-    });
+    let unresolved_anomaly_count =
+        Signal::derive(move || match anomalies.try_get().unwrap_or_default() {
+            LoadingState::Loaded(ref a) => a.iter().filter(|x| x.status != "resolved").count(),
+            _ => 0,
+        });
 
     view! {
         <PageScaffold
             title="Monitoring"
             subtitle="Process health, alerts, and anomalies across workers."
             breadcrumbs=vec![
-                PageBreadcrumbItem::new("Observe", "/monitoring"),
+                PageBreadcrumbItem::label("Observe"),
                 PageBreadcrumbItem::current("Monitoring"),
             ]
         >
@@ -120,21 +121,21 @@ pub fn Monitoring() -> impl IntoView {
                 <span class="flex items-center gap-2">
                     <span class="text-muted-foreground">"Alerts"</span>
                     <Badge variant=BadgeVariant::Destructive>
-                        {move || active_alert_count.get().to_string()}
+                        {move || active_alert_count.try_get().unwrap_or_default().to_string()}
                     </Badge>
                 </span>
                 <span class="border-l border-border h-4"></span>
                 <span class="flex items-center gap-2">
                     <span class="text-muted-foreground">"Anomalies"</span>
                     <Badge variant=BadgeVariant::Warning>
-                        {move || unresolved_anomaly_count.get().to_string()}
+                        {move || unresolved_anomaly_count.try_get().unwrap_or_default().to_string()}
                     </Badge>
                 </span>
                 <span class="border-l border-border h-4"></span>
                 <span class="flex items-center gap-2">
                     <span class="text-muted-foreground">"Sessions"</span>
                     {move || {
-                        let count = match system_overview.get() {
+                        let count = match system_overview.try_get().unwrap_or_default() {
                             LoadingState::Loaded(ref overview) => overview.active_sessions,
                             _ => 0,
                         };
@@ -144,7 +145,7 @@ pub fn Monitoring() -> impl IntoView {
                 <span class="border-l border-border h-4"></span>
                 <span class="flex items-center gap-2">
                     <span class="text-muted-foreground">"Health"</span>
-                    {move || match healthz.get() {
+                    {move || match healthz.try_get().unwrap_or_default() {
                         LoadingState::Loaded((status_code, data)) => {
                             let variant = health_status_variant(status_code, &data.status);
                             view! { <Badge variant=variant>{data.status}</Badge> }.into_any()
@@ -157,10 +158,10 @@ pub fn Monitoring() -> impl IntoView {
 
             // Health endpoints
             <HealthEndpointsCard
-                healthz=healthz.get()
-                readyz=readyz.get()
-                healthz_all=healthz_all.get()
-                system_ready=system_ready.get()
+                healthz=healthz.try_get().unwrap_or_default()
+                readyz=readyz.try_get().unwrap_or_default()
+                healthz_all=healthz_all.try_get().unwrap_or_default()
+                system_ready=system_ready.try_get().unwrap_or_default()
             />
 
             // Tab navigation
@@ -173,9 +174,9 @@ pub fn Monitoring() -> impl IntoView {
             // Tab content
             <div class="py-4">
                 {move || {
-                    match active_tab.get() {
+                    match active_tab.try_get().unwrap_or_default() {
                         "alerts" => {
-                            match alerts.get() {
+                            match alerts.try_get().unwrap_or_default() {
                                 LoadingState::Idle | LoadingState::Loading => {
                                     view! {
                                         <LoadingDisplay message="Loading alerts..."/>
@@ -228,10 +229,10 @@ pub fn Monitoring() -> impl IntoView {
                                                                         <Button
                                                                             variant=ButtonVariant::Outline
                                                                             size=ButtonSize::Sm
-                                                                            loading=acknowledging.get()
+                                                                            loading=acknowledging.try_get().unwrap_or(false)
                                                                             on_click=Callback::new(move |_| {
                                                                                 let alert_id = alert_id.clone();
-                                                                                acknowledging.set(true);
+                                                                                let _ = acknowledging.try_set(true);
                                                                                 wasm_bindgen_futures::spawn_local(async move {
                                                                                     let client = ApiClient::new();
                                                                                     match client.acknowledge_alert(&alert_id).await {
@@ -242,7 +243,7 @@ pub fn Monitoring() -> impl IntoView {
                                                                                             report_error_with_toast(&e, "Failed to acknowledge alert", Some("/monitoring"), true);
                                                                                         }
                                                                                     }
-                                                                                    acknowledging.set(false);
+                                                                                    let _ = acknowledging.try_set(false);
                                                                                 });
                                                                             })
                                                                         >
@@ -269,7 +270,7 @@ pub fn Monitoring() -> impl IntoView {
                             }
                         }
                         "anomalies" => {
-                            match anomalies.get() {
+                            match anomalies.try_get().unwrap_or_default() {
                                 LoadingState::Idle | LoadingState::Loading => {
                                     view! {
                                         <LoadingDisplay message="Loading anomalies..."/>
@@ -341,7 +342,7 @@ pub fn Monitoring() -> impl IntoView {
                         }
                         _ => {
                             // Health metrics tab
-                            match health_metrics.get() {
+                            match health_metrics.try_get().unwrap_or_default() {
                                 LoadingState::Idle | LoadingState::Loading => {
                                     view! {
                                         <LoadingDisplay message="Loading health metrics..."/>

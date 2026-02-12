@@ -45,6 +45,7 @@ pub mod defaults;
 pub mod deployment_verification;
 pub mod determinism;
 pub mod determinism_mode;
+pub mod drain;
 pub mod error;
 pub mod error_codes;
 pub mod error_helpers;
@@ -63,6 +64,8 @@ pub mod io_utils;
 pub mod jitter;
 pub mod json;
 pub mod lifecycle;
+pub mod model_format;
+pub mod model_import_status;
 pub mod naming;
 pub mod path_normalization;
 pub mod path_security;
@@ -136,7 +139,9 @@ pub use codebase_versioning::{
     evaluate_versioning, should_auto_version, VersionBump, VersioningContext, VersioningDecision,
     VersioningPolicy, VersioningReason, DEFAULT_VERSIONING_THRESHOLD, MAX_VERSIONING_THRESHOLD,
     MIN_VERSIONING_THRESHOLD,
-}; // For kb_to_bytes etc if I moved them correctly
+};
+pub use model_format::{discover_model_dirs, ModelFormat};
+pub use model_import_status::ModelImportStatus; // For kb_to_bytes etc if I moved them correctly
 
 pub use context_manifest::{
     ContextAdapterEntry, ContextAdapterEntryV1, ContextManifest, ContextManifestV1,
@@ -155,6 +160,9 @@ pub use determinism::{
     DeterminismContext, DeterminismSource,
 };
 pub use determinism_mode::DeterminismMode;
+pub use drain::{
+    phase_for_elapsed, should_emit_warning_sample, DrainPhase, DrainPhaseConfig, DrainStats,
+};
 pub use error::{AosError, Result, ResultExt};
 pub use integrity_mode::IntegrityMode;
 // Re-export categorical error types for structured error handling
@@ -262,9 +270,9 @@ pub mod prelude {
         AdapterEvent, AdapterName, AdapterType, AosError, AuditEvent, B3Hash, BackendKind,
         CircuitBreaker, CircuitBreakerConfig, CircuitBreakerMetrics, CircuitState, DriftPolicy,
         EventHookType, ExecutionProfile, ForkType, HealthCheckResult, HealthStatus, InferenceEvent,
-        LifecycleState, LifecycleTransition, MetricsTickEvent, ObservabilityEvent,
-        ObservabilityEventKind, ObservabilitySeverity, Plugin, PluginConfig, PluginEvent,
-        PluginHealth, PluginStatus, PolicyViolationEvent, Result, ResultExt, SeedMode,
+        LifecycleState, LifecycleTransition, MetricsTickEvent, ModelFormat, ModelImportStatus,
+        ObservabilityEvent, ObservabilityEventKind, ObservabilitySeverity, Plugin, PluginConfig,
+        PluginEvent, PluginHealth, PluginStatus, PolicyViolationEvent, Result, ResultExt, SeedMode,
         SemanticVersion, ServiceStatus, SharedCircuitBreaker, StackName, StandardCircuitBreaker,
         TrainingConfig, TrainingJob, TrainingJobEvent, TrainingJobStatus, TrainingTemplate,
         TransitionReason, VersionInfo, WorkerStatus, WorkerStatusTransition, BYTES_PER_GB,

@@ -2,11 +2,13 @@
 
 pub mod audit;
 pub mod bundle_sign;
+pub mod checkpoint_verify;
 pub mod decision_chain;
 pub mod envelope;
 pub mod key_manager;
 pub mod key_provider;
 pub mod policy_enforcement;
+pub mod provenance;
 pub mod providers;
 pub mod receipt_signing;
 pub mod receipt_verifier;
@@ -58,6 +60,15 @@ pub use receipt_verifier::ReasonCode as ReceiptVerifyReasonCode;
 pub use decision_chain::{
     verify_bundle_commits, DecisionChainBuilder, EnvironmentIdentity, MerkleBundleCommits,
     RouterEventDigest,
+};
+
+pub use checkpoint_verify::{
+    verify_checkpoint_bytes, verify_checkpoint_file, CheckpointVerifyReport,
+};
+
+pub use provenance::{
+    ChainCompleteness, ProvenanceCertificate, ProvenanceCertificateBuilder, ProvenanceVerifyReport,
+    PROVENANCE_SCHEMA_VERSION,
 };
 
 // Re-export ed25519-dalek types for node agent

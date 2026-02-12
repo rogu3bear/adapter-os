@@ -110,7 +110,8 @@ impl TelemetryAdapter {
             self.filters
                 .insert(channel.to_string(), FilterEngine::new(config)?);
         }
-        Ok(self.filters.get_mut(channel).unwrap())
+        // SAFETY: key was just inserted above if missing
+        Ok(self.filters.get_mut(channel).expect("filter just inserted"))
     }
 
     fn get_detector(&mut self, channel: &str) -> Result<&mut AnomalyDetector> {
@@ -120,7 +121,11 @@ impl TelemetryAdapter {
                 AnomalyDetector::new(self.config.anomaly.clone())?,
             );
         }
-        Ok(self.detectors.get_mut(channel).unwrap())
+        // SAFETY: key was just inserted above if missing
+        Ok(self
+            .detectors
+            .get_mut(channel)
+            .expect("detector just inserted"))
     }
 
     /// Process telemetry channels and return filtered signals and anomalies.

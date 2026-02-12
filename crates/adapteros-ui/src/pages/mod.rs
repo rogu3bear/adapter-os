@@ -46,7 +46,7 @@ pub use documents::{DocumentDetail, Documents};
 pub use errors::Errors;
 pub use flight_recorder::{FlightRecorder, FlightRecorderDetail};
 pub use login::Login;
-pub use models::Models;
+pub use models::{ModelDetail, Models};
 pub use monitoring::Monitoring;
 pub use not_found::NotFound;
 pub use policies::Policies;

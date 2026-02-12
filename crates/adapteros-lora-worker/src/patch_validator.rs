@@ -1424,8 +1424,10 @@ impl PatchValidator {
 
         // Parse citations from patch comments (e.g., // [source: file.rs L10-L20])
         // Regex compiled once outside the loop for performance
-        let citation_pattern = regex::Regex::new(r"\[source:\s*([^\]]+)\]")
-            .unwrap_or_else(|_| regex::Regex::new(r"source:").unwrap());
+        let citation_pattern = regex::Regex::new(r"\[source:\s*([^\]]+)\]").unwrap_or_else(|_| {
+            // Fallback pattern is a simple literal — cannot fail to compile
+            regex::Regex::new(r"source:").expect("literal regex is valid")
+        });
 
         // Extract evidence spans from patches by parsing citation comments
         for patch in patches {

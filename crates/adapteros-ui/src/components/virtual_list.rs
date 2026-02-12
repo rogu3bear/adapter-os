@@ -118,10 +118,10 @@ where
 
     // Calculate the virtual range based on scroll position
     let virtual_range = Memo::new(move |_| {
-        let items_vec = items.get();
+        let items_vec = items.try_get().unwrap_or_default();
         let total = items_vec.len();
         VirtualRange::calculate(
-            scroll_top.get(),
+            scroll_top.try_get().unwrap_or(0),
             container_height_px,
             total,
             config.row_height,
@@ -157,8 +157,8 @@ where
             on:scroll=on_scroll
         >
             {move || {
-                let range = virtual_range.get();
-                let items_vec = items.get();
+                let range = virtual_range.try_get().unwrap_or(VirtualRange { start: 0, end: 0, padding_top: 0, padding_bottom: 0 });
+                let items_vec = items.try_get().unwrap_or_default();
                 let render = render_item.clone();
 
                 view! {
@@ -212,7 +212,6 @@ pub fn VirtualTableBody<T, V, F>(
     render_row: F,
     /// Debug label for logging.
     #[prop(optional, into)]
-    #[allow(unused_variables)]
     debug_label: String,
 ) -> impl IntoView
 where
@@ -225,9 +224,9 @@ where
 
     // Calculate the virtual range
     let virtual_range = Memo::new(move |_| {
-        let items_vec = items.get();
+        let items_vec = items.try_get().unwrap_or_default();
         VirtualRange::calculate(
-            scroll_top.get(),
+            scroll_top.try_get().unwrap_or(0),
             container_height,
             items_vec.len(),
             row_height,
@@ -255,6 +254,8 @@ where
             }
         });
     }
+    #[cfg(not(debug_assertions))]
+    let _ = debug_label;
 
     let on_scroll = move |ev: web_sys::Event| {
         if let Some(target) = ev.target() {
@@ -273,8 +274,8 @@ where
             <table class="w-full">
                 <tbody>
                     {move || {
-                        let range = virtual_range.get();
-                        let items_vec = items.get();
+                        let range = virtual_range.try_get().unwrap_or(VirtualRange { start: 0, end: 0, padding_top: 0, padding_bottom: 0 });
+                        let items_vec = items.try_get().unwrap_or_default();
                         let render = render_row.clone();
 
                         view! {
@@ -336,7 +337,6 @@ pub fn CappedList<T, V, F>(
     render_item: F,
     /// Debug label for logging.
     #[prop(optional, into)]
-    #[allow(unused_variables)]
     debug_label: String,
 ) -> impl IntoView
 where
@@ -364,10 +364,12 @@ where
             }
         });
     }
+    #[cfg(not(debug_assertions))]
+    let _ = debug_label;
 
     view! {
         {move || {
-            let items_vec = items.get();
+            let items_vec = items.try_get().unwrap_or_default();
             let total = items_vec.len();
             let capped = items_vec.into_iter().take(max_items);
             let render = render_item.clone();

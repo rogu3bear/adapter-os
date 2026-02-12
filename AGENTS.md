@@ -38,6 +38,8 @@ cargo check -p <crate>
 ./scripts/build-ui.sh  # Build Leptos UI to crates/adapteros-server/static/
 
 # Testing
+# Prefer fast-mode variants for tight inner loops to keep compile/test cycles lean.
+# Before merging substantial shutdown/lifecycle changes, run full-mode verification.
 cargo test -p <crate>
 cargo test --workspace
 cargo test -- --test-threads=1

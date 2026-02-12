@@ -160,28 +160,28 @@ impl PrefixKvKeyBuilder {
 
     /// Build the prefix KV key
     ///
-    /// # Panics
-    /// Panics if any required field is not set.
-    pub fn build(self) -> B3Hash {
-        let context_digest = self
-            .context_digest
-            .expect("context_digest is required for prefix KV key");
-        let prefix_token_ids = self
-            .prefix_token_ids
-            .expect("prefix_token_ids is required for prefix KV key");
-        let tokenizer_manifest_hash = self
-            .tokenizer_manifest_hash
-            .expect("tokenizer_manifest_hash is required for prefix KV key");
-        let model_cache_identity_bytes = self
-            .model_cache_identity_bytes
-            .expect("model_cache_identity_bytes is required for prefix KV key");
+    /// # Errors
+    /// Returns `AosError::Validation` if any required field is not set.
+    pub fn build(self) -> Result<B3Hash> {
+        let context_digest = self.context_digest.ok_or_else(|| {
+            AosError::Validation("context_digest is required for prefix KV key".into())
+        })?;
+        let prefix_token_ids = self.prefix_token_ids.ok_or_else(|| {
+            AosError::Validation("prefix_token_ids is required for prefix KV key".into())
+        })?;
+        let tokenizer_manifest_hash = self.tokenizer_manifest_hash.ok_or_else(|| {
+            AosError::Validation("tokenizer_manifest_hash is required for prefix KV key".into())
+        })?;
+        let model_cache_identity_bytes = self.model_cache_identity_bytes.ok_or_else(|| {
+            AosError::Validation("model_cache_identity_bytes is required for prefix KV key".into())
+        })?;
 
-        compute_prefix_kv_key(
+        Ok(compute_prefix_kv_key(
             &context_digest,
             &prefix_token_ids,
             &tokenizer_manifest_hash,
             &model_cache_identity_bytes,
-        )
+        ))
     }
 
     /// Try to build the prefix KV key, returning None if any field is missing
@@ -401,7 +401,8 @@ mod tests {
             .prefix_tokens(tokens.clone())
             .tokenizer_hashes(tok, cfg)
             .model_cache_identity_bytes(identity.clone())
-            .build();
+            .build()
+            .expect("all fields set");
 
         // Verify it matches direct computation
         let manifest_hash = compute_tokenizer_manifest_hash(&tok, &cfg);

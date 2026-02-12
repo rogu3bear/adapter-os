@@ -75,7 +75,7 @@ impl Db {
     pub async fn list_old_keys(&self, threshold_days: i64) -> Result<Vec<KeyMetadata>> {
         let threshold_timestamp = std::time::SystemTime::now()
             .duration_since(std::time::UNIX_EPOCH)
-            .expect("System time before UNIX epoch")
+            .unwrap_or_default()
             .as_secs() as i64
             - (threshold_days * 86400);
 
@@ -98,7 +98,7 @@ impl Db {
         if let Some(metadata) = self.get_key_metadata(key_label).await? {
             let now = std::time::SystemTime::now()
                 .duration_since(std::time::UNIX_EPOCH)
-                .expect("System time before UNIX epoch")
+                .unwrap_or_default()
                 .as_secs() as i64;
             let age_seconds = now - metadata.created_at;
             let age_days = age_seconds / 86400;

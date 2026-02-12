@@ -690,39 +690,42 @@ pub async fn workers_stream(
 
             let response: Vec<WorkerResponse> = workers
                 .into_iter()
-                .map(|w| WorkerResponse {
-                    schema_version: adapteros_api_types::API_SCHEMA_VERSION.to_string(),
-                    id: w.id,
-                    tenant_id: w.tenant_id,
-                    node_id: w.node_id,
-                    plan_id: w.plan_id,
-                    uds_path: w.uds_path,
-                    pid: w.pid,
-                    status: w.status.clone(),
-                    started_at: w.started_at,
-                    last_seen_at: w.last_seen_at,
-                    capabilities: w
-                        .capabilities_json
-                        .as_ref()
-                        .and_then(|json| serde_json::from_str::<Vec<String>>(json).ok())
-                        .unwrap_or_default(),
-                    capabilities_detail: w
-                        .capabilities_json
-                        .as_ref()
-                        .and_then(|json| serde_json::from_str(json).ok()),
-                    backend: w.backend.clone(),
-                    model_id: None,
-                    model_hash: w.model_hash_b3.clone(),
-                    tokenizer_hash_b3: w.tokenizer_hash_b3.clone(),
-                    tokenizer_vocab_size: w.tokenizer_vocab_size.map(|v| v as u32),
-                    coreml_failure_stage: None,
-                    coreml_failure_reason: None,
-                    model_loaded: w.model_hash_b3.is_some(),
-                    cache_used_mb: None,
-                    cache_max_mb: None,
-                    cache_pinned_entries: None,
-                    cache_active_entries: None,
-                    display_name: None,
+                .map(|w| {
+                    let display_name = adapteros_id::display_name_for(&w.id);
+                    WorkerResponse {
+                        schema_version: adapteros_api_types::API_SCHEMA_VERSION.to_string(),
+                        id: w.id,
+                        tenant_id: w.tenant_id,
+                        node_id: w.node_id,
+                        plan_id: w.plan_id,
+                        uds_path: w.uds_path,
+                        pid: w.pid,
+                        status: w.status.clone(),
+                        started_at: w.started_at,
+                        last_seen_at: w.last_seen_at,
+                        capabilities: w
+                            .capabilities_json
+                            .as_ref()
+                            .and_then(|json| serde_json::from_str::<Vec<String>>(json).ok())
+                            .unwrap_or_default(),
+                        capabilities_detail: w
+                            .capabilities_json
+                            .as_ref()
+                            .and_then(|json| serde_json::from_str(json).ok()),
+                        backend: w.backend.clone(),
+                        model_id: None,
+                        model_hash: w.model_hash_b3.clone(),
+                        tokenizer_hash_b3: w.tokenizer_hash_b3.clone(),
+                        tokenizer_vocab_size: w.tokenizer_vocab_size.map(|v| v as u32),
+                        coreml_failure_stage: None,
+                        coreml_failure_reason: None,
+                        model_loaded: w.model_hash_b3.is_some(),
+                        cache_used_mb: None,
+                        cache_max_mb: None,
+                        cache_pinned_entries: None,
+                        cache_active_entries: None,
+                        display_name,
+                    }
                 })
                 .collect();
 

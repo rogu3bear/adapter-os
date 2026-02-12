@@ -60,7 +60,7 @@ fn check_adapter_not_in_flight(
                 StatusCode::CONFLICT,
                 Json(
                     ErrorResponse::new("Adapter is currently in use for inference")
-                        .with_code("ADAPTER_IN_FLIGHT")
+                        .with_code(adapteros_core::error_codes::ADAPTER_IN_FLIGHT)
                         .with_string_details(format!(
                             "Adapter '{}' cannot be modified while active inference requests are using it. \
                              Wait for in-flight requests to complete or use a graceful drain period.",

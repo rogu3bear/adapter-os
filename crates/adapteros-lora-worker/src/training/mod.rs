@@ -43,7 +43,7 @@ pub use builder::{
     BuildConfig, BuildResult, BuiltDatasetManifest, DatasetBuilder, DatasetSource, GitAuth,
     SourceFileInfo,
 };
-pub use checkpoint::{CheckpointManager, TrainingCheckpoint};
+pub use checkpoint::{CheckpointManager, CheckpointSignature, TrainingCheckpoint};
 pub use dataset::{
     compute_examples_hash, split_examples_for_validation, DatasetGenerator, ValidationSplitSummary,
 };

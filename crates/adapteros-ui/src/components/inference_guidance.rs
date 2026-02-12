@@ -1,6 +1,8 @@
-//! Inference readiness guidance helpers
+//! Inference readiness guidance
 //!
 //! Maps inference blockers to user-facing reasons and next-step actions.
+//! Owns priority ordering: the UI should display the highest-priority blocker
+//! regardless of backend emission order, since detection order != resolution order.
 
 use adapteros_api_types::{InferenceBlocker, InferenceReadyState};
 
@@ -16,6 +18,28 @@ pub struct InferenceAction {
 pub struct InferenceGuidance {
     pub reason: &'static str,
     pub action: InferenceAction,
+}
+
+/// Resolution priority — lower number = fix this first.
+///
+/// This is the dependency chain: you can't load a model without a worker,
+/// can't have a worker without a database, etc. TelemetryDegraded is last
+/// because it's non-blocking for most users.
+fn blocker_priority(blocker: &InferenceBlocker) -> u8 {
+    match blocker {
+        InferenceBlocker::BootFailed => 0,
+        InferenceBlocker::SystemBooting => 1,
+        InferenceBlocker::DatabaseUnavailable => 2,
+        InferenceBlocker::WorkerMissing => 3,
+        InferenceBlocker::NoModelLoaded => 4,
+        InferenceBlocker::ActiveModelMismatch => 5,
+        InferenceBlocker::TelemetryDegraded => 6,
+    }
+}
+
+/// Pick the highest-priority blocker from a slice.
+pub fn primary_blocker(blockers: &[InferenceBlocker]) -> Option<&InferenceBlocker> {
+    blockers.iter().min_by_key(|b| blocker_priority(b))
 }
 
 /// Build guidance from an inference readiness state + optional blocker.
@@ -50,13 +74,13 @@ fn fallback_action() -> InferenceAction {
 
 fn blocker_reason(blocker: &InferenceBlocker) -> &'static str {
     match blocker {
-        InferenceBlocker::DatabaseUnavailable => "Database is unavailable",
-        InferenceBlocker::WorkerMissing => "No workers are connected",
-        InferenceBlocker::NoModelLoaded => "No model is loaded on any worker",
-        InferenceBlocker::ActiveModelMismatch => "Active model is not loaded on any worker",
+        InferenceBlocker::DatabaseUnavailable => "Database unavailable",
+        InferenceBlocker::WorkerMissing => "No workers connected",
+        InferenceBlocker::NoModelLoaded => "No model loaded",
+        InferenceBlocker::ActiveModelMismatch => "Selected model not loaded on any worker",
         InferenceBlocker::TelemetryDegraded => "Telemetry degraded",
-        InferenceBlocker::SystemBooting => "System booting",
-        InferenceBlocker::BootFailed => "Boot failed",
+        InferenceBlocker::SystemBooting => "System starting up",
+        InferenceBlocker::BootFailed => "System failed to start",
     }
 }
 
@@ -71,11 +95,11 @@ fn blocker_action(blocker: &InferenceBlocker) -> InferenceAction {
             href: "/workers",
         },
         InferenceBlocker::ActiveModelMismatch => InferenceAction {
-            label: "Review models",
+            label: "Load active model",
             href: "/models",
         },
         InferenceBlocker::TelemetryDegraded => InferenceAction {
-            label: "Open monitoring",
+            label: "View monitoring",
             href: "/monitoring",
         },
         InferenceBlocker::BootFailed => InferenceAction {

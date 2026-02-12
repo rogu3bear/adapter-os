@@ -23,7 +23,7 @@ pub fn Routing() -> impl IntoView {
             title="Routing Debug"
             subtitle="Inspect and manage how requests are routed across adapters."
             breadcrumbs=vec![
-                PageBreadcrumbItem::new("Route", "/routing"),
+                PageBreadcrumbItem::label("Route"),
                 PageBreadcrumbItem::current("Routing"),
             ]
         >

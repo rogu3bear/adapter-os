@@ -49,8 +49,8 @@ pub fn Collections() -> impl IntoView {
 
     // Fetch collections with pagination
     let (collections, _refetch) = use_api_resource(move |client: Arc<ApiClient>| {
-        let current_page = page.get();
-        let _trigger = refetch_trigger.get(); // Subscribe to trigger changes
+        let current_page = page.try_get().unwrap_or(1);
+        let _trigger = refetch_trigger.try_get().unwrap_or_default(); // Subscribe to trigger changes
         async move { client.list_collections(current_page, limit).await }
     });
 
@@ -61,8 +61,8 @@ pub fn Collections() -> impl IntoView {
     let on_create = {
         let client = Arc::clone(&client);
         move |_| {
-            let name = new_name.get();
-            let description = new_description.get();
+            let name = new_name.try_get().unwrap_or_default();
+            let description = new_description.try_get().unwrap_or_default();
 
             if name.trim().is_empty() {
                 create_error.set(Some("Name is required".to_string()));
@@ -127,6 +127,7 @@ pub fn Collections() -> impl IntoView {
             // Main content
             <AsyncBoundary
                 state=collections
+                on_retry=Callback::new(move |_| refetch())
                 render=move |data| view! {
                     <CollectionsList
                         collections=data.data
@@ -159,7 +160,7 @@ pub fn Collections() -> impl IntoView {
                     />
 
                     // Error display
-                    {move || create_error.get().map(|e| view! {
+                    {move || create_error.try_get().flatten().map(|e| view! {
                         <div class="rounded-md border border-destructive bg-destructive/10 p-3 text-sm text-destructive">
                             {e}
                         </div>
@@ -300,7 +301,13 @@ pub fn CollectionDetail() -> impl IntoView {
     let client = use_api();
 
     // Get collection ID from URL
-    let collection_id = Memo::new(move |_| params.get().get("id").unwrap_or_default());
+    let collection_id = Memo::new(move |_| {
+        params
+            .try_get()
+            .unwrap_or_default()
+            .get("id")
+            .unwrap_or_default()
+    });
 
     // Delete confirmation state
     let show_delete_confirm = RwSignal::new(false);
@@ -312,8 +319,8 @@ pub fn CollectionDetail() -> impl IntoView {
 
     // Fetch collection details
     let (collection, _refetch) = use_api_resource(move |client: Arc<ApiClient>| {
-        let id = collection_id.get();
-        let _trigger = refetch_trigger.get();
+        let id = collection_id.try_get().unwrap_or_default();
+        let _trigger = refetch_trigger.try_get().unwrap_or_default();
         async move { client.get_collection(&id).await }
     });
 
@@ -323,7 +330,7 @@ pub fn CollectionDetail() -> impl IntoView {
     let on_delete = {
         let client = Arc::clone(&client);
         move |_| {
-            let id = collection_id.get();
+            let id = collection_id.try_get().unwrap_or_default();
             deleting.set(true);
 
             let client = Arc::clone(&client);
@@ -354,7 +361,7 @@ pub fn CollectionDetail() -> impl IntoView {
     let create_remove_handler = {
         let client = Arc::clone(&client);
         move |doc_id: String| {
-            let coll_id = collection_id.get();
+            let coll_id = collection_id.try_get().unwrap_or_default();
             let client = Arc::clone(&client);
 
             wasm_bindgen_futures::spawn_local(async move {
@@ -384,7 +391,7 @@ pub fn CollectionDetail() -> impl IntoView {
             breadcrumbs=vec![
                 PageBreadcrumbItem::new("Data", "/collections"),
                 PageBreadcrumbItem::new("Collections", "/collections"),
-                PageBreadcrumbItem::current(collection_id.get()),
+                PageBreadcrumbItem::current(collection_id.try_get().unwrap_or_default()),
             ]
         >
             <PageScaffoldActions slot>
@@ -443,7 +450,7 @@ pub fn CollectionDetail() -> impl IntoView {
                 severity=ConfirmationSeverity::Destructive
                 confirm_text="Delete"
                 on_confirm=Callback::new(on_delete)
-                loading=Signal::derive(move || deleting.get())
+                loading=Signal::derive(move || deleting.try_get().unwrap_or(false))
             />
         </PageScaffold>
     }
@@ -468,6 +475,7 @@ where
     let collection_id = collection.collection_id.clone();
     let collection_id_display = collection_id.clone();
     let collection_id_usage = collection_id.clone();
+    let collection_display_name = collection.display_name.clone().unwrap_or_default();
     let document_count = collection.document_count;
     let created = format_date(&collection.created_at);
     let updated = collection
@@ -491,6 +499,7 @@ where
                     </div>
                     <CopyableId
                         id=collection_id_display
+                        display_name=collection_display_name
                         label="Collection ID".to_string()
                         truncate=32
                     />
@@ -635,10 +644,10 @@ fn AddDocumentsDialog(
     let error_msg = RwSignal::new(None::<String>);
 
     let (documents, _) = use_api_resource(move |client: Arc<ApiClient>| {
-        let is_open = open.get();
-        let page = page.get();
-        let status_value = status_filter.get();
-        let _trigger = refetch_trigger.get();
+        let is_open = open.try_get().unwrap_or(false);
+        let page = page.try_get().unwrap_or(1);
+        let status_value = status_filter.try_get().unwrap_or_default();
+        let _trigger = refetch_trigger.try_get().unwrap_or_default();
         async move {
             if !is_open {
                 return Ok(DocumentListResponse {
@@ -703,7 +712,7 @@ fn AddDocumentsDialog(
         let alive = alive.clone();
         let client = Arc::clone(&client);
         move |_| {
-            let ids = selected_ids.get();
+            let ids = selected_ids.try_get().unwrap_or_default();
             if ids.is_empty() {
                 error_msg.set(Some("Select at least one document to add.".into()));
                 return;
@@ -746,7 +755,7 @@ fn AddDocumentsDialog(
         }
     });
 
-    let selected_count = Signal::derive(move || selected_ids.get().len());
+    let selected_count = Signal::derive(move || selected_ids.try_get().unwrap_or_default().len());
 
     view! {
         <Dialog
@@ -775,7 +784,7 @@ fn AddDocumentsDialog(
                 </div>
 
                 {move || {
-                    match documents.get() {
+                    match documents.try_get().unwrap_or(LoadingState::Idle) {
                         LoadingState::Idle | LoadingState::Loading => {
                             view! {
                                 <div class="flex items-center justify-center py-6">
@@ -784,7 +793,7 @@ fn AddDocumentsDialog(
                             }.into_any()
                         }
                         LoadingState::Loaded(data) => {
-                            let search = search_query.get().to_lowercase();
+                            let search = search_query.try_get().unwrap_or_default().to_lowercase();
                             let existing = existing_set.clone();
                             let DocumentListResponse {
                                 data: docs,
@@ -831,7 +840,7 @@ fn AddDocumentsDialog(
                                                 let doc_id_for_toggle = doc_id.clone();
                                                 let doc_id_for_selected = doc_id.clone();
                                                 let is_selected = Signal::derive({
-                                                    move || selected_ids.get().contains(&doc_id_for_selected)
+                                                    move || selected_ids.try_get().unwrap_or_default().contains(&doc_id_for_selected)
                                                 });
                                                 let status_variant = match doc.status.as_str() {
                                                     "indexed" => BadgeVariant::Success,
@@ -897,7 +906,7 @@ fn AddDocumentsDialog(
                     }
                 }}
 
-                {move || error_msg.get().map(|err| view! {
+                {move || error_msg.try_get().flatten().map(|err| view! {
                     <div class="rounded-md border border-destructive bg-destructive/10 p-3 text-sm text-destructive">
                         {err}
                     </div>
@@ -906,20 +915,20 @@ fn AddDocumentsDialog(
 
             <div class="flex items-center justify-between gap-2">
                 <span class="text-sm text-muted-foreground">
-                    {move || format!("Selected: {}", selected_count.get())}
+                    {move || format!("Selected: {}", selected_count.try_get().unwrap_or(0))}
                 </span>
                 <div class="flex items-center gap-2">
                     <Button
                         variant=ButtonVariant::Outline
                         on_click=Callback::new(move |_| open.set(false))
-                        disabled=Signal::derive(move || adding.get())
+                        disabled=Signal::derive(move || adding.try_get().unwrap_or(false))
                     >
                         "Cancel"
                     </Button>
                     <Button
                         variant=ButtonVariant::Primary
-                        loading=Signal::derive(move || adding.get())
-                        disabled=Signal::derive(move || adding.get() || selected_count.get() == 0)
+                        loading=Signal::derive(move || adding.try_get().unwrap_or(false))
+                        disabled=Signal::derive(move || adding.try_get().unwrap_or(false) || selected_count.try_get().unwrap_or(0) == 0)
                         on_click=add_selected
                     >
                         "Add Selected"

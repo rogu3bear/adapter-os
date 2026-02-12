@@ -118,7 +118,7 @@ pub fn Reviews() -> impl IntoView {
             let id = row.inference_id.clone();
             view! {
                 <a href=href class="link link-default text-sm font-mono" title="View run details">
-                    {if id.len() > 18 { format!("{}...", &id[..18]) } else { id }}
+                    {adapteros_id::short_id(&id)}
                 </a>
             }
         })

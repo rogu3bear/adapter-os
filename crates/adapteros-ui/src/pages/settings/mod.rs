@@ -32,7 +32,7 @@ pub fn Settings() -> impl IntoView {
             title="Settings"
             subtitle="Manage your profile, preferences, and API configuration."
             breadcrumbs=vec![
-                PageBreadcrumbItem::new("Org", "/settings"),
+                PageBreadcrumbItem::label("Org"),
                 PageBreadcrumbItem::current("Settings"),
             ]
         >
