@@ -1759,8 +1759,8 @@ async fn diff_versions(args: DiffArgs, output: &OutputWriter) -> Result<()> {
         if from_m.weights_hash != to_m.weights_hash {
             differences.push(FieldDiff {
                 field: "weights_hash".to_string(),
-                from_value: Some(truncate_hash(&from_m.weights_hash)),
-                to_value: Some(truncate_hash(&to_m.weights_hash)),
+                from_value: Some(adapteros_id::format_hash_short(&from_m.weights_hash)),
+                to_value: Some(adapteros_id::format_hash_short(&to_m.weights_hash)),
                 change_type: "modified".to_string(),
             });
         }
@@ -1819,8 +1819,8 @@ async fn diff_versions(args: DiffArgs, output: &OutputWriter) -> Result<()> {
         if from_m.training_data_hash != to_m.training_data_hash {
             differences.push(FieldDiff {
                 field: "training_data_hash".to_string(),
-                from_value: Some(truncate_hash(&from_m.training_data_hash)),
-                to_value: Some(truncate_hash(&to_m.training_data_hash)),
+                from_value: Some(adapteros_id::format_hash_short(&from_m.training_data_hash)),
+                to_value: Some(adapteros_id::format_hash_short(&to_m.training_data_hash)),
                 change_type: "modified".to_string(),
             });
         }
@@ -1918,15 +1918,6 @@ async fn diff_versions(args: DiffArgs, output: &OutputWriter) -> Result<()> {
     output.blank();
 
     Ok(())
-}
-
-/// Truncate a hash to first 12 characters for display
-fn truncate_hash(hash: &str) -> String {
-    if hash.len() > 12 {
-        format!("{}...", &hash[..12])
-    } else {
-        hash.to_string()
-    }
 }
 
 /// Show repository status

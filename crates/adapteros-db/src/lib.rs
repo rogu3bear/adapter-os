@@ -1467,7 +1467,43 @@ impl Db {
             }
         }
 
-        // 2. Clean up invalid activation counts (negative values)
+        // 2. Find models stuck in "importing" state (orphaned from crash)
+        let stale_imports: Vec<(String, String)> = sqlx::query_as(
+            r#"
+            SELECT id, name
+            FROM models
+            WHERE import_status = 'importing'
+            "#,
+        )
+        .fetch_all(&mut *tx)
+        .await
+        .map_err(|e| AosError::Database(format!("Failed to query stale model imports: {}", e)))?;
+
+        if !stale_imports.is_empty() {
+            warn!(
+                "Found {} models stuck in importing state",
+                stale_imports.len()
+            );
+
+            for (model_id, name) in &stale_imports {
+                recovery_actions.push(format!(
+                    "Model {} ({}) stuck in importing state - marking as failed",
+                    name, model_id
+                ));
+
+                sqlx::query(
+                    "UPDATE models SET import_status = 'failed', import_error = 'stuck in importing state during crash recovery', updated_at = datetime('now') WHERE id = ?",
+                )
+                .bind(model_id)
+                .execute(&mut *tx)
+                .await
+                .map_err(|e| AosError::Database(format!("Failed to update model import state: {}", e)))?;
+
+                info!("Recovered stuck model import: {} ({})", name, model_id);
+            }
+        }
+
+        // 3. Clean up invalid activation counts (negative values)
         let reset_count: i64 =
             sqlx::query_scalar("SELECT COUNT(*) FROM adapters WHERE activation_count < 0")
                 .fetch_one(&mut *tx)
@@ -1500,7 +1536,7 @@ impl Db {
             AosError::Database(format!("Failed to commit recovery transaction: {}", e))
         })?;
 
-        // 3. Log summary (after successful commit)
+        // 4. Log summary (after successful commit)
         if recovery_actions.is_empty() {
             info!("✓ Crash recovery complete - no issues detected");
         } else {
@@ -2803,7 +2839,16 @@ pub mod query_helpers;
 pub use activity_events::ActivityEvent;
 pub mod adapter_snapshots;
 pub mod crypto_audit;
+pub mod key_rotation_events;
 pub use adapter_snapshots::{AdapterTrainingSnapshot, CreateSnapshotParams};
+pub use key_rotation_events::KeyRotationEvent;
+pub mod provenance_certificates;
+pub use provenance_certificates::{NewProvenanceCertificate, ProvenanceCertificateRecord};
+pub mod tenant_weight_encryption;
+pub use tenant_weight_encryption::{
+    dek_fingerprint, derive_tenant_weight_dek, seal_weight, unseal_weight, unseal_weight_verified,
+    EncryptedWeightFile, EncryptionStatus, SealedWeight, TenantWeightKey,
+};
 pub mod inference_evidence;
 pub use inference_evidence::{CreateEvidenceParams, InferenceEvidence};
 pub mod inference_write_bundle;

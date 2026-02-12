@@ -8,7 +8,7 @@
 //! - Cross-tenant isolation for tenant-scoped models
 #![allow(clippy::len_zero)]
 
-use adapteros_core::{AosError, Result};
+use adapteros_core::{AosError, ModelImportStatus, Result};
 use adapteros_db::models::{ModelRegistrationBuilder, ModelRegistrationParams};
 use adapteros_db::Db;
 use chrono::Utc;
@@ -147,7 +147,7 @@ async fn get_model_by_name() -> Result<()> {
     let model_id = db.register_model(params.clone()).await?;
 
     // Mark as available
-    db.update_model_import_status(&model_id, "available", None)
+    db.update_model_import_status(&model_id, ModelImportStatus::Available, None)
         .await?;
 
     let model = db
@@ -169,7 +169,7 @@ async fn get_model_by_name_filters_non_available() -> Result<()> {
     let model_id = db.register_model(params.clone()).await?;
 
     // Set to importing status
-    db.update_model_import_status(&model_id, "importing", None)
+    db.update_model_import_status(&model_id, ModelImportStatus::Importing, None)
         .await?;
 
     // Should not find importing models
@@ -180,7 +180,7 @@ async fn get_model_by_name_filters_non_available() -> Result<()> {
     );
 
     // Set to available
-    db.update_model_import_status(&model_id, "available", None)
+    db.update_model_import_status(&model_id, ModelImportStatus::Available, None)
         .await?;
 
     // Now should find it
@@ -361,6 +361,7 @@ async fn get_model_for_tenant_allows_matching_tenant_id() -> Result<()> {
             "metal",
             "tenant-a",
             "user-1",
+            ModelImportStatus::Importing,
         )
         .await?;
 
@@ -389,6 +390,7 @@ async fn get_model_for_tenant_denies_other_tenant() -> Result<()> {
             "metal",
             "tenant-a",
             "user-1",
+            ModelImportStatus::Importing,
         )
         .await?;
 
@@ -412,7 +414,7 @@ async fn get_model_by_name_for_tenant_scoping() -> Result<()> {
         .register_model(minimal_model_params("shared-name"))
         .await?;
     set_model_tenant(&db, &model_id, Some("tenant-a")).await?;
-    db.update_model_import_status(&model_id, "available", None)
+    db.update_model_import_status(&model_id, ModelImportStatus::Available, None)
         .await?;
 
     let model_a = db
@@ -439,7 +441,7 @@ async fn get_model_by_name_for_tenant_allows_global_model() -> Result<()> {
     let params = minimal_model_params("global-model");
     let model_id = db.register_model(params).await?;
     set_model_tenant(&db, &model_id, None).await?;
-    db.update_model_import_status(&model_id, "available", None)
+    db.update_model_import_status(&model_id, ModelImportStatus::Available, None)
         .await?;
 
     // Tenant should access global model
@@ -472,6 +474,7 @@ async fn import_model_from_nonexistent_path() -> Result<()> {
             "metal",
             "tenant-a",
             "user-1",
+            ModelImportStatus::Importing,
         )
         .await?;
 
@@ -498,10 +501,11 @@ async fn update_model_import_status_to_available() -> Result<()> {
             "metal",
             "tenant-a",
             "user-1",
+            ModelImportStatus::Importing,
         )
         .await?;
 
-    db.update_model_import_status(&model_id, "available", None)
+    db.update_model_import_status(&model_id, ModelImportStatus::Available, None)
         .await?;
 
     let model = db.get_model(&model_id).await?.expect("model exists");
@@ -524,11 +528,16 @@ async fn update_model_import_status_to_failed_with_error() -> Result<()> {
             "metal",
             "tenant-a",
             "user-1",
+            ModelImportStatus::Importing,
         )
         .await?;
 
-    db.update_model_import_status(&model_id, "failed", Some("Checksum mismatch"))
-        .await?;
+    db.update_model_import_status(
+        &model_id,
+        ModelImportStatus::Failed,
+        Some("Checksum mismatch"),
+    )
+    .await?;
 
     let model = db.get_model(&model_id).await?.expect("model exists");
     assert_eq!(model.import_status.as_deref(), Some("failed"));
@@ -550,6 +559,7 @@ async fn import_model_sets_tenant_id() -> Result<()> {
             "metal",
             "tenant-a",
             "user-1",
+            ModelImportStatus::Importing,
         )
         .await?;
 
@@ -910,6 +920,7 @@ async fn import_model_timestamps_are_set() -> Result<()> {
             "metal",
             "tenant-a",
             "user-1",
+            ModelImportStatus::Importing,
         )
         .await?;
 
@@ -940,6 +951,7 @@ async fn update_model_import_status_updates_timestamp() -> Result<()> {
             "metal",
             "tenant-a",
             "user-1",
+            ModelImportStatus::Importing,
         )
         .await?;
 
@@ -949,7 +961,7 @@ async fn update_model_import_status_updates_timestamp() -> Result<()> {
     // Small delay to ensure timestamp difference
     tokio::time::sleep(tokio::time::Duration::from_millis(10)).await;
 
-    db.update_model_import_status(&model_id, "available", None)
+    db.update_model_import_status(&model_id, ModelImportStatus::Available, None)
         .await?;
 
     let model_after = db.get_model(&model_id).await?.unwrap();
@@ -994,6 +1006,7 @@ async fn imported_model_has_correct_defaults() -> Result<()> {
             "metal",
             "tenant-a",
             "user-1",
+            ModelImportStatus::Importing,
         )
         .await?;
 

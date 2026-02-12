@@ -423,6 +423,13 @@ pub enum AosError {
     #[error("Training error: {0}")]
     Training(String),
 
+    /// Checkpoint cryptographic integrity verification failed
+    ///
+    /// BLAKE3 hash or Ed25519 signature on a training checkpoint does not
+    /// match. This indicates corruption or tampering of checkpoint data.
+    #[error("Checkpoint integrity failed: {0}")]
+    CheckpointIntegrity(String),
+
     #[error("Autograd error: {0}")]
     Autograd(String),
 

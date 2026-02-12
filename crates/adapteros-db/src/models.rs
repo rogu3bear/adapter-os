@@ -9,6 +9,108 @@ use serde::{Deserialize, Serialize};
 /// Models with this tenant_id are considered base models and accessible by any tenant.
 const SYSTEM_TENANT_ID: &str = "system";
 
+/// Registration identity hashes for a model directory.
+///
+/// Computes BLAKE3 hashes for model identity verification during registration:
+/// - **main hash**: config.json + first .safetensors/.bin file (identity fingerprint)
+/// - **config hash**: config.json alone
+/// - **tokenizer hash**: tokenizer.json alone
+/// - **tokenizer_config hash**: tokenizer_config.json alone
+///
+/// This is the *registration identity* hash chain, used to detect whether a model
+/// has changed since it was registered. It intentionally hashes only config + first
+/// shard for speed. For full *weight integrity* verification (all shards, sorted),
+/// see `compute_model_directory_hash()` in `adapteros-lora-worker::backend_factory::model_io`.
+struct ModelHashes {
+    hash_b3: String,
+    config_hash_b3: String,
+    tokenizer_hash_b3: String,
+    tokenizer_cfg_hash_b3: String,
+}
+
+fn compute_model_hashes(path: &std::path::Path, fallback_id: &str) -> ModelHashes {
+    use adapteros_core::B3Hash;
+
+    if path.exists() {
+        if path.is_dir() {
+            let config_path = path.join("config.json");
+            let tokenizer_path = path.join("tokenizer.json");
+            let tokenizer_cfg_path = path.join("tokenizer_config.json");
+
+            // Main hash: config + first weights shard
+            let mut main_hasher = blake3::Hasher::new();
+            if let Ok(config_bytes) = std::fs::read(&config_path) {
+                main_hasher.update(&config_bytes);
+            }
+
+            if let Some(weights_file) = walkdir::WalkDir::new(path)
+                .into_iter()
+                .filter_map(|e| e.ok())
+                .find(|e| {
+                    e.path()
+                        .extension()
+                        .and_then(|s| s.to_str())
+                        .map(|s| s == "safetensors" || s == "bin")
+                        .unwrap_or(false)
+                })
+            {
+                if let Ok(weights_bytes) = std::fs::read(weights_file.path()) {
+                    main_hasher.update(&weights_bytes);
+                }
+            }
+
+            let main_hash = B3Hash::from_bytes(*main_hasher.finalize().as_bytes());
+
+            let config_hash = if config_path.exists() {
+                B3Hash::hash_file(&config_path)
+                    .unwrap_or_else(|_| B3Hash::hash(config_path.to_string_lossy().as_bytes()))
+            } else {
+                B3Hash::hash(b"missing-config")
+            };
+
+            let tokenizer_hash = if tokenizer_path.exists() {
+                B3Hash::hash_file(&tokenizer_path)
+                    .unwrap_or_else(|_| B3Hash::hash(tokenizer_path.to_string_lossy().as_bytes()))
+            } else {
+                B3Hash::hash(b"missing-tokenizer")
+            };
+
+            let tokenizer_cfg_hash = if tokenizer_cfg_path.exists() {
+                B3Hash::hash_file(&tokenizer_cfg_path).unwrap_or_else(|_| {
+                    B3Hash::hash(tokenizer_cfg_path.to_string_lossy().as_bytes())
+                })
+            } else {
+                B3Hash::hash(b"missing-tokenizer-config")
+            };
+
+            ModelHashes {
+                hash_b3: main_hash.to_hex(),
+                config_hash_b3: config_hash.to_hex(),
+                tokenizer_hash_b3: tokenizer_hash.to_hex(),
+                tokenizer_cfg_hash_b3: tokenizer_cfg_hash.to_hex(),
+            }
+        } else {
+            // Single file
+            let file_hash = B3Hash::hash_file(path)
+                .unwrap_or_else(|_| B3Hash::hash(path.to_string_lossy().as_bytes()));
+            let hex = file_hash.to_hex();
+            ModelHashes {
+                hash_b3: hex.clone(),
+                config_hash_b3: hex.clone(),
+                tokenizer_hash_b3: hex.clone(),
+                tokenizer_cfg_hash_b3: hex,
+            }
+        }
+    } else {
+        ModelHashes {
+            hash_b3: format!("missing_hash_{}", fallback_id),
+            config_hash_b3: format!("missing_config_{}", fallback_id),
+            tokenizer_hash_b3: format!("missing_tokenizer_{}", fallback_id),
+            tokenizer_cfg_hash_b3: format!("missing_tokenizer_cfg_{}", fallback_id),
+        }
+    }
+}
+
 /// Normalize a model path for consistent storage.
 ///
 /// Strips leading `./` prefix to ensure paths are stored consistently.
@@ -419,6 +521,7 @@ impl Db {
         backend: &str,
         tenant_id: &str,
         imported_by: &str,
+        status: adapteros_core::ModelImportStatus,
     ) -> Result<String> {
         use std::path::Path;
 
@@ -448,93 +551,7 @@ impl Db {
             None
         };
 
-        // Compute BLAKE3 hashes from key files
-        use adapteros_core::B3Hash;
-
-        let (hash_b3, config_hash_b3, tokenizer_hash_b3, tokenizer_cfg_hash_b3) = if path.exists() {
-            if path.is_dir() {
-                // Hash key model files
-                let config_path = path.join("config.json");
-                let tokenizer_path = path.join("tokenizer.json");
-                let tokenizer_cfg_path = path.join("tokenizer_config.json");
-
-                // For main hash, combine config + first .safetensors file
-                let mut main_hasher = blake3::Hasher::new();
-                if let Ok(config_bytes) = std::fs::read(&config_path) {
-                    main_hasher.update(&config_bytes);
-                }
-
-                // Find first .safetensors or .bin file for weights
-                if let Some(weights_file) = walkdir::WalkDir::new(path)
-                    .into_iter()
-                    .filter_map(|e| e.ok())
-                    .find(|e| {
-                        e.path()
-                            .extension()
-                            .and_then(|s| s.to_str())
-                            .map(|s| s == "safetensors" || s == "bin")
-                            .unwrap_or(false)
-                    })
-                {
-                    if let Ok(weights_bytes) = std::fs::read(weights_file.path()) {
-                        main_hasher.update(&weights_bytes);
-                    }
-                }
-
-                let main_hash = B3Hash::from_bytes(*main_hasher.finalize().as_bytes());
-
-                // Hash individual component files
-                let config_hash = if config_path.exists() {
-                    B3Hash::hash_file(&config_path)
-                        .unwrap_or_else(|_| B3Hash::hash(config_path.to_string_lossy().as_bytes()))
-                } else {
-                    B3Hash::hash(b"missing-config")
-                };
-
-                let tokenizer_hash = if tokenizer_path.exists() {
-                    B3Hash::hash_file(&tokenizer_path).unwrap_or_else(|_| {
-                        B3Hash::hash(tokenizer_path.to_string_lossy().as_bytes())
-                    })
-                } else {
-                    B3Hash::hash(b"missing-tokenizer")
-                };
-
-                let tokenizer_cfg_hash = if tokenizer_cfg_path.exists() {
-                    B3Hash::hash_file(&tokenizer_cfg_path).unwrap_or_else(|_| {
-                        B3Hash::hash(tokenizer_cfg_path.to_string_lossy().as_bytes())
-                    })
-                } else {
-                    B3Hash::hash(b"missing-tokenizer-config")
-                };
-
-                (
-                    main_hash.to_hex(),
-                    config_hash.to_hex(),
-                    tokenizer_hash.to_hex(),
-                    tokenizer_cfg_hash.to_hex(),
-                )
-            } else {
-                // Single file - hash it directly
-                let file_hash = B3Hash::hash_file(path)
-                    .unwrap_or_else(|_| B3Hash::hash(path.to_string_lossy().as_bytes()));
-
-                // Use same hash for all components since it's a single file
-                (
-                    file_hash.to_hex(),
-                    file_hash.to_hex(),
-                    file_hash.to_hex(),
-                    file_hash.to_hex(),
-                )
-            }
-        } else {
-            // Path doesn't exist - use placeholder hashes
-            (
-                format!("missing_hash_{}", id),
-                format!("missing_config_{}", id),
-                format!("missing_tokenizer_{}", id),
-                format!("missing_tokenizer_cfg_{}", id),
-            )
-        };
+        let hashes = compute_model_hashes(path, &id);
 
         sqlx::query(
             "INSERT INTO models
@@ -545,15 +562,15 @@ impl Db {
         )
         .bind(&id)
         .bind(name)
-        .bind(&hash_b3)
-        .bind(&config_hash_b3)
-        .bind(&tokenizer_hash_b3)
-        .bind(&tokenizer_cfg_hash_b3)
+        .bind(&hashes.hash_b3)
+        .bind(&hashes.config_hash_b3)
+        .bind(&hashes.tokenizer_hash_b3)
+        .bind(&hashes.tokenizer_cfg_hash_b3)
         .bind(&normalized_path)
         .bind(format)
         .bind(backend)
         .bind(tenant_id)
-        .bind("importing")
+        .bind(status.as_str())
         .bind(&now)
         .bind(imported_by)
         .bind(size_bytes)
@@ -577,6 +594,7 @@ impl Db {
         backend: &str,
         tenant_id: &str,
         imported_by: &str,
+        status: adapteros_core::ModelImportStatus,
     ) -> Result<String> {
         use std::path::Path;
 
@@ -610,85 +628,7 @@ impl Db {
             None
         };
 
-        // Compute BLAKE3 hashes from key files
-        use adapteros_core::B3Hash;
-
-        let (hash_b3, config_hash_b3, tokenizer_hash_b3, tokenizer_cfg_hash_b3) = if path.exists() {
-            if path.is_dir() {
-                let config_path = path.join("config.json");
-                let tokenizer_path = path.join("tokenizer.json");
-                let tokenizer_cfg_path = path.join("tokenizer_config.json");
-
-                let mut main_hasher = blake3::Hasher::new();
-                if let Ok(config_bytes) = std::fs::read(&config_path) {
-                    main_hasher.update(&config_bytes);
-                }
-
-                if let Some(weights_file) = walkdir::WalkDir::new(path)
-                    .into_iter()
-                    .filter_map(|e| e.ok())
-                    .find(|e| {
-                        e.path()
-                            .extension()
-                            .and_then(|s| s.to_str())
-                            .map(|s| s == "safetensors" || s == "bin")
-                            .unwrap_or(false)
-                    })
-                {
-                    if let Ok(weights_bytes) = std::fs::read(weights_file.path()) {
-                        main_hasher.update(&weights_bytes);
-                    }
-                }
-
-                let main_hash = B3Hash::from_bytes(*main_hasher.finalize().as_bytes());
-
-                let config_hash = if config_path.exists() {
-                    B3Hash::hash_file(&config_path)
-                        .unwrap_or_else(|_| B3Hash::hash(config_path.to_string_lossy().as_bytes()))
-                } else {
-                    B3Hash::hash(b"missing-config")
-                };
-
-                let tokenizer_hash = if tokenizer_path.exists() {
-                    B3Hash::hash_file(&tokenizer_path).unwrap_or_else(|_| {
-                        B3Hash::hash(tokenizer_path.to_string_lossy().as_bytes())
-                    })
-                } else {
-                    B3Hash::hash(b"missing-tokenizer")
-                };
-
-                let tokenizer_cfg_hash = if tokenizer_cfg_path.exists() {
-                    B3Hash::hash_file(&tokenizer_cfg_path).unwrap_or_else(|_| {
-                        B3Hash::hash(tokenizer_cfg_path.to_string_lossy().as_bytes())
-                    })
-                } else {
-                    B3Hash::hash(b"missing-tokenizer-config")
-                };
-
-                (
-                    main_hash.to_hex(),
-                    config_hash.to_hex(),
-                    tokenizer_hash.to_hex(),
-                    tokenizer_cfg_hash.to_hex(),
-                )
-            } else {
-                let file_hash = B3Hash::hash_file(path)
-                    .unwrap_or_else(|_| B3Hash::hash(path.to_string_lossy().as_bytes()));
-                (
-                    file_hash.to_hex(),
-                    file_hash.to_hex(),
-                    file_hash.to_hex(),
-                    file_hash.to_hex(),
-                )
-            }
-        } else {
-            (
-                format!("missing_hash_{}", id),
-                format!("missing_config_{}", id),
-                format!("missing_tokenizer_{}", id),
-                format!("missing_tokenizer_cfg_{}", id),
-            )
-        };
+        let hashes = compute_model_hashes(path, &id);
 
         // Use ON CONFLICT to handle both insert and update cases
         sqlx::query(
@@ -713,15 +653,15 @@ impl Db {
         )
         .bind(&id)
         .bind(name)
-        .bind(&hash_b3)
-        .bind(&config_hash_b3)
-        .bind(&tokenizer_hash_b3)
-        .bind(&tokenizer_cfg_hash_b3)
+        .bind(&hashes.hash_b3)
+        .bind(&hashes.config_hash_b3)
+        .bind(&hashes.tokenizer_hash_b3)
+        .bind(&hashes.tokenizer_cfg_hash_b3)
         .bind(&normalized_path)
         .bind(format)
         .bind(backend)
         .bind(tenant_id)
-        .bind("importing")
+        .bind(status.as_str())
         .bind(&now)
         .bind(imported_by)
         .bind(size_bytes)
@@ -737,7 +677,7 @@ impl Db {
     pub async fn update_model_import_status(
         &self,
         model_id: &str,
-        status: &str,
+        status: adapteros_core::ModelImportStatus,
         error_message: Option<&str>,
     ) -> Result<()> {
         let now = chrono::Utc::now().to_rfc3339();
@@ -747,7 +687,7 @@ impl Db {
              SET import_status = ?, import_error = ?, updated_at = ?
              WHERE id = ?",
         )
-        .bind(status)
+        .bind(status.as_str())
         .bind(error_message)
         .bind(&now)
         .bind(model_id)

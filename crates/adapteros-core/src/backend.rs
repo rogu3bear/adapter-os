@@ -74,6 +74,22 @@ impl BackendKind {
         }
     }
 
+    /// Canonical telemetry bucket for grouping backend metrics.
+    ///
+    /// Similar to `normalized_id()` but with telemetry-specific mappings:
+    /// - Auto/Mlx/MlxBridge -> "native" (MLX is the default runtime path)
+    /// - CoreML/Metal -> "accelerated" (hardware acceleration)
+    /// - CPU -> "cpu"
+    /// - ModelServer -> "remote"
+    pub fn telemetry_bucket(&self) -> &'static str {
+        match self {
+            BackendKind::Auto | BackendKind::Mlx | BackendKind::MlxBridge => "native",
+            BackendKind::CoreML | BackendKind::Metal => "accelerated",
+            BackendKind::CPU => "cpu",
+            BackendKind::ModelServer => "remote",
+        }
+    }
+
     /// List of canonical variants for error reporting.
     pub fn variants() -> &'static [&'static str] {
         &[
@@ -129,6 +145,16 @@ impl BackendKind {
             BackendKind::Auto
         }
     }
+}
+
+/// Parse a backend string and return its telemetry bucket, or "unknown" if unrecognized.
+///
+/// Convenience wrapper for the worker's use case where backend comes as a raw string
+/// that might not parse.
+pub fn telemetry_bucket_or_unknown(s: &str) -> &'static str {
+    BackendKind::from_str(s)
+        .map(|k| k.telemetry_bucket())
+        .unwrap_or("unknown")
 }
 
 impl fmt::Display for BackendKind {
@@ -381,5 +407,23 @@ mod tests {
             BackendKind::from_str("remote").unwrap(),
             BackendKind::ModelServer
         );
+    }
+
+    #[test]
+    fn telemetry_bucket_auto_is_native() {
+        assert_eq!(BackendKind::Auto.telemetry_bucket(), "native");
+        assert_eq!(BackendKind::Mlx.telemetry_bucket(), "native");
+        assert_eq!(BackendKind::MlxBridge.telemetry_bucket(), "native");
+        assert_eq!(BackendKind::CoreML.telemetry_bucket(), "accelerated");
+        assert_eq!(BackendKind::Metal.telemetry_bucket(), "accelerated");
+        assert_eq!(BackendKind::CPU.telemetry_bucket(), "cpu");
+        assert_eq!(BackendKind::ModelServer.telemetry_bucket(), "remote");
+    }
+
+    #[test]
+    fn telemetry_bucket_or_unknown_works() {
+        assert_eq!(telemetry_bucket_or_unknown("mlx"), "native");
+        assert_eq!(telemetry_bucket_or_unknown("coreml"), "accelerated");
+        assert_eq!(telemetry_bucket_or_unknown("garbage"), "unknown");
     }
 }

@@ -40,7 +40,7 @@ impl Db {
         let id = new_id(IdPrefix::Evt);
         let timestamp = std::time::SystemTime::now()
             .duration_since(std::time::UNIX_EPOCH)
-            .expect("System time before UNIX epoch")
+            .unwrap_or_default()
             .as_secs() as i64;
 
         sqlx::query(
