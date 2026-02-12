@@ -1203,7 +1203,7 @@
         "type": "object"
       },
       "AdapterResponse": {
-        "description": "Adapter response\n\n# State Fields\n\nThis type exposes two distinct state concepts:\n\n- `lifecycle_state`: The adapter's lifecycle phase in the release workflow.\n  Values: \"draft\", \"active\", \"deprecated\", \"retired\"\n  This is the **canonical field** for adapter maturity/release status.\n\n- `runtime_state`: The adapter's current memory/runtime status.\n  Values: \"unloaded\", \"cold\", \"warm\", \"hot\", \"resident\"\n  This reflects whether the adapter is loaded and at what priority tier.\n\nNote: In the database, `current_state` maps to `runtime_state` in the API\nto provide clearer semantics.",
+        "description": "Adapter response\n\n# State Fields\n\nThis type exposes two distinct state concepts:\n\n- `lifecycle_state`: The adapter's lifecycle phase in the release workflow.\n  See [`LifecycleState`] for the canonical set of values.\n\n- `runtime_state`: The adapter's current memory/runtime status.\n  Values: \"unloaded\", \"cold\", \"warm\", \"hot\", \"resident\"\n  This reflects whether the adapter is loaded and at what priority tier.\n\nNote: In the database, `current_state` maps to `runtime_state` in the API\nto provide clearer semantics.",
         "properties": {
           "adapter_id": {
             "type": "string"
@@ -1363,8 +1363,8 @@
             "type": "array"
           },
           "lifecycle_state": {
-            "description": "Lifecycle state from migration 0068 (draft/active/deprecated/retired)\nThis is the canonical field for adapter maturity/release status.",
-            "type": "string"
+            "$ref": "#/components/schemas/LifecycleState",
+            "description": "Lifecycle state from migration 0068 (draft/training/ready/active/deprecated/retired/failed)\nThis is the canonical field for adapter maturity/release status."
           },
           "lora_scope": {
             "description": "Logical scope for routing (may mirror scope)",
@@ -4478,6 +4478,35 @@
         ],
         "type": "object"
       },
+      "CanaryProbeResult": {
+        "description": "Cached result of the most recent canary inference probe.",
+        "properties": {
+          "hint": {
+            "description": "Human-readable hint on failure.",
+            "type": [
+              "string",
+              "null"
+            ]
+          },
+          "latency_ms": {
+            "description": "Latency of the canary inference in milliseconds.",
+            "format": "int64",
+            "minimum": 0,
+            "type": [
+              "integer",
+              "null"
+            ]
+          },
+          "ok": {
+            "description": "Whether the canary inference succeeded.",
+            "type": "boolean"
+          }
+        },
+        "required": [
+          "ok"
+        ],
+        "type": "object"
+      },
       "CanonicalRow": {
         "description": "Canonical row schema shared with training workers and dataset services.",
         "properties": {
@@ -7304,7 +7333,7 @@
         "type": "object"
       },
       "CreateChatFromJobRequest": {
-        "description": "Request for POST /v1/chats/from_training_job\n\nCreates a chat session bound to a training job's stack in one call.",
+        "description": "Request for POST /v1/chats/from-training-job\n\nCreates a chat session bound to a training job's stack in one call.",
         "properties": {
           "metadata_json": {
             "description": "Optional metadata JSON for the chat session",
@@ -7331,7 +7360,7 @@
         "type": "object"
       },
       "CreateChatFromJobResponse": {
-        "description": "Response for POST /v1/chats/from_training_job",
+        "description": "Response for POST /v1/chats/from-training-job",
         "properties": {
           "adapter_id": {
             "description": "Primary adapter ID from the training job",
@@ -14846,6 +14875,23 @@
         ],
         "type": "object"
       },
+      "LifecycleState": {
+        "description": "Canonical lifecycle phases for adapters and stacks.\n\nKnown states: `draft`, `training`, `ready`, `active`, `pending`, `staging`,\n`deprecated`, `failed`, `retired`, `archived`.\nUnknown values from the backend deserialize to `Other` for forward compatibility.",
+        "enum": [
+          "draft",
+          "training",
+          "ready",
+          "active",
+          "pending",
+          "staging",
+          "deprecated",
+          "failed",
+          "retired",
+          "archived",
+          "other"
+        ],
+        "type": "string"
+      },
       "LifecycleStatusResponse": {
         "properties": {
           "background_tasks": {
@@ -19851,6 +19897,68 @@
         },
         "type": "object"
       },
+      "ProbeHealthReport": {
+        "description": "Aggregated probe health across all adapters.",
+        "properties": {
+          "adapters_degraded": {
+            "description": "Adapter IDs where the most recent probe failed.",
+            "items": {
+              "type": "string"
+            },
+            "type": "array"
+          },
+          "adapters_healthy": {
+            "description": "Adapter IDs where the most recent probe succeeded.",
+            "items": {
+              "type": "string"
+            },
+            "type": "array"
+          },
+          "avg_latency_ms": {
+            "description": "Average latency across all probes in milliseconds.",
+            "format": "double",
+            "type": "number"
+          },
+          "failed": {
+            "description": "Number of failed probes.",
+            "minimum": 0,
+            "type": "integer"
+          },
+          "last_cycle_at": {
+            "description": "ISO 8601 timestamp of the last completed probe cycle.",
+            "type": [
+              "string",
+              "null"
+            ]
+          },
+          "p99_latency_ms": {
+            "description": "P99 latency across all probes in milliseconds.",
+            "format": "int64",
+            "minimum": 0,
+            "type": "integer"
+          },
+          "successful": {
+            "description": "Number of successful probes.",
+            "minimum": 0,
+            "type": "integer"
+          },
+          "total_probes": {
+            "description": "Total number of probes in the current result window.",
+            "minimum": 0,
+            "type": "integer"
+          }
+        },
+        "required": [
+          "total_probes",
+          "successful",
+          "failed",
+          "avg_latency_ms",
+          "p99_latency_ms",
+          "adapters_healthy",
+          "adapters_degraded"
+        ],
+        "type": "object"
+      },
       "ProcessAnomalyResponse": {
         "description": "Process anomaly",
         "properties": {
@@ -21188,6 +21296,23 @@
               "$ref": "#/components/schemas/BootWarning"
             },
             "type": "array"
+          },
+          "build_id": {
+            "type": [
+              "string",
+              "null"
+            ]
+          },
+          "canary": {
+            "oneOf": [
+              {
+                "type": "null"
+              },
+              {
+                "$ref": "#/components/schemas/CanaryProbeResult",
+                "description": "Canary inference probe result (only present when `?deep=true`)."
+              }
+            ]
           },
           "checks": {
             "$ref": "#/components/schemas/ReadyzChecks"
@@ -31099,6 +31224,9 @@
       "UiConfigResponse": {
         "description": "Public UI configuration for runtime clients.",
         "properties": {
+          "docs_url": {
+            "type": "string"
+          },
           "schema_version": {
             "type": "string"
           },
@@ -34054,7 +34182,19 @@
     },
     "/readyz": {
       "get": {
+        "description": "Pass `?deep=true` to trigger a canary inference probe through the full\npipeline. The result is cached for 30 seconds. Without the parameter,\nexisting behaviour is unchanged.",
         "operationId": "ready",
+        "parameters": [
+          {
+            "description": "Run canary inference probe",
+            "in": "query",
+            "name": "deep",
+            "required": false,
+            "schema": {
+              "type": "boolean"
+            }
+          }
+        ],
         "responses": {
           "200": {
             "content": {
@@ -40076,7 +40216,7 @@
         ]
       }
     },
-    "/v1/chats/from_training_job": {
+    "/v1/chats/from-training-job": {
       "post": {
         "description": "Creates a chat session bound to the training job's stack in one call.\nCentralizes tenant/auth checks, job-ready validation, and session creation.",
         "operationId": "create_chat_from_training_job",
@@ -45157,6 +45297,46 @@
         "operationId": "list_error_instances",
         "parameters": [
           {
+            "description": "Inclusive lower bound (unix ms). Preferred public query field.",
+            "in": "query",
+            "name": "since",
+            "required": false,
+            "schema": {
+              "format": "int64",
+              "type": [
+                "integer",
+                "null"
+              ]
+            }
+          },
+          {
+            "description": "Inclusive upper bound (unix ms). Preferred public query field.",
+            "in": "query",
+            "name": "until",
+            "required": false,
+            "schema": {
+              "format": "int64",
+              "type": [
+                "integer",
+                "null"
+              ]
+            }
+          },
+          {
+            "description": "Cursor for pagination (`created_at_unix_ms < after`). Preferred field.",
+            "in": "query",
+            "name": "after",
+            "required": false,
+            "schema": {
+              "format": "int64",
+              "type": [
+                "integer",
+                "null"
+              ]
+            }
+          },
+          {
+            "description": "Back-compat field name.",
             "in": "query",
             "name": "since_unix_ms",
             "required": false,
@@ -45169,6 +45349,7 @@
             }
           },
           {
+            "description": "Back-compat field name.",
             "in": "query",
             "name": "until_unix_ms",
             "required": false,
@@ -45194,6 +45375,7 @@
             }
           },
           {
+            "description": "Back-compat field name.",
             "in": "query",
             "name": "after_created_at_unix_ms",
             "required": false,
@@ -53419,6 +53601,28 @@
         ]
       }
     },
+    "/v1/system/probe-health": {
+      "get": {
+        "description": "Returns aggregated health information from the synthetic probe system,\nincluding per-adapter success/failure status, latency statistics, and\nthe list of healthy vs degraded adapters.\n\nReturns an empty report if probes are disabled or have not yet run.",
+        "operationId": "get_probe_health",
+        "responses": {
+          "200": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ProbeHealthReport"
+                }
+              }
+            },
+            "description": "Probe health report"
+          }
+        },
+        "summary": "Get synthetic probe health report.",
+        "tags": [
+          "system"
+        ]
+      }
+    },
     "/v1/system/resource-usage": {
       "get": {
         "description": "Returns a comprehensive view of system resource usage including memory,\ncompute, and worker status.",
@@ -56136,7 +56340,7 @@
           "required": true
         },
         "responses": {
-          "201": {
+          "202": {
             "content": {
               "application/json": {
                 "schema": {
@@ -56144,7 +56348,7 @@
                 }
               }
             },
-            "description": "Training job created"
+            "description": "Training job accepted"
           },
           "400": {
             "content": {
@@ -56926,7 +57130,7 @@
           "required": true
         },
         "responses": {
-          "200": {
+          "202": {
             "content": {
               "application/json": {
                 "schema": {
@@ -56934,7 +57138,7 @@
                 }
               }
             },
-            "description": "Training session created"
+            "description": "Training session accepted"
           }
         },
         "summary": "Create a training session",
@@ -56957,7 +57161,7 @@
           "required": true
         },
         "responses": {
-          "200": {
+          "202": {
             "content": {
               "application/json": {
                 "schema": {
@@ -56965,7 +57169,7 @@
                 }
               }
             },
-            "description": "Training job started"
+            "description": "Training job accepted"
           },
           "400": {
             "content": {
