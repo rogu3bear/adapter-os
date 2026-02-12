@@ -10,7 +10,9 @@ use crate::components::responsive::use_is_mobile;
 use crate::components::status::{Badge, BadgeVariant};
 use crate::components::status_center::use_status_center;
 use crate::constants::urls::docs_url;
-use crate::signals::{use_auth, use_notification_state, use_search, use_ui_profile};
+use crate::signals::{
+    use_auth, use_notification_state, use_search, use_ui_profile, use_ui_profile_state,
+};
 use leptos::prelude::*;
 use wasm_bindgen::prelude::*;
 use wasm_bindgen::JsCast;
@@ -28,7 +30,14 @@ pub fn TopBar() -> impl IntoView {
     let (mobile_menu_open, set_mobile_menu_open) = signal(false);
     let is_mobile = use_is_mobile();
     let search = use_search();
-    let docs_url_value = docs_url();
+    let ui_profile_state = use_ui_profile_state();
+    let docs_url_value = Signal::derive(move || {
+        ui_profile_state
+            .try_get()
+            .and_then(|s| s.runtime_docs_url)
+            .filter(|url| !url.trim().is_empty())
+            .unwrap_or_else(docs_url)
+    });
 
     // Environment detection (dev/prod)
     let env_badge = {
@@ -170,19 +179,22 @@ pub fn TopBar() -> impl IntoView {
                         <line x1="21" y1="21" x2="16.65" y2="16.65" />
                     </svg>
                 </button>
-                {(!docs_url_value.is_empty()).then(|| view! {
-                    <a
-                        class="topbar-action flex items-center gap-2 px-2 py-1 rounded-md hover:bg-muted/50 transition-colors"
-                        href=docs_url_value
-                        target="_blank"
-                        rel="noopener noreferrer"
-                    >
-                        <svg class="w-4 h-4 text-muted-foreground" fill="none" stroke="currentColor" viewBox="0 0 24 24" stroke-width="2">
-                            <path stroke-linecap="round" stroke-linejoin="round" d="M12 18h.01M10 8h4m-4 4h2m7 4a2 2 0 01-2 2H7a2 2 0 01-2-2V6a2 2 0 012-2h6l4 4v8z"/>
-                        </svg>
-                        <span class="text-xs text-muted-foreground">"Docs"</span>
-                    </a>
-                })}
+                {move || {
+                    let href = docs_url_value.get();
+                    (!href.is_empty()).then(|| view! {
+                        <a
+                            class="topbar-action flex items-center gap-2 px-2 py-1 rounded-md hover:bg-muted/50 transition-colors"
+                            href=href
+                            target="_blank"
+                            rel="noopener noreferrer"
+                        >
+                            <svg class="w-4 h-4 text-muted-foreground" fill="none" stroke="currentColor" viewBox="0 0 24 24" stroke-width="2">
+                                <path stroke-linecap="round" stroke-linejoin="round" d="M12 18h.01M10 8h4m-4 4h2m7 4a2 2 0 01-2 2H7a2 2 0 01-2-2V6a2 2 0 012-2h6l4 4v8z"/>
+                            </svg>
+                            <span class="text-xs text-muted-foreground">"Docs"</span>
+                        </a>
+                    })
+                }}
                 // Error history button with unread badge
                 <ErrorHistoryButton />
 
@@ -345,7 +357,14 @@ fn MobileMenu(
     on_close: impl Fn() + Copy + Send + 'static,
 ) -> impl IntoView {
     let ui_profile = use_ui_profile();
-    let docs_url_value = docs_url();
+    let ui_profile_state = use_ui_profile_state();
+    let docs_url_value = Signal::derive(move || {
+        ui_profile_state
+            .try_get()
+            .and_then(|s| s.runtime_docs_url)
+            .filter(|url| !url.trim().is_empty())
+            .unwrap_or_else(docs_url)
+    });
     view! {
         // Backdrop - close on click
         <div
@@ -397,19 +416,22 @@ fn MobileMenu(
                                 })
                                 .collect::<Vec<_>>()
                         }}
-                        {(!docs_url_value.is_empty()).then(|| view! {
-                            <a
-                                href=docs_url_value
-                                class="mobile-menu-link"
-                                target="_blank"
-                                rel="noopener noreferrer"
-                            >
-                                <svg class="w-5 h-5" fill="none" stroke="currentColor" viewBox="0 0 24 24" stroke-width="2">
-                                    <path stroke-linecap="round" stroke-linejoin="round" d="M12 18h.01M10 8h4m-4 4h2m7 4a2 2 0 01-2 2H7a2 2 0 01-2-2V6a2 2 0 012-2h6l4 4v8z"/>
-                                </svg>
-                                <span>"Documentation"</span>
-                            </a>
-                        })}
+                        {move || {
+                            let href = docs_url_value.get();
+                            (!href.is_empty()).then(|| view! {
+                                <a
+                                    href=href
+                                    class="mobile-menu-link"
+                                    target="_blank"
+                                    rel="noopener noreferrer"
+                                >
+                                    <svg class="w-5 h-5" fill="none" stroke="currentColor" viewBox="0 0 24 24" stroke-width="2">
+                                        <path stroke-linecap="round" stroke-linejoin="round" d="M12 18h.01M10 8h4m-4 4h2m7 4a2 2 0 01-2 2H7a2 2 0 01-2-2V6a2 2 0 012-2h6l4 4v8z"/>
+                                    </svg>
+                                    <span>"Documentation"</span>
+                                </a>
+                            })
+                        }}
                     </div>
                 </div>
             </nav>

@@ -9,6 +9,7 @@ use leptos::prelude::*;
 #[derive(Debug, Clone)]
 pub struct UiProfileState {
     pub runtime_profile: Option<UiProfile>,
+    pub runtime_docs_url: Option<String>,
     pub loaded: bool,
 }
 
@@ -16,6 +17,7 @@ impl UiProfileState {
     fn new() -> Self {
         Self {
             runtime_profile: None,
+            runtime_docs_url: None,
             loaded: false,
         }
     }
@@ -32,8 +34,10 @@ pub fn provide_ui_profile_context() {
         let client = ApiClient::new();
         match client.get_ui_config().await {
             Ok(resp) => {
+                crate::constants::urls::set_runtime_docs_url(&resp.docs_url);
                 state.update(|s| {
                     s.runtime_profile = Some(resp.ui_profile);
+                    s.runtime_docs_url = Some(resp.docs_url);
                     s.loaded = true;
                 });
             }
