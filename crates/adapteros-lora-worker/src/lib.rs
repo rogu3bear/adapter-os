@@ -263,6 +263,7 @@ pub mod panic_utils;
 pub mod patch_generator;
 pub mod patch_telemetry;
 pub mod patch_validator;
+pub mod predictive_scheduler;
 pub mod prefix_kv_cache;
 pub mod reasoning_router;
 pub mod request_pinner;
@@ -417,7 +418,9 @@ pub use backend_factory::{
 };
 pub use backoff::{BackoffConfig, CircuitBreaker as BackoffCircuitBreaker};
 pub use backpressure::{
-    BackpressureGate, BackpressurePermit, BackpressureStats, DEFAULT_MAX_CONCURRENT,
+    BackpressureGate, BackpressurePermit, BackpressureStats, PartitionedBackpressureGate,
+    PartitionedPermit, WorkloadKind, DEFAULT_MAX_CONCURRENT, DEFAULT_MAX_INFERENCE,
+    DEFAULT_MAX_TRAINING,
 };
 pub use conv_pipeline::{
     ActivationKind, ConvPipeline, ConvPipelineConfig, ImageBatch, PoolingStrategy,
@@ -641,21 +644,7 @@ fn declared_determinism_level(backend: BackendKind) -> DeterminismLevel {
 /// This normalization enables consistent telemetry aggregation and UI display
 /// across different backend implementations.
 pub fn normalize_backend_id(backend: &str) -> &'static str {
-    let normalized = backend.trim().to_ascii_lowercase();
-    let normalized = normalized.replace(['-', '_'], "");
-
-    match normalized.as_str() {
-        // MLX variants -> native
-        "mlx" | "mlxffi" | "mlxbridge" | "subprocess" => "native",
-        // Hardware-accelerated backends
-        "coreml" | "ane" | "metal" => "accelerated",
-        // CPU-only
-        "cpu" | "cpuonly" => "cpu",
-        // Auto delegates to runtime selection, categorize as native since MLX is default
-        "auto" | "autodev" | "default" => "native",
-        // Unknown backend
-        _ => "unknown",
-    }
+    adapteros_core::backend::telemetry_bucket_or_unknown(backend)
 }
 
 fn q15_from_unit(value: f32) -> i16 {
@@ -1580,10 +1569,9 @@ impl<K: FusedKernels + StrictnessControl + Send + Sync + 'static> Worker<K> {
 
         // Load MoE cache snapshot if exists
         let adapter_paths = resolve_worker_adapter_paths();
-        #[allow(unused_variables)]
-        let adapters_path = adapter_paths.repo_root.join(tenant_id);
+        let _adapters_path = adapter_paths.repo_root.join(tenant_id);
         #[cfg(feature = "mlx-bridge")]
-        let moe_cache_path = adapters_path.join("moe_cache.json");
+        let moe_cache_path = _adapters_path.join("moe_cache.json");
         #[cfg(feature = "mlx-bridge")]
         if let Err(e) = moe_prefix_cache.load_snapshot(&moe_cache_path) {
             warn!(path = %moe_cache_path.display(), error = %e, "Failed to load MoE cache snapshot");

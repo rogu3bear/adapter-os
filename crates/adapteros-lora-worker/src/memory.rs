@@ -501,6 +501,164 @@ impl std::fmt::Display for MemoryPressureLevel {
     }
 }
 
+// ---------------------------------------------------------------------------
+// Tiered eviction policy (manifest `memory.evict_order`)
+// ---------------------------------------------------------------------------
+
+/// Eviction tier matching the manifest's three-tier cascade:
+/// `["ephemeral_ttl", "cold_lru", "warm_lru"]`
+///
+/// Lower-ordinal tiers are evicted first. Within a tier, candidates are
+/// sorted by heat score ascending (coldest first).
+#[derive(Clone, Copy, Debug, PartialEq, Eq, PartialOrd, Ord, Hash)]
+pub enum EvictionTier {
+    /// Ephemeral adapters whose TTL has expired — evict immediately.
+    EphemeralTtl = 0,
+    /// Cold adapters: fewer than `COLD_THRESHOLD_UPM` uses per minute.
+    ColdLru = 1,
+    /// Warm adapters: above cold threshold but still eligible for eviction.
+    WarmLru = 2,
+}
+
+impl EvictionTier {
+    /// Parse from the manifest string representation.
+    pub fn from_manifest_str(s: &str) -> Option<Self> {
+        match s {
+            "ephemeral_ttl" => Some(Self::EphemeralTtl),
+            "cold_lru" => Some(Self::ColdLru),
+            "warm_lru" => Some(Self::WarmLru),
+            _ => None,
+        }
+    }
+
+    /// Manifest string representation.
+    pub fn as_manifest_str(&self) -> &'static str {
+        match self {
+            Self::EphemeralTtl => "ephemeral_ttl",
+            Self::ColdLru => "cold_lru",
+            Self::WarmLru => "warm_lru",
+        }
+    }
+}
+
+impl std::fmt::Display for EvictionTier {
+    fn fmt(&self, f: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
+        f.write_str(self.as_manifest_str())
+    }
+}
+
+/// Uses-per-minute threshold below which an adapter is considered "cold".
+const COLD_THRESHOLD_UPM: u32 = 2;
+
+/// Snapshot of adapter metadata needed for tier classification.
+///
+/// Designed to be built from `AdapterLoadState` + manifest `Adapter` metadata
+/// without coupling directly to either type.
+#[derive(Debug, Clone)]
+pub struct AdapterEvictionMeta {
+    pub adapter_id: String,
+    /// Is this adapter ephemeral (has a TTL)?
+    pub is_ephemeral: bool,
+    /// Configured TTL in seconds (from manifest `Adapter.ttl`).
+    pub ttl_secs: Option<u32>,
+    /// Seconds since this adapter was loaded.
+    pub loaded_age_secs: u64,
+    /// Uses per minute from the sliding window in `AdapterLoadState`.
+    pub uses_per_minute: u32,
+    /// VRAM footprint in bytes.
+    pub vram_bytes: u64,
+}
+
+impl AdapterEvictionMeta {
+    /// Compute the heat score.
+    ///
+    /// Higher = hotter (used more recently / frequently). Within a tier,
+    /// candidates are sorted ascending by heat so coldest are evicted first.
+    pub fn heat_score(&self) -> u32 {
+        self.uses_per_minute
+    }
+
+    /// Has this adapter's TTL expired?
+    pub fn ttl_expired(&self) -> bool {
+        match (self.is_ephemeral, self.ttl_secs) {
+            (true, Some(ttl)) => self.loaded_age_secs >= ttl as u64,
+            _ => false,
+        }
+    }
+}
+
+/// Classify an adapter into its eviction tier.
+pub fn classify_eviction_tier(meta: &AdapterEvictionMeta) -> EvictionTier {
+    if meta.is_ephemeral && meta.ttl_expired() {
+        return EvictionTier::EphemeralTtl;
+    }
+    if meta.uses_per_minute < COLD_THRESHOLD_UPM {
+        return EvictionTier::ColdLru;
+    }
+    EvictionTier::WarmLru
+}
+
+/// A tier-classified eviction candidate ready for sorting.
+#[derive(Debug, Clone)]
+pub struct TieredEvictionCandidate {
+    pub adapter_id: String,
+    pub tier: EvictionTier,
+    pub heat_score: u32,
+    pub vram_bytes: u64,
+}
+
+/// Sort eviction candidates according to the manifest's `evict_order`.
+///
+/// The `evict_order` slice defines tier priority (first entry = evict first).
+/// Within a tier, candidates are sorted by heat ascending (coldest first),
+/// then by adapter ID for determinism.
+///
+/// Candidates whose tier does not appear in `evict_order` are pushed to the end.
+pub fn sort_eviction_candidates(
+    candidates: &mut [TieredEvictionCandidate],
+    evict_order: &[String],
+) {
+    // Build tier → priority index from the manifest order.
+    let tier_priority: std::collections::HashMap<EvictionTier, usize> = evict_order
+        .iter()
+        .enumerate()
+        .filter_map(|(i, s)| EvictionTier::from_manifest_str(s).map(|t| (t, i)))
+        .collect();
+
+    let max_priority = evict_order.len();
+
+    candidates.sort_by(|a, b| {
+        let pa = tier_priority.get(&a.tier).copied().unwrap_or(max_priority);
+        let pb = tier_priority.get(&b.tier).copied().unwrap_or(max_priority);
+        pa.cmp(&pb)
+            .then_with(|| a.heat_score.cmp(&b.heat_score))
+            .then_with(|| a.adapter_id.cmp(&b.adapter_id))
+    });
+}
+
+/// Build tier-classified eviction candidates from raw metadata.
+///
+/// Filters out adapters that should never be evicted (e.g., persistent
+/// non-expired adapters could be excluded upstream). This function only
+/// classifies — the caller decides which adapters are eligible.
+pub fn classify_candidates(
+    metas: impl IntoIterator<Item = AdapterEvictionMeta>,
+) -> Vec<TieredEvictionCandidate> {
+    metas
+        .into_iter()
+        .map(|m| {
+            let tier = classify_eviction_tier(&m);
+            let heat_score = m.heat_score();
+            TieredEvictionCandidate {
+                adapter_id: m.adapter_id,
+                tier,
+                heat_score,
+                vram_bytes: m.vram_bytes,
+            }
+        })
+        .collect()
+}
+
 // Unit test
 #[cfg(test)]
 mod tests {
@@ -533,6 +691,197 @@ mod tests {
         };
         let level = determine_pressure(&critical, 15.0);
         assert_eq!(level, MemoryPressureLevel::Critical);
+    }
+
+    // --- Eviction tier tests ---
+
+    fn make_meta(
+        id: &str,
+        is_ephemeral: bool,
+        ttl_secs: Option<u32>,
+        loaded_age_secs: u64,
+        uses_per_minute: u32,
+        vram_bytes: u64,
+    ) -> AdapterEvictionMeta {
+        AdapterEvictionMeta {
+            adapter_id: id.to_string(),
+            is_ephemeral,
+            ttl_secs,
+            loaded_age_secs,
+            uses_per_minute,
+            vram_bytes,
+        }
+    }
+
+    #[test]
+    fn test_classify_ephemeral_ttl_expired() {
+        let meta = make_meta("eph-1", true, Some(300), 600, 10, 1024);
+        assert!(meta.ttl_expired());
+        assert_eq!(classify_eviction_tier(&meta), EvictionTier::EphemeralTtl);
+    }
+
+    #[test]
+    fn test_classify_ephemeral_not_expired() {
+        let meta = make_meta("eph-2", true, Some(300), 100, 0, 1024);
+        assert!(!meta.ttl_expired());
+        // Under cold threshold, so ColdLru
+        assert_eq!(classify_eviction_tier(&meta), EvictionTier::ColdLru);
+    }
+
+    #[test]
+    fn test_classify_cold_lru() {
+        let meta = make_meta("cold-1", false, None, 1000, 1, 2048);
+        assert_eq!(classify_eviction_tier(&meta), EvictionTier::ColdLru);
+    }
+
+    #[test]
+    fn test_classify_warm_lru() {
+        let meta = make_meta("warm-1", false, None, 500, 5, 4096);
+        assert_eq!(classify_eviction_tier(&meta), EvictionTier::WarmLru);
+    }
+
+    #[test]
+    fn test_heat_score_is_upm() {
+        let meta = make_meta("a", false, None, 0, 42, 0);
+        assert_eq!(meta.heat_score(), 42);
+    }
+
+    #[test]
+    fn test_sort_eviction_candidates_tier_order() {
+        let order = vec![
+            "ephemeral_ttl".to_string(),
+            "cold_lru".to_string(),
+            "warm_lru".to_string(),
+        ];
+
+        let mut candidates = vec![
+            TieredEvictionCandidate {
+                adapter_id: "warm-a".into(),
+                tier: EvictionTier::WarmLru,
+                heat_score: 5,
+                vram_bytes: 100,
+            },
+            TieredEvictionCandidate {
+                adapter_id: "cold-b".into(),
+                tier: EvictionTier::ColdLru,
+                heat_score: 1,
+                vram_bytes: 200,
+            },
+            TieredEvictionCandidate {
+                adapter_id: "eph-c".into(),
+                tier: EvictionTier::EphemeralTtl,
+                heat_score: 0,
+                vram_bytes: 50,
+            },
+        ];
+
+        sort_eviction_candidates(&mut candidates, &order);
+
+        assert_eq!(candidates[0].adapter_id, "eph-c");
+        assert_eq!(candidates[1].adapter_id, "cold-b");
+        assert_eq!(candidates[2].adapter_id, "warm-a");
+    }
+
+    #[test]
+    fn test_sort_within_tier_by_heat_then_id() {
+        let order = vec!["cold_lru".to_string()];
+
+        let mut candidates = vec![
+            TieredEvictionCandidate {
+                adapter_id: "z-cold".into(),
+                tier: EvictionTier::ColdLru,
+                heat_score: 1,
+                vram_bytes: 100,
+            },
+            TieredEvictionCandidate {
+                adapter_id: "a-cold".into(),
+                tier: EvictionTier::ColdLru,
+                heat_score: 1,
+                vram_bytes: 200,
+            },
+            TieredEvictionCandidate {
+                adapter_id: "m-cold".into(),
+                tier: EvictionTier::ColdLru,
+                heat_score: 0,
+                vram_bytes: 50,
+            },
+        ];
+
+        sort_eviction_candidates(&mut candidates, &order);
+
+        // m-cold has lowest heat (0), then a-cold and z-cold tie on heat (1) broken by ID
+        assert_eq!(candidates[0].adapter_id, "m-cold");
+        assert_eq!(candidates[1].adapter_id, "a-cold");
+        assert_eq!(candidates[2].adapter_id, "z-cold");
+    }
+
+    #[test]
+    fn test_classify_candidates_integration() {
+        let metas = vec![
+            make_meta("eph-expired", true, Some(60), 120, 10, 1000),
+            make_meta("eph-alive", true, Some(300), 10, 0, 500),
+            make_meta("persistent-hot", false, None, 3600, 20, 2000),
+            make_meta("persistent-cold", false, None, 7200, 0, 3000),
+        ];
+
+        let mut candidates = classify_candidates(metas);
+        let order = vec![
+            "ephemeral_ttl".to_string(),
+            "cold_lru".to_string(),
+            "warm_lru".to_string(),
+        ];
+        sort_eviction_candidates(&mut candidates, &order);
+
+        assert_eq!(candidates.len(), 4);
+        // First: expired ephemeral
+        assert_eq!(candidates[0].adapter_id, "eph-expired");
+        assert_eq!(candidates[0].tier, EvictionTier::EphemeralTtl);
+        // Then cold adapters (eph-alive has 0 upm, persistent-cold has 0 upm)
+        assert_eq!(candidates[1].tier, EvictionTier::ColdLru);
+        assert_eq!(candidates[2].tier, EvictionTier::ColdLru);
+        // Finally warm
+        assert_eq!(candidates[3].adapter_id, "persistent-hot");
+        assert_eq!(candidates[3].tier, EvictionTier::WarmLru);
+    }
+
+    #[test]
+    fn test_eviction_tier_from_manifest_str() {
+        assert_eq!(
+            EvictionTier::from_manifest_str("ephemeral_ttl"),
+            Some(EvictionTier::EphemeralTtl)
+        );
+        assert_eq!(
+            EvictionTier::from_manifest_str("cold_lru"),
+            Some(EvictionTier::ColdLru)
+        );
+        assert_eq!(
+            EvictionTier::from_manifest_str("warm_lru"),
+            Some(EvictionTier::WarmLru)
+        );
+        assert_eq!(EvictionTier::from_manifest_str("unknown"), None);
+    }
+
+    #[test]
+    fn test_eviction_tier_ordering() {
+        assert!(EvictionTier::EphemeralTtl < EvictionTier::ColdLru);
+        assert!(EvictionTier::ColdLru < EvictionTier::WarmLru);
+    }
+
+    #[test]
+    fn test_ttl_none_never_expires() {
+        // Ephemeral without a TTL never expires via TTL logic
+        let meta = make_meta("no-ttl", true, None, 999999, 0, 100);
+        assert!(!meta.ttl_expired());
+        assert_eq!(classify_eviction_tier(&meta), EvictionTier::ColdLru);
+    }
+
+    #[test]
+    fn test_persistent_never_ephemeral_tier() {
+        // Even with loaded_age > some hypothetical TTL, persistent adapters
+        // should never classify as EphemeralTtl
+        let meta = make_meta("persistent", false, Some(60), 9999, 0, 100);
+        assert!(!meta.ttl_expired());
+        assert_eq!(classify_eviction_tier(&meta), EvictionTier::ColdLru);
     }
 }
 
