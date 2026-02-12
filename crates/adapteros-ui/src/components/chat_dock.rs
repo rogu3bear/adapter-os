@@ -6,7 +6,9 @@
 use crate::api::ApiClient;
 use crate::components::{Button, ButtonSize, ButtonVariant, Spinner, Textarea};
 use crate::hooks::{use_api_resource, LoadingState};
-use crate::signals::{use_chat, ChatTarget, ContextToggle, DockState, MessageStatus, PendingPhase};
+use crate::signals::{
+    use_chat, use_settings, ChatTarget, ContextToggle, DockState, MessageStatus, PendingPhase,
+};
 use adapteros_api_types::InferenceReadyState;
 use leptos::prelude::*;
 use std::sync::Arc;
@@ -492,6 +494,7 @@ where
 #[component]
 fn MessageItem(msg_id: String) -> impl IntoView {
     let (chat_state, _) = use_chat();
+    let settings = use_settings();
     let msg_id_clone = msg_id.clone();
 
     // Memoize message lookup - only recomputes when messages change
@@ -510,6 +513,13 @@ fn MessageItem(msg_id: String) -> impl IntoView {
             .get()
             .map(|m| m.timestamp.format("%H:%M").to_string())
             .unwrap_or_default()
+    });
+
+    let show_timestamps = Memo::new(move |_| {
+        settings
+            .try_get()
+            .map(|s| s.show_timestamps)
+            .unwrap_or(true)
     });
 
     let is_user = Memo::new(move |_| message.get().is_some_and(|m| m.role == "user"));
@@ -600,7 +610,12 @@ fn MessageItem(msg_id: String) -> impl IntoView {
                                             <span class="text-destructive">{failed_reason.get()}</span>
                                         }.into_any()
                                     } else {
-                                        view! { <span>{formatted_time.get()}</span> }.into_any()
+                                        let time = formatted_time.get();
+                                        if show_timestamps.get() && !time.is_empty() {
+                                            view! { <span>{time}</span> }.into_any()
+                                        } else {
+                                            view! {}.into_any()
+                                        }
                                     }
                                 }}
                                 {move || {

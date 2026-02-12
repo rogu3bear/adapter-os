@@ -132,10 +132,26 @@ impl MemoryPressureManager {
             PressureLevel::Critical => 1.0,
         };
 
+        // Derive current K from the live adapter set tracked in memory.
+        let current_k = self.tracker.adapter_count();
+        if current_k <= 1 {
+            warn!(
+                current_k = current_k,
+                "K reduction requested but current K is already at minimum"
+            );
+            return Ok(self.create_report(
+                pressure.level,
+                EvictionStrategy::ReduceK,
+                vec![],
+                0,
+                pressure.headroom_pct,
+            ));
+        }
+
         // Create K reduction request
         let request = KReductionRequest::new(
             1, // Minimal target K for emergency
-            8, // Current K (placeholder, should come from lifecycle manager)
+            current_k,
             pressure_level,
             pressure.bytes_to_free,
             pressure.headroom_pct,

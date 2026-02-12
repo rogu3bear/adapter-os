@@ -28,18 +28,58 @@ pub mod strings {
 
 /// URL helpers for UI navigation.
 pub mod urls {
+    #[cfg(target_arch = "wasm32")]
+    const RUNTIME_DOCS_URL_KEY: &str = "adapteros_runtime_docs_url";
+
     /// Default documentation base URL.
     /// Override at build time with `AOS_DOCS_URL`.
     pub const DEFAULT_DOCS_URL: &str = "/docs";
 
+    fn build_docs_url() -> String {
+        #[cfg(target_arch = "wasm32")]
+        if let Some(url) = web_sys::window()
+            .and_then(|w| w.local_storage().ok().flatten())
+            .and_then(|s| s.get_item(RUNTIME_DOCS_URL_KEY).ok().flatten())
+        {
+            let trimmed = url.trim();
+            if !trimmed.is_empty() {
+                return trimmed.to_string();
+            }
+        }
+
+        option_env!("AOS_DOCS_URL")
+            .map(str::trim)
+            .filter(|s| !s.is_empty())
+            .unwrap_or(DEFAULT_DOCS_URL)
+            .to_string()
+    }
+
+    /// Persist a runtime docs URL override for future reads.
+    pub fn set_runtime_docs_url(url: &str) {
+        #[cfg(target_arch = "wasm32")]
+        if let Some(storage) = web_sys::window().and_then(|w| w.local_storage().ok().flatten()) {
+            let trimmed = url.trim();
+            if trimmed.is_empty() {
+                let _ = storage.remove_item(RUNTIME_DOCS_URL_KEY);
+            } else {
+                let _ = storage.set_item(RUNTIME_DOCS_URL_KEY, trimmed);
+            }
+        }
+        #[cfg(not(target_arch = "wasm32"))]
+        {
+            let _ = url;
+        }
+    }
+
     /// Base docs URL used for help and documentation links.
-    pub fn docs_url() -> &'static str {
-        option_env!("AOS_DOCS_URL").unwrap_or(DEFAULT_DOCS_URL)
+    pub fn docs_url() -> String {
+        build_docs_url()
     }
 
     /// Build a docs URL for a specific path segment.
     pub fn docs_link(path: &str) -> String {
-        let base = docs_url().trim_end_matches('/');
+        let base = docs_url();
+        let base = base.trim_end_matches('/');
         let path = path.trim_start_matches('/');
         format!("{}/{}", base, path)
     }
@@ -48,8 +88,9 @@ pub mod urls {
 /// External links for the UI.
 pub mod links {
     /// Official documentation URL.
-    /// TODO: source from runtime config when available.
-    pub const DOCS_URL: &str = "https://docs.adapteros.com";
+    pub fn docs_url() -> String {
+        super::urls::docs_url()
+    }
 }
 
 /// Pagination defaults for UI data loads.

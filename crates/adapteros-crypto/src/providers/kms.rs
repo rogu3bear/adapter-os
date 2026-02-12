@@ -1929,8 +1929,17 @@ impl KeyProvider for KmsManager {
             self.config.provider_type, fingerprint, self.config.endpoint, timestamp
         );
 
-        // Sign with a system key if available, otherwise use placeholder
-        let signature = vec![0u8; 64]; // Would be actual signature in production
+        // Ensure a dedicated attestation key exists, then sign the attestation payload.
+        let attestation_key = self.namespaced_key_id("provider-attestation");
+        if !self.provider.key_exists(&attestation_key).await? {
+            self.provider
+                .generate_key(&attestation_key, KeyAlgorithm::Ed25519)
+                .await?;
+        }
+        let signature = self
+            .provider
+            .sign(&attestation_key, attestation_data.as_bytes())
+            .await?;
 
         Ok(ProviderAttestation::new(
             format!("kms:{}", self.config.provider_type),
@@ -2050,6 +2059,8 @@ mod tests {
         let attestation = provider.attest().await.unwrap();
         assert!(attestation.provider_type.contains("kms:mock"));
         assert!(!attestation.fingerprint.is_empty());
+        assert!(!attestation.signature.is_empty());
+        assert!(attestation.signature.iter().any(|b| *b != 0));
     }
 
     #[tokio::test]
