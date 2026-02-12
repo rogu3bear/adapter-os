@@ -79,6 +79,18 @@ pub const INCOMPATIBLE_SCHEMA_VERSION: &str = "INCOMPATIBLE_SCHEMA_VERSION";
 /// Adapter base model does not match request
 pub const ADAPTER_BASE_MODEL_MISMATCH: &str = "ADAPTER_BASE_MODEL_MISMATCH";
 
+/// Base model is incompatible or unavailable
+pub const INCOMPATIBLE_BASE_MODEL: &str = "INCOMPATIBLE_BASE_MODEL";
+
+/// Unsupported backend family
+pub const UNSUPPORTED_BACKEND: &str = "UNSUPPORTED_BACKEND";
+
+/// Hash integrity verification failure (computed vs manifest)
+pub const HASH_INTEGRITY_FAILURE: &str = "HASH_INTEGRITY_FAILURE";
+
+/// Version cannot be promoted
+pub const VERSION_NOT_PROMOTABLE: &str = "VERSION_NOT_PROMOTABLE";
+
 /// Determinism validation failed
 pub const DETERMINISM_ERROR: &str = "DETERMINISM_ERROR";
 
@@ -153,6 +165,15 @@ pub const POLICY_VIOLATION: &str = "POLICY_VIOLATION";
 /// Policy evaluation error
 pub const POLICY_ERROR: &str = "POLICY_ERROR";
 
+/// Signature required by tenant policy
+pub const SIGNATURE_REQUIRED: &str = "SIGNATURE_REQUIRED";
+
+/// Signature verification failed
+pub const SIGNATURE_INVALID: &str = "SIGNATURE_INVALID";
+
+/// Repository is archived and cannot be modified
+pub const REPO_ARCHIVED: &str = "REPO_ARCHIVED";
+
 /// Determinism invariant violated
 pub const DETERMINISM_VIOLATION: &str = "DETERMINISM_VIOLATION";
 
@@ -199,6 +220,12 @@ pub const MODEL_NOT_FOUND: &str = "MODEL_NOT_FOUND";
 /// Requested cache entry not found
 pub const CACHE_ENTRY_NOT_FOUND: &str = "CACHE_ENTRY_NOT_FOUND";
 
+/// Requested repository not found
+pub const REPO_NOT_FOUND: &str = "REPO_NOT_FOUND";
+
+/// Requested version not found
+pub const VERSION_NOT_FOUND: &str = "VERSION_NOT_FOUND";
+
 // =============================================================================
 // 409 Conflict - Hash Mismatches and State Conflicts
 // =============================================================================
@@ -227,6 +254,9 @@ pub const DUPLICATE_REQUEST: &str = "DUPLICATE_REQUEST";
 /// Adapter is currently in flight (loading/unloading in progress)
 pub const ADAPTER_IN_FLIGHT: &str = "ADAPTER_IN_FLIGHT";
 
+/// Repository already exists
+pub const REPO_ALREADY_EXISTS: &str = "REPO_ALREADY_EXISTS";
+
 // =============================================================================
 // 422 Unprocessable Entity
 // =============================================================================
@@ -243,6 +273,9 @@ pub const TOO_MANY_REQUESTS: &str = "TOO_MANY_REQUESTS";
 
 /// System under memory pressure (backpressure)
 pub const BACKPRESSURE: &str = "BACKPRESSURE";
+
+/// Request rejected by thundering herd protection
+pub const THUNDERING_HERD_REJECTED: &str = "THUNDERING_HERD_REJECTED";
 
 // =============================================================================
 // 499 Client Closed Request
@@ -278,6 +311,18 @@ pub const ROUTING_BYPASS: &str = "ROUTING_BYPASS";
 
 /// Replay operation failed
 pub const REPLAY_ERROR: &str = "REPLAY_ERROR";
+
+/// Migration file is missing
+pub const MIGRATION_FILE_MISSING: &str = "MIGRATION_FILE_MISSING";
+
+/// Migration checksum mismatch (file modified after being applied)
+pub const MIGRATION_CHECKSUM_MISMATCH: &str = "MIGRATION_CHECKSUM_MISMATCH";
+
+/// Schema version mismatch between app and database
+pub const SCHEMA_VERSION_MISMATCH: &str = "SCHEMA_VERSION_MISMATCH";
+
+/// Rate limiter not configured for a resource
+pub const RATE_LIMITER_NOT_CONFIGURED: &str = "RATE_LIMITER_NOT_CONFIGURED";
 
 // =============================================================================
 // 502 Bad Gateway - External Service Errors
@@ -352,6 +397,18 @@ pub const DISK_FULL: &str = "DISK_FULL";
 
 /// Temporary directory unavailable
 pub const TEMP_DIR_UNAVAILABLE: &str = "TEMP_DIR_UNAVAILABLE";
+
+/// Cached data is stale
+pub const CACHE_STALE: &str = "CACHE_STALE";
+
+/// Cache entries evicted
+pub const CACHE_EVICTION: &str = "CACHE_EVICTION";
+
+/// SSE stream disconnected
+pub const STREAM_DISCONNECTED: &str = "STREAM_DISCONNECTED";
+
+/// Client missed events during SSE reconnection
+pub const EVENT_GAP_DETECTED: &str = "EVENT_GAP_DETECTED";
 
 /// Model not ready for inference
 pub const MODEL_NOT_READY: &str = "MODEL_NOT_READY";

@@ -7899,3 +7899,12 @@
     border-top: 1px solid hsla(var(--border));
     margin: 0.75em 0;
 }
+
+/* ===== Error Recovery Panel ===== */
+.error-recovery-panel {
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  min-height: 400px;
+  padding: 1.5rem;
+}

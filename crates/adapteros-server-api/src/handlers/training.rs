@@ -1235,7 +1235,7 @@ pub async fn list_training_jobs(
     path = "/v1/training/jobs",
     request_body = CreateTrainingJobRequest,
     responses(
-        (status = 201, description = "Training job created", body = TrainingJobResponse),
+        (status = 202, description = "Training job accepted", body = TrainingJobResponse),
         (status = 400, description = "Invalid request", body = ErrorResponse),
         (status = 403, description = "Workspace access denied", body = ErrorResponse)
     ),
@@ -1245,7 +1245,7 @@ pub async fn create_training_job(
     State(state): State<AppState>,
     Extension(claims): Extension<Claims>,
     Json(req): Json<CreateTrainingJobRequest>,
-) -> Result<Json<TrainingJobResponse>, (StatusCode, Json<ErrorResponse>)> {
+) -> Result<(StatusCode, Json<TrainingJobResponse>), (StatusCode, Json<ErrorResponse>)> {
     require_permission(&claims, Permission::TrainingStart)?;
 
     let workspace_id = if req.workspace_id.is_empty() {
@@ -1411,7 +1411,7 @@ pub async fn create_training_job(
         )
         .await;
 
-    Ok(Json(training_job_to_response(job)))
+    Ok((StatusCode::ACCEPTED, Json(training_job_to_response(job))))
 }
 
 /// Get specific training job details
@@ -1916,7 +1916,7 @@ pub async fn get_preprocess_status(
     path = "/v1/training/start",
     request_body = StartTrainingRequest,
     responses(
-        (status = 200, description = "Training job started", body = TrainingJobResponse),
+        (status = 202, description = "Training job accepted", body = TrainingJobResponse),
         (status = 400, description = "Invalid request", body = ErrorResponse),
         (status = 500, description = "Failed to start training", body = ErrorResponse)
     ),
@@ -1927,7 +1927,7 @@ pub async fn start_training(
     Extension(claims): Extension<Claims>,
     Extension(client_ip): Extension<ClientIp>,
     Json(request): Json<StartTrainingRequest>,
-) -> Result<Json<TrainingJobResponse>, (StatusCode, Json<ErrorResponse>)> {
+) -> Result<(StatusCode, Json<TrainingJobResponse>), (StatusCode, Json<ErrorResponse>)> {
     require_permission(&claims, Permission::TrainingStart)?;
 
     // Create training service instance
@@ -2948,7 +2948,7 @@ pub async fn start_training(
         .clone()
         .unwrap_or_else(|| "main".to_string());
 
-    Ok(Json(TrainingJobResponse::from(job)))
+    Ok((StatusCode::ACCEPTED, Json(TrainingJobResponse::from(job))))
 }
 
 #[cfg(test)]
@@ -4060,7 +4060,7 @@ pub async fn get_chat_bootstrap(
 /// Centralizes tenant/auth checks, job-ready validation, and session creation.
 #[utoipa::path(
     post,
-    path = "/v1/chats/from_training_job",
+    path = "/v1/chats/from-training-job",
     request_body = CreateChatFromJobRequest,
     responses(
         (status = 200, description = "Chat session created", body = CreateChatFromJobResponse),
@@ -4946,14 +4946,14 @@ pub async fn get_training_template(
     path = "/v1/training/sessions",
     request_body = CreateTrainingJobRequest,
     responses(
-        (status = 200, description = "Training session created", body = TrainingJobResponse)
+        (status = 202, description = "Training session accepted", body = TrainingJobResponse)
     )
 )]
 pub async fn create_training_session(
     State(state): State<AppState>,
     Extension(claims): Extension<Claims>,
     Json(req): Json<CreateTrainingJobRequest>,
-) -> Result<Json<TrainingJobResponse>, (StatusCode, Json<ErrorResponse>)> {
+) -> Result<(StatusCode, Json<TrainingJobResponse>), (StatusCode, Json<ErrorResponse>)> {
     // Delegate to create_training_job
     create_training_job(State(state), Extension(claims), Json(req)).await
 }

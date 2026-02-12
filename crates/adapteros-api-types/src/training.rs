@@ -1766,7 +1766,7 @@ pub struct ChatBootstrapResponse {
     pub dataset_name: Option<String>,
 }
 
-/// Request for POST /v1/chats/from_training_job
+/// Request for POST /v1/chats/from-training-job
 ///
 /// Creates a chat session bound to a training job's stack in one call.
 #[derive(Debug, Clone, Serialize, Deserialize)]
@@ -1780,7 +1780,7 @@ pub struct CreateChatFromJobRequest {
     pub metadata_json: Option<String>,
 }
 
-/// Response for POST /v1/chats/from_training_job
+/// Response for POST /v1/chats/from-training-job
 #[derive(Debug, Clone, Serialize, Deserialize)]
 #[cfg_attr(feature = "server", derive(utoipa::ToSchema))]
 pub struct CreateChatFromJobResponse {

@@ -20,14 +20,17 @@ pub async fn run_tutorial(mut out: OutputWriter, args: TutorialArgs) -> Result<(
     if !args.advanced {
         out.info("Quickstart: init → verify → diag");
 
-        step(&mut out, "Initialize tenant", || {
-            run_command("aosctl", &["tenant-init", "--dry-run"])
+        step(&mut out, "Initialize system", || {
+            run_command("aosctl", &["init", "--yes"])
         })?;
         step(&mut out, "Verify telemetry", || {
-            run_command("aosctl", &["telemetry-verify"])
+            run_command(
+                "aosctl",
+                &["telemetry", "verify", "--bundle-dir", "var/telemetry"],
+            )
         })?;
         step(&mut out, "System diagnostics", || {
-            run_command("aosctl", &["diag", "--system"])
+            run_command("aosctl", &["doctor"])
         })?;
 
         out.success("Quickstart complete");
@@ -43,14 +46,18 @@ pub async fn run_tutorial(mut out: OutputWriter, args: TutorialArgs) -> Result<(
         run_command(
             "aosctl",
             &[
-                "adapter-register",
+                "adapter",
+                "register",
                 "--path",
                 "./examples/adapters/code-assistant.aos",
             ],
         )
     })?;
     step(&mut out, "Audit chain", || {
-        run_command("aosctl", &["telemetry-verify"])
+        run_command(
+            "aosctl",
+            &["telemetry", "verify", "--bundle-dir", "var/telemetry"],
+        )
     })?;
 
     out.success("Advanced tutorial complete");

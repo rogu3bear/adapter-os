@@ -25,7 +25,7 @@ pub fn chat_routes() -> Router<AppState> {
                 .get(handlers::chat_sessions::list_chat_sessions),
         )
         .route(
-            "/v1/chats/from_training_job",
+            "/v1/chats/from-training-job",
             post(handlers::create_chat_from_training_job),
         )
         // Special paths MUST come before the {session_id} wildcard

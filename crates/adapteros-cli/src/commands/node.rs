@@ -104,18 +104,24 @@ pub enum NodeSyncCommand {
         adapters: Vec<String>,
     },
 
-    /// Export adapters for air-gap transfer [NOT IMPLEMENTED]
-    #[command(after_help = r#"Examples:
-  aosctl node sync export --file ./adapters-bundle.tar"#)]
+    /// Export adapters for air-gap transfer [coming soon]
+    #[command(
+        hide = true,
+        after_help = r#"Examples:
+  aosctl node sync export --file ./adapters-bundle.tar"#
+    )]
     Export {
         /// Output file path
         #[arg(long)]
         file: PathBuf,
     },
 
-    /// Import adapters from air-gap bundle [NOT IMPLEMENTED]
-    #[command(after_help = r#"Examples:
-  aosctl node sync import --file ./adapters-bundle.tar"#)]
+    /// Import adapters from air-gap bundle [coming soon]
+    #[command(
+        hide = true,
+        after_help = r#"Examples:
+  aosctl node sync import --file ./adapters-bundle.tar"#
+    )]
     Import {
         /// Input file path
         #[arg(long)]
