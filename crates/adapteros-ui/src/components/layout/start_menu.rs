@@ -16,7 +16,12 @@ use leptos::prelude::*;
 #[component]
 pub fn StartMenu(on_close: impl Fn() + Clone + Send + Sync + 'static) -> impl IntoView {
     let ui_profile = use_ui_profile();
-    let modules = Signal::derive(move || build_start_menu_modules(ui_profile.get()));
+    let modules = Signal::derive(move || {
+        ui_profile
+            .try_get()
+            .map(build_start_menu_modules)
+            .unwrap_or_default()
+    });
     let menu_ref = NodeRef::<html::Div>::new();
     Effect::new({
         move |_| {
@@ -111,7 +116,8 @@ pub fn StartMenu(on_close: impl Fn() + Clone + Send + Sync + 'static) -> impl In
                     // Workflow groups
                     {move || {
                         modules
-                            .get()
+                            .try_get()
+                            .unwrap_or_default()
                             .into_iter()
                             .enumerate()
                             .map(|(idx, module)| {
@@ -145,7 +151,12 @@ fn ModuleSection(
     alt_hint: usize,
     on_navigate: impl Fn() + Clone + Send + Sync + 'static,
 ) -> impl IntoView {
-    let is_expanded = move || expanded.get().get(index).copied().unwrap_or(true);
+    let is_expanded = move || {
+        expanded
+            .try_get()
+            .and_then(|v| v.get(index).copied())
+            .unwrap_or(true)
+    };
 
     let toggle = move |_| {
         expanded.update(|v| {

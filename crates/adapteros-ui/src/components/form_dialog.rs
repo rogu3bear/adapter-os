@@ -78,15 +78,15 @@ pub fn FormDialog(
     let variant = submit_variant.unwrap_or(ButtonVariant::Primary);
 
     // Convert Option<Signal> to Signal with default false
-    let loading_signal = Signal::derive(move || loading.map(|l| l.get()).unwrap_or(false));
+    let loading_signal = Signal::derive(move || loading.and_then(|l| l.try_get()).unwrap_or(false));
     let disabled_signal = Signal::derive(move || {
-        submit_disabled.map(|d| d.get()).unwrap_or(false)
-            || loading.map(|l| l.get()).unwrap_or(false)
+        submit_disabled.and_then(|d| d.try_get()).unwrap_or(false)
+            || loading.and_then(|l| l.try_get()).unwrap_or(false)
     });
 
     let handle_cancel = {
         move |_| {
-            if !loading_signal.get() {
+            if !loading_signal.try_get().unwrap_or(false) {
                 if let Some(ref cb) = on_cancel {
                     cb.run(());
                 }
@@ -96,7 +96,8 @@ pub fn FormDialog(
     };
 
     let handle_submit = move |_| {
-        if !loading_signal.get() && !disabled_signal.get() {
+        if !loading_signal.try_get().unwrap_or(false) && !disabled_signal.try_get().unwrap_or(false)
+        {
             on_submit.run(());
         }
     };
@@ -187,17 +188,19 @@ pub fn StepFormDialog(
     children: Children,
 ) -> impl IntoView {
     // Convert Optional Signals to derived Signals with defaults
-    let loading_signal = Signal::derive(move || loading.map(|l| l.get()).unwrap_or(false));
-    let valid_signal = Signal::derive(move || step_valid.map(|v| v.get()).unwrap_or(true));
-    let invalid_signal = Signal::derive(move || !valid_signal.get());
-    let submit_disabled = Signal::derive(move || loading_signal.get() || !valid_signal.get());
+    let loading_signal = Signal::derive(move || loading.and_then(|l| l.try_get()).unwrap_or(false));
+    let valid_signal = Signal::derive(move || step_valid.and_then(|v| v.try_get()).unwrap_or(true));
+    let invalid_signal = Signal::derive(move || !valid_signal.try_get().unwrap_or(true));
+    let submit_disabled = Signal::derive(move || {
+        loading_signal.try_get().unwrap_or(false) || !valid_signal.try_get().unwrap_or(true)
+    });
 
-    let is_first = move || current_step.get() == 0;
-    let is_last = move || current_step.get() == total_steps - 1;
+    let is_first = move || current_step.try_get().unwrap_or(0) == 0;
+    let is_last = move || current_step.try_get().unwrap_or(0) == total_steps - 1;
 
     let handle_cancel = {
         move |_| {
-            if !loading_signal.get() {
+            if !loading_signal.try_get().unwrap_or(false) {
                 if let Some(ref cb) = on_cancel {
                     cb.run(());
                 }
@@ -211,8 +214,8 @@ pub fn StepFormDialog(
             // Step indicator
             <div class="step-indicator flex items-center justify-center gap-2 mb-6">
                 {step_labels.iter().enumerate().map(|(idx, label)| {
-                    let is_current = move || current_step.get() == idx;
-                    let is_complete = move || current_step.get() > idx;
+                    let is_current = move || current_step.try_get().unwrap_or(0) == idx;
+                    let is_complete = move || current_step.try_get().unwrap_or(0) > idx;
 
                     view! {
                         <div class="flex items-center">
@@ -266,19 +269,9 @@ pub fn StepFormDialog(
                         </Button>
                     })}
 
-                    {move || if is_last() {
-                        view! {
-                            <Button
-                                variant=ButtonVariant::Primary
-                                on_click=Callback::new(move |_| on_submit.run(()))
-                                disabled=submit_disabled
-                                loading=loading_signal
-                            >
-                                "Submit"
-                            </Button>
-                        }.into_any()
-                    } else {
-                        view! {
+                    <Show
+                        when=is_last
+                        fallback=move || view! {
                             <Button
                                 variant=ButtonVariant::Primary
                                 on_click=Callback::new(move |_| on_next.run(()))
@@ -286,8 +279,17 @@ pub fn StepFormDialog(
                             >
                                 "Next"
                             </Button>
-                        }.into_any()
-                    }}
+                        }
+                    >
+                        <Button
+                            variant=ButtonVariant::Primary
+                            on_click=Callback::new(move |_| on_submit.run(()))
+                            disabled=submit_disabled
+                            loading=loading_signal
+                        >
+                            "Submit"
+                        </Button>
+                    </Show>
                 </div>
             </div>
         </Dialog>

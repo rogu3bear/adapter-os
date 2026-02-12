@@ -432,10 +432,9 @@ async fn verify_nodes(
             let symbol = if consistent { "OK" } else { "MISMATCH" };
 
             if consistent {
-                let hash = node_hashes[0].1.to_hex();
-                let short_hash = &hash[..12.min(hash.len())];
+                let short_hash = adapteros_id::format_hash_short(&node_hashes[0].1.to_hex());
                 output.result(format!(
-                    "  {} {}: b3:{}... ({}/{} nodes)",
+                    "  {} {}: {} ({}/{} nodes)",
                     symbol,
                     component,
                     short_hash,
@@ -453,8 +452,8 @@ async fn verify_nodes(
 
                 // Show which nodes have which hashes
                 for (node, hash) in node_hashes {
-                    let short_hash = &hash.to_hex()[..12.min(hash.to_hex().len())];
-                    output.result(format!("      {} -> b3:{}...", node, short_hash));
+                    let short_hash = adapteros_id::format_hash_short(&hash.to_hex());
+                    output.result(format!("      {} -> {}", node, short_hash));
                 }
             }
         }

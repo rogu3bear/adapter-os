@@ -42,6 +42,7 @@ pub mod boot_attestation;
 pub mod boot_progress;
 pub mod capacity;
 pub mod chat_sessions;
+pub mod checkpoint_verify;
 pub mod chunked_upload;
 pub mod client_errors;
 pub mod code;
@@ -71,6 +72,7 @@ pub mod golden;
 pub mod health;
 pub mod inference;
 pub mod infrastructure;
+pub mod key_rotation;
 pub mod kv_isolation;
 pub mod memory_detail;
 pub mod metrics;
@@ -89,6 +91,7 @@ pub mod plugins;
 pub mod policies;
 pub mod promotion;
 pub mod promotion_validation;
+pub mod provenance;
 pub mod quarantine;
 pub mod rag_common;
 pub mod registry;
@@ -126,6 +129,7 @@ pub mod ui_config;
 pub mod utils;
 pub mod validation;
 pub mod verdicts;
+pub mod weight_encryption;
 pub mod worker_detail;
 pub mod worker_manifests;
 pub mod workers;
@@ -1517,7 +1521,7 @@ pub async fn list_adapters(
             stream_session_id: None,
             versioning_threshold: None,
             coreml_package_hash: None,
-            display_name: None,
+            display_name: adapteros_id::display_name_for(&adapter.id),
         });
     }
 
@@ -1692,7 +1696,7 @@ pub async fn get_adapter(
         stream_session_id: None,
         versioning_threshold: None,
         coreml_package_hash: None,
-        display_name: None,
+        display_name: adapteros_id::display_name_for(&adapter.id),
     }))
 }
 /// Register new adapter
@@ -1953,6 +1957,7 @@ pub async fn register_adapter(
     )
     .await;
 
+    let display_name = adapteros_id::display_name_for(&id);
     Ok((
         StatusCode::CREATED,
         Json(AdapterResponse {
@@ -1999,7 +2004,7 @@ pub async fn register_adapter(
             stream_session_id: None,
             versioning_threshold: None,
             coreml_package_hash: None,
-            display_name: None,
+            display_name,
         }),
     ))
 }

@@ -67,7 +67,7 @@ fn RunInfoCard(run: DiagRunResponse, label: &'static str) -> impl IntoView {
             </div>
             <div class="text-xs text-muted-foreground space-y-1">
                 <p><span class="font-medium">"Trace: "</span><span class="font-mono">{run.trace_id.clone()}</span></p>
-                <p><span class="font-medium">"Request Hash: "</span><span class="font-mono">{format!("{}...", run.request_hash.chars().take(16).collect::<String>())}</span></p>
+                <p><span class="font-medium">"Request Hash: "</span><span class="font-mono">{adapteros_id::format_hash_short(&run.request_hash)}</span></p>
                 <p><span class="font-medium">"Events: "</span>{run.total_events_count}</p>
                 {run.duration_ms.map(|d| view! {
                     <p><span class="font-medium">"Duration: "</span>{format!("{}ms", d)}</p>
@@ -230,10 +230,10 @@ fn AnchorRow(
                     view! {
                         <div class="text-xs font-mono text-muted-foreground">
                             {value_a.map(|v| view! {
-                                <div class="text-status-error">{format!("A: {}...", v.chars().take(12).collect::<String>())}</div>
+                                <div class="text-status-error">{format!("A: {}", adapteros_id::format_hash_short(&v))}</div>
                             })}
                             {value_b.map(|v| view! {
-                                <div class="text-status-info">{format!("B: {}...", v.chars().take(12).collect::<String>())}</div>
+                                <div class="text-status-info">{format!("B: {}", adapteros_id::format_hash_short(&v))}</div>
                             })}
                         </div>
                     }.into_any()

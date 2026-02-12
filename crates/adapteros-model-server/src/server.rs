@@ -18,6 +18,15 @@ use crate::forward::{ForwardExecutor, ForwardPassRequest};
 use crate::kv_cache::KvCacheManager;
 use crate::proto;
 
+/// RAII guard that decrements an atomic counter on drop.
+struct ActiveRequestGuard(Arc<AtomicU64>);
+
+impl Drop for ActiveRequestGuard {
+    fn drop(&mut self) {
+        self.0.fetch_sub(1, Ordering::Relaxed);
+    }
+}
+
 /// Model Server state
 pub struct ModelServer {
     /// Configuration
@@ -40,6 +49,9 @@ pub struct ModelServer {
 
     /// Request counter
     request_count: AtomicU64,
+
+    /// Currently in-flight requests
+    active_requests: Arc<AtomicU64>,
 
     /// Drain flag
     draining: AtomicBool,
@@ -77,6 +89,7 @@ impl ModelServer {
             activation_tracker,
             started_at: Instant::now(),
             request_count: AtomicU64::new(0),
+            active_requests: Arc::new(AtomicU64::new(0)),
             draining: AtomicBool::new(false),
         }
     }
@@ -123,6 +136,17 @@ impl ModelServer {
         self.request_count.load(Ordering::Relaxed)
     }
 
+    /// Get active (in-flight) request count
+    pub fn active_requests(&self) -> u64 {
+        self.active_requests.load(Ordering::Relaxed)
+    }
+
+    /// Acquire an active-request guard (increments counter; decrements on drop)
+    fn enter_request(&self) -> ActiveRequestGuard {
+        self.active_requests.fetch_add(1, Ordering::Relaxed);
+        ActiveRequestGuard(Arc::clone(&self.active_requests))
+    }
+
     /// Check if draining
     pub fn is_draining(&self) -> bool {
         self.draining.load(Ordering::Relaxed)
@@ -156,6 +180,7 @@ impl proto::model_server_server::ModelServer for ModelServerService {
         }
 
         self.server.request_count.fetch_add(1, Ordering::Relaxed);
+        let _active_guard = self.server.enter_request();
         let req = request.into_inner();
 
         // Convert to internal request
@@ -326,8 +351,7 @@ impl proto::model_server_server::ModelServer for ModelServerService {
 
         self.server.start_drain();
 
-        // In a real implementation, we'd wait for in-flight requests
-        let active_requests = 0; // TODO: Track active requests
+        let active_requests = self.server.active_requests() as u32;
 
         Ok(Response::new(proto::DrainResponse {
             accepted: true,

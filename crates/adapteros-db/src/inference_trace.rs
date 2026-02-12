@@ -806,7 +806,7 @@ impl TraceSink for SqlTraceSink {
         .with_disclosure_level(finalization.disclosure_level.clone());
 
         let receipt_digest = compute_receipt_digest(&receipt_input, RECEIPT_SCHEMA_V7)
-            .expect("V7 schema is always supported");
+            .ok_or_else(|| AosError::Internal("V7 receipt schema unsupported".into()))?;
 
         // Serialize stop_policy_digest_b3 to bytes for storage
         let stop_policy_digest_bytes = finalization
@@ -1780,7 +1780,7 @@ pub async fn recompute_receipt(db: &Db, trace_id: &str) -> Result<TraceReceiptVe
     .with_disclosure_level(stored.as_ref().and_then(|s| s.disclosure_level.clone()));
 
     let recomputed_receipt_digest = compute_receipt_digest(&receipt_input, RECEIPT_SCHEMA_V7)
-        .expect("V7 schema is always supported");
+        .ok_or_else(|| AosError::Internal("V7 receipt schema unsupported".into()))?;
 
     // For recomputation, carry over input_digest and equipment_profile from stored receipt
     let (recomputed_input_digest_b3, recomputed_equipment_profile) = if let Some(stored) = &stored {

@@ -2,7 +2,7 @@
 
 ## Symptoms
 
-- UI banner: `Inference not ready: Active model is not loaded on any worker.`
+- UI banner: `Chat unavailable: Selected model not loaded on any worker.`
 - `/v1/system/status` returns `inference_ready=false` with `inference_blockers` containing `active_model_mismatch`.
 - `/readyz` may include the hint `active model mismatch (not loaded)` under the models readiness check.
 

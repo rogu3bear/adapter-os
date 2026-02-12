@@ -4,7 +4,8 @@ use adapteros_api_types::RoutingPolicy;
 use adapteros_core::{AosError, B3Hash, Result};
 use smallvec::SmallVec;
 
-use crate::Decision;
+use crate::quantization::ROUTER_GATE_Q15_DENOM;
+use crate::{quantize_gate, Decision};
 
 /// Flags indicating which policy overrides were applied when building the mask.
 #[derive(Debug, Clone, Default)]
@@ -161,16 +162,67 @@ pub fn compute_policy_mask_digest(
     B3Hash::hash(&bytes)
 }
 
+/// Renormalize Q15 gates so they sum to 1.0, then re-quantize.
+///
+/// Uses f64 intermediate precision with Kahan summation to match the
+/// deterministic softmax path in `Router::softmax_f64_kahan`.
+///
+/// When only one gate remains it is set to Q15 max (1.0) without division.
+/// If the sum is zero (all gates were zero), returns uniform distribution.
+fn renormalize_gates_q15(gates_q15: &SmallVec<[i16; 8]>) -> SmallVec<[i16; 8]> {
+    let n = gates_q15.len();
+    if n == 0 {
+        return SmallVec::new();
+    }
+
+    // Fast path: single gate always gets full weight
+    if n == 1 {
+        let mut out = SmallVec::new();
+        out.push(quantize_gate(1.0));
+        return out;
+    }
+
+    // Convert to f64 and Kahan-sum
+    let denom = ROUTER_GATE_Q15_DENOM as f64;
+    let mut sum = 0.0f64;
+    let mut c = 0.0f64; // Kahan compensation
+    let floats: SmallVec<[f64; 8]> = gates_q15
+        .iter()
+        .map(|&q| {
+            let g = q as f64 / denom;
+            // Kahan accumulation
+            let y = g - c;
+            let t = sum + y;
+            c = (t - sum) - y;
+            sum = t;
+            g
+        })
+        .collect();
+
+    // Renormalize: divide each gate by sum, re-quantize to Q15
+    if sum > 0.0 {
+        floats
+            .iter()
+            .map(|&g| quantize_gate((g / sum) as f32))
+            .collect()
+    } else {
+        // All gates zero — uniform distribution
+        let uniform = 1.0f32 / n as f32;
+        gates_q15.iter().map(|_| quantize_gate(uniform)).collect()
+    }
+}
+
 /// Deterministically filter a router Decision using a RoutingPolicy.
 ///
 /// - Runs after router scoring and before kernel execution.
 /// - Preserves original decision order; only removes entries.
-/// - Does not renormalize gates to avoid changing deterministic gate values.
+/// - **Renormalizes** remaining gates so they sum to 1.0 after filtering.
+///   Uses f64 intermediate precision with Kahan summation, matching the
+///   router softmax path, then re-quantizes to Q15.
 /// - Returns PolicyViolation when no adapters remain after filtering.
 ///
 /// Limitations / future hooks:
 /// - Only ID-based allow/deny and max-adapters cap; no tag/tier/stack checks yet.
-/// - Gate values are left as-is; optional renormalization could be added later.
 /// - Max cap truncates deterministically using router ordering for stability.
 pub fn filter_decision_by_policy(
     decision: Decision,
@@ -285,9 +337,18 @@ pub fn filter_decision_by_policy(
         return Err(AosError::PolicyViolation(reason));
     }
 
+    // Renormalize gates only when filtering actually removed adapters.
+    // Skipping renormalization when the set is unchanged avoids Q15 round-trip
+    // rounding drift that would break determinism for the no-filter path.
+    let final_gates = if filtered_indices.len() < decision.indices.len() {
+        renormalize_gates_q15(&filtered_gates)
+    } else {
+        filtered_gates
+    };
+
     Ok(Decision {
         indices: filtered_indices,
-        gates_q15: filtered_gates,
+        gates_q15: final_gates,
         entropy: decision.entropy,
         candidates: filtered_candidates,
         decision_hash: decision.decision_hash,
@@ -402,5 +463,190 @@ mod tests {
         );
 
         assert_ne!(mask_a.digest, mask_b.digest);
+    }
+
+    // -- Gate renormalization tests --
+
+    use crate::quantization::ROUTER_GATE_Q15_MAX;
+    use crate::types::DecisionCandidate;
+
+    fn make_decision(indices: &[u16], gates_q15: &[i16]) -> Decision {
+        let candidates: Vec<DecisionCandidate> = indices
+            .iter()
+            .zip(gates_q15.iter())
+            .map(|(&idx, &gate)| DecisionCandidate {
+                adapter_idx: idx,
+                raw_score: gate as f32 / ROUTER_GATE_Q15_DENOM,
+                gate_q15: gate,
+            })
+            .collect();
+        Decision {
+            indices: SmallVec::from_slice(indices),
+            gates_q15: SmallVec::from_slice(gates_q15),
+            entropy: 0.5,
+            candidates,
+            decision_hash: None,
+            policy_mask_digest_b3: None,
+            policy_overrides_applied: None,
+        }
+    }
+
+    fn gate_sum_f64(gates: &SmallVec<[i16; 8]>) -> f64 {
+        gates
+            .iter()
+            .map(|&g| g as f64 / ROUTER_GATE_Q15_DENOM as f64)
+            .sum()
+    }
+
+    #[test]
+    fn renormalize_single_gate_becomes_one() {
+        let gates: SmallVec<[i16; 8]> = SmallVec::from_slice(&[16384]); // ~0.5
+        let result = renormalize_gates_q15(&gates);
+        assert_eq!(result.len(), 1);
+        assert_eq!(result[0], ROUTER_GATE_Q15_MAX); // 1.0
+    }
+
+    #[test]
+    fn renormalize_two_equal_gates() {
+        // Two gates of 0.5 each should stay at 0.5 each
+        let half = quantize_gate(0.5);
+        let gates: SmallVec<[i16; 8]> = SmallVec::from_slice(&[half, half]);
+        let result = renormalize_gates_q15(&gates);
+        assert_eq!(result.len(), 2);
+        // Each should be ~0.5 after renormalization
+        let sum = gate_sum_f64(&result);
+        assert!((sum - 1.0).abs() < 0.001, "sum should be ~1.0, got {sum}");
+    }
+
+    #[test]
+    fn renormalize_preserves_ratio_after_filtering() {
+        // Simulate: 3 adapters with gates [0.6, 0.3, 0.1], remove the third
+        // Remaining [0.6, 0.3] should renormalize to [0.667, 0.333]
+        let g0 = quantize_gate(0.6);
+        let g1 = quantize_gate(0.3);
+        let gates: SmallVec<[i16; 8]> = SmallVec::from_slice(&[g0, g1]);
+        let result = renormalize_gates_q15(&gates);
+
+        let sum = gate_sum_f64(&result);
+        assert!((sum - 1.0).abs() < 0.001, "sum should be ~1.0, got {sum}");
+
+        // Ratio should be preserved: g0/g1 should be ~2.0
+        let r0 = result[0] as f64;
+        let r1 = result[1] as f64;
+        let ratio = r0 / r1;
+        assert!(
+            (ratio - 2.0).abs() < 0.05,
+            "ratio should be ~2.0, got {ratio}"
+        );
+    }
+
+    #[test]
+    fn renormalize_empty_returns_empty() {
+        let gates: SmallVec<[i16; 8]> = SmallVec::new();
+        let result = renormalize_gates_q15(&gates);
+        assert!(result.is_empty());
+    }
+
+    #[test]
+    fn renormalize_all_zero_gates_gives_uniform() {
+        let gates: SmallVec<[i16; 8]> = SmallVec::from_slice(&[0, 0, 0]);
+        let result = renormalize_gates_q15(&gates);
+        assert_eq!(result.len(), 3);
+        // All should be equal (uniform 1/3)
+        assert_eq!(result[0], result[1]);
+        assert_eq!(result[1], result[2]);
+        let sum = gate_sum_f64(&result);
+        assert!(
+            (sum - 1.0).abs() < 0.01,
+            "uniform sum should be ~1.0, got {sum}"
+        );
+    }
+
+    #[test]
+    fn filter_decision_renormalizes_gates() {
+        let adapter_ids = vec!["a".to_string(), "b".to_string(), "c".to_string()];
+        let clusters = vec![None, None, None];
+
+        // Gates: a=0.5, b=0.3, c=0.2 (sum=1.0)
+        let decision = make_decision(
+            &[0, 1, 2],
+            &[quantize_gate(0.5), quantize_gate(0.3), quantize_gate(0.2)],
+        );
+
+        // Deny "c" — remaining gates [0.5, 0.3] should renormalize to sum=1.0
+        let policy = RoutingPolicy {
+            allowed_adapter_ids: None,
+            denied_adapter_ids: Some(vec!["c".to_string()]),
+            max_adapters_per_token: None,
+            allowed_clusters: None,
+            denied_clusters: None,
+        };
+
+        let result = filter_decision_by_policy(decision, &adapter_ids, &clusters, Some(&policy))
+            .expect("should not fail");
+
+        assert_eq!(result.indices.len(), 2);
+        let sum = gate_sum_f64(&result.gates_q15);
+        assert!(
+            (sum - 1.0).abs() < 0.001,
+            "filtered gates should sum to ~1.0, got {sum}"
+        );
+    }
+
+    #[test]
+    fn filter_no_policy_preserves_gates() {
+        let adapter_ids = vec!["a".to_string(), "b".to_string()];
+        let clusters = vec![None, None];
+        let g0 = quantize_gate(0.7);
+        let g1 = quantize_gate(0.3);
+        let decision = make_decision(&[0, 1], &[g0, g1]);
+
+        let result = filter_decision_by_policy(decision, &adapter_ids, &clusters, None)
+            .expect("should not fail");
+
+        // No policy → no filtering → no renormalization needed, gates pass through
+        assert_eq!(result.gates_q15[0], g0);
+        assert_eq!(result.gates_q15[1], g1);
+    }
+
+    #[test]
+    fn filter_policy_no_removal_preserves_gates_exactly() {
+        // Policy is present but doesn't actually remove any adapters.
+        // Gates must be preserved bit-exact (no Q15 round-trip drift).
+        let adapter_ids = vec!["a".to_string(), "b".to_string()];
+        let clusters = vec![None, None];
+        let g0 = quantize_gate(0.7);
+        let g1 = quantize_gate(0.3);
+        let decision = make_decision(&[0, 1], &[g0, g1]);
+
+        let policy = RoutingPolicy {
+            allowed_adapter_ids: None,
+            denied_adapter_ids: Some(vec!["nonexistent".to_string()]),
+            max_adapters_per_token: None,
+            allowed_clusters: None,
+            denied_clusters: None,
+        };
+
+        let result = filter_decision_by_policy(decision, &adapter_ids, &clusters, Some(&policy))
+            .expect("should not fail");
+
+        assert_eq!(
+            result.gates_q15[0], g0,
+            "gates must be bit-exact when no adapters removed"
+        );
+        assert_eq!(
+            result.gates_q15[1], g1,
+            "gates must be bit-exact when no adapters removed"
+        );
+    }
+
+    #[test]
+    fn renormalize_is_deterministic() {
+        // Same input must always produce same output
+        let gates: SmallVec<[i16; 8]> =
+            SmallVec::from_slice(&[quantize_gate(0.4), quantize_gate(0.35), quantize_gate(0.15)]);
+        let r1 = renormalize_gates_q15(&gates);
+        let r2 = renormalize_gates_q15(&gates);
+        assert_eq!(r1, r2, "renormalization must be deterministic");
     }
 }

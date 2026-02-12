@@ -350,7 +350,7 @@ impl Db {
             sql.push_str(" AND error_code = ?");
         }
         sql.push_str(" ORDER BY last_seen_unix_ms DESC");
-        let limit = (limit as i64).min(500).max(1);
+        let limit = (limit as i64).clamp(1, 500);
         sql.push_str(&format!(" LIMIT {}", limit));
 
         let mut qb = sqlx::query_as::<_, ErrorBucketRow>(&sql).bind(tenant_id);

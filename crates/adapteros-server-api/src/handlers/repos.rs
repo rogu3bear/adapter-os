@@ -568,33 +568,36 @@ pub async fn list_versions(
 
     let response: Vec<AdapterVersionResponse> = versions
         .into_iter()
-        .map(|v| AdapterVersionResponse {
-            id: v.id,
-            repo_id: v.repo_id,
-            tenant_id: v.tenant_id,
-            version: v.version,
-            branch: v.branch,
-            branch_classification: v.branch_classification,
-            aos_path: v.aos_path,
-            aos_hash: v.aos_hash,
-            manifest_schema_version: v.manifest_schema_version,
-            parent_version_id: v.parent_version_id,
-            code_commit_sha: v.code_commit_sha,
-            data_spec_hash: v.data_spec_hash,
-            training_backend: v.training_backend,
-            coreml_used: v.coreml_used,
-            coreml_device_type: v.coreml_device_type,
-            adapter_trust_state: v.adapter_trust_state,
-            release_state: v.release_state,
-            metrics_snapshot_id: v.metrics_snapshot_id,
-            evaluation_summary: v.evaluation_summary,
-            created_at: v.created_at,
-            attach_mode: v.attach_mode,
-            required_scope_dataset_version_id: v.required_scope_dataset_version_id,
-            is_archived: v.is_archived,
-            published_at: v.published_at,
-            short_description: v.short_description,
-            display_name: None,
+        .map(|v| {
+            let display_name = adapteros_id::display_name_for(&v.id);
+            AdapterVersionResponse {
+                id: v.id,
+                repo_id: v.repo_id,
+                tenant_id: v.tenant_id,
+                version: v.version,
+                branch: v.branch,
+                branch_classification: v.branch_classification,
+                aos_path: v.aos_path,
+                aos_hash: v.aos_hash,
+                manifest_schema_version: v.manifest_schema_version,
+                parent_version_id: v.parent_version_id,
+                code_commit_sha: v.code_commit_sha,
+                data_spec_hash: v.data_spec_hash,
+                training_backend: v.training_backend,
+                coreml_used: v.coreml_used,
+                coreml_device_type: v.coreml_device_type,
+                adapter_trust_state: v.adapter_trust_state,
+                release_state: v.release_state,
+                metrics_snapshot_id: v.metrics_snapshot_id,
+                evaluation_summary: v.evaluation_summary,
+                created_at: v.created_at,
+                attach_mode: v.attach_mode,
+                required_scope_dataset_version_id: v.required_scope_dataset_version_id,
+                is_archived: v.is_archived,
+                published_at: v.published_at,
+                short_description: v.short_description,
+                display_name,
+            }
         })
         .collect();
 
@@ -677,6 +680,7 @@ pub async fn get_version(
         "Retrieved adapter version"
     );
 
+    let display_name = adapteros_id::display_name_for(&version.id);
     Ok(Json(AdapterVersionResponse {
         id: version.id,
         repo_id: version.repo_id,
@@ -703,7 +707,7 @@ pub async fn get_version(
         is_archived: version.is_archived,
         published_at: version.published_at,
         short_description: version.short_description,
-        display_name: None,
+        display_name,
     }))
 }
 

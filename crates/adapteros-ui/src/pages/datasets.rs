@@ -234,7 +234,8 @@ pub fn Datasets() -> impl IntoView {
         move |mode: DatasetViewMode| {
             view_mode.set(mode);
             let mut params: HashMap<String, String> = query
-                .get()
+                .try_get()
+                .unwrap_or_default()
                 .into_iter()
                 .map(|(k, v)| (k.to_string(), v))
                 .collect();
@@ -288,7 +289,7 @@ pub fn Datasets() -> impl IntoView {
             </PageScaffoldActions>
 
             {move || {
-                match datasets.get() {
+                match datasets.try_get().unwrap_or(LoadingState::Idle) {
                     LoadingState::Idle | LoadingState::Loading => {
                         view! { <LoadingDisplay message="Loading datasets..."/> }.into_any()
                     }
@@ -527,13 +528,13 @@ fn DatasetsList(
     let filtered_sorted = Signal::derive(move || {
         let mut items = all_datasets.get_value();
 
-        let q = search.get().trim().to_lowercase();
-        let status = status_filter.get();
-        let validation = validation_filter.get();
-        let trust = trust_filter.get();
-        let dtype = type_filter.get();
-        let only_trainable = trainable_only.get();
-        let sort = sort.get();
+        let q = search.try_get().unwrap_or_default().trim().to_lowercase();
+        let status = status_filter.try_get().unwrap_or_default();
+        let validation = validation_filter.try_get().unwrap_or_default();
+        let trust = trust_filter.try_get().unwrap_or_default();
+        let dtype = type_filter.try_get().unwrap_or_default();
+        let only_trainable = trainable_only.try_get().unwrap_or(false);
+        let sort = sort.try_get().unwrap_or_default();
 
         items.retain(|d| {
             if !q.is_empty() {
@@ -692,15 +693,24 @@ fn DatasetsList(
         items
     });
 
-    let total_filtered = Signal::derive(move || filtered_sorted.get().len());
+    let total_filtered =
+        Signal::derive(move || filtered_sorted.try_get().unwrap_or_default().len());
     let any_filters_active = Signal::derive(move || {
-        !search.get().trim().is_empty()
-            || !status_filter.get().trim().is_empty()
-            || !validation_filter.get().trim().is_empty()
-            || !trust_filter.get().trim().is_empty()
-            || !type_filter.get().trim().is_empty()
-            || sort.get().trim() != "created_desc"
-            || trainable_only.get()
+        !search.try_get().unwrap_or_default().trim().is_empty()
+            || !status_filter
+                .try_get()
+                .unwrap_or_default()
+                .trim()
+                .is_empty()
+            || !validation_filter
+                .try_get()
+                .unwrap_or_default()
+                .trim()
+                .is_empty()
+            || !trust_filter.try_get().unwrap_or_default().trim().is_empty()
+            || !type_filter.try_get().unwrap_or_default().trim().is_empty()
+            || sort.try_get().unwrap_or_default().trim() != "created_desc"
+            || trainable_only.try_get().unwrap_or(false)
     });
 
     let dataset_count_total = datasets.total;
@@ -709,7 +719,7 @@ fn DatasetsList(
 
     view! {
         <Show
-            when=move || show_empty.get()
+            when=move || show_empty.try_get().unwrap_or(false)
             fallback=move || {
                 let delete_state = delete_state_for_views.clone();
                 view! {
@@ -728,7 +738,7 @@ fn DatasetsList(
                                     <div class="p-4 space-y-1 hover:bg-muted/40 transition-colors rounded-md">
                                         <div class="text-xs text-muted-foreground">"Trainable"</div>
                                         <div class="flex items-end justify-between">
-                                            <div class="heading-3">{move || trainable_count.get().to_string()}</div>
+                                            <div class="heading-3">{move || trainable_count.try_get().unwrap_or(0).to_string()}</div>
                                             <Badge variant=BadgeVariant::Success>"Ready"</Badge>
                                         </div>
                                         <div class="text-xs text-muted-foreground">
@@ -749,7 +759,7 @@ fn DatasetsList(
                                     <div class="p-4 space-y-1 hover:bg-muted/40 transition-colors rounded-md">
                                         <div class="text-xs text-muted-foreground">"Needs validation"</div>
                                         <div class="flex items-end justify-between">
-                                            <div class="heading-3">{move || needs_validation_count.get().to_string()}</div>
+                                            <div class="heading-3">{move || needs_validation_count.try_get().unwrap_or(0).to_string()}</div>
                                             <Badge variant=BadgeVariant::Warning>"Check"</Badge>
                                         </div>
                                         <div class="text-xs text-muted-foreground">
@@ -770,7 +780,7 @@ fn DatasetsList(
                                     <div class="p-4 space-y-1 hover:bg-muted/40 transition-colors rounded-md">
                                         <div class="text-xs text-muted-foreground">"Needs trust"</div>
                                         <div class="flex items-end justify-between">
-                                            <div class="heading-3">{move || needs_trust_count.get().to_string()}</div>
+                                            <div class="heading-3">{move || needs_trust_count.try_get().unwrap_or(0).to_string()}</div>
                                             <Badge variant=BadgeVariant::Warning>"Gate"</Badge>
                                         </div>
                                         <div class="text-xs text-muted-foreground">
@@ -791,7 +801,7 @@ fn DatasetsList(
                                     <div class="p-4 space-y-1 hover:bg-muted/40 transition-colors rounded-md">
                                         <div class="text-xs text-muted-foreground">"Processing / Failed"</div>
                                         <div class="flex items-end justify-between">
-                                            <div class="heading-3">{move || processing_failed_count.get().to_string()}</div>
+                                            <div class="heading-3">{move || processing_failed_count.try_get().unwrap_or(0).to_string()}</div>
                                             <Badge variant=BadgeVariant::Secondary>"Status"</Badge>
                                         </div>
                                         <div class="text-xs text-muted-foreground">
@@ -808,7 +818,7 @@ fn DatasetsList(
                                 <div class="flex items-center justify-between gap-4 flex-wrap">
                                     <div class="text-sm text-muted-foreground">
                                         {move || {
-                                            let filtered = total_filtered.get();
+                                            let filtered = total_filtered.try_get().unwrap_or(0);
                                             if filtered as i64 == dataset_count_total {
                                                 format!("{} dataset(s)", dataset_count_total)
                                             } else {
@@ -820,7 +830,7 @@ fn DatasetsList(
                                         <button
                                             type="button"
                                             class=move || {
-                                                if view_mode.get() == DatasetViewMode::Table {
+                                                if view_mode.try_get().unwrap_or(DatasetViewMode::Table) == DatasetViewMode::Table {
                                                     "px-3 py-1.5 text-xs bg-muted"
                                                 } else {
                                                     "px-3 py-1.5 text-xs hover:bg-muted/60"
@@ -836,7 +846,7 @@ fn DatasetsList(
                                         <button
                                             type="button"
                                             class=move || {
-                                                if view_mode.get() == DatasetViewMode::Cards {
+                                                if view_mode.try_get().unwrap_or(DatasetViewMode::Table) == DatasetViewMode::Cards {
                                                     "px-3 py-1.5 text-xs bg-muted"
                                                 } else {
                                                     "px-3 py-1.5 text-xs hover:bg-muted/60"
@@ -924,7 +934,7 @@ fn DatasetsList(
                                     />
                                     <Button
                                         variant=ButtonVariant::Ghost
-                                        disabled=Signal::derive(move || !any_filters_active.get())
+                                        disabled=Signal::derive(move || !any_filters_active.try_get().unwrap_or(false))
                                         on_click=Callback::new(move |_| {
                                             search.set(String::new());
                                             status_filter.set(String::new());
@@ -943,7 +953,7 @@ fn DatasetsList(
 
                         // Results (table or cards)
                         {move || {
-                            let items = filtered_sorted.get();
+                            let items = filtered_sorted.try_get().unwrap_or_default();
                             if items.is_empty() {
                                 view! {
                                     <Card>
@@ -953,7 +963,7 @@ fn DatasetsList(
                                         />
                                     </Card>
                                 }.into_any()
-                            } else if view_mode.get() == DatasetViewMode::Cards {
+                            } else if view_mode.try_get().unwrap_or(DatasetViewMode::Table) == DatasetViewMode::Cards {
                                 view! { <DatasetsCardGrid datasets=items delete_state=delete_state.clone()/> }.into_any()
                             } else {
                                 view! { <DatasetsTable datasets=items delete_state=delete_state.clone()/> }.into_any()
@@ -1002,7 +1012,7 @@ fn DatasetsList(
             cancel_text="Cancel"
             on_confirm=on_confirm_delete
             on_cancel=on_cancel_delete
-            loading=Signal::derive(move || delete_state_for_loading.is_deleting())
+            loading=Signal::derive(move || delete_state_for_loading.deleting.try_get().unwrap_or(false))
         />
     }
     .into_any()
@@ -1344,7 +1354,13 @@ pub fn DatasetDetail() -> impl IntoView {
     let navigate = use_navigate();
     let navigate_store = StoredValue::new(navigate);
 
-    let dataset_id = move || params.get().get("id").unwrap_or_default();
+    let dataset_id = move || {
+        params
+            .try_get()
+            .unwrap_or_default()
+            .get("id")
+            .unwrap_or_default()
+    };
     let query = use_query_map();
     let is_draft = Signal::derive(move || {
         let id = dataset_id();
@@ -1352,26 +1368,28 @@ pub fn DatasetDetail() -> impl IntoView {
     });
     let draft_source = Signal::derive(move || {
         query
-            .get()
+            .try_get()
+            .unwrap_or_default()
             .get("source")
             .unwrap_or_else(|| "unknown".to_string())
     });
     let draft_items = Signal::derive(move || {
         query
-            .get()
+            .try_get()
+            .unwrap_or_default()
             .get("items")
             .and_then(|v| v.parse::<usize>().ok())
             .unwrap_or(0)
     });
     let draft_name = Signal::derive(move || {
-        query.get().get("name").map(|raw| {
+        query.try_get().unwrap_or_default().get("name").map(|raw| {
             js_sys::decode_uri_component(&raw)
                 .map(|s| s.as_string().unwrap_or_else(|| raw.clone()))
                 .unwrap_or_else(|_| raw)
         })
     });
     let draft_document_ids = Signal::derive(move || {
-        let params = query.get();
+        let params = query.try_get().unwrap_or_default();
         let mut ids = Vec::new();
         if let Some(id) = params.get("document_id") {
             let trimmed = id.trim();
@@ -1389,13 +1407,18 @@ pub fn DatasetDetail() -> impl IntoView {
         }
         ids
     });
-    let draft_dataset_id = Signal::derive(move || query.get().get("dataset_id"));
+    let draft_dataset_id =
+        Signal::derive(move || query.try_get().unwrap_or_default().get("dataset_id"));
     let draft_base_model_id = Signal::derive(move || {
-        query.get().get("base_model_id").and_then(|raw| {
-            js_sys::decode_uri_component(&raw)
-                .ok()
-                .and_then(|s| s.as_string())
-        })
+        query
+            .try_get()
+            .unwrap_or_default()
+            .get("base_model_id")
+            .and_then(|raw| {
+                js_sys::decode_uri_component(&raw)
+                    .ok()
+                    .and_then(|s| s.as_string())
+            })
     });
 
     // Detail tab state (progressive disclosure)
@@ -1459,7 +1482,7 @@ pub fn DatasetDetail() -> impl IntoView {
     let pretty_json = RwSignal::new(true);
     let (preview, preview_refetch) = use_api_resource(move |client: Arc<ApiClient>| {
         let id = dataset_id();
-        let limit_raw = preview_limit.get();
+        let limit_raw = preview_limit.try_get().unwrap_or_default();
         async move {
             let limit = limit_raw.parse::<usize>().ok();
             client.preview_dataset(&id, limit).await
@@ -1555,19 +1578,19 @@ pub fn DatasetDetail() -> impl IntoView {
             ]/>
 
             {move || {
-                if is_draft.get() {
+                if is_draft.try_get().unwrap_or(false) {
                     view! {
                         <DatasetDraftView
-                            source=draft_source.get()
-                            name=draft_name.get()
-                            items=draft_items.get()
-                            document_ids=draft_document_ids.get()
-                            dataset_id=draft_dataset_id.get()
-                            base_model_id=draft_base_model_id.get()
+                            source=draft_source.try_get().unwrap_or_default()
+                            name=draft_name.try_get().flatten()
+                            items=draft_items.try_get().unwrap_or(0)
+                            document_ids=draft_document_ids.try_get().unwrap_or_default()
+                            dataset_id=draft_dataset_id.try_get().flatten()
+                            base_model_id=draft_base_model_id.try_get().flatten()
                         />
                     }.into_any()
                 } else {
-                    match dataset.get() {
+                    match dataset.try_get().unwrap_or(LoadingState::Idle) {
                         LoadingState::Idle | LoadingState::Loading => {
                             view! { <LoadingDisplay message="Loading dataset..."/> }.into_any()
                         }
@@ -1739,7 +1762,7 @@ pub fn DatasetDetail() -> impl IntoView {
                                                     </div>
                                                 </div>
 
-                                                {move || match preview.get() {
+                                                {move || match preview.try_get().unwrap_or(LoadingState::Idle) {
                                                     LoadingState::Idle | LoadingState::Loading => {
                                                         view! { <div class="flex justify-center py-6"><Spinner/></div> }.into_any()
                                                     }
@@ -1752,7 +1775,7 @@ pub fn DatasetDetail() -> impl IntoView {
                                                                 />
                                                             }.into_any()
                                                         } else {
-                                                            let pretty = pretty_json.get();
+                                                            let pretty = pretty_json.try_get().unwrap_or(true);
                                                             view! {
                                                                 <div class="space-y-2">
                                                                     <div class="text-xs text-muted-foreground">
@@ -1880,7 +1903,7 @@ pub fn DatasetDetail() -> impl IntoView {
                                                 {dataset_version_id_store.get_value().map(|id| view! {
                                                     <CopyableId id=id label="Current dataset_version_id".to_string() truncate=28 />
                                                 })}
-                                                {move || match versions.get() {
+                                                {move || match versions.try_get().unwrap_or(LoadingState::Idle) {
                                                     LoadingState::Idle | LoadingState::Loading => {
                                                         view! { <div class="flex justify-center py-4"><Spinner/></div> }.into_any()
                                                     }
@@ -1961,7 +1984,7 @@ pub fn DatasetDetail() -> impl IntoView {
                                         </Card>
 
                                         {move || {
-                                            match versions.get() {
+                                            match versions.try_get().unwrap_or(LoadingState::Idle) {
                                                 LoadingState::Loaded(DatasetVersionsResponse { versions, .. }) => {
                                                     let preferred = dataset_version_id_store.get_value()
                                                         .or_else(|| versions.first().map(|v| v.dataset_version_id.clone()));
@@ -1990,7 +2013,7 @@ pub fn DatasetDetail() -> impl IntoView {
                                                 <div class="p-4">
                                                     <h3 class="heading-4 mb-4">"Overview"</h3>
                                                     <dl class="space-y-3">
-                                                        <CopyableId id=data.id.clone() label="ID".to_string() truncate=24 />
+                                                        <CopyableId id=data.id.clone() display_name=data.display_name.clone().unwrap_or_default() label="ID".to_string() truncate=24 />
                                                         <div class="flex justify-between">
                                                             <dt class="text-muted-foreground">"Type"</dt>
                                                             <dd>
@@ -2066,7 +2089,7 @@ pub fn DatasetDetail() -> impl IntoView {
                                             <Card>
                                                 <div class="p-4">
                                                     <h3 class="heading-4 mb-4">"Statistics"</h3>
-                                                    {move || match stats.get() {
+                                                    {move || match stats.try_get().unwrap_or(LoadingState::Idle) {
                                                         LoadingState::Idle | LoadingState::Loading => {
                                                             view! { <div class="flex justify-center py-4"><Spinner/></div> }.into_any()
                                                         }
@@ -2110,7 +2133,7 @@ pub fn DatasetDetail() -> impl IntoView {
                                         cancel_text="Cancel"
                                         on_confirm=on_confirm_delete
                                         on_cancel=on_cancel_delete
-                                        loading=Signal::derive(move || deleting.get())
+                                        loading=Signal::derive(move || deleting.try_get().unwrap_or(false))
                                     />
                                 </div>
                             }.into_any()
@@ -2163,10 +2186,13 @@ fn DatasetDraftView(
     // Fetch available models for combobox
     let (models_resource, _) =
         use_api_resource(|client: Arc<ApiClient>| async move { client.list_models().await });
-    let models_state = Signal::derive(move || match models_resource.get() {
-        LoadingState::Loaded(resp) => resp.models,
-        _ => vec![],
-    });
+    let models_state =
+        Signal::derive(
+            move || match models_resource.try_get().unwrap_or(LoadingState::Idle) {
+                LoadingState::Loaded(resp) => resp.models,
+                _ => vec![],
+            },
+        );
 
     // Fetch statistics when dataset_id_state changes
     {
@@ -2254,19 +2280,19 @@ fn DatasetDraftView(
     };
 
     let train_disabled = Signal::derive(move || {
-        is_training.get()
-            || base_model.get().trim().is_empty()
-            || (dataset_id_state.get().is_none()
+        is_training.try_get().unwrap_or(false)
+            || base_model.try_get().unwrap_or_default().trim().is_empty()
+            || (dataset_id_state.try_get().flatten().is_none()
                 && document_ids_store.with_value(|ids| ids.is_empty()))
     });
 
     // Reason why train button is disabled (for user hint)
     let train_disabled_reason = Signal::derive(move || {
-        if is_training.get() {
+        if is_training.try_get().unwrap_or(false) {
             Some("Training in progress...".to_string())
-        } else if base_model.get().trim().is_empty() {
+        } else if base_model.try_get().unwrap_or_default().trim().is_empty() {
             Some("Select a base model to enable training".to_string())
-        } else if dataset_id_state.get().is_none()
+        } else if dataset_id_state.try_get().flatten().is_none()
             && document_ids_store.with_value(|ids| ids.is_empty())
         {
             Some("Attach a document or select a dataset first".to_string())
@@ -2592,12 +2618,12 @@ fn DatasetDraftView(
                     <Button
                         variant=ButtonVariant::Primary
                         disabled=train_disabled
-                        loading=Signal::derive(move || is_training.get())
+                        loading=Signal::derive(move || is_training.try_get().unwrap_or(false))
                         on_click=on_train
                     >
                         "Train Adapter"
                     </Button>
-                    {move || train_disabled_reason.get().map(|reason| view! {
+                    {move || train_disabled_reason.try_get().flatten().map(|reason| view! {
                         <p class="text-xs text-muted-foreground mt-1">{reason}</p>
                     })}
                 </div>
@@ -2617,7 +2643,7 @@ fn DatasetDraftView(
                                 <div class="flex items-center justify-between gap-3">
                                     <span class="text-muted-foreground">"Base model gate"</span>
                                     {move || {
-                                        let empty = base_model.get().trim().is_empty();
+                                        let empty = base_model.try_get().unwrap_or_default().trim().is_empty();
                                         let variant = if empty { BadgeVariant::Warning } else { BadgeVariant::Success };
                                         view! {
                                             <Badge variant=variant>
@@ -2629,7 +2655,7 @@ fn DatasetDraftView(
                                 <div class="flex items-center justify-between gap-3">
                                     <span class="text-muted-foreground">"Data gate"</span>
                                     {move || {
-                                        let has_dataset = dataset_id_state.get().is_some();
+                                        let has_dataset = dataset_id_state.try_get().flatten().is_some();
                                         let has_docs = document_ids_store.with_value(|ids| !ids.is_empty());
                                         let variant = if has_dataset || has_docs { BadgeVariant::Success } else { BadgeVariant::Warning };
                                         let label = if has_dataset {
@@ -2646,7 +2672,8 @@ fn DatasetDraftView(
                                     <span class="text-muted-foreground">"Safety gate"</span>
                                     {move || {
                                         let trust = safety_check_result
-                                            .get()
+                                            .try_get()
+                                            .flatten()
                                             .map(|r| r.trust_state)
                                             .unwrap_or_else(|| "unknown".to_string());
                                         let variant = match trust.as_str() {
@@ -2663,7 +2690,7 @@ fn DatasetDraftView(
                 </div>
             </Card>
 
-            {move || training_error.get().map(|msg| {
+            {move || training_error.try_get().flatten().map(|msg| {
                 // Determine heading based on error phase (Dataset vs Training)
                 let is_dataset_error = msg.starts_with("Dataset");
                 let heading = if is_dataset_error {
@@ -2684,7 +2711,7 @@ fn DatasetDraftView(
                 }
             })}
 
-            {move || training_status.get().map(|status| view! {
+            {move || training_status.try_get().flatten().map(|status| view! {
                 <Card>
                     <div class="flex items-center justify-between gap-4">
                         <div>
@@ -2694,10 +2721,10 @@ fn DatasetDraftView(
                             </p>
                         </div>
                         <Badge variant=BadgeVariant::Secondary>
-                            {move || training_job_status.get().unwrap_or_else(|| "queued".to_string())}
+                            {move || training_job_status.try_get().flatten().unwrap_or_else(|| "queued".to_string())}
                         </Badge>
                     </div>
-                    {move || training_job_id.get().map(|job_id| {
+                    {move || training_job_id.try_get().flatten().map(|job_id| {
                         let href = format!("/training?job_id={}", job_id);
                         view! {
                             <div class="mt-3 flex items-center gap-4">
@@ -2710,7 +2737,7 @@ fn DatasetDraftView(
             })}
 
             // Safety Gate Card - shows trust state and any warnings
-            {move || safety_check_result.get().map(|result| {
+            {move || safety_check_result.try_get().flatten().map(|result| {
                 let trust_state = result.trust_state.clone();
                 let badge_variant = trust_state_badge_variant(&trust_state);
                 let has_warnings = !result.warnings.is_empty();
@@ -2816,7 +2843,7 @@ fn DatasetDraftView(
                             <dd class="space-y-1">
                                 {move || {
                                     let mut sources = Vec::new();
-                                    if let Some(ds_id) = dataset_id_state.get() {
+                                    if let Some(ds_id) = dataset_id_state.try_get().flatten() {
                                         sources.push(format!("Dataset {}", ds_id));
                                     }
                                     let doc_ids = document_ids_store.with_value(|ids| ids.clone());
@@ -2844,7 +2871,7 @@ fn DatasetDraftView(
                             <Combobox
                                 value=base_model
                                 options=Signal::derive(move || {
-                                    models_state.get()
+                                    models_state.try_get().unwrap_or_default()
                                         .into_iter()
                                         .map(|m| {
                                             let desc = match (&m.format, &m.backend) {
@@ -2874,7 +2901,7 @@ fn DatasetDraftView(
                             </div>
                             <div class="flex items-center rounded-full border border-border bg-muted/30 p-0.5 text-xs">
                                 <button
-                                    class=move || if adapter_type.get() == "identify" {
+                                    class=move || if adapter_type.try_get().unwrap_or_default() == "identify" {
                                         "rounded-full px-2 py-1 text-foreground bg-background shadow-sm"
                                     } else {
                                         "rounded-full px-2 py-1 text-muted-foreground"
@@ -2884,7 +2911,7 @@ fn DatasetDraftView(
                                     "Identify"
                                 </button>
                                 <button
-                                    class=move || if adapter_type.get() == "behavior" {
+                                    class=move || if adapter_type.try_get().unwrap_or_default() == "behavior" {
                                         "rounded-full px-2 py-1 text-foreground bg-background shadow-sm"
                                     } else {
                                         "rounded-full px-2 py-1 text-muted-foreground"
@@ -2896,13 +2923,13 @@ fn DatasetDraftView(
                             </div>
                         </div>
                         {move || {
-                            if base_model.get().trim().is_empty() {
+                            if base_model.try_get().unwrap_or_default().trim().is_empty() {
                                 Some(view! {
                                     <p class="text-xs text-muted-foreground">
                                         "Add a base model ID to enable training."
                                     </p>
                                 })
-                            } else if dataset_id_state.get().is_none()
+                            } else if dataset_id_state.try_get().flatten().is_none()
                                 && document_ids_store.with_value(|ids| ids.is_empty())
                             {
                                 Some(view! {
@@ -2919,10 +2946,10 @@ fn DatasetDraftView(
             </div>
 
             // Statistics card - only shown when dataset_id is available
-            {move || dataset_id_state.get().map(|_| view! {
+            {move || dataset_id_state.try_get().flatten().map(|_| view! {
                 <Card>
                     <h3 class="heading-4 mb-4">"Statistics"</h3>
-                    {move || match stats_state.get() {
+                    {move || match stats_state.try_get().unwrap_or(LoadingState::Idle) {
                         LoadingState::Idle => {
                             view! { <p class="text-sm text-muted-foreground">"No dataset selected"</p> }.into_any()
                         }
@@ -2993,7 +3020,7 @@ fn DatasetDraftView(
                     />
 
                     // Advanced options (conditionally shown)
-                    {move || show_advanced.get().then(|| view! {
+                    {move || show_advanced.try_get().unwrap_or(false).then(|| view! {
                         <div class="pt-4 border-t border-border space-y-4">
                             <div class="grid gap-4 md:grid-cols-2">
                                 <div class="space-y-2">
@@ -3044,12 +3071,12 @@ fn DatasetDraftView(
                 <h3 class="heading-4 mb-4">"Preprocessing"</h3>
                 <div class="space-y-3 text-sm">
                     <Checkbox
-                        checked=Signal::derive(move || pii_scrub.get())
+                        checked=Signal::derive(move || pii_scrub.try_get().unwrap_or(false))
                         on_change=Callback::new(move |val| pii_scrub.set(val))
                         label="PII scrub".to_string()
                     />
                     <Checkbox
-                        checked=Signal::derive(move || dedupe.get())
+                        checked=Signal::derive(move || dedupe.try_get().unwrap_or(false))
                         on_change=Callback::new(move |val| dedupe.set(val))
                         label="Dedupe".to_string()
                     />
@@ -3111,6 +3138,7 @@ mod tests {
             created_by: None,
             created_at: "2026-02-06T00:00:00Z".to_string(),
             updated_at: None,
+            display_name: None,
         }
     }
 

@@ -184,13 +184,13 @@ impl ResolvedPrefixBuilder {
 
     /// Build the ResolvedPrefix.
     ///
-    /// # Panics
-    /// Panics if required fields are not set.
-    pub fn build(self) -> ResolvedPrefix {
-        let template_text = self.template_text.expect("template_text required");
-        let token_ids = self.token_ids.expect("token_ids required");
+    /// # Errors
+    /// Returns an error if `template_text` or `token_ids` were not set.
+    pub fn build(self) -> Result<ResolvedPrefix, String> {
+        let template_text = self.template_text.ok_or("template_text is required")?;
+        let token_ids = self.token_ids.ok_or("token_ids is required")?;
 
-        ResolvedPrefix {
+        Ok(ResolvedPrefix {
             template: PrefixTemplate {
                 id: self
                     .template_id
@@ -204,7 +204,7 @@ impl ResolvedPrefixBuilder {
             },
             tokenized_hash: compute_tokenized_hash(&token_ids),
             token_ids,
-        }
+        })
     }
 }
 
@@ -244,7 +244,8 @@ mod tests {
             .mode(PrefixMode::User)
             .template_text("You are helpful.")
             .token_ids(vec![100, 200, 300])
-            .build();
+            .build()
+            .expect("test builder should succeed");
 
         assert_eq!(resolved.template.id, "tpl-123");
         assert_eq!(resolved.template.tenant_id, "tenant-1");

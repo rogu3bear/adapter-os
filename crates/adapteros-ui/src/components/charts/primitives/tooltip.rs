@@ -77,8 +77,8 @@ pub fn ChartTooltip(
     let offset = 10.0;
 
     let position = move || {
-        let raw_x = x.get();
-        let raw_y = y.get();
+        let raw_x = x.try_get().unwrap_or(0.0);
+        let raw_y = y.try_get().unwrap_or(0.0);
         let (width, height) = bounds;
 
         // Horizontal positioning - keep within bounds
@@ -111,10 +111,10 @@ pub fn ChartTooltip(
             width={tooltip_width}
             height={tooltip_height}
             class="chart-tooltip-container"
-            style:opacity={move || if visible.get() { "1" } else { "0" }}
-            style:visibility={move || if visible.get() { "visible" } else { "hidden" }}
+            style:opacity={move || if visible.try_get().unwrap_or(false) { "1" } else { "0" }}
+            style:visibility={move || if visible.try_get().unwrap_or(false) { "visible" } else { "hidden" }}
             style:pointer-events="none"
-            aria-hidden={move || (!visible.get()).to_string()}
+            aria-hidden={move || (!visible.try_get().unwrap_or(false)).to_string()}
         >
             <div
                 class="chart-tooltip glass-panel"
@@ -123,7 +123,7 @@ pub fn ChartTooltip(
                 aria-live="polite"
             >
                 {move || {
-                    let c = content.get();
+                    let c = content.try_get().unwrap_or_default();
                     view! {
                         <div class="chart-tooltip-inner">
                             // Color indicator

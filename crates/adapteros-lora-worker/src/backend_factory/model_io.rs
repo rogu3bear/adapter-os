@@ -16,7 +16,22 @@ struct SafeTensorsIndex {
     metadata: Option<serde_json::Value>,
 }
 
-/// Compute BLAKE3 hash of all model files in a directory
+/// Compute a weight integrity hash for a model directory.
+///
+/// This hash covers **all weight shards** (sorted by path) for complete integrity
+/// verification during model loading. It does NOT include config.json or tokenizer files.
+///
+/// **Hash chain purpose: weight integrity verification.**
+/// Used at load time to verify that model weights have not been corrupted or tampered
+/// with since they were last verified.
+///
+/// **Intentional divergence from registration hash:**
+/// The registration identity hash in `adapteros_db::models::compute_model_hashes()`
+/// covers config.json + first shard only (for fast identity fingerprinting).
+/// This function covers all shards (for complete integrity). The two hash chains
+/// serve different purposes and should NOT be unified:
+/// - Registration hash: "is this the same model?" (identity)
+/// - This hash: "are the weights intact?" (integrity)
 #[allow(dead_code)] // Used by verify_model_integrity for backwards compatibility
 pub(crate) fn compute_model_directory_hash(model_path: &Path) -> Result<B3Hash> {
     // Check for CoreML mlpackage format first

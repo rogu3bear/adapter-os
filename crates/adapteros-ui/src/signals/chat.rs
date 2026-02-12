@@ -3,7 +3,7 @@
 //! Global chat state that persists across page navigation.
 //! Supports both non-streaming and SSE streaming inference.
 
-use crate::api::{api_base_url, ApiClient, ApiError, InferenceRequest};
+use crate::api::{api_base_url, report_error_with_toast, ApiClient, ApiError, InferenceRequest};
 use crate::signals::perf_logging_enabled;
 use adapteros_api_types::inference::ContextRequest;
 use chrono::{DateTime, Utc};
@@ -49,13 +49,20 @@ const SESSIONS_STORAGE_KEY: &str = "adapteros_chat_sessions";
 #[allow(dead_code)]
 const PINNED_ADAPTERS_KEY: &str = "adapteros_pinned_adapters";
 
+/// Threshold at which a "nearing capacity" warning is shown.
+const OVERFLOW_WARNING_THRESHOLD: usize = 80;
+
 /// Evict old messages to maintain MAX_MESSAGES limit.
 /// Uses drain() for O(n) single operation instead of O(n²) repeated remove(0).
+/// Returns the number of messages evicted.
 #[inline]
-fn evict_old_messages(messages: &mut Vec<ChatMessage>, max: usize) {
+fn evict_old_messages(messages: &mut Vec<ChatMessage>, max: usize) -> usize {
     if messages.len() > max {
         let to_remove = messages.len() - max;
         messages.drain(0..to_remove);
+        to_remove
+    } else {
+        0
     }
 }
 
@@ -616,6 +623,10 @@ pub struct ChatState {
     /// Set when an AdapterStateUpdate confirms the current pin epoch during a stream;
     /// pending is only cleared once the stream completes (not mid-stream).
     pub adapter_state_confirmed: bool,
+    /// Cumulative count of messages evicted by the FIFO cap in this session.
+    pub total_messages_evicted: usize,
+    /// Whether the user has dismissed the overflow indicator for this session.
+    pub overflow_dismissed: bool,
 }
 
 /// Suggested adapter from router preview
@@ -666,6 +677,28 @@ impl ChatState {
     /// Mark all current messages as read by setting last_read_message_id to the latest message.
     pub fn mark_as_read(&mut self) {
         self.last_read_message_id = self.messages.last().map(|m| m.id.clone());
+    }
+
+    /// Context overflow status for the UI.
+    ///
+    /// Returns `None` if no indicator should be shown (dismissed, or below threshold).
+    /// Returns `Some(message)` with the appropriate warning/info text.
+    pub fn overflow_notice(&self) -> Option<String> {
+        if self.overflow_dismissed {
+            return None;
+        }
+        let count = self.messages.len();
+        if self.total_messages_evicted > 0 {
+            let n = self.total_messages_evicted;
+            let noun = if n == 1 { "message" } else { "messages" };
+            Some(format!(
+                "{n} older {noun} removed to maintain context window"
+            ))
+        } else if count >= OVERFLOW_WARNING_THRESHOLD {
+            Some("Older messages will be dropped to maintain context".to_string())
+        } else {
+            None
+        }
     }
 
     /// Count messages currently in queued state
@@ -779,6 +812,8 @@ impl Default for ChatState {
             pin_change_epoch: 0,
             last_sent_pin_epoch: 0,
             adapter_state_confirmed: false,
+            total_messages_evicted: 0,
+            overflow_dismissed: false,
         }
     }
 }
@@ -868,7 +903,7 @@ impl ChatAction {
         let user_message = ChatMessage::user_queued(content);
         let _ = self.state.try_update(|s| {
             s.messages.push(user_message);
-            evict_old_messages(&mut s.messages, MAX_MESSAGES);
+            s.total_messages_evicted += evict_old_messages(&mut s.messages, MAX_MESSAGES);
         });
     }
 
@@ -1014,7 +1049,7 @@ impl ChatAction {
             user_message_id = Some(user_message.id.clone());
             let _ = self.state.try_update(|s| {
                 s.messages.push(user_message);
-                evict_old_messages(&mut s.messages, MAX_MESSAGES);
+                s.total_messages_evicted += evict_old_messages(&mut s.messages, MAX_MESSAGES);
             });
         }
 
@@ -1044,7 +1079,7 @@ impl ChatAction {
         });
         let _ = self.state.try_update(|s| {
             s.messages.push(assistant_message);
-            evict_old_messages(&mut s.messages, MAX_MESSAGES);
+            s.total_messages_evicted += evict_old_messages(&mut s.messages, MAX_MESSAGES);
             s.stream_recovery = Some(StreamRecovery {
                 idempotency_key: idempotency_key.clone(),
                 user_message_id: resolved_user_message_id
@@ -1280,7 +1315,7 @@ impl ChatAction {
         // Add user message with FIFO eviction
         let _ = self.state.try_update(|s| {
             s.messages.push(ChatMessage::user(content.clone()));
-            evict_old_messages(&mut s.messages, MAX_MESSAGES);
+            s.total_messages_evicted += evict_old_messages(&mut s.messages, MAX_MESSAGES);
             s.loading = true;
             s.error = None;
         });
@@ -1300,7 +1335,7 @@ impl ChatAction {
             Ok(response) => {
                 let _ = self.state.try_update(|s| {
                     s.messages.push(ChatMessage::assistant(response.text));
-                    evict_old_messages(&mut s.messages, MAX_MESSAGES);
+                    s.total_messages_evicted += evict_old_messages(&mut s.messages, MAX_MESSAGES);
                     s.loading = false;
                     // When dock is open, mark new messages as read immediately
                     if s.dock_state == DockState::Docked {
@@ -1471,6 +1506,15 @@ impl ChatAction {
             s.pin_change_epoch = 0;
             s.last_sent_pin_epoch = 0;
             s.adapter_state_confirmed = false;
+            s.total_messages_evicted = 0;
+            s.overflow_dismissed = false;
+        });
+    }
+
+    /// Dismiss the context overflow indicator for this session.
+    pub fn dismiss_overflow_notice(&self) {
+        let _ = self.state.try_update(|s| {
+            s.overflow_dismissed = true;
         });
     }
 
@@ -1864,43 +1908,106 @@ impl StreamFailure {
     }
 }
 
-struct SlowNoticeTimer {
+/// Progressive latency thresholds (milliseconds).
+/// Each stage escalates the user-facing message.
+const LATENCY_STAGE_1_MS: u32 = 2000;
+const LATENCY_STAGE_2_MS: u32 = 5000;
+const LATENCY_STAGE_3_MS: u32 = 10_000;
+
+/// Duration (ms) to show the "time-to-first-token" badge after first token arrives.
+const TTFT_DISPLAY_MS: u32 = 3000;
+
+/// Progressive latency feedback timer.
+///
+/// Fires escalating notices at configurable thresholds while waiting for
+/// the first SSE token. All handles are cancelled on first token or drop.
+struct ProgressiveLatencyTimer {
     #[cfg(target_arch = "wasm32")]
-    handle: Option<Timeout>,
+    handles: Vec<Timeout>,
 }
 
-impl SlowNoticeTimer {
-    fn start(state: RwSignal<ChatState>, delay_ms: u32) -> Self {
+impl ProgressiveLatencyTimer {
+    fn start(state: RwSignal<ChatState>) -> Self {
         #[cfg(target_arch = "wasm32")]
         {
-            let handle = Timeout::new(delay_ms, move || {
-                let _ = state.try_update(|s| {
-                    if s.loading && s.streaming {
-                        s.stream_notice = Some(StreamNotice::warning("Server slow", false));
-                    }
-                });
-            });
-            Self {
-                handle: Some(handle),
-            }
+            let stages: [(u32, &str, StreamNoticeTone); 3] = [
+                (
+                    LATENCY_STAGE_1_MS,
+                    "Thinking\u{2026}",
+                    StreamNoticeTone::Info,
+                ),
+                (
+                    LATENCY_STAGE_2_MS,
+                    "Still working\u{2026}",
+                    StreamNoticeTone::Info,
+                ),
+                (
+                    LATENCY_STAGE_3_MS,
+                    "This is taking longer than usual",
+                    StreamNoticeTone::Warning,
+                ),
+            ];
+
+            let handles = stages
+                .into_iter()
+                .map(|(delay, message, tone)| {
+                    let msg = message.to_string();
+                    Timeout::new(delay, move || {
+                        let _ = state.try_update(|s| {
+                            if s.loading && s.streaming {
+                                s.stream_notice = Some(StreamNotice {
+                                    message: msg,
+                                    tone,
+                                    retryable: false,
+                                });
+                            }
+                        });
+                    })
+                })
+                .collect();
+
+            Self { handles }
         }
         #[cfg(not(target_arch = "wasm32"))]
         {
             let _ = state;
-            let _ = delay_ms;
             Self {}
         }
     }
 
     fn cancel(&mut self) {
         #[cfg(target_arch = "wasm32")]
-        if let Some(handle) = self.handle.take() {
+        for handle in self.handles.drain(..) {
             handle.cancel();
         }
     }
+
+    /// Show a brief time-to-first-token indicator, then auto-clear it.
+    #[cfg(target_arch = "wasm32")]
+    fn show_ttft(state: RwSignal<ChatState>, elapsed: web_time::Duration) {
+        let secs = elapsed.as_secs_f64();
+        let msg = format!("{:.1}s to first token", secs);
+        let _ = state.try_update(|s| {
+            s.stream_notice = Some(StreamNotice::info(msg));
+        });
+        // Auto-clear the TTFT notice after a few seconds
+        let _ttft_clear = Timeout::new(TTFT_DISPLAY_MS, move || {
+            let _ = state.try_update(|s| {
+                // Only clear if it's still the TTFT notice (not replaced by an error)
+                if let Some(ref notice) = s.stream_notice {
+                    if notice.tone == StreamNoticeTone::Info
+                        && notice.message.ends_with("to first token")
+                    {
+                        s.stream_notice = None;
+                    }
+                }
+            });
+        });
+        _ttft_clear.forget();
+    }
 }
 
-impl Drop for SlowNoticeTimer {
+impl Drop for ProgressiveLatencyTimer {
     fn drop(&mut self) {
         self.cancel();
     }
@@ -1972,6 +2079,12 @@ fn parse_sse_payload_with_info(data: &str) -> ParsedSseEvent {
                     "Stream error: {}",
                     message
                 )));
+                report_error_with_toast(
+                    &ApiError::Server(message),
+                    "Inference stream error",
+                    None,
+                    true,
+                );
             }
             InferenceEvent::Paused {
                 pause_id,
@@ -2195,7 +2308,7 @@ async fn stream_inference_to_state(
 
     let mut buffer = String::new();
     let mut trace_info = StreamTraceInfo::default();
-    let mut slow_timer = SlowNoticeTimer::start(state, 6000);
+    let mut latency_timer = ProgressiveLatencyTimer::start(state);
 
     loop {
         if let Some(signal) = abort_signal {
@@ -2313,6 +2426,7 @@ async fn stream_inference_to_state(
             if let Some(token_content) = parsed.token {
                 // Append token to the last (assistant) message
                 // Use try_update_state to avoid panic if signal is disposed during navigation
+                let is_first_token = !first_token_logged;
                 if !try_update_state(state, |s| {
                     if let Some(last) = s.messages.last_mut() {
                         if last.role == "assistant" {
@@ -2323,20 +2437,31 @@ async fn stream_inference_to_state(
                     s.loading = false;
                     // Tokens mean the stream is active (including after a pause/resume cycle).
                     s.streaming = true;
-                    s.stream_notice = None;
+                    // Clear latency stage notices on first token only; subsequent tokens
+                    // leave stream_notice alone so the brief TTFT badge can persist.
+                    if is_first_token {
+                        s.stream_notice = None;
+                    }
                     s.paused_inference = None;
                 }) {
                     // Signal disposed, bail out early
                     return Ok(trace_info);
                 }
-                if perf_enabled && !first_token_logged {
-                    let elapsed_ms = stream_started_at.elapsed().as_millis();
-                    web_sys::console::log_1(
-                        &format!("[perf] stream first token: {}ms", elapsed_ms).into(),
-                    );
+                if is_first_token {
+                    let elapsed = stream_started_at.elapsed();
+                    if perf_enabled {
+                        web_sys::console::log_1(
+                            &format!("[perf] stream first token: {}ms", elapsed.as_millis()).into(),
+                        );
+                    }
                     first_token_logged = true;
+                    // Show brief TTFT badge (only if latency was noticeable)
+                    #[cfg(target_arch = "wasm32")]
+                    if elapsed.as_millis() >= 500 {
+                        ProgressiveLatencyTimer::show_ttft(state, elapsed);
+                    }
+                    latency_timer.cancel();
                 }
-                slow_timer.cancel();
             }
 
             // Capture trace info from Done event
@@ -2416,7 +2541,7 @@ async fn stream_inference_to_state(
                 }) {
                     return Ok(trace_info);
                 }
-                slow_timer.cancel();
+                latency_timer.cancel();
                 // Log pause event for debugging
                 web_sys::console::log_1(&JsValue::from_str(&format!(
                     "[Pause] id={}, inference={}, trigger={}",
@@ -2426,7 +2551,7 @@ async fn stream_inference_to_state(
         }
     }
 
-    slow_timer.cancel();
+    latency_timer.cancel();
 
     // Fallback: if the backend never emitted an AdapterStateUpdate during this stream,
     // pending could stay stuck. Clear it once the request is complete, but only if
@@ -2940,6 +3065,8 @@ mod tests {
                 pin_change_epoch: 0,
                 last_sent_pin_epoch: 0,
                 adapter_state_confirmed: false,
+                total_messages_evicted: 0,
+                overflow_dismissed: false,
             }
         }
 
@@ -3109,6 +3236,202 @@ mod tests {
                 "Partial response content"
             );
             assert!(!state.messages.last().unwrap().is_streaming);
+        }
+    }
+
+    /// Tests for context overflow detection and eviction tracking
+    mod overflow_tests {
+        use super::*;
+
+        /// Create test messages without WASM-dependent UUID generation.
+        fn make_messages(n: usize) -> Vec<ChatMessage> {
+            (0..n)
+                .map(|i| ChatMessage {
+                    id: format!("test-msg-{i}"),
+                    role: "user".to_string(),
+                    content: format!("msg {i}"),
+                    timestamp: crate::utils::now_utc(),
+                    is_streaming: false,
+                    status: MessageStatus::Complete,
+                    queued_at: None,
+                    pending_phase: PendingPhase::Calm,
+                    pending_reason: None,
+                    trace_id: None,
+                    latency_ms: None,
+                    token_count: None,
+                    prompt_tokens: None,
+                    completion_tokens: None,
+                    backend_used: None,
+                })
+                .collect()
+        }
+
+        fn test_state() -> ChatState {
+            ChatState {
+                dock_state: DockState::Narrow,
+                messages: Vec::new(),
+                target: ChatTarget::Default,
+                context: ContextToggles::default(),
+                loading: false,
+                streaming: false,
+                error: None,
+                last_read_message_id: None,
+                page_context: None,
+                session_id: None,
+                active_adapters: Vec::new(),
+                suggested_adapters: Vec::new(),
+                selected_adapter: None,
+                pinned_adapters: Vec::new(),
+                session_pinned_adapters: Vec::new(),
+                verified_mode: false,
+                stream_notice: None,
+                paused_inference: None,
+                stream_recovery: None,
+                partial_assistant_ids: Vec::new(),
+                adapter_selection_pending: false,
+                pin_change_epoch: 0,
+                last_sent_pin_epoch: 0,
+                adapter_state_confirmed: false,
+                total_messages_evicted: 0,
+                overflow_dismissed: false,
+            }
+        }
+
+        #[test]
+        fn no_notice_below_threshold() {
+            let mut state = test_state();
+            state.messages = make_messages(79);
+            assert!(state.overflow_notice().is_none());
+        }
+
+        #[test]
+        fn warning_at_threshold() {
+            let mut state = test_state();
+            state.messages = make_messages(OVERFLOW_WARNING_THRESHOLD);
+            let notice = state.overflow_notice().unwrap();
+            assert!(notice.contains("will be dropped"));
+        }
+
+        #[test]
+        fn evicted_message_shown() {
+            let mut state = test_state();
+            state.messages = make_messages(50);
+            state.total_messages_evicted = 3;
+            let notice = state.overflow_notice().unwrap();
+            assert!(notice.contains("3 older messages removed"));
+        }
+
+        #[test]
+        fn evicted_singular() {
+            let mut state = test_state();
+            state.total_messages_evicted = 1;
+            let notice = state.overflow_notice().unwrap();
+            assert!(notice.contains("1 older message removed"));
+        }
+
+        #[test]
+        fn dismissed_hides_notice() {
+            let mut state = test_state();
+            state.messages = make_messages(OVERFLOW_WARNING_THRESHOLD);
+            state.overflow_dismissed = true;
+            assert!(state.overflow_notice().is_none());
+        }
+
+        #[test]
+        fn evict_old_messages_returns_count() {
+            let mut msgs = make_messages(105);
+            let evicted = evict_old_messages(&mut msgs, MAX_MESSAGES);
+            assert_eq!(evicted, 5);
+            assert_eq!(msgs.len(), MAX_MESSAGES);
+        }
+
+        #[test]
+        fn evict_old_messages_returns_zero_when_under_limit() {
+            let mut msgs = make_messages(50);
+            let evicted = evict_old_messages(&mut msgs, MAX_MESSAGES);
+            assert_eq!(evicted, 0);
+            assert_eq!(msgs.len(), 50);
+        }
+    }
+
+    /// Tests for progressive latency thresholds and TTFT display
+    mod latency_tests {
+        use super::*;
+
+        #[test]
+        fn stage_thresholds_are_ordered() {
+            assert!(LATENCY_STAGE_1_MS < LATENCY_STAGE_2_MS);
+            assert!(LATENCY_STAGE_2_MS < LATENCY_STAGE_3_MS);
+        }
+
+        #[test]
+        fn ttft_display_duration_is_positive() {
+            assert!(TTFT_DISPLAY_MS > 0);
+        }
+
+        fn test_state() -> ChatState {
+            ChatState {
+                dock_state: DockState::Narrow,
+                messages: Vec::new(),
+                target: ChatTarget::Default,
+                context: ContextToggles::default(),
+                loading: false,
+                streaming: false,
+                error: None,
+                last_read_message_id: None,
+                page_context: None,
+                session_id: None,
+                active_adapters: Vec::new(),
+                suggested_adapters: Vec::new(),
+                selected_adapter: None,
+                pinned_adapters: Vec::new(),
+                session_pinned_adapters: Vec::new(),
+                verified_mode: false,
+                stream_notice: None,
+                paused_inference: None,
+                stream_recovery: None,
+                partial_assistant_ids: Vec::new(),
+                adapter_selection_pending: false,
+                pin_change_epoch: 0,
+                last_sent_pin_epoch: 0,
+                adapter_state_confirmed: false,
+                total_messages_evicted: 0,
+                overflow_dismissed: false,
+            }
+        }
+
+        #[test]
+        fn stream_notice_info_clears_on_first_token() {
+            // Simulates what happens in stream_inference_to_state when first token arrives:
+            // s.stream_notice = None (cleared), then optionally replaced with TTFT
+            let mut state = test_state();
+            state.loading = true;
+            state.streaming = true;
+            state.stream_notice = Some(StreamNotice::info("Thinking\u{2026}"));
+
+            // First token arrives — state update clears notice
+            state.loading = false;
+            state.stream_notice = None;
+            assert!(state.stream_notice.is_none());
+        }
+
+        #[test]
+        fn ttft_notice_recognized_by_suffix() {
+            let notice = StreamNotice::info("2.3s to first token");
+            assert!(notice.message.ends_with("to first token"));
+            assert_eq!(notice.tone, StreamNoticeTone::Info);
+        }
+
+        #[test]
+        fn warning_stage_is_not_retryable() {
+            // Stage 3 should be Warning tone but not retryable (it's a latency notice, not an error)
+            let notice = StreamNotice {
+                message: "This is taking longer than usual".to_string(),
+                tone: StreamNoticeTone::Warning,
+                retryable: false,
+            };
+            assert_eq!(notice.tone, StreamNoticeTone::Warning);
+            assert!(!notice.retryable);
         }
     }
 

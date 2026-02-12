@@ -235,13 +235,13 @@ impl PlacementEngine {
             }
             let score = self.score_lane(lane.kind, sample);
 
-            if let Some((_, best_score)) = &best {
+            if let Some((ref best_entry, best_score)) = &best {
                 if score < *best_score
                     || (float_eq(score, *best_score)
                         && lane
                             .name
                             .to_ascii_lowercase()
-                            .cmp(&best.as_ref().unwrap().0.lane_name.to_ascii_lowercase())
+                            .cmp(&best_entry.lane_name.to_ascii_lowercase())
                             .is_lt())
                 {
                     best = Some((

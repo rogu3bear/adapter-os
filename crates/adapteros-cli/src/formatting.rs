@@ -202,27 +202,6 @@ pub fn truncate_id(s: &str) -> &str {
     }
 }
 
-/// Truncate string to 12 characters for hash display.
-///
-/// Used to show compact hash values (like git SHAs) in tables and lists.
-///
-/// # Examples
-///
-/// ```
-/// use adapteros_cli::formatting::truncate_hash;
-///
-/// assert_eq!(truncate_hash("1a2b3c4d5e6f7g8h9i0j"), "1a2b3c4d5e6f");
-/// assert_eq!(truncate_hash("short"), "short");
-/// assert_eq!(truncate_hash("exactly12345"), "exactly12345");
-/// ```
-pub fn truncate_hash(s: &str) -> &str {
-    if s.len() <= 12 {
-        s
-    } else {
-        &s[..12]
-    }
-}
-
 #[cfg(test)]
 mod tests {
     use super::*;
@@ -296,14 +275,5 @@ mod tests {
         assert_eq!(truncate_id("adapter-123456789"), "adapter-");
         assert_eq!(truncate_id("a"), "a");
         assert_eq!(truncate_id(""), "");
-    }
-
-    #[test]
-    fn test_truncate_hash() {
-        assert_eq!(truncate_hash("short"), "short");
-        assert_eq!(truncate_hash("exactly12345"), "exactly12345");
-        assert_eq!(truncate_hash("1a2b3c4d5e6f7g8h9i0j"), "1a2b3c4d5e6f");
-        assert_eq!(truncate_hash("a"), "a");
-        assert_eq!(truncate_hash(""), "");
     }
 }

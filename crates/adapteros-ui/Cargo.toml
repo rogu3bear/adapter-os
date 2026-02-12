@@ -76,6 +76,8 @@ chrono = { version = "0.4", features = ["serde", "wasmbind"] }
 uuid = { version = "1.0", features = ["v4", "serde", "js"] }
 thiserror = "2.0"
 regex-lite = "0.1"
+# Markdown rendering for chat messages
+pulldown-cmark = { version = "0.13", default-features = false, features = ["html"] }
 csv = { version = "1.4", default-features = false }
 urlencoding = "2.1"
 web-time = "1.1"
