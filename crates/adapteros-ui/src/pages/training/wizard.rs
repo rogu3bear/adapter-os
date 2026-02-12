@@ -9,7 +9,7 @@
 use crate::api::error::format_structured_details;
 use crate::api::ApiClient;
 use crate::components::{
-    Button, ButtonVariant, Card, Dialog, DialogSize, FormField, Input, Spinner,
+    AsyncBoundary, Button, ButtonVariant, Card, Dialog, DialogSize, FormField, Input, Select,
 };
 use crate::hooks::use_api_resource;
 use crate::pages::training::config_presets::{TrainingConfigPresets, TrainingPreset};
@@ -699,10 +699,9 @@ fn ModelStepContent(
     category: RwSignal<String>,
     form_errors: RwSignal<FormErrors>,
 ) -> impl IntoView {
-    let (models, _) =
-        use_api_resource(
-            |client: std::sync::Arc<ApiClient>| async move { client.list_models().await },
-        );
+    let (models, refetch_models) = use_api_resource(
+        |client: std::sync::Arc<ApiClient>| async move { client.list_models().await },
+    );
     let use_custom_model = RwSignal::new(false);
 
     view! {
@@ -745,74 +744,58 @@ fn ModelStepContent(
                             </div>
                         }.into_any()
                     } else {
-                        match models.try_get().unwrap_or(crate::hooks::LoadingState::Loading) {
-                            crate::hooks::LoadingState::Idle | crate::hooks::LoadingState::Loading => view! {
-                                <div class="flex items-center gap-2 text-sm text-muted-foreground py-2">
-                                    <Spinner/>
-                                    "Loading models..."
-                                </div>
-                            }.into_any(),
-                            crate::hooks::LoadingState::Loaded(ref resp) => {
-                                let model_list = resp.models.clone();
-                                view! {
-                                    <div class="space-y-2">
-                                        <select
-                                            class="flex h-10 w-full rounded-md border border-input bg-background px-3 py-2 text-sm"
-                                            prop:value=Signal::derive(move || base_model_id.try_get().unwrap_or_default())
-                                            on:change=move |ev| base_model_id.set(event_target_value(&ev))
-                                        >
-                                            <option value="" disabled=true>"Select a model..."</option>
-                                            {model_list.into_iter().map(|m| {
-                                                let id = m.id.clone();
-                                                let label = if let Some(q) = &m.quantization {
-                                                    format!("{} ({})", m.name, q)
-                                                } else {
-                                                    m.name.clone()
-                                                };
-                                                view! { <option value=id>{label}</option> }
-                                            }).collect::<Vec<_>>()}
-                                        </select>
-                                        <button
-                                            class="text-xs text-primary hover:underline"
-                                            type="button"
-                                            on:click=move |_| use_custom_model.set(true)
-                                        >
-                                            "Enter model ID manually"
-                                        </button>
-                                    </div>
-                                }.into_any()
-                            },
-                            crate::hooks::LoadingState::Error(_) => view! {
-                                <div class="space-y-2">
-                                    <Input
-                                        value=base_model_id
-                                        placeholder="model-id".to_string()
-                                    />
-                                    <p class="text-xs text-muted-foreground">"Could not load model list. Enter model ID manually."</p>
-                                </div>
-                            }.into_any(),
-                        }
+                        view! {
+                            <AsyncBoundary
+                                state=models
+                                on_retry=Callback::new(move |_| refetch_models.run(()))
+                                loading_message="Loading models...".to_string()
+                                render=move |resp| {
+                                    let options: Vec<(String, String)> = resp.models.iter().map(|m| {
+                                        let label = if let Some(q) = &m.quantization {
+                                            format!("{} ({})", m.name, q)
+                                        } else {
+                                            m.name.clone()
+                                        };
+                                        (m.id.clone(), label)
+                                    }).collect();
+                                    view! {
+                                        <div class="space-y-2">
+                                            <Select
+                                                value=base_model_id
+                                                options=options
+                                            />
+                                            <button
+                                                class="text-xs text-primary hover:underline"
+                                                type="button"
+                                                on:click=move |_| use_custom_model.set(true)
+                                            >
+                                                "Enter model ID manually"
+                                            </button>
+                                        </div>
+                                    }
+                                }
+                            />
+                        }.into_any()
                     }
                 }}
             </FormField>
 
-            <div class="space-y-2">
-                <label class="text-sm font-medium">"Category"</label>
-                <select
-                    class="flex h-10 w-full rounded-md border border-input bg-background px-3 py-2 text-sm"
-                    prop:value=Signal::derive(move || category.try_get().unwrap_or_default())
-                    on:change=move |ev| category.set(event_target_value(&ev))
-                >
-                    <option value="code">"Code"</option>
-                    <option value="framework">"Framework"</option>
-                    <option value="codebase">"Codebase"</option>
-                    <option value="docs">"Documentation"</option>
-                    <option value="domain">"Domain"</option>
-                </select>
-                <p class="text-xs text-muted-foreground">
-                    "Categorize your adapter for easier discovery"
-                </p>
-            </div>
+            <FormField
+                label="Category"
+                name="category"
+                help="Categorize your adapter for easier discovery"
+            >
+                <Select
+                    value=category
+                    options=vec![
+                        ("code".to_string(), "Code".to_string()),
+                        ("framework".to_string(), "Framework".to_string()),
+                        ("codebase".to_string(), "Codebase".to_string()),
+                        ("docs".to_string(), "Documentation".to_string()),
+                        ("domain".to_string(), "Domain".to_string()),
+                    ]
+                />
+            </FormField>
         </div>
     }
 }
@@ -920,43 +903,39 @@ fn ConfigStepContent(
                                 "By default, the system automatically selects the best available backend."
                             </p>
                             <div class="grid gap-4 sm:grid-cols-2">
-                                <div class="space-y-2">
-                                    <label class="text-sm font-medium">"Preferred Backend"</label>
-                                    <select
-                                        class="flex h-10 w-full rounded-md border border-input bg-background px-3 py-2 text-sm"
-                                        prop:value=Signal::derive(move || preferred_backend.try_get().unwrap_or_default())
-                                        on:change=move |ev| preferred_backend.set(event_target_value(&ev))
-                                    >
-                                        <option value="auto">"Auto (recommended)"</option>
-                                        <option value="mlx">"MLX"</option>
-                                        <option value="coreml">"CoreML"</option>
-                                        <option value="metal">"Metal"</option>
-                                    </select>
-                                </div>
-                                <div class="space-y-2">
-                                    <label class="text-sm font-medium">"Backend Policy"</label>
-                                    <select
-                                        class="flex h-10 w-full rounded-md border border-input bg-background px-3 py-2 text-sm"
-                                        prop:value=Signal::derive(move || backend_policy.try_get().unwrap_or_default())
-                                        on:change=move |ev| backend_policy.set(event_target_value(&ev))
-                                    >
-                                        <option value="auto">"Auto"</option>
-                                        <option value="coreml_only">"CoreML Only"</option>
-                                        <option value="coreml_else_fallback">"CoreML with Fallback"</option>
-                                    </select>
-                                </div>
+                                <FormField label="Preferred Backend" name="preferred_backend">
+                                    <Select
+                                        value=preferred_backend
+                                        options=vec![
+                                            ("auto".to_string(), "Auto (recommended)".to_string()),
+                                            ("mlx".to_string(), "MLX".to_string()),
+                                            ("coreml".to_string(), "CoreML".to_string()),
+                                            ("metal".to_string(), "Metal".to_string()),
+                                        ]
+                                    />
+                                </FormField>
+                                <FormField label="Backend Policy" name="backend_policy">
+                                    <Select
+                                        value=backend_policy
+                                        options=vec![
+                                            ("auto".to_string(), "Auto".to_string()),
+                                            ("coreml_only".to_string(), "CoreML Only".to_string()),
+                                            ("coreml_else_fallback".to_string(), "CoreML with Fallback".to_string()),
+                                        ]
+                                    />
+                                </FormField>
                             </div>
                             {move || (preferred_backend.try_get().unwrap_or_default() == "coreml" || backend_policy.try_get().unwrap_or_default() == "coreml_else_fallback").then(|| view! {
-                                <div class="mt-4 space-y-2">
-                                    <label class="text-sm font-medium">"Fallback Backend"</label>
-                                    <select
-                                        class="flex h-10 w-full rounded-md border border-input bg-background px-3 py-2 text-sm"
-                                        prop:value=Signal::derive(move || coreml_fallback.try_get().unwrap_or_default())
-                                        on:change=move |ev| coreml_fallback.set(event_target_value(&ev))
-                                    >
-                                        <option value="mlx">"MLX"</option>
-                                        <option value="metal">"Metal"</option>
-                                    </select>
+                                <div class="mt-4">
+                                    <FormField label="Fallback Backend" name="coreml_fallback">
+                                        <Select
+                                            value=coreml_fallback
+                                            options=vec![
+                                                ("mlx".to_string(), "MLX".to_string()),
+                                                ("metal".to_string(), "Metal".to_string()),
+                                            ]
+                                        />
+                                    </FormField>
                                 </div>
                             })}
                         </div>

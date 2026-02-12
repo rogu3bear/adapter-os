@@ -160,7 +160,7 @@ pub async fn create_training_dataset_from_upload(
     post,
     path = "/v1/training/datasets/from-upload/async",
     responses(
-        (status = 200, description = "Dataset build job created", body = JobResponse),
+        (status = 202, description = "Dataset build job accepted", body = JobResponse),
         (status = 400, description = "Invalid request", body = ErrorResponse),
         (status = 403, description = "Tenant isolation violation"),
         (status = 413, description = "Document too large"),
@@ -172,7 +172,7 @@ pub async fn create_training_dataset_from_upload_async(
     State(state): State<AppState>,
     Extension(claims): Extension<Claims>,
     mut multipart: Multipart,
-) -> Result<Json<JobResponse>, ApiError> {
+) -> Result<(StatusCode, Json<JobResponse>), ApiError> {
     require_permission(&claims, Permission::DatasetUpload)?;
 
     let mut dataset_name: Option<String> = None;
@@ -375,12 +375,15 @@ pub async fn create_training_dataset_from_upload_async(
         cleanup_job_input_dir(&input_dir, &job_id_for_task).await;
     });
 
-    Ok(Json(JobResponse {
-        id: job_id,
-        kind: "training_dataset_from_upload".to_string(),
-        status: "queued".to_string(),
-        created_at: chrono::Utc::now().to_rfc3339(),
-    }))
+    Ok((
+        StatusCode::ACCEPTED,
+        Json(JobResponse {
+            id: job_id,
+            kind: "training_dataset_from_upload".to_string(),
+            status: "queued".to_string(),
+            created_at: chrono::Utc::now().to_rfc3339(),
+        }),
+    ))
 }
 
 /// Stub when embeddings feature is disabled.

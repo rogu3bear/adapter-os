@@ -84,7 +84,9 @@ pub use events::{
     ResidencyProbeEvent, ResidencyProbeResult, RngSnapshot, RouterDecisionEvent, ValidationStatus,
 };
 pub use health_monitoring::{HealthCheck, HealthMonitor, HealthReport, HealthState, HealthStatus};
-pub use merkle::{compute_merkle_root, generate_proof, verify_proof, MerkleProof};
+pub use merkle::{
+    compute_merkle_root, compute_merkle_root_from_hashes, generate_proof, verify_proof, MerkleProof,
+};
 pub use metrics::{
     // Prometheus-based critical component metrics
     critical_components::{CriticalComponentMetrics, HotSwapTimer, KernelExecutionTimer},
@@ -842,16 +844,8 @@ fn log_serialization_error_event(
 }
 
 fn finalize_bundle(path: &Path, event_hashes: &[B3Hash], signing_keypair: &Keypair) -> Result<()> {
-    // Compute Merkle root (simplified but deterministic)
-    let merkle_root = if event_hashes.is_empty() {
-        B3Hash::hash(b"empty")
-    } else {
-        let mut combined = Vec::new();
-        for hash in event_hashes {
-            combined.extend_from_slice(hash.as_bytes());
-        }
-        B3Hash::hash(&combined)
-    };
+    // Compute proper Merkle root using the binary tree implementation
+    let merkle_root = merkle::compute_merkle_root_from_hashes(event_hashes);
 
     // Compute bundle hash (content-addressed)
     let bundle_bytes = fs::read(path)?;

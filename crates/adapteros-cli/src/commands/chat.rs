@@ -85,12 +85,12 @@ pub enum ChatCommand {
         #[arg(long)]
         owner_system: bool,
 
-        /// Run in local mode (no server required)
-        #[arg(long)]
+        /// Run in local mode (no server required) [coming soon]
+        #[arg(long, hide = true)]
         local: bool,
 
-        /// Model path for local mode
-        #[arg(long, requires = "local")]
+        /// Model path for local mode [coming soon]
+        #[arg(long, requires = "local", hide = true)]
         model_path: Option<PathBuf>,
     },
 
@@ -123,12 +123,12 @@ pub enum ChatCommand {
         #[arg(long)]
         owner_system: bool,
 
-        /// Run in local mode (no server required)
-        #[arg(long)]
+        /// Run in local mode (no server required) [coming soon]
+        #[arg(long, hide = true)]
         local: bool,
 
-        /// Model path for local mode
-        #[arg(long, requires = "local")]
+        /// Model path for local mode [coming soon]
+        #[arg(long, requires = "local", hide = true)]
         model_path: Option<PathBuf>,
     },
 

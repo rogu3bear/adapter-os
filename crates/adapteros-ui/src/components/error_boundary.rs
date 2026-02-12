@@ -97,7 +97,7 @@ fn ErrorRecoveryPanel(
     };
 
     view! {
-        <div class="flex items-center justify-center min-h-[400px] p-6">
+        <div class="error-recovery-panel">
             <Card title="Something went wrong".to_string()>
                 <div class="space-y-4">
                     // Error icon

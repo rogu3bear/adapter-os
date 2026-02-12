@@ -47,7 +47,7 @@
 //! - `POST /v1/training/sessions` - Create training session (alias for create job)
 //!
 //! ## Chat Integration
-//! - `POST /v1/chats/from_training_job` - Create chat session from training job
+//! - `POST /v1/chats/from-training-job` - Create chat session from training job
 
 use axum::Router;
 
@@ -138,7 +138,7 @@ pub mod paths {
     pub const SESSIONS: &str = "/v1/training/sessions";
 
     /// Chat integration endpoint (note: different base path)
-    pub const CHAT_FROM_JOB: &str = "/v1/chats/from_training_job";
+    pub const CHAT_FROM_JOB: &str = "/v1/chats/from-training-job";
 }
 
 /// OpenAPI tags for training endpoints

@@ -278,7 +278,7 @@ impl ApiError {
     pub fn incompatible_base_model(model: &str) -> Self {
         Self::new(
             StatusCode::BAD_REQUEST,
-            "INCOMPATIBLE_BASE_MODEL",
+            error_codes::INCOMPATIBLE_BASE_MODEL,
             format!("Base model '{}' not found or not available", model),
         )
     }
@@ -287,7 +287,7 @@ impl ApiError {
     pub fn unsupported_backend(backend: &str) -> Self {
         Self::new(
             StatusCode::BAD_REQUEST,
-            "UNSUPPORTED_BACKEND",
+            error_codes::UNSUPPORTED_BACKEND,
             format!("Unsupported backend family: {}", backend),
         )
     }
@@ -296,7 +296,7 @@ impl ApiError {
     pub fn hash_integrity_failure(expected: &str, computed: &str) -> Self {
         Self::new(
             StatusCode::BAD_REQUEST,
-            "HASH_INTEGRITY_FAILURE",
+            error_codes::HASH_INTEGRITY_FAILURE,
             format!(
                 "Weights hash mismatch: manifest says {}, computed {}",
                 expected, computed
@@ -308,14 +308,14 @@ impl ApiError {
     pub fn signature_required() -> Self {
         Self::new(
             StatusCode::FORBIDDEN,
-            "SIGNATURE_REQUIRED",
+            error_codes::SIGNATURE_REQUIRED,
             "Tenant policy requires signed adapters",
         )
     }
 
     /// Signature invalid - adapter signature verification failed
     pub fn signature_invalid(msg: impl Into<String>) -> Self {
-        Self::new(StatusCode::FORBIDDEN, "SIGNATURE_INVALID", msg)
+        Self::new(StatusCode::FORBIDDEN, error_codes::SIGNATURE_INVALID, msg)
     }
 
     /// Export failed - adapter export operation failed
@@ -335,7 +335,7 @@ impl ApiError {
     pub fn repo_not_found(repo_id: impl Into<String>) -> Self {
         Self::new(
             StatusCode::NOT_FOUND,
-            "REPO_NOT_FOUND",
+            error_codes::REPO_NOT_FOUND,
             format!("Repository '{}' not found", repo_id.into()),
         )
     }
@@ -344,7 +344,7 @@ impl ApiError {
     pub fn version_not_found(repo_id: impl Into<String>, version_id: impl Into<String>) -> Self {
         Self::new(
             StatusCode::NOT_FOUND,
-            "VERSION_NOT_FOUND",
+            error_codes::VERSION_NOT_FOUND,
             format!(
                 "Version '{}' not found in repository '{}'",
                 version_id.into(),
@@ -357,7 +357,7 @@ impl ApiError {
     pub fn repo_already_exists(name: impl Into<String>) -> Self {
         Self::new(
             StatusCode::CONFLICT,
-            "REPO_ALREADY_EXISTS",
+            error_codes::REPO_ALREADY_EXISTS,
             format!("Repository with name '{}' already exists", name.into()),
         )
     }
@@ -366,7 +366,7 @@ impl ApiError {
     pub fn repo_archived(repo_id: impl Into<String>) -> Self {
         Self::new(
             StatusCode::FORBIDDEN,
-            "REPO_ARCHIVED",
+            error_codes::REPO_ARCHIVED,
             format!(
                 "Repository '{}' is archived and cannot be modified",
                 repo_id.into()
@@ -381,7 +381,7 @@ impl ApiError {
     ) -> Self {
         Self::new(
             StatusCode::BAD_REQUEST,
-            "VERSION_NOT_PROMOTABLE",
+            error_codes::VERSION_NOT_PROMOTABLE,
             format!(
                 "Version '{}' cannot be promoted: {}",
                 version_id.into(),
@@ -398,7 +398,7 @@ impl ApiError {
         error!("Migration file missing: {}", filename);
         Self::new(
             StatusCode::INTERNAL_SERVER_ERROR,
-            "MIGRATION_FILE_MISSING",
+            error_codes::MIGRATION_FILE_MISSING,
             format!("Migration file '{}' is missing", filename),
         )
     }
@@ -409,7 +409,7 @@ impl ApiError {
         error!("Migration checksum mismatch: {}", filename);
         Self::new(
             StatusCode::INTERNAL_SERVER_ERROR,
-            "MIGRATION_CHECKSUM_MISMATCH",
+            error_codes::MIGRATION_CHECKSUM_MISMATCH,
             format!(
                 "Migration '{}' has been modified after being applied",
                 filename
@@ -424,7 +424,7 @@ impl ApiError {
     ) -> Self {
         Self::new(
             StatusCode::INTERNAL_SERVER_ERROR,
-            "SCHEMA_VERSION_MISMATCH",
+            error_codes::SCHEMA_VERSION_MISMATCH,
             format!(
                 "Schema version mismatch: app expects {}, database has {}",
                 app_version.into(),
@@ -439,7 +439,7 @@ impl ApiError {
     pub fn cache_stale(key: impl Into<String>, ttl_secs: u64) -> Self {
         Self::new(
             StatusCode::SERVICE_UNAVAILABLE,
-            "CACHE_STALE",
+            error_codes::CACHE_STALE,
             format!(
                 "Cached data for '{}' is stale (TTL: {} seconds)",
                 key.into(),
@@ -452,7 +452,7 @@ impl ApiError {
     pub fn cache_eviction(evicted_count: usize, reason: impl Into<String>) -> Self {
         Self::new(
             StatusCode::SERVICE_UNAVAILABLE,
-            "CACHE_EVICTION",
+            error_codes::CACHE_EVICTION,
             format!("Evicted {} cache entries: {}", evicted_count, reason.into()),
         )
     }
@@ -467,7 +467,7 @@ impl ApiError {
         );
         Self::new(
             StatusCode::TOO_MANY_REQUESTS,
-            "THUNDERING_HERD_REJECTED",
+            error_codes::THUNDERING_HERD_REJECTED,
             "Too many simultaneous requests detected",
         )
         .with_details(format!("Retry after {} seconds", retry_after_ms / 1000))
@@ -479,7 +479,7 @@ impl ApiError {
         error!("Rate limiter not configured for: {}", resource);
         Self::new(
             StatusCode::INTERNAL_SERVER_ERROR,
-            "RATE_LIMITER_NOT_CONFIGURED",
+            error_codes::RATE_LIMITER_NOT_CONFIGURED,
             format!("Rate limiter not configured for '{}'", resource),
         )
     }
@@ -490,7 +490,7 @@ impl ApiError {
     pub fn stream_disconnected(reason: impl Into<String>, reconnect_hint_ms: u64) -> Self {
         Self::new(
             StatusCode::SERVICE_UNAVAILABLE,
-            "STREAM_DISCONNECTED",
+            error_codes::STREAM_DISCONNECTED,
             reason,
         )
         .with_details(format!("Reconnect after {} ms", reconnect_hint_ms))
@@ -510,7 +510,7 @@ impl ApiError {
         );
         Self::new(
             StatusCode::SERVICE_UNAVAILABLE,
-            "EVENT_GAP_DETECTED",
+            error_codes::EVENT_GAP_DETECTED,
             format!(
                 "Missed {} events (client last ID: {}, server oldest: {})",
                 events_lost, client_last_id, server_oldest_id

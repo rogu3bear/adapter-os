@@ -135,6 +135,22 @@ pub struct CriticalComponentMetrics {
     // Server handler latency metrics
     /// Pre-UDS latency: time from request receipt to UDS call start (seconds)
     pub server_handler_latency_seconds: HistogramVec,
+
+    // Telemetry dropped events counter (PRD-4.8)
+    /// Total telemetry events dropped due to channel backpressure
+    pub telemetry_dropped_events_total: Counter,
+
+    // SSE active connections gauge
+    /// Current number of active SSE connections by stream type
+    pub sse_active_connections: GaugeVec,
+
+    // Model load duration histogram
+    /// Base model load duration in seconds
+    pub model_load_duration_seconds: HistogramVec,
+
+    // Per-tenant request rate counter
+    /// Total HTTP requests by tenant
+    pub http_requests_per_tenant_total: CounterVec,
 }
 
 impl CriticalComponentMetrics {
@@ -894,6 +910,54 @@ impl CriticalComponentMetrics {
             adapteros_core::AosError::Telemetry(format!("Counter creation failed: {}", e))
         })?;
 
+        // Telemetry dropped events counter (PRD-4.8)
+        let telemetry_dropped_events_total = Counter::new(
+            "telemetry_dropped_events_total",
+            "Total telemetry events dropped due to channel backpressure",
+        )
+        .map_err(|e| {
+            adapteros_core::AosError::Telemetry(format!("Counter creation failed: {}", e))
+        })?;
+
+        // SSE active connections gauge (per stream type)
+        let sse_active_connections = GaugeVec::new(
+            Opts::new(
+                "sse_active_connections",
+                "Current number of active SSE connections",
+            ),
+            &["stream_type"],
+        )
+        .map_err(|e| {
+            adapteros_core::AosError::Telemetry(format!("Gauge creation failed: {}", e))
+        })?;
+
+        // Model load duration histogram (seconds)
+        let model_load_duration_seconds = HistogramVec::new(
+            HistogramOpts::new(
+                "model_load_duration_seconds",
+                "Base model load duration in seconds",
+            )
+            .buckets(vec![
+                0.1, 0.5, 1.0, 2.5, 5.0, 10.0, 30.0, 60.0, 120.0, 300.0,
+            ]),
+            &["model_id"],
+        )
+        .map_err(|e| {
+            adapteros_core::AosError::Telemetry(format!("Histogram creation failed: {}", e))
+        })?;
+
+        // Per-tenant HTTP request rate counter
+        let http_requests_per_tenant_total = CounterVec::new(
+            Opts::new(
+                "http_requests_per_tenant_total",
+                "Total HTTP requests by tenant",
+            ),
+            &["tenant"],
+        )
+        .map_err(|e| {
+            adapteros_core::AosError::Telemetry(format!("Counter creation failed: {}", e))
+        })?;
+
         // Register all metrics
         let registry_arc = Arc::new(registry);
 
@@ -1316,6 +1380,34 @@ impl CriticalComponentMetrics {
                 adapteros_core::AosError::Telemetry(format!("Registration failed: {}", e))
             })?;
 
+        // Register telemetry dropped events counter
+        registry_arc
+            .register(Box::new(telemetry_dropped_events_total.clone()))
+            .map_err(|e| {
+                adapteros_core::AosError::Telemetry(format!("Registration failed: {}", e))
+            })?;
+
+        // Register SSE active connections gauge
+        registry_arc
+            .register(Box::new(sse_active_connections.clone()))
+            .map_err(|e| {
+                adapteros_core::AosError::Telemetry(format!("Registration failed: {}", e))
+            })?;
+
+        // Register model load duration histogram
+        registry_arc
+            .register(Box::new(model_load_duration_seconds.clone()))
+            .map_err(|e| {
+                adapteros_core::AosError::Telemetry(format!("Registration failed: {}", e))
+            })?;
+
+        // Register per-tenant request rate counter
+        registry_arc
+            .register(Box::new(http_requests_per_tenant_total.clone()))
+            .map_err(|e| {
+                adapteros_core::AosError::Telemetry(format!("Registration failed: {}", e))
+            })?;
+
         info!("Critical component metrics initialized");
 
         Ok(Self {
@@ -1410,6 +1502,14 @@ impl CriticalComponentMetrics {
             worker_generation_seconds,
             // Server handler latency metrics
             server_handler_latency_seconds,
+            // Telemetry dropped events
+            telemetry_dropped_events_total,
+            // SSE active connections
+            sse_active_connections,
+            // Model load duration
+            model_load_duration_seconds,
+            // Per-tenant request rate
+            http_requests_per_tenant_total,
         })
     }
 
@@ -2209,6 +2309,74 @@ impl CriticalComponentMetrics {
         self.server_handler_latency_seconds
             .with_label_values(&[endpoint, status])
             .observe(duration_seconds);
+    }
+
+    // ========================================
+    // Telemetry dropped events metrics
+    // ========================================
+
+    /// Update the dropped events counter from the global atomic.
+    ///
+    /// Call this periodically (e.g., in the metrics export loop) to sync the
+    /// Prometheus counter with the AtomicU64 in `adapteros_telemetry::DROPPED_EVENTS`.
+    pub fn sync_dropped_events(&self, current_total: u64) {
+        let current_prom = self.telemetry_dropped_events_total.get() as u64;
+        if current_total > current_prom {
+            self.telemetry_dropped_events_total
+                .inc_by((current_total - current_prom) as f64);
+        }
+    }
+
+    /// Get current dropped events counter value
+    pub fn get_telemetry_dropped_events(&self) -> u64 {
+        self.telemetry_dropped_events_total.get() as u64
+    }
+
+    // ========================================
+    // SSE active connections metrics
+    // ========================================
+
+    /// Increment SSE active connection count for a stream type
+    pub fn inc_sse_connections(&self, stream_type: &str) {
+        self.sse_active_connections
+            .with_label_values(&[stream_type])
+            .inc();
+    }
+
+    /// Decrement SSE active connection count for a stream type
+    pub fn dec_sse_connections(&self, stream_type: &str) {
+        self.sse_active_connections
+            .with_label_values(&[stream_type])
+            .dec();
+    }
+
+    /// Get current SSE active connection count for a stream type
+    pub fn get_sse_connections(&self, stream_type: &str) -> f64 {
+        self.sse_active_connections
+            .with_label_values(&[stream_type])
+            .get()
+    }
+
+    // ========================================
+    // Model load duration metrics
+    // ========================================
+
+    /// Record base model load duration in seconds
+    pub fn record_model_load_duration(&self, model_id: &str, duration_seconds: f64) {
+        self.model_load_duration_seconds
+            .with_label_values(&[model_id])
+            .observe(duration_seconds);
+    }
+
+    // ========================================
+    // Per-tenant request rate metrics
+    // ========================================
+
+    /// Increment the per-tenant request counter
+    pub fn record_tenant_request(&self, tenant: &str) {
+        self.http_requests_per_tenant_total
+            .with_label_values(&[tenant])
+            .inc();
     }
 }
 

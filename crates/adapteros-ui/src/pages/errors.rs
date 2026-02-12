@@ -9,9 +9,10 @@ use crate::api::{
     ProcessCrashDumpResponse, SseState, UpdateErrorAlertRuleRequest,
 };
 use crate::components::{
-    AsyncBoundary, Badge, BadgeVariant, Button, ButtonSize, ButtonVariant, Card, Dialog,
-    EmptyState, Input, LoadingDisplay, PageBreadcrumbItem, PageScaffold, Select, TabNav, TabPanel,
-    Table, TableBody, TableCell, TableHead, TableHeader, TableRow,
+    AsyncBoundary, Badge, BadgeVariant, Button, ButtonSize, ButtonVariant, Card,
+    ConfirmationDialog, ConfirmationSeverity, Dialog, EmptyState, Input, LoadingDisplay,
+    PageBreadcrumbItem, PageScaffold, Select, TabNav, TabPanel, Table, TableBody, TableCell,
+    TableHead, TableHeader, TableRow,
 };
 use crate::hooks::{use_api_resource, use_scope_alive, LoadingState};
 use adapteros_api_types::telemetry::{ClientErrorItem, ClientErrorStatsResponse};
@@ -1072,6 +1073,7 @@ fn AlertRuleRow(rule: ErrorAlertRuleResponse, on_update: Callback<()>) -> impl I
 
     let (toggling, set_toggling) = signal(false);
     let (deleting, set_deleting) = signal(false);
+    let show_delete_confirm = RwSignal::new(false);
 
     // Toggle active state
     let alive_for_toggle = alive.clone();
@@ -1104,30 +1106,35 @@ fn AlertRuleRow(rule: ErrorAlertRuleResponse, on_update: Callback<()>) -> impl I
         });
     };
 
-    // Delete rule
-    let on_delete = move |_| {
-        let id = rule_id_for_delete.clone();
+    // Delete rule (called after confirmation)
+    let on_confirm_delete = {
+        let rule_id = rule_id_for_delete.clone();
         let alive = alive.clone();
-        set_deleting.set(true);
-        wasm_bindgen_futures::spawn_local(async move {
-            let client = ApiClient::new();
-            match client.delete_error_alert_rule(&id).await {
-                Ok(_) => {
-                    if alive.load(std::sync::atomic::Ordering::SeqCst) {
-                        on_update.run(());
+        Callback::new(move |_| {
+            let id = rule_id.clone();
+            let alive = alive.clone();
+            set_deleting.set(true);
+            wasm_bindgen_futures::spawn_local(async move {
+                let client = ApiClient::new();
+                match client.delete_error_alert_rule(&id).await {
+                    Ok(_) => {
+                        if alive.load(std::sync::atomic::Ordering::SeqCst) {
+                            show_delete_confirm.set(false);
+                            on_update.run(());
+                        }
+                    }
+                    Err(e) => {
+                        report_error_with_toast(
+                            &e,
+                            "Failed to delete alert rule",
+                            Some("/errors"),
+                            true,
+                        );
                     }
                 }
-                Err(e) => {
-                    report_error_with_toast(
-                        &e,
-                        "Failed to delete alert rule",
-                        Some("/errors"),
-                        true,
-                    );
-                }
-            }
-            set_deleting.set(false);
-        });
+                set_deleting.set(false);
+            });
+        })
     };
 
     let severity_variant = match rule.severity.as_str() {
@@ -1142,6 +1149,8 @@ fn AlertRuleRow(rule: ErrorAlertRuleResponse, on_update: Callback<()>) -> impl I
         .or_else(|| rule.http_status_pattern.clone())
         .or_else(|| rule.page_pattern.clone())
         .unwrap_or_else(|| "Any".to_string());
+
+    let rule_name_for_dialog = rule.name.clone();
 
     view! {
         <TableRow>
@@ -1182,7 +1191,7 @@ fn AlertRuleRow(rule: ErrorAlertRuleResponse, on_update: Callback<()>) -> impl I
                     <Button
                         variant=ButtonVariant::Ghost
                         size=ButtonSize::Sm
-                        on_click=Callback::new(on_delete)
+                        on_click=Callback::new(move |_| show_delete_confirm.set(true))
                         disabled=Signal::derive(move || deleting.try_get().unwrap_or(false))
                     >
                         {move || if deleting.try_get().unwrap_or(false) { "..." } else { "Delete" }}
@@ -1190,6 +1199,19 @@ fn AlertRuleRow(rule: ErrorAlertRuleResponse, on_update: Callback<()>) -> impl I
                 </div>
             </TableCell>
         </TableRow>
+
+        <ConfirmationDialog
+            open=show_delete_confirm
+            title="Delete Alert Rule"
+            description=format!(
+                "Are you sure you want to delete the alert rule '{}'? This action cannot be undone.",
+                rule_name_for_dialog
+            )
+            severity=ConfirmationSeverity::Destructive
+            confirm_text="Delete"
+            on_confirm=on_confirm_delete
+            loading=Signal::derive(move || deleting.try_get().unwrap_or(false))
+        />
     }
 }
 

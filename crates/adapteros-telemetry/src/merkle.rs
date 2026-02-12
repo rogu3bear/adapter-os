@@ -28,6 +28,46 @@ pub struct MerkleProof {
     pub root: B3Hash,
 }
 
+/// Compute Merkle root from pre-computed leaf hashes
+///
+/// Use this when event hashes have already been computed (e.g., in bundle finalization).
+/// Builds a proper binary Merkle tree bottom-up from the given hashes.
+///
+/// # Algorithm
+/// 1. Use provided hashes as leaf nodes directly
+/// 2. Build binary Merkle tree bottom-up
+/// 3. Parent = BLAKE3(left || right)
+/// 4. If odd number of leaves, duplicate last leaf
+pub fn compute_merkle_root_from_hashes(hashes: &[B3Hash]) -> B3Hash {
+    if hashes.is_empty() {
+        return B3Hash::hash(b"empty_merkle_tree");
+    }
+
+    let mut leaves = hashes.to_vec();
+
+    while leaves.len() > 1 {
+        let mut next_level = Vec::new();
+
+        for i in (0..leaves.len()).step_by(2) {
+            let left = &leaves[i];
+            let right = if i + 1 < leaves.len() {
+                &leaves[i + 1]
+            } else {
+                left
+            };
+
+            let mut combined = Vec::with_capacity(64);
+            combined.extend_from_slice(left.as_bytes());
+            combined.extend_from_slice(right.as_bytes());
+            next_level.push(B3Hash::hash(&combined));
+        }
+
+        leaves = next_level;
+    }
+
+    leaves[0]
+}
+
 /// Compute Merkle root over events with deterministic ordering
 ///
 /// Events are sorted by sequence number before hashing to ensure
@@ -313,5 +353,86 @@ mod tests {
         let wrong_leaf = B3Hash::hash(b"wrong");
 
         assert!(!verify_proof(&wrong_leaf, &proof));
+    }
+
+    #[test]
+    fn test_from_hashes_empty() {
+        let root = compute_merkle_root_from_hashes(&[]);
+        assert_eq!(root, B3Hash::hash(b"empty_merkle_tree"));
+    }
+
+    #[test]
+    fn test_from_hashes_single() {
+        let h = B3Hash::hash(b"leaf");
+        let root = compute_merkle_root_from_hashes(&[h]);
+        assert_eq!(root, h);
+    }
+
+    #[test]
+    fn test_from_hashes_two() {
+        let h1 = B3Hash::hash(b"a");
+        let h2 = B3Hash::hash(b"b");
+        let root = compute_merkle_root_from_hashes(&[h1, h2]);
+
+        // Manual: BLAKE3(h1 || h2)
+        let mut combined = Vec::new();
+        combined.extend_from_slice(h1.as_bytes());
+        combined.extend_from_slice(h2.as_bytes());
+        let expected = B3Hash::hash(&combined);
+        assert_eq!(root, expected);
+    }
+
+    #[test]
+    fn test_from_hashes_odd() {
+        let h1 = B3Hash::hash(b"a");
+        let h2 = B3Hash::hash(b"b");
+        let h3 = B3Hash::hash(b"c");
+        let root = compute_merkle_root_from_hashes(&[h1, h2, h3]);
+
+        // Left subtree: BLAKE3(h1 || h2)
+        let mut left_combined = Vec::new();
+        left_combined.extend_from_slice(h1.as_bytes());
+        left_combined.extend_from_slice(h2.as_bytes());
+        let left = B3Hash::hash(&left_combined);
+
+        // Right subtree: BLAKE3(h3 || h3) (odd duplication)
+        let mut right_combined = Vec::new();
+        right_combined.extend_from_slice(h3.as_bytes());
+        right_combined.extend_from_slice(h3.as_bytes());
+        let right = B3Hash::hash(&right_combined);
+
+        // Root: BLAKE3(left || right)
+        let mut root_combined = Vec::new();
+        root_combined.extend_from_slice(left.as_bytes());
+        root_combined.extend_from_slice(right.as_bytes());
+        let expected = B3Hash::hash(&root_combined);
+        assert_eq!(root, expected);
+    }
+
+    #[test]
+    fn test_from_hashes_deterministic() {
+        let hashes: Vec<B3Hash> = (0..10).map(|i| B3Hash::hash(&[i])).collect();
+        let root1 = compute_merkle_root_from_hashes(&hashes);
+        let root2 = compute_merkle_root_from_hashes(&hashes);
+        assert_eq!(root1, root2);
+    }
+
+    #[test]
+    fn test_from_hashes_differs_from_linear_concat() {
+        // Verify that the proper Merkle tree root differs from a naive linear concatenation
+        let hashes: Vec<B3Hash> = (0..4).map(|i| B3Hash::hash(&[i])).collect();
+        let merkle_root = compute_merkle_root_from_hashes(&hashes);
+
+        // Naive linear hash: BLAKE3(h0 || h1 || h2 || h3)
+        let mut combined = Vec::new();
+        for h in &hashes {
+            combined.extend_from_slice(h.as_bytes());
+        }
+        let linear_root = B3Hash::hash(&combined);
+
+        assert_ne!(
+            merkle_root, linear_root,
+            "Proper Merkle root must differ from naive linear concatenation"
+        );
     }
 }
