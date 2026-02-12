@@ -143,9 +143,23 @@ impl FederationManager {
     ///
     /// This retrieves the latest tick hash from the deterministic executor
     /// if available, for linking to federation signatures.
-    pub fn get_latest_tick_hash(&self) -> Option<String> {
-        // This would be populated from DeterministicExecutor if integrated
-        None
+    pub async fn get_latest_tick_hash(&self) -> Option<String> {
+        let pool = self.db.pool();
+        let row = sqlx::query(
+            r#"
+            SELECT event_hash
+            FROM tick_ledger_entries
+            WHERE tenant_id = ?
+            ORDER BY tick DESC
+            LIMIT 1
+            "#,
+        )
+        .bind(&self.tenant_id)
+        .fetch_optional(pool)
+        .await
+        .ok()?;
+
+        row.and_then(|entry| entry.try_get("event_hash").ok())
     }
 
     /// Sign a telemetry bundle
@@ -907,7 +921,7 @@ impl FederationManager {
         .map_err(|e| AosError::Database(format!("Failed to store signature: {}", e)))?;
 
         // Link to tick ledger if we have the latest tick hash
-        if let Some(tick_hash) = self.get_latest_tick_hash() {
+        if let Some(tick_hash) = self.get_latest_tick_hash().await {
             let _ = self
                 .link_to_tick_ledger(&signature.bundle_hash, &tick_hash)
                 .await;
@@ -1076,6 +1090,84 @@ mod tests {
         let chain = vec![sig1, sig2];
         let result = manager.verify_cross_host_chain(&chain).await;
         assert!(result.is_err());
+
+        Ok(())
+    }
+
+    #[tokio::test]
+    async fn test_get_latest_tick_hash_reads_latest_tenant_tick() -> Result<()> {
+        let db = setup_test_db().await?;
+        let keypair = Keypair::generate();
+        let manager = FederationManager::with_host_id(
+            db.clone(),
+            keypair,
+            "test-host".to_string(),
+            "tenant-001".to_string(),
+        )?;
+
+        let pool = db.pool();
+        sqlx::query(
+            r#"
+            INSERT INTO tick_ledger_entries
+            (id, tick, tenant_id, host_id, task_id, event_type, event_hash, timestamp_us, prev_entry_hash)
+            VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?)
+            "#,
+        )
+        .bind("entry-tenant-001-a")
+        .bind(10i64)
+        .bind("tenant-001")
+        .bind("host-a")
+        .bind("task-a")
+        .bind("TaskCompleted")
+        .bind("hash-tenant-001-a")
+        .bind(10_000i64)
+        .bind(None::<String>)
+        .execute(pool)
+        .await
+        .map_err(|e| AosError::Database(format!("Failed to insert test tick A: {}", e)))?;
+
+        sqlx::query(
+            r#"
+            INSERT INTO tick_ledger_entries
+            (id, tick, tenant_id, host_id, task_id, event_type, event_hash, timestamp_us, prev_entry_hash)
+            VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?)
+            "#,
+        )
+        .bind("entry-tenant-001-b")
+        .bind(11i64)
+        .bind("tenant-001")
+        .bind("host-b")
+        .bind("task-b")
+        .bind("TaskCompleted")
+        .bind("hash-tenant-001-b")
+        .bind(11_000i64)
+        .bind(Some("hash-tenant-001-a".to_string()))
+        .execute(pool)
+        .await
+        .map_err(|e| AosError::Database(format!("Failed to insert test tick B: {}", e)))?;
+
+        sqlx::query(
+            r#"
+            INSERT INTO tick_ledger_entries
+            (id, tick, tenant_id, host_id, task_id, event_type, event_hash, timestamp_us, prev_entry_hash)
+            VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?)
+            "#,
+        )
+        .bind("entry-tenant-002")
+        .bind(99i64)
+        .bind("tenant-002")
+        .bind("host-z")
+        .bind("task-z")
+        .bind("TaskCompleted")
+        .bind("hash-tenant-002")
+        .bind(99_000i64)
+        .bind(None::<String>)
+        .execute(pool)
+        .await
+        .map_err(|e| AosError::Database(format!("Failed to insert unrelated tenant tick: {}", e)))?;
+
+        let latest = manager.get_latest_tick_hash().await;
+        assert_eq!(latest.as_deref(), Some("hash-tenant-001-b"));
 
         Ok(())
     }
