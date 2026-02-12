@@ -54,6 +54,7 @@ adapteros-ingest-docs = { path = "../adapteros-ingest-docs", optional = true }
 adapteros-api-types = { path = "../adapteros-api-types" }
 # Workspace dependencies
 anyhow.workspace = true
+blake3.workspace = true
 thiserror.workspace = true
 serde.workspace = true
 serde_json.workspace = true

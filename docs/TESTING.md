@@ -131,9 +131,26 @@ cargo test -p adapteros-core --lib
 # Specific test module
 cargo test -p adapteros-core seed_tests
 
+# Fast drain phase/timeout primitives (low build overhead)
+cargo test -p adapteros-core drain_
+
 # With output
 cargo test -p adapteros-core -- --nocapture
 ```
+
+### Server Fast Loop
+
+```bash
+# Fast mode (tight local loop)
+cargo svr-fast-test
+cargo svr-fast-check
+
+# Full mode (complete server test harness path)
+cargo svr-full-test <filter> -- --test-threads=1
+```
+
+Fast mode validates the extracted drain logic path and `adapteros-server` compile health with low overhead.
+Full mode is still required for complete server runtime test coverage before merging substantial shutdown/lifecycle changes.
 
 ---
 

@@ -197,6 +197,7 @@ pub fn App() -> impl IntoView {
                             <Route path=path!("/settings") view=pages::Settings/>
                             <Route path=path!("/user") view=pages::User/>
                             <Route path=path!("/models") view=pages::Models/>
+                            <Route path=path!("/models/:id") view=pages::ModelDetail/>
                             <Route path=path!("/policies") view=pages::Policies/>
                             <Route path=path!("/training") view=pages::Training/>
                             <Route path=path!("/training/:id") view=TrainingIdRedirect/>

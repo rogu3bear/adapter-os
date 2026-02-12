@@ -172,11 +172,7 @@ pub fn SystemContent(
     } else if let Some(summary) = status.kernel.as_ref().and_then(|k| k.model.as_ref()) {
         let status_label = summary.status.clone();
         if let Some(model_id) = summary.model_id.clone() {
-            let short_id = if model_id.len() > 8 {
-                format!("{}...", &model_id[..8])
-            } else {
-                model_id
-            };
+            let short_id = adapteros_id::short_id(&model_id);
             format!("Active: {} ({})", short_id, status_label)
         } else {
             format!("Active: - ({})", status_label)
@@ -392,11 +388,7 @@ fn WorkerRow(worker: WorkerResponse) -> impl IntoView {
     let is_transitional = matches!(status, "draining" | "created" | "registered");
     let is_unhealthy = matches!(status, "error" | "stopped");
 
-    let short_id = if worker.id.len() > 8 {
-        format!("{}...", &worker.id[..8])
-    } else {
-        worker.id.clone()
-    };
+    let short_id = adapteros_id::short_id(&worker.id);
 
     let backend = worker
         .backend
@@ -587,11 +579,7 @@ fn NodesSection(nodes: Vec<NodeResponse>) -> impl IntoView {
 fn NodeRow(node: NodeResponse) -> impl IntoView {
     let status_variant = StatusVariant::from_worker_status(&node.node.status).to_badge_variant();
 
-    let short_id = if node.node.id.len() > 8 {
-        format!("{}...", &node.node.id[..8])
-    } else {
-        node.node.id.clone()
-    };
+    let short_id = adapteros_id::short_id(&node.node.id);
 
     view! {
         <TableRow>
@@ -722,11 +710,7 @@ fn StateSummary(
             {rag_status.map(|rag| {
                 let (label, detail, color) = match rag {
                     RagStatus::Enabled { model_hash, dimension } => {
-                        let short_hash = if model_hash.len() > 8 {
-                            format!("{}...", &model_hash[..8])
-                        } else {
-                            model_hash
-                        };
+                        let short_hash = adapteros_id::format_hash_short(&model_hash);
                         (
                             "Enabled".to_string(),
                             format!("Model: {} ({}d)", short_hash, dimension),
@@ -832,11 +816,7 @@ fn TenantRow(tenant: TenantState) -> impl IntoView {
         .unwrap_or_else(|| "-".to_string());
     let active_stack_title = active_stack.clone();
     let active_stack_label = active_stack.clone();
-    let short_tenant_id = if tenant.tenant_id.len() > 8 {
-        format!("{}...", &tenant.tenant_id[..8])
-    } else {
-        tenant.tenant_id.clone()
-    };
+    let short_tenant_id = adapteros_id::short_id(&tenant.tenant_id);
 
     view! {
         <TableRow>
@@ -966,16 +946,8 @@ fn TopAdaptersSection(adapters: Vec<AdapterMemorySummary>) -> impl IntoView {
 
 #[component]
 fn TopAdapterRow(adapter: AdapterMemorySummary) -> impl IntoView {
-    let short_adapter_id = if adapter.adapter_id.len() > 8 {
-        format!("{}...", &adapter.adapter_id[..8])
-    } else {
-        adapter.adapter_id.clone()
-    };
-    let short_tenant_id = if adapter.tenant_id.len() > 8 {
-        format!("{}...", &adapter.tenant_id[..8])
-    } else {
-        adapter.tenant_id.clone()
-    };
+    let short_adapter_id = adapteros_id::short_id(&adapter.adapter_id);
+    let short_tenant_id = adapteros_id::short_id(&adapter.tenant_id);
 
     view! {
         <TableRow>
@@ -1070,11 +1042,7 @@ fn ModelRuntimeSection(models_status: LoadingState<AllModelsStatusResponse>) -> 
 
 #[component]
 fn ModelRuntimeRow(model: BaseModelStatusResponse) -> impl IntoView {
-    let short_id = if model.model_id.len() > 8 {
-        format!("{}...", &model.model_id[..8])
-    } else {
-        model.model_id.clone()
-    };
+    let short_id = adapteros_id::short_id(&model.model_id);
     let name_title = model
         .model_path
         .clone()

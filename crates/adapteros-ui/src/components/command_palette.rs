@@ -390,10 +390,14 @@ fn RecentItemsList(
 
 /// Execute a command by key
 fn execute_command(command: &str) {
+    use crate::signals::auth::AuthContext;
+    use crate::signals::chat::ChatContext;
+
     match command {
         "toggle-chat" => {
-            // Will be handled by chat context
-            web_sys::console::log_1(&"Command: toggle-chat".into());
+            if let Some((_state, action)) = use_context::<ChatContext>() {
+                action.toggle_dock();
+            }
         }
         "toggle-theme" => {
             // Toggle between light/dark
@@ -409,7 +413,9 @@ fn execute_command(command: &str) {
             }
         }
         "new-chat" => {
-            web_sys::console::log_1(&"Command: new-chat".into());
+            if let Some((_state, action)) = use_context::<ChatContext>() {
+                action.clear_messages();
+            }
         }
         "refresh" => {
             if let Some(window) = web_sys::window() {
@@ -417,10 +423,14 @@ fn execute_command(command: &str) {
             }
         }
         "logout" => {
-            web_sys::console::log_1(&"Command: logout".into());
+            if let Some((_state, action)) = use_context::<AuthContext>() {
+                wasm_bindgen_futures::spawn_local(async move {
+                    action.logout().await;
+                });
+            }
         }
-        _ => {
-            web_sys::console::log_1(&format!("Unknown command: {}", command).into());
+        other => {
+            tracing::warn!(command = other, "Unhandled command palette action");
         }
     }
 }

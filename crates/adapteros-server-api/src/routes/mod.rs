@@ -62,6 +62,7 @@ use utoipa_swagger_ui::SwaggerUi;
         handlers::errors::list_error_buckets,
         handlers::get_status,
         handlers::health::get_invariant_status,
+        handlers::health::get_probe_health,
         handlers::auth_enhanced::dev_bypass_handler,
         handlers::auth_enhanced::dev_bootstrap_handler,
         handlers::metrics_handler,
@@ -1068,6 +1069,15 @@ pub fn build(state: AppState) -> Router {
             .route(
                 "/v1/invariants",
                 get(handlers::health::get_invariant_status),
+            )
+            .route(
+                "/v1/system/probe-health",
+                get(handlers::health::get_probe_health),
+            )
+            // Provenance verification is public for external audit workflows
+            .route(
+                "/v1/provenance/{certificate_id}/verify",
+                get(handlers::provenance::verify_provenance_certificate),
             );
     }
 

@@ -49,7 +49,7 @@ pub fn provide_ui_profile_context() {
 pub fn use_ui_profile_state() -> UiProfileContext {
     use_context::<UiProfileContext>().unwrap_or_else(|| {
         provide_ui_profile_context();
-        use_context::<UiProfileContext>().expect("ui profile context not found after provide")
+        use_context::<UiProfileContext>().unwrap_or_else(|| RwSignal::new(UiProfileState::new()))
     })
 }
 
@@ -59,10 +59,10 @@ pub fn use_ui_profile() -> Signal<UiProfile> {
     let settings = use_settings();
 
     Signal::derive(move || {
-        let settings = settings.get();
+        let settings = settings.try_get().unwrap_or_default();
         if let Some(override_profile) = settings.ui_profile {
             override_profile
-        } else if let Some(runtime_profile) = state.get().runtime_profile {
+        } else if let Some(runtime_profile) = state.try_get().and_then(|s| s.runtime_profile) {
             runtime_profile
         } else {
             UiProfile::Primary

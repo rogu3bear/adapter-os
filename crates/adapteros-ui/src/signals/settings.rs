@@ -107,8 +107,8 @@ pub struct UserSettings {
     /// Compact mode for denser UI
     pub compact_mode: bool,
     /// Show timestamps in lists and messages
-    // TODO: not yet consumed — wire into chat_dock.rs, error_history_panel.rs,
-    // and other components that render timestamps so they respect this toggle.
+    // TODO: not yet consumed — wire into chat_dock.rs and other components
+    // that render timestamps so they respect this toggle.
     pub show_timestamps: bool,
     /// Default page after login (consumed by login.rs redirect)
     pub default_page: DefaultPage,

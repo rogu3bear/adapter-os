@@ -42,6 +42,7 @@
 pub mod api_config;
 pub mod app_state;
 pub mod background_tasks;
+pub mod egress_monitor;
 
 mod config;
 pub mod database;

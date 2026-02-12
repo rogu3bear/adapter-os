@@ -5,8 +5,8 @@
 use crate::api::client::{ApiClient, PolicyPackResponse, PolicyValidationResponse};
 use crate::components::{
     Badge, BadgeVariant, Button, ButtonVariant, Card, EmptyState, EmptyStateVariant, ErrorDisplay,
-    Input, PageBreadcrumbItem, PageScaffold, PageScaffoldActions, Spinner, SplitPanel, Table,
-    TableBody, TableCell, TableHead, TableHeader, TableRow, Textarea,
+    Input, PageBreadcrumbItem, PageScaffold, PageScaffoldActions, SkeletonTable, Spinner,
+    SplitPanel, Table, TableBody, TableCell, TableHead, TableHeader, TableRow, Textarea,
 };
 use crate::constants::urls::docs_link;
 use crate::hooks::{use_api_resource, use_scope_alive, LoadingState};
@@ -47,14 +47,14 @@ pub fn Policies() -> impl IntoView {
     };
 
     // Derive selection state for SplitPanel
-    let has_selection = Signal::derive(move || selected_cpid.get().is_some());
+    let has_selection = Signal::derive(move || selected_cpid.try_get().flatten().is_some());
 
     view! {
         <PageScaffold
             title="Policy Packs"
             subtitle="Manage inference policies and enforcement rules".to_string()
             breadcrumbs=vec![
-                PageBreadcrumbItem::new("Govern", "/policies"),
+                PageBreadcrumbItem::label("Govern"),
                 PageBreadcrumbItem::current("Policy Packs"),
             ]
         >
@@ -68,7 +68,7 @@ pub fn Policies() -> impl IntoView {
                 <Button
                     variant=ButtonVariant::Primary
                     on_click=Callback::new(move |_| {
-                        if show_create.get() {
+                        if show_create.try_get().unwrap_or(false) {
                             show_create.set(false);
                             new_cpid.set(String::new());
                             new_description.set(String::new());
@@ -78,7 +78,7 @@ pub fn Policies() -> impl IntoView {
                         }
                     })
                 >
-                    {move || if show_create.get() { "Cancel" } else { "New Policy Pack" }}
+                    {move || if show_create.try_get().unwrap_or(false) { "Cancel" } else { "New Policy Pack" }}
                 </Button>
             </PageScaffoldActions>
 
@@ -91,7 +91,7 @@ pub fn Policies() -> impl IntoView {
                         <div class="space-y-6">
                             // Create policy pack
                             {move || {
-                                if show_create.get() {
+                                if show_create.try_get().unwrap_or(false) {
                                     view! {
                                         <Card
                                             title="Create Policy Pack".to_string()
@@ -133,12 +133,12 @@ pub fn Policies() -> impl IntoView {
 
                             // Policy list
                             {move || {
-                                match policies.get() {
+                                match policies.try_get().unwrap_or_default() {
                                     LoadingState::Idle | LoadingState::Loading => {
                                         view! {
-                                            <div class="flex items-center justify-center py-12">
-                                                <Spinner/>
-                                            </div>
+                                            <Card>
+                                                <SkeletonTable rows=5 columns=3/>
+                                            </Card>
                                         }.into_any()
                                     }
                                     LoadingState::Loaded(data) => {
@@ -164,7 +164,7 @@ pub fn Policies() -> impl IntoView {
                     }
                 }
                 detail_panel=move || {
-                    let cpid = selected_cpid.get().unwrap_or_default();
+                    let cpid = selected_cpid.try_get().flatten().unwrap_or_default();
                     view! {
                         <PolicyDetail
                             cpid=cpid
@@ -220,7 +220,7 @@ fn PolicyList(
                             view! {
                                 <tr
                                     class="border-b transition-colors hover:bg-muted/50 cursor-pointer"
-                                    class:bg-muted=move || selected_cpid.get().as_ref() == Some(&cpid)
+                                    class:bg-muted=move || selected_cpid.try_get().flatten().as_ref() == Some(&cpid)
                                     on:click=move |_| on_select(cpid_for_click.clone())
                                 >
                                     <TableCell>
@@ -293,7 +293,7 @@ fn PolicyDetail(
             </div>
 
             {move || {
-                match policy.get() {
+                match policy.try_get().unwrap_or_default() {
                     LoadingState::Idle | LoadingState::Loading => {
                         view! {
                             <div class="flex items-center justify-center py-12">
@@ -339,7 +339,8 @@ fn PolicyDetailContent(policy: PolicyPackResponse, on_applied: Callback<()>) -> 
     let cpid_signal = RwSignal::new(cpid.clone());
     let description_signal = RwSignal::new(String::new());
     let original_for_reset = original_content.clone();
-    let has_changes = Signal::derive(move || content_signal.get() != original_content);
+    let has_changes =
+        Signal::derive(move || content_signal.try_get().unwrap_or_default() != original_content);
     view! {
         <div class="flex flex-col gap-4">
             // Metadata
@@ -381,12 +382,12 @@ fn PolicyDetailContent(policy: PolicyPackResponse, on_applied: Callback<()>) -> 
             >
                 <div class="flex items-center justify-between mb-2">
                     <p class="text-xs text-muted-foreground">
-                        {move || if has_changes.get() { "Unsaved changes" } else { "No local changes" }}
+                        {move || if has_changes.try_get().unwrap_or(false) { "Unsaved changes" } else { "No local changes" }}
                     </p>
                     <Button
                         variant=ButtonVariant::Ghost
                         on_click=Callback::new(move |_| content_signal.set(original_for_reset.clone()))
-                        disabled=Signal::derive(move || !has_changes.get())
+                        disabled=Signal::derive(move || !has_changes.try_get().unwrap_or(false))
                     >
                         "Reset"
                     </Button>
@@ -419,15 +420,15 @@ fn PolicyActionsCard(
 
     // Validate handler
     let on_validate = move |_| {
-        let content = content.get();
-        set_validating.set(true);
-        set_validation_result.set(None);
+        let content = content.try_get().unwrap_or_default();
+        let _ = set_validating.try_set(true);
+        let _ = set_validation_result.try_set(None);
 
         wasm_bindgen_futures::spawn_local(async move {
             let client = ApiClient::new();
             let result = client.validate_policy(&content).await;
-            set_validation_result.set(Some(result.map_err(|e| e.user_message())));
-            set_validating.set(false);
+            let _ = set_validation_result.try_set(Some(result.map_err(|e| e.user_message())));
+            let _ = set_validating.try_set(false);
         });
     };
 
@@ -443,21 +444,21 @@ fn PolicyActionsCard(
     });
 
     let on_apply = move |_| {
-        let cpid_value = cpid.get();
-        let content_value = content.get();
-        let description_value = description.get();
+        let cpid_value = cpid.try_get().unwrap_or_default();
+        let content_value = content.try_get().unwrap_or_default();
+        let description_value = description.try_get().unwrap_or_default();
         let on_applied = on_applied;
         let alive = alive.clone();
         if cpid_value.trim().is_empty() {
-            set_apply_result.set(Some(Err("CPID is required".to_string())));
+            let _ = set_apply_result.try_set(Some(Err("CPID is required".to_string())));
             return;
         }
         if content_value.trim().is_empty() {
-            set_apply_result.set(Some(Err("Policy content is required".to_string())));
+            let _ = set_apply_result.try_set(Some(Err("Policy content is required".to_string())));
             return;
         }
-        set_applying.set(true);
-        set_apply_result.set(None);
+        let _ = set_applying.try_set(true);
+        let _ = set_apply_result.try_set(None);
 
         wasm_bindgen_futures::spawn_local(async move {
             let client = ApiClient::new();
@@ -471,21 +472,23 @@ fn PolicyActionsCard(
                 .await;
             match result {
                 Ok(_) => {
-                    set_apply_result.set(Some(Ok(())));
+                    let _ = set_apply_result.try_set(Some(Ok(())));
                     if alive.load(std::sync::atomic::Ordering::SeqCst) {
                         on_applied.run(());
                     }
                 }
                 Err(e) => {
-                    set_apply_result.set(Some(Err(e.user_message())));
+                    let _ = set_apply_result.try_set(Some(Err(e.user_message())));
                 }
             }
-            set_applying.set(false);
+            let _ = set_applying.try_set(false);
         });
     };
 
     let apply_disabled = Signal::derive(move || {
-        applying.get() || cpid.get().trim().is_empty() || content.get().trim().is_empty()
+        applying.try_get().unwrap_or(false)
+            || cpid.try_get().unwrap_or_default().trim().is_empty()
+            || content.try_get().unwrap_or_default().trim().is_empty()
     });
 
     view! {
@@ -494,29 +497,28 @@ fn PolicyActionsCard(
                 <Button
                     variant=ButtonVariant::Outline
                     on_click=Callback::new(on_validate)
-                    disabled=Signal::derive(move || validating.get() || content.get().trim().is_empty())
+                    disabled=Signal::derive(move || validating.try_get().unwrap_or(false) || content.try_get().unwrap_or_default().trim().is_empty())
                 >
-                    {move || if validating.get() {
-                        view! { <Spinner/> }.into_any()
-                    } else {
-                        view! { "Validate" }.into_any()
-                    }}
+                    <Show when=move || validating.try_get().unwrap_or(false) fallback=move || view! { "Validate" }>
+                        <Spinner/>
+                    </Show>
                 </Button>
                 <Button
                     variant=ButtonVariant::Primary
                     on_click=Callback::new(on_apply)
                     disabled=apply_disabled
                 >
-                    {move || if applying.get() {
-                        view! { <Spinner/> }.into_any()
-                    } else {
-                        view! { {apply_label.clone()} }.into_any()
-                    }}
+                    <Show when=move || applying.try_get().unwrap_or(false) fallback={
+                        let apply_label = apply_label.clone();
+                        move || view! { {apply_label.clone()} }
+                    }>
+                        <Spinner/>
+                    </Show>
                 </Button>
             </div>
 
             // Validation result
-            {move || validation_result.get().map(|result| {
+            {move || validation_result.try_get().flatten().map(|result| {
                 match result {
                     Ok(resp) if resp.valid => view! {
                         <div class="mt-3 flex items-center gap-2">
@@ -543,7 +545,7 @@ fn PolicyActionsCard(
             })}
 
             // Apply result
-            {move || apply_result.get().map(|result| {
+            {move || apply_result.try_get().flatten().map(|result| {
                 match result {
                     Ok(()) => view! {
                         <div class="mt-3">

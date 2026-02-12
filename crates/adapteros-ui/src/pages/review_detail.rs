@@ -30,19 +30,22 @@ pub fn ReviewDetail() -> impl IntoView {
     });
 
     // Derive breadcrumb label: show pause kind once loaded, fall back to ID
-    let breadcrumb_label = Signal::derive(move || match pause_state.get() {
-        LoadingState::Loaded(ref data) => match &data.state {
-            InferenceState::Paused(reason) => match &reason.kind {
-                PauseKind::ReviewNeeded => "Review Needed".to_string(),
-                PauseKind::PolicyApproval => "Policy Approval".to_string(),
-                PauseKind::ResourceWait => "Resource Wait".to_string(),
-                PauseKind::UserRequested => "User Requested".to_string(),
-                PauseKind::ThreatEscalation => "Threat Escalation".to_string(),
+    let breadcrumb_label =
+        Signal::derive(
+            move || match pause_state.try_get().unwrap_or(LoadingState::Idle) {
+                LoadingState::Loaded(ref data) => match &data.state {
+                    InferenceState::Paused(reason) => match &reason.kind {
+                        PauseKind::ReviewNeeded => "Review Needed".to_string(),
+                        PauseKind::PolicyApproval => "Policy Approval".to_string(),
+                        PauseKind::ResourceWait => "Resource Wait".to_string(),
+                        PauseKind::UserRequested => "User Requested".to_string(),
+                        PauseKind::ThreatEscalation => "Threat Escalation".to_string(),
+                    },
+                    _ => format!("{:?}", data.state),
+                },
+                _ => pause_id(),
             },
-            _ => format!("{:?}", data.state),
-        },
-        _ => pause_id(),
-    });
+        );
 
     view! {
         <PageScaffold
@@ -51,16 +54,32 @@ pub fn ReviewDetail() -> impl IntoView {
             breadcrumbs=vec![
                 PageBreadcrumbItem::new("Govern", "/reviews"),
                 PageBreadcrumbItem::new("Reviews", "/reviews"),
-                PageBreadcrumbItem::current(breadcrumb_label.get()),
+                PageBreadcrumbItem::current(breadcrumb_label.try_get().unwrap_or_default()),
             ]
         >
             <PageScaffoldActions slot>
                 <RefreshButton on_click=Callback::new(move |_| refetch.run(()))/>
             </PageScaffoldActions>
 
-            {move || match pause_state.get() {
+            {move || match pause_state.try_get().unwrap_or(LoadingState::Idle) {
                 LoadingState::Idle | LoadingState::Loading => {
                     view! { <LoadingDisplay message="Loading pause details..."/> }.into_any()
+                }
+                LoadingState::Error(e) if e.is_not_found() => {
+                    view! {
+                        <div class="flex min-h-[40vh] flex-col items-center justify-center px-4">
+                            <div class="card p-8 max-w-md w-full text-center">
+                                <div class="text-4xl font-bold text-muted-foreground mb-2">"404"</div>
+                                <h2 class="heading-3 mb-2">"Review not found"</h2>
+                                <p class="text-muted-foreground mb-6">
+                                    "This paused inference may have been resumed or doesn\u{2019}t exist."
+                                </p>
+                                <a href="/reviews" class="btn btn-primary btn-md">
+                                    "View all reviews"
+                                </a>
+                            </div>
+                        </div>
+                    }.into_any()
                 }
                 LoadingState::Error(e) => {
                     view! { <ErrorDisplay error=e on_retry=refetch.as_callback()/> }.into_any()
@@ -151,33 +170,35 @@ fn ReviewDetailBody(pause: InferenceStateResponse) -> impl IntoView {
         submit_ok.set(false);
 
         let review = Review {
-            assessment: parse_assessment(&assessment.get()),
+            assessment: parse_assessment(&assessment.try_get().unwrap_or_default()),
             issues: issues
-                .get()
+                .try_get()
+                .unwrap_or_default()
                 .into_iter()
                 .filter_map(|e| e.into_review_issue())
                 .collect(),
             suggestions: suggestions
-                .get()
+                .try_get()
+                .unwrap_or_default()
                 .into_iter()
-                .map(|s| s.text.get().trim().to_string())
+                .map(|s| s.text.try_get().unwrap_or_default().trim().to_string())
                 .filter(|s| !s.is_empty())
                 .collect(),
             comments: {
-                let c = comments.get().trim().to_string();
+                let c = comments.try_get().unwrap_or_default().trim().to_string();
                 if c.is_empty() {
                     None
                 } else {
                     Some(c)
                 }
             },
-            confidence: parse_confidence(&confidence.get()),
+            confidence: parse_confidence(&confidence.try_get().unwrap_or_default()),
         };
 
         let request = SubmitReviewRequest {
             pause_id: pause_id_for_submit.clone(),
             review,
-            reviewer: reviewer.get().trim().to_string(),
+            reviewer: reviewer.try_get().unwrap_or_default().trim().to_string(),
         };
 
         let client = Arc::new(ApiClient::new());
@@ -325,7 +346,7 @@ fn ReviewDetailBody(pause: InferenceStateResponse) -> impl IntoView {
 
                         <div class="mt-3 grid gap-3">
                             {move || {
-                                issues.get().into_iter().map(|issue| {
+                                issues.try_get().unwrap_or_default().into_iter().map(|issue| {
                                     let id = issue.id.clone();
                                     let remove = Callback::new(move |_: ()| {
                                         issues.update(|list| list.retain(|i| i.id != id));
@@ -394,7 +415,7 @@ fn ReviewDetailBody(pause: InferenceStateResponse) -> impl IntoView {
 
                         <div class="mt-3 grid gap-3">
                             {move || {
-                                suggestions.get().into_iter().map(|s| {
+                                suggestions.try_get().unwrap_or_default().into_iter().map(|s| {
                                     let id = s.id.clone();
                                     let remove = Callback::new(move |_: ()| {
                                         suggestions.update(|list| list.retain(|x| x.id != id));
@@ -425,13 +446,13 @@ fn ReviewDetailBody(pause: InferenceStateResponse) -> impl IntoView {
                         </div>
                     </div>
 
-                    {move || submit_error.get().map(|e| view! {
+                    {move || submit_error.try_get().flatten().map(|e| view! {
                         <div class="rounded-md border border-destructive/30 bg-destructive/10 p-3 text-sm text-destructive">
                             {e}
                         </div>
                     })}
 
-                    {move || submit_ok.get().then(|| view! {
+                    {move || submit_ok.try_get().unwrap_or(false).then(|| view! {
                         <div class="rounded-md border border-success/30 bg-success/10 p-3 text-sm text-success">
                             "Review submitted. If the worker is still connected, inference should resume automatically."
                             <div class="mt-2">
@@ -480,17 +501,32 @@ impl IssueEditor {
     }
 
     fn into_review_issue(self) -> Option<ReviewIssue> {
-        let description = self.description.get().trim().to_string();
+        let description = self
+            .description
+            .try_get()
+            .unwrap_or_default()
+            .trim()
+            .to_string();
         if description.is_empty() {
             return None;
         }
 
-        let location = self.location.get().trim().to_string();
-        let suggested_fix = self.suggested_fix.get().trim().to_string();
+        let location = self
+            .location
+            .try_get()
+            .unwrap_or_default()
+            .trim()
+            .to_string();
+        let suggested_fix = self
+            .suggested_fix
+            .try_get()
+            .unwrap_or_default()
+            .trim()
+            .to_string();
 
         Some(ReviewIssue {
-            severity: parse_severity(&self.severity.get()),
-            category: parse_scope(&self.category.get()),
+            severity: parse_severity(&self.severity.try_get().unwrap_or_default()),
+            category: parse_scope(&self.category.try_get().unwrap_or_default()),
             description,
             location: if location.is_empty() {
                 None

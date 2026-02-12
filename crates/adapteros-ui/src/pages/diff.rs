@@ -22,7 +22,7 @@ use std::sync::Arc;
 pub fn Diff() -> impl IntoView {
     let query = use_query_map();
     let redirect_path = {
-        let map = query.get();
+        let map = query.try_get().unwrap_or_default();
         let run_a = map
             .get("run")
             .or_else(|| map.get("run_a"))
@@ -65,8 +65,8 @@ pub fn Diff() -> impl IntoView {
 
     // Compare runs action
     let do_compare = move |_| {
-        let trace_a = run_a_id.get();
-        let trace_b = run_b_id.get();
+        let trace_a = run_a_id.try_get().unwrap_or_default();
+        let trace_b = run_b_id.try_get().unwrap_or_default();
 
         if trace_a.is_empty() || trace_b.is_empty() {
             diff_error.set(Some("Please select two runs to compare".to_string()));
@@ -142,14 +142,14 @@ pub fn Diff() -> impl IntoView {
                     <div class="flex items-center gap-4">
                         <Button
                             variant=ButtonVariant::Primary
-                            disabled=Signal::derive(move || diff_loading.get() || run_a_id.get().is_empty() || run_b_id.get().is_empty())
+                            disabled=Signal::derive(move || diff_loading.try_get().unwrap_or(false) || run_a_id.try_get().unwrap_or_default().is_empty() || run_b_id.try_get().unwrap_or_default().is_empty())
                             on_click=Callback::new(do_compare)
                         >
-                            {move || if diff_loading.get() { "Comparing..." } else { "Compare Runs" }}
+                            {move || if diff_loading.try_get().unwrap_or(false) { "Comparing..." } else { "Compare Runs" }}
                         </Button>
                         {move || {
-                            let run_a = run_a_id.get();
-                            let run_b = run_b_id.get();
+                            let run_a = run_a_id.try_get().unwrap_or_default();
+                            let run_b = run_b_id.try_get().unwrap_or_default();
                             if run_a.is_empty() || run_b.is_empty() {
                                 return view! {}.into_any();
                             }
@@ -160,7 +160,7 @@ pub fn Diff() -> impl IntoView {
                                 </Link>
                             }.into_any()
                         }}
-                        {move || diff_error.get().map(|e| view! {
+                        {move || diff_error.try_get().flatten().map(|e| view! {
                             <span class="text-destructive text-sm">{e}</span>
                         })}
                     </div>
@@ -169,7 +169,7 @@ pub fn Diff() -> impl IntoView {
 
             // Diff results
             {move || {
-                if diff_loading.get() {
+                if diff_loading.try_get().unwrap_or(false) {
                     view! {
                         <Card>
                             <div class="flex items-center justify-center py-12">
@@ -178,7 +178,7 @@ pub fn Diff() -> impl IntoView {
                             </div>
                         </Card>
                     }.into_any()
-                } else if let Some(result) = diff_result.get() {
+                } else if let Some(result) = diff_result.try_get().flatten() {
                     view! { <DiffResults result=result/> }.into_any()
                 } else {
                     view! {
@@ -206,13 +206,13 @@ fn RunSelector(
         <select
             class="flex h-10 w-full rounded-md border border-input bg-background px-3 py-2 text-sm"
             on:change=move |ev| selected.set(event_target_value(&ev))
-            prop:value=move || selected.get()
+            prop:value=move || selected.try_get().unwrap_or_default()
         >
             <option value="">"-- Select a run --"</option>
             {move || {
-                match runs.get() {
+                match runs.try_get().unwrap_or(LoadingState::Idle) {
                     LoadingState::Loaded(data) => {
-                        let exclude_id = exclude.get();
+                        let exclude_id = exclude.try_get().unwrap_or_default();
                         data.runs
                             .into_iter()
                             .filter(|r| r.trace_id != exclude_id)

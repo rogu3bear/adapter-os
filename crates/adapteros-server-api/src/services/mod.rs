@@ -18,6 +18,7 @@
 pub mod adapter_service;
 pub mod dataset_domain;
 pub mod error_alert_evaluator;
+pub mod key_distribution;
 pub mod repo_url;
 pub mod synthesis;
 pub mod training_dataset;

@@ -11,6 +11,35 @@ mod words;
 pub use compat::{extract_uuid_from_legacy, is_legacy_id, is_readable_id};
 pub use word_alias::word_alias;
 
+/// Compute the display name (word alias) for a raw ID string.
+///
+/// Convenience wrapper that parses the ID and returns its word alias if applicable.
+/// Use this in handlers instead of inlining `TypedId::parse(&id).and_then(|tid| tid.word_alias())`.
+pub fn display_name_for(id: &str) -> Option<String> {
+    TypedId::parse(id).and_then(|tid| tid.word_alias())
+}
+
+/// Format a hex hash for short display: `b3:` prefix + first 8 hex chars.
+///
+/// Handles optional `b3:` prefix on input. Only applies the `b3:` prefix when
+/// the input is valid hex. Non-hex strings are truncated to 12 chars with ellipsis.
+/// Use this for all BLAKE3 hash display to ensure consistency across UI, CLI, and API responses.
+pub fn format_hash_short(hash: &str) -> String {
+    let trimmed = hash.strip_prefix("b3:").unwrap_or(hash);
+    let is_hex = !trimmed.is_empty() && trimmed.chars().all(|c| c.is_ascii_hexdigit());
+    if is_hex {
+        if trimmed.len() > 8 {
+            format!("b3:{}", &trimmed[..8])
+        } else {
+            format!("b3:{trimmed}")
+        }
+    } else if trimmed.len() > 12 {
+        format!("{}...", &trimmed[..12])
+    } else {
+        trimmed.to_string()
+    }
+}
+
 /// Truncate any ID string for display.
 ///
 /// - If the input is a valid `TypedId`, returns `TypedId::short()` (prefix + 8 hex).
@@ -467,5 +496,71 @@ mod tests {
         let id = TypedId::from_parts(IdPrefix::Adp, uuid);
         let s: String = id.into();
         assert!(s.starts_with("adp-"));
+    }
+
+    #[test]
+    fn format_hash_short_basic() {
+        assert_eq!(
+            format_hash_short("a1b2c3d4e5f6a7b8c9d0e1f2a3b4c5d6"),
+            "b3:a1b2c3d4"
+        );
+    }
+
+    #[test]
+    fn format_hash_short_with_prefix() {
+        assert_eq!(
+            format_hash_short("b3:a1b2c3d4e5f6a7b8c9d0e1f2a3b4c5d6"),
+            "b3:a1b2c3d4"
+        );
+    }
+
+    #[test]
+    fn format_hash_short_already_short() {
+        assert_eq!(format_hash_short("abcd"), "b3:abcd");
+        assert_eq!(format_hash_short("b3:abcd"), "b3:abcd");
+    }
+
+    #[test]
+    fn format_hash_short_exactly_8() {
+        assert_eq!(format_hash_short("a1b2c3d4"), "b3:a1b2c3d4");
+    }
+
+    #[test]
+    fn format_hash_short_non_hex_short() {
+        assert_eq!(format_hash_short("hello"), "hello");
+        assert_eq!(format_hash_short("short"), "short");
+    }
+
+    #[test]
+    fn format_hash_short_non_hex_long() {
+        assert_eq!(
+            format_hash_short("hello-world-this-is-long"),
+            "hello-world-..."
+        );
+    }
+
+    #[test]
+    fn format_hash_short_empty() {
+        assert_eq!(format_hash_short(""), "");
+    }
+
+    #[test]
+    fn display_name_for_valid_typed_id() {
+        let id = TypedId::new(IdPrefix::Wrk);
+        let alias = display_name_for(id.as_str());
+        assert!(alias.is_some());
+        assert!(alias.unwrap().starts_with("wrk-"));
+    }
+
+    #[test]
+    fn display_name_for_non_aliased_type() {
+        let id = TypedId::new(IdPrefix::Trc);
+        assert!(display_name_for(id.as_str()).is_none());
+    }
+
+    #[test]
+    fn display_name_for_invalid_id() {
+        assert!(display_name_for("not-a-valid-id").is_none());
+        assert!(display_name_for("").is_none());
     }
 }

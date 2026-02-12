@@ -9,7 +9,7 @@
 #![allow(unused_imports)]
 
 use adapteros_cli::formatting::{
-    format_bytes, format_duration, format_seconds, format_time_ago, truncate_hash, truncate_id,
+    format_bytes, format_duration, format_seconds, format_time_ago, truncate_id,
 };
 use adapteros_cli::output::{is_ci, OutputMode, OutputWriter};
 use chrono::{DateTime, Utc};
@@ -133,20 +133,6 @@ mod formatting_tests {
         assert_eq!(truncate_id("adapter-123456789"), "adapter-");
         assert_eq!(truncate_id("very-long-adapter-id"), "very-lon");
         assert_eq!(truncate_id("123456789"), "12345678");
-    }
-
-    #[test]
-    fn test_truncate_hash_short() {
-        assert_eq!(truncate_hash("short"), "short");
-        assert_eq!(truncate_hash("a"), "a");
-        assert_eq!(truncate_hash(""), "");
-        assert_eq!(truncate_hash("exactly12345"), "exactly12345");
-    }
-
-    #[test]
-    fn test_truncate_hash_long() {
-        assert_eq!(truncate_hash("1a2b3c4d5e6f7g8h9i0j"), "1a2b3c4d5e6f");
-        assert_eq!(truncate_hash("abcdefghijklmnopqrstuvwxyz"), "abcdefghijkl");
     }
 
     #[test]

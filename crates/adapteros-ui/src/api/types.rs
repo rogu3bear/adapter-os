@@ -327,6 +327,8 @@ pub struct StackResponse {
     pub determinism_mode: Option<String>,
     #[serde(skip_serializing_if = "Option::is_none")]
     pub routing_determinism_mode: Option<String>,
+    #[serde(skip_serializing_if = "Option::is_none")]
+    pub display_name: Option<String>,
 }
 
 /// Policy pack response
@@ -401,6 +403,8 @@ pub struct CollectionDetailResponse {
     pub created_at: String,
     #[serde(skip_serializing_if = "Option::is_none")]
     pub updated_at: Option<String>,
+    #[serde(skip_serializing_if = "Option::is_none")]
+    pub display_name: Option<String>,
 }
 
 /// Document info within a collection
@@ -964,6 +968,8 @@ pub struct DatasetResponse {
     pub created_at: String,
     #[serde(skip_serializing_if = "Option::is_none")]
     pub updated_at: Option<String>,
+    #[serde(skip_serializing_if = "Option::is_none")]
+    pub display_name: Option<String>,
 }
 
 /// Response for listing datasets
@@ -1790,4 +1796,107 @@ pub struct ReplayDivergence {
     pub expected_hash: String,
     pub actual_hash: String,
     pub context: String,
+}
+
+// ============================================================================
+// SSE Lifecycle Event Types
+//
+// Mirror the backend enum shapes in adapteros-server-api::sse::lifecycle_events.
+// Tagged JSON (`"event"` field) allows serde to discriminate variants.
+// ============================================================================
+
+/// Adapter lifecycle events from SSE stream `/v1/stream/adapters`.
+#[derive(Debug, Clone, serde::Serialize, serde::Deserialize)]
+#[serde(tag = "event", rename_all = "snake_case")]
+pub enum AdapterLifecycleEvent {
+    /// Adapter tier promoted (e.g. persistent -> warm -> ephemeral)
+    Promoted {
+        adapter_id: String,
+        from_state: String,
+        to_state: String,
+    },
+    /// Adapter loaded into memory
+    Loaded {
+        adapter_id: String,
+        load_time_ms: u64,
+    },
+    /// Adapter load failed
+    LoadFailed { adapter_id: String, error: String },
+    /// Adapter unloaded / evicted from memory
+    Evicted { adapter_id: String, reason: String },
+}
+
+/// Adapter version lifecycle events from SSE stream `/v1/stream/adapters`.
+#[derive(Debug, Clone, serde::Serialize, serde::Deserialize)]
+#[serde(tag = "event", rename_all = "snake_case")]
+pub enum AdapterVersionEvent {
+    /// A version was promoted to active
+    VersionPromoted {
+        version_id: String,
+        repo_id: String,
+        branch: String,
+    },
+    /// A branch was rolled back to a previous version
+    VersionRolledBack {
+        repo_id: String,
+        branch: String,
+        target_version_id: String,
+    },
+}
+
+/// Training lifecycle events from SSE stream `/v1/streams/training`.
+#[derive(Debug, Clone, serde::Serialize, serde::Deserialize)]
+#[serde(tag = "event", rename_all = "snake_case")]
+pub enum TrainingLifecycleEvent {
+    /// Training job started
+    JobStarted {
+        job_id: String,
+        adapter_id: String,
+        config_summary: String,
+    },
+    /// An epoch completed
+    EpochCompleted {
+        job_id: String,
+        epoch: u32,
+        total_epochs: u32,
+        loss: f64,
+        learning_rate: f64,
+    },
+    /// Checkpoint saved to disk
+    CheckpointSaved {
+        job_id: String,
+        epoch: u32,
+        path: String,
+    },
+    /// Training job completed successfully
+    JobCompleted {
+        job_id: String,
+        adapter_id: String,
+        final_loss: f64,
+        duration_secs: u64,
+    },
+    /// Training job failed
+    JobFailed {
+        job_id: String,
+        error: String,
+        last_epoch: u32,
+    },
+}
+
+/// System health transition events from SSE stream `/v1/stream/telemetry` (alerts).
+#[derive(Debug, Clone, serde::Serialize, serde::Deserialize)]
+#[serde(tag = "event", rename_all = "snake_case")]
+pub enum SystemHealthTransitionEvent {
+    /// Worker lifecycle state changed
+    WorkerStateChanged {
+        worker_id: String,
+        previous: String,
+        current: String,
+        reason: String,
+    },
+    /// Drain phase started
+    DrainStarted {
+        worker_id: String,
+        previous_status: String,
+    },
 }

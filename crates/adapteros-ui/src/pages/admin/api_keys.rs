@@ -42,7 +42,7 @@ pub fn ApiKeysSection() -> impl IntoView {
 
     // Create key handler
     let on_create = move |_| {
-        let name = new_key_name.get();
+        let name = new_key_name.try_get().unwrap_or_default();
         if name.trim().is_empty() {
             create_error.set(Some("Name is required".to_string()));
             return;
@@ -51,7 +51,7 @@ pub fn ApiKeysSection() -> impl IntoView {
         creating.set(true);
         create_error.set(None);
 
-        let scopes = selected_scopes.get();
+        let scopes = selected_scopes.try_get().unwrap_or_default();
         let request = CreateApiKeyRequest {
             name: name.trim().to_string(),
             scopes,
@@ -83,7 +83,7 @@ pub fn ApiKeysSection() -> impl IntoView {
 
     // Copy to clipboard using wasm-bindgen
     let on_copy = move |_| {
-        if let Some(token) = created_key_token.get() {
+        if let Some(token) = created_key_token.try_get().flatten() {
             spawn_local(async move {
                 if copy_to_clipboard(&token).await {
                     copied.set(true);
@@ -104,7 +104,7 @@ pub fn ApiKeysSection() -> impl IntoView {
 
     // Execute revoke after confirmation
     let do_revoke = Callback::new(move |_| {
-        if let Some(id) = revoke_target_id.get() {
+        if let Some(id) = revoke_target_id.try_get().flatten() {
             revoking_id.set(Some(id.clone()));
             show_revoke_confirm.set(false);
 
@@ -132,7 +132,7 @@ pub fn ApiKeysSection() -> impl IntoView {
 
     // Toggle scope selection
     let toggle_scope = move |scope: String| {
-        let mut current = selected_scopes.get();
+        let mut current = selected_scopes.try_get().unwrap_or_default();
         if current.contains(&scope) {
             current.retain(|s| s != &scope);
         } else {
@@ -148,7 +148,7 @@ pub fn ApiKeysSection() -> impl IntoView {
         <div class="space-y-4">
             // Created key display (show once after creation)
             {move || {
-                if let Some(token) = created_key_token.get() {
+                if let Some(token) = created_key_token.try_get().flatten() {
                     view! {
                         <div class="glass-panel border-status-success/50 bg-status-success/10 p-4 rounded-lg">
                             <div class="flex items-start gap-3">
@@ -170,7 +170,7 @@ pub fn ApiKeysSection() -> impl IntoView {
                                             variant=ButtonVariant::Outline
                                             on_click=Callback::new(on_copy)
                                         >
-                                            {move || if copied.get() { "Copied!" } else { "Copy" }}
+                                            {move || if copied.try_get().unwrap_or(false) { "Copied!" } else { "Copy" }}
                                         </Button>
                                     </div>
                                 </div>
@@ -195,7 +195,7 @@ pub fn ApiKeysSection() -> impl IntoView {
 
             // Create dialog
             {move || {
-                if show_create_dialog.get() {
+                if show_create_dialog.try_get().unwrap_or(false) {
                     view! {
                         <Card>
                             <div class="space-y-4">
@@ -234,7 +234,7 @@ pub fn ApiKeysSection() -> impl IntoView {
                                                 view! {
                                                     <button
                                                         class=move || {
-                                                            let is_selected = selected_scopes.get().contains(&scope_for_check);
+                                                            let is_selected = selected_scopes.try_get().unwrap_or_default().contains(&scope_for_check);
                                                             if is_selected {
                                                                 "px-3 py-1.5 rounded-md text-sm font-medium bg-primary text-primary-foreground focus:outline-none focus:ring-2 focus:ring-ring focus:ring-offset-2"
                                                             } else {
@@ -244,7 +244,7 @@ pub fn ApiKeysSection() -> impl IntoView {
                                                         type="button"
                                                         aria-pressed={
                                                             let scope = scope_for_toggle.clone();
-                                                            move || selected_scopes.get().contains(&scope)
+                                                            move || selected_scopes.try_get().unwrap_or_default().contains(&scope)
                                                         }
                                                         on:click={
                                                             let scope = scope_for_toggle.clone();
@@ -263,7 +263,7 @@ pub fn ApiKeysSection() -> impl IntoView {
                                 </div>
 
                                 {move || {
-                                    if let Some(error) = create_error.get() {
+                                    if let Some(error) = create_error.try_get().flatten() {
                                         view! {
                                             <div class="text-sm text-destructive">{error}</div>
                                         }.into_any()
@@ -288,7 +288,7 @@ pub fn ApiKeysSection() -> impl IntoView {
                                         disabled=Signal::from(creating)
                                         loading=Signal::from(creating)
                                     >
-                                        {move || if creating.get() { "Generating..." } else { "Generate Key" }}
+                                        {move || if creating.try_get().unwrap_or(false) { "Generating..." } else { "Generate Key" }}
                                     </Button>
                                 </div>
                             </div>
@@ -302,7 +302,7 @@ pub fn ApiKeysSection() -> impl IntoView {
             // Keys list
             <Card>
                 {move || {
-                    match keys.get() {
+                    match keys.try_get().unwrap_or(LoadingState::Idle) {
                         LoadingState::Idle | LoadingState::Loading => {
                             view! {
                                 <div class="flex items-center justify-center py-12">
@@ -315,7 +315,7 @@ pub fn ApiKeysSection() -> impl IntoView {
                                 .filter(|k| k.revoked_at.is_none())
                                 .collect();
 
-                            if active_keys.is_empty() && !show_create_dialog.get() {
+                            if active_keys.is_empty() && !show_create_dialog.try_get().unwrap_or(false) {
                                 view! {
                                     <div class="py-8 text-center">
                                         <div class="rounded-full bg-muted p-3 mx-auto w-fit mb-4">
@@ -386,7 +386,7 @@ pub fn ApiKeysSection() -> impl IntoView {
                                                     let key_id = key.id.clone();
                                                     let key_id_for_revoke = key.id.clone();
                                                     let key_name_for_revoke = key.name.clone();
-                                                    let is_revoking = Signal::derive(move || revoking_id.get() == Some(key_id.clone()));
+                                                    let is_revoking = Signal::derive(move || revoking_id.try_get().flatten() == Some(key_id.clone()));
 
                                                     view! {
                                                         <TableRow>
@@ -427,7 +427,7 @@ pub fn ApiKeysSection() -> impl IntoView {
                                                                     })
                                                                     disabled=is_revoking
                                                                 >
-                                                                    {move || if is_revoking.get() { "Revoking..." } else { "Revoke" }}
+                                                                    {move || if is_revoking.try_get().unwrap_or(false) { "Revoking..." } else { "Revoke" }}
                                                                 </Button>
                                                             </TableCell>
                                                         </TableRow>
@@ -453,7 +453,7 @@ pub fn ApiKeysSection() -> impl IntoView {
 
             // Revoke confirmation dialog
             {move || {
-                let name = revoke_target_name.get();
+                let name = revoke_target_name.try_get().unwrap_or_default();
                 let description = format!(
                     "Revoke '{}'? Applications using this key will immediately lose access.",
                     name,
@@ -470,7 +470,7 @@ pub fn ApiKeysSection() -> impl IntoView {
                         on_cancel=Callback::new(move |_| {
                             show_revoke_confirm.set(false);
                         })
-                        loading=Signal::derive(move || revoking_id.get().is_some())
+                        loading=Signal::derive(move || revoking_id.try_get().flatten().is_some())
                     />
                 }
             }}

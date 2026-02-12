@@ -5,12 +5,13 @@
 //! - AvailableBackends for representing configured backends
 //! - ensure_preload_allowed for memory pressure guardrails
 
+use crate::adapter_hotswap::FallbackCandidate;
 use crate::device_placement::{
     LaneDescriptor, PlacementDecision, PlacementEngine, TelemetryCollector,
 };
 use crate::kernel_wrapper::BackendLane;
 use crate::memory::MemoryPressureLevel;
-use adapteros_core::{AosError, BackendKind, Result};
+use adapteros_core::{AosError, B3Hash, BackendKind, Result};
 
 /// CoreML runtime telemetry captured for replay/logging
 #[derive(Debug, Clone, Default)]
@@ -74,6 +75,33 @@ impl PlacementState {
     }
 }
 
+/// Build an ordered list of fallback candidates from adapter IDs and their hashes.
+///
+/// The input pairs should be ordered by routing score (highest first). This is
+/// typically constructed by mapping `Decision.candidates` through the adapter
+/// registry to resolve string IDs and weight hashes.
+///
+/// # Example
+///
+/// ```ignore
+/// let candidates = build_fallback_candidates(&[
+///     ("top-adapter", hash_a),
+///     ("second-adapter", hash_b),
+/// ]);
+/// let outcome = hotswap.try_load_with_fallback(&candidates, timeout).await?;
+/// ```
+pub fn build_fallback_candidates(
+    adapter_id_hash_pairs: &[(&str, B3Hash)],
+) -> Vec<FallbackCandidate> {
+    adapter_id_hash_pairs
+        .iter()
+        .map(|(id, hash)| FallbackCandidate {
+            adapter_id: id.to_string(),
+            hash: *hash,
+        })
+        .collect()
+}
+
 /// Enforce guardrails for adapter preload under memory pressure.
 pub fn ensure_preload_allowed(
     pressure_before: MemoryPressureLevel,
@@ -116,5 +144,30 @@ mod tests {
     fn preload_guard_allows_after_recovery() {
         let res = ensure_preload_allowed(MemoryPressureLevel::Critical, MemoryPressureLevel::Low);
         assert!(res.is_ok());
+    }
+
+    #[test]
+    fn build_fallback_candidates_preserves_order() {
+        let hash_a = B3Hash::hash(b"adapter-a");
+        let hash_b = B3Hash::hash(b"adapter-b");
+        let hash_c = B3Hash::hash(b"adapter-c");
+
+        let candidates = build_fallback_candidates(&[
+            ("adapter-a", hash_a),
+            ("adapter-b", hash_b),
+            ("adapter-c", hash_c),
+        ]);
+
+        assert_eq!(candidates.len(), 3);
+        assert_eq!(candidates[0].adapter_id, "adapter-a");
+        assert_eq!(candidates[0].hash, hash_a);
+        assert_eq!(candidates[1].adapter_id, "adapter-b");
+        assert_eq!(candidates[2].adapter_id, "adapter-c");
+    }
+
+    #[test]
+    fn build_fallback_candidates_empty_input() {
+        let candidates = build_fallback_candidates(&[]);
+        assert!(candidates.is_empty());
     }
 }

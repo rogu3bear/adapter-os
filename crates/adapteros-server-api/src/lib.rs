@@ -127,6 +127,7 @@ pub mod state;
 pub mod storage_reconciler;
 pub mod storage_usage;
 pub mod supervisor_client;
+pub mod synthetic_probes;
 pub mod telemetry;
 pub mod telemetry_ext;
 #[cfg(test)]

@@ -179,7 +179,7 @@ async fn observability_middleware_inner(
                                 &tenant_id_for_persist,
                                 &fingerprint,
                                 &code,
-                                &kind,
+                                kind,
                                 severity,
                                 created_at_unix_ms,
                                 &error_id,
