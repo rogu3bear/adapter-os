@@ -1398,6 +1398,19 @@ pub async fn create_training_job(
             )
         })?;
 
+    // Emit SSE lifecycle event for training job start
+    state
+        .sse_manager
+        .emit_lifecycle(
+            crate::sse::SseStreamType::Training,
+            &crate::sse::lifecycle_events::TrainingLifecycleEvent::JobStarted {
+                job_id: job.id.clone(),
+                adapter_id: job.adapter_name.clone(),
+                config_summary: format!("epochs={}", job.config.epochs),
+            },
+        )
+        .await;
+
     Ok(Json(training_job_to_response(job)))
 }
 
