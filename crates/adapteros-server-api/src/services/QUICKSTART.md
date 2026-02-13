@@ -263,15 +263,101 @@ async fn my_operation(&self, id: &str) -> Result<MyResult> {
 #[cfg(test)]
 mod tests {
     use super::*;
+    use crate::config::PathsConfig;
+    use crate::state::{ApiConfig, AppState, MetricsConfig};
+    use crate::telemetry::MetricsRegistry;
+    use crate::test_utils;
+    use adapteros_core::{BackendKind, SeedMode};
+    use adapteros_db::Db;
+    use adapteros_lora_worker::memory::UmaPressureMonitor;
+    use adapteros_metrics_exporter::MetricsExporter;
+    use adapteros_telemetry::MetricsCollector;
+    use std::sync::{Arc, RwLock};
 
-    async fn create_test_state() -> Arc<AppState> {
-        // Create test database, config, etc.
-        todo!()
+    async fn create_test_state() -> (Arc<AppState>, tempfile::TempDir) {
+        let db = Db::new_in_memory()
+            .await
+            .expect("create in-memory DB for quickstart tests");
+        let jwt_secret = b"test-jwt-secret-for-quickstart-32bytes!".to_vec();
+
+        // Use the repo's canonical test temp dir location (`./var/tmp`) and keep the TempDir
+        // alive for the duration of the test so AppState paths remain valid.
+        let base_tempdir = test_utils::tempdir_with_prefix("aos-test-quickstart-");
+        let base_dir = base_tempdir.path().to_path_buf();
+
+        let artifacts_root = base_dir.join("artifacts");
+        let bundles_root = base_dir.join("bundles");
+        let adapters_root = base_dir.join("adapters");
+        let plan_dir = base_dir.join("plan");
+        let datasets_root = base_dir.join("datasets");
+        let documents_root = base_dir.join("documents");
+        for dir in [
+            &artifacts_root,
+            &bundles_root,
+            &adapters_root,
+            &plan_dir,
+            &datasets_root,
+            &documents_root,
+        ] {
+            std::fs::create_dir_all(dir).expect("create quickstart test dir");
+        }
+
+        let config = Arc::new(RwLock::new(ApiConfig {
+            metrics: MetricsConfig {
+                enabled: false,
+                bearer_token: "test".to_string(),
+            },
+            directory_analysis_timeout_secs: 120,
+            use_session_stack_for_routing: false,
+            capacity_limits: Default::default(),
+            general: None,
+            server: Default::default(),
+            security: Default::default(),
+            auth: Default::default(),
+            self_hosting: Default::default(),
+            performance: Default::default(),
+            streaming: Default::default(),
+            paths: PathsConfig {
+                artifacts_root: artifacts_root.to_string_lossy().to_string(),
+                bundles_root: bundles_root.to_string_lossy().to_string(),
+                adapters_root: adapters_root.to_string_lossy().to_string(),
+                plan_dir: plan_dir.to_string_lossy().to_string(),
+                datasets_root: datasets_root.to_string_lossy().to_string(),
+                documents_root: documents_root.to_string_lossy().to_string(),
+                synthesis_model_path: None,
+            },
+            chat_context: Default::default(),
+            seed_mode: SeedMode::BestEffort,
+            backend_profile: BackendKind::Auto,
+            worker_id: 0,
+            timeouts: Default::default(),
+            rate_limit: None,
+            inference_cache: Default::default(),
+        }));
+
+        let metrics_exporter = Arc::new(
+            MetricsExporter::new(vec![0.1, 1.0]).expect("create metrics exporter for tests"),
+        );
+        let metrics_collector = Arc::new(MetricsCollector::new(Default::default()));
+        let metrics_registry = Arc::new(MetricsRegistry::new());
+        let uma_monitor = Arc::new(UmaPressureMonitor::new(15, None));
+
+        let state = Arc::new(AppState::new(
+            db,
+            jwt_secret,
+            config,
+            metrics_exporter,
+            metrics_collector,
+            metrics_registry,
+            uma_monitor,
+        ));
+
+        (state, base_tempdir)
     }
 
     #[tokio::test]
     async fn test_my_operation() {
-        let state = create_test_state().await;
+        let (state, _tmp) = create_test_state().await;
         let service = DefaultMyService::new(state);
 
         let result = service.do_something("test-id").await;
@@ -283,7 +369,7 @@ mod tests {
 
     #[tokio::test]
     async fn test_not_found_error() {
-        let state = create_test_state().await;
+        let (state, _tmp) = create_test_state().await;
         let service = DefaultMyService::new(state);
 
         let result = service.do_something("nonexistent").await;
