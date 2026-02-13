@@ -277,18 +277,31 @@ int32_t coreml_run_inference(
             shape = @[@(1), @(input_len)];
         }
 
-        // Normalize supported input shapes to [1, seq_len].
+        // Normalize supported input shapes to [1, seq_len]. Treat non-positive dimensions
+        // (dynamic in some exports) as variable-length and fall back to input_len.
         size_t seq_len = input_len;
         if (shape.count == 2) {
-            if ([shape[0] unsignedIntegerValue] != 1) {
+            NSInteger b = [shape[0] integerValue];
+            NSInteger t = [shape[1] integerValue];
+            if (b > 0 && b != 1) {
                 snprintf(g_last_error, sizeof(g_last_error),
-                         "Unsupported batch size for input_ids: %zu",
-                         (size_t)[shape[0] unsignedIntegerValue]);
+                         "Unsupported batch size for input_ids: %ld",
+                         (long)b);
                 return -2;
             }
-            seq_len = (size_t)[shape[1] unsignedIntegerValue];
+            if (t > 0) {
+                seq_len = (size_t)t;
+            } else {
+                seq_len = input_len;
+            }
+            shape = @[@(1), @(seq_len)];
         } else if (shape.count == 1) {
-            seq_len = (size_t)[shape[0] unsignedIntegerValue];
+            NSInteger t = [shape[0] integerValue];
+            if (t > 0) {
+                seq_len = (size_t)t;
+            } else {
+                seq_len = input_len;
+            }
             shape = @[@(1), @(seq_len)];
         } else {
             snprintf(g_last_error, sizeof(g_last_error),
@@ -362,18 +375,24 @@ int32_t coreml_run_inference(
             return -6;
         }
 
-        size_t vocab_dim = (size_t)[outShape.lastObject unsignedIntegerValue];
+        NSInteger vocab_i = [outShape.lastObject integerValue];
+        if (vocab_i <= 0) {
+            snprintf(g_last_error, sizeof(g_last_error), "Invalid logits vocab dimension");
+            return -6;
+        }
+        size_t vocab_dim = (size_t)vocab_i;
         size_t copyLen = output_len < vocab_dim ? output_len : vocab_dim;
 
         size_t base_offset = 0;
         size_t vocab_stride = 1;
         if (outShape.count == 3) {
             // [1, T, V]
-            size_t t = (size_t)[outShape[1] unsignedIntegerValue];
-            if (t == 0) {
+            NSInteger t_i = [outShape[1] integerValue];
+            if (t_i <= 0) {
                 snprintf(g_last_error, sizeof(g_last_error), "Invalid logits time dimension");
                 return -6;
             }
+            size_t t = (size_t)t_i;
             if (pos >= t) {
                 pos = t - 1;
             }
@@ -381,9 +400,20 @@ int32_t coreml_run_inference(
             vocab_stride = (size_t)[outStrides[2] unsignedIntegerValue];
             base_offset = pos * stride_t;
         } else if (outShape.count == 2) {
-            // [1, V] or [T, V] (treat as a single slice)
-            vocab_stride = (size_t)[outStrides[1] unsignedIntegerValue];
-            base_offset = 0;
+            // [1, V] or [T, V]
+            NSInteger t_i = [outShape[0] integerValue];
+            if (t_i > 1) {
+                size_t t = (size_t)t_i;
+                if (pos >= t) {
+                    pos = t - 1;
+                }
+                size_t stride_t = (size_t)[outStrides[0] unsignedIntegerValue];
+                vocab_stride = (size_t)[outStrides[1] unsignedIntegerValue];
+                base_offset = pos * stride_t;
+            } else {
+                vocab_stride = (size_t)[outStrides[1] unsignedIntegerValue];
+                base_offset = 0;
+            }
         } else if (outShape.count == 1) {
             // [V]
             vocab_stride = (size_t)[outStrides[0] unsignedIntegerValue];
@@ -664,17 +694,31 @@ int32_t coreml_run_inference_with_lora(
             shape = @[@(1), @(input_len)];
         }
 
+        // Normalize supported input shapes to [1, seq_len]. Treat non-positive dimensions
+        // (dynamic in some exports) as variable-length and fall back to input_len.
         size_t seq_len = input_len;
         if (shape.count == 2) {
-            if ([shape[0] unsignedIntegerValue] != 1) {
+            NSInteger b = [shape[0] integerValue];
+            NSInteger t = [shape[1] integerValue];
+            if (b > 0 && b != 1) {
                 snprintf(g_last_error, sizeof(g_last_error),
-                         "Unsupported batch size for input_ids: %zu",
-                         (size_t)[shape[0] unsignedIntegerValue]);
+                         "Unsupported batch size for input_ids: %ld",
+                         (long)b);
                 return -2;
             }
-            seq_len = (size_t)[shape[1] unsignedIntegerValue];
+            if (t > 0) {
+                seq_len = (size_t)t;
+            } else {
+                seq_len = input_len;
+            }
+            shape = @[@(1), @(seq_len)];
         } else if (shape.count == 1) {
-            seq_len = (size_t)[shape[0] unsignedIntegerValue];
+            NSInteger t = [shape[0] integerValue];
+            if (t > 0) {
+                seq_len = (size_t)t;
+            } else {
+                seq_len = input_len;
+            }
             shape = @[@(1), @(seq_len)];
         } else {
             snprintf(g_last_error, sizeof(g_last_error),
@@ -748,17 +792,23 @@ int32_t coreml_run_inference_with_lora(
             return -6;
         }
 
-        size_t vocab_dim = (size_t)[outShape.lastObject unsignedIntegerValue];
+        NSInteger vocab_i = [outShape.lastObject integerValue];
+        if (vocab_i <= 0) {
+            snprintf(g_last_error, sizeof(g_last_error), "Invalid logits vocab dimension");
+            return -6;
+        }
+        size_t vocab_dim = (size_t)vocab_i;
         size_t copyLen = output_len < vocab_dim ? output_len : vocab_dim;
 
         size_t base_offset = 0;
         size_t vocab_stride = 1;
         if (outShape.count == 3) {
-            size_t t = (size_t)[outShape[1] unsignedIntegerValue];
-            if (t == 0) {
+            NSInteger t_i = [outShape[1] integerValue];
+            if (t_i <= 0) {
                 snprintf(g_last_error, sizeof(g_last_error), "Invalid logits time dimension");
                 return -6;
             }
+            size_t t = (size_t)t_i;
             if (pos >= t) {
                 pos = t - 1;
             }
@@ -766,8 +816,19 @@ int32_t coreml_run_inference_with_lora(
             vocab_stride = (size_t)[outStrides[2] unsignedIntegerValue];
             base_offset = pos * stride_t;
         } else if (outShape.count == 2) {
-            vocab_stride = (size_t)[outStrides[1] unsignedIntegerValue];
-            base_offset = 0;
+            NSInteger t_i = [outShape[0] integerValue];
+            if (t_i > 1) {
+                size_t t = (size_t)t_i;
+                if (pos >= t) {
+                    pos = t - 1;
+                }
+                size_t stride_t = (size_t)[outStrides[0] unsignedIntegerValue];
+                vocab_stride = (size_t)[outStrides[1] unsignedIntegerValue];
+                base_offset = pos * stride_t;
+            } else {
+                vocab_stride = (size_t)[outStrides[1] unsignedIntegerValue];
+                base_offset = 0;
+            }
         } else if (outShape.count == 1) {
             vocab_stride = (size_t)[outStrides[0] unsignedIntegerValue];
             base_offset = 0;
