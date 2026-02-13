@@ -24,6 +24,10 @@ fn readable_id(_prefix: &str, _slug_source: &str) -> String {
 use leptos::prelude::*;
 #[cfg(target_arch = "wasm32")]
 use send_wrapper::SendWrapper;
+use std::sync::{
+    atomic::{AtomicBool, Ordering},
+    Arc,
+};
 #[cfg(target_arch = "wasm32")]
 use wasm_bindgen::JsCast;
 #[cfg(target_arch = "wasm32")]
@@ -392,6 +396,11 @@ pub fn DatasetUploadWizard(
         RwSignal::new(None::<SendWrapper<web_sys::File>>);
     #[cfg(target_arch = "wasm32")]
     let data_preview: RwSignal<Option<SelectedFile>> = RwSignal::new(None);
+    let is_active = Arc::new(AtomicBool::new(true));
+    on_cleanup({
+        let is_active = Arc::clone(&is_active);
+        move || is_active.store(false, Ordering::Relaxed)
+    });
 
     let close: Callback<()> = Callback::new(move |_| {
         open.set(false);
@@ -486,6 +495,7 @@ pub fn DatasetUploadWizard(
 
     #[cfg(target_arch = "wasm32")]
     let handle_data_file = {
+        let is_active = Arc::clone(&is_active);
         move |ev: web_sys::Event| {
             if let Some(input) = ev
                 .target()
@@ -507,23 +517,35 @@ pub fn DatasetUploadWizard(
                             validate_file(&file, upload_limits.1, allowed_mime, allowed_ext, label)
                         {
                             parse_errors.set(vec![err]);
+                            input.set_value("");
                             return;
                         }
 
                         let name = file.name();
+                        let is_active = Arc::clone(&is_active);
                         spawn_local(async move {
+                            if !is_active.load(Ordering::Relaxed) {
+                                return;
+                            }
                             match read_as_text(&Blob::from(file.clone())).await {
                                 Ok(text) => {
-                                    data_file.set(Some(SendWrapper::new(file)));
-                                    data_preview.set(Some(SelectedFile { name, text }));
+                                    if !is_active.load(Ordering::Relaxed) {
+                                        return;
+                                    }
+                                    let _ = data_file.try_set(Some(SendWrapper::new(file)));
+                                    let _ = data_preview.try_set(Some(SelectedFile { name, text }));
                                     refresh_preview.run(());
                                 }
                                 Err(e) => {
-                                    parse_errors
-                                        .set(vec![format!("Failed to read dataset: {}", e)]);
+                                    if !is_active.load(Ordering::Relaxed) {
+                                        return;
+                                    }
+                                    let _ = parse_errors
+                                        .try_set(vec![format!("Failed to read dataset: {}", e)]);
                                 }
                             }
                         });
+                        input.set_value("");
                     }
                 }
             }
@@ -532,6 +554,9 @@ pub fn DatasetUploadWizard(
 
     #[cfg(not(target_arch = "wasm32"))]
     let handle_data_file = |_ev: web_sys::Event| {};
+    let data_handler = Callback::new(move |ev: web_sys::Event| {
+        handle_data_file(ev);
+    });
 
     let on_upload: Callback<()> = {
         Callback::new(move |_| {
@@ -557,13 +582,20 @@ pub fn DatasetUploadWizard(
                 let data_file_value = data_file.get();
                 let mode_value = mode.get();
                 let csv_mapping = csv_mapping.get();
+                let sample_count = preview_rows.get().len();
+                let idempotency_value = idempotency_key.get();
                 status.set("Uploading dataset (this may take a moment)...".to_string());
+                let is_active = Arc::clone(&is_active);
                 spawn_local(async move {
+                    if !is_active.load(Ordering::Relaxed) {
+                        return;
+                    }
                     let form = match web_sys::FormData::new() {
                         Ok(f) => f,
                         Err(_) => {
-                            upload_error.set(Some("Failed to create upload form".into()));
-                            submitting.set(false);
+                            let _ =
+                                upload_error.try_set(Some("Failed to create upload form".into()));
+                            let _ = submitting.try_set(false);
                             return;
                         }
                     };
@@ -573,13 +605,14 @@ pub fn DatasetUploadWizard(
                         UploadMode::Text => "txt",
                     };
                     let Some(data_file) = data_file_value.map(|file| file.take()) else {
-                        upload_error.set(Some("Select a dataset file to upload".into()));
-                        submitting.set(false);
+                        let _ =
+                            upload_error.try_set(Some("Select a dataset file to upload".into()));
+                        let _ = submitting.try_set(false);
                         return;
                     };
                     if let Err(_) = form.append_with_blob("files[]", data_file.as_ref()) {
-                        upload_error.set(Some("Failed to attach dataset file".into()));
-                        submitting.set(false);
+                        let _ = upload_error.try_set(Some("Failed to attach dataset file".into()));
+                        let _ = submitting.try_set(false);
                         return;
                     }
                     form.append_with_str("name", &dataset_name).ok();
@@ -597,7 +630,6 @@ pub fn DatasetUploadWizard(
                         }
                     }
 
-                    let idempotency_value = idempotency_key.get();
                     let idempotency_header = if idempotency_value.trim().is_empty() {
                         None
                     } else {
@@ -609,25 +641,30 @@ pub fn DatasetUploadWizard(
                         .await
                     {
                         Ok(resp) => {
-                            status.set(format!(
+                            if !is_active.load(Ordering::Relaxed) {
+                                return;
+                            }
+                            let _ = status.try_set(format!(
                                 "Dataset {} uploaded ({} files, {} bytes)",
                                 resp.dataset_id, resp.file_count, resp.total_size_bytes
                             ));
                             let version_id = resp.dataset_version_id.clone();
                             let hash = resp.dataset_hash_b3.clone();
-                            let sample_count = preview_rows.get().len();
                             on_complete.run(DatasetUploadOutcome {
                                 dataset_id: resp.dataset_id.clone(),
                                 dataset_version_id: version_id,
                                 dataset_hash_b3: hash,
                                 sample_count,
                             });
-                            submitting.set(false);
-                            open.set(false);
+                            let _ = submitting.try_set(false);
+                            let _ = open.try_set(false);
                         }
                         Err(e) => {
-                            upload_error.set(Some(e.user_message()));
-                            submitting.set(false);
+                            if !is_active.load(Ordering::Relaxed) {
+                                return;
+                            }
+                            let _ = upload_error.try_set(Some(e.user_message()));
+                            let _ = submitting.try_set(false);
                         }
                     }
                 });
@@ -640,7 +677,6 @@ pub fn DatasetUploadWizard(
     });
 
     let dialog = move || -> AnyView {
-        let data_handler = handle_data_file;
         if !open.try_get().unwrap_or(false) {
             view! {}.into_any()
         } else {
@@ -737,7 +773,12 @@ pub fn DatasetUploadWizard(
                                     </div>
                                     <div>
                                         <label class="text-sm font-medium">"Dataset (.jsonl or .ndjson)"</label>
-                                        <input type="file" accept=".jsonl,.ndjson" class="mt-1 block w-full text-sm" on:change=data_handler/>
+                                        <input
+                                            type="file"
+                                            accept=".jsonl,.ndjson"
+                                            class="mt-1 block w-full text-sm"
+                                            on:change=move |ev| data_handler.run(ev)
+                                        />
                                     </div>
                                 </div>
                             }.into_any(),
@@ -752,7 +793,12 @@ pub fn DatasetUploadWizard(
                                         </div>
                                         <Badge variant=BadgeVariant::Secondary>"Input / Target"</Badge>
                                     </div>
-                                        <input type="file" accept=".csv" class="mt-1 block w-full text-sm" on:change=data_handler/>
+                                        <input
+                                            type="file"
+                                            accept=".csv"
+                                            class="mt-1 block w-full text-sm"
+                                            on:change=move |ev| data_handler.run(ev)
+                                        />
                                     {move || {
                                         let headers = csv_headers.try_get().unwrap_or_default();
                                         if headers.is_empty() {
@@ -840,7 +886,12 @@ pub fn DatasetUploadWizard(
                                         </div>
                                         <Badge variant=BadgeVariant::Secondary>"Input / Target"</Badge>
                                     </div>
-                                    <input type="file" accept=".txt,.md,.markdown" class="mt-1 block w-full text-sm" on:change=data_handler/>
+                                    <input
+                                        type="file"
+                                        accept=".txt,.md,.markdown"
+                                        class="mt-1 block w-full text-sm"
+                                        on:change=move |ev| data_handler.run(ev)
+                                    />
                                     <div class="flex gap-2">
                                         {vec![
                                             (TextStrategy::Echo, "Echo input as target"),
