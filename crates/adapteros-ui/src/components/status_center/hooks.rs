@@ -3,6 +3,7 @@
 //! Custom hooks for keyboard shortcuts and data fetching.
 
 use crate::api::{ApiClient, ApiError};
+use crate::hooks::use_polling;
 use adapteros_api_types::{SystemStateResponse, SystemStatusResponse};
 use leptos::prelude::*;
 use std::sync::atomic::{AtomicBool, Ordering};
@@ -106,6 +107,8 @@ pub enum StatusLoadingState {
     Loading,
     /// Successfully loaded (boxed to reduce enum size)
     Loaded(Box<CombinedStatus>),
+    /// Loaded, but a refresh failed. Keep rendering last known status with warning.
+    LoadedWithError(Box<CombinedStatus>, ApiError),
     /// Error occurred
     Error(ApiError),
 }
@@ -120,6 +123,7 @@ impl StatusLoadingState {
     pub fn data(&self) -> Option<&CombinedStatus> {
         match self {
             Self::Loaded(data) => Some(data),
+            Self::LoadedWithError(data, _) => Some(data),
             _ => None,
         }
     }
@@ -128,6 +132,7 @@ impl StatusLoadingState {
     pub fn error(&self) -> Option<&ApiError> {
         match self {
             Self::Error(e) => Some(e),
+            Self::LoadedWithError(_, e) => Some(e),
             _ => None,
         }
     }
@@ -140,12 +145,20 @@ impl StatusLoadingState {
 /// - Refetch callback to trigger a new fetch
 pub fn use_status_data() -> (ReadSignal<StatusLoadingState>, impl Fn() + Clone) {
     let (state, set_state) = signal(StatusLoadingState::Idle);
+    let (cached_status, set_cached_status) = signal::<Option<CombinedStatus>>(None);
     let client = Arc::new(ApiClient::new());
 
     let client_clone = Arc::clone(&client);
+    let cached_status_clone = cached_status;
+
     let refetch = move || {
         let client = Arc::clone(&client_clone);
-        let _ = set_state.try_set(StatusLoadingState::Loading);
+        let cached_status = cached_status_clone;
+
+        let should_show_spinner = cached_status.try_get().flatten().is_none();
+        if should_show_spinner {
+            let _ = set_state.try_set(StatusLoadingState::Loading);
+        }
 
         // Defer spawn_local via Timeout to avoid RefCell re-entrancy panic
         // in wasm-bindgen-futures when called from within a reactive Effect body.
@@ -157,12 +170,19 @@ pub fn use_status_data() -> (ReadSignal<StatusLoadingState>, impl Fn() + Clone) 
 
                 match futures::future::join(status_future, state_future).await {
                     (Ok(status), Ok(state)) => {
-                        let _ = set_state.try_set(StatusLoadingState::Loaded(Box::new(
-                            CombinedStatus { status, state },
-                        )));
+                        let combined = CombinedStatus { status, state };
+                        let _ = set_cached_status.try_set(Some(combined.clone()));
+                        let _ = set_state.try_set(StatusLoadingState::Loaded(Box::new(combined)));
                     }
                     (Err(e), _) | (_, Err(e)) => {
-                        let _ = set_state.try_set(StatusLoadingState::Error(e));
+                        if let Some(last_success) = cached_status.try_get().flatten() {
+                            let _ = set_state.try_set(StatusLoadingState::LoadedWithError(
+                                Box::new(last_success),
+                                e,
+                            ));
+                        } else {
+                            let _ = set_state.try_set(StatusLoadingState::Error(e));
+                        }
                     }
                 }
             });
@@ -170,7 +190,15 @@ pub fn use_status_data() -> (ReadSignal<StatusLoadingState>, impl Fn() + Clone) 
         .forget();
     };
 
-    // Initial fetch
+    // Periodic refresh while mounted to recover transient fetch failures.
+    let refetch_for_polling = refetch.clone();
+    let _ = use_polling(30_000, move || {
+        let refetch = refetch_for_polling.clone();
+        async move {
+            refetch();
+        }
+    });
+
     let refetch_init = refetch.clone();
     Effect::new(move || {
         refetch_init();

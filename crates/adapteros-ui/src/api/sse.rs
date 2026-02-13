@@ -77,7 +77,9 @@ impl Default for CircuitBreakerConfig {
             retry_delay_ms: 1000,
             max_retry_delay_ms: 30000,
             reset_timeout_ms: 60000,
-            idle_timeout_ms: Some(120_000),
+            // Keep connections resilient to slow or intermittent proxies by avoiding
+            // aggressive idle-driven reconnects; explicit onerror/reconnect handles liveness.
+            idle_timeout_ms: None,
             // SSE uses cookies for auth; default to sending credentials for same-origin
             with_credentials: true,
             auth_query_param: None,
@@ -659,12 +661,21 @@ where
         on_event: F,
         parse_failures: Rc<std::cell::Cell<u32>>,
         connection_weak: Weak<SseConnection>,
+        allowed_event_types: Vec<String>,
     ) -> impl Fn(SseEvent) + Clone
     where
         T: for<'de> serde::Deserialize<'de> + 'static,
         F: Fn(T) + Clone + 'static,
     {
+        let allowed_event_types = std::rc::Rc::new(allowed_event_types);
         move |event: SseEvent| {
+            let Some(_) = allowed_event_types
+                .iter()
+                .find(|event_type| event_type.as_str() == event.event_type)
+            else {
+                return;
+            };
+
             let data = event.data.trim();
             if data.is_empty() || data == "[DONE]" {
                 return;
@@ -699,8 +710,15 @@ where
                                 on_event.clone(),
                                 Rc::clone(&parse_failures),
                                 connection_weak.clone(),
+                                allowed_event_types.iter().cloned().collect(),
                             );
-                            if let Err(err) = conn.connect(handler) {
+                            let event_type_refs: Vec<&str> = allowed_event_types
+                                .iter()
+                                .map(|event_type| event_type.as_str())
+                                .collect();
+                            if let Err(err) =
+                                conn.connect_with_event_types(&event_type_refs, handler.clone())
+                            {
                                 tracing::warn!(
                                     "SSE reconnect failed for {}: {}",
                                     endpoint_name,
@@ -719,6 +737,7 @@ where
         on_event,
         Rc::clone(&parse_failures),
         connection_weak.clone(),
+        event_types.clone(),
     );
 
     // Connect on mount
@@ -751,10 +770,19 @@ where
     // Reconnect function (same connection, reset circuit)
     let connection_reconnect = Rc::clone(&connection);
     let handler_reconnect = handler.clone();
+    let event_types_for_reconnect = event_types.clone();
     let endpoint_name_reconnect = endpoint_name.clone();
     let reconnect = move || {
         connection_reconnect.reset_circuit();
-        if let Err(err) = connection_reconnect.connect(handler_reconnect.clone()) {
+        let event_type_refs: Vec<&str> = event_types_for_reconnect
+            .iter()
+            .map(|event| event.as_str())
+            .collect();
+        if let Err(err) = connection_reconnect.connect_with_event_types(
+            &event_type_refs,
+            handler_reconnect.clone(),
+        )
+        {
             tracing::warn!(
                 "SSE reconnect failed for {}: {}",
                 endpoint_name_reconnect,
