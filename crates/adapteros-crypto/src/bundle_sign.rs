@@ -252,11 +252,8 @@ fn verify_bundle_from_file_inner(
             );
             // Return a deterministic placeholder signature for dev mode ONLY when explicitly enabled.
             // This avoids introducing non-determinism into dev/test flows.
-            let seed = B3Hash::hash_multi(&[
-                b"aos-dev-signature-bypass",
-                bundle_hash.as_bytes(),
-            ])
-            .to_bytes();
+            let seed = B3Hash::hash_multi(&[b"aos-dev-signature-bypass", bundle_hash.as_bytes()])
+                .to_bytes();
             let placeholder_keypair = crate::Keypair::from_bytes(&seed);
             let public_key = placeholder_keypair.public_key();
             let key_id = compute_key_id(&public_key);
@@ -552,6 +549,9 @@ mod tests {
         assert_eq!(sig2.signed_at_us, 0);
         assert_eq!(sig1.signature.to_bytes(), sig2.signature.to_bytes());
         assert_eq!(sig1.public_key.to_bytes(), sig2.public_key.to_bytes());
-        assert!(sig1.verify().is_ok(), "placeholder should be self-consistent");
+        assert!(
+            sig1.verify().is_ok(),
+            "placeholder should be self-consistent"
+        );
     }
 }
