@@ -557,9 +557,25 @@ impl DependencySecurityPolicy {
         // Try network-based CVE query first, fall back to offline if unavailable
         let cve_entries = if Self::is_network_available() {
             debug!(package = %package_name, "Network available, querying CVE databases");
-            self.query_cve_databases(package_name, version)
-                .await
-                .unwrap_or_default()
+            match self.query_cve_databases(package_name, version).await {
+                Ok(entries) => entries,
+                Err(e) => {
+                    warn!(
+                        package = %package_name,
+                        version = %version,
+                        error = %e,
+                        "CVE lookup failed"
+                    );
+
+                    // SECURITY: If callers request fail-closed for unknown vulnerability data,
+                    // do not silently degrade into "no vulnerabilities found".
+                    if config.block_unknown_vulnerabilities {
+                        return Err(e);
+                    }
+
+                    vec![]
+                }
+            }
         } else {
             info!(package = %package_name, "Network unavailable, using offline database");
             self.query_offline_database(package_name, version).await
@@ -701,7 +717,17 @@ impl DependencySecurityPolicy {
             return Ok(cves.clone());
         }
 
-        Ok(vec![])
+        warn!(
+            package = %package_name,
+            version = %version,
+            "Offline CVE stub has no entry for {}",
+            cache_key
+        );
+
+        Err(AosError::Policy(format!(
+            "Offline CVE fallback missing data for {} {} (key {})",
+            package_name, version, cache_key
+        )))
     }
 
     /// Query Open Source Vulnerabilities (OSV) database
@@ -1100,6 +1126,16 @@ mod tests {
         policy.clear_cache().await;
         let stats = policy.get_cache_stats().await;
         assert_eq!(stats.total_entries, 0);
+    }
+
+    #[tokio::test]
+    async fn test_query_nvd_stub_fails_closed_when_missing_offline_entry() {
+        let policy = DependencySecurityPolicy::new(DependencySecurityConfig::default());
+        let err = policy
+            .query_nvd("definitely-not-in-cache", "0.0.0")
+            .await
+            .unwrap_err();
+        assert!(matches!(err, AosError::Policy(_)));
     }
 
     #[test]
