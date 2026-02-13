@@ -1411,6 +1411,7 @@ dependencies = [
  "futures-util",
  "git2",
  "hex",
+ "nix 0.29.0",
  "parking_lot",
  "rand 0.8.5",
  "regex",

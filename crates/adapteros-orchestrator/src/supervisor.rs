@@ -836,8 +836,9 @@ mod tests {
     #[tokio::test]
     async fn test_worker_crash_and_restart() {
         let _env = TestEnvGuard::new();
-        // Enable placeholder worker for testing
-        std::env::set_var("AOS_WORKER_PLACEHOLDER_OK", "1");
+        // Skip respawn/sleeps to avoid spawning or killing real processes in unit tests.
+        // Worker spawn and placeholder gating are covered by dedicated spawn_worker_process tests.
+        std::env::set_var("AOS_SUPERVISOR_SKIP_RESPAWN", "1");
 
         let temp_dir = new_test_tempdir();
         let db_path = temp_dir.path().join("test.db");
@@ -849,7 +850,7 @@ mod tests {
 
         let supervisor = SupervisorDaemon::new(config).await.unwrap();
         supervisor
-            .register_worker("test-tenant".to_string(), Some(12345))
+            .register_worker("test-tenant".to_string(), None)
             .await;
 
         // Simulate crash
@@ -859,7 +860,7 @@ mod tests {
             .unwrap();
 
         // Clean up
-        std::env::remove_var("AOS_WORKER_PLACEHOLDER_OK");
+        std::env::remove_var("AOS_SUPERVISOR_SKIP_RESPAWN");
 
         // Worker should be restarted and healthy
         let status = supervisor.get_worker_status("test-tenant").await;
@@ -900,5 +901,51 @@ mod tests {
         assert_eq!(status, Some(WorkerStatus::Quarantined));
 
         std::env::remove_var("AOS_SUPERVISOR_SKIP_RESPAWN");
+    }
+
+    #[tokio::test]
+    async fn test_spawn_worker_process_missing_binary_errors_without_placeholder_env() {
+        let _env = TestEnvGuard::new();
+        std::env::remove_var("AOS_WORKER_PLACEHOLDER_OK");
+
+        let temp_dir = new_test_tempdir();
+        let db_path = temp_dir.path().join("test.db");
+
+        let err = spawn_worker_process("test-tenant", &db_path)
+            .await
+            .expect_err("spawn should fail when worker binary is missing and placeholder is not allowed");
+
+        match err {
+            AosError::Worker(msg) => {
+                assert!(msg.contains("Worker binary not found at"));
+                assert!(msg.contains("cargo build --release -p adapteros-lora-worker"));
+            }
+            other => panic!("Expected AosError::Worker, got: {:?}", other),
+        }
+    }
+
+    #[tokio::test]
+    #[cfg(unix)]
+    async fn test_spawn_worker_process_placeholder_spawns_sleep_when_env_set() {
+        use nix::sys::signal::{kill, Signal};
+        use nix::sys::wait::waitpid;
+        use nix::unistd::Pid;
+
+        let _env = TestEnvGuard::new();
+        std::env::set_var("AOS_WORKER_PLACEHOLDER_OK", "1");
+
+        let temp_dir = new_test_tempdir();
+        let db_path = temp_dir.path().join("test.db");
+
+        let pid = spawn_worker_process("test-tenant", &db_path)
+            .await
+            .expect("spawn should succeed when placeholder is explicitly allowed in debug");
+
+        // Ensure we don't leak the placeholder process in the test environment.
+        let nix_pid = Pid::from_raw(pid as i32);
+        let _ = kill(nix_pid, Signal::SIGKILL);
+        let _ = waitpid(nix_pid, None);
+
+        std::env::remove_var("AOS_WORKER_PLACEHOLDER_OK");
     }
 }
