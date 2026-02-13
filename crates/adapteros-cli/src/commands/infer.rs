@@ -46,6 +46,9 @@ pub async fn run(
         "max_tokens": max_tokens.unwrap_or(128),
         "require_evidence": require_evidence,
         "request_type": "normal",
+        // Worker-side inference requires an explicit routing policy object.
+        // An empty object deserializes as "allow all" with deterministic defaults.
+        "routing_policy": {},
         "determinism_mode": "best_effort",
         "strict_mode": false
     }))?;
