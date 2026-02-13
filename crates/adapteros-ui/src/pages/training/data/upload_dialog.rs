@@ -9,6 +9,10 @@
 use crate::components::spinner::SpinnerSize;
 use crate::components::{Badge, BadgeVariant, Button, ButtonVariant, Card, Spinner};
 use leptos::prelude::*;
+use std::sync::{
+    atomic::{AtomicBool, Ordering},
+    Arc,
+};
 
 #[cfg(target_arch = "wasm32")]
 use crate::api::{api_base_url, ApiClient};
@@ -17,10 +21,38 @@ use send_wrapper::SendWrapper;
 
 /// Supported file extensions.
 #[cfg(target_arch = "wasm32")]
-const SUPPORTED_EXTENSIONS: &[&str] = &[".pdf", ".txt", ".md", ".html", ".json", ".jsonl"];
+// Keep in sync with backend `detect_document_kind()` (.md and .markdown are both supported).
+const SUPPORTED_EXTENSIONS: &[&str] = &[".pdf", ".txt", ".md", ".markdown"];
 
-/// Maximum file size (50 MB)
-const MAX_FILE_SIZE: u64 = 50 * 1024 * 1024;
+/// Maximum file size (100 MB)
+const MAX_FILE_SIZE: u64 = 100 * 1024 * 1024;
+
+fn validate_document_upload_input(
+    file_name: &str,
+    size: u64,
+    max_file_size: u64,
+    supported_extensions: &[&str],
+) -> Result<(), String> {
+    if size > max_file_size {
+        return Err(format!(
+            "File too large. Maximum size is {} MB.",
+            max_file_size / 1024 / 1024
+        ));
+    }
+
+    let name_lower = file_name.to_lowercase();
+    let ext_valid = supported_extensions
+        .iter()
+        .any(|ext| name_lower.ends_with(ext));
+    if !ext_valid {
+        return Err(format!(
+            "Unsupported file type. Supported: {}",
+            supported_extensions.join(", ")
+        ));
+    }
+
+    Ok(())
+}
 
 /// Upload result with validation details.
 #[derive(Clone, Debug, Default)]
@@ -90,6 +122,11 @@ pub fn DocumentUploadDialog(
 
     #[cfg(target_arch = "wasm32")]
     let file_ref: RwSignal<Option<SendWrapper<web_sys::File>>> = RwSignal::new(None);
+    let is_active = Arc::new(AtomicBool::new(true));
+    on_cleanup({
+        let is_active = Arc::clone(&is_active);
+        move || is_active.store(false, Ordering::Relaxed)
+    });
 
     // Reset state when dialog closes
     Effect::new(move || {
@@ -112,28 +149,17 @@ pub fn DocumentUploadDialog(
         move |file: web_sys::File| {
             error_msg.set(None);
             upload_result.set(None);
+            selected_file.set(None);
+            selected_file_size.set(None);
+            file_ref.set(None);
 
             // Validate file size
             let size = file.size() as u64;
-            if size > MAX_FILE_SIZE {
-                error_msg.set(Some(format!(
-                    "File too large. Maximum size is {} MB.",
-                    MAX_FILE_SIZE / 1024 / 1024
-                )));
-                return;
-            }
-
-            // Validate file type
             let name = file.name();
-            let ext_valid = SUPPORTED_EXTENSIONS
-                .iter()
-                .any(|ext| name.to_lowercase().ends_with(ext));
-
-            if !ext_valid {
-                error_msg.set(Some(format!(
-                    "Unsupported file type. Supported: {}",
-                    SUPPORTED_EXTENSIONS.join(", ")
-                )));
+            if let Err(validation_error) =
+                validate_document_upload_input(&name, size, MAX_FILE_SIZE, SUPPORTED_EXTENSIONS)
+            {
+                error_msg.set(Some(validation_error));
                 return;
             }
 
@@ -157,6 +183,7 @@ pub fn DocumentUploadDialog(
                         process_file(file);
                     }
                 }
+                input.set_value("");
             }
         }
     };
@@ -228,16 +255,23 @@ pub fn DocumentUploadDialog(
             let error_msg = error_msg;
             let upload_result = upload_result;
             let success_callback = on_success.clone();
+            let is_active = Arc::clone(&is_active);
 
             wasm_bindgen_futures::spawn_local(async move {
                 let client = ApiClient::with_base_url(&api_base_url());
+                if !is_active.load(Ordering::Relaxed) {
+                    return;
+                }
 
                 // Simulate progress during upload
-                upload_progress.set(30);
+                let _ = upload_progress.try_set(30);
 
                 match client.upload_document(&file).await {
                     Ok(response) => {
-                        upload_progress.set(90);
+                        if !is_active.load(Ordering::Relaxed) {
+                            return;
+                        }
+                        let _ = upload_progress.try_set(90);
 
                         // Build upload result with validation details
                         let result = UploadResult {
@@ -248,21 +282,29 @@ pub fn DocumentUploadDialog(
                             safety_status: SafetyScanStatus::from_str(&response.status),
                         };
 
-                        upload_progress.set(100);
-                        upload_result.set(Some(result));
-                        uploading.set(false);
+                        let _ = upload_progress.try_set(100);
+                        let _ = upload_result.try_set(Some(result));
+                        let _ = uploading.try_set(false);
 
                         // Brief delay to show completion before closing
+                        let document_id = response.document_id.clone();
+                        let is_active = Arc::clone(&is_active);
                         gloo_timers::callback::Timeout::new(500, move || {
+                            if !is_active.load(Ordering::Relaxed) {
+                                return;
+                            }
                             open.set(false);
-                            success_callback.run(response.document_id);
+                            success_callback.run(document_id);
                         })
                         .forget();
                     }
                     Err(e) => {
-                        error_msg.set(Some(e.user_message()));
-                        upload_progress.set(0);
-                        uploading.set(false);
+                        if !is_active.load(Ordering::Relaxed) {
+                            return;
+                        }
+                        let _ = error_msg.try_set(Some(e.user_message()));
+                        let _ = upload_progress.try_set(0);
+                        let _ = uploading.try_set(false);
                     }
                 }
             });
@@ -345,7 +387,7 @@ pub fn DocumentUploadDialog(
                                                 "Drag and drop a file here, or click to browse"
                                             </p>
                                             <p class="upload-dropzone-hint">
-                                                "Supported: PDF, TXT, Markdown, HTML, JSON, JSONL"
+                                                "Supported: PDF, TXT, Markdown"
                                             </p>
                                             <p class="upload-dropzone-hint">
                                                 {format!("Maximum size: {} MB", MAX_FILE_SIZE / 1024 / 1024)}
@@ -370,7 +412,7 @@ pub fn DocumentUploadDialog(
 
                                 <input
                                     type="file"
-                                    accept=".pdf,.txt,.md,.html,.json,.jsonl"
+                                    accept=".pdf,.txt,.md,.markdown"
                                     on:change=handle_file_change
                                     disabled=uploading.get()
                                     class="upload-dropzone-input"
@@ -499,5 +541,50 @@ pub fn DocumentUploadDialog(
                 </div>
             </div>
         </Show>
+    }
+}
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+
+    const TEST_SUPPORTED_EXTENSIONS: &[&str] = &[".pdf", ".txt", ".md", ".markdown"];
+    const TEST_MAX_FILE_SIZE: u64 = 100 * 1024 * 1024;
+
+    #[test]
+    fn validate_document_upload_input_accepts_markdown_extension() {
+        let result = validate_document_upload_input(
+            "training-doc.markdown",
+            1024,
+            TEST_MAX_FILE_SIZE,
+            TEST_SUPPORTED_EXTENSIONS,
+        );
+        assert!(result.is_ok());
+    }
+
+    #[test]
+    fn validate_document_upload_input_is_case_insensitive_for_markdown() {
+        let result = validate_document_upload_input(
+            "TRAINING-DOC.MD",
+            1024,
+            TEST_MAX_FILE_SIZE,
+            TEST_SUPPORTED_EXTENSIONS,
+        );
+        assert!(result.is_ok());
+    }
+
+    #[test]
+    fn validate_document_upload_input_rejects_oversized_files() {
+        let result = validate_document_upload_input(
+            "training-doc.md",
+            TEST_MAX_FILE_SIZE + 1,
+            TEST_MAX_FILE_SIZE,
+            TEST_SUPPORTED_EXTENSIONS,
+        );
+        assert!(
+            result
+                .expect_err("oversized file should be rejected")
+                .contains("File too large")
+        );
     }
 }

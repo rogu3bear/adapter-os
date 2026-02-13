@@ -653,10 +653,11 @@ fn DocumentsList(
 /// Document upload dialog with validation and progress.
 #[component]
 fn DocumentUploadDialog(open: RwSignal<bool>, on_success: Callback<String>) -> impl IntoView {
-    const MAX_FILE_SIZE: u64 = 50 * 1024 * 1024;
+    const MAX_FILE_SIZE: u64 = 100 * 1024 * 1024;
 
     #[cfg(target_arch = "wasm32")]
-    const SUPPORTED_EXTENSIONS: &[&str] = &[".pdf", ".txt", ".md"];
+    // Keep in sync with backend `detect_document_kind()` (.md and .markdown are both supported).
+    const SUPPORTED_EXTENSIONS: &[&str] = &[".pdf", ".txt", ".md", ".markdown"];
 
     let uploading = RwSignal::new(false);
     let error_msg = RwSignal::new(None::<String>);
@@ -711,6 +712,7 @@ fn DocumentUploadDialog(open: RwSignal<bool>, on_success: Callback<String>) -> i
                     selected_file_name.set(None);
                     selected_file_size.set(None);
                     file_ref.set(None);
+                    input.set_value("");
                     return;
                 }
 
@@ -725,6 +727,7 @@ fn DocumentUploadDialog(open: RwSignal<bool>, on_success: Callback<String>) -> i
                     selected_file_name.set(None);
                     selected_file_size.set(None);
                     file_ref.set(None);
+                    input.set_value("");
                     return;
                 }
 
@@ -732,6 +735,7 @@ fn DocumentUploadDialog(open: RwSignal<bool>, on_success: Callback<String>) -> i
                 selected_file_name.set(Some(name));
                 selected_file_size.set(Some(size));
                 file_ref.set(Some(SendWrapper::new(file)));
+                input.set_value("");
             }
         }
     };
@@ -791,13 +795,13 @@ fn DocumentUploadDialog(open: RwSignal<bool>, on_success: Callback<String>) -> i
                     <label class="text-sm font-medium">"File"</label>
                     <input
                         type="file"
-                        accept=".pdf,.txt,.md"
+                        accept=".pdf,.txt,.md,.markdown"
                         class="block w-full text-sm"
                         disabled=move || uploading.try_get().unwrap_or(false)
                         on:change=handle_file_change
                     />
                     <p class="text-xs text-muted-foreground">
-                        "Supported: PDF, TXT, Markdown, HTML, JSON, JSONL · Max 50 MB"
+                        "Supported: PDF, TXT, Markdown · Max 100 MB"
                     </p>
                     {move || selected_file_name.try_get().flatten().map(|name| {
                         let size = selected_file_size.try_get().flatten().unwrap_or_default();
