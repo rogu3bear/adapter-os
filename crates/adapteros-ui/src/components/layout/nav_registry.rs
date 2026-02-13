@@ -344,6 +344,12 @@ static NAV_GROUPS_FULL: &[NavGroup] = &[
                 "executor",
                 "sessions",
             ]),
+            NavItem::new("files", "Files", "/files").with_keywords(&[
+                "filesystem",
+                "browse",
+                "directories",
+                "server",
+            ]),
             NavItem::new("admin", "Admin", "/admin").with_keywords(&[
                 "users",
                 "roles",
