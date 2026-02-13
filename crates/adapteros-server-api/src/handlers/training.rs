@@ -60,6 +60,9 @@ use utoipa::IntoParams;
 const METRIC_LINEAGE_REQUIRED: &str = "training_jobs_rejected_lineage_required";
 const METRIC_TRUST_BLOCKED: &str = "training_jobs_rejected_trust_blocked";
 const METRIC_TRUST_NEEDS_APPROVAL: &str = "training_jobs_rejected_trust_needs_approval";
+const METRIC_UNKNOWN_STATUS: &str = "training_jobs_unknown_status_detected";
+const METRIC_ENDPOINT_JOBS: &str = "training_endpoint_jobs_requests";
+const METRIC_ENDPOINT_START: &str = "training_endpoint_start_requests";
 
 const PREPROCESS_CACHE_MARKER: &str = "manifest.json";
 
@@ -796,16 +799,8 @@ fn validate_training_guardrails(
     }
 
     if let Some(version) = dataset_version {
-        if version.trust_state == "blocked" || version.trust_state == "needs_approval" {
-            return Err(GuardrailError {
-                code: "DATASET_UNTRUSTED",
-                message: format!(
-                    "Dataset version {} trust_state={} blocks training",
-                    version.id, version.trust_state
-                ),
-            });
-        }
-
+        // Trust gating is enforced later in `start_training` using effective
+        // trust_state (including overrides), not the raw version column.
         if let Some(manifest_json) = version.manifest_json.as_deref() {
             if let Ok(value) = serde_json::from_str::<serde_json::Value>(manifest_json) {
                 if let Some(m_base) = value.get("base_model_id").and_then(|v| v.as_str()) {
@@ -928,7 +923,9 @@ async fn record_training_rejection_metric(state: &AppState, series: &str) {
         .await;
 }
 
-fn record_to_training_job(record: TrainingJobRecord) -> adapteros_orchestrator::TrainingJob {
+fn record_to_training_job(
+    record: TrainingJobRecord,
+) -> Result<adapteros_orchestrator::TrainingJob, String> {
     use adapteros_orchestrator::{TrainingJob, TrainingJobStatus};
     use adapteros_types::training::{DataLineageMode, TrainingConfig};
 
@@ -938,7 +935,12 @@ fn record_to_training_job(record: TrainingJobRecord) -> adapteros_orchestrator::
         "completed" => TrainingJobStatus::Completed,
         "failed" => TrainingJobStatus::Failed,
         "cancelled" => TrainingJobStatus::Cancelled,
-        _ => TrainingJobStatus::Pending,
+        unknown => {
+            return Err(format!(
+                "Unknown training job status '{}' for job '{}'",
+                unknown, record.id
+            ));
+        }
     };
 
     let config: TrainingConfig =
@@ -1000,7 +1002,7 @@ fn record_to_training_job(record: TrainingJobRecord) -> adapteros_orchestrator::
 
     let lora_tier = parse_lora_tier(record.lora_tier.as_deref());
 
-    TrainingJob {
+    Ok(TrainingJob {
         id: record.id.clone(),
         adapter_name: record.adapter_name.unwrap_or_default(),
         config,
@@ -1096,7 +1098,7 @@ fn record_to_training_job(record: TrainingJobRecord) -> adapteros_orchestrator::
         manifest_base_model: None,
         manifest_per_layer_hashes: None,
         signature_status: None,
-    }
+    })
 }
 
 /// List training jobs with optional filters
@@ -1246,6 +1248,11 @@ pub async fn create_training_job(
     Extension(claims): Extension<Claims>,
     Json(req): Json<CreateTrainingJobRequest>,
 ) -> Result<(StatusCode, Json<TrainingJobResponse>), (StatusCode, Json<ErrorResponse>)> {
+    state
+        .metrics_registry
+        .record_metric(METRIC_ENDPOINT_JOBS.to_string(), 1.0)
+        .await;
+
     require_permission(&claims, Permission::TrainingStart)?;
 
     let workspace_id = if req.workspace_id.is_empty() {
@@ -1292,7 +1299,9 @@ pub async fn create_training_job(
 
     let base_model_id = req.base_model_id.trim().to_string();
     let base_model_path = resolve_base_model_path(&state, &workspace_id, &base_model_id).await?;
-    ensure_training_worker_capable(&state, &workspace_id).await?;
+    // Worker registration/capability is tenant-scoped (not workspace-scoped).
+    // Using workspace_id here can produce false negatives for non-default workspaces.
+    ensure_training_worker_capable(&state, &claims.tenant_id).await?;
 
     // Resolve dataset version (default to latest)
     let dataset_version_id = match req.dataset_version_id {
@@ -1445,7 +1454,25 @@ pub async fn get_training_job(
             let not_found = error_str.contains("not found") || error_str.contains("NotFound");
             if not_found && e2e_enabled() {
                 match state.db.get_training_job(&job_id).await {
-                    Ok(Some(record)) => record_to_training_job(record),
+                    Ok(Some(record)) => match record_to_training_job(record) {
+                        Ok(job) => job,
+                        Err(parse_err) => {
+                            record_training_rejection_metric(&state, METRIC_UNKNOWN_STATUS).await;
+                            error!(
+                                job_id = %job_id,
+                                error = %parse_err,
+                                "Failed to decode persisted training job status"
+                            );
+                            return Err((
+                                StatusCode::INTERNAL_SERVER_ERROR,
+                                Json(
+                                    ErrorResponse::new("Training job has invalid persisted status")
+                                        .with_code("INVALID_JOB_STATUS")
+                                        .with_string_details(parse_err),
+                                ),
+                            ));
+                        }
+                    },
                     Ok(None) => {
                         return Err((
                             StatusCode::NOT_FOUND,
@@ -1910,9 +1937,10 @@ pub async fn get_preprocess_status(
     Ok(Json(response))
 }
 
-/// Start a new training job
+/// Start a new training job (compatibility endpoint; prefer POST /v1/training/jobs)
 #[utoipa::path(
     post,
+    deprecated,
     path = "/v1/training/start",
     request_body = StartTrainingRequest,
     responses(
@@ -1928,6 +1956,12 @@ pub async fn start_training(
     Extension(client_ip): Extension<ClientIp>,
     Json(request): Json<StartTrainingRequest>,
 ) -> Result<(StatusCode, Json<TrainingJobResponse>), (StatusCode, Json<ErrorResponse>)> {
+    state
+        .metrics_registry
+        .record_metric(METRIC_ENDPOINT_START.to_string(), 1.0)
+        .await;
+    warn!("POST /v1/training/start is compatibility-only; prefer POST /v1/training/jobs");
+
     require_permission(&claims, Permission::TrainingStart)?;
 
     // Create training service instance
@@ -2656,7 +2690,28 @@ pub async fn start_training(
                     )
                 })?;
 
-            let trust_state = canonical_trust_state(&ds_version.trust_state);
+            let stored_trust_state = canonical_trust_state(&ds_version.trust_state);
+            let trust_state = state
+                .db
+                .get_effective_trust_state(&sel.dataset_version_id)
+                .await
+                .map_err(|e| {
+                    error!(
+                        error = %e,
+                        dataset_version_id = %sel.dataset_version_id,
+                        "Failed to resolve effective trust_state"
+                    );
+                    (
+                        StatusCode::INTERNAL_SERVER_ERROR,
+                        Json(
+                            ErrorResponse::new("Failed to resolve dataset trust state")
+                                .with_code("DATABASE_ERROR")
+                                .with_string_details(e.to_string()),
+                        ),
+                    )
+                })?
+                .map(|state| canonical_trust_state(&state))
+                .unwrap_or(stored_trust_state);
             match trust_state.as_str() {
                 "blocked" => {
                     record_training_rejection_metric(&state, METRIC_TRUST_BLOCKED).await;

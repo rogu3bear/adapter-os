@@ -13,8 +13,8 @@ use adapteros_lora_worker::training::trainer::{EpochMetrics as WorkerEpochMetric
 use adapteros_lora_worker::training::{
     preprocessing::preprocess_examples, split_examples_for_validation,
     MicroLoRATrainer as WorkerTrainer, PreprocessCompression as WorkerPreprocessCompression,
-    PreprocessingConfig as WorkerPreprocessingConfig, TrainingConfig as WorkerTrainingConfig,
-    TrainingExample as WorkerTrainingExample,
+    PreprocessingConfig as WorkerPreprocessingConfig, TrainingBackend as WorkerTrainingBackend,
+    TrainingConfig as WorkerTrainingConfig, TrainingExample as WorkerTrainingExample,
 };
 use adapteros_types::training::{
     ExampleMetadataV1, OptimizerConfigSummary, PreprocessCompression as ApiPreprocessCompression,
@@ -59,6 +59,7 @@ pub(crate) async fn run_training_job(
     category: Option<String>,
     post_actions_json: Option<String>,
     base_model_id: Option<String>,
+    base_model_tenant_or_workspace_id: Option<String>,
     cancel_token: Arc<AtomicBool>,
 ) -> Result<()> {
     // Ensure seed registry is scoped to this training job to prevent cross-job seed reuse errors.
@@ -154,6 +155,7 @@ pub(crate) async fn run_training_job(
         .as_ref()
         .and_then(|v| v.adapter_version_id.clone());
     let db_for_state = db.clone();
+    let jobs_ref_for_state = jobs_ref.clone();
     let job_id_for_run = job_id.clone();
 
     let outcome: Result<()> = async move {
@@ -198,6 +200,17 @@ pub(crate) async fn run_training_job(
             orchestrator_cfg.preferred_backend,
             orchestrator_cfg.coreml_training_fallback,
         );
+        let runtime_caps = adapteros_lora_worker::backend_factory::detect_capabilities();
+        // GPU backward currently requires MLX. Fall back to CPU-proxy training when
+        // MLX is unavailable so jobs can still execute on CoreML/Metal/CPU hosts.
+        let use_gpu_backward = runtime_caps.has_mlx
+            || matches!(preferred_backend.preferred, Some(WorkerTrainingBackend::Mlx));
+        if !use_gpu_backward {
+            warn!(
+                adapter = %adapter_name,
+                "MLX backend unavailable; using CPU-proxy training path (use_gpu_backward=false)"
+            );
+        }
         let mut worker_cfg = WorkerTrainingConfig {
             rank: orchestrator_cfg.rank as usize,
             alpha: orchestrator_cfg.alpha as f32,
@@ -226,7 +239,7 @@ pub(crate) async fn run_training_job(
             min_delta: orchestrator_cfg.min_delta,
             determinism: None,
             moe_config: None,
-            use_gpu_backward: true,
+            use_gpu_backward,
             optimizer_config: Default::default(),
             base_model_path: orchestrator_cfg.base_model_path.clone(),
             hidden_state_layer: orchestrator_cfg.hidden_state_layer.clone(),
@@ -1588,6 +1601,7 @@ pub(crate) async fn run_training_job(
                     synthetic_mode,
                     data_lineage_mode,
                     base_model_id.as_deref(),
+                    base_model_tenant_or_workspace_id.as_deref(),
                     category.as_deref(),
                     versioning_snapshot.as_ref(),
                     dataset_version_ids_for_training.as_ref(),
@@ -1701,8 +1715,31 @@ pub(crate) async fn run_training_job(
     .await;
 
     if outcome.is_err() {
+        let reason = outcome.as_ref().err().map(|e| e.to_string());
+        if let Some(ref error_message) = reason {
+            let mut jobs = jobs_ref_for_state.write().await;
+            if let Some(job) = jobs.get_mut(&job_id) {
+                if matches!(job.status, TrainingJobStatus::Pending | TrainingJobStatus::Running) {
+                    job.status = TrainingJobStatus::Failed;
+                    job.error_message = Some(error_message.clone());
+                    if job.completed_at.is_none() {
+                        job.completed_at = Some(chrono::Utc::now().to_rfc3339());
+                    }
+                }
+            }
+        }
+
+        if let Some(database) = db_for_state.as_ref() {
+            if let Err(e) = database.update_training_status(&job_id, "failed").await {
+                warn!(
+                    job_id = %job_id,
+                    error = %e,
+                    "Failed to persist training failure status to DB (non-fatal)"
+                );
+            }
+        }
+
         if let (Some(database), Some(version_id)) = (db_for_state, version_id_for_state) {
-            let reason = outcome.as_ref().err().map(|e| e.to_string());
             let _ = database
                 .set_adapter_version_state_with_metadata(
                     &version_id,

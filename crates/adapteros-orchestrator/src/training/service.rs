@@ -406,7 +406,18 @@ impl TrainingService {
                         ))
                     })?;
 
-                let trust_state = canonical_trust_state(&ds_version.trust_state);
+                let stored_trust_state = canonical_trust_state(&ds_version.trust_state);
+                let trust_state = db
+                    .get_effective_trust_state(&sel.dataset_version_id)
+                    .await
+                    .map_err(|e| {
+                        AosError::Database(format!(
+                            "failed to load effective trust_state for dataset version {}: {}",
+                            sel.dataset_version_id, e
+                        ))
+                    })?
+                    .map(|state| canonical_trust_state(&state))
+                    .unwrap_or(stored_trust_state);
                 if trust_state == "blocked" {
                     return Err(AosError::Validation(format!(
                         "dataset version {} trust_state={} blocks training",
@@ -794,7 +805,10 @@ impl TrainingService {
         let category_for_run = category;
         let post_actions_for_run = post_actions_json;
         let base_model_id_for_run = job.base_model_id.clone();
+        let base_model_tenant_or_workspace_id_for_run = scope.clone();
         let base_model_id_for_det = base_model_id_for_run.clone();
+        let base_model_tenant_or_workspace_id_for_det =
+            base_model_tenant_or_workspace_id_for_run.clone();
         let jobs_ref_det = jobs_ref.clone();
         let job_id_det = job_id_for_run.clone();
         let adapter_name_det = adapter_name_for_run.clone();
@@ -814,6 +828,8 @@ impl TrainingService {
         let category_for_fallback = category_for_run.clone();
         let post_actions_for_fallback = post_actions_for_run.clone();
         let base_model_id_for_fallback = base_model_id_for_run.clone();
+        let base_model_tenant_or_workspace_id_for_fallback =
+            base_model_tenant_or_workspace_id_for_run.clone();
         let jobs_ref_fallback = jobs_ref.clone();
         let job_id_for_fallback = job_id_for_run.clone();
         let adapter_name_for_fallback = adapter_name_for_run.clone();
@@ -844,6 +860,7 @@ impl TrainingService {
                     category_for_det,
                     post_actions_for_det,
                     base_model_id_for_det,
+                    base_model_tenant_or_workspace_id_for_det,
                     cancel_token_for_run.clone(),
                 );
 
@@ -913,6 +930,7 @@ impl TrainingService {
                         category_for_fallback,
                         post_actions_for_fallback,
                         base_model_id_for_fallback,
+                        base_model_tenant_or_workspace_id_for_fallback,
                         cancel_token_for_fallback.clone(),
                     );
 
