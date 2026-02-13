@@ -43,6 +43,14 @@ use wasm_bindgen::JsCast;
 /// 2. Exhaust memory when decoded
 /// 3. Overwhelm the inference endpoint
 const MAX_URL_PROMPT_LENGTH: usize = 2000;
+const DOCUMENT_UPLOAD_MAX_FILE_SIZE: u64 = 100 * 1024 * 1024;
+const DOCUMENT_UPLOAD_SUPPORTED_EXTENSIONS: &[&str] = &[".pdf", ".txt", ".md", ".markdown"];
+const MAX_CHAT_DATASET_MESSAGES: usize = 10_000;
+
+/// Context wrapper for the active model name resolved from system status.
+/// Shared via Leptos `provide_context` so child components can resolve "Auto" targets.
+#[derive(Clone)]
+pub(crate) struct ActiveModelName(Signal<Option<String>>);
 
 #[derive(Clone, Copy, PartialEq, Eq, Default)]
 enum AttachMode {
@@ -169,11 +177,15 @@ fn ChatWorkspace(
 ) -> impl IntoView {
     let is_compact = use_is_tablet_or_smaller();
     let show_mobile_sessions = RwSignal::new(false);
+    let show_archived = RwSignal::new(false);
     let navigate = use_navigate();
+    let (_, chat_action) = use_chat();
     let sessions = RwSignal::new(ChatSessionsManager::load_sessions());
+    let archived_sessions = RwSignal::new(ChatSessionsManager::load_archived_sessions());
     let refresh_sessions = {
         Callback::new(move |_: ()| {
             sessions.set(ChatSessionsManager::load_sessions());
+            archived_sessions.set(ChatSessionsManager::load_archived_sessions());
         })
     };
 
@@ -191,8 +203,12 @@ fn ChatWorkspace(
     // Refresh sessions list when selection changes (picks up auto-saved sessions)
     {
         Effect::new(move |_| {
-            let _ = selected_session_id.try_get().flatten();
+            let selected = selected_session_id.try_get().flatten();
+            if let Some(id) = selected.clone() {
+                show_archived.set(ChatSessionsManager::is_session_archived(&id));
+            }
             sessions.set(ChatSessionsManager::load_sessions());
+            archived_sessions.set(ChatSessionsManager::load_archived_sessions());
         });
     }
 
@@ -202,10 +218,96 @@ fn ChatWorkspace(
         Callback::new(move |deleted_id: String| {
             ChatSessionsManager::delete_session(&deleted_id);
             sessions.set(ChatSessionsManager::load_sessions());
+            archived_sessions.set(ChatSessionsManager::load_archived_sessions());
             // If deleted session was selected, go to /chat to auto-select next
             if selected_session_id.get_untracked().as_deref() == Some(deleted_id.as_str()) {
                 navigate("/chat", Default::default());
             }
+        })
+    };
+
+    // Archive selected/visible session
+    let on_archive_session = {
+        let navigate = navigate.clone();
+        let chat_action = chat_action.clone();
+        Callback::new(move |session_id: String| {
+            let navigate = navigate.clone();
+            let chat_action = chat_action.clone();
+            wasm_bindgen_futures::spawn_local(async move {
+                let mut apply_local = true;
+                if let Err(e) = chat_action
+                    .archive_backend_session(&session_id, Some("user_archive".to_string()))
+                    .await
+                {
+                    if e.is_not_found() {
+                        web_sys::console::warn_1(
+                            &format!(
+                                "[Chat] Backend session not found during archive; keeping local archive state for {}",
+                                session_id
+                            )
+                            .into(),
+                        );
+                    } else {
+                        apply_local = false;
+                        report_error_with_toast(
+                            &e,
+                            "Failed to archive chat session",
+                            Some("/chat"),
+                            false,
+                        );
+                    }
+                }
+
+                if apply_local {
+                    ChatSessionsManager::archive_session(&session_id);
+                    sessions.set(ChatSessionsManager::load_sessions());
+                    archived_sessions.set(ChatSessionsManager::load_archived_sessions());
+                    if selected_session_id.get_untracked().as_deref() == Some(session_id.as_str()) {
+                        navigate("/chat", Default::default());
+                    }
+                }
+            });
+        })
+    };
+
+    // Restore session from archive
+    let on_unarchive_session = {
+        let navigate = navigate.clone();
+        let chat_action = chat_action.clone();
+        Callback::new(move |session_id: String| {
+            let navigate = navigate.clone();
+            let chat_action = chat_action.clone();
+            wasm_bindgen_futures::spawn_local(async move {
+                let mut apply_local = true;
+                if let Err(e) = chat_action.restore_backend_session(&session_id).await {
+                    if e.is_not_found() {
+                        web_sys::console::warn_1(
+                            &format!(
+                                "[Chat] Backend session not found during restore; keeping local unarchive state for {}",
+                                session_id
+                            )
+                            .into(),
+                        );
+                    } else {
+                        apply_local = false;
+                        report_error_with_toast(
+                            &e,
+                            "Failed to restore chat session",
+                            Some("/chat"),
+                            false,
+                        );
+                    }
+                }
+
+                if apply_local {
+                    ChatSessionsManager::unarchive_session(&session_id);
+                    sessions.set(ChatSessionsManager::load_sessions());
+                    archived_sessions.set(ChatSessionsManager::load_archived_sessions());
+                    if selected_session_id.get_untracked().as_deref() == Some(session_id.as_str()) {
+                        navigate("/chat", Default::default());
+                    }
+                }
+            });
         })
     };
 
@@ -227,6 +329,10 @@ fn ChatWorkspace(
                             <SessionListPanel
                                 selected_id=selected_session_id
                                 sessions=sessions
+                                archived_sessions=archived_sessions
+                                show_archived=show_archived
+                                on_archive=on_archive_session
+                                on_unarchive=on_unarchive_session
                                 on_delete=on_delete_session
                             />
                         </div>
@@ -314,6 +420,10 @@ fn ChatWorkspace(
                             <SessionListPanel
                                 selected_id=selected_session_id
                                 sessions=sessions
+                                archived_sessions=archived_sessions
+                                show_archived=show_archived
+                                on_archive=on_archive_session
+                                on_unarchive=on_unarchive_session
                                 on_delete=on_delete_session
                             />
                         </div>
@@ -446,9 +556,18 @@ fn ChatEmptyWorkspace() -> impl IntoView {
 fn SessionListPanel(
     /// Currently selected session ID for highlighting
     selected_id: Signal<Option<String>>,
-    /// All sessions (reactive)
+    /// Active sessions (reactive)
     #[prop(into)]
     sessions: Signal<Vec<ChatSessionMeta>>,
+    /// Archived sessions (reactive)
+    #[prop(into)]
+    archived_sessions: Signal<Vec<ChatSessionMeta>>,
+    /// Sidebar mode toggle (active vs archived)
+    show_archived: RwSignal<bool>,
+    /// Callback when a session is archived (passes session ID)
+    on_archive: Callback<String>,
+    /// Callback when a session is restored from archive (passes session ID)
+    on_unarchive: Callback<String>,
     /// Callback when a session is deleted (passes deleted session ID)
     on_delete: Callback<String>,
 ) -> impl IntoView {
@@ -459,7 +578,11 @@ fn SessionListPanel(
     // Filtered sessions based on search
     let filtered_sessions = Memo::new(move |_| {
         let query = search_query.try_get().unwrap_or_default().to_lowercase();
-        let all = sessions.try_get().unwrap_or_default();
+        let all = if show_archived.try_get().unwrap_or(false) {
+            archived_sessions.try_get().unwrap_or_default()
+        } else {
+            sessions.try_get().unwrap_or_default()
+        };
         if query.is_empty() {
             all
         } else {
@@ -578,9 +701,144 @@ fn SessionListPanel(
         })
     };
 
+    // Multi-select state for chat-to-training flow
+    let selected_training_session_ids = RwSignal::new(Vec::<String>::new());
+    let creating_training_dataset = RwSignal::new(false);
+    let training_dataset_error = RwSignal::new(Option::<String>::None);
+    let selected_training_count =
+        Signal::derive(move || selected_training_session_ids.try_get().unwrap_or_default().len());
+
+    let toggle_training_session = Callback::new(move |(session_id, checked): (String, bool)| {
+        selected_training_session_ids.update(|ids| {
+            if checked {
+                if !ids.contains(&session_id) {
+                    ids.push(session_id);
+                }
+            } else {
+                ids.retain(|id| id != &session_id);
+            }
+        });
+        training_dataset_error.set(None);
+    });
+
+    let clear_training_selection = Callback::new(move |_: ()| {
+        selected_training_session_ids.set(Vec::new());
+        training_dataset_error.set(None);
+    });
+
+    let learn_and_generate_adapter = {
+        let navigate = navigate.clone();
+        Callback::new(move |_: ()| {
+            if creating_training_dataset.try_get().unwrap_or(false) {
+                return;
+            }
+            let selected_ids = selected_training_session_ids.try_get().unwrap_or_default();
+            if selected_ids.is_empty() {
+                training_dataset_error.set(Some(
+                    "Select one or more chat sessions first.".to_string(),
+                ));
+                return;
+            }
+
+            creating_training_dataset.set(true);
+            training_dataset_error.set(None);
+            let navigate = navigate.clone();
+
+            wasm_bindgen_futures::spawn_local(async move {
+                let mut combined_messages: Vec<ChatMessageInput> = selected_ids
+                    .iter()
+                    .filter_map(|id| ChatSessionsManager::load_session(id))
+                    .flat_map(|session| {
+                        session
+                            .messages
+                            .into_iter()
+                            .filter_map(|msg| {
+                                let content = msg.content.trim().to_string();
+                                if content.is_empty() {
+                                    None
+                                } else {
+                                    Some(ChatMessageInput {
+                                        role: msg.role,
+                                        content,
+                                        timestamp: Some(msg.timestamp),
+                                    })
+                                }
+                            })
+                            .collect::<Vec<_>>()
+                    })
+                    .collect();
+
+                if combined_messages.is_empty() {
+                    training_dataset_error
+                        .set(Some("No messages found in the selected sessions.".to_string()));
+                    creating_training_dataset.set(false);
+                    return;
+                }
+
+                if combined_messages.len() > MAX_CHAT_DATASET_MESSAGES {
+                    training_dataset_error.set(Some(format!(
+                        "Selected chats exceed {} messages. Choose fewer chats and try again.",
+                        MAX_CHAT_DATASET_MESSAGES
+                    )));
+                    creating_training_dataset.set(false);
+                    return;
+                }
+
+                combined_messages.sort_by(|a, b| {
+                    a.timestamp
+                        .as_deref()
+                        .unwrap_or_default()
+                        .cmp(b.timestamp.as_deref().unwrap_or_default())
+                });
+
+                let dataset_name = format!(
+                    "chat-learning-{}",
+                    crate::utils::now_utc().format("%Y%m%d_%H%M%S")
+                );
+                let provenance_session_id = if selected_ids.len() == 1 {
+                    selected_ids.first().cloned()
+                } else {
+                    None
+                };
+                let client = ApiClient::with_base_url(api_base_url());
+
+                match client
+                    .create_dataset_from_chat(
+                        combined_messages,
+                        Some(dataset_name),
+                        provenance_session_id,
+                    )
+                    .await
+                {
+                    Ok(resp) => {
+                        selected_training_session_ids.set(Vec::new());
+                        creating_training_dataset.set(false);
+                        let path = format!(
+                            "/training?open_wizard=1&dataset_id={}&return_to=/chat",
+                            resp.dataset_id
+                        );
+                        navigate(&path, Default::default());
+                    }
+                    Err(e) => {
+                        creating_training_dataset.set(false);
+                        training_dataset_error.set(Some(e.user_message()));
+                        report_error_with_toast(
+                            &e,
+                            "Failed to prepare training data from selected chats",
+                            Some("/chat"),
+                            false,
+                        );
+                    }
+                }
+            });
+        })
+    };
+
     // Delete confirmation state
     let pending_delete_id = RwSignal::new(Option::<String>::None);
     let show_delete_confirm = RwSignal::new(false);
+    let active_count = Memo::new(move |_| sessions.try_get().unwrap_or_default().len());
+    let archived_count = Memo::new(move |_| archived_sessions.try_get().unwrap_or_default().len());
     let pending_delete_title = Memo::new(move |_| {
         let id = pending_delete_id.try_get().flatten().unwrap_or_default();
         if id.is_empty() {
@@ -589,19 +847,21 @@ fn SessionListPanel(
         sessions
             .try_get()
             .unwrap_or_default()
-            .iter()
+            .into_iter()
+            .chain(archived_sessions.try_get().unwrap_or_default())
             .find(|s| s.id == id)
-            .map(|s| s.title.clone())
+            .map(|s| s.title)
             .unwrap_or_default()
     });
 
-    let request_delete = move |id: String| {
+    let request_delete = Callback::new(move |id: String| {
         pending_delete_id.set(Some(id));
         show_delete_confirm.set(true);
-    };
+    });
 
     let confirm_delete = move |_| {
         if let Some(id) = pending_delete_id.try_get().flatten() {
+            selected_training_session_ids.update(|ids| ids.retain(|sid| sid != &id));
             on_delete.run(id);
         }
         pending_delete_id.set(None);
@@ -630,6 +890,93 @@ fn SessionListPanel(
                         </svg>
                         "New Session"
                     </button>
+                </div>
+                <div class="grid grid-cols-2 gap-1 rounded-lg bg-muted/40 p-1">
+                    <button
+                        class=move || format!(
+                            "px-2 py-1 text-xs font-medium rounded-md transition-colors {}",
+                            if !show_archived.try_get().unwrap_or(false) {
+                                "bg-background text-foreground shadow-sm"
+                            } else {
+                                "text-muted-foreground hover:text-foreground"
+                            }
+                        )
+                        on:click=move |_| show_archived.set(false)
+                        aria-label="Show active sessions"
+                    >
+                        {move || format!("Active ({})", active_count.try_get().unwrap_or(0))}
+                    </button>
+                    <button
+                        class=move || format!(
+                            "px-2 py-1 text-xs font-medium rounded-md transition-colors {}",
+                            if show_archived.try_get().unwrap_or(false) {
+                                "bg-background text-foreground shadow-sm"
+                            } else {
+                                "text-muted-foreground hover:text-foreground"
+                            }
+                        )
+                        on:click=move |_| show_archived.set(true)
+                        aria-label="Show archived sessions"
+                    >
+                        {move || format!("Archived ({})", archived_count.try_get().unwrap_or(0))}
+                    </button>
+                </div>
+                <div class="space-y-1.5">
+                    <button
+                        class=move || format!(
+                            "w-full inline-flex items-center justify-center gap-1.5 px-2 py-1.5 text-xs font-semibold rounded-md border transition-colors {}",
+                            if creating_training_dataset.try_get().unwrap_or(false)
+                                || selected_training_count.try_get().unwrap_or(0) == 0
+                            {
+                                "border-border text-muted-foreground bg-muted/30 cursor-not-allowed"
+                            } else {
+                                "border-primary/30 text-primary bg-primary/5 hover:bg-primary/10"
+                            }
+                        )
+                        disabled=move || {
+                            creating_training_dataset.try_get().unwrap_or(false)
+                                || selected_training_count.try_get().unwrap_or(0) == 0
+                        }
+                        on:click=move |_| learn_and_generate_adapter.run(())
+                        title="Create training data from selected chats and open training"
+                        aria-label="Learn and Generate Adapter"
+                    >
+                        <svg xmlns="http://www.w3.org/2000/svg" class="h-3.5 w-3.5" fill="none" viewBox="0 0 24 24" stroke="currentColor" stroke-width="2">
+                            <path stroke-linecap="round" stroke-linejoin="round" d="M12 3v4m0 10v4M3 12h4m10 0h4M5.6 5.6l2.8 2.8m7.2 7.2 2.8 2.8m0-12.8-2.8 2.8m-7.2 7.2-2.8 2.8"/>
+                        </svg>
+                        {move || {
+                            if creating_training_dataset.try_get().unwrap_or(false) {
+                                "Preparing training data..."
+                            } else {
+                                "Learn & Generate Adapter"
+                            }
+                        }}
+                    </button>
+                    <div class="flex items-center justify-between gap-2 text-2xs text-muted-foreground">
+                        <span>
+                            {move || format!(
+                                "{} selected",
+                                selected_training_count.try_get().unwrap_or(0)
+                            )}
+                        </span>
+                        <button
+                            class="underline decoration-dotted hover:text-foreground disabled:no-underline disabled:cursor-not-allowed"
+                            disabled=move || selected_training_count.try_get().unwrap_or(0) == 0
+                            on:click=move |_| clear_training_selection.run(())
+                        >
+                            "Clear"
+                        </button>
+                    </div>
+                    {move || {
+                        training_dataset_error
+                            .try_get()
+                            .flatten()
+                            .map(|err| {
+                                view! {
+                                    <p class="text-2xs text-destructive">{err}</p>
+                                }
+                            })
+                    }}
                 </div>
                 <Input
                     value=search_query
@@ -666,13 +1013,18 @@ fn SessionListPanel(
             // Session list (scrollable)
             <div class="flex-1 overflow-y-auto">
                 {move || {
+                    let showing_archived = show_archived.try_get().unwrap_or(false);
                     let list = filtered_sessions.try_get().unwrap_or_default();
                     if list.is_empty() {
                         view! {
                             <div class="p-6 text-center">
                                 <p class="text-xs text-muted-foreground">
                                     {move || if search_query.try_get().unwrap_or_default().is_empty() {
-                                        "No sessions yet"
+                                        if show_archived.try_get().unwrap_or(false) {
+                                            "No archived sessions"
+                                        } else {
+                                            "No sessions yet"
+                                        }
                                     } else {
                                         "No matching sessions"
                                     }}
@@ -688,13 +1040,49 @@ fn SessionListPanel(
                                         let id = id.clone();
                                         Signal::derive(move || selected_id.try_get().flatten().as_deref() == Some(id.as_str()))
                                     };
+                                    let training_selected = {
+                                        let id = id.clone();
+                                        Signal::derive(move || {
+                                            selected_training_session_ids
+                                                .try_get()
+                                                .unwrap_or_default()
+                                                .contains(&id)
+                                        })
+                                    };
+                                    let delete_handler = request_delete.clone();
+                                    let archive_handler = on_archive.clone();
+                                    let unarchive_handler = on_unarchive.clone();
+                                    let training_toggle_handler = toggle_training_session.clone();
+                                    let archive_id = id.clone();
+                                    let unarchive_id = id.clone();
                                     let delete_id = id.clone();
+                                    let training_id = id.clone();
+                                    let archive_callback = if showing_archived {
+                                        None
+                                    } else {
+                                        Some(Callback::new(move |_: ()| {
+                                            archive_handler.run(archive_id.clone());
+                                        }))
+                                    };
+                                    let unarchive_callback = if showing_archived {
+                                        Some(Callback::new(move |_: ()| {
+                                            unarchive_handler.run(unarchive_id.clone());
+                                        }))
+                                    } else {
+                                        None
+                                    };
                                     view! {
                                         <SessionListItem
                                             session=session
                                             selected=is_selected
+                                            training_selected=training_selected
+                                            on_training_select_change=Callback::new(move |checked| {
+                                                training_toggle_handler.run((training_id.clone(), checked));
+                                            })
+                                            on_archive=archive_callback
+                                            on_unarchive=unarchive_callback
                                             on_delete=Callback::new(move |_: ()| {
-                                                request_delete(delete_id.clone());
+                                                delete_handler.run(delete_id.clone());
                                             })
                                         />
                                     }
@@ -736,6 +1124,13 @@ fn SessionListItem(
     /// Whether this session is currently selected
     #[prop(into)]
     selected: Signal<bool>,
+    /// Whether this session is selected for "Learn & Generate Adapter"
+    #[prop(into)]
+    training_selected: Signal<bool>,
+    /// Callback for selecting this session as training input
+    on_training_select_change: Callback<bool>,
+    on_archive: Option<Callback<()>>,
+    on_unarchive: Option<Callback<()>>,
     on_delete: Callback<()>,
 ) -> impl IntoView {
     let settings = use_settings();
@@ -743,12 +1138,16 @@ fn SessionListItem(
     let href = format!("/chat/{}", id);
     let updated_at = session.updated_at.clone();
     let message_count = session.message_count;
+    let session_title = session.title.clone();
+    let session_preview = session.preview.clone();
+    let training_aria_label = format!("Select '{}' for adapter learning", session_title.clone());
+    let archive_action = on_archive.clone();
+    let unarchive_action = on_unarchive.clone();
 
     view! {
-        <a
-            href=href
+        <div
             class=move || format!(
-                "block group p-3 transition-colors {}",
+                "group flex items-start gap-2 p-3 transition-colors {}",
                 if selected.try_get().unwrap_or(false) {
                     "bg-primary/10 border-l-2 border-l-primary"
                 } else {
@@ -756,16 +1155,31 @@ fn SessionListItem(
                 }
             )
         >
-            <div class="flex items-start justify-between gap-2">
-                <div class="flex-1 min-w-0">
+            <div
+                class="pt-0.5 shrink-0"
+                on:click=move |ev: web_sys::MouseEvent| {
+                    ev.prevent_default();
+                    ev.stop_propagation();
+                }
+            >
+                <Checkbox
+                    checked=training_selected
+                    on_change=Callback::new(move |checked| on_training_select_change.run(checked))
+                    aria_label=training_aria_label
+                />
+            </div>
+
+            <a href=href class="flex-1 min-w-0">
+                <div class="min-w-0">
                     // Title
-                    <h3 class="text-sm font-medium truncate">{session.title}</h3>
+                    <h3 class="text-sm font-medium truncate">{session_title}</h3>
 
                     // Preview
-                    {if !session.preview.is_empty() {
+                    {if !session_preview.is_empty() {
+                        let preview = session_preview.clone();
                         Some(view! {
                             <p class="text-xs text-muted-foreground mt-0.5 line-clamp-2">
-                                {session.preview}
+                                {preview}
                             </p>
                         })
                     } else {
@@ -794,10 +1208,43 @@ fn SessionListItem(
                         <span>{format!("{} msgs", message_count)}</span>
                     </div>
                 </div>
+            </a>
 
-                // Delete button (hover-revealed)
+            <div class="flex items-center gap-1 opacity-100 md:opacity-0 md:group-hover:opacity-100 transition-all shrink-0">
+                {archive_action.map(|archive| view! {
+                    <button
+                        class="p-1 rounded hover:bg-primary/10 text-muted-foreground hover:text-primary transition-colors"
+                        on:click=move |ev: web_sys::MouseEvent| {
+                            ev.prevent_default();
+                            ev.stop_propagation();
+                            archive.run(());
+                        }
+                        title="Archive session"
+                        aria-label="Archive session"
+                    >
+                        <svg xmlns="http://www.w3.org/2000/svg" class="h-3.5 w-3.5" fill="none" viewBox="0 0 24 24" stroke="currentColor" stroke-width="2">
+                            <path stroke-linecap="round" stroke-linejoin="round" d="M3 7h18M5 7v10a2 2 0 002 2h10a2 2 0 002-2V7M9 11h6"/>
+                        </svg>
+                    </button>
+                })}
+                {unarchive_action.map(|unarchive| view! {
+                    <button
+                        class="p-1 rounded hover:bg-primary/10 text-muted-foreground hover:text-primary transition-colors"
+                        on:click=move |ev: web_sys::MouseEvent| {
+                            ev.prevent_default();
+                            ev.stop_propagation();
+                            unarchive.run(());
+                        }
+                        title="Restore session"
+                        aria-label="Restore session"
+                    >
+                        <svg xmlns="http://www.w3.org/2000/svg" class="h-3.5 w-3.5" fill="none" viewBox="0 0 24 24" stroke="currentColor" stroke-width="2">
+                            <path stroke-linecap="round" stroke-linejoin="round" d="M4 12a8 8 0 118 8M4 12V8m0 4h4"/>
+                        </svg>
+                    </button>
+                })}
                 <button
-                    class="p-1 rounded opacity-0 group-hover:opacity-100 hover:bg-destructive/10 text-muted-foreground hover:text-destructive transition-all shrink-0"
+                    class="p-1 rounded hover:bg-destructive/10 text-muted-foreground hover:text-destructive transition-colors"
                     on:click=move |ev: web_sys::MouseEvent| {
                         ev.prevent_default();
                         ev.stop_propagation();
@@ -811,7 +1258,7 @@ fn SessionListItem(
                     </svg>
                 </button>
             </div>
-        </a>
+        </div>
     }
 }
 
@@ -1172,11 +1619,28 @@ fn ChatConversationPanel(
         !loading && !streaming && has_recovery
     });
     let retry_disabled = Signal::derive(move || !can_retry.try_get().unwrap_or(false));
+    // Extract the active model name from system status for resolving "Auto" targets.
+    let active_model_name =
+        Signal::derive(
+            move || match system_status.try_get().unwrap_or(LoadingState::Idle) {
+                LoadingState::Loaded(ref status) => status
+                    .kernel
+                    .as_ref()
+                    .and_then(|k| k.model.as_ref())
+                    .and_then(|m| m.model_id.clone()),
+                _ => None,
+            },
+        );
+    // Share active model name with child components (e.g. ChatTargetSelector).
+    provide_context(ActiveModelName(active_model_name));
     let base_model_label =
         Signal::derive(
             move || match chat_state.try_get().unwrap_or_default().target.clone() {
                 ChatTarget::Model(name) => name,
-                _ => "Default".to_string(),
+                _ => active_model_name
+                    .try_get()
+                    .flatten()
+                    .unwrap_or_else(|| "Auto".to_string()),
             },
         );
 
@@ -1379,6 +1843,12 @@ fn ChatConversationPanel(
                         attach_error.set(Some("Select a file to upload.".to_string()));
                         return;
                     };
+                    if let Err(validation_error) = validate_attach_upload_file(&file) {
+                        attach_error.set(Some(validation_error));
+                        selected_file_name.set(None);
+                        selected_file.set_value(None);
+                        return;
+                    }
 
                     let file_name = file.name();
                     // Reset cancellation flag before starting
@@ -2486,14 +2956,35 @@ fn ChatConversationPanel(
                                 <input
                                     type="file"
                                     class="block w-full text-xs text-muted-foreground file:mr-3 file:rounded-md file:border-0 file:bg-muted file:px-3 file:py-2 file:text-xs file:font-medium file:text-foreground hover:file:bg-muted/70"
-                                    accept=".pdf,.txt,.md"
+                                    accept=".pdf,.txt,.md,.markdown"
                                     on:change=move |ev| {
-                                        let file = selected_file_from_event(&ev);
-                                        let name = file.as_ref().map(|f| f.name());
-                                        selected_file_name.set(name);
-                                        selected_file.set_value(file);
+                                        match selected_file_from_event(&ev) {
+                                            Some(file) => match validate_attach_upload_file(&file) {
+                                                Ok(()) => {
+                                                    selected_file_name.set(Some(file.name()));
+                                                    selected_file.set_value(Some(file));
+                                                    attach_error.set(None);
+                                                }
+                                                Err(validation_error) => {
+                                                    selected_file_name.set(None);
+                                                    selected_file.set_value(None);
+                                                    attach_error.set(Some(validation_error));
+                                                }
+                                            },
+                                            None => {
+                                                selected_file_name.set(None);
+                                                selected_file.set_value(None);
+                                            }
+                                        }
+                                        reset_file_input_value(&ev);
                                     }
                                 />
+                                <p class="text-xs text-muted-foreground">
+                                    {format!(
+                                        "Supported: PDF, TXT, Markdown · Max {} MB",
+                                        DOCUMENT_UPLOAD_MAX_FILE_SIZE / 1024 / 1024
+                                    )}
+                                </p>
                                 {move || selected_file_name.try_get().flatten().map(|name| view! {
                                     <div class="text-xs text-muted-foreground">
                                         {format!("Selected: {}", name)}
@@ -2689,6 +3180,38 @@ fn selected_file_from_event(ev: &web_sys::Event) -> Option<web_sys::File> {
     files.get(0)
 }
 
+fn validate_attach_upload_file(file: &web_sys::File) -> Result<(), String> {
+    let size = file.size() as u64;
+    if size > DOCUMENT_UPLOAD_MAX_FILE_SIZE {
+        return Err(format!(
+            "File too large. Maximum size is {} MB.",
+            DOCUMENT_UPLOAD_MAX_FILE_SIZE / 1024 / 1024
+        ));
+    }
+
+    let file_name = file.name().to_lowercase();
+    let supported = DOCUMENT_UPLOAD_SUPPORTED_EXTENSIONS
+        .iter()
+        .any(|ext| file_name.ends_with(ext));
+    if !supported {
+        return Err(format!(
+            "Unsupported file type. Supported: {}",
+            DOCUMENT_UPLOAD_SUPPORTED_EXTENSIONS.join(", ")
+        ));
+    }
+
+    Ok(())
+}
+
+fn reset_file_input_value(ev: &web_sys::Event) {
+    if let Some(input) = ev
+        .target()
+        .and_then(|t| t.dyn_into::<web_sys::HtmlInputElement>().ok())
+    {
+        input.set_value("");
+    }
+}
+
 /// Target options fetched from API for the chat target selector
 #[derive(Debug, Clone, Default)]
 struct TargetOptions {
@@ -2706,6 +3229,7 @@ fn ChatTargetSelector() -> impl IntoView {
     let show_dropdown = RwSignal::new(false);
     let options = RwSignal::new(TargetOptions::default());
     let has_loaded = RwSignal::new(false);
+    let active_model = use_context::<ActiveModelName>();
 
     let toggle_dropdown = move |_| {
         show_dropdown.update(|v| *v = !*v);
@@ -2835,7 +3359,10 @@ fn ChatTargetSelector() -> impl IntoView {
                 data-testid="chat-target-selector"
             >
                 <span class="text-muted-foreground text-xs">"Target:"</span>
-                <span class="font-medium truncate max-w-[150px]">{move || chat_state.try_get().unwrap_or_default().target.display_name()}</span>
+                <span class="font-medium truncate max-w-[150px]">{move || {
+                    let model_name = active_model.as_ref().and_then(|am| am.0.try_get().flatten());
+                    chat_state.try_get().unwrap_or_default().target.display_name_with_model(model_name.as_deref())
+                }}</span>
                 <svg
                     xmlns="http://www.w3.org/2000/svg"
                     class="h-4 w-4 text-muted-foreground flex-shrink-0"
@@ -2862,7 +3389,7 @@ fn ChatTargetSelector() -> impl IntoView {
                             <div class="p-1">
                                 <TargetOption
                                     target=ChatTarget::Default
-                                    label="Default".to_string()
+                                    label="Auto".to_string()
                                     on_select=select.clone()
                                 />
 

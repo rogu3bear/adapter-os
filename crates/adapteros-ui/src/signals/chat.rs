@@ -45,6 +45,9 @@ const CONTEXT_TOGGLES_KEY: &str = "adapteros_chat_context_toggles";
 /// LocalStorage key for chat sessions.
 const SESSIONS_STORAGE_KEY: &str = "adapteros_chat_sessions";
 
+/// Dev-only fallback token emitted by backend when no worker is available.
+const DEV_ECHO_NO_WORKER_PREFIX: &str = "[DEV ECHO] No inference worker available.";
+
 /// LocalStorage key for default pinned adapters (persisted across sessions).
 #[allow(dead_code)]
 const PINNED_ADAPTERS_KEY: &str = "adapteros_pinned_adapters";
@@ -461,10 +464,21 @@ pub enum ChatTarget {
 impl ChatTarget {
     pub fn display_name(&self) -> String {
         match self {
-            Self::Default => "Default".to_string(),
+            Self::Default => "Auto".to_string(),
             Self::Model(name) => format!("Model: {}", name),
             Self::Stack(name) => format!("Stack: {}", name),
             Self::PolicyPack(name) => format!("Policy: {}", name),
+        }
+    }
+
+    /// Display name that resolves "Auto" to the active model when known.
+    pub fn display_name_with_model(&self, active_model: Option<&str>) -> String {
+        match self {
+            Self::Default => match active_model {
+                Some(name) => format!("Auto ({})", name),
+                None => "Auto".to_string(),
+            },
+            other => other.display_name(),
         }
     }
 }
@@ -842,6 +856,12 @@ struct CreateChatSessionResponseUi {
     session_id: String,
 }
 
+#[derive(Debug, Clone, Serialize)]
+struct ArchiveChatSessionRequestUi {
+    #[serde(skip_serializing_if = "Option::is_none")]
+    reason: Option<String>,
+}
+
 impl ChatAction {
     pub fn new(client: Arc<ApiClient>, state: RwSignal<ChatState>) -> Self {
         Self {
@@ -880,6 +900,28 @@ impl ChatAction {
         let req = CreateChatSessionRequestUi { name, title };
         let resp: CreateChatSessionResponseUi = self.client.post("/v1/chat/sessions", &req).await?;
         Ok(resp.session_id)
+    }
+
+    /// Archive a backend chat session.
+    pub async fn archive_backend_session(
+        &self,
+        session_id: &str,
+        reason: Option<String>,
+    ) -> Result<(), ApiError> {
+        let req = ArchiveChatSessionRequestUi { reason };
+        self.client
+            .post_no_response(&format!("/v1/chat/sessions/{}/archive", session_id), &req)
+            .await
+    }
+
+    /// Restore an archived backend chat session.
+    pub async fn restore_backend_session(&self, session_id: &str) -> Result<(), ApiError> {
+        self.client
+            .post_no_response(
+                &format!("/v1/chat/sessions/{}/restore", session_id),
+                &serde_json::json!({}),
+            )
+            .await
     }
 
     /// Queue a message for later delivery (when inference becomes ready)
@@ -1214,18 +1256,38 @@ impl ChatAction {
                     // Mark the last message as no longer streaming and add trace info
                     // Use try_update to avoid panic if signal is disposed during navigation
                     let _ = state.try_update(|s| {
+                        let mut remove_empty_assistant = false;
                         if let Some(last) = s.messages.last_mut() {
                             if last.role == "assistant" {
-                                last.is_streaming = false;
-                                last.trace_id = trace_info.trace_id;
-                                last.latency_ms = trace_info.latency_ms;
-                                last.token_count = trace_info.token_count;
-                                last.prompt_tokens = trace_info.prompt_tokens;
-                                last.completion_tokens = trace_info.completion_tokens;
-                                last.backend_used = trace_info.backend_used;
+                                if last.content.trim().is_empty() {
+                                    remove_empty_assistant = true;
+                                } else {
+                                    last.is_streaming = false;
+                                    last.trace_id = trace_info.trace_id;
+                                    last.latency_ms = trace_info.latency_ms;
+                                    last.token_count = trace_info.token_count;
+                                    last.prompt_tokens = trace_info.prompt_tokens;
+                                    last.completion_tokens = trace_info.completion_tokens;
+                                    last.backend_used = trace_info.backend_used;
+                                }
                             }
                         }
-                        s.stream_notice = None;
+                        if remove_empty_assistant {
+                            s.messages.pop();
+                        }
+                        let keep_notice = s
+                            .stream_notice
+                            .as_ref()
+                            .map(|notice| {
+                                matches!(
+                                    notice.tone,
+                                    StreamNoticeTone::Warning | StreamNoticeTone::Paused
+                                )
+                            })
+                            .unwrap_or(false);
+                        if !keep_notice {
+                            s.stream_notice = None;
+                        }
                         s.stream_recovery = None;
                         // When dock is open, mark new messages as read immediately
                         if s.dock_state == DockState::Docked {
@@ -1970,7 +2032,15 @@ impl ProgressiveLatencyTimer {
         }
         #[cfg(not(target_arch = "wasm32"))]
         {
-            let _ = state;
+            // Keep thresholds visible to host-target checks/tests even though
+            // runtime latency notices are WASM-only.
+            let _ = (
+                state,
+                LATENCY_STAGE_1_MS,
+                LATENCY_STAGE_2_MS,
+                LATENCY_STAGE_3_MS,
+                TTFT_DISPLAY_MS,
+            );
             Self {}
         }
     }
@@ -2191,6 +2261,10 @@ fn stream_notice_from_failure(failure: &StreamFailure) -> StreamNotice {
     } else {
         StreamNotice::error(label, false)
     }
+}
+
+fn is_dev_worker_unavailable_echo(token: &str) -> bool {
+    token.trim_start().starts_with(DEV_ECHO_NO_WORKER_PREFIX)
 }
 
 /// Helper to safely update state, returning false if signal is disposed
@@ -2424,6 +2498,21 @@ async fn stream_inference_to_state(
             let parsed = parse_sse_payload_with_info(&data);
 
             if let Some(token_content) = parsed.token {
+                if is_dev_worker_unavailable_echo(&token_content) {
+                    if !try_update_state(state, |s| {
+                        s.loading = false;
+                        s.streaming = false;
+                        s.stream_notice = Some(StreamNotice::warning(
+                            "No worker connected. Start a worker to enable real inference.",
+                            false,
+                        ));
+                        s.paused_inference = None;
+                    }) {
+                        return Ok(trace_info);
+                    }
+                    continue;
+                }
+
                 // Append token to the last (assistant) message
                 // Use try_update_state to avoid panic if signal is disposed during navigation
                 let is_first_token = !first_token_logged;
@@ -2596,6 +2685,8 @@ pub struct ChatSessionMeta {
     pub target: String,
     pub message_count: usize,
     pub preview: String,
+    #[serde(default)]
+    pub archived: bool,
     pub created_at: String,
     pub updated_at: String,
 }
@@ -2607,6 +2698,9 @@ pub struct StoredChatSession {
     pub title: String,
     pub target: String,
     pub messages: Vec<StoredMessage>,
+    /// Whether the session is archived in local storage.
+    #[serde(default)]
+    pub archived: bool,
     /// Session-local mode toggle (Fast/Verified)
     #[serde(default)]
     pub verified_mode: bool,
@@ -2676,6 +2770,15 @@ impl ChatSessionsManager {
 
     /// Load all session metadata from localStorage
     pub fn load_sessions() -> Vec<ChatSessionMeta> {
+        Self::load_sessions_by_archive(false)
+    }
+
+    /// Load archived session metadata from localStorage.
+    pub fn load_archived_sessions() -> Vec<ChatSessionMeta> {
+        Self::load_sessions_by_archive(true)
+    }
+
+    fn load_sessions_by_archive(archived: bool) -> Vec<ChatSessionMeta> {
         let Some(window) = web_sys::window() else {
             return Vec::new();
         };
@@ -2699,25 +2802,7 @@ impl ChatSessionsManager {
             }
         }
 
-        // Deterministic ordering: most recently updated first.
-        sessions.sort_by(|a, b| b.updated_at.cmp(&a.updated_at));
-
-        sessions
-            .into_iter()
-            .map(|s| ChatSessionMeta {
-                id: s.id,
-                title: s.title,
-                target: s.target,
-                message_count: s.messages.len(),
-                preview: s
-                    .messages
-                    .last()
-                    .map(|m| truncate_string(&m.content, 100))
-                    .unwrap_or_default(),
-                created_at: s.created_at,
-                updated_at: s.updated_at,
-            })
-            .collect()
+        sessions_to_meta_for_archive(sessions, archived)
     }
 
     /// Load a specific session by ID
@@ -2738,6 +2823,7 @@ impl ChatSessionsManager {
             title: "New Chat".to_string(),
             target: ChatTarget::Default.display_name(),
             messages: Vec::new(),
+            archived: false,
             verified_mode: false,
             placeholder: true,
             created_at: now.clone(),
@@ -2821,6 +2907,21 @@ impl ChatSessionsManager {
         }
     }
 
+    /// Mark a session as archived.
+    pub fn archive_session(id: &str) {
+        Self::set_session_archived(id, true);
+    }
+
+    /// Mark a session as active again.
+    pub fn unarchive_session(id: &str) {
+        Self::set_session_archived(id, false);
+    }
+
+    /// Check whether a session is archived.
+    pub fn is_session_archived(id: &str) -> bool {
+        Self::load_session(id).map(|s| s.archived).unwrap_or(false)
+    }
+
     /// Create a session from current dock state
     ///
     /// If an existing session is provided, its `created_at` is preserved.
@@ -2831,6 +2932,7 @@ impl ChatSessionsManager {
             id,
             state,
             existing.as_ref().map(|s| s.created_at.as_str()),
+            existing.as_ref().map(|s| s.archived).unwrap_or(false),
         )
     }
 
@@ -2839,6 +2941,7 @@ impl ChatSessionsManager {
         id: &str,
         state: &ChatState,
         created_at: Option<&str>,
+        archived: bool,
     ) -> StoredChatSession {
         let now = crate::utils::now_utc().to_rfc3339();
         let title = state
@@ -2880,11 +2983,46 @@ impl ChatSessionsManager {
                     }
                 })
                 .collect(),
+            archived,
             verified_mode: state.verified_mode,
             placeholder: false,
             // Preserve original created_at if updating an existing session
             created_at: created_at.unwrap_or(&now).to_string(),
             updated_at: now,
+        }
+    }
+
+    fn set_session_archived(id: &str, archived: bool) {
+        let Some(window) = web_sys::window() else {
+            return;
+        };
+        let Ok(Some(storage)) = window.local_storage() else {
+            return;
+        };
+
+        let mut sessions: Vec<StoredChatSession> = storage
+            .get_item(SESSIONS_STORAGE_KEY)
+            .ok()
+            .flatten()
+            .and_then(|d| serde_json::from_str(&d).ok())
+            .unwrap_or_default();
+
+        let now = crate::utils::now_utc().to_rfc3339();
+        let mut changed = false;
+        for session in sessions.iter_mut() {
+            if session.id == id {
+                session.archived = archived;
+                session.updated_at = now.clone();
+                changed = true;
+                break;
+            }
+        }
+
+        if changed {
+            sessions.sort_by(|a, b| b.updated_at.cmp(&a.updated_at));
+            if let Ok(json) = serde_json::to_string(&sessions) {
+                let _ = storage.set_item(SESSIONS_STORAGE_KEY, &json);
+            }
         }
     }
 
@@ -2906,6 +3044,33 @@ impl ChatSessionsManager {
             age <= ttl
         });
     }
+}
+
+fn sessions_to_meta_for_archive(
+    mut sessions: Vec<StoredChatSession>,
+    archived: bool,
+) -> Vec<ChatSessionMeta> {
+    // Deterministic ordering: most recently updated first.
+    sessions.sort_by(|a, b| b.updated_at.cmp(&a.updated_at));
+
+    sessions
+        .into_iter()
+        .filter(|s| s.archived == archived)
+        .map(|s| ChatSessionMeta {
+            id: s.id,
+            title: s.title,
+            target: s.target,
+            message_count: s.messages.len(),
+            preview: s
+                .messages
+                .last()
+                .map(|m| truncate_string(&m.content, 100))
+                .unwrap_or_default(),
+            archived: s.archived,
+            created_at: s.created_at,
+            updated_at: s.updated_at,
+        })
+        .collect()
 }
 
 /// Truncate a string to a maximum number of characters, respecting UTF-8 boundaries.
@@ -2983,6 +3148,104 @@ mod tests {
         assert!(!ChatSessionsManager::is_valid_session_id("foo"));
         assert!(!ChatSessionsManager::is_valid_session_id("ses_../evil"));
         assert!(!ChatSessionsManager::is_valid_session_id("ses_abc 123"));
+    }
+
+    #[test]
+    fn chat_session_meta_archived_defaults_false() {
+        let json = r#"{
+            "id": "ses_abc123",
+            "title": "Chat",
+            "target": "Default",
+            "message_count": 0,
+            "preview": "",
+            "created_at": "2024-01-01T00:00:00Z",
+            "updated_at": "2024-01-01T00:00:00Z"
+        }"#;
+        let meta: ChatSessionMeta = serde_json::from_str(json).expect("deserialize");
+        assert!(!meta.archived);
+    }
+
+    #[test]
+    fn sessions_to_meta_for_archive_filters_and_orders() {
+        let active_old = StoredChatSession {
+            id: "ses_active_old".to_string(),
+            title: "Active old".to_string(),
+            target: "Default".to_string(),
+            messages: vec![StoredMessage {
+                id: "m1".to_string(),
+                role: "user".to_string(),
+                content: "old".to_string(),
+                timestamp: "2024-01-01T00:00:00Z".to_string(),
+                trace_id: None,
+                latency_ms: None,
+                token_count: None,
+                prompt_tokens: None,
+                completion_tokens: None,
+                backend_used: None,
+            }],
+            archived: false,
+            verified_mode: false,
+            placeholder: false,
+            created_at: "2024-01-01T00:00:00Z".to_string(),
+            updated_at: "2024-01-01T00:00:00Z".to_string(),
+        };
+        let archived_new = StoredChatSession {
+            id: "ses_archived_new".to_string(),
+            title: "Archived new".to_string(),
+            target: "Default".to_string(),
+            messages: vec![StoredMessage {
+                id: "m2".to_string(),
+                role: "assistant".to_string(),
+                content: "new".to_string(),
+                timestamp: "2024-01-02T00:00:00Z".to_string(),
+                trace_id: None,
+                latency_ms: None,
+                token_count: None,
+                prompt_tokens: None,
+                completion_tokens: None,
+                backend_used: None,
+            }],
+            archived: true,
+            verified_mode: false,
+            placeholder: false,
+            created_at: "2024-01-02T00:00:00Z".to_string(),
+            updated_at: "2024-01-02T00:00:00Z".to_string(),
+        };
+        let active_new = StoredChatSession {
+            id: "ses_active_new".to_string(),
+            title: "Active new".to_string(),
+            target: "Default".to_string(),
+            messages: vec![StoredMessage {
+                id: "m3".to_string(),
+                role: "assistant".to_string(),
+                content: "fresh".to_string(),
+                timestamp: "2024-01-03T00:00:00Z".to_string(),
+                trace_id: None,
+                latency_ms: None,
+                token_count: None,
+                prompt_tokens: None,
+                completion_tokens: None,
+                backend_used: None,
+            }],
+            archived: false,
+            verified_mode: false,
+            placeholder: false,
+            created_at: "2024-01-03T00:00:00Z".to_string(),
+            updated_at: "2024-01-03T00:00:00Z".to_string(),
+        };
+
+        let sessions = vec![active_old, archived_new, active_new];
+
+        let active = sessions_to_meta_for_archive(sessions.clone(), false);
+        assert_eq!(active.len(), 2);
+        assert_eq!(active[0].id, "ses_active_new");
+        assert_eq!(active[1].id, "ses_active_old");
+        assert!(!active[0].archived);
+
+        let archived = sessions_to_meta_for_archive(sessions, true);
+        assert_eq!(archived.len(), 1);
+        assert_eq!(archived[0].id, "ses_archived_new");
+        assert!(archived[0].archived);
     }
 
     /// Tests for is_abort_error string-based detection
