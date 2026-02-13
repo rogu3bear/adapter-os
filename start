@@ -824,10 +824,25 @@ load_seeded_model_on_worker() {
     db_status="$(sqlite3 "$AOS_VAR_DIR/aos-cp.sqlite3" \
         "SELECT status FROM base_model_status WHERE tenant_id='default' AND model_id='$model_id' ORDER BY updated_at DESC LIMIT 1;" \
         2>/dev/null | head -1)"
-    if [ "$db_status" != "loaded" ]; then
-        log_line WARN "model:load unexpected db status model_id=$model_id status=${db_status:-empty}"
-        return 1
-    fi
+
+    # Canonical statuses are kebab-case (see ModelLoadStatus in adapteros-api-types):
+    # - ready (loaded)
+    # - loading
+    # - error
+    # Accept legacy "loaded" as well.
+    case "$db_status" in
+        ready|loaded)
+            return 0
+            ;;
+        "")
+            log_line WARN "model:load status missing model_id=$model_id (no base_model_status row)"
+            return 1
+            ;;
+        *)
+            log_line WARN "model:load unexpected db status model_id=$model_id status=$db_status"
+            return 1
+            ;;
+    esac
 
     return 0
 }
