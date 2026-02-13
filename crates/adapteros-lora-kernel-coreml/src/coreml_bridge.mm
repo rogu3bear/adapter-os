@@ -229,10 +229,79 @@ int32_t coreml_run_inference(
             return -1;
         }
 
+        // This entrypoint ignores adapters; keep args to preserve ABI.
+        (void)adapter_indices;
+        (void)adapter_gates;
+        (void)num_adapters;
+
+        if (!input_ids || input_len == 0 || !output_logits || output_len == 0) {
+            snprintf(g_last_error, sizeof(g_last_error), "Invalid input/output buffers");
+            return -2;
+        }
+
         MLModel *model = (__bridge MLModel*)handle;
         NSError *error = nil;
 
-        NSArray<NSNumber*> *shape = @[@(1), @(input_len)];
+        // Determine the model's expected `input_ids` shape (many CoreML exports are fixed seq_len).
+        NSArray<NSNumber*> *shape = nil;
+        if (model.modelDescription) {
+            MLFeatureDescription *inputDesc =
+                model.modelDescription.inputDescriptionsByName[@"input_ids"];
+            if (inputDesc && inputDesc.type == MLFeatureTypeMultiArray) {
+                MLMultiArrayConstraint *constraint = inputDesc.multiArrayConstraint;
+                if (constraint && constraint.shape && constraint.shape.count > 0) {
+                    shape = constraint.shape;
+                }
+            }
+
+            // Fallback: coremltools exports often include creator-defined `seq_len`.
+            if (!shape) {
+                NSDictionary *creator =
+                    model.modelDescription.metadata[MLModelCreatorDefinedKey];
+                if ([creator isKindOfClass:[NSDictionary class]]) {
+                    id seq = creator[@"seq_len"];
+                    NSInteger v = 0;
+                    if ([seq isKindOfClass:[NSString class]]) {
+                        v = [(NSString *)seq integerValue];
+                    } else if ([seq isKindOfClass:[NSNumber class]]) {
+                        v = [(NSNumber *)seq integerValue];
+                    }
+                    if (v > 0) {
+                        shape = @[@(1), @(v)];
+                    }
+                }
+            }
+        }
+
+        if (!shape) {
+            shape = @[@(1), @(input_len)];
+        }
+
+        // Normalize supported input shapes to [1, seq_len].
+        size_t seq_len = input_len;
+        if (shape.count == 2) {
+            if ([shape[0] unsignedIntegerValue] != 1) {
+                snprintf(g_last_error, sizeof(g_last_error),
+                         "Unsupported batch size for input_ids: %zu",
+                         (size_t)[shape[0] unsignedIntegerValue]);
+                return -2;
+            }
+            seq_len = (size_t)[shape[1] unsignedIntegerValue];
+        } else if (shape.count == 1) {
+            seq_len = (size_t)[shape[0] unsignedIntegerValue];
+            shape = @[@(1), @(seq_len)];
+        } else {
+            snprintf(g_last_error, sizeof(g_last_error),
+                     "Unsupported input_ids rank: %lu",
+                     (unsigned long)shape.count);
+            return -2;
+        }
+
+        if (seq_len == 0) {
+            snprintf(g_last_error, sizeof(g_last_error), "Invalid input_ids seq_len=0");
+            return -2;
+        }
+
         MLMultiArray *inputArray = [[MLMultiArray alloc] initWithShape:shape
                                                               dataType:MLMultiArrayDataTypeInt32
                                                                  error:&error];
@@ -242,9 +311,21 @@ int32_t coreml_run_inference(
             return -2;
         }
 
+        // Right-pad up to seq_len; if input is longer than seq_len, keep the last seq_len tokens.
+        size_t start_idx = 0;
+        size_t effective_len = input_len;
+        if (input_len > seq_len) {
+            start_idx = input_len - seq_len;
+            effective_len = seq_len;
+        }
+
         int32_t *inputPtr = (int32_t*)inputArray.dataPointer;
-        for (size_t i = 0; i < input_len; i++) {
-            inputPtr[i] = (int32_t)input_ids[i];
+        for (size_t i = 0; i < seq_len; i++) {
+            if (i < effective_len) {
+                inputPtr[i] = (int32_t)input_ids[start_idx + i];
+            } else {
+                inputPtr[i] = 0;
+            }
         }
 
         MLDictionaryFeatureProvider *inputProvider =
@@ -271,9 +352,71 @@ int32_t coreml_run_inference(
         }
 
         MLMultiArray *outputArray = outputValue.multiArrayValue;
-        float *outputPtr = (float*)outputArray.dataPointer;
-        size_t copyLen = output_len < (size_t)outputArray.count ? output_len : (size_t)outputArray.count;
-        memcpy(output_logits, outputPtr, copyLen * sizeof(float));
+
+        // Extract logits for the last real input token position.
+        size_t pos = effective_len > 0 ? (effective_len - 1) : 0;
+        NSArray<NSNumber*> *outShape = outputArray.shape;
+        NSArray<NSNumber*> *outStrides = outputArray.strides;
+        if (!outShape || outShape.count == 0 || !outStrides || outStrides.count != outShape.count) {
+            snprintf(g_last_error, sizeof(g_last_error), "Invalid logits output shape/strides");
+            return -6;
+        }
+
+        size_t vocab_dim = (size_t)[outShape.lastObject unsignedIntegerValue];
+        size_t copyLen = output_len < vocab_dim ? output_len : vocab_dim;
+
+        size_t base_offset = 0;
+        size_t vocab_stride = 1;
+        if (outShape.count == 3) {
+            // [1, T, V]
+            size_t t = (size_t)[outShape[1] unsignedIntegerValue];
+            if (t == 0) {
+                snprintf(g_last_error, sizeof(g_last_error), "Invalid logits time dimension");
+                return -6;
+            }
+            if (pos >= t) {
+                pos = t - 1;
+            }
+            size_t stride_t = (size_t)[outStrides[1] unsignedIntegerValue];
+            vocab_stride = (size_t)[outStrides[2] unsignedIntegerValue];
+            base_offset = pos * stride_t;
+        } else if (outShape.count == 2) {
+            // [1, V] or [T, V] (treat as a single slice)
+            vocab_stride = (size_t)[outStrides[1] unsignedIntegerValue];
+            base_offset = 0;
+        } else if (outShape.count == 1) {
+            // [V]
+            vocab_stride = (size_t)[outStrides[0] unsignedIntegerValue];
+            base_offset = 0;
+        } else {
+            // Unknown rank: fall back to flat copy from the beginning.
+            vocab_stride = 1;
+            base_offset = 0;
+        }
+
+        if (outputArray.dataType == MLMultiArrayDataTypeFloat32) {
+            float *outputPtr = (float*)outputArray.dataPointer;
+            if (vocab_stride == 1) {
+                memcpy(output_logits, outputPtr + base_offset, copyLen * sizeof(float));
+            } else {
+                for (size_t i = 0; i < copyLen; i++) {
+                    output_logits[i] = outputPtr[base_offset + i * vocab_stride];
+                }
+            }
+        } else if (outputArray.dataType == MLMultiArrayDataTypeFloat16) {
+            __fp16 *fp16Ptr = (__fp16*)outputArray.dataPointer;
+            for (size_t i = 0; i < copyLen; i++) {
+                output_logits[i] = (float)fp16Ptr[base_offset + i * vocab_stride];
+            }
+        } else {
+            snprintf(g_last_error, sizeof(g_last_error), "Unsupported logits output data type");
+            return -6;
+        }
+
+        // Clear remainder (avoid stale logits if output_len > copyLen).
+        for (size_t i = copyLen; i < output_len; i++) {
+            output_logits[i] = 0.0f;
+        }
 
         // Note: LoRA adapter application requires pre-computed deltas
         // Use coreml_run_inference_with_lora for full adapter support
@@ -478,11 +621,73 @@ int32_t coreml_run_inference_with_lora(
             return -1;
         }
 
+        if (!input_ids || input_len == 0 || !output_logits || output_len == 0) {
+            snprintf(g_last_error, sizeof(g_last_error), "Invalid input/output buffers");
+            return -2;
+        }
+
         MLModel *model = (__bridge MLModel*)handle;
         NSError *error = nil;
 
-        // Create input array
-        NSArray<NSNumber*> *shape = @[@(1), @(input_len)];
+        // Create input array (respect fixed seq_len exports).
+        NSArray<NSNumber*> *shape = nil;
+        if (model.modelDescription) {
+            MLFeatureDescription *inputDesc =
+                model.modelDescription.inputDescriptionsByName[@"input_ids"];
+            if (inputDesc && inputDesc.type == MLFeatureTypeMultiArray) {
+                MLMultiArrayConstraint *constraint = inputDesc.multiArrayConstraint;
+                if (constraint && constraint.shape && constraint.shape.count > 0) {
+                    shape = constraint.shape;
+                }
+            }
+
+            // Fallback: coremltools exports often include creator-defined `seq_len`.
+            if (!shape) {
+                NSDictionary *creator =
+                    model.modelDescription.metadata[MLModelCreatorDefinedKey];
+                if ([creator isKindOfClass:[NSDictionary class]]) {
+                    id seq = creator[@"seq_len"];
+                    NSInteger v = 0;
+                    if ([seq isKindOfClass:[NSString class]]) {
+                        v = [(NSString *)seq integerValue];
+                    } else if ([seq isKindOfClass:[NSNumber class]]) {
+                        v = [(NSNumber *)seq integerValue];
+                    }
+                    if (v > 0) {
+                        shape = @[@(1), @(v)];
+                    }
+                }
+            }
+        }
+
+        if (!shape) {
+            shape = @[@(1), @(input_len)];
+        }
+
+        size_t seq_len = input_len;
+        if (shape.count == 2) {
+            if ([shape[0] unsignedIntegerValue] != 1) {
+                snprintf(g_last_error, sizeof(g_last_error),
+                         "Unsupported batch size for input_ids: %zu",
+                         (size_t)[shape[0] unsignedIntegerValue]);
+                return -2;
+            }
+            seq_len = (size_t)[shape[1] unsignedIntegerValue];
+        } else if (shape.count == 1) {
+            seq_len = (size_t)[shape[0] unsignedIntegerValue];
+            shape = @[@(1), @(seq_len)];
+        } else {
+            snprintf(g_last_error, sizeof(g_last_error),
+                     "Unsupported input_ids rank: %lu",
+                     (unsigned long)shape.count);
+            return -2;
+        }
+
+        if (seq_len == 0) {
+            snprintf(g_last_error, sizeof(g_last_error), "Invalid input_ids seq_len=0");
+            return -2;
+        }
+
         MLMultiArray *inputArray = [[MLMultiArray alloc] initWithShape:shape
                                                               dataType:MLMultiArrayDataTypeInt32
                                                                  error:&error];
@@ -492,9 +697,20 @@ int32_t coreml_run_inference_with_lora(
             return -2;
         }
 
+        size_t start_idx = 0;
+        size_t effective_len = input_len;
+        if (input_len > seq_len) {
+            start_idx = input_len - seq_len;
+            effective_len = seq_len;
+        }
+
         int32_t *inputPtr = (int32_t*)inputArray.dataPointer;
-        for (size_t i = 0; i < input_len; i++) {
-            inputPtr[i] = (int32_t)input_ids[i];
+        for (size_t i = 0; i < seq_len; i++) {
+            if (i < effective_len) {
+                inputPtr[i] = (int32_t)input_ids[start_idx + i];
+            } else {
+                inputPtr[i] = 0;
+            }
         }
 
         // Create feature provider
@@ -524,9 +740,64 @@ int32_t coreml_run_inference_with_lora(
 
         // Copy base model output
         MLMultiArray *outputArray = outputValue.multiArrayValue;
-        float *outputPtr = (float*)outputArray.dataPointer;
-        size_t copyLen = output_len < (size_t)outputArray.count ? output_len : (size_t)outputArray.count;
-        memcpy(output_logits, outputPtr, copyLen * sizeof(float));
+        size_t pos = effective_len > 0 ? (effective_len - 1) : 0;
+        NSArray<NSNumber*> *outShape = outputArray.shape;
+        NSArray<NSNumber*> *outStrides = outputArray.strides;
+        if (!outShape || outShape.count == 0 || !outStrides || outStrides.count != outShape.count) {
+            snprintf(g_last_error, sizeof(g_last_error), "Invalid logits output shape/strides");
+            return -6;
+        }
+
+        size_t vocab_dim = (size_t)[outShape.lastObject unsignedIntegerValue];
+        size_t copyLen = output_len < vocab_dim ? output_len : vocab_dim;
+
+        size_t base_offset = 0;
+        size_t vocab_stride = 1;
+        if (outShape.count == 3) {
+            size_t t = (size_t)[outShape[1] unsignedIntegerValue];
+            if (t == 0) {
+                snprintf(g_last_error, sizeof(g_last_error), "Invalid logits time dimension");
+                return -6;
+            }
+            if (pos >= t) {
+                pos = t - 1;
+            }
+            size_t stride_t = (size_t)[outStrides[1] unsignedIntegerValue];
+            vocab_stride = (size_t)[outStrides[2] unsignedIntegerValue];
+            base_offset = pos * stride_t;
+        } else if (outShape.count == 2) {
+            vocab_stride = (size_t)[outStrides[1] unsignedIntegerValue];
+            base_offset = 0;
+        } else if (outShape.count == 1) {
+            vocab_stride = (size_t)[outStrides[0] unsignedIntegerValue];
+            base_offset = 0;
+        } else {
+            vocab_stride = 1;
+            base_offset = 0;
+        }
+
+        if (outputArray.dataType == MLMultiArrayDataTypeFloat32) {
+            float *outputPtr = (float*)outputArray.dataPointer;
+            if (vocab_stride == 1) {
+                memcpy(output_logits, outputPtr + base_offset, copyLen * sizeof(float));
+            } else {
+                for (size_t i = 0; i < copyLen; i++) {
+                    output_logits[i] = outputPtr[base_offset + i * vocab_stride];
+                }
+            }
+        } else if (outputArray.dataType == MLMultiArrayDataTypeFloat16) {
+            __fp16 *fp16Ptr = (__fp16*)outputArray.dataPointer;
+            for (size_t i = 0; i < copyLen; i++) {
+                output_logits[i] = (float)fp16Ptr[base_offset + i * vocab_stride];
+            }
+        } else {
+            snprintf(g_last_error, sizeof(g_last_error), "Unsupported logits output data type");
+            return -6;
+        }
+
+        for (size_t i = copyLen; i < output_len; i++) {
+            output_logits[i] = 0.0f;
+        }
 
         // Apply LoRA adapter contributions
         // Formula: output = base_output + sum(gate_i * lora_delta_i)
