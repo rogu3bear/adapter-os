@@ -34,6 +34,17 @@ fn create_examples(count: usize) -> Vec<adapteros_lora_worker::training::Trainin
         .collect()
 }
 
+fn default_config_without_base_model() -> adapteros_lora_worker::training::TrainingConfig {
+    adapteros_lora_worker::training::TrainingConfig {
+        // Integration tests should not rely on local base-model artifacts.
+        // Keep the config in CPU-proxy mode so `MicroLoRATrainer::new()` does not
+        // require `base_model_path`.
+        use_gpu_backward: false,
+        validation_split: 0.0,
+        ..Default::default()
+    }
+}
+
 #[tokio::test]
 async fn test_gpu_training_with_optional_backend() {
     // Test that training works when GPU is optional but not required
@@ -49,7 +60,7 @@ async fn test_gpu_training_with_optional_backend() {
         preferred_backend: None,
         max_gpu_memory_mb: 0,
         checkpoint_interval: None,
-        ..Default::default()
+        ..default_config_without_base_model()
     };
 
     let mut trainer = adapteros_lora_worker::training::MicroLoRATrainer::new(config)
@@ -86,22 +97,26 @@ async fn test_gpu_training_with_optional_backend() {
 }
 
 #[tokio::test]
-#[ignore = "select_optimal_backend is a private method - requires refactoring to expose or test differently [tracking: STAB-IGN-0047]"]
-async fn test_gpu_backend_selection() {
-    // Test automatic GPU backend selection
-    // NOTE: This test requires access to private method select_optimal_backend
-    // which is not currently exported from the trainer module.
-    let config = adapteros_lora_worker::training::TrainingConfig::default();
-    let _trainer = adapteros_lora_worker::training::MicroLoRATrainer::new(config).unwrap();
+async fn test_backend_selection_respects_preferred_backend_cpu() {
+    use adapteros_lora_worker::training::TrainingBackend;
 
-    // The following code would require select_optimal_backend to be public:
-    // let (backend, _reason) = trainer.select_optimal_backend();
+    let config = adapteros_lora_worker::training::TrainingConfig {
+        require_gpu: false,
+        preferred_backend: Some(TrainingBackend::Cpu),
+        ..default_config_without_base_model()
+    };
+
+    let mut trainer = adapteros_lora_worker::training::MicroLoRATrainer::new(config).unwrap();
+    trainer.init_kernels(&[]).unwrap();
+
+    assert_eq!(trainer.backend_info(), Some("CPU"));
+    assert!(!trainer.using_gpu(), "Should use CPU as specified");
 }
 
 #[test]
 fn test_backend_info_before_training() {
     // Test that backend info is available after selection
-    let config = adapteros_lora_worker::training::TrainingConfig::default();
+    let config = default_config_without_base_model();
     let trainer = adapteros_lora_worker::training::MicroLoRATrainer::new(config).unwrap();
 
     // Before init_kernels, no backend is selected
@@ -133,7 +148,7 @@ async fn test_gpu_training_with_custom_backend() {
         preferred_backend: Some(TrainingBackend::Cpu),
         max_gpu_memory_mb: 0,
         checkpoint_interval: None,
-        ..Default::default()
+        ..default_config_without_base_model()
     };
 
     let mut trainer = adapteros_lora_worker::training::MicroLoRATrainer::new(config).unwrap();
@@ -141,6 +156,7 @@ async fn test_gpu_training_with_custom_backend() {
     trainer.init_kernels(&[]).unwrap();
 
     // Should select CPU as preferred
+    assert_eq!(trainer.backend_info(), Some("CPU"));
     assert!(!trainer.using_gpu(), "Should use CPU as specified");
 
     let examples = create_examples(2);
@@ -165,16 +181,9 @@ fn test_training_config_builder_pattern() {
 }
 
 #[test]
-#[ignore = "detect_available_backends is a private method - requires refactoring to expose or test differently [tracking: STAB-IGN-0048]"]
-fn test_available_backends_always_includes_cpu() {
-    // CPU fallback should always be available
-    // NOTE: This test requires access to private method detect_available_backends
-    // which is not currently exported from the trainer module.
-    // let backends = adapteros_lora_worker::training::MicroLoRATrainer::detect_available_backends();
-    // let has_cpu = backends
-    //     .iter()
-    //     .any(|(b, _)| *b == adapteros_lora_worker::training::TrainingBackend::Cpu);
-    // assert!(has_cpu, "CPU backend should always be available");
+fn test_available_backends_description_includes_cpu() {
+    let desc = adapteros_lora_worker::training::MicroLoRATrainer::describe_available_backends();
+    assert!(desc.contains("CPU"), "CPU backend should always be listed");
 }
 
 #[test]
@@ -216,7 +225,7 @@ async fn test_training_completes_with_telemetry() {
         batch_size: 1,
         epochs: 1,
         hidden_dim: 32,
-        ..Default::default()
+        ..default_config_without_base_model()
     };
 
     let mut trainer = adapteros_lora_worker::training::MicroLoRATrainer::new(config).unwrap();
@@ -250,7 +259,7 @@ async fn test_progressive_training_loss_improvement() {
         batch_size: 2,
         epochs: 3,
         hidden_dim: 32,
-        ..Default::default()
+        ..default_config_without_base_model()
     };
 
     let mut trainer = adapteros_lora_worker::training::MicroLoRATrainer::new(config).unwrap();
@@ -278,7 +287,7 @@ fn test_kernel_initialization_fallback_on_cpu() {
     // Test that init_kernels doesn't fail on systems without GPU
     let config = adapteros_lora_worker::training::TrainingConfig {
         require_gpu: false,
-        ..Default::default()
+        ..default_config_without_base_model()
     };
 
     let mut trainer = adapteros_lora_worker::training::MicroLoRATrainer::new(config).unwrap();
@@ -298,13 +307,13 @@ fn test_training_seed_determinism() {
     let config1 = adapteros_lora_worker::training::TrainingConfig {
         rank: 2,
         hidden_dim: 32,
-        ..Default::default()
+        ..default_config_without_base_model()
     };
 
     let config2 = adapteros_lora_worker::training::TrainingConfig {
         rank: 2,
         hidden_dim: 32,
-        ..Default::default()
+        ..default_config_without_base_model()
     };
 
     let trainer1 = adapteros_lora_worker::training::MicroLoRATrainer::new(config1).unwrap();
@@ -320,7 +329,7 @@ fn test_training_seed_determinism() {
 
 #[tokio::test]
 async fn test_tokens_and_throughput_metrics_tracked() {
-    let mut config = adapteros_lora_worker::training::TrainingConfig::default();
+    let mut config = default_config_without_base_model();
     config.epochs = 2;
     config.batch_size = 2;
     let requested_epochs = config.epochs;
