@@ -27,6 +27,7 @@ pub mod generation;
 pub mod kv_cache;
 pub mod liquid;
 pub mod lora;
+pub mod memory_management;
 pub mod memory_pool;
 pub mod monitoring;
 pub mod quantization;
