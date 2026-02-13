@@ -50,6 +50,11 @@ id_ed25519.pub
 
 # Verification artifacts (generated outputs)
 target/verify/
+target-aos-*/
+target-harmonize/
+output/playwright/
+.playwright-cli/
+target-lora-tests/
 
 # Database and runtime data (contains sensitive data)
 **/var/
