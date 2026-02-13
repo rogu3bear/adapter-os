@@ -114,6 +114,7 @@ async fn training_pipeline_produces_registered_aos() {
     let mut completed = false;
     let mut last_status = String::new();
     let mut last_error: Option<String> = None;
+    let mut completed_job = None;
     for _ in 0..120 {
         let current = service.get_job(&job.id).await.expect("job lookup");
         last_status = format!("{:?}", current.status);
@@ -135,6 +136,7 @@ async fn training_pipeline_produces_registered_aos() {
                 "artifact file should exist at {}",
                 artifact_path
             );
+            completed_job = Some(current.clone());
 
             break;
         }
@@ -145,6 +147,50 @@ async fn training_pipeline_produces_registered_aos() {
         completed,
         "training job should complete (last status: {}, last error: {:?})",
         last_status, last_error
+    );
+    let completed_job = completed_job.expect("completed job should be available");
+
+    let persisted_repo_id: String = sqlx::query_scalar(
+        "SELECT repo_id FROM repository_training_jobs WHERE id = ?",
+    )
+    .bind(&job.id)
+    .fetch_one(db.pool())
+    .await
+    .expect("training job should be persisted in repository_training_jobs");
+    assert_eq!(
+        persisted_repo_id,
+        "direct-training",
+        "direct-training jobs must persist with synthetic repo id"
+    );
+
+    let direct_repo_count: i64 = sqlx::query_scalar(
+        "SELECT COUNT(1) FROM git_repositories WHERE repo_id = ?",
+    )
+    .bind("direct-training")
+    .fetch_one(db.pool())
+    .await
+    .expect("direct-training synthetic repo should exist");
+    assert_eq!(
+        direct_repo_count,
+        1,
+        "direct-training synthetic repo should be ensured exactly once per DB"
+    );
+
+    let artifact_stored_path: Option<String> = sqlx::query_scalar(
+        "SELECT stored_path FROM artifacts WHERE hash_b3 = ?",
+    )
+    .bind(
+        completed_job
+            .weights_hash_b3
+            .as_deref()
+            .expect("completed job should have weights_hash_b3"),
+    )
+    .fetch_optional(db.pool())
+    .await
+    .expect("artifact query should succeed");
+    assert!(
+        artifact_stored_path.as_deref().is_some_and(|path| !path.trim().is_empty()),
+        "artifact row should include stored_path"
     );
 
     // Allow executor to drain; ignore errors if already finished.

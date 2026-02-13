@@ -705,8 +705,12 @@ fn SessionListPanel(
     let selected_training_session_ids = RwSignal::new(Vec::<String>::new());
     let creating_training_dataset = RwSignal::new(false);
     let training_dataset_error = RwSignal::new(Option::<String>::None);
-    let selected_training_count =
-        Signal::derive(move || selected_training_session_ids.try_get().unwrap_or_default().len());
+    let selected_training_count = Signal::derive(move || {
+        selected_training_session_ids
+            .try_get()
+            .unwrap_or_default()
+            .len()
+    });
 
     let toggle_training_session = Callback::new(move |(session_id, checked): (String, bool)| {
         selected_training_session_ids.update(|ids| {
@@ -734,9 +738,8 @@ fn SessionListPanel(
             }
             let selected_ids = selected_training_session_ids.try_get().unwrap_or_default();
             if selected_ids.is_empty() {
-                training_dataset_error.set(Some(
-                    "Select one or more chat sessions first.".to_string(),
-                ));
+                training_dataset_error
+                    .set(Some("Select one or more chat sessions first.".to_string()));
                 return;
             }
 
@@ -769,8 +772,9 @@ fn SessionListPanel(
                     .collect();
 
                 if combined_messages.is_empty() {
-                    training_dataset_error
-                        .set(Some("No messages found in the selected sessions.".to_string()));
+                    training_dataset_error.set(Some(
+                        "No messages found in the selected sessions.".to_string(),
+                    ));
                     creating_training_dataset.set(false);
                     return;
                 }

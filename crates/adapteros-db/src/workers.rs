@@ -1835,18 +1835,23 @@ mod tests {
             .expect("purge should succeed");
         assert_eq!(deleted, 2, "crashed and failed workers should be purged");
 
-        let crashed_count = sqlx::query_scalar::<_, i64>("SELECT COUNT(*) FROM workers WHERE id = 'worker-crashed'")
-            .fetch_one(db.pool())
-            .await
-            .expect("query should succeed");
-        let failed_count = sqlx::query_scalar::<_, i64>("SELECT COUNT(*) FROM workers WHERE id = 'worker-failed'")
-            .fetch_one(db.pool())
-            .await
-            .expect("query should succeed");
-        let healthy_count = sqlx::query_scalar::<_, i64>("SELECT COUNT(*) FROM workers WHERE id = 'worker-healthy'")
-            .fetch_one(db.pool())
-            .await
-            .expect("query should succeed");
+        let crashed_count = sqlx::query_scalar::<_, i64>(
+            "SELECT COUNT(*) FROM workers WHERE id = 'worker-crashed'",
+        )
+        .fetch_one(db.pool())
+        .await
+        .expect("query should succeed");
+        let failed_count =
+            sqlx::query_scalar::<_, i64>("SELECT COUNT(*) FROM workers WHERE id = 'worker-failed'")
+                .fetch_one(db.pool())
+                .await
+                .expect("query should succeed");
+        let healthy_count = sqlx::query_scalar::<_, i64>(
+            "SELECT COUNT(*) FROM workers WHERE id = 'worker-healthy'",
+        )
+        .fetch_one(db.pool())
+        .await
+        .expect("query should succeed");
 
         assert_eq!(crashed_count, 0, "crashed worker should be deleted");
         assert_eq!(failed_count, 0, "failed worker should be deleted");

@@ -693,12 +693,11 @@ impl MicroLoRATrainer {
     ) -> Result<Vec<TrainingBackend>> {
         let mut candidates: Vec<TrainingBackend> = Vec::new();
 
-        // GPU backward is currently implemented via MLX autograd only.
-        // Enforce MLX selection up front to avoid CoreML/Metal selection
-        // paths that would fail later during backward/update.
-        if self.config.use_gpu_backward {
-            if !availability.mlx {
-                let available_desc = Self::describe_available_backends();
+        // GPU backward requires MLX today. Keep strict mode when GPU is required,
+        // but gracefully degrade to non-MLX backward when GPU acceleration is optional.
+        if self.config.use_gpu_backward && !availability.mlx {
+            let available_desc = Self::describe_available_backends();
+            if self.config.require_gpu {
                 error!(
                     "GPU backward requested but MLX backend is unavailable\n{}",
                     available_desc
@@ -709,6 +708,17 @@ impl MicroLoRATrainer {
                 )));
             }
 
+            warn!(
+                "MLX backend is unavailable for GPU backward; continuing with optional GPU fallback path"
+            );
+            self.append_backend_reason("gpu_backward_disabled_missing_mlx");
+            self.config.use_gpu_backward = false;
+        }
+
+        // GPU backward is currently implemented via MLX autograd only.
+        // Enforce MLX selection up front to avoid CoreML/Metal selection
+        // paths that would fail later during backward/update.
+        if self.config.use_gpu_backward {
             match self.config.preferred_backend {
                 Some(TrainingBackend::Mlx) => {
                     self.append_backend_reason("preferred_mlx_gpu_backward");

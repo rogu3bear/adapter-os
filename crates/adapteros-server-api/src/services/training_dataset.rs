@@ -20,6 +20,7 @@ use crate::types::{DatasetResponse, ErrorResponse};
 use adapteros_config::resolve_tokenizer_path;
 #[cfg(feature = "embeddings")]
 use adapteros_core::reject_forbidden_tmp_path;
+use adapteros_db::training_datasets::CreateDatasetHashInputsParams;
 #[cfg(feature = "embeddings")]
 use adapteros_ingest_docs::{
     default_ingest_options, generate_training_data_from_documents, load_tokenizer,
@@ -30,7 +31,6 @@ use async_trait::async_trait;
 use axum::body::Bytes;
 use axum::http::StatusCode;
 use axum::Json;
-use adapteros_db::training_datasets::CreateDatasetHashInputsParams;
 #[cfg(feature = "embeddings")]
 use serde_json::Value;
 use std::collections::HashMap;
@@ -425,7 +425,10 @@ impl DefaultTrainingDatasetService {
             )
             .await
             .map_err(|e| {
-                ApiError::db_error(format!("Failed to update dataset version validation: {}", e))
+                ApiError::db_error(format!(
+                    "Failed to update dataset version validation: {}",
+                    e
+                ))
             })?;
 
         // Persist deterministic hash-input metadata so training can validate

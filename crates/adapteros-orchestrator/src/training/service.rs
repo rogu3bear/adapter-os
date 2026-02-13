@@ -713,8 +713,18 @@ impl TrainingService {
         if let Some(ref db) = self.db {
             let config_json = serde_json::to_string(&config).unwrap_or_else(|_| "{}".to_string());
 
-            let db_repo_id = repo_id.as_deref().unwrap_or("direct-training");
             let created_by = initiated_by.as_deref().unwrap_or("system");
+            if repo_id.is_none() {
+                if let Err(e) = db.ensure_direct_training_repo_exists(created_by).await {
+                    warn!(
+                        job_id = %job_id,
+                        error = %e,
+                        "Failed to ensure synthetic direct-training repo parent row (job will run without durable training job linkage)"
+                    );
+                }
+            }
+
+            let db_repo_id = repo_id.as_deref().unwrap_or("direct-training");
 
             // Extract first dataset_version_id for provenance tracking
             let dataset_version_id = job
