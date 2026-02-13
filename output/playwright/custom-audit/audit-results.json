@@ -1,0 +1,304 @@
+{
+  "generatedAt": "2026-02-13T20:32:35.171Z",
+  "results": [
+    {
+      "route": "/",
+      "url": "http://127.0.0.1:8080/",
+      "navError": null,
+      "elapsedMs": 7336,
+      "finalUrl": "http://127.0.0.1:8080/",
+      "console": {
+        "errorCount": 1,
+        "warningCount": 1,
+        "entries": [
+          {
+            "type": "warning",
+            "text": "The `integrity` attribute is currently ignored for preload destinations that do not support subresource integrity. See https://crbug.com/981419 for more information",
+            "location": {
+              "url": "http://127.0.0.1:8080/",
+              "lineNumber": 260,
+              "columnNumber": 0
+            }
+          },
+          {
+            "type": "error",
+            "text": "Failed to load resource: the server responded with a status of 404 (Not Found)",
+            "location": {
+              "url": "http://127.0.0.1:8080/favicon.ico",
+              "lineNumber": 0,
+              "columnNumber": 0
+            }
+          }
+        ]
+      },
+      "failedRequests": [],
+      "dom": {
+        "lang": "en",
+        "title": "adapterOS",
+        "titleLength": 9,
+        "hasViewportMeta": true,
+        "hasDescriptionMeta": false,
+        "formControls": 0,
+        "unlabeledFormControls": 0,
+        "headingCount": 0,
+        "headingSkips": 0,
+        "duplicateIds": [],
+        "interactiveCount": 0,
+        "emptyInteractive": 0,
+        "targetBlankMissingNoopener": 0,
+        "totalImages": 0,
+        "imagesMissingAlt": 0,
+        "scriptTags": 5,
+        "inlineScripts": 5,
+        "styleTags": 1,
+        "smallTapTargets": 0,
+        "bootLoaderVisible": true
+      },
+      "navTiming": {
+        "domContentLoadedMs": 2674,
+        "loadEventEndMs": 2674,
+        "transferSize": 9753,
+        "encodedBodySize": 9453,
+        "decodedBodySize": 41814,
+        "type": "navigate"
+      },
+      "mobile": {
+        "innerWidth": 390,
+        "scrollWidth": 390,
+        "hasHorizontalOverflow": false
+      }
+    },
+    {
+      "route": "/login",
+      "url": "http://127.0.0.1:8080/login",
+      "navError": null,
+      "elapsedMs": 3608,
+      "finalUrl": "http://127.0.0.1:8080/login",
+      "console": {
+        "errorCount": 0,
+        "warningCount": 1,
+        "entries": [
+          {
+            "type": "warning",
+            "text": "The `integrity` attribute is currently ignored for preload destinations that do not support subresource integrity. See https://crbug.com/981419 for more information",
+            "location": {
+              "url": "http://127.0.0.1:8080/login",
+              "lineNumber": 260,
+              "columnNumber": 0
+            }
+          }
+        ]
+      },
+      "failedRequests": [],
+      "dom": {
+        "lang": "en",
+        "title": "adapterOS",
+        "titleLength": 9,
+        "hasViewportMeta": true,
+        "hasDescriptionMeta": false,
+        "formControls": 0,
+        "unlabeledFormControls": 0,
+        "headingCount": 0,
+        "headingSkips": 0,
+        "duplicateIds": [],
+        "interactiveCount": 0,
+        "emptyInteractive": 0,
+        "targetBlankMissingNoopener": 0,
+        "totalImages": 0,
+        "imagesMissingAlt": 0,
+        "scriptTags": 5,
+        "inlineScripts": 5,
+        "styleTags": 1,
+        "smallTapTargets": 0,
+        "bootLoaderVisible": true
+      },
+      "navTiming": {
+        "domContentLoadedMs": 90,
+        "loadEventEndMs": 90,
+        "transferSize": 9753,
+        "encodedBodySize": 9453,
+        "decodedBodySize": 41814,
+        "type": "navigate"
+      },
+      "mobile": {
+        "innerWidth": 390,
+        "scrollWidth": 390,
+        "hasHorizontalOverflow": false
+      }
+    },
+    {
+      "route": "/safe",
+      "url": "http://127.0.0.1:8080/safe",
+      "navError": null,
+      "elapsedMs": 6298,
+      "finalUrl": "http://127.0.0.1:8080/safe",
+      "console": {
+        "errorCount": 0,
+        "warningCount": 1,
+        "entries": [
+          {
+            "type": "warning",
+            "text": "The `integrity` attribute is currently ignored for preload destinations that do not support subresource integrity. See https://crbug.com/981419 for more information",
+            "location": {
+              "url": "http://127.0.0.1:8080/safe",
+              "lineNumber": 260,
+              "columnNumber": 0
+            }
+          }
+        ]
+      },
+      "failedRequests": [],
+      "dom": {
+        "lang": "en",
+        "title": "adapterOS",
+        "titleLength": 9,
+        "hasViewportMeta": true,
+        "hasDescriptionMeta": false,
+        "formControls": 0,
+        "unlabeledFormControls": 0,
+        "headingCount": 0,
+        "headingSkips": 0,
+        "duplicateIds": [],
+        "interactiveCount": 0,
+        "emptyInteractive": 0,
+        "targetBlankMissingNoopener": 0,
+        "totalImages": 0,
+        "imagesMissingAlt": 0,
+        "scriptTags": 5,
+        "inlineScripts": 5,
+        "styleTags": 1,
+        "smallTapTargets": 0,
+        "bootLoaderVisible": true
+      },
+      "navTiming": {
+        "domContentLoadedMs": 2023,
+        "loadEventEndMs": 2023,
+        "transferSize": 9753,
+        "encodedBodySize": 9453,
+        "decodedBodySize": 41814,
+        "type": "navigate"
+      },
+      "mobile": {
+        "innerWidth": 390,
+        "scrollWidth": 390,
+        "hasHorizontalOverflow": false
+      }
+    },
+    {
+      "route": "/style-audit",
+      "url": "http://127.0.0.1:8080/style-audit",
+      "navError": null,
+      "elapsedMs": 4176,
+      "finalUrl": "http://127.0.0.1:8080/style-audit",
+      "console": {
+        "errorCount": 0,
+        "warningCount": 1,
+        "entries": [
+          {
+            "type": "warning",
+            "text": "The `integrity` attribute is currently ignored for preload destinations that do not support subresource integrity. See https://crbug.com/981419 for more information",
+            "location": {
+              "url": "http://127.0.0.1:8080/style-audit",
+              "lineNumber": 260,
+              "columnNumber": 0
+            }
+          }
+        ]
+      },
+      "failedRequests": [],
+      "dom": {
+        "lang": "en",
+        "title": "adapterOS",
+        "titleLength": 9,
+        "hasViewportMeta": true,
+        "hasDescriptionMeta": false,
+        "formControls": 0,
+        "unlabeledFormControls": 0,
+        "headingCount": 0,
+        "headingSkips": 0,
+        "duplicateIds": [],
+        "interactiveCount": 0,
+        "emptyInteractive": 0,
+        "targetBlankMissingNoopener": 0,
+        "totalImages": 0,
+        "imagesMissingAlt": 0,
+        "scriptTags": 5,
+        "inlineScripts": 5,
+        "styleTags": 1,
+        "smallTapTargets": 0,
+        "bootLoaderVisible": true
+      },
+      "navTiming": {
+        "domContentLoadedMs": 286,
+        "loadEventEndMs": 287,
+        "transferSize": 9753,
+        "encodedBodySize": 9453,
+        "decodedBodySize": 41814,
+        "type": "navigate"
+      },
+      "mobile": {
+        "innerWidth": 390,
+        "scrollWidth": 390,
+        "hasHorizontalOverflow": false
+      }
+    },
+    {
+      "route": "/dashboard",
+      "url": "http://127.0.0.1:8080/dashboard",
+      "navError": null,
+      "elapsedMs": 5034,
+      "finalUrl": "http://127.0.0.1:8080/dashboard",
+      "console": {
+        "errorCount": 0,
+        "warningCount": 1,
+        "entries": [
+          {
+            "type": "warning",
+            "text": "The `integrity` attribute is currently ignored for preload destinations that do not support subresource integrity. See https://crbug.com/981419 for more information",
+            "location": {
+              "url": "http://127.0.0.1:8080/dashboard",
+              "lineNumber": 260,
+              "columnNumber": 0
+            }
+          }
+        ]
+      },
+      "failedRequests": [],
+      "dom": {
+        "lang": "en",
+        "title": "adapterOS",
+        "titleLength": 9,
+        "hasViewportMeta": true,
+        "hasDescriptionMeta": false,
+        "formControls": 0,
+        "unlabeledFormControls": 0,
+        "headingCount": 0,
+        "headingSkips": 0,
+        "duplicateIds": [],
+        "interactiveCount": 0,
+        "emptyInteractive": 0,
+        "targetBlankMissingNoopener": 0,
+        "totalImages": 0,
+        "imagesMissingAlt": 0,
+        "scriptTags": 5,
+        "inlineScripts": 5,
+        "styleTags": 1,
+        "smallTapTargets": 0,
+        "bootLoaderVisible": true
+      },
+      "navTiming": {
+        "domContentLoadedMs": 421,
+        "loadEventEndMs": 421,
+        "transferSize": 9753,
+        "encodedBodySize": 9453,
+        "decodedBodySize": 41814,
+        "type": "navigate"
+      },
+      "mobile": {
+        "innerWidth": 390,
+        "scrollWidth": 390,
+        "hasHorizontalOverflow": false
+      }
+    }
+  ]
+}
