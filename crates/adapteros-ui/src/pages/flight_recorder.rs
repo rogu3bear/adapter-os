@@ -635,7 +635,7 @@ fn RunDetailHub(run_id: String, on_close: Callback<()>) -> impl IntoView {
                     // /runs/:id is used both for diagnostic-run IDs and inference trace IDs.
                     // If the diagnostic export path fails (common for pure trace IDs),
                     // degrade gracefully to a trace-only viewer instead of hard erroring the page.
-                    if run_id.starts_with("trc-") {
+                    if run_id.starts_with("trc-") || err.is_not_found() {
                         view! {
                             <div class="space-y-3">
                                 <div class="text-sm text-muted-foreground">
