@@ -30,6 +30,7 @@ use async_trait::async_trait;
 use axum::body::Bytes;
 use axum::http::StatusCode;
 use axum::Json;
+use adapteros_db::training_datasets::CreateDatasetHashInputsParams;
 #[cfg(feature = "embeddings")]
 use serde_json::Value;
 use std::collections::HashMap;
@@ -381,6 +382,9 @@ impl DefaultTrainingDatasetService {
             Ok(()) => ("valid".to_string(), None),
             Err(e) => ("invalid".to_string(), Some(e.to_string())),
         };
+        let validation_errors_json = validation_errors
+            .as_ref()
+            .and_then(|err| serde_json::to_string(&vec![err]).ok());
 
         self.state
             .db
@@ -388,7 +392,7 @@ impl DefaultTrainingDatasetService {
                 &dataset_id,
                 &validation_status,
                 validation_errors.as_deref(),
-                None,
+                validation_errors_json.as_deref(),
             )
             .await
             .map_err(|e| {
@@ -411,6 +415,39 @@ impl DefaultTrainingDatasetService {
             )
             .await
             .map_err(|e| ApiError::db_error(format!("Failed to create dataset version: {}", e)))?;
+
+        self.state
+            .db
+            .update_dataset_version_structural_validation(
+                &dataset_version_id,
+                &validation_status,
+                validation_errors_json.as_deref(),
+            )
+            .await
+            .map_err(|e| {
+                ApiError::db_error(format!("Failed to update dataset version validation: {}", e))
+            })?;
+
+        // Persist deterministic hash-input metadata so training can validate
+        // algorithm-version compatibility without falling back to legacy defaults.
+        let mut hash_inputs = CreateDatasetHashInputsParams::new(
+            content_hash.clone(),
+            jsonl_lines.len() as i64,
+            jsonl_lines.len() as i64,
+            0,
+        );
+        hash_inputs.dataset_id = Some(dataset_id.clone());
+        hash_inputs.ingestion_mode = source_label.to_string();
+        hash_inputs.generator = "training_dataset_service".to_string();
+        hash_inputs.tenant_id = Some(claims.tenant_id.clone());
+        hash_inputs.created_by = Some(claims.sub.clone());
+
+        if let Err(e) = self.state.db.record_dataset_hash_inputs(&hash_inputs).await {
+            self.cleanup_dataset(&dataset_id, &dataset_path).await;
+            return Err(
+                ApiError::db_error(format!("Failed to record dataset hash inputs: {}", e)).into(),
+            );
+        }
 
         // Derive trust_state from the newly created version for consistency with list/get endpoints
         let trust_state = self

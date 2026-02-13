@@ -1211,10 +1211,10 @@ start_worker() {
     # requested so demo boots don't silently fall back to Metal/CPU.
     if is_dev_mode && [ "$backend" = "coreml" ] && [ "${AOS_WORKER_AUTO_BUILD_COREML:-1}" != "0" ]; then
         if command -v cargo >/dev/null 2>&1; then
-            status_msg "Ensuring worker built with CoreML support (cargo build -p adapteros-lora-worker --features coreml-backend)..."
-            cargo build -p adapteros-lora-worker --features coreml-backend >/dev/null 2>&1 || {
-                error_msg "Failed to build worker with CoreML support."
-                error_msg "Try: cargo build -p adapteros-lora-worker --features coreml-backend"
+            status_msg "Ensuring worker built with CoreML+MLX support (cargo build -p adapteros-lora-worker --features coreml-backend,mlx)..."
+            cargo build -p adapteros-lora-worker --features coreml-backend,mlx >/dev/null 2>&1 || {
+                error_msg "Failed to build worker with CoreML+MLX support."
+                error_msg "Try: cargo build -p adapteros-lora-worker --features coreml-backend,mlx"
                 return 1
             }
         else

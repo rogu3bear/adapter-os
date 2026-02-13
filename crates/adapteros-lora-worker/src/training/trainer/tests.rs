@@ -150,8 +150,26 @@ fn test_training_config_with_max_gpu_memory() {
 }
 
 #[test]
-fn test_backend_candidates_priority_order_includes_coreml_first() {
+fn test_backend_candidates_with_gpu_backward_require_mlx() {
     let mut trainer = MicroLoRATrainer::new_for_test(TrainingConfig::default()).unwrap();
+    let availability = BackendAvailability {
+        coreml: true,
+        mlx: true,
+        metal: true,
+        coreml_reason: None,
+    };
+
+    let candidates = trainer.build_backend_candidates(&availability).unwrap();
+    assert_eq!(candidates, vec![TrainingBackend::Mlx]);
+}
+
+#[test]
+fn test_backend_candidates_cpu_proxy_keeps_coreml_priority() {
+    let config = TrainingConfig {
+        use_gpu_backward: false,
+        ..Default::default()
+    };
+    let mut trainer = MicroLoRATrainer::new_for_test(config).unwrap();
     let availability = BackendAvailability {
         coreml: true,
         mlx: true,
@@ -171,6 +189,7 @@ fn test_backend_candidates_priority_order_includes_coreml_first() {
 fn test_backend_candidates_preferred_fallback() {
     let config = TrainingConfig {
         preferred_backend: Some(TrainingBackend::Metal),
+        use_gpu_backward: false,
         ..Default::default()
     };
     let mut trainer = MicroLoRATrainer::new_for_test(config).unwrap();
@@ -190,6 +209,7 @@ fn test_backend_candidates_preferred_fallback() {
 fn test_backend_policy_coreml_only_fails_without_coreml() {
     let config = TrainingConfig {
         backend_policy: Some(TrainingBackendPolicy::CoremlOnly),
+        use_gpu_backward: false,
         ..Default::default()
     };
     let mut trainer = MicroLoRATrainer::new_for_test(config).unwrap();
@@ -209,6 +229,7 @@ fn test_backend_policy_coreml_else_fallback_uses_fallback() {
     let config = TrainingConfig {
         backend_policy: Some(TrainingBackendPolicy::CoremlElseFallback),
         coreml_fallback_backend: Some(TrainingBackend::Mlx),
+        use_gpu_backward: false,
         ..Default::default()
     };
     let mut trainer = MicroLoRATrainer::new_for_test(config).unwrap();
@@ -228,6 +249,7 @@ fn test_coreml_preference_uses_coreml_when_available() {
     let config = TrainingConfig {
         preferred_backend: Some(TrainingBackend::CoreML),
         coreml_fallback_backend: Some(TrainingBackend::Mlx),
+        use_gpu_backward: false,
         ..Default::default()
     };
     let mut trainer = MicroLoRATrainer::new_for_test(config).unwrap();
@@ -254,6 +276,7 @@ fn test_coreml_preference_falls_back_when_unavailable_and_fallback_provided() {
     let config = TrainingConfig {
         preferred_backend: Some(TrainingBackend::CoreML),
         coreml_fallback_backend: Some(TrainingBackend::Mlx),
+        use_gpu_backward: false,
         ..Default::default()
     };
     let mut trainer = MicroLoRATrainer::new_for_test(config).unwrap();
@@ -302,6 +325,7 @@ fn test_coreml_preference_without_gpu_uses_cpu_and_reason() {
         preferred_backend: Some(TrainingBackend::CoreML),
         coreml_fallback_backend: Some(TrainingBackend::Mlx),
         require_gpu: false,
+        use_gpu_backward: false,
         ..Default::default()
     };
     let mut trainer = MicroLoRATrainer::new_for_test(config).unwrap();
