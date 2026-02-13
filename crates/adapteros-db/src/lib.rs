@@ -102,7 +102,7 @@ use sqlx::{sqlite::SqliteConnectOptions, SqlitePool};
 use std::path::{Path, PathBuf};
 use std::str::FromStr;
 use std::sync::Arc;
-use std::time::Duration;
+use std::time::{Duration, Instant};
 
 #[cfg(debug_assertions)]
 use once_cell::sync::Lazy;
@@ -634,6 +634,44 @@ mod storage_mode_tests {
     }
 }
 
+#[cfg(test)]
+mod tenant_rate_limit_tests {
+    use super::*;
+
+    #[test]
+    fn tenant_rate_limit_refills_by_window() {
+        let db = Db::new_kv_only(None, StorageMode::SqlOnly);
+        let tenant_id = "tenant-test";
+
+        {
+            let mut limits = db.tenant_rate_limits.write().unwrap();
+            limits.insert(
+                tenant_id.to_string(),
+                TenantRateLimitState {
+                    window_start: Instant::now()
+                        - (TENANT_RATE_LIMIT_WINDOW + Duration::from_secs(1)),
+                    count: TENANT_RATE_LIMIT_MAX_REQUESTS_PER_WINDOW,
+                },
+            );
+        }
+
+        assert!(
+            db.check_rate_limit(tenant_id),
+            "expected window expiration to reset count and allow request"
+        );
+        db.increment_rate_limit(tenant_id);
+
+        let limits = db.tenant_rate_limits.read().unwrap();
+        let state = limits
+            .get(tenant_id)
+            .expect("rate limit state must exist after check+increment");
+        assert!(
+            state.count <= 1,
+            "expected count to be reset after window expiration"
+        );
+    }
+}
+
 impl StorageMode {
     /// Returns true if this mode reads from SQL backend
     pub fn read_from_sql(self) -> bool {
@@ -695,6 +733,20 @@ pub struct BootstrapHealthStatus {
     pub issues: Vec<String>,
 }
 
+// Phase 2: Governance
+//
+// The adapter listing endpoints are polled by the UI and scripts. A counter-only
+// limiter that never refills eventually locks out the tenant until process restart.
+// Keep this lightweight and operationally safe: per-tenant fixed window.
+const TENANT_RATE_LIMIT_WINDOW: Duration = Duration::from_secs(60);
+const TENANT_RATE_LIMIT_MAX_REQUESTS_PER_WINDOW: u32 = 10_000;
+
+#[derive(Debug, Clone, Copy)]
+struct TenantRateLimitState {
+    window_start: Instant,
+    count: u32,
+}
+
 /// Database connection pool and query methods (SQLite)
 ///
 /// For production deployments, use `PostgresDb` instead.
@@ -713,8 +765,9 @@ pub struct Db {
     // Phase 2: Governance & Optimization
     /// Global query timeout in milliseconds (0 = disabled)
     query_timeout_ms: std::sync::Arc<std::sync::atomic::AtomicU64>,
-    /// Tenant rate limit counters (simplified for Phase 2)
-    tenant_rate_limits: std::sync::Arc<std::sync::RwLock<std::collections::HashMap<String, u32>>>,
+    /// Tenant rate limit counters (per-window)
+    tenant_rate_limits:
+        std::sync::Arc<std::sync::RwLock<std::collections::HashMap<String, TenantRateLimitState>>>,
     /// Query plan cache for prepared statements
     plan_cache: std::sync::Arc<std::sync::RwLock<std::collections::HashMap<String, String>>>,
     /// Directory containing the SQLite database file (if applicable)
@@ -2310,20 +2363,36 @@ impl Db {
     /// Check rate limit for tenant
     /// Returns true if allowed, false if limit exceeded.
     pub fn check_rate_limit(&self, tenant_id: &str) -> bool {
-        let limits = match self.tenant_rate_limits.read() {
+        let now = Instant::now();
+        let mut limits = match self.tenant_rate_limits.write() {
             Ok(guard) => guard,
             Err(poisoned) => {
-                tracing::error!(tenant_id = %tenant_id, "Rate limit lock poisoned during read, allowing request");
+                tracing::error!(
+                    tenant_id = %tenant_id,
+                    "Rate limit lock poisoned during write, recovering"
+                );
                 poisoned.into_inner()
             }
         };
-        // Simplified: allow 1000 requests (bucket refilling not implemented here)
-        let current = limits.get(tenant_id).unwrap_or(&0);
-        *current < 1000
+
+        let state = limits
+            .entry(tenant_id.to_string())
+            .or_insert(TenantRateLimitState {
+                window_start: now,
+                count: 0,
+            });
+
+        if now.duration_since(state.window_start) >= TENANT_RATE_LIMIT_WINDOW {
+            state.window_start = now;
+            state.count = 0;
+        }
+
+        state.count < TENANT_RATE_LIMIT_MAX_REQUESTS_PER_WINDOW
     }
 
     /// Increment rate limit counter
     pub fn increment_rate_limit(&self, tenant_id: &str) {
+        let now = Instant::now();
         let mut limits = match self.tenant_rate_limits.write() {
             Ok(guard) => guard,
             Err(poisoned) => {
@@ -2331,8 +2400,19 @@ impl Db {
                 poisoned.into_inner()
             }
         };
-        let counter = limits.entry(tenant_id.to_string()).or_insert(0);
-        *counter += 1;
+        let state = limits
+            .entry(tenant_id.to_string())
+            .or_insert(TenantRateLimitState {
+                window_start: now,
+                count: 0,
+            });
+
+        if now.duration_since(state.window_start) >= TENANT_RATE_LIMIT_WINDOW {
+            state.window_start = now;
+            state.count = 0;
+        }
+
+        state.count = state.count.saturating_add(1);
     }
 
     /// Get cached query plan

@@ -175,6 +175,35 @@ async fn list_adapters_for_tenant_returns_only_tenant_adapters() -> Result<()> {
 }
 
 #[tokio::test]
+async fn list_adapters_unthrottled_bypasses_quota_when_public_listing_is_exhausted() -> Result<()> {
+    let db = ProtectedDb::new(Db::new_in_memory().await?);
+    create_tenant(&db, "tenant-a").await?;
+    register_adapter(&db, "tenant-a", "quota-a-1", "b3:quota-a1").await?;
+
+    for _ in 0..10_000 {
+        db.increment_rate_limit("tenant-a");
+    }
+
+    let throttled = db.list_adapters_for_tenant("tenant-a").await;
+    assert!(
+        matches!(
+            throttled,
+            Err(AosError::QuotaExceeded { resource, .. }) if resource == "adapter_listings"
+        ),
+        "public listing should enforce adapter_listings quota"
+    );
+
+    let unthrottled = db.list_adapters_for_tenant_unthrottled("tenant-a").await?;
+    assert_eq!(
+        unthrottled.len(),
+        1,
+        "internal unthrottled listing should still return adapters"
+    );
+
+    Ok(())
+}
+
+#[tokio::test]
 async fn get_adapter_by_hash_finds_correct_adapter() -> Result<()> {
     let db = ProtectedDb::new(Db::new_in_memory().await?);
     create_tenant(&db, "tenant-a").await?;

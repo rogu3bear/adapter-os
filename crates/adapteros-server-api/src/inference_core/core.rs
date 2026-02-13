@@ -1949,7 +1949,7 @@ impl<'a> InferenceCore<'a> {
         let adapters = self
             .state
             .db
-            .list_adapters_for_tenant(tenant_id)
+            .list_adapters_for_tenant_unthrottled(tenant_id)
             .await
             .map_err(|e| {
                 InferenceError::DatabaseError(format!(
@@ -2030,7 +2030,7 @@ impl<'a> InferenceCore<'a> {
         let adapters = self
             .state
             .db
-            .list_adapters_for_tenant(tenant_id)
+            .list_adapters_for_tenant_unthrottled(tenant_id)
             .await
             .map_err(|e| {
                 InferenceError::WorkerError(format!(

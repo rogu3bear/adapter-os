@@ -3589,7 +3589,7 @@ impl Db {
 
     /// Backward-compatible listing without pagination (defaults to full set).
     pub async fn list_adapters_for_tenant(&self, tenant_id: &str) -> Result<Vec<Adapter>> {
-        self.list_adapters_for_tenant_paged(tenant_id, None, None)
+        self.list_adapters_for_tenant_impl(tenant_id, None, None, true)
             .await
     }
 
@@ -3600,14 +3600,39 @@ impl Db {
         limit: Option<usize>,
         offset: Option<usize>,
     ) -> Result<Vec<Adapter>> {
-        // Phase 2: Rate Limiting
-        if !self.check_rate_limit(tenant_id) {
-            return Err(AosError::QuotaExceeded {
-                resource: "adapter_listings".to_string(),
-                failure_code: Some("RATE_LIMIT_EXCEEDED".to_string()),
-            });
+        self.list_adapters_for_tenant_impl(tenant_id, limit, offset, true)
+            .await
+    }
+
+    /// List adapters for internal execution paths without adapter-listing quota checks.
+    ///
+    /// Use this for critical internal flows (e.g. inference routing metadata resolution)
+    /// where failing closed on listing quota can incorrectly fail unrelated operations.
+    pub async fn list_adapters_for_tenant_unthrottled(
+        &self,
+        tenant_id: &str,
+    ) -> Result<Vec<Adapter>> {
+        self.list_adapters_for_tenant_impl(tenant_id, None, None, false)
+            .await
+    }
+
+    async fn list_adapters_for_tenant_impl(
+        &self,
+        tenant_id: &str,
+        limit: Option<usize>,
+        offset: Option<usize>,
+        enforce_rate_limit: bool,
+    ) -> Result<Vec<Adapter>> {
+        // Phase 2: Rate Limiting (public listing paths)
+        if enforce_rate_limit {
+            if !self.check_rate_limit(tenant_id) {
+                return Err(AosError::QuotaExceeded {
+                    resource: "adapter_listings".to_string(),
+                    failure_code: Some("RATE_LIMIT_EXCEEDED".to_string()),
+                });
+            }
+            self.increment_rate_limit(tenant_id);
         }
-        self.increment_rate_limit(tenant_id);
 
         // Try KV first if enabled
         if self.storage_mode().read_from_kv() {
