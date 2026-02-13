@@ -20,7 +20,7 @@ use web_sys::{EventSource, EventSourceInit, MessageEvent};
 
 type MessageClosure = Closure<dyn FnMut(MessageEvent)>;
 type MessageClosureList = Rc<RefCell<Vec<MessageClosure>>>;
-type EventClosure = Closure<dyn FnMut()>;
+type EventClosure = Closure<dyn FnMut(web_sys::Event)>;
 type EventClosureList = Rc<RefCell<Vec<EventClosure>>>;
 type SubscriptionList = Rc<RefCell<Vec<(String, MessageClosure)>>>;
 type SseHandler = Rc<RefCell<Option<Rc<dyn Fn(SseEvent)>>>>;
@@ -329,20 +329,54 @@ fn connect_with_handler(
     };
 
     let ctx_for_open = ctx.clone();
-    let on_open = Closure::wrap(Box::new(move || {
+    let on_open = Closure::wrap(Box::new(move |_evt: web_sys::Event| {
         let _ = ctx_for_open.state.try_set(SseState::Connected);
         reset_failures(&ctx_for_open);
         clear_reconnect(&ctx_for_open);
         // Use try_set to avoid panic if signal is disposed during navigation
         let _ = ctx_for_open.last_event_at.try_set(Some(Date::now()));
-    }) as Box<dyn FnMut()>);
+    }) as Box<dyn FnMut(web_sys::Event)>);
     event_source.set_onopen(Some(on_open.as_ref().unchecked_ref()));
     ctx.event_closures.borrow_mut().push(on_open);
 
     let ctx_for_error = ctx.clone();
-    let on_error = Closure::wrap(Box::new(move || {
+    let handler_for_error = handler.clone();
+    let on_error = Closure::wrap(Box::new(move |evt: web_sys::Event| {
+        // Some SSE streams emit application-level errors using `event: error`.
+        // In browsers, that can dispatch as an EventSource "error" event even though the
+        // transport is healthy. If we treat those as failures, we can create reconnect loops
+        // and trip the circuit breaker spuriously.
+        if let Some(msg) = evt.dyn_ref::<MessageEvent>() {
+            // If an explicit "error" subscription exists, let it handle the MessageEvent and
+            // skip transport failure handling. Otherwise, route it through the generic handler.
+            if ctx_for_error
+                .subscriptions
+                .borrow()
+                .iter()
+                .any(|(t, _)| t == "error")
+            {
+                return;
+            }
+
+            let _ = ctx_for_error.last_event_at.try_set(Some(Date::now()));
+            let data = msg.data().as_string().unwrap_or_default();
+            let last_event_id = msg.last_event_id();
+            let last_event_id = if last_event_id.is_empty() {
+                None
+            } else {
+                Some(last_event_id)
+            };
+
+            handler_for_error(SseEvent {
+                event_type: "error".to_string(),
+                data,
+                last_event_id,
+            });
+            return;
+        }
+
         handle_failure(ctx_for_error.clone(), "eventsource error");
-    }) as Box<dyn FnMut()>);
+    }) as Box<dyn FnMut(web_sys::Event)>);
     event_source.set_onerror(Some(on_error.as_ref().unchecked_ref()));
     ctx.event_closures.borrow_mut().push(on_error);
 
