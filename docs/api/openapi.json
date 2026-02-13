@@ -11200,6 +11200,15 @@
         ],
         "type": "object"
       },
+      "EntryType": {
+        "description": "Type of filesystem entry",
+        "enum": [
+          "file",
+          "directory",
+          "symlink"
+        ],
+        "type": "string"
+      },
       "EpsilonStatsResponse": {
         "description": "Epsilon statistics response",
         "properties": {
@@ -12326,6 +12335,92 @@
           "total_peers",
           "peers",
           "timestamp"
+        ],
+        "type": "object"
+      },
+      "FileBrowseEntry": {
+        "description": "A single filesystem entry",
+        "properties": {
+          "entry_type": {
+            "$ref": "#/components/schemas/EntryType",
+            "description": "Entry type"
+          },
+          "mime_type": {
+            "description": "MIME type guess (None for directories)",
+            "type": [
+              "string",
+              "null"
+            ]
+          },
+          "modified_at": {
+            "description": "Last modified time (ISO 8601)",
+            "type": [
+              "string",
+              "null"
+            ]
+          },
+          "name": {
+            "description": "File/directory name",
+            "type": "string"
+          },
+          "path": {
+            "description": "Full absolute path",
+            "type": "string"
+          },
+          "size_bytes": {
+            "description": "File size in bytes (None for directories)",
+            "format": "int64",
+            "minimum": 0,
+            "type": [
+              "integer",
+              "null"
+            ]
+          }
+        },
+        "required": [
+          "name",
+          "path",
+          "entry_type"
+        ],
+        "type": "object"
+      },
+      "FileBrowseResponse": {
+        "description": "Response from browsing a filesystem directory",
+        "properties": {
+          "allowed_roots": {
+            "description": "Allowed root directories the user can browse",
+            "items": {
+              "type": "string"
+            },
+            "type": "array"
+          },
+          "entries": {
+            "description": "Directory entries",
+            "items": {
+              "$ref": "#/components/schemas/FileBrowseEntry"
+            },
+            "type": "array"
+          },
+          "parent_path": {
+            "description": "Parent directory path (None if at an allowed root)",
+            "type": [
+              "string",
+              "null"
+            ]
+          },
+          "path": {
+            "description": "Canonical path that was browsed",
+            "type": "string"
+          },
+          "schema_version": {
+            "description": "Schema version",
+            "type": "string"
+          }
+        },
+        "required": [
+          "path",
+          "entries",
+          "allowed_roots"
         ],
         "type": "object"
       },
@@ -45923,6 +46018,52 @@
         "summary": "GET /v1/federation/sync-status",
         "tags": [
           "federation"
+        ]
+      }
+    },
+    "/v1/filesystem/browse": {
+      "get": {
+        "operationId": "browse_filesystem",
+        "parameters": [
+          {
+            "description": "Directory path to browse",
+            "in": "query",
+            "name": "path",
+            "required": true,
+            "schema": {
+              "type": "string"
+            }
+          },
+          {
+            "description": "Show hidden files",
+            "in": "query",
+            "name": "show_hidden",
+            "required": false,
+            "schema": {
+              "type": "boolean"
+            }
+          }
+        ],
+        "responses": {
+          "200": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/FileBrowseResponse"
+                }
+              }
+            },
+            "description": "Directory listing"
+          },
+          "400": {
+            "description": "Bad request"
+          },
+          "403": {
+            "description": "Access denied"
+          }
+        },
+        "tags": [
+          "filesystem"
         ]
       }
     },
