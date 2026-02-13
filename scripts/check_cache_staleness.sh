@@ -65,9 +65,11 @@ check_cache_size() {
     size_kb=$(du -sk "$CACHE_DIR" 2>/dev/null | cut -f1)
     local size_gb=$((size_kb / 1024 / 1024))
 
-    # Warn if cache exceeds 50GB
+    # Warn if cache exceeds 50GB. This script is informational: callers may
+    # surface the message without failing the overall boot, so keep wording
+    # non-alarming for demo/dev workflows.
     if [[ $size_gb -gt 50 ]]; then
-        error "Incremental cache is ${size_gb}GB - consider running 'cargo clean'"
+        warn "Incremental cache is ${size_gb}GB - consider running 'cargo clean'"
         return 1
     elif [[ $size_gb -gt 20 ]]; then
         warn "Incremental cache is ${size_gb}GB"
