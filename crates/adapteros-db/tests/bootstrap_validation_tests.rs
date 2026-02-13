@@ -218,6 +218,30 @@ async fn test_seed_dev_data_creates_default_tenant_not_system() -> Result<()> {
     Ok(())
 }
 
+/// Regression: seed_dev_data must ensure the local dev node exists even when users already exist.
+/// Worker registration hardcodes node_id="local" and the workers table enforces a FK to nodes(id).
+#[tokio::test]
+async fn test_seed_dev_data_ensures_local_node_even_when_users_exist() -> Result<()> {
+    let db = setup_test_db().await?;
+
+    // We need the schema present to manipulate tables directly.
+    db.migrate().await?;
+
+    // Seed once to create users/tenant, then simulate a partial/dev-corrupt state where
+    // nodes are missing but users exist (this is the scenario that breaks worker registration).
+    db.seed_dev_data().await?;
+    sqlx::query("DELETE FROM nodes").execute(db.pool()).await?;
+
+    db.seed_dev_data().await?;
+
+    let local_exists: i64 = sqlx::query_scalar("SELECT COUNT(*) FROM nodes WHERE id = 'local'")
+        .fetch_one(db.pool())
+        .await?;
+    assert_eq!(local_exists, 1, "seed_dev_data should ensure nodes.local exists");
+
+    Ok(())
+}
+
 /// Test complete bootstrap flow (migrate + seed + ensure_system_tenant)
 #[tokio::test]
 async fn test_complete_bootstrap_flow() -> Result<()> {
