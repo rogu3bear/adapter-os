@@ -204,13 +204,13 @@ pub async fn handle_profile_command(cmd: ProfileCommand) -> Result<()> {
 /// Display profiling snapshot
 async fn show_snapshot() -> Result<()> {
     info!("Displaying profiling snapshot");
-    println!("📊 Profiling Snapshot\n");
+    println!("Profiling Snapshot\n");
 
     // Try to connect to worker via UDS
     let socket_path = adapteros_core::rebase_var_path("var/run/aos/default/worker.sock");
 
     if !socket_path.exists() {
-        println!("⚠️  Worker socket not found at: {}", socket_path.display());
+        println!("Worker socket not found at: {}", socket_path.display());
         println!("   Showing mock data instead.\n");
 
         println!("Window: Last 1,000 tokens");
@@ -300,7 +300,7 @@ async fn show_snapshot() -> Result<()> {
             println!("{table}");
         }
         Err(e) => {
-            println!("❌ Failed to connect to worker: {}", e);
+            println!("Failed to connect to worker: {}", e);
             println!("   Showing mock data instead.\n");
 
             println!("Window: Last 1,000 tokens");
@@ -362,7 +362,7 @@ async fn show_snapshot() -> Result<()> {
 /// Watch metrics in real-time
 async fn watch_metrics() -> Result<()> {
     info!("Starting metrics watching");
-    println!("🔄 Watching profiler metrics (Ctrl+C to stop)...\n");
+    println!("Watching profiler metrics (Ctrl+C to stop)...\n");
     println!("Refreshing every 2 seconds...\n");
 
     use adapteros_deterministic_exec::select::{select_2, SelectResult2};
@@ -379,7 +379,7 @@ async fn watch_metrics() -> Result<()> {
 
         match select_2(ctrl_c_future, tick_future).await {
             SelectResult2::First(_) => {
-                println!("\n🛑 Stopped watching metrics");
+                println!("\nStopped watching metrics");
                 break;
             }
             SelectResult2::Second(_) => {
@@ -403,7 +403,7 @@ async fn export_metrics(path: PathBuf) -> Result<()> {
     let socket_path = adapteros_core::rebase_var_path("var/run/aos/default/worker.sock");
 
     let metrics = if !socket_path.exists() {
-        println!("⚠️  Worker socket not found at: {}", socket_path.display());
+        println!("Worker socket not found at: {}", socket_path.display());
         println!("   Exporting mock data instead.\n");
 
         // Mock data when worker is not available
@@ -433,11 +433,11 @@ async fn export_metrics(path: PathBuf) -> Result<()> {
         // Connect to worker and fetch full metrics
         match connect_and_fetch_full_metrics(&socket_path).await {
             Ok(full_metrics) => {
-                println!("📊 Fetched metrics from worker");
+                println!("Fetched metrics from worker");
                 full_metrics
             }
             Err(e) => {
-                println!("❌ Failed to connect to worker: {}", e);
+                println!("Failed to connect to worker: {}", e);
                 println!("   Exporting mock data instead.\n");
 
                 // Fallback to mock data
@@ -468,6 +468,6 @@ async fn export_metrics(path: PathBuf) -> Result<()> {
     };
 
     fs::write(&path, serde_json::to_string_pretty(&metrics)?)?;
-    println!("✅ Exported metrics to: {}", path.display());
+    println!("Exported metrics to: {}", path.display());
     Ok(())
 }

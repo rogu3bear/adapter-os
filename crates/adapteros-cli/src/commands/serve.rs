@@ -311,7 +311,7 @@ pub async fn run(
     #[cfg(feature = "multi-backend")]
     {
         if !matches!(backend, BackendType::Metal) {
-            output.warning("⚠️  MULTI-BACKEND ENABLED - NOT FOR PRODUCTION ⚠️");
+            output.warning("MULTI-BACKEND ENABLED - NOT FOR PRODUCTION ");
             output.warning("The selected backend may not provide deterministic execution.");
             output.warning("For production use, rebuild with default features (Metal only).");
         }

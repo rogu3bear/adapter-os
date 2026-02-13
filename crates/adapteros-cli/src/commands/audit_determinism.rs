@@ -26,11 +26,11 @@ impl Output {
     }
 
     pub fn success(&self, msg: &str) {
-        println!("✅ {}", msg);
+        println!("{}", msg);
     }
 
     pub fn error(&self, msg: &str) {
-        eprintln!("❌ {}", msg);
+        eprintln!("{}", msg);
     }
 }
 
@@ -50,7 +50,7 @@ pub struct AuditDeterminismArgs {
 }
 
 pub fn run(args: &AuditDeterminismArgs, output: &Output) -> Result<i32> {
-    output.info("🔍 Auditing Backend Determinism\n");
+    output.info("Auditing Backend Determinism\n");
 
     // Parse backend type and create backend
     let backend: Box<dyn FusedKernels> = match args.backend.to_lowercase().as_str() {

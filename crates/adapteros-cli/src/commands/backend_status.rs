@@ -27,7 +27,7 @@ pub async fn run(args: BackendStatusArgs) -> anyhow::Result<()> {
         adapteros_lora_worker::backend_factory::capabilities::log_backend_status();
     } else {
         // Simple summary
-        println!("🔧 adapterOS Backend Status");
+        println!("adapterOS Backend Status");
         println!("===========================");
 
         let backends =
@@ -43,8 +43,7 @@ pub async fn run(args: BackendStatusArgs) -> anyhow::Result<()> {
         println!("  Deterministic: {}", deterministic_backends);
         println!("Unavailable: {}", unavailable_backends);
         println!();
-        println!("💡 Use --detailed for full report");
-        println!("📖 See BACKEND_STATUS.md for implementation details");
+        println!("Use --detailed for full report. See BACKEND_STATUS.md for details.");
     }
 
     Ok(())

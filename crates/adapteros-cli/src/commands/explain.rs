@@ -60,7 +60,7 @@ pub async fn list_error_codes(json: bool) -> Result<()> {
         }
 
         for (category, codes) in by_category {
-            println!("📂 {}", category);
+            println!("[{}]", category);
             println!("────────────────────────────────────────────────────────────────");
             for code in codes {
                 println!("  {} - {}", code.code, code.title);

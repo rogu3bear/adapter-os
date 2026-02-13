@@ -320,7 +320,7 @@ fn create_uds_client(socket_path: &Path, timeout_ms: u64) -> Result<reqwest::Cli
 
     // Check if socket exists
     if !socket_path.exists() {
-        println!("⚠️  Worker socket not found at: {}", socket_path.display());
+        println!("Worker socket not found at: {}", socket_path.display());
         println!("   Using mock HTTP client for demonstration");
 
         let client = reqwest::Client::builder()

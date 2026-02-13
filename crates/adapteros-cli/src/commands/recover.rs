@@ -34,7 +34,7 @@ pub async fn recover(code: &str, force: bool, dry_run: bool) -> Result<()> {
     println!();
 
     if dry_run {
-        println!("🔍 Dry run mode - no changes will be made");
+        println!("Dry run mode - no changes will be made");
         if let Some(cmd) = recovery.to_cli_command() {
             println!("Would execute: {}", cmd);
         }
@@ -49,7 +49,7 @@ pub async fn recover(code: &str, force: bool, dry_run: bool) -> Result<()> {
         FixSafety::RequiresConfirm => {
             // Require user confirmation
             if force {
-                println!("⚠️  Force mode enabled - executing without confirmation");
+                println!("Force mode enabled - executing without confirmation");
                 execute_recovery(&recovery, true).await
             } else {
                 let confirmed = Confirm::new()
@@ -68,7 +68,7 @@ pub async fn recover(code: &str, force: bool, dry_run: bool) -> Result<()> {
         }
         FixSafety::Unsafe => {
             // Unsafe actions require manual intervention
-            println!("⛔ This recovery action requires manual intervention.");
+            println!("This recovery action requires manual intervention.");
             println!();
             show_manual_instructions(&recovery, &ecode);
             Ok(())
@@ -84,7 +84,7 @@ async fn execute_recovery(recovery: &RecoveryAction, _force: bool) -> Result<()>
             base_backoff_ms,
         } => {
             println!(
-                "ℹ️  Retry strategy: {} attempts with {}ms base backoff",
+                "Retry strategy: {} attempts with {}ms base backoff",
                 max_attempts, base_backoff_ms
             );
             println!("   Re-run your previous command to retry the operation.");
@@ -92,7 +92,7 @@ async fn execute_recovery(recovery: &RecoveryAction, _force: bool) -> Result<()>
         }
 
         RecoveryAction::EvictCache { target_mb } => {
-            println!("🗑️  Evicting cache...");
+            println!("Evicting cache...");
             if let Some(mb) = target_mb {
                 println!("   Target: {} MB", mb);
             }
@@ -103,10 +103,10 @@ async fn execute_recovery(recovery: &RecoveryAction, _force: bool) -> Result<()>
                 .context("Failed to execute cache eviction")?;
 
             if output.status.success() {
-                println!("✅ Cache evicted successfully");
+                println!("Cache evicted");
             } else {
                 let stderr = String::from_utf8_lossy(&output.stderr);
-                println!("❌ Cache eviction failed: {}", stderr);
+                eprintln!("Error: cache eviction failed: {}", stderr);
             }
             Ok(())
         }
@@ -116,7 +116,7 @@ async fn execute_recovery(recovery: &RecoveryAction, _force: bool) -> Result<()>
             timeout_ms,
         } => {
             println!(
-                "⏳ Waiting for resource '{}' (timeout: {}ms)...",
+                "Waiting for resource '{}' (timeout: {}ms)...",
                 resource, timeout_ms
             );
             tokio::time::sleep(std::time::Duration::from_millis(*timeout_ms)).await;
@@ -125,85 +125,85 @@ async fn execute_recovery(recovery: &RecoveryAction, _force: bool) -> Result<()>
         }
 
         RecoveryAction::RunMigrations => {
-            println!("🔄 Running database migrations...");
+            println!("Running database migrations...");
             let output = Command::new("aosctl")
                 .args(["db", "migrate"])
                 .output()
                 .context("Failed to run migrations")?;
 
             if output.status.success() {
-                println!("✅ Migrations completed successfully");
+                println!("Migrations completed");
                 let stdout = String::from_utf8_lossy(&output.stdout);
                 if !stdout.is_empty() {
                     println!("{}", stdout);
                 }
             } else {
                 let stderr = String::from_utf8_lossy(&output.stderr);
-                println!("❌ Migration failed: {}", stderr);
+                eprintln!("Error: migration failed: {}", stderr);
             }
             Ok(())
         }
 
         RecoveryAction::RepairHashes { entity_type } => {
-            println!("🔧 Repairing hashes for {}...", entity_type);
+            println!("Repairing hashes for {}...", entity_type);
             let output = Command::new("aosctl")
                 .args(["adapter", "repair-hashes", "--all"])
                 .output()
                 .context("Failed to repair hashes")?;
 
             if output.status.success() {
-                println!("✅ Hash repair completed successfully");
+                println!("Hash repair completed");
             } else {
                 let stderr = String::from_utf8_lossy(&output.stderr);
-                println!("❌ Hash repair failed: {}", stderr);
+                eprintln!("Error: hash repair failed: {}", stderr);
             }
             Ok(())
         }
 
         RecoveryAction::RebuildIndex { index_name } => {
-            println!("🔧 Rebuilding index: {}", index_name);
+            println!("Rebuilding index: {}", index_name);
             let output = Command::new("aosctl")
                 .args(["storage", "index", "rebuild", index_name])
                 .output()
                 .context("Failed to rebuild index")?;
 
             if output.status.success() {
-                println!("✅ Index rebuilt successfully");
+                println!("Index rebuilt");
             } else {
                 let stderr = String::from_utf8_lossy(&output.stderr);
-                println!("❌ Index rebuild failed: {}", stderr);
+                eprintln!("Error: index rebuild failed: {}", stderr);
             }
             Ok(())
         }
 
         RecoveryAction::CliCommand { command, args } => {
-            println!("🔧 Executing: {} {}", command, args.join(" "));
+            println!("Executing: {} {}", command, args.join(" "));
             let output = Command::new(command)
                 .args(*args)
                 .output()
                 .context(format!("Failed to execute {}", command))?;
 
             if output.status.success() {
-                println!("✅ Command completed successfully");
+                println!("Command completed");
                 let stdout = String::from_utf8_lossy(&output.stdout);
                 if !stdout.is_empty() {
                     println!("{}", stdout);
                 }
             } else {
                 let stderr = String::from_utf8_lossy(&output.stderr);
-                println!("❌ Command failed: {}", stderr);
+                eprintln!("Error: command failed: {}", stderr);
             }
             Ok(())
         }
 
         RecoveryAction::RestartComponent { component } => {
-            println!("🔄 Restarting component: {}", component);
+            println!("Restarting component: {}", component);
             println!("   Run: aosctl service restart {}", component);
             Ok(())
         }
 
         RecoveryAction::Reinitialize { component } => {
-            println!("🔄 Reinitializing component: {}", component);
+            println!("Reinitializing component: {}", component);
             println!("   Run: aosctl {} init --force", component);
             Ok(())
         }
@@ -216,7 +216,7 @@ async fn execute_recovery(recovery: &RecoveryAction, _force: bool) -> Result<()>
         | RecoveryAction::InstallDependency { .. }
         | RecoveryAction::Manual
         | RecoveryAction::Quarantine => {
-            println!("⛔ This action requires manual intervention.");
+            println!("This action requires manual intervention.");
             Ok(())
         }
     }
@@ -226,21 +226,21 @@ async fn execute_recovery(recovery: &RecoveryAction, _force: bool) -> Result<()>
 fn show_manual_instructions(recovery: &RecoveryAction, ecode: &ECode) {
     match recovery {
         RecoveryAction::PolicyAdjust => {
-            println!("📋 Manual Steps:");
+            println!("Manual steps:");
             println!("   1. Review the policy violation in the logs");
             println!("   2. Edit the policy pack: aosctl policy edit <pack>");
             println!("   3. Re-run preflight: aosctl preflight");
         }
 
         RecoveryAction::Resign => {
-            println!("📋 Manual Steps:");
+            println!("Manual steps:");
             println!("   1. Review the signature issue in the logs");
             println!("   2. Re-sign the artifact: aosctl adapter sign <adapter>");
             println!("   3. Verify the signature: aosctl adapter verify <adapter>");
         }
 
         RecoveryAction::ValidationFix => {
-            println!("📋 Manual Steps:");
+            println!("Manual steps:");
             println!("   1. Review the validation error message");
             println!("   2. Fix the invalid input or configuration");
             println!("   3. Re-run the command");
@@ -250,7 +250,7 @@ fn show_manual_instructions(recovery: &RecoveryAction, ecode: &ECode) {
             setting,
             suggested_value,
         } => {
-            println!("📋 Configuration Change Required:");
+            println!("Configuration change required:");
             println!("   Setting: {}", setting);
             if let Some(value) = suggested_value {
                 println!("   Suggested value: {}", value);
@@ -263,7 +263,7 @@ fn show_manual_instructions(recovery: &RecoveryAction, ecode: &ECode) {
         }
 
         RecoveryAction::InstallDependency { name, version } => {
-            println!("📋 Dependency Installation Required:");
+            println!("Dependency installation required:");
             println!("   Package: {}", name);
             if let Some(ver) = version {
                 println!("   Version: {}", ver);
@@ -273,7 +273,7 @@ fn show_manual_instructions(recovery: &RecoveryAction, ecode: &ECode) {
         }
 
         RecoveryAction::Quarantine => {
-            println!("📋 Resource Quarantined:");
+            println!("Resource quarantined:");
             println!("   The resource has been quarantined due to integrity issues.");
             println!();
             println!("   Steps:");
@@ -283,7 +283,7 @@ fn show_manual_instructions(recovery: &RecoveryAction, ecode: &ECode) {
         }
 
         RecoveryAction::Manual => {
-            println!("📋 This error requires manual investigation.");
+            println!("This error requires manual investigation.");
             println!(
                 "   Use `aosctl explain {}` for more details.",
                 ecode.as_str()
@@ -292,7 +292,7 @@ fn show_manual_instructions(recovery: &RecoveryAction, ecode: &ECode) {
 
         _ => {
             println!(
-                "📋 See `aosctl explain {}` for recovery guidance.",
+                "See `aosctl explain {}` for recovery guidance.",
                 ecode.as_str()
             );
         }
@@ -328,8 +328,8 @@ pub async fn list_recovery_actions(safety_filter: Option<&str>) -> Result<()> {
 
         let icon = match safety {
             FixSafety::Safe => "✅",
-            FixSafety::RequiresConfirm => "⚠️",
-            FixSafety::Unsafe => "⛔",
+            FixSafety::RequiresConfirm => "",
+            FixSafety::Unsafe => "",
         };
 
         println!("{} {:?}", icon, safety);

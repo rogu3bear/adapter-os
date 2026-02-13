@@ -28,7 +28,7 @@ pub async fn run(mode: SyncMode) -> Result<()> {
 
 /// Verify sync between two nodes
 async fn verify_sync(from: &str, to: &str) -> Result<()> {
-    println!("🔍 Verify Sync");
+    println!("Verify Sync");
     println!("   From: {}", from);
     println!("   To: {}", to);
     println!();
@@ -143,7 +143,7 @@ async fn pull_adapters(from: &str, adapters: &[String]) -> Result<()> {
 
 /// Export adapters for air-gap transfer
 async fn export_air_gap(file: &Path) -> Result<()> {
-    println!("📦 Export Air-Gap Bundle");
+    println!("Export Air-Gap Bundle");
     println!("   File: {}", file.display());
     println!();
 
@@ -269,7 +269,7 @@ async fn export_air_gap(file: &Path) -> Result<()> {
 
 /// Import adapters from air-gap bundle
 async fn import_air_gap(file: &Path) -> Result<()> {
-    println!("📥 Import Air-Gap Bundle");
+    println!("Import Air-Gap Bundle");
     println!("   File: {}", file.display());
     println!();
 

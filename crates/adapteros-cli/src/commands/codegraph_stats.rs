@@ -139,7 +139,7 @@ pub async fn run(codegraph_db: std::path::PathBuf, output: &OutputWriter) -> Res
     } else if !health_issues.is_empty() {
         output.kv("Health Status", "Issues detected");
         for issue in &health_issues {
-            output.info(format!("  ⚠️  {}", issue));
+            output.info(format!("  {}", issue));
         }
     }
 

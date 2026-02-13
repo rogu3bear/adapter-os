@@ -80,28 +80,25 @@ impl AutoFixer {
         match (self.mode, issue.safety) {
             // Always skip unsafe operations
             (_, FixSafety::Unsafe) => {
-                self.output.warning(format!(
-                    "⚠️  {} requires manual intervention",
-                    issue.check_name
-                ));
+                self.output
+                    .warning(format!("{} requires manual intervention", issue.check_name));
                 self.output.info(format!("   {}", issue.fix_description));
                 Ok(false)
             }
 
             // Safe operations: execute in all modes
             (_, FixSafety::Safe) => {
-                self.output.info(format!("🔧 Fixing: {}", issue.check_name));
+                self.output.info(format!("Fixing: {}", issue.check_name));
                 self.output.info(format!("   {}", issue.fix_description));
 
                 match (issue.fix_fn)(&self.output) {
                     Ok(()) => {
-                        self.output
-                            .success(format!("✅ Fixed: {}", issue.check_name));
+                        self.output.success(format!("Fixed: {}", issue.check_name));
                         Ok(true)
                     }
                     Err(e) => {
                         self.output
-                            .error(format!("❌ Failed to fix {}: {}", issue.check_name, e));
+                            .error(format!("Failed to fix {}: {}", issue.check_name, e));
                         Ok(false)
                     }
                 }
@@ -110,20 +107,19 @@ impl AutoFixer {
             // Confirmation required: depends on mode
             (FixMode::Force, FixSafety::RequiresConfirm) => {
                 self.output.warning(format!(
-                    "🔧 Force-fixing: {} (no confirmation)",
+                    "Force-fixing: {} (no confirmation)",
                     issue.check_name
                 ));
                 self.output.info(format!("   {}", issue.fix_description));
 
                 match (issue.fix_fn)(&self.output) {
                     Ok(()) => {
-                        self.output
-                            .success(format!("✅ Fixed: {}", issue.check_name));
+                        self.output.success(format!("Fixed: {}", issue.check_name));
                         Ok(true)
                     }
                     Err(e) => {
                         self.output
-                            .error(format!("❌ Failed to fix {}: {}", issue.check_name, e));
+                            .error(format!("Failed to fix {}: {}", issue.check_name, e));
                         Ok(false)
                     }
                 }
@@ -131,7 +127,7 @@ impl AutoFixer {
 
             (FixMode::Interactive, FixSafety::RequiresConfirm) => {
                 self.output
-                    .warning(format!("⚠️  {} requires confirmation", issue.check_name));
+                    .warning(format!("{} requires confirmation", issue.check_name));
                 self.output.info(format!("   {}", issue.fix_description));
 
                 // Ask for confirmation
@@ -149,13 +145,12 @@ impl AutoFixer {
 
                 match (issue.fix_fn)(&self.output) {
                     Ok(()) => {
-                        self.output
-                            .success(format!("✅ Fixed: {}", issue.check_name));
+                        self.output.success(format!("Fixed: {}", issue.check_name));
                         Ok(true)
                     }
                     Err(e) => {
                         self.output
-                            .error(format!("❌ Failed to fix {}: {}", issue.check_name, e));
+                            .error(format!("Failed to fix {}: {}", issue.check_name, e));
                         Ok(false)
                     }
                 }
@@ -163,7 +158,7 @@ impl AutoFixer {
 
             (FixMode::SafeOnly, FixSafety::RequiresConfirm) => {
                 self.output.warning(format!(
-                    "⚠️  {} requires confirmation (use --fix without --safe-only)",
+                    "{} requires confirmation (use --fix without --safe-only)",
                     issue.check_name
                 ));
                 self.output.info(format!("   {}", issue.fix_description));
@@ -226,7 +221,7 @@ pub fn create_env_from_example() -> FixableIssue {
                 .map_err(|e| AosError::Io(format!("Failed to copy .env.example: {}", e)))?;
 
             output.info("   Created .env from .env.example");
-            output.warning("   ⚠️  Please review and update .env with your settings");
+            output.warning("   Please review and update .env with your settings");
             Ok(())
         },
     )
@@ -300,7 +295,7 @@ pub fn download_model(model_path: PathBuf) -> FixableIssue {
         "Download Qwen 2.5 7B Instruct model (~3.8GB)".to_string(),
         FixSafety::RequiresConfirm,
         |output| {
-            output.warning("   ⚠️  This will download ~3.8GB of data");
+            output.warning("   This will download ~3.8GB of data");
             output.info("   Running download script...");
 
             let script_path = Path::new("./scripts/download-model.sh");

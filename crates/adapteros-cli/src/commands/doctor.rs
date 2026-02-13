@@ -365,12 +365,12 @@ pub async fn run(cmd: DoctorCommand, output: &OutputWriter) -> Result<()> {
         .any(|c| c.status == ComponentStatus::Unhealthy);
 
     if has_unhealthy {
-        output.error("\n❌ System health check FAILED");
+        output.error("\nSystem health check FAILED");
         std::process::exit(1);
     } else if health_response.overall_status == ComponentStatus::Degraded {
-        output.warning("\n⚠️  System health is DEGRADED");
+        output.warning("\nSystem health is DEGRADED");
     } else {
-        output.success("\n✅ System health check PASSED");
+        output.success("\nSystem health check PASSED");
     }
 
     Ok(())
