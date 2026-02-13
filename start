@@ -297,6 +297,7 @@ init_boot_progress() {
         "model_seed:45"
         "worker_start:60"
         "worker_ready:75"
+        "model_load:85"
         "inference_check:90"
         "chat_verify:95"
         "complete:100"
@@ -718,7 +719,14 @@ check_stale_artifacts() {
     if command -v lsof >/dev/null 2>&1; then
         local sockets=("$AOS_VAR_DIR/run/worker.sock" "$AOS_VAR_DIR/run/backend.sock")
         for sock in "${sockets[@]}"; do
-            if [ -S "$sock" ] && ! lsof "$sock" >/dev/null 2>&1; then
+            # macOS `lsof` does not reliably match UNIX sockets by relative path
+            # (it reports the socket name as an absolute path). Keep hygiene checks
+            # conservative by always probing the absolute path.
+            local sock_abs="$sock"
+            if [[ "$sock_abs" != /* ]]; then
+                sock_abs="$SCRIPT_DIR/$sock_abs"
+            fi
+            if [ -S "$sock" ] && ! lsof "$sock_abs" >/dev/null 2>&1; then
                 quarantine_artifact "$sock" "stale-socket"
             fi
         done
@@ -738,6 +746,89 @@ check_ui_assets() {
         return 1
     fi
     log_line INFO "ui:assets ok (index.html, wasm=$wasm_count)"
+    return 0
+}
+
+resolve_model_id_for_model_path() {
+    local model_path="$1"
+    local db_path="$AOS_VAR_DIR/aos-cp.sqlite3"
+    if [ ! -f "$db_path" ]; then
+        return 1
+    fi
+
+    local abs_path="$model_path"
+    if [[ "$abs_path" != /* ]]; then
+        abs_path="$SCRIPT_DIR/${abs_path#./}"
+    fi
+
+    # Escape single quotes for SQLite (SQL string literal)
+    local abs_escaped
+    abs_escaped="$(printf "%s" "$abs_path" | sed "s/'/''/g")"
+    local raw_escaped
+    raw_escaped="$(printf "%s" "$model_path" | sed "s/'/''/g")"
+    local norm_path="$model_path"
+    if [[ "$norm_path" == ./* ]]; then
+        norm_path="${norm_path#./}"
+    fi
+    local norm_escaped
+    norm_escaped="$(printf "%s" "$norm_path" | sed "s/'/''/g")"
+
+    local query="
+SELECT id
+FROM models
+WHERE model_path IN ('$abs_escaped', '$raw_escaped', '$norm_escaped')
+ORDER BY updated_at DESC
+LIMIT 1;"
+    local model_id
+    model_id="$(sqlite3 "$db_path" "$query" 2>/dev/null | head -1)"
+    if [ -z "${model_id:-}" ]; then
+        return 1
+    fi
+    echo "$model_id"
+}
+
+load_seeded_model_on_worker() {
+    local model_path="$1"
+    local model_id
+    model_id="$(resolve_model_id_for_model_path "$model_path")" || return 1
+
+    local base_url="http://localhost:$AOS_SERVER_PORT"
+    local url="${base_url}/v1/models/${model_id}/load"
+    local tmp="$AOS_VAR_DIR/run/model-load-last.json"
+    rm -f "$tmp" 2>/dev/null || true
+
+    local auth_header=""
+    if [ -n "${AOS_AUTH_TOKEN:-}" ]; then
+        auth_header="Authorization: Bearer ${AOS_AUTH_TOKEN}"
+    elif [ -n "${AOS_TOKEN:-}" ]; then
+        auth_header="Authorization: Bearer ${AOS_TOKEN}"
+    fi
+
+    local status="000"
+    if [ -n "$auth_header" ]; then
+        status=$(curl -s -o "$tmp" -w "%{http_code}" --max-time 120 \
+            -H "Content-Type: application/json" -H "$auth_header" \
+            -d '{}' "$url" 2>/dev/null || echo "000")
+    else
+        status=$(curl -s -o "$tmp" -w "%{http_code}" --max-time 120 \
+            -H "Content-Type: application/json" \
+            -d '{}' "$url" 2>/dev/null || echo "000")
+    fi
+
+    if [ "$status" != "200" ]; then
+        log_line ERROR "model:load failed status=$status model_id=$model_id"
+        return 1
+    fi
+
+    local db_status
+    db_status="$(sqlite3 "$AOS_VAR_DIR/aos-cp.sqlite3" \
+        "SELECT status FROM base_model_status WHERE tenant_id='default' AND model_id='$model_id' ORDER BY updated_at DESC LIMIT 1;" \
+        2>/dev/null | head -1)"
+    if [ "$db_status" != "loaded" ]; then
+        log_line WARN "model:load unexpected db status model_id=$model_id status=${db_status:-empty}"
+        return 1
+    fi
+
     return 0
 }
 
@@ -791,6 +882,12 @@ show_status() {
         backend_pid=$(cat "$backend_pid_file" 2>/dev/null)
         if [ -n "$backend_pid" ] && kill -0 "$backend_pid" 2>/dev/null; then
             backend_status="running"
+        else
+            # Stale PID file: fall back to the active listener so status remains accurate.
+            backend_pid=$(lsof -nP -i :"$AOS_SERVER_PORT" -sTCP:LISTEN -t 2>/dev/null | head -1)
+            if [ -n "$backend_pid" ]; then
+                backend_status="running"
+            fi
         fi
     else
         backend_pid=$(lsof -nP -i :"$AOS_SERVER_PORT" -sTCP:LISTEN -t 2>/dev/null | head -1)
@@ -811,10 +908,14 @@ show_status() {
 
     # Check worker
     local worker_sock="$AOS_VAR_DIR/run/worker.sock"
+    local worker_sock_abs="$worker_sock"
+    if [[ "$worker_sock_abs" != /* ]]; then
+        worker_sock_abs="$SCRIPT_DIR/$worker_sock_abs"
+    fi
     local worker_pid_file="$AOS_VAR_DIR/worker.pid"
-    if [ -S "$worker_sock" ] && lsof "$worker_sock" >/dev/null 2>&1; then
+    if [ -S "$worker_sock" ] && lsof "$worker_sock_abs" >/dev/null 2>&1; then
         local worker_pid
-        worker_pid=$(lsof -t "$worker_sock" 2>/dev/null | head -1)
+        worker_pid=$(lsof -t "$worker_sock_abs" 2>/dev/null | head -1)
         if [ -n "$worker_pid" ] && kill -0 "$worker_pid" 2>/dev/null; then
             print_step "success" "Worker          ${FG_GREEN}RUNNING${FG_RESET}  (PID $worker_pid, socket)"
         else
@@ -1148,18 +1249,34 @@ start_all() {
             fi
             print_progress_animated $waited $worker_timeout "Worker starting..."
             if [ -S "$AOS_VAR_DIR/run/worker.sock" ]; then
+                local worker_sock_abs="$AOS_VAR_DIR/run/worker.sock"
+                if [[ "$worker_sock_abs" != /* ]]; then
+                    worker_sock_abs="$SCRIPT_DIR/$worker_sock_abs"
+                fi
+                local socket_pid=""
+                if command -v lsof >/dev/null 2>&1; then
+                    socket_pid=$(lsof -t "$worker_sock_abs" 2>/dev/null | head -1)
+                fi
+                if [ -n "$socket_pid" ] && kill -0 "$socket_pid" 2>/dev/null; then
                 term_clear_row
-                update_step "success" "Worker          ${FG_GREEN}READY${FG_RESET}  (socket created)"
+                update_step "success" "Worker          ${FG_GREEN}READY${FG_RESET}  (PID $socket_pid, socket)"
                 worker_ok=1
                 update_boot_progress "worker_ready"
                 break
+                fi
+                term_clear_row
+                update_step "error" "Worker          ${FG_RED}STALE${FG_RESET}  (socket exists but no live process)"
+                log_line ERROR "worker:stale_socket socket=$worker_sock_abs"
+                return 1
             fi
             sleep 1
             ((waited++))
         done
         if [ $worker_ok -eq 0 ]; then
             term_clear_row
-            update_step "pending" "Worker          ${FG_YELLOW}STARTING${FG_RESET} (socket pending)"
+            update_step "error" "Worker          ${FG_RED}NOT READY${FG_RESET} (socket missing after ${worker_timeout}s)"
+            log_line ERROR "worker:socket_timeout timeout=${worker_timeout}s"
+            return 1
         fi
     else
         update_step "error" "Worker          ${FG_RED}FAILED${FG_RESET}  - inference not available"
@@ -1185,6 +1302,29 @@ start_all() {
             "$( [ "$worker_ok" -eq 1 ] && echo true || echo false )" \
         )"
     #endregion agent log
+
+    # Ensure the active base model is marked loaded on the worker so /v1/infer works immediately.
+    # This is intentionally conservative (dev/demo quality-of-life) and only runs when:
+    # - backend + worker are up
+    # - a model path is provided
+    if [ $backend_ok -eq 1 ] && [ $worker_ok -eq 1 ] && [ -n "${AOS_MODEL_PATH:-}" ]; then
+        update_boot_progress "model_load"
+        print_step "running" "Loading base model on worker..."
+        start_spinner "Loading model..."
+        if load_seeded_model_on_worker "$AOS_MODEL_PATH"; then
+            stop_spinner
+            update_step "success" "Model           ${FG_GREEN}LOADED${FG_RESET}"
+        else
+            stop_spinner
+            update_step "error" "Model           ${FG_RED}NOT LOADED${FG_RESET}"
+            echo ""
+            echo "  Check:"
+            echo "    curl -s http://localhost:$AOS_SERVER_PORT/readyz"
+            echo "    tail -50 $AOS_VAR_DIR/logs/worker.log"
+            echo ""
+            return 1
+        fi
+    fi
 
     # Start SecD (Secure Enclave Daemon) - optional
     local secd_ok=0
@@ -1277,8 +1417,8 @@ start_all() {
     elif [ "${AOS_QUICK_BOOT:-0}" = "1" ]; then
         # Quick boot skips /readyz check, allow success message
         show_full_success=1
-    elif [ $worker_ok -eq 0 ]; then
-        # Worker was skipped (--skip-worker), readiness check not applicable
+    elif [ "${SKIP_WORKER:-0}" = "1" ]; then
+        # Worker was explicitly skipped (--skip-worker), readiness check not applicable
         show_full_success=1
     fi
 

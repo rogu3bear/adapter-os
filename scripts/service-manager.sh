@@ -768,12 +768,31 @@ restart_backend() {
 stop_backend() {
     local mode="${1:-graceful}"
 
-    if ! is_running "$BACKEND_PID_FILE" "aos-server"; then
-        status_msg "Backend is not running"
-        return 0
+    local pid=""
+    if is_running "$BACKEND_PID_FILE" "aos-server"; then
+        pid=$(get_pid "$BACKEND_PID_FILE")
+    else
+        # PID files can be missing/stale if the backend was started outside the
+        # service manager. Fall back to the active listener on BACKEND_PORT,
+        # but only stop it if it looks like adapterOS.
+        local port_pid
+        port_pid=$(lsof -nP -i :"$BACKEND_PORT" -sTCP:LISTEN -t 2>/dev/null | head -1)
+        if [ -n "${port_pid:-}" ] && kill -0 "$port_pid" 2>/dev/null; then
+            local actual
+            actual=$(ps -p "$port_pid" -o comm= 2>/dev/null | xargs basename 2>/dev/null || echo "")
+            if [ -n "$actual" ] && [[ "$actual" == *"aos-server"* ]]; then
+                warning_msg "Backend PID file missing/stale; stopping listener on port $BACKEND_PORT (PID: $port_pid)"
+                pid="$port_pid"
+            else
+                warning_msg "Backend port $BACKEND_PORT is in use by non-adapterOS process ($actual); not stopping"
+                return 0
+            fi
+        else
+            status_msg "Backend is not running"
+            return 0
+        fi
     fi
 
-    local pid=$(get_pid "$BACKEND_PID_FILE")
     stop_process "$pid" "Backend" "$GRACEFUL_TIMEOUT" "$mode"
     rm -f "$BACKEND_PID_FILE"
 }
@@ -1741,18 +1760,36 @@ show_status() {
     echo ""
 
     # Backend status
+    local backend_running=0
     if is_running "$BACKEND_PID_FILE" "aos-server"; then
         local pid=$(get_pid "$BACKEND_PID_FILE")
         echo -e "${GREEN}[RUNNING]${NC} Backend Server (PID: $pid, Port: $BACKEND_PORT)"
+        backend_running=1
+    else
+        # Fallback for when PID files are missing/stale.
+        local port_pid
+        port_pid=$(lsof -nP -i :"$BACKEND_PORT" -sTCP:LISTEN -t 2>/dev/null | head -1)
+        if [ -n "${port_pid:-}" ] && kill -0 "$port_pid" 2>/dev/null; then
+            local actual
+            actual=$(ps -p "$port_pid" -o comm= 2>/dev/null | xargs basename 2>/dev/null || echo "")
+            if [ -n "$actual" ] && [[ "$actual" == *"aos-server"* ]]; then
+                echo -e "${GREEN}[RUNNING]${NC} Backend Server (PID: $port_pid, Port: $BACKEND_PORT)"
+                backend_running=1
+            else
+                echo -e "${RED}[STOPPED]${NC} Backend Server"
+            fi
+        else
+            echo -e "${RED}[STOPPED]${NC} Backend Server"
+        fi
+    fi
 
-        # Check if HTTP endpoint responds
+    # Check if HTTP endpoint responds (best-effort)
+    if [ "$backend_running" -eq 1 ]; then
         if curl -s "http://localhost:$BACKEND_PORT/healthz" > /dev/null 2>&1; then
             echo -e "          ${GREEN}Health endpoint responding${NC}"
         else
             echo -e "          ${YELLOW}Health endpoint not responding${NC}"
         fi
-    else
-        echo -e "${RED}[STOPPED]${NC} Backend Server"
     fi
 
     # UI status

@@ -62,13 +62,14 @@ freeze_check_port() {
     if [ -z "$pids" ]; then
         # Port not in use by listener, check TIME_WAIT
         if fg_port_in_time_wait "$port"; then
-            fg_warn "Port $port is in TIME_WAIT state"
+            # TIME_WAIT does not prevent binding a new listener on modern OSes;
+            # treat this as non-blocking and continue.
+            fg_warn "Port $port has TIME_WAIT connections (non-blocking)"
             echo ""
-            echo "  This means a previous connection is still closing."
-            echo "  adapterOS ports are pinned; wait ~60 seconds or stop the"
-            echo "  process that just exited, then retry on the same port."
+            echo "  Note: TIME_WAIT does not block a new server bind."
+            echo "  If you hit AddrInUse, something is actively listening:"
+            echo "    lsof -nP -i :$port -sTCP:LISTEN"
             echo ""
-            return 1
         fi
         return 0
     fi

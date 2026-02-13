@@ -66,7 +66,9 @@ def list_migration_files(dir_path: Path) -> list[Path]:
 def find_duplicate_numbers(files: list[Path]) -> dict[str, list[str]]:
     by_num: dict[str, list[str]] = {}
     for p in files:
-        m = re.match(r"^(\d{4})", p.name)
+        # Migrations can be 4-digit incremental (e.g. 0295_*) or timestamp-based
+        # (e.g. 20260211120000_*). Treat the full leading digit run as the "number".
+        m = re.match(r"^(\d+)", p.name)
         if not m:
             continue
         by_num.setdefault(m.group(1), []).append(p.name)
