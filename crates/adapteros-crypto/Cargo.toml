@@ -8,7 +8,7 @@ license.workspace = true
 [features]
 default = []
 password-fallback = ["argon2", "chacha20poly1305"]
-linux-keychain = []
+linux-keychain = ["dep:libc", "dep:nix", "dep:secret-service"]
 aws-kms = [
     "aws-config",
     "aws-credential-types",
@@ -43,6 +43,9 @@ zeroize = { version = "1.7", features = ["zeroize_derive"] }
 async-trait = "0.1"
 tokio = { workspace = true }
 futures-util = { workspace = true }
+libc = { version = "0.2", optional = true }
+nix = { workspace = true, optional = true }
+secret-service = { version = "5.1.0", optional = true }
 argon2 = { version = "0.5", optional = true }
 chacha20poly1305 = { version = "0.10", optional = true }
 x509-parser = { version = "0.16", features = ["verify"] }

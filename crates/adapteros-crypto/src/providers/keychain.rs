@@ -42,6 +42,104 @@ use std::collections::HashMap;
 use std::ffi::CString;
 use tracing::{debug, error, info, warn};
 
+#[cfg(all(target_os = "linux", feature = "linux-keychain"))]
+mod linux_keyctl {
+    use super::{AosError, Result};
+    use std::ffi::CString;
+
+    pub type KeySerial = i32;
+
+    fn syscall_ret_i32(ret: libc::c_long, context: &str) -> Result<KeySerial> {
+        if ret == -1 {
+            let errno = std::io::Error::last_os_error();
+            return Err(AosError::Crypto(format!(
+                "[Linux Kernel Keyring] {} failed: {}",
+                context, errno
+            )));
+        }
+        Ok(ret as KeySerial)
+    }
+
+    pub fn keyctl_get_persistent(uid: u32, keyring: KeySerial) -> Result<KeySerial> {
+        let ret = unsafe {
+            libc::syscall(
+                libc::SYS_keyctl,
+                libc::KEYCTL_GET_PERSISTENT as libc::c_long,
+                uid as libc::c_long,
+                keyring as libc::c_long,
+            )
+        };
+        syscall_ret_i32(ret, "KEYCTL_GET_PERSISTENT")
+    }
+
+    pub fn add_key_user(description: &CString, payload: &[u8], keyring: KeySerial) -> Result<KeySerial> {
+        let ret = unsafe {
+            libc::syscall(
+                libc::SYS_add_key,
+                b"user\0".as_ptr() as *const libc::c_char,
+                description.as_ptr(),
+                payload.as_ptr() as *const libc::c_void,
+                payload.len() as libc::size_t,
+                keyring as libc::c_long,
+            )
+        };
+        syscall_ret_i32(ret, "add_key(user)")
+    }
+
+    pub fn keyctl_search_user(keyring: KeySerial, description: &CString) -> Result<KeySerial> {
+        let ret = unsafe {
+            libc::syscall(
+                libc::SYS_keyctl,
+                libc::KEYCTL_SEARCH as libc::c_long,
+                keyring as libc::c_long,
+                b"user\0".as_ptr() as *const libc::c_char,
+                description.as_ptr(),
+                0 as libc::c_long, // dest keyring
+            )
+        };
+        syscall_ret_i32(ret, "KEYCTL_SEARCH(user)")
+    }
+
+    pub fn keyctl_read(key: KeySerial, buf: *mut libc::c_void, len: usize) -> Result<libc::c_long> {
+        let ret = unsafe {
+            libc::syscall(
+                libc::SYS_keyctl,
+                libc::KEYCTL_READ as libc::c_long,
+                key as libc::c_long,
+                buf,
+                len as libc::size_t,
+            )
+        };
+        if ret == -1 {
+            let errno = std::io::Error::last_os_error();
+            return Err(AosError::Crypto(format!(
+                "[Linux Kernel Keyring] KEYCTL_READ failed: {}",
+                errno
+            )));
+        }
+        Ok(ret)
+    }
+
+    pub fn keyctl_unlink(key: KeySerial, keyring: KeySerial) -> Result<()> {
+        let ret = unsafe {
+            libc::syscall(
+                libc::SYS_keyctl,
+                libc::KEYCTL_UNLINK as libc::c_long,
+                key as libc::c_long,
+                keyring as libc::c_long,
+            )
+        };
+        if ret == -1 {
+            let errno = std::io::Error::last_os_error();
+            return Err(AosError::Crypto(format!(
+                "[Linux Kernel Keyring] KEYCTL_UNLINK failed: {}",
+                errno
+            )));
+        }
+        Ok(())
+    }
+}
+
 /// Keychain provider implementation
 pub struct KeychainProvider {
     #[allow(dead_code)]
@@ -1620,19 +1718,12 @@ impl LinuxKeyring {
     fn verify_kernel_keyring_available(&self) -> Result<()> {
         // Test if kernel keyring is still available
         use nix::unistd::getuid;
-        let keyring_id = unsafe {
-            libc::keyctl_get_persistent(
-                getuid().as_raw() as u32,
-                libc::KEY_SPEC_USER_KEYRING as i32,
-            )
-        };
-        if keyring_id == -1 {
-            let errno = std::io::Error::last_os_error();
-            error!(error = %errno, "Kernel keyring backend became unhealthy");
-            return Err(AosError::Crypto(
-                "Kernel keyring backend is no longer available".to_string(),
-            ));
-        }
+        let _keyring_id =
+            linux_keyctl::keyctl_get_persistent(getuid().as_raw() as u32, libc::KEY_SPEC_USER_KEYRING)
+                .map_err(|e| {
+                    error!(error = %e, "Kernel keyring backend became unhealthy");
+                    e
+                })?;
         Ok(())
     }
 
@@ -1741,39 +1832,22 @@ impl LinuxKeyring {
             })?;
 
             // Get persistent keyring for the user
-            let keyring_id = unsafe {
-                libc::keyctl_get_persistent(
-                    getuid().as_raw() as u32,
-                    libc::KEY_SPEC_USER_KEYRING as i32,
-                )
-            };
-
-            if keyring_id == -1 {
-                let errno = std::io::Error::last_os_error();
-                error!(error = %errno, key_id = %key_id, "Failed to get persistent keyring");
-                return Err(AosError::Crypto(
+            let keyring_id = linux_keyctl::keyctl_get_persistent(
+                getuid().as_raw() as u32,
+                libc::KEY_SPEC_USER_KEYRING,
+            )
+            .map_err(|e| {
+                error!(error = %e, key_id = %key_id, "Failed to get persistent keyring");
+                AosError::Crypto(
                     "[Linux Kernel Keyring] Access failed: Insufficient permissions or kernel config issue - Check user permissions and kernel keyring support".to_string()
-                ));
-            }
-
-            // Add key to the persistent keyring
-            let result = unsafe {
-                libc::add_key(
-                    b"user\0".as_ptr() as *const libc::c_char,
-                    desc_c.as_ptr(),
-                    key_data.as_ptr() as *const libc::c_void,
-                    key_data.len() as libc::size_t,
-                    keyring_id,
                 )
-            };
+            })?;
 
-            if result == -1 {
-                let errno = std::io::Error::last_os_error();
-                error!(error = %errno, key_id = %key_id, "Failed to add key to kernel keyring");
-                return Err(AosError::Crypto(
-                    "Failed to store key in kernel keyring".to_string(),
-                ));
-            }
+            // Add key to the persistent keyring.
+            linux_keyctl::add_key_user(&desc_c, &key_data, keyring_id).map_err(|e| {
+                error!(error = %e, key_id = %key_id, "Failed to add key to kernel keyring");
+                AosError::Crypto("Failed to store key in kernel keyring".to_string())
+            })?;
 
             info!(key_id = %key_id, keyring_id = keyring_id, "Stored Ed25519 key in kernel keyring");
             Ok(())
@@ -1910,57 +1984,40 @@ impl LinuxKeyring {
             })?;
 
             // Get persistent keyring for the user
-            let keyring_id = unsafe {
-                libc::keyctl_get_persistent(
-                    getuid().as_raw() as u32,
-                    libc::KEY_SPEC_USER_KEYRING as i32,
-                )
-            };
-
-            if keyring_id == -1 {
-                let errno = std::io::Error::last_os_error();
-                error!(error = %errno, key_id = %key_id, "Failed to get persistent keyring");
-                return Err(AosError::Crypto(
+            let keyring_id = linux_keyctl::keyctl_get_persistent(
+                getuid().as_raw() as u32,
+                libc::KEY_SPEC_USER_KEYRING,
+            )
+            .map_err(|e| {
+                error!(error = %e, key_id = %key_id, "Failed to get persistent keyring");
+                AosError::Crypto(
                     "[Linux Kernel Keyring] Access failed: Insufficient permissions or kernel config issue - Check user permissions and kernel keyring support".to_string()
-                ));
-            }
+                )
+            })?;
 
             // Search for the key in the keyring
-            let key_id_result = unsafe {
-                libc::keyctl_search(
-                    keyring_id,
-                    b"user\0".as_ptr() as *const libc::c_char,
-                    desc_c.as_ptr(),
-                    0,
-                )
+            let key_id_result = match linux_keyctl::keyctl_search_user(keyring_id, &desc_c) {
+                Ok(id) => id,
+                Err(e) => {
+                    error!(error = %e, key_id = %key_id, "Key not found in kernel keyring");
+                    return Err(AosError::NotFound(format!(
+                        "Key '{}' not found in kernel keyring",
+                        key_id
+                    )));
+                }
             };
-
-            if key_id_result == -1 {
-                let errno = std::io::Error::last_os_error();
-                error!(error = %errno, key_id = %key_id, "Key not found in kernel keyring");
-                return Err(AosError::NotFound(format!(
-                    "Key '{}' not found in kernel keyring",
-                    key_id
-                )));
-            }
 
             // Read the key data
             let mut buffer = [0u8; 32];
-            let read_result = unsafe {
-                libc::keyctl_read(
-                    key_id_result,
-                    buffer.as_mut_ptr() as *mut libc::c_void,
-                    buffer.len(),
-                )
-            };
-
-            if read_result == -1 {
-                let errno = std::io::Error::last_os_error();
-                error!(error = %errno, key_id = %key_id, "Failed to read key from kernel keyring");
-                return Err(AosError::Crypto(
-                    "Failed to read key from kernel keyring".to_string(),
-                ));
-            }
+            let read_result = linux_keyctl::keyctl_read(
+                key_id_result,
+                buffer.as_mut_ptr() as *mut libc::c_void,
+                buffer.len(),
+            )
+            .map_err(|e| {
+                error!(error = %e, key_id = %key_id, "Failed to read key from kernel keyring");
+                AosError::Crypto("Failed to read key from kernel keyring".to_string())
+            })?;
 
             if read_result != 32 {
                 error!(key_id = %key_id, expected = 32, actual = read_result, "Invalid key length from kernel keyring");
@@ -2072,39 +2129,22 @@ impl LinuxKeyring {
             })?;
 
             // Get persistent keyring for the user
-            let keyring_id = unsafe {
-                libc::keyctl_get_persistent(
-                    getuid().as_raw() as u32,
-                    libc::KEY_SPEC_USER_KEYRING as i32,
-                )
-            };
-
-            if keyring_id == -1 {
-                let errno = std::io::Error::last_os_error();
-                error!(error = %errno, key_id = %key_id, "Failed to get persistent keyring");
-                return Err(AosError::Crypto(
+            let keyring_id = linux_keyctl::keyctl_get_persistent(
+                getuid().as_raw() as u32,
+                libc::KEY_SPEC_USER_KEYRING,
+            )
+            .map_err(|e| {
+                error!(error = %e, key_id = %key_id, "Failed to get persistent keyring");
+                AosError::Crypto(
                     "[Linux Kernel Keyring] Access failed: Insufficient permissions or kernel config issue - Check user permissions and kernel keyring support".to_string()
-                ));
-            }
-
-            // Add key to the persistent keyring
-            let result = unsafe {
-                libc::add_key(
-                    b"user\0".as_ptr() as *const libc::c_char,
-                    desc_c.as_ptr(),
-                    key_data.as_ptr() as *const libc::c_void,
-                    key_data.len() as libc::size_t,
-                    keyring_id,
                 )
-            };
+            })?;
 
-            if result == -1 {
-                let errno = std::io::Error::last_os_error();
-                error!(error = %errno, key_id = %key_id, "Failed to add symmetric key to kernel keyring");
-                return Err(AosError::Crypto(
-                    "Failed to store symmetric key in kernel keyring".to_string(),
-                ));
-            }
+            // Add key to the persistent keyring.
+            linux_keyctl::add_key_user(&desc_c, key_data, keyring_id).map_err(|e| {
+                error!(error = %e, key_id = %key_id, "Failed to add symmetric key to kernel keyring");
+                AosError::Crypto("Failed to store symmetric key in kernel keyring".to_string())
+            })?;
 
             info!(key_id = %key_id, keyring_id = keyring_id, "Stored symmetric key in kernel keyring");
             Ok(())
@@ -2219,67 +2259,46 @@ impl LinuxKeyring {
             })?;
 
             // Get persistent keyring for the user
-            let keyring_id = unsafe {
-                libc::keyctl_get_persistent(
-                    getuid().as_raw() as u32,
-                    libc::KEY_SPEC_USER_KEYRING as i32,
-                )
-            };
-
-            if keyring_id == -1 {
-                let errno = std::io::Error::last_os_error();
-                error!(error = %errno, key_id = %key_id, "Failed to get persistent keyring");
-                return Err(AosError::Crypto(
+            let keyring_id = linux_keyctl::keyctl_get_persistent(
+                getuid().as_raw() as u32,
+                libc::KEY_SPEC_USER_KEYRING,
+            )
+            .map_err(|e| {
+                error!(error = %e, key_id = %key_id, "Failed to get persistent keyring");
+                AosError::Crypto(
                     "[Linux Kernel Keyring] Access failed: Insufficient permissions or kernel config issue - Check user permissions and kernel keyring support".to_string()
-                ));
-            }
+                )
+            })?;
 
             // Search for the key in the keyring
-            let key_id_result = unsafe {
-                libc::keyctl_search(
-                    keyring_id,
-                    b"user\0".as_ptr() as *const libc::c_char,
-                    desc_c.as_ptr(),
-                    0,
-                )
+            let key_id_result = match linux_keyctl::keyctl_search_user(keyring_id, &desc_c) {
+                Ok(id) => id,
+                Err(e) => {
+                    error!(error = %e, key_id = %key_id, "Symmetric key not found in kernel keyring");
+                    return Err(AosError::NotFound(format!(
+                        "Symmetric key '{}' not found in kernel keyring",
+                        key_id
+                    )));
+                }
             };
-
-            if key_id_result == -1 {
-                let errno = std::io::Error::last_os_error();
-                error!(error = %errno, key_id = %key_id, "Symmetric key not found in kernel keyring");
-                return Err(AosError::NotFound(format!(
-                    "Symmetric key '{}' not found in kernel keyring",
-                    key_id
-                )));
-            }
 
             // Read the key data - first get the size
-            let size_result = unsafe { libc::keyctl_read(key_id_result, std::ptr::null_mut(), 0) };
-
-            if size_result == -1 {
-                let errno = std::io::Error::last_os_error();
-                error!(error = %errno, key_id = %key_id, "Failed to get key size from kernel keyring");
-                return Err(AosError::Crypto(
-                    "Failed to read key size from kernel keyring".to_string(),
-                ));
-            }
+            let size_result = linux_keyctl::keyctl_read(key_id_result, std::ptr::null_mut(), 0)
+                .map_err(|e| {
+                    error!(error = %e, key_id = %key_id, "Failed to get key size from kernel keyring");
+                    AosError::Crypto("Failed to read key size from kernel keyring".to_string())
+                })?;
 
             let mut buffer = vec![0u8; size_result as usize];
-            let read_result = unsafe {
-                libc::keyctl_read(
-                    key_id_result,
-                    buffer.as_mut_ptr() as *mut libc::c_void,
-                    buffer.len(),
-                )
-            };
-
-            if read_result == -1 {
-                let errno = std::io::Error::last_os_error();
-                error!(error = %errno, key_id = %key_id, "Failed to read symmetric key from kernel keyring");
-                return Err(AosError::Crypto(
-                    "Failed to read symmetric key from kernel keyring".to_string(),
-                ));
-            }
+            let _read_result = linux_keyctl::keyctl_read(
+                key_id_result,
+                buffer.as_mut_ptr() as *mut libc::c_void,
+                buffer.len(),
+            )
+            .map_err(|e| {
+                error!(error = %e, key_id = %key_id, "Failed to read symmetric key from kernel keyring");
+                AosError::Crypto("Failed to read symmetric key from kernel keyring".to_string())
+            })?;
 
             info!(key_id = %key_id, "Retrieved symmetric key from kernel keyring");
             Ok(buffer)
@@ -2299,13 +2318,80 @@ impl LinuxKeyring {
         }
     }
 
-    /// Delete a keychain item (stub implementation for Linux)
+    /// Delete a keychain item (used for rotation).
     fn delete_keychain_item(&self, account: &str) -> Result<()> {
-        use tracing::warn;
-        warn!(account = %account, "Linux keychain deletion not fully implemented");
-        // Remove from in-memory cache
-        let mut keys = lock_key_cache(&self.keys)?;
-        keys.retain(|k, _| !k.contains(account));
+        // Account naming mirrors the macOS keychain convention used elsewhere:
+        //   "<key_id>-ed25519" | "<key_id>-symmetric"
+        let (key_id, key_type) = if let Some(id) = account.strip_suffix("-ed25519") {
+            (id, "ed25519")
+        } else if let Some(id) = account.strip_suffix("-symmetric") {
+            (id, "symmetric")
+        } else {
+            return Err(AosError::Crypto(format!(
+                "Invalid linux keychain account name: {}",
+                account
+            )));
+        };
+
+        match self.backend {
+            LinuxKeyringBackend::SecretService => {
+                // Secret Service storage uses `replace=true` on writes, so rotation does not
+                // require an explicit delete. We still clear the in-memory cache entry.
+                debug!(
+                    account = %account,
+                    backend = "secret_service",
+                    "Skipping explicit delete; secret-service writes replace existing items"
+                );
+            }
+            LinuxKeyringBackend::KernelKeyring => {
+                #[cfg(feature = "linux-keychain")]
+                {
+                    use nix::unistd::getuid;
+
+                    let keyring_id = linux_keyctl::keyctl_get_persistent(
+                        getuid().as_raw() as u32,
+                        libc::KEY_SPEC_USER_KEYRING,
+                    )
+                    .map_err(|e| {
+                        error!(error = %e, account = %account, "Failed to get persistent keyring");
+                        e
+                    })?;
+
+                    let description = format!("adapteros:{}:{}", key_id, key_type);
+                    let desc_c = CString::new(description).map_err(|e| {
+                        error!(error = %e, account = %account, "Invalid key description for kernel keyring");
+                        AosError::Crypto("Invalid key description".to_string())
+                    })?;
+
+                    match linux_keyctl::keyctl_search_user(keyring_id, &desc_c) {
+                        Ok(serial) => {
+                            linux_keyctl::keyctl_unlink(serial, keyring_id)?;
+                            info!(account = %account, key_id = %key_id, key_type = %key_type, "Deleted key from kernel keyring");
+                        }
+                        Err(e) => {
+                            // Not-found is not an error (rotation may be called before the key existed).
+                            debug!(account = %account, error = %e, "Key not present in kernel keyring; nothing to delete");
+                        }
+                    }
+                }
+
+                #[cfg(not(feature = "linux-keychain"))]
+                {
+                    error!(
+                        feature = "linux-keychain",
+                        backend = "kernel_keyring",
+                        operation = "delete_keychain_item",
+                        "Linux keychain feature not enabled"
+                    );
+                    return Err(AosError::Crypto(
+                        "Linux keychain support not compiled in".to_string(),
+                    ));
+                }
+            }
+        }
+
+        // Cache keys are base key ids (not account strings).
+        lock_key_cache(&self.keys)?.remove(key_id);
         Ok(())
     }
 }
