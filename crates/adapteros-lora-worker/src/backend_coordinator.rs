@@ -719,6 +719,23 @@ mod tests {
     use super::*;
     use adapteros_config::model::get_model_path_optional;
 
+    fn has_safetensors_model(path: &std::path::Path) -> bool {
+        if path.join("model.safetensors").exists() {
+            return true;
+        }
+        let Ok(entries) = std::fs::read_dir(path) else {
+            return false;
+        };
+        for entry in entries.flatten() {
+            let name = entry.file_name();
+            let name = name.to_string_lossy();
+            if name.starts_with("model-") && name.ends_with(".safetensors") {
+                return true;
+            }
+        }
+        false
+    }
+
     // NOTE: No setup_test_env() function needed anymore!
     // The manifest verification now uses deterministic test keys that are:
     // 1. Generated at build time in adapteros-lora-kernel-mtl/build.rs
@@ -743,6 +760,15 @@ mod tests {
             }
             None => {
                 eprintln!("skipping: AOS_MODEL_PATH not configured");
+                return;
+            }
+        };
+        if let Some(path) = get_model_path_optional() {
+            if !has_safetensors_model(&path) {
+                eprintln!(
+                    "skipping: model path configured but missing model.safetensors or shards at {}",
+                    path.display()
+                );
                 return;
             }
         }
@@ -775,6 +801,15 @@ mod tests {
             }
             None => {
                 eprintln!("skipping: AOS_MODEL_PATH not configured");
+                return;
+            }
+        };
+        if let Some(path) = get_model_path_optional() {
+            if !has_safetensors_model(&path) {
+                eprintln!(
+                    "skipping: model path configured but missing model.safetensors or shards at {}",
+                    path.display()
+                );
                 return;
             }
         }

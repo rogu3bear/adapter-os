@@ -3894,6 +3894,23 @@ impl<K: FusedKernels + StrictnessControl + Send + Sync + 'static> Worker<K> {
             review_trigger::ReviewTriggerConfig::default(),
         );
 
+        // CoreML backends (as currently exported) are not stateful KV-cache decoders:
+        // they require the full token context each step. Incremental last-token-only
+        // decoding quickly collapses into repetition/garbage output.
+        let tokenizer_vocab_size = self.tokenizer.vocab_size(true);
+        let model_vocab_size = self.manifest.base.vocab_size as usize;
+        let coreml_possible = self.available_backends.primary == BackendKind::CoreML
+            || self.available_backends.fallback == Some(BackendKind::CoreML);
+        let mut active_lane = {
+            let kernels = self.kernels.lock().await;
+            kernels.active_lane()
+        };
+        let mut coreml_context_tokens: Option<Vec<u32>> = if coreml_possible {
+            Some(prompt_tokens_with_free.clone())
+        } else {
+            None
+        };
+
         for step in 0..max_tokens_remaining {
             let step_with_free = free_token_offset + step;
             self.check_cancelled_or_error(
@@ -3901,8 +3918,56 @@ impl<K: FusedKernels + StrictnessControl + Send + Sync + 'static> Worker<K> {
                 cancel_token.as_deref(),
                 generated_tokens.len(),
             )?;
+
+            // Decide the execution lane (primary/fallback) before preparing step inputs so CoreML
+            // can receive full-context inputs when it is the active lane.
+            if let Some(ref mut placement) = placement_state {
+                if !request.strict_mode {
+                    if let Some(decision) = placement.decide() {
+                        {
+                            let mut kernels = self.kernels.lock().await;
+                            kernels.set_active_lane(decision.lane);
+                        }
+                        active_lane = decision.lane;
+                        placement_trace.push(PlacementTraceEntry {
+                            step,
+                            lane: decision.lane_name.clone(),
+                            score: decision.score,
+                            temperature_c: decision.temperature_c,
+                            utilization: decision.utilization,
+                        });
+                        if let Some(t) = &self.telemetry {
+                            let _ = t.log(
+                                "placement.step",
+                                serde_json::json!({
+                                    "step": step,
+                                    "lane": decision.lane_name,
+                                    "score": decision.score,
+                                    "utilization": decision.utilization,
+                                    "temperature_c": decision.temperature_c,
+                                }),
+                            );
+                        }
+                    }
+                }
+            }
+
+            let active_backend = match active_lane {
+                BackendLane::Fallback => self
+                    .available_backends
+                    .fallback
+                    .unwrap_or(self.available_backends.primary),
+                BackendLane::Primary => self.available_backends.primary,
+            };
+            let coreml_requires_full_context = active_backend == BackendKind::CoreML;
+
             // Prepare input for this step
-            let input_ids_slice = if step == 0 {
+            let input_ids_slice = if coreml_requires_full_context {
+                coreml_context_tokens
+                    .as_ref()
+                    .ok_or_else(|| AosError::Internal("CoreML context missing".to_string()))?
+                    .as_slice()
+            } else if step == 0 {
                 &prompt_tokens_with_free[..]
             } else {
                 let last_token = generated_tokens.last().ok_or_else(|| {
@@ -4176,41 +4241,14 @@ impl<K: FusedKernels + StrictnessControl + Send + Sync + 'static> Worker<K> {
             // Execute kernels through Metal and measure latency per adapter
             let mut io_buffers = IoBuffers {
                 input_ids: input_ids_slice.to_vec(),
-                output_logits: vec![0.0; self.manifest.base.vocab_size as usize],
+                // Some models pad the logits dimension for alignment. Kernels must write the full
+                // model vocabulary, but sampling/decoding must clamp to the tokenizer's vocab size
+                // to avoid generating invalid token IDs.
+                output_logits: vec![0.0; model_vocab_size],
                 position: step_with_free,
                 attention_entropy: None,
                 activations: None,
             };
-
-            if let Some(ref mut placement) = placement_state {
-                if !request.strict_mode {
-                    if let Some(decision) = placement.decide() {
-                        {
-                            let mut kernels = self.kernels.lock().await;
-                            kernels.set_active_lane(decision.lane);
-                        }
-                        placement_trace.push(PlacementTraceEntry {
-                            step,
-                            lane: decision.lane_name.clone(),
-                            score: decision.score,
-                            temperature_c: decision.temperature_c,
-                            utilization: decision.utilization,
-                        });
-                        if let Some(t) = &self.telemetry {
-                            let _ = t.log(
-                                "placement.step",
-                                serde_json::json!({
-                                    "step": step,
-                                    "lane": decision.lane_name,
-                                    "score": decision.score,
-                                    "utilization": decision.utilization,
-                                    "temperature_c": decision.temperature_c,
-                                }),
-                            );
-                        }
-                    }
-                }
-            }
 
             let kernel_start = Instant::now();
             {
@@ -4240,14 +4278,22 @@ impl<K: FusedKernels + StrictnessControl + Send + Sync + 'static> Worker<K> {
             // Re-seed generator for step-level determinism (enables replay)
             self.generator.reseed_for_step(step_with_free)?;
 
+            let sampling_vocab_size = tokenizer_vocab_size.min(io_buffers.output_logits.len());
+            if sampling_vocab_size == 0 {
+                return Err(AosError::Worker(
+                    "Tokenizer vocab size is zero; cannot sample tokens".to_string(),
+                ));
+            }
+            let sampling_logits = &io_buffers.output_logits[..sampling_vocab_size];
+
             // Sample next token
-            let next_token = self.generator.next_token(&io_buffers.output_logits)?;
+            let next_token = self.generator.next_token(sampling_logits)?;
 
             // Check stopping criteria using StopController (PRD: Hard Deterministic Stop Controller)
             if let Some(decision) = stop_controller.check_stop(
                 next_token,
                 self.tokenizer.eos_token_id(),
-                &io_buffers.output_logits,
+                sampling_logits,
             ) {
                 stop_reason_code = Some(decision.reason);
                 stop_reason_token_index = Some(decision.token_index);
@@ -4270,6 +4316,9 @@ impl<K: FusedKernels + StrictnessControl + Send + Sync + 'static> Worker<K> {
             }
 
             generated_tokens.push(next_token);
+            if let Some(ref mut ctx) = coreml_context_tokens {
+                ctx.push(next_token);
+            }
 
             if let Some(ref tx) = stream_tx {
                 match self.tokenizer.decode(&[next_token]) {
