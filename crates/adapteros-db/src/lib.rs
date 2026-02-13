@@ -1569,25 +1569,45 @@ impl Db {
         };
         use rand::rngs::OsRng;
 
-        // Check if data already exists
-        let user_count: i64 = sqlx::query_scalar("SELECT COUNT(*) FROM users")
-            .fetch_one(self.pool())
-            .await?;
+        // This function must be safe to call on every dev boot.
+        // We treat seeding as best-effort and idempotent: ensure required dev infra exists
+        // even if other tables already contain rows.
+        tracing::info!("Seeding development data (idempotent)...");
 
-        if user_count > 0 {
-            tracing::info!("Database already contains data, skipping seed");
-            return Ok(());
-        }
-
-        tracing::info!("Seeding development data...");
-
-        // Create default tenant
+        // Ensure default tenant exists (used by dev auth + many dev flows).
         sqlx::query(
-            "INSERT INTO tenants (id, name, created_at) 
+            "INSERT OR IGNORE INTO tenants (id, name, created_at)
              VALUES ('default', 'default', datetime('now'))",
         )
         .execute(self.pool())
         .await?;
+
+        // Ensure local node exists for single-node dev environments.
+        // Worker registration hardcodes node_id=\"local\"; missing it causes FK failures.
+        {
+            let labels = serde_json::json!({
+                "metal_family": "Local Dev",
+                "memory_gb": 32
+            })
+            .to_string();
+            sqlx::query(
+                "INSERT OR IGNORE INTO nodes (id, hostname, agent_endpoint, status, last_seen_at, labels_json, created_at)
+                 VALUES ('local', 'localhost', 'http://localhost:0', 'active', datetime('now'), ?, datetime('now'))",
+            )
+            .bind(labels)
+            .execute(self.pool())
+            .await?;
+        }
+
+        // Only seed dev users when no users exist. This keeps local dev auth stable without
+        // clobbering manually created accounts.
+        let user_count: i64 = sqlx::query_scalar("SELECT COUNT(*) FROM users")
+            .fetch_one(self.pool())
+            .await?;
+        if user_count > 0 {
+            tracing::info!("Users already exist; skipping dev user seed");
+            return Ok(());
+        }
 
         // Create seed users with hashed passwords
         let salt = SaltString::generate(&mut OsRng);
@@ -1611,7 +1631,7 @@ impl Db {
                 .ok_or_else(|| AosError::Database(format!("Invalid email format: {}", email)))?;
 
             sqlx::query(
-                "INSERT INTO users (id, email, display_name, pw_hash, role, disabled, created_at, tenant_id)
+                "INSERT OR IGNORE INTO users (id, email, display_name, pw_hash, role, disabled, created_at, tenant_id)
                  VALUES (?, ?, ?, ?, ?, 0, datetime('now'), 'default')",
             )
             .bind(format!("{}-user", username))
@@ -1619,31 +1639,6 @@ impl Db {
             .bind(display_name)
             .bind(pwd_hash)
             .bind(role)
-            .execute(self.pool())
-            .await?;
-        }
-
-        // Create local node for single-node dev environments
-        // The worker registration handler hardcodes node_id="local", so this must exist
-        let nodes = vec![("local", "localhost", "Local Dev", 32)];
-
-        for (id, hostname, family, memory) in nodes {
-            // Store hardware specs in labels_json since columns don't exist
-            let labels = serde_json::json!({
-                "metal_family": family,
-                "memory_gb": memory
-            })
-            .to_string();
-
-            // Note: nodes table does not have tenant_id (cluster resource)
-            sqlx::query(
-                "INSERT INTO nodes (id, hostname, agent_endpoint, status, last_seen_at, labels_json, created_at)
-                 VALUES (?, ?, ?, 'active', datetime('now'), ?, datetime('now'))"
-            )
-            .bind(id)
-            .bind(hostname)
-            .bind(format!("https://{}:3000", hostname)) // Dummy agent endpoint
-            .bind(labels)
             .execute(self.pool())
             .await?;
         }
