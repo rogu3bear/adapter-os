@@ -124,19 +124,6 @@ async fn run_seed(
     ));
     let db = Db::connect(&db_url).await?;
 
-    // Check if models already exist
-    let existing: i64 = sqlx::query_scalar("SELECT COUNT(*) FROM models")
-        .fetch_one(db.pool())
-        .await?;
-
-    if existing > 0 && !force {
-        output.info(format!(
-            "{} model(s) already registered. Use --force to re-seed.",
-            existing
-        ));
-        return Ok(());
-    }
-
     // Collect model directories to seed
     let model_dirs = adapteros_core::discover_model_dirs(&model_path);
 
