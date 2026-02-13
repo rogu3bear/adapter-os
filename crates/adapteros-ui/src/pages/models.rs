@@ -14,7 +14,7 @@ use crate::components::{
     TableRow,
 };
 use crate::hooks::{use_api, use_api_resource, use_polling, LoadingState, Refetch};
-use crate::signals::{try_use_route_context, use_refetch_signal, RefetchTopic};
+use crate::signals::{try_use_route_context, use_auth, use_refetch_signal, RefetchTopic};
 use crate::utils::{format_bytes, format_datetime};
 use leptos::prelude::*;
 use leptos_router::hooks::use_params_map;
@@ -585,9 +585,30 @@ fn ModelDetailContent(
     let status_label = model_status_label(model.status);
 
     let is_loaded = model.is_loaded;
+    let is_loading = matches!(model.status, ModelLoadStatus::Loading);
+    let is_unloading = matches!(model.status, ModelLoadStatus::Unloading);
+    let lifecycle_in_progress = is_loading || is_unloading;
     let model_id_load = model.model_id.clone();
     let model_id_unload = model.model_id.clone();
     let (loading, set_loading) = signal(false);
+
+    let (auth_state, _) = use_auth();
+    let can_manage_models = Signal::derive(move || {
+        auth_state
+            .get()
+            .user()
+            .map(|u| {
+                u.role.eq_ignore_ascii_case("admin") || u.role.eq_ignore_ascii_case("operator")
+            })
+            .unwrap_or(false)
+    });
+    let current_role = Signal::derive(move || {
+        auth_state
+            .get()
+            .user()
+            .map(|u| u.role.clone())
+            .unwrap_or_else(|| "unknown".to_string())
+    });
 
     // Use shared API client instead of ApiClient::new() in handlers
     let client = use_api();
@@ -644,38 +665,105 @@ fn ModelDetailContent(
                         <Badge variant=status_label.0>
                             {status_label.1}
                         </Badge>
-                    </div>
-                    <div class="flex gap-2">
                         {move || {
-                            if loading.try_get().unwrap_or(false) {
-                                view! { <Spinner /> }.into_any()
-                            } else if is_loaded {
+                            if can_manage_models.get() {
                                 view! {
-                                    <Button
-                                        variant=ButtonVariant::Outline
-                                        on_click=Callback::new(on_unload.clone())
-                                    >
-                                        "Unload"
-                                    </Button>
-                                }.into_any()
+                                    <Badge variant=BadgeVariant::Success>
+                                        "Manage Access"
+                                    </Badge>
+                                }
+                                .into_any()
                             } else {
                                 view! {
-                                    <Button
-                                        variant=ButtonVariant::Primary
-                                        on_click=Callback::new(on_load.clone())
-                                    >
-                                        "Load"
-                                    </Button>
-                                }.into_any()
+                                    <Badge variant=BadgeVariant::Warning>
+                                        "Read-only Access"
+                                    </Badge>
+                                }
+                                .into_any()
+                            }
+                        }}
+                    </div>
+                    <div class="flex flex-col gap-1 items-end">
+                        <div class="flex gap-2">
+                            {move || {
+                                let manage_disabled = !can_manage_models.get();
+                                let request_in_flight = loading.try_get().unwrap_or(false);
+                                let action_disabled =
+                                    manage_disabled || request_in_flight || lifecycle_in_progress;
+
+                                if request_in_flight {
+                                    view! { <Spinner /> }.into_any()
+                                } else if is_unloading {
+                                    view! {
+                                        <Button variant=ButtonVariant::Outline disabled=true>
+                                            "Unload"
+                                        </Button>
+                                    }.into_any()
+                                } else if is_loading {
+                                    view! {
+                                        <Button variant=ButtonVariant::Primary disabled=true>
+                                            "Load"
+                                        </Button>
+                                    }.into_any()
+                                } else if is_loaded {
+                                    view! {
+                                        <Button
+                                            variant=ButtonVariant::Outline
+                                            disabled=action_disabled
+                                            on_click=Callback::new(on_unload.clone())
+                                        >
+                                            "Unload"
+                                        </Button>
+                                    }.into_any()
+                                } else {
+                                    view! {
+                                        <Button
+                                            variant=ButtonVariant::Primary
+                                            disabled=action_disabled
+                                            on_click=Callback::new(on_load.clone())
+                                        >
+                                            "Load"
+                                        </Button>
+                                    }.into_any()
+                                }
+                            }}
+                        </div>
+                        {move || {
+                            if can_manage_models.get() {
+                                view! {
+                                    <p class="text-xs text-muted-foreground">
+                                        "Your role can load and unload models."
+                                    </p>
+                                }
+                                .into_any()
+                            } else {
+                                let role = current_role.get();
+                                view! {
+                                    <div class="rounded-md border border-warning/40 bg-warning/10 p-3">
+                                        <p class="text-xs text-warning-foreground">
+                                            {format!(
+                                                "Current role: {}. Load and unload actions require Admin or Operator.",
+                                                role
+                                            )}
+                                        </p>
+                                    </div>
+                                }
+                                .into_any()
                             }
                         }}
                     </div>
                 </div>
 
-                {if matches!(model.status, ModelLoadStatus::Loading) {
+                {if is_loading {
                     Some(view! {
                         <p class="text-xs text-muted-foreground">
                             "Model loading. Inference will be ready once loading completes."
+                        </p>
+                    })
+                } else if is_unloading {
+                    Some(view! {
+                        <p class="text-xs text-muted-foreground">
+                            "Model unloading. Inference using this model is being drained."
                         </p>
                     })
                 } else if !model.is_loaded {
@@ -688,10 +776,20 @@ fn ModelDetailContent(
                     None
                 }}
 
-                {model.error_message.clone().map(|err| view! {
-                    <div class="rounded-lg border border-destructive bg-destructive/10 p-3">
-                        <p class="text-sm text-destructive">{err}</p>
-                    </div>
+                {model.error_message.clone().map(|err| {
+                    if lifecycle_in_progress {
+                        view! {
+                            <div class="rounded-lg border border-warning/40 bg-warning/10 p-3">
+                                <p class="text-sm text-warning-foreground">{format!("Backend busy: {}", err)}</p>
+                            </div>
+                        }
+                    } else {
+                        view! {
+                            <div class="rounded-lg border border-destructive bg-destructive/10 p-3">
+                                <p class="text-sm text-destructive">{err}</p>
+                            </div>
+                        }
+                    }
                 })}
             </div>
         </Card>

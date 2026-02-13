@@ -812,10 +812,8 @@ where
             .iter()
             .map(|event| event.as_str())
             .collect();
-        if let Err(err) = connection_reconnect.connect_with_event_types(
-            &event_type_refs,
-            handler_reconnect.clone(),
-        )
+        if let Err(err) = connection_reconnect
+            .connect_with_event_types(&event_type_refs, handler_reconnect.clone())
         {
             tracing::warn!(
                 "SSE reconnect failed for {}: {}",

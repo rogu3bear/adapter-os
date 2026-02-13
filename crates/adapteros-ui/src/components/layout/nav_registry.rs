@@ -377,7 +377,7 @@ static NAV_GROUPS_FULL: &[NavGroup] = &[
     },
 ];
 
-/// Primary profile navigation groups (MVP: 4 focused groups)
+/// Primary profile navigation groups (MVP: 5 focused groups)
 static NAV_GROUPS_PRIMARY: &[NavGroup] = &[
     // 1. Infer (Alt+1) — Chat
     NavGroup {
@@ -434,6 +434,26 @@ static NAV_GROUPS_PRIMARY: &[NavGroup] = &[
             "base",
             "weights",
         ])],
+        collapsed_by_default: false,
+        show_in_taskbar: true,
+        show_in_mobile: true,
+        scope: NavScope::PrimaryOnly,
+    },
+    // 5. Adapters (Alt+5) — Adapters
+    NavGroup {
+        id: "adapters",
+        label: "Adapters",
+        icon: ICON_BRANCH,
+        alt_shortcut: Some(5),
+        items: &[
+            NavItem::new("adapters", "Adapters", "/adapters").with_keywords(&[
+                "lora",
+                "finetune",
+                "weights",
+                "models",
+                "lifecycle",
+            ]),
+        ],
         collapsed_by_default: false,
         show_in_taskbar: true,
         show_in_mobile: true,
