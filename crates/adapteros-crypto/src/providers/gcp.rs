@@ -4,7 +4,10 @@
 //!
 //! This implementation is designed for use with the GCP KMS emulator for
 //! local testing. For production use with real GCP KMS, OAuth2 authentication
-//! would need to be properly configured.
+//! and authenticated API calls would need to be implemented.
+//!
+//! SECURITY: This provider is emulator-only today and will fail closed when
+//! configured with the production Cloud KMS endpoint.
 
 use crate::key_provider::{KeyAlgorithm, KeyHandle};
 use crate::providers::kms::{KmsConfig, KmsCredentials, KmsProvider, KmsProviderType};
@@ -77,6 +80,14 @@ impl GcpKmsProvider {
             .and_then(|v| v.as_str())
             .ok_or_else(|| AosError::Crypto("GCP credentials missing project_id".to_string()))?
             .to_string();
+
+        let endpoint_lc = config.endpoint.trim().to_ascii_lowercase();
+        if endpoint_lc.contains("cloudkms.googleapis.com") || endpoint_lc.starts_with("https://") {
+            return Err(AosError::Crypto(format!(
+                "GCP KMS provider is emulator-only; refusing non-emulator endpoint '{}'",
+                config.endpoint
+            )));
+        }
 
         // Get location from config or default
         let location = config
@@ -355,5 +366,35 @@ impl KmsProvider for GcpKmsProvider {
             "gcp-kms-emulator:{}:{}:{}",
             self.project_id, self.location, self.key_ring
         )
+    }
+}
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+
+    #[tokio::test]
+    async fn test_new_async_rejects_production_endpoint() {
+        let config = KmsConfig {
+            provider_type: KmsProviderType::GcpKms,
+            endpoint: "https://cloudkms.googleapis.com".to_string(),
+            region: None,
+            credentials: KmsCredentials::GcpServiceAccount {
+                credentials_json: r#"{"project_id":"test-project"}"#.into(),
+            },
+            timeout_secs: 30,
+            max_retries: 1,
+            key_namespace: None,
+        };
+
+        let err = match GcpKmsProvider::new_async(config).await {
+            Ok(_) => panic!("expected production endpoint to be rejected"),
+            Err(e) => e,
+        };
+        let msg = format!("{err}");
+        assert!(
+            msg.contains("emulator-only"),
+            "expected emulator-only rejection, got: {msg}"
+        );
     }
 }
