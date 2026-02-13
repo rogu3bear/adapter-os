@@ -22,15 +22,32 @@ use adapteros_server::boot::{
     invariants::Severity, validate_boot_invariants, InvariantReport, InvariantViolation,
 };
 use adapteros_server_api::config::Config;
+use std::path::PathBuf;
 use std::sync::{Arc, RwLock};
 
 /// Helper to create a minimal test config
 fn create_test_config(production_mode: bool, invariants: InvariantsConfig) -> Arc<RwLock<Config>> {
-    // This requires a valid Config which is complex to construct.
-    // For now we test the report and enforcement logic directly.
-    // Full integration tests would require the test harness from common/mod.rs
-    let _ = (production_mode, invariants);
-    unimplemented!("Full config creation requires test harness - see individual unit tests below")
+    // Boot invariants require a fully deserializable Config; reuse the checked-in
+    // reference config as a stable baseline, then override only the fields that
+    // these tests need to control.
+    let manifest_dir = PathBuf::from(env!("CARGO_MANIFEST_DIR"));
+    let repo_root = manifest_dir
+        .ancestors()
+        .nth(2)
+        .unwrap_or_else(|| manifest_dir.as_path());
+    let config_path = repo_root.join("configs").join("cp.toml");
+
+    let mut cfg = Config::load(
+        config_path
+            .to_str()
+            .expect("config path must be valid UTF-8"),
+    )
+    .expect("load configs/cp.toml for boot invariants tests");
+
+    cfg.server.production_mode = production_mode;
+    cfg.invariants = invariants;
+
+    Arc::new(RwLock::new(cfg))
 }
 
 #[cfg(test)]
@@ -214,6 +231,46 @@ mod enforcement_tests {
         assert!(err_msg.contains("SEC-001"), "Should list first violation");
         assert!(err_msg.contains("SEC-002"), "Should list second violation");
         assert!(err_msg.contains("2"), "Should count 2 fatal violations");
+    }
+}
+
+#[cfg(test)]
+mod validation_harness_tests {
+    use super::*;
+
+    #[test]
+    fn test_sec_000_break_glass_required_when_disabling_invariants_in_production() {
+        let mut invariants = InvariantsConfig::default();
+        invariants.disable_sec_001_dev_bypass = true;
+        invariants.i_understand_security_risk = false;
+
+        let cfg = create_test_config(true, invariants);
+        let report = validate_boot_invariants(&cfg, true);
+
+        assert!(
+            report.violations.iter().any(|v| v.id == "SEC-000"),
+            "Expected SEC-000 when disabling invariants in production without acknowledgement"
+        );
+
+        assert!(
+            report.skipped_ids.iter().any(|id| *id == "SEC-001"),
+            "Expected SEC-001 to be recorded as skipped when disable_sec_001_dev_bypass=true"
+        );
+    }
+
+    #[test]
+    fn test_sec_000_not_triggered_when_break_glass_ack_is_set() {
+        let mut invariants = InvariantsConfig::default();
+        invariants.disable_sec_001_dev_bypass = true;
+        invariants.i_understand_security_risk = true;
+
+        let cfg = create_test_config(true, invariants);
+        let report = validate_boot_invariants(&cfg, true);
+
+        assert!(
+            !report.violations.iter().any(|v| v.id == "SEC-000"),
+            "SEC-000 should be absent when invariants.i_understand_security_risk=true"
+        );
     }
 }
 
