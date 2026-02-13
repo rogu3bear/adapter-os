@@ -189,6 +189,10 @@ impl ApiClient {
         self.auth_token.read().ok().and_then(|t| t.clone())
     }
 
+    fn training_idempotency_key() -> String {
+        format!("idem-train-{}", uuid::Uuid::new_v4().simple())
+    }
+
     /// Build a request with common headers
     fn request(&self, method: &str, path: &str) -> RequestBuilder {
         let url = format!("{}{}", self.base_url, path);
@@ -219,6 +223,10 @@ impl ApiClient {
             if let Some(token) = csrf_token_from_cookie() {
                 req = req.header("X-CSRF-Token", &token);
             }
+        }
+
+        if method == "POST" && (path == "/v1/training/jobs" || path == "/v1/training/start") {
+            req = req.header("Idempotency-Key", &Self::training_idempotency_key());
         }
 
         // Only add Authorization header for bearer tokens (not cookie auth).
@@ -486,6 +494,13 @@ impl ApiClient {
     /// List workers
     pub async fn list_workers(&self) -> ApiResult<Vec<adapteros_api_types::WorkerResponse>> {
         self.get("/v1/workers").await
+    }
+
+    /// List workers including stopped/error entries
+    pub async fn list_workers_with_history(
+        &self,
+    ) -> ApiResult<Vec<adapteros_api_types::WorkerResponse>> {
+        self.get("/v1/workers?include_inactive=true").await
     }
 
     /// Get worker details

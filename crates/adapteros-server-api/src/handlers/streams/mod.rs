@@ -10,6 +10,7 @@
 //! - Ring buffer storage for missed event recovery
 
 use crate::auth::Claims;
+use crate::handlers::workers::is_terminal_worker_status;
 use crate::permissions::{require_permission, Permission};
 use crate::security::check_tenant_access;
 use crate::sse::{EventGapRecoveryHint, SseErrorEvent, SseEventManager, SseStreamType};
@@ -674,8 +675,11 @@ pub async fn workers_stream(
 
             tokio::time::sleep(Duration::from_secs(10)).await;
 
-            let workers = match state.db.list_workers_by_tenant(&tenant_id).await {
-                Ok(w) => w,
+            let workers: Vec<_> = match state.db.list_workers_by_tenant(&tenant_id).await {
+                Ok(w) => w
+                    .into_iter()
+                    .filter(|worker| !is_terminal_worker_status(&worker.status))
+                    .collect(),
                 Err(e) => {
                     tracing::warn!("Failed to fetch workers for SSE: {}", e);
                     let event = mgr

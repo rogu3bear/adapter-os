@@ -11,6 +11,7 @@ use crate::components::{
     StatusIconBox, StatusIndicator, StatusVariant, TimeSeriesData, WorkerStatusBadge,
 };
 use crate::hooks::{use_api_resource, use_sse_notifications, LoadingState};
+use crate::pages::workers::is_terminal_worker_status;
 use crate::signals::use_auth;
 use adapteros_api_types::{
     InferenceReadyState, StatusIndicator as ApiStatusIndicator, SystemMetricsResponse,
@@ -404,8 +405,26 @@ fn DashboardContent(
         InferenceReadyState::Unknown => "Unknown",
     };
 
-    let healthy_workers = workers.iter().filter(|w| w.status == "healthy").count();
     let total_workers = workers.len();
+    let terminal_workers = workers
+        .iter()
+        .filter(|w| is_terminal_worker_status(&w.status))
+        .count();
+    let active_worker_rows: Vec<_> = workers
+        .iter()
+        .filter(|w| !is_terminal_worker_status(&w.status))
+        .cloned()
+        .collect();
+    let active_workers = active_worker_rows.len();
+    let healthy_workers = active_worker_rows
+        .iter()
+        .filter(|w| w.status.eq_ignore_ascii_case("healthy"))
+        .count();
+
+    let worker_card_title = format!(
+        "Workers (Healthy/Active: {}/{})",
+        healthy_workers, active_workers
+    );
     let slo_status = status.clone();
 
     view! {
@@ -510,26 +529,50 @@ fn DashboardContent(
             // Right Column: Operations (narrower - 2/5 on desktop)
             <div class="lg:col-span-2 space-y-6">
                 // Workers List - with count in header
-                <Card title=format!("Workers ({}/{})", healthy_workers, total_workers)>
-                    {if workers.is_empty() && workers_error {
+                <Card title=worker_card_title>
+                    {(terminal_workers > 0).then(|| {
+                        view! {
+                            <p class="text-xs text-muted-foreground mb-2">
+                                {format!(
+                                    "Total registered: {} ({} inactive hidden)",
+                                    total_workers, terminal_workers
+                                )}
+                            </p>
+                        }
+                    })}
+                    {if active_worker_rows.is_empty() && workers_error {
                         view! {
                             <div class="py-4 text-center">
                                 <p class="text-sm text-muted-foreground">"Could not load worker status."</p>
                                 <p class="text-xs text-muted-foreground mt-1">"Check the Workers page for details."</p>
                             </div>
                         }.into_any()
-                    } else if workers.is_empty() {
-                        view! {
-                            <EmptyState
-                                variant=EmptyStateVariant::Empty
-                                title="No Workers Registered".to_string()
-                                description="Workers handle inference requests. Start a worker to begin processing.".to_string()
-                            />
-                        }.into_any()
+                    } else if active_worker_rows.is_empty() {
+                        if total_workers > 0 {
+                            view! {
+                                <EmptyState
+                                    variant=EmptyStateVariant::Unavailable
+                                    title="No Active Workers".to_string()
+                                    description=format!(
+                                        "All {} registered workers are currently inactive (stopped/error history).",
+                                        total_workers
+                                    )
+                                />
+                            }.into_any()
+                        } else {
+                            view! {
+                                <EmptyState
+                                    variant=EmptyStateVariant::Empty
+                                    title="No Workers Registered".to_string()
+                                    description="Workers handle inference requests. Start a worker to begin processing.".to_string()
+                                />
+                            }.into_any()
+                        }
                     } else {
+                        let visible_workers = active_worker_rows.clone();
                         view! {
                             <div class="space-y-2">
-                                {workers.into_iter().map(|worker| {
+                                {visible_workers.into_iter().map(|worker| {
                                     view! {
                                         <div class="flex items-center justify-between p-2 rounded-lg border">
                                             <div class="flex items-center gap-3">

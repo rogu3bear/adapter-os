@@ -177,8 +177,11 @@ pub fn health_badge_variant(status: &str) -> BadgeVariant {
 /// Returns true for terminal worker states that are useful as history,
 /// but noisy for QA when you only care about currently-running workers.
 pub fn is_terminal_worker_status(status: &str) -> bool {
-    // `WorkerStatus` is lowercase, but keep a couple of legacy strings too.
-    matches!(status, "stopped" | "error" | "crashed" | "failed")
+    let normalized = status.trim();
+    normalized.eq_ignore_ascii_case("stopped")
+        || normalized.eq_ignore_ascii_case("error")
+        || normalized.eq_ignore_ascii_case("crashed")
+        || normalized.eq_ignore_ascii_case("failed")
 }
 
 /// Best-effort recency check for worker timestamps.
