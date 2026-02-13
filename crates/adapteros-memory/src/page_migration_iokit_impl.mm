@@ -83,6 +83,7 @@ typedef struct {
     uint64_t current_pagein_delta;
     uint64_t current_pageout_delta;
     uint32_t memory_pressure_level;
+    bool memory_pressure_enabled;
 } vm_state_t;
 
 static vm_state_t vm_state = {0};
@@ -120,6 +121,7 @@ int iokit_vm_init(void) {
     if (kr == KERN_SUCCESS) {
         vm_state.last_page_ins = vm_stats.pageins;
         vm_state.last_page_outs = vm_stats.pageouts;
+        vm_state.memory_pressure_enabled = true;
         os_log_info(iokit_log, "IOKit VM monitoring initialized: pageins=%llu, pageouts=%llu",
                    vm_stats.pageins, vm_stats.pageouts);
     } else {
@@ -215,11 +217,16 @@ int64_t iokit_vm_get_pageout_delta(void) {
 // ============================================================================
 
 int iokit_memory_pressure_level(void) {
-    // Use dispatch_source_create to monitor memory pressure
-    // For now, return the cached level from VM statistics
+    // Polling-based memory pressure estimate. Enable/disable controls whether we
+    // update the cached level; callers can still read the last known value.
     os_unfair_lock_lock(&state_lock);
+    bool enabled = vm_state.memory_pressure_enabled;
     int level = vm_state.memory_pressure_level;
     os_unfair_lock_unlock(&state_lock);
+
+    if (!enabled) {
+        return level;
+    }
 
     // Estimate pressure from free memory ratio
     struct vm_statistics64 vm_stats = {0};
@@ -253,14 +260,17 @@ int iokit_memory_pressure_level(void) {
 }
 
 int iokit_memory_pressure_enable(void) {
-    // Memory pressure monitoring is always enabled
-    // This is a placeholder for future callback registration
-    os_log_debug(iokit_log, "Memory pressure monitoring enabled");
+    os_unfair_lock_lock(&state_lock);
+    vm_state.memory_pressure_enabled = true;
+    os_unfair_lock_unlock(&state_lock);
+    os_log_debug(iokit_log, "Memory pressure monitoring enabled (polling)");
     return 1;
 }
 
 int iokit_memory_pressure_disable(void) {
-    // Disable memory pressure monitoring
+    os_unfair_lock_lock(&state_lock);
+    vm_state.memory_pressure_enabled = false;
+    os_unfair_lock_unlock(&state_lock);
     os_log_debug(iokit_log, "Memory pressure monitoring disabled");
     return 1;
 }
