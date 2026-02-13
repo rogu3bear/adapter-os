@@ -1206,6 +1206,22 @@ start_worker() {
         fi
     fi
 
+    # CoreML backend is also feature-gated (coreml-backend) and is not part of
+    # the default worker feature set. In dev mode, proactively build it when
+    # requested so demo boots don't silently fall back to Metal/CPU.
+    if is_dev_mode && [ "$backend" = "coreml" ] && [ "${AOS_WORKER_AUTO_BUILD_COREML:-1}" != "0" ]; then
+        if command -v cargo >/dev/null 2>&1; then
+            status_msg "Ensuring worker built with CoreML support (cargo build -p adapteros-lora-worker --features coreml-backend)..."
+            cargo build -p adapteros-lora-worker --features coreml-backend >/dev/null 2>&1 || {
+                error_msg "Failed to build worker with CoreML support."
+                error_msg "Try: cargo build -p adapteros-lora-worker --features coreml-backend"
+                return 1
+            }
+        else
+            warning_msg "cargo not found; cannot auto-build CoreML worker. Install Rust toolchain or build manually."
+        fi
+    fi
+
     # Select binary based on dev mode (dev flags → debug binary, prod → release)
     local worker_bin=""
     if ! worker_bin=$(select_worker_binary); then

@@ -761,22 +761,40 @@ resolve_model_id_for_model_path() {
         abs_path="$SCRIPT_DIR/${abs_path#./}"
     fi
 
-    # Escape single quotes for SQLite (SQL string literal)
-    local abs_escaped
-    abs_escaped="$(printf "%s" "$abs_path" | sed "s/'/''/g")"
-    local raw_escaped
-    raw_escaped="$(printf "%s" "$model_path" | sed "s/'/''/g")"
+    # Normalize common path wrinkles:
+    # - env-loader may construct "..././var/..." when AOS_MODEL_PATH starts with "./"
+    # - historical DB rows may store either absolute or repo-relative model_path
+    local abs_clean raw_clean
+    abs_clean="$(printf "%s" "$abs_path" | sed 's#/\./#/#g')"
+    raw_clean="$(printf "%s" "$model_path" | sed 's#/\./#/#g')"
+
     local norm_path="$model_path"
     if [[ "$norm_path" == ./* ]]; then
         norm_path="${norm_path#./}"
     fi
-    local norm_escaped
+    local norm_clean
+    norm_clean="$(printf "%s" "$norm_path" | sed 's#/\./#/#g')"
+
+    local rel_from_root=""
+    if [ -n "${SCRIPT_DIR:-}" ] && [[ "$abs_clean" == "$SCRIPT_DIR/"* ]]; then
+        rel_from_root="${abs_clean#"$SCRIPT_DIR/"}"
+    fi
+
+    # Escape single quotes for SQLite (SQL string literal)
+    local abs_escaped abs_clean_escaped raw_escaped raw_clean_escaped norm_escaped norm_clean_escaped rel_escaped rel_dot_escaped
+    abs_escaped="$(printf "%s" "$abs_path" | sed "s/'/''/g")"
+    abs_clean_escaped="$(printf "%s" "$abs_clean" | sed "s/'/''/g")"
+    raw_escaped="$(printf "%s" "$model_path" | sed "s/'/''/g")"
+    raw_clean_escaped="$(printf "%s" "$raw_clean" | sed "s/'/''/g")"
     norm_escaped="$(printf "%s" "$norm_path" | sed "s/'/''/g")"
+    norm_clean_escaped="$(printf "%s" "$norm_clean" | sed "s/'/''/g")"
+    rel_escaped="$(printf "%s" "$rel_from_root" | sed "s/'/''/g")"
+    rel_dot_escaped="$(printf "%s" "./$rel_from_root" | sed "s/'/''/g")"
 
     local query="
 SELECT id
 FROM models
-WHERE model_path IN ('$abs_escaped', '$raw_escaped', '$norm_escaped')
+WHERE model_path IN ('$abs_escaped', '$abs_clean_escaped', '$raw_escaped', '$raw_clean_escaped', '$norm_escaped', '$norm_clean_escaped', '$rel_escaped', '$rel_dot_escaped')
 ORDER BY updated_at DESC
 LIMIT 1;"
     local model_id
@@ -790,7 +808,10 @@ LIMIT 1;"
 load_seeded_model_on_worker() {
     local model_path="$1"
     local model_id
-    model_id="$(resolve_model_id_for_model_path "$model_path")" || return 1
+    if ! model_id="$(resolve_model_id_for_model_path "$model_path")"; then
+        log_line ERROR "model:resolve failed (no model_id for model_path=$model_path)"
+        return 1
+    fi
 
     local base_url="http://localhost:$AOS_SERVER_PORT"
     local url="${base_url}/v1/models/${model_id}/load"
@@ -804,47 +825,64 @@ load_seeded_model_on_worker() {
         auth_header="Authorization: Bearer ${AOS_TOKEN}"
     fi
 
-    local status="000"
-    if [ -n "$auth_header" ]; then
-        status=$(curl -s -o "$tmp" -w "%{http_code}" --max-time 120 \
-            -H "Content-Type: application/json" -H "$auth_header" \
-            -d '{}' "$url" 2>/dev/null || echo "000")
-    else
-        status=$(curl -s -o "$tmp" -w "%{http_code}" --max-time 120 \
-            -H "Content-Type: application/json" \
-            -d '{}' "$url" 2>/dev/null || echo "000")
-    fi
+    local timeout_secs="${AOS_MODEL_LOAD_TIMEOUT_SECS:-120}"
+    local start_ts now elapsed
+    start_ts="$(date +%s)"
 
-    if [ "$status" != "200" ]; then
-        log_line ERROR "model:load failed status=$status model_id=$model_id"
-        return 1
-    fi
+    while true; do
+        local status="000"
+        if [ -n "$auth_header" ]; then
+            status=$(curl -s -o "$tmp" -w "%{http_code}" --max-time 120 \
+                -H "Content-Type: application/json" -H "$auth_header" \
+                -d '{}' "$url" 2>/dev/null || echo "000")
+        else
+            status=$(curl -s -o "$tmp" -w "%{http_code}" --max-time 120 \
+                -H "Content-Type: application/json" \
+                -d '{}' "$url" 2>/dev/null || echo "000")
+        fi
 
-    local db_status
-    db_status="$(sqlite3 "$AOS_VAR_DIR/aos-cp.sqlite3" \
-        "SELECT status FROM base_model_status WHERE tenant_id='default' AND model_id='$model_id' ORDER BY updated_at DESC LIMIT 1;" \
-        2>/dev/null | head -1)"
-
-    # Canonical statuses are kebab-case (see ModelLoadStatus in adapteros-api-types):
-    # - ready (loaded)
-    # - loading
-    # - error
-    # Accept legacy "loaded" as well.
-    case "$db_status" in
-        ready|loaded)
-            return 0
-            ;;
-        "")
-            log_line WARN "model:load status missing model_id=$model_id (no base_model_status row)"
+        if [ "$status" != "200" ]; then
+            log_line ERROR "model:load failed status=$status model_id=$model_id"
             return 1
-            ;;
-        *)
-            log_line WARN "model:load unexpected db status model_id=$model_id status=$db_status"
-            return 1
-            ;;
-    esac
+        fi
 
-    return 0
+        local db_status db_error
+        db_status="$(sqlite3 "$AOS_VAR_DIR/aos-cp.sqlite3" \
+            "SELECT status FROM base_model_status WHERE tenant_id='default' AND model_id='$model_id' ORDER BY updated_at DESC LIMIT 1;" \
+            2>/dev/null | head -1)"
+        db_error="$(sqlite3 "$AOS_VAR_DIR/aos-cp.sqlite3" \
+            "SELECT error_message FROM base_model_status WHERE tenant_id='default' AND model_id='$model_id' ORDER BY updated_at DESC LIMIT 1;" \
+            2>/dev/null | head -1)"
+
+        case "$db_status" in
+            ready|loaded)
+                return 0
+                ;;
+            loading)
+                # Keep waiting until ready or timeout.
+                ;;
+            error)
+                log_line WARN "model:load worker reported error model_id=$model_id error=${db_error:-unknown}"
+                return 1
+                ;;
+            "")
+                # base_model_status row may be created async; keep waiting.
+                ;;
+            *)
+                log_line WARN "model:load unexpected db status model_id=$model_id status=$db_status"
+                return 1
+                ;;
+        esac
+
+        now="$(date +%s)"
+        elapsed=$((now - start_ts))
+        if [ "$elapsed" -ge "$timeout_secs" ]; then
+            log_line ERROR "model:load timeout model_id=$model_id waited_secs=$elapsed last_status=${db_status:-none}"
+            return 1
+        fi
+
+        sleep 1
+    done
 }
 
 show_help() {
