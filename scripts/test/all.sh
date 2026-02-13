@@ -101,10 +101,78 @@ PY
     else
       info "python3 not available; skipping SQLite open check (not silent)."
     fi
-  else
-    info "Non-SQLite database URL detected; connectivity probe not implemented."
-  fi
-}
+	  else
+	    info "Non-SQLite database URL detected; probing TCP reachability."
+
+	    local scheme="${url%%:*}"
+	    local default_port=""
+	    case "$scheme" in
+	      postgres|postgresql)
+	        default_port="5432"
+	        ;;
+	      mysql|mariadb)
+	        default_port="3306"
+	        ;;
+	      *)
+	        default_port=""
+	        ;;
+	    esac
+
+	    if command -v python3 >/dev/null 2>&1; then
+	      python3 - <<'PY' "$url" "$default_port"
+import socket
+import sys
+import urllib.parse
+
+db_url = sys.argv[1]
+default_port = sys.argv[2] or None
+
+parsed = urllib.parse.urlparse(db_url)
+host = parsed.hostname
+port = parsed.port or (int(default_port) if default_port else None)
+
+if not host or not port:
+    # Could be a unix socket DSN or otherwise non-TCP. Don't fail the test runner;
+    # just make the skip explicit.
+    print(f"Non-TCP or unparseable DB URL for connectivity probe: {db_url}")
+    raise SystemExit(0)
+
+try:
+    with socket.create_connection((host, port), timeout=3):
+        pass
+except Exception as exc:  # pragma: no cover
+    print(f"TCP connectivity check failed for {host}:{port}: {exc}")
+    raise SystemExit(1)
+print(f"TCP reachable at {host}:{port}")
+PY
+	    elif command -v nc >/dev/null 2>&1; then
+	      local rest="${url#*://}"
+	      if [[ "$rest" == *"@"* ]]; then
+	        rest="${rest#*@}"
+	      fi
+
+	      local hostport="${rest%%/*}"
+	      hostport="${hostport%%\?*}"
+
+	      local host="${hostport%%:*}"
+	      local port="$default_port"
+	      if [[ "$hostport" == *":"* ]]; then
+	        port="${hostport##*:}"
+	      fi
+
+	      if [[ -z "$host" || -z "$port" ]]; then
+	        info "Could not parse host/port for non-SQLite connectivity probe; skipping (not silent)."
+	        return 0
+	      fi
+
+	      # nc exists on macOS and most Linux distros; use a short timeout.
+	      nc -z -w 3 "$host" "$port"
+	      info "TCP reachable at $host:$port"
+	    else
+	      info "python3/nc not available; skipping non-SQLite connectivity probe (not silent)."
+	    fi
+	  fi
+	}
 
 check_db "$AOS_DATABASE_URL"
 
