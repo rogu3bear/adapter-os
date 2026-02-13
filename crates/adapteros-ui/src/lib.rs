@@ -225,6 +225,7 @@ pub fn App() -> impl IntoView {
                             <Route path=path!("/reviews") view=pages::Reviews/>
                             <Route path=path!("/welcome") view=pages::Welcome/>
                             <Route path=path!("/agents") view=pages::Agents/>
+                            <Route path=path!("/files") view=pages::FileBrowser/>
                         </ParentRoute>
                     </Routes>
                             // Global Command Palette overlay

@@ -1168,6 +1168,26 @@ impl ApiClient {
         self.get("/v1/documents/failed").await
     }
 
+    // --- Filesystem Browser ---
+
+    /// Browse a server filesystem directory
+    pub async fn browse_filesystem(
+        &self,
+        path: &str,
+        show_hidden: bool,
+    ) -> ApiResult<adapteros_api_types::filesystem::FileBrowseResponse> {
+        let encoded_path = encode(path);
+        let query = if show_hidden {
+            format!(
+                "/v1/filesystem/browse?path={}&show_hidden=true",
+                encoded_path
+            )
+        } else {
+            format!("/v1/filesystem/browse?path={}", encoded_path)
+        };
+        self.get(&query).await
+    }
+
     // --- Document Upload (multipart) ---
 
     /// Upload a document via multipart form data

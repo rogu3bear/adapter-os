@@ -242,6 +242,7 @@ use utoipa_swagger_ui::SwaggerUi;
         handlers::datasets::synthesize_dataset,
         handlers::training_datasets::get_training_dataset_manifest,
         handlers::training_datasets::stream_training_dataset_rows,
+        handlers::filesystem::browse_filesystem,
         handlers::documents::upload_document,
         handlers::documents::list_documents,
         handlers::documents::get_document,
@@ -1829,6 +1830,11 @@ pub fn build(state: AppState) -> Router {
         .route(
             "/v1/training/dataset_versions/{dataset_version_id}/rows",
             get(handlers::training_datasets::stream_training_dataset_rows),
+        )
+        // Filesystem browser
+        .route(
+            "/v1/filesystem/browse",
+            get(handlers::filesystem::browse_filesystem),
         )
         // Document routes
         .route(

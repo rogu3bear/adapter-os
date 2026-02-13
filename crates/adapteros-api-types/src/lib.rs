@@ -22,6 +22,11 @@ pub fn schema_version() -> String {
     API_SCHEMA_VERSION.to_string()
 }
 
+/// Default error code for deserialized ErrorResponse.
+fn default_error_code() -> String {
+    "INTERNAL_ERROR".to_string()
+}
+
 pub mod activity;
 pub mod adapters;
 pub mod admin;
@@ -38,6 +43,7 @@ pub mod embeddings;
 pub mod errors;
 pub mod execution_policy;
 pub mod failure_code;
+pub mod filesystem;
 pub mod git;
 pub mod inference;
 pub mod metrics;
@@ -119,13 +125,14 @@ pub use workers::*;
 /// Common error response structure
 #[derive(Debug, Clone, serde::Serialize, serde::Deserialize)]
 #[cfg_attr(feature = "server", derive(utoipa::ToSchema))]
+#[serde(rename_all = "snake_case")]
 pub struct ErrorResponse {
     #[serde(default = "schema_version")]
     pub schema_version: String,
     /// Human-readable error message
     #[serde(alias = "error")]
     pub message: String,
-    #[serde(default)]
+    #[serde(default = "default_error_code")]
     pub code: String,
     #[serde(skip_serializing_if = "Option::is_none")]
     pub failure_code: Option<FailureCode>,
@@ -331,6 +338,7 @@ impl axum::response::IntoResponse for ErrorResponse {
 /// Health check response
 #[derive(Debug, Clone, serde::Serialize, serde::Deserialize)]
 #[cfg_attr(feature = "server", derive(utoipa::ToSchema))]
+#[serde(rename_all = "snake_case")]
 pub struct HealthResponse {
     #[serde(default = "schema_version")]
     pub schema_version: String,
@@ -340,6 +348,7 @@ pub struct HealthResponse {
     #[serde(skip_serializing_if = "Option::is_none")]
     pub build_id: Option<String>,
     /// Model runtime health information
+    #[serde(skip_serializing_if = "Option::is_none")]
     pub models: Option<ModelRuntimeHealth>,
     /// Per-crate version manifest (inference-critical crates)
     #[serde(skip_serializing_if = "Option::is_none")]
@@ -352,6 +361,7 @@ pub struct HealthResponse {
 /// Model runtime health summary
 #[derive(Debug, Clone, serde::Serialize, serde::Deserialize)]
 #[cfg_attr(feature = "server", derive(utoipa::ToSchema))]
+#[serde(rename_all = "snake_case")]
 pub struct ModelRuntimeHealth {
     pub total_models: i32,
     pub loaded_count: i32,
@@ -362,6 +372,7 @@ pub struct ModelRuntimeHealth {
 /// Pagination parameters
 #[derive(Debug, Clone, serde::Serialize, serde::Deserialize)]
 #[cfg_attr(feature = "server", derive(utoipa::ToSchema, utoipa::IntoParams))]
+#[serde(rename_all = "snake_case")]
 pub struct PaginationParams {
     #[serde(default = "default_page")]
     pub page: u32,
@@ -369,16 +380,17 @@ pub struct PaginationParams {
     pub limit: u32,
 }
 
-fn default_page() -> u32 {
+pub(crate) fn default_page() -> u32 {
     1
 }
-fn default_limit() -> u32 {
+pub(crate) fn default_limit() -> u32 {
     50
 }
 
 /// Paginated response wrapper
 #[derive(Debug, Clone, serde::Serialize, serde::Deserialize)]
 #[cfg_attr(feature = "server", derive(utoipa::ToSchema))]
+#[serde(rename_all = "snake_case")]
 pub struct PaginatedResponse<T> {
     #[serde(default = "schema_version")]
     pub schema_version: String,
