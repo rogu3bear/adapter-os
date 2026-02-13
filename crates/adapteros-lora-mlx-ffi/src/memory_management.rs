@@ -10,7 +10,7 @@
 use adapteros_core::Result;
 use std::sync::atomic::{AtomicU64, Ordering};
 use std::sync::Arc;
-use tracing::{debug, info, warn};
+use tracing::{debug, warn};
 
 /// Memory management statistics snapshot
 #[derive(Debug, Clone, Copy)]
