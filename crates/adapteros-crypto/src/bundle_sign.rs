@@ -225,8 +225,16 @@ pub fn verify_bundle_from_file(
     bundle_hash: &B3Hash,
     signatures_dir: &Path,
 ) -> Result<BundleSignature> {
-    let sig_path = signatures_dir.join(format!("{}.sig", bundle_hash.to_hex()));
     let bypass_enabled = is_signature_bypass_enabled();
+    verify_bundle_from_file_inner(bundle_hash, signatures_dir, bypass_enabled)
+}
+
+fn verify_bundle_from_file_inner(
+    bundle_hash: &B3Hash,
+    signatures_dir: &Path,
+    bypass_enabled: bool,
+) -> Result<BundleSignature> {
+    let sig_path = signatures_dir.join(format!("{}.sig", bundle_hash.to_hex()));
 
     if !sig_path.exists() {
         tracing::warn!(
@@ -240,18 +248,29 @@ pub fn verify_bundle_from_file(
         if bypass_enabled {
             tracing::error!(
                 target: "security.bundle",
-                "AOS_DEV_SIGNATURE_BYPASS enabled - returning placeholder (DO NOT USE IN PRODUCTION)"
+                "AOS_DEV_SIGNATURE_BYPASS enabled - returning deterministic placeholder (DO NOT USE IN PRODUCTION)"
             );
-            // Return a placeholder signature for dev mode ONLY when explicitly enabled
-            let placeholder_keypair = crate::Keypair::generate();
+            // Return a deterministic placeholder signature for dev mode ONLY when explicitly enabled.
+            // This avoids introducing non-determinism into dev/test flows.
+            let seed = B3Hash::hash_multi(&[
+                b"aos-dev-signature-bypass",
+                bundle_hash.as_bytes(),
+            ])
+            .to_bytes();
+            let placeholder_keypair = crate::Keypair::from_bytes(&seed);
+            let public_key = placeholder_keypair.public_key();
+            let key_id = compute_key_id(&public_key);
             let placeholder_sig = BundleSignature {
                 bundle_hash: *bundle_hash,
-                merkle_root: B3Hash::hash(b"dev-mode-placeholder"),
-                signature: placeholder_keypair.sign(b"dev-mode-placeholder"),
-                public_key: placeholder_keypair.public_key(),
+                merkle_root: B3Hash::hash_multi(&[
+                    b"aos-dev-placeholder-merkle",
+                    bundle_hash.as_bytes(),
+                ]),
+                signature: placeholder_keypair.sign(bundle_hash.as_bytes()),
+                public_key,
                 schema_ver: 1,
                 signed_at_us: 0,
-                key_id: "dev-mode-bypass".to_string(),
+                key_id,
             };
             return Ok(placeholder_sig);
         }
@@ -518,5 +537,21 @@ mod tests {
 
         // Should be owner read/write only (0o600)
         assert_eq!(permissions.mode() & 0o777, 0o600);
+    }
+
+    #[test]
+    fn test_bypass_missing_signature_placeholder_is_deterministic() {
+        let temp_dir = new_test_tempdir();
+        let signatures_dir = temp_dir.path().join("signatures");
+        let bundle_hash = B3Hash::hash(b"missing-signature-bundle");
+
+        let sig1 = verify_bundle_from_file_inner(&bundle_hash, &signatures_dir, true).unwrap();
+        let sig2 = verify_bundle_from_file_inner(&bundle_hash, &signatures_dir, true).unwrap();
+
+        assert_eq!(sig1.signed_at_us, 0);
+        assert_eq!(sig2.signed_at_us, 0);
+        assert_eq!(sig1.signature.to_bytes(), sig2.signature.to_bytes());
+        assert_eq!(sig1.public_key.to_bytes(), sig2.public_key.to_bytes());
+        assert!(sig1.verify().is_ok(), "placeholder should be self-consistent");
     }
 }
