@@ -45,7 +45,7 @@ fn print_banner() {
 }
 
 async fn step_1_init_tenant(ci_mode: bool) -> Result<()> {
-    println!("\n📘 Step 1: Initialize a Tenant");
+    println!("\nStep 1: Initialize a Tenant");
     println!("═══════════════════════════════════════════════════════════");
     println!();
     println!("Tenants provide isolation between different users or environments.");
@@ -73,7 +73,7 @@ async fn step_1_init_tenant(ci_mode: bool) -> Result<()> {
         (tenant_id, uid, gid)
     };
 
-    println!("\n📝 Command that would run:");
+    println!("\nCommand that would run:");
     println!("   aosctl init-tenant --id {} --uid {} --gid {}", tenant_id, uid, gid);
     println!();
 
@@ -89,7 +89,7 @@ async fn step_1_init_tenant(ci_mode: bool) -> Result<()> {
             println!("\nExecuting...");
             let output = OutputWriter::new(OutputMode::Human, false);
             match crate::commands::init_tenant::run(&tenant_id, uid, gid, &output).await {
-                Ok(_) => println!("✅ Tenant initialized successfully!"),
+                Ok(_) => println!("Tenant initialized successfully!"),
                 Err(e) => {
                     println!("⚠ Command failed: {}", e);
                     println!("   This is okay for a tutorial - the tenant might already exist.");
@@ -100,7 +100,7 @@ async fn step_1_init_tenant(ci_mode: bool) -> Result<()> {
         }
     }
 
-    println!("\n💡 Key Concepts:");
+    println!("\nKey Concepts:");
     println!("   - Tenants are isolated by Unix UID/GID");
     println!("   - Each tenant has its own UDS socket path");
     println!("   - Tenant data is stored in /var/run/aos/<tenant_id>");
@@ -116,7 +116,7 @@ async fn step_1_init_tenant(ci_mode: bool) -> Result<()> {
 }
 
 async fn step_2_verify(ci_mode: bool) -> Result<()> {
-    println!("\n📘 Step 2: Verify Artifacts");
+    println!("\nStep 2: Verify Artifacts");
     println!("═══════════════════════════════════════════════════════════");
     println!();
     println!("adapterOS requires all artifacts to be signed and hashed.");
@@ -128,14 +128,14 @@ async fn step_2_verify(ci_mode: bool) -> Result<()> {
     println!("   aosctl verify-telemetry --bundle-dir var/telemetry");
     println!();
 
-    println!("📦 Artifact verification ensures:");
+    println!("Artifact verification ensures:");
     println!("   - Ed25519 signature is valid");
     println!("   - SBOM (Software Bill of Materials) is complete");
     println!("   - All artifact hashes match (BLAKE3)");
     println!("   - No tampering or corruption");
     println!();
 
-    println!("💡 Policy Enforcement:");
+    println!("Policy Enforcement:");
     println!("   The egress ruleset (E2003) requires signature+SBOM");
     println!("   for all imports. No network access during serving.");
 
@@ -150,13 +150,13 @@ async fn step_2_verify(ci_mode: bool) -> Result<()> {
 }
 
 async fn step_3_diagnostics(ci_mode: bool) -> Result<()> {
-    println!("\n📘 Step 3: System Diagnostics");
+    println!("\nStep 3: System Diagnostics");
     println!("═══════════════════════════════════════════════════════════");
     println!();
     println!("The diag command performs comprehensive system checks.");
     println!();
 
-    println!("📝 Command:");
+    println!("Command:");
     println!("   aosctl diag --system");
     println!();
 
@@ -190,12 +190,12 @@ async fn step_3_diagnostics(ci_mode: bool) -> Result<()> {
         }
     }
 
-    println!("\n💡 Diagnostic Profiles:");
+    println!("\nDiagnostic Profiles:");
     println!("   --system   : Metal, memory, disk, permissions, kernels");
     println!("   --tenant   : Registry, adapters, policies, telemetry");
     println!("   --full     : All of the above + service checks");
     println!();
-    println!("📦 Bundle mode:");
+    println!("Bundle mode:");
     println!("   aosctl diag --full --bundle diag.zip");
     println!("   Creates a support bundle with logs, configs, and metrics");
 
@@ -204,7 +204,7 @@ async fn step_3_diagnostics(ci_mode: bool) -> Result<()> {
 
 fn print_summary() {
     println!("\n━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━");
-    println!("                Tutorial Complete! 🎉");
+    println!("                Tutorial Complete! ");
     println!("━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━");
     println!();
     println!("You've learned:");

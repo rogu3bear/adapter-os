@@ -40,8 +40,8 @@ fn extract_logits(events: &[adapteros_telemetry::replay::ReplayEvent]) -> Vec<Ve
 
 /// Run diff between two bundles
 pub async fn diff_bundles(bundle_a: &Path, bundle_b: &Path) -> Result<()> {
-    println!("📊 Reproducibility Report");
-    println!("========================\n");
+    println!("Reproducibility Report");
+    println!("---\n");
 
     println!("Bundle A: {}", bundle_a.display());
     println!("Bundle B: {}", bundle_b.display());
@@ -71,7 +71,7 @@ pub async fn diff_bundles(bundle_a: &Path, bundle_b: &Path) -> Result<()> {
 
     for (idx, (a, b)) in sampled_a.iter().zip(sampled_b.iter()).enumerate() {
         if a.len() != b.len() {
-            println!("⚠️  Token {} has different logit dimensions", idx);
+            println!("Token {} has different logit dimensions", idx);
             continue;
         }
 
@@ -111,11 +111,11 @@ pub async fn diff_bundles(bundle_a: &Path, bundle_b: &Path) -> Result<()> {
     println!();
 
     if divergences.is_empty() {
-        println!("✅ Bit-for-bit identical");
+        println!("Bit-for-bit identical");
     } else if match_pct >= 95.0 {
-        println!("⚠️  Minor divergences detected ({:.1}% match)", match_pct);
+        println!("Minor divergences detected ({:.1}% match)", match_pct);
     } else {
-        println!("❌ Significant divergences ({:.1}% match)", match_pct);
+        println!("Significant divergences ({:.1}% match)", match_pct);
     }
 
     Ok(())
@@ -136,7 +136,7 @@ pub async fn run(bundle: &Path, verbose: bool, output: &OutputWriter) -> Result<
         println!("✓ Replay completed successfully");
         println!("  All {} operations verified", stats.verified_ops);
     } else {
-        println!("⚠️  Replay incomplete");
+        println!("Replay incomplete");
         println!(
             "  {} of {} operations verified",
             stats.verified_ops, stats.total_events
@@ -225,7 +225,7 @@ pub async fn compare(
             println!("  No divergences detected");
         }
         adapteros_replay::ComparisonResult::Divergent { reason, step } => {
-            println!("❌ Traces diverge at step {}", step);
+            println!("Traces diverge at step {}", step);
             println!("  Reason: {}", reason);
 
             if verbose {

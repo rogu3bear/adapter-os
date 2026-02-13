@@ -169,7 +169,7 @@ fn list_policy_packs(only_implemented: bool, format: OutputFormat) -> Result<()>
                 let status = if policy.implemented {
                     Cell::new("✓ Implemented").fg(Color::Green)
                 } else {
-                    Cell::new("⏳ Pending").fg(Color::Yellow)
+                    Cell::new("Pending").fg(Color::Yellow)
                 };
 
                 table.add_row(vec![
@@ -237,9 +237,9 @@ fn enforce_policies(pack: Option<&str>, all: bool, dry_run: bool) -> Result<()> 
     }
 
     if dry_run {
-        println!("🔍 Running policy enforcement in DRY RUN mode...\n");
+        println!("Running policy enforcement in DRY RUN mode...\n");
     } else {
-        println!("🔍 Running policy enforcement...\n");
+        println!("Running policy enforcement...\n");
     }
 
     // Create a policy pack manager with default configuration
@@ -286,7 +286,7 @@ fn enforce_policies(pack: Option<&str>, all: bool, dry_run: bool) -> Result<()> 
         let spec = adapteros_policy::get_policy(policy_id);
 
         if !spec.implemented {
-            println!("⏭️  {} - Not yet implemented (skipped)", spec.name);
+            println!(" {} - Not yet implemented (skipped)", spec.name);
             skipped += 1;
             continue;
         }
@@ -321,13 +321,13 @@ fn enforce_policies(pack: Option<&str>, all: bool, dry_run: bool) -> Result<()> 
 
     // Also report any warnings
     if !validation_result.warnings.is_empty() {
-        println!("\n⚠️  Warnings:");
+        println!("\nWarnings:");
         for warning in &validation_result.warnings {
             println!("  - {}: {}", warning.policy_pack, warning.message);
         }
     }
 
-    println!("\n📊 Summary:");
+    println!("\nSummary:");
     println!("  Passed: {}", passed);
     println!("  Failed: {}", failed);
     println!("  Skipped: {}", skipped);
@@ -343,10 +343,7 @@ fn enforce_policies(pack: Option<&str>, all: bool, dry_run: bool) -> Result<()> 
     }
 
     if failed > 0 && dry_run {
-        println!(
-            "\n⚠️  {} violations detected (dry run - not failing)",
-            failed
-        );
+        println!("\n{} violations detected (dry run - not failing)", failed);
     }
 
     Ok(())
@@ -408,7 +405,7 @@ fn hash_status(cpid: Option<&str>, format: OutputFormat) -> Result<()> {
 
         match format {
             OutputFormat::Table => {
-                println!("📊 Policy Hash Status\n");
+                println!("Policy Hash Status\n");
 
                 if let Some(cpid_val) = cpid {
                     println!("Control Plane ID: {}\n", cpid_val);
@@ -470,7 +467,7 @@ fn hash_baseline(
     cpid: Option<&str>,
     signer: Option<&str>,
 ) -> Result<()> {
-    println!("🔐 Setting Baseline Hash\n");
+    println!("Setting Baseline Hash\n");
     println!("Policy Pack: {}", pack_id);
     println!("Hash: {}", hash);
 
@@ -519,7 +516,7 @@ fn hash_baseline(
 }
 
 fn hash_verify(cpid: Option<&str>) -> Result<()> {
-    println!("🔍 Verifying Policy Hashes\n");
+    println!("Verifying Policy Hashes\n");
 
     if let Some(cpid_val) = cpid {
         println!("Control Plane ID: {}\n", cpid_val);
@@ -622,13 +619,13 @@ fn hash_verify(cpid: Option<&str>) -> Result<()> {
 
         println!("{table}");
 
-        println!("\n📊 Verification Summary:");
+        println!("\nVerification Summary:");
         println!("  Verified: {}", verified);
         println!("  Mismatched: {}", mismatched);
         println!("  Missing: {}", missing);
 
         if mismatched > 0 {
-            println!("\n⚠️  Hash Mismatches Detected:");
+            println!("\nHash Mismatches Detected:");
             for detail in &mismatch_details {
                 println!("  - {}", detail);
             }
@@ -645,7 +642,7 @@ fn hash_verify(cpid: Option<&str>) -> Result<()> {
         }
 
         if missing > 0 {
-            println!("\n⚠️  Some registered policy packs were not found in current configuration.");
+            println!("\nSome registered policy packs were not found in current configuration.");
             println!("This may indicate removed or renamed policy packs.");
         }
 
@@ -658,7 +655,7 @@ fn hash_verify(cpid: Option<&str>) -> Result<()> {
 }
 
 fn quarantine_clear(pack_id: &str, cpid: Option<&str>, force: bool) -> Result<()> {
-    println!("🔓 Clearing Quarantine\n");
+    println!("Clearing Quarantine\n");
     println!("Policy Pack: {}", pack_id);
 
     if let Some(cpid_val) = cpid {
@@ -666,7 +663,7 @@ fn quarantine_clear(pack_id: &str, cpid: Option<&str>, force: bool) -> Result<()
     }
 
     if !force {
-        println!("\n⚠️  WARNING: Clearing quarantine without fixing the underlying");
+        println!("\nWARNING: Clearing quarantine without fixing the underlying");
         println!("policy hash mismatch may lead to non-deterministic behavior.");
         println!("\nRecommended actions:");
         println!("  1. Investigate why the policy hash changed");
@@ -741,14 +738,14 @@ fn quarantine_clear(pack_id: &str, cpid: Option<&str>, force: bool) -> Result<()
 }
 
 fn quarantine_rollback(cpid: Option<&str>, force: bool) -> Result<()> {
-    println!("⏮️  Rolling Back to Last Known Good Configuration\n");
+    println!(" Rolling Back to Last Known Good Configuration\n");
 
     if let Some(cpid_val) = cpid {
         println!("Control Plane ID: {}", cpid_val);
     }
 
     if !force {
-        println!("\n⚠️  WARNING: This will rollback all policy packs to their");
+        println!("\nWARNING: This will rollback all policy packs to their");
         println!("last known good configuration from the database.");
         println!("\nThis action will:");
         println!("  1. Load baseline hashes from database");
@@ -818,7 +815,7 @@ fn quarantine_rollback(cpid: Option<&str>, force: bool) -> Result<()> {
         println!("  Violations cleared: {}", violations_cleared);
 
         if still_quarantined {
-            println!("\n⚠️  System is still quarantined after rollback.");
+            println!("\nSystem is still quarantined after rollback.");
             println!("  New violations may have been detected after cache reload.");
         } else {
             println!("\n✓ System is no longer quarantined.");

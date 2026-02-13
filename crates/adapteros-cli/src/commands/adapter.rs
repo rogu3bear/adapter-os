@@ -1848,7 +1848,7 @@ async fn list_adapters(
             ]);
             println!("{}", serde_json::to_string_pretty(&mock_data)?);
         } else {
-            output.result("📊 Adapter Lifecycle Status");
+            output.result("Adapter Lifecycle Status");
             output.blank();
             output.warning(format!(
                 "Worker socket not found at: {}",
@@ -2121,7 +2121,7 @@ async fn profile_adapter(
                 serde_json::to_string_pretty(&mock_profile)?
             );
         } else {
-            output.result(format!("📈 Adapter Profile: {}", adapter_id));
+            output.result(format!("Adapter Profile: {}", adapter_id));
             output.blank();
             output.warning(format!(
                 "Worker socket not found at: {}",

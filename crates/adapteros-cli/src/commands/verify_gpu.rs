@@ -12,7 +12,7 @@ pub async fn run(
     socket: &Path,
     timeout_ms: u64,
 ) -> Result<()> {
-    println!("🔍 GPU Integrity Verification");
+    println!("GPU Integrity Verification");
     println!("   Tenant: {}", tenant);
     if let Some(id) = adapter_id {
         println!("   Adapter: {}", id);
@@ -113,7 +113,7 @@ fn create_uds_client(socket_path: &Path) -> Result<reqwest::Client> {
 
     // Check if socket exists
     if !socket_path.exists() {
-        println!("⚠️  Worker socket not found at: {}", socket_path.display());
+        println!("Worker socket not found at: {}", socket_path.display());
         println!("   Using mock HTTP client for demonstration");
 
         let client = reqwest::Client::builder()

@@ -252,7 +252,7 @@ fn extract_branch_from_metadata(metadata_json: &Option<String>) -> Option<String
 
 /// Run the preflight command
 pub async fn run(cmd: PreflightCommand, output: &OutputWriter) -> Result<()> {
-    output.info("🚀 Running adapterOS preflight checks...\n");
+    output.info(" Running adapterOS preflight checks...\n");
 
     let mut results = Vec::new();
 
@@ -299,7 +299,7 @@ pub async fn run(cmd: PreflightCommand, output: &OutputWriter) -> Result<()> {
 
     // If --fix flag is enabled, attempt to fix issues
     if cmd.fix && (initial_failures > 0 || initial_warnings > 0) {
-        output.info("\n🔧 Attempting to fix issues...\n");
+        output.info("\nAttempting to fix issues...\n");
 
         // Determine fix mode based on flags
         let fix_mode = if cmd.fix_force {
@@ -317,7 +317,7 @@ pub async fn run(cmd: PreflightCommand, output: &OutputWriter) -> Result<()> {
         attempt_fixes(&mut fixer, &results, &cmd).await?;
 
         // Re-run checks after fixes
-        output.info("\n🔄 Re-running checks after fixes...\n");
+        output.info("\nRe-running checks after fixes...\n");
 
         results.clear();
         results.push(check_model(&cmd).await);
@@ -352,18 +352,18 @@ pub async fn run(cmd: PreflightCommand, output: &OutputWriter) -> Result<()> {
         .count();
 
     // Display summary
-    output.info(format!("\n📊 Summary: {} checks run", results.len()));
+    output.info(format!("\nSummary: {} checks run", results.len()));
     if failures > 0 {
-        output.error(format!("❌ {} critical failures", failures));
+        output.error(format!("{} critical failures", failures));
         if cmd.fix {
             output.info("   Some issues could not be fixed automatically");
         }
     }
     if warnings > 0 {
-        output.warning(format!("⚠️  {} warnings", warnings));
+        output.warning(format!("{} warnings", warnings));
     }
     if failures == 0 && warnings == 0 {
-        output.success("✅ All checks passed - system ready to launch!");
+        output.success("All checks passed - system ready to launch!");
     }
 
     // Display fix suggestions (only if not already attempted)
@@ -541,7 +541,7 @@ fn resolve_model_path_from_inputs(cmd: &PreflightCommand) -> Result<PathBuf> {
 
     // 3. Legacy fallback: AOS_MODEL_PATH (deprecated)
     if let Ok(path) = std::env::var("AOS_MODEL_PATH") {
-        eprintln!("⚠️  WARNING: Using deprecated AOS_MODEL_PATH environment variable.");
+        eprintln!("WARNING: Using deprecated AOS_MODEL_PATH environment variable.");
         eprintln!(
             "   Please migrate to AOS_MODEL_CACHE_DIR and AOS_BASE_MODEL_ID for consistency with server."
         );
@@ -552,7 +552,7 @@ fn resolve_model_path_from_inputs(cmd: &PreflightCommand) -> Result<PathBuf> {
 
     // 4. Legacy fallback: AOS_MLX_FFI_MODEL (deprecated)
     if let Ok(path) = std::env::var("AOS_MLX_FFI_MODEL") {
-        eprintln!("⚠️  WARNING: Using deprecated AOS_MLX_FFI_MODEL environment variable.");
+        eprintln!("WARNING: Using deprecated AOS_MLX_FFI_MODEL environment variable.");
         eprintln!(
             "   Please migrate to AOS_MODEL_CACHE_DIR and AOS_BASE_MODEL_ID for consistency with server."
         );
@@ -1084,7 +1084,7 @@ fn display_fix_suggestions(results: &[CheckResult], output: &OutputWriter) -> Re
         return Ok(());
     }
 
-    output.info("\n💡 Suggested fixes:");
+    output.info("\nSuggested fixes:");
     println!();
 
     for result in failures_with_fixes {

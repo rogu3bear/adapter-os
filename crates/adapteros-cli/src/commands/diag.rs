@@ -294,7 +294,7 @@ impl DiagnosticRunner {
 
     async fn run_system_checks(&mut self) -> Result<()> {
         if !self.is_json_mode() {
-            info!("🔧 System Checks");
+            info!("System Checks");
             info!("════════════════════════════════════════════════════════════════");
         }
 
@@ -602,7 +602,7 @@ impl DiagnosticRunner {
 
     async fn run_tenant_checks(&mut self) -> Result<()> {
         if !self.is_json_mode() {
-            info!("👤 Tenant Checks");
+            info!("Tenant Checks");
             info!("════════════════════════════════════════════════════════════════");
         }
 
@@ -744,7 +744,7 @@ impl DiagnosticRunner {
 
     async fn run_service_checks(&mut self) -> Result<()> {
         if !self.is_json_mode() {
-            info!("⚙️  Service Checks");
+            info!("Service Checks");
             info!("════════════════════════════════════════════════════════════════");
         }
 
@@ -947,7 +947,7 @@ pub async fn run(
             full_db,
         )
         .await?;
-        info!("📦 Diagnostic bundle created: {}", bundle_path.display());
+        info!("Diagnostic bundle created: {}", bundle_path.display());
     }
 
     std::process::exit(runner.exit_code());
@@ -1583,14 +1583,14 @@ pub async fn run_determinism_check(
 
     // Print results
     if all_deterministic {
-        info!("✅ Deterministic: YES");
+        info!("Deterministic: YES");
         info!(
             "All {} runs produced identical outputs for all {} prompts",
             runs,
             test_prompts.len()
         );
     } else {
-        error!("❌ Deterministic: NO");
+        error!("Deterministic: NO");
         error!("Found {} divergence(s):", diffs.len());
         for diff in &diffs {
             error!("{}", diff);
@@ -1678,7 +1678,7 @@ pub async fn run_quarantine_check(
     info!("Quarantined adapters present: {}", quarantine_count);
 
     if quarantine_count == 0 {
-        info!("✅ No quarantined adapters found");
+        info!("No quarantined adapters found");
         return Ok(());
     }
 
@@ -1784,9 +1784,9 @@ pub async fn run_quarantine_check(
     }
 
     if found_in_stacks.is_empty() {
-        info!("✅ Confirmed: No quarantined adapters are wired into active stacks");
+        info!("Confirmed: No quarantined adapters are wired into active stacks");
     } else {
-        error!("❌ WARNING: Found quarantined adapters in active stacks:");
+        error!("WARNING: Found quarantined adapters in active stacks:");
         for (stack_id, stack_name, adapter_id) in &found_in_stacks {
             error!(
                 "  - Stack '{}' ({}) contains quarantined adapter '{}'",

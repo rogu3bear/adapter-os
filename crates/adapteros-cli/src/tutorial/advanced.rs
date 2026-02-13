@@ -44,7 +44,7 @@ fn print_banner() {
 }
 
 async fn step_1_register_adapter(ci_mode: bool) -> Result<()> {
-    println!("\n📘 Step 1: Register an Adapter");
+    println!("\nStep 1: Register an Adapter");
     println!("═══════════════════════════════════════════════════════════");
     println!();
     println!("Adapters are LoRA weights that specialize the base model.");
@@ -89,19 +89,19 @@ async fn step_1_register_adapter(ci_mode: bool) -> Result<()> {
         (adapter_id, hash, tier, rank)
     };
 
-    println!("\n📝 Command that would run:");
+    println!("\nCommand that would run:");
     println!("   aosctl register-adapter {} {} --tier {} --rank {}",
         adapter_id, hash, tier, rank);
     println!();
 
-    println!("💡 Adapter Lifecycle:");
+    println!("Adapter Lifecycle:");
     println!("   - Ephemeral: TTL-based, auto-evicted when cold");
     println!("   - Persistent: Survives eviction, requires explicit removal");
     println!("   - Router selects top-K adapters per token");
     println!("   - Activation below min_activation_pct triggers eviction");
     println!();
 
-    println!("📊 Router Ruleset (from policy):");
+    println!("Router Ruleset (from policy):");
     println!("   - k_sparse: 3 (max adapters per token)");
     println!("   - gate_quant: Q15 (quantized gates)");
     println!("   - entropy_floor: 0.02 (prevent collapse)");
@@ -117,7 +117,7 @@ async fn step_1_register_adapter(ci_mode: bool) -> Result<()> {
 }
 
 async fn step_2_verify_kernel(ci_mode: bool) -> Result<()> {
-    println!("\n📘 Step 2: Verify Kernel Build");
+    println!("\nStep 2: Verify Kernel Build");
     println!("═══════════════════════════════════════════════════════════");
     println!();
     println!("adapterOS uses fused Metal kernels for performance.");
@@ -128,19 +128,19 @@ async fn step_2_verify_kernel(ci_mode: bool) -> Result<()> {
     println!("  - No fast-math flags");
     println!();
 
-    println!("📝 Kernel build process:");
+    println!("Kernel build process:");
     println!("   cd metal");
     println!("   ./build.sh              # Compile kernels");
     println!("   ./ci_build.sh           # CI determinism check");
     println!();
 
-    println!("📦 Kernel artifacts:");
+    println!("Kernel artifacts:");
     println!("   - aos_kernels.metallib       (compiled library)");
     println!("   - aos_kernels.metallib.sig   (Ed25519 signature)");
     println!("   - toolchain.toml             (build metadata)");
     println!();
 
-    println!("🔍 Verification checks:");
+    println!("Verification checks:");
     println!("   1. Kernel file exists");
     println!("   2. Signature validates");
     println!("   3. Hash matches Plan manifest");
@@ -149,11 +149,11 @@ async fn step_2_verify_kernel(ci_mode: bool) -> Result<()> {
 
     let kernel_path = std::path::Path::new("./metal/aos_kernels.metallib");
     if kernel_path.exists() {
-        println!("✅ Kernel found: {}", kernel_path.display());
+        println!("Kernel found: {}", kernel_path.display());
         
         let sig_path = std::path::Path::new("./metal/aos_kernels.metallib.sig");
         if sig_path.exists() {
-            println!("✅ Signature found: {}", sig_path.display());
+            println!("Signature found: {}", sig_path.display());
         } else {
             println!("⚠ Signature not found (run: cd metal && ./build.sh)");
         }
@@ -163,7 +163,7 @@ async fn step_2_verify_kernel(ci_mode: bool) -> Result<()> {
     }
 
     println!();
-    println!("💡 Determinism Policy:");
+    println!("Determinism Policy:");
     println!("   - Serving refuses if kernel hash mismatch (E3002)");
     println!("   - Replay must produce identical outputs (E2001)");
     println!("   - RNG seeded with HKDF derivation");
@@ -179,7 +179,7 @@ async fn step_2_verify_kernel(ci_mode: bool) -> Result<()> {
 }
 
 async fn step_3_full_diagnostics(ci_mode: bool) -> Result<()> {
-    println!("\n📘 Step 3: Full System Diagnostics");
+    println!("\nStep 3: Full System Diagnostics");
     println!("═══════════════════════════════════════════════════════════");
     println!();
     println!("Full diagnostics check everything:");
@@ -206,7 +206,7 @@ async fn step_3_full_diagnostics(ci_mode: bool) -> Result<()> {
         }
     };
 
-    println!("\n📝 Command:");
+    println!("\nCommand:");
     if let Some(ref path) = bundle_path {
         println!("   aosctl diag --full --bundle {}", path);
     } else {
@@ -240,7 +240,7 @@ async fn step_3_full_diagnostics(ci_mode: bool) -> Result<()> {
     ).await {
         Ok(_) => {
             if let Some(path) = bundle {
-                println!("\n📦 Diagnostic bundle created: {}", path.display());
+                println!("\nDiagnostic bundle created: {}", path.display());
                 println!("   Contents:");
                 println!("     - diagnostics.json    (check results)");
                 println!("     - system_info.json    (OS, memory, CPU)");
@@ -254,12 +254,12 @@ async fn step_3_full_diagnostics(ci_mode: bool) -> Result<()> {
         }
     }
 
-    println!("\n💡 Exit Codes:");
+    println!("\nExit Codes:");
     println!("   0  - All checks passed");
     println!("   10 - Warnings present");
     println!("   20 - Failures detected");
     println!();
-    println!("📚 Error Help:");
+    println!("Error Help:");
     println!("   aosctl explain E3004    (Metal device not found)");
     println!("   aosctl explain E9001    (insufficient memory)");
     println!("   aosctl error-codes      (list all codes)");
@@ -269,7 +269,7 @@ async fn step_3_full_diagnostics(ci_mode: bool) -> Result<()> {
 
 fn print_summary() {
     println!("\n━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━");
-    println!("            Advanced Tutorial Complete! 🚀");
+    println!("            Advanced Tutorial Complete! ");
     println!("━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━");
     println!();
     println!("You've learned:");

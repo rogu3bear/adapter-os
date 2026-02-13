@@ -64,7 +64,7 @@ pub async fn run(output_path: &Path, cpid: Option<&str>, full_db: bool) -> Resul
     zip.finish().context("Failed to finalize zip")?;
 
     crate::output::result(&format!(
-        "✅ Diagnostic bundle created: {}",
+        "Diagnostic bundle created: {}",
         output_path.display()
     ));
     Ok(())
@@ -555,7 +555,7 @@ pub async fn export_signed_bundle(
         output_path.display()
     ))?;
 
-    crate::output::result(&format!("✅ Bundle saved to: {}", output_path.display()));
+    crate::output::result(&format!("Bundle saved to: {}", output_path.display()));
     crate::output::result(&format!("  Bundle hash: {}", bundle_response.bundle_hash));
     crate::output::result(&format!("  Merkle root: {}", bundle_response.merkle_root));
     crate::output::result(&format!("  Key ID: {}", bundle_response.key_id));

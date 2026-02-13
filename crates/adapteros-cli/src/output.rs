@@ -204,7 +204,7 @@ impl OutputWriter {
         let title = title.as_ref();
         self.record(format!("section:{}", title));
         if !self.mode.is_quiet() && !self.mode.is_json() {
-            println!("\n🔧 {}", title);
+            println!("\n{}", title);
             println!("{}", "─".repeat(title.len() + 3));
         }
     }
@@ -213,7 +213,7 @@ impl OutputWriter {
     pub fn info(&self, msg: impl AsRef<str>) {
         self.record(format!("info:{}", msg.as_ref()));
         if !self.mode.is_quiet() && !self.mode.is_json() {
-            println!("ℹ️  {}", msg.as_ref());
+            println!("{}", msg.as_ref());
         }
     }
 
@@ -337,7 +337,7 @@ pub fn is_ci() -> bool {
 /// Print a command header (convenience function for legacy code)
 pub fn command_header(mode: &OutputMode, title: &str) {
     if !mode.is_quiet() && !mode.is_json() {
-        println!("\n🔧 {}", title);
+        println!("\n{}", title);
         println!("{}", "─".repeat(title.len() + 3));
     }
 }

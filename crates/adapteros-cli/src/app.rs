@@ -23,24 +23,23 @@ pub struct Cli {
     #[command(subcommand)]
     command: Commands,
 
-    /// Output in JSON format
+    /// Output all results as JSON for machine consumption
     #[arg(long, global = true)]
     json: bool,
 
-    /// Suppress non-essential output
+    /// Suppress all non-error output
     #[arg(long, short = 'q', global = true)]
     quiet: bool,
 
-    /// Enable verbose output
+    /// Show additional detail (debug-level diagnostics)
     #[arg(long, short = 'v', global = true)]
     verbose: bool,
 
-    /// Model path (overrides AOS_MODEL_PATH env var)
+    /// Path to base model directory
     #[arg(long, global = true, env = "AOS_MODEL_PATH")]
     pub model_path: Option<String>,
 
-    /// Model backend preference (overrides AOS_MODEL_BACKEND env var)
-    /// Values: auto, coreml, metal, mlx
+    /// Inference backend: auto, coreml, metal, or mlx
     #[arg(long, global = true, env = "AOS_MODEL_BACKEND", default_value = "auto")]
     pub model_backend: String,
 }
@@ -95,15 +94,15 @@ pub enum Commands {
   aosctl init --id tenant_test --uid 1000 --gid 1000
 "#)]
     TenantInit {
-        /// Tenant ID
+        /// Unique tenant identifier
         #[arg(short, long)]
         id: String,
 
-        /// Unix UID
+        /// Unix user ID for file ownership isolation
         #[arg(short, long)]
         uid: u32,
 
-        /// Unix GID
+        /// Unix group ID for file ownership isolation
         #[arg(short, long)]
         gid: u32,
     },
@@ -122,11 +121,11 @@ pub enum Commands {
 "#
     )]
     AdapterList {
-        /// Filter by tier
+        /// Filter by tier: persistent, warm, or ephemeral
         #[arg(short, long)]
         tier: Option<String>,
 
-        /// Output full metadata as JSON
+        /// Include full adapter metadata in output
         #[arg(long)]
         include_meta: bool,
     },
@@ -138,27 +137,27 @@ pub enum Commands {
     --tenant-id tenant-doc-chat --base-model-id qwen2.5-7b --tier persistent --rank 16
 "#)]
     AdapterRegister {
-        /// Adapter ID
+        /// Unique adapter identifier
         #[arg(long)]
         adapter_id: String,
 
-        /// Path to .aos bundle
+        /// Path to .aos adapter bundle file
         #[arg(long)]
         aos: std::path::PathBuf,
 
-        /// Tenant ID
+        /// Owning tenant identifier
         #[arg(long)]
         tenant_id: String,
 
-        /// Base model ID
+        /// Base model this adapter was trained against
         #[arg(long)]
         base_model_id: String,
 
-        /// Tier (persistent, warm, or ephemeral)
+        /// Eviction tier: persistent (never), warm (under pressure), or ephemeral (first)
         #[arg(short, long, default_value = "ephemeral")]
         tier: String,
 
-        /// Rank
+        /// LoRA rank (must match training rank)
         #[arg(short, long)]
         rank: u32,
     },
@@ -256,7 +255,7 @@ pub enum Commands {
         #[arg(long)]
         commit: bool,
 
-        /// UDS socket path
+        /// Unix domain socket path for worker communication
         #[arg(long, default_value = "/var/run/aos/aos.sock")]
         socket: PathBuf,
     },
@@ -642,7 +641,7 @@ pub enum Commands {
 "#)]
     Policy(policy::PolicyCommand),
 
-    /// Start serving
+    /// Start inference server for a tenant
     #[command(after_help = r#"Examples:
   # Validate setup without starting (recommended first)
   aosctl serve --tenant tenant_dev --plan cp_abc123 --dry-run
@@ -654,23 +653,23 @@ pub enum Commands {
   aosctl serve --tenant tenant_dev --plan cp_abc123 --socket var/run/aos.sock
 "#)]
     Serve {
-        /// Tenant ID
+        /// Tenant to serve inference for
         #[arg(short, long)]
         tenant: String,
 
-        /// Plan ID
+        /// Deployment plan controlling adapter stack and routing
         #[arg(short, long, alias = "plan-id")]
         plan: String,
 
-        /// UDS socket path
+        /// Unix domain socket path for worker communication
         #[arg(short, long, default_value = "/var/run/aos/aos.sock")]
         socket: PathBuf,
 
-        /// Backend selection: metal (default), mlx (auto-selected implementation; requires --features multi-backend), or coreml
+        /// Inference backend: metal (default), mlx, or coreml
         #[arg(short, long, default_value = "metal")]
         backend: BackendType,
 
-        /// Dry-run: validate preflight checks without starting server
+        /// Validate preflight checks without starting the server
         #[arg(long)]
         dry_run: bool,
 
@@ -741,7 +740,7 @@ pub enum Commands {
         #[arg(long)]
         prompt: String,
 
-        /// UDS socket path
+        /// Unix domain socket path for worker communication
         #[arg(long, default_value = "/var/run/aos/aos.sock")]
         socket: PathBuf,
 
@@ -921,11 +920,11 @@ pub enum Commands {
   aosctl bootstrap --mode full --checkpoint-file ./checkpoint.json
 "#)]
     Bootstrap {
-        /// Installation mode (full or minimal)
+        /// Installation mode: full (all components) or minimal (essentials only)
         #[arg(short, long, default_value = "full")]
         mode: String,
 
-        /// Enable air-gapped mode (skip network operations)
+        /// Skip all network operations
         #[arg(long)]
         air_gapped: bool,
 
@@ -933,7 +932,7 @@ pub enum Commands {
         #[arg(long)]
         json: bool,
 
-        /// Checkpoint file path
+        /// Resume from this checkpoint file if installation was interrupted
         #[arg(long)]
         checkpoint_file: Option<PathBuf>,
     },
@@ -980,7 +979,7 @@ pub enum Commands {
         #[arg(long, default_value = "full")]
         profile: Option<String>,
 
-        /// Tenant ID for tenant-specific checks
+        /// Run diagnostics for this tenant only
         #[arg(long)]
         tenant: Option<String>,
 
@@ -988,11 +987,11 @@ pub enum Commands {
         #[arg(long)]
         json: bool,
 
-        /// Create diagnostic bundle
+        /// Write diagnostic bundle to this path (.zip)
         #[arg(long)]
         bundle: Option<PathBuf>,
 
-        /// System checks only
+        /// Run only system-level checks (hardware, backends, config)
         #[arg(long, conflicts_with_all = ["tenant_only", "profile"])]
         system: bool,
 
@@ -1005,7 +1004,7 @@ pub enum Commands {
         full: bool,
     },
 
-    /// Explain an error code or AosError variant
+    /// Explain an error code
     #[command(after_help = r#"Examples:
   # Explain specific error code
   aosctl explain E3001
@@ -1017,7 +1016,7 @@ pub enum Commands {
   aosctl explain E9999
 "#)]
     Explain {
-        /// Error code (E3001) or AosError name (InvalidHash)
+        /// Error code to look up (e.g., E3001)
         code: String,
     },
 
@@ -1061,11 +1060,11 @@ pub enum Commands {
         #[arg(required_unless_present = "list")]
         code: Option<String>,
 
-        /// Force execution without confirmation
+        /// Execute without confirmation (even for actions that normally require it)
         #[arg(long, short)]
         force: bool,
 
-        /// Dry run - show what would be done without executing
+        /// Show what would be done without executing
         #[arg(long)]
         dry_run: bool,
 
@@ -1141,19 +1140,19 @@ pub enum Commands {
   aosctl quantize-qwen --input ./fp16.safetensors --output ./artifacts --json
 "#)]
     QuantizeQwen {
-        /// Input path (.safetensors file or directory containing them)
+        /// Path to FP16 .safetensors file or directory
         #[arg(long)]
         input: PathBuf,
 
-        /// Output directory for .bin and manifest.json
+        /// Directory for quantized .bin output and manifest
         #[arg(long)]
         output: PathBuf,
 
-        /// Model name for manifest metadata
+        /// Model name for manifest
         #[arg(long, default_value = DEFAULT_BASE_MODEL_ID)]
         model_name: String,
 
-        /// Optional block size for stats (currently unused)
+        /// Block size for quantization statistics
         #[arg(long)]
         group_size: Option<usize>,
 
@@ -1259,15 +1258,15 @@ pub enum Commands {
     /// Alias for tenant-init (for convenience)
     #[command(hide = true)]
     Init {
-        /// Tenant ID
+        /// Unique tenant identifier
         #[arg(short, long)]
         id: String,
 
-        /// Unix UID
+        /// Unix user ID for file ownership isolation
         #[arg(short, long)]
         uid: u32,
 
-        /// Unix GID
+        /// Unix group ID for file ownership isolation
         #[arg(short, long)]
         gid: u32,
     },

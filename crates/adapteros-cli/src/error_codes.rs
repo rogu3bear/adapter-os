@@ -125,18 +125,18 @@ impl fmt::Display for ErrorCode {
             "━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━"
         )?;
         writeln!(f)?;
-        writeln!(f, "📋 {}", self.title)?;
+        writeln!(f, "{}", self.title)?;
         writeln!(f)?;
-        writeln!(f, "🔍 Cause:")?;
+        writeln!(f, "Cause:")?;
         writeln!(f, "   {}", self.cause)?;
         writeln!(f)?;
-        writeln!(f, "🔧 Fix:")?;
+        writeln!(f, "Fix:")?;
         for line in self.fix.lines() {
             writeln!(f, "   {}", line)?;
         }
         if !self.related_docs.is_empty() {
             writeln!(f)?;
-            writeln!(f, "📚 Related Documentation:")?;
+            writeln!(f, "Related Documentation:")?;
             for doc in self.related_docs {
                 writeln!(f, "   - {}", doc)?;
             }
