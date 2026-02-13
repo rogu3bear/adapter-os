@@ -913,7 +913,9 @@ mod tests {
 
         let err = spawn_worker_process("test-tenant", &db_path)
             .await
-            .expect_err("spawn should fail when worker binary is missing and placeholder is not allowed");
+            .expect_err(
+                "spawn should fail when worker binary is missing and placeholder is not allowed",
+            );
 
         match err {
             AosError::Worker(msg) => {

@@ -72,7 +72,11 @@ mod linux_keyctl {
         syscall_ret_i32(ret, "KEYCTL_GET_PERSISTENT")
     }
 
-    pub fn add_key_user(description: &CString, payload: &[u8], keyring: KeySerial) -> Result<KeySerial> {
+    pub fn add_key_user(
+        description: &CString,
+        payload: &[u8],
+        keyring: KeySerial,
+    ) -> Result<KeySerial> {
         let ret = unsafe {
             libc::syscall(
                 libc::SYS_add_key,
@@ -1718,12 +1722,14 @@ impl LinuxKeyring {
     fn verify_kernel_keyring_available(&self) -> Result<()> {
         // Test if kernel keyring is still available
         use nix::unistd::getuid;
-        let _keyring_id =
-            linux_keyctl::keyctl_get_persistent(getuid().as_raw() as u32, libc::KEY_SPEC_USER_KEYRING)
-                .map_err(|e| {
-                    error!(error = %e, "Kernel keyring backend became unhealthy");
-                    e
-                })?;
+        let _keyring_id = linux_keyctl::keyctl_get_persistent(
+            getuid().as_raw() as u32,
+            libc::KEY_SPEC_USER_KEYRING,
+        )
+        .map_err(|e| {
+            error!(error = %e, "Kernel keyring backend became unhealthy");
+            e
+        })?;
         Ok(())
     }
 
