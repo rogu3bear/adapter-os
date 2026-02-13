@@ -248,8 +248,9 @@ impl MicroLoRATrainer {
             }
         }
 
-        // Initialize telemetry
-        let telemetry = TelemetryWriter::new("training", 1000, 1024 * 1024)?;
+        // Initialize telemetry under var/ to avoid writing runtime artifacts into the repo.
+        let telemetry_dir = adapteros_core::resolve_var_dir().join("telemetry/training");
+        let telemetry = TelemetryWriter::new(telemetry_dir, 1000, 1024 * 1024)?;
 
         info!(
             "Created MicroLoRA trainer with seed: {}, GPU optional: {}",
@@ -385,7 +386,8 @@ impl MicroLoRATrainer {
             Self::derive_seed_from_context(&config)
         };
 
-        let telemetry = TelemetryWriter::new("training", 1000, 1024 * 1024)?;
+        let telemetry_dir = adapteros_core::resolve_var_dir().join("telemetry/training");
+        let telemetry = TelemetryWriter::new(telemetry_dir, 1000, 1024 * 1024)?;
         let config_for_metrics = config.clone();
 
         Ok(Self {
