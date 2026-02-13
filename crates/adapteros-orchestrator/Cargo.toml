@@ -66,6 +66,7 @@ adapteros-lora-lifecycle = { path = "../adapteros-lora-lifecycle" }
 adapteros-lora-mlx-ffi = { path = "../adapteros-lora-mlx-ffi", optional = true }
 
 [dev-dependencies]
+nix.workspace = true
 
 [[bin]]
 name = "aos-orchestrator"
