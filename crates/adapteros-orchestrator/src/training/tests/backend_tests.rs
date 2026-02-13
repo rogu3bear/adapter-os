@@ -92,6 +92,7 @@ async fn cpu_training_succeeds_without_gpu_init() {
         None,
         no_package_actions(),
         None,
+        None,
         Arc::new(AtomicBool::new(false)),
     )
     .await;
@@ -142,6 +143,7 @@ async fn coreml_preference_records_fallback_reason() {
         None,
         None,
         no_package_actions(),
+        None,
         None,
         Arc::new(AtomicBool::new(false)),
     )
@@ -204,6 +206,7 @@ async fn gpu_optional_falls_back_when_init_fails() {
         None,
         no_package_actions(),
         None,
+        None,
         Arc::new(AtomicBool::new(false)),
     )
     .await;
@@ -257,6 +260,7 @@ async fn gpu_required_errors_when_unavailable() {
         None,
         None,
         no_package_actions(),
+        None,
         None,
         Arc::new(AtomicBool::new(false)),
     )

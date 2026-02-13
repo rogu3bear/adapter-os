@@ -21,6 +21,17 @@ use crate::training::job::{
 };
 use crate::training::versioning::{compute_combined_data_spec_hash, VersioningSnapshot};
 
+fn normalize_adapter_registration_scope(scope: &str) -> &'static str {
+    match scope.trim() {
+        "global" => "global",
+        "tenant" => "tenant",
+        "repo" => "repo",
+        "commit" => "commit",
+        "project" | "" => "tenant",
+        _ => "tenant",
+    }
+}
+
 /// Load plan/model bytes for GPU initialization.
 ///
 /// - Uses `AOS_MODEL_PATH` (or legacy fallbacks) to find model assets.
@@ -161,6 +172,7 @@ pub(crate) async fn package_and_register_adapter(
     synthetic_mode: bool,
     data_lineage_mode: DataLineageMode,
     base_model_id: Option<&str>,
+    base_model_tenant_or_workspace_id: Option<&str>,
     category: Option<&str>,
     versioning_snapshot: Option<&VersioningSnapshot>,
     dataset_version_ids_for_training: Option<&Vec<DatasetVersionSelection>>,
@@ -179,7 +191,7 @@ pub(crate) async fn package_and_register_adapter(
         let job = jobs.get(job_id);
         let scope_val = job
             .and_then(|j| j.scope.clone())
-            .unwrap_or_else(|| "project".to_string());
+            .unwrap_or_else(|| "tenant".to_string());
         let tier_val = job.and_then(|j| j.lora_tier);
         let backend_policy = job.and_then(|j| j.backend_policy.clone());
         let corr = job.and_then(|j| j.correlation_id.clone());
@@ -750,38 +762,97 @@ pub(crate) async fn package_and_register_adapter(
             .cloned()
             .unwrap_or_else(|| "unspecified".to_string());
         let scope_value = packaged.manifest.scope.clone();
-        let adapter_metadata_json = {
-            let mut meta = serde_json::Map::new();
-            if let (Some(tenant), Some(model_id)) = (tenant_id, base_model_id) {
-                match database.get_model_for_tenant(tenant, model_id).await {
-                    Ok(Some(model)) => {
-                        meta.insert(
-                            "base_model_id".to_string(),
-                            serde_json::Value::String(model_id.to_string()),
-                        );
-                        meta.insert(
-                            "base_model_hash_b3".to_string(),
-                            serde_json::Value::String(model.hash_b3),
-                        );
-                        meta.insert(
-                            "tokenizer_hash_b3".to_string(),
-                            serde_json::Value::String(model.tokenizer_hash_b3),
-                        );
-                        meta.insert(
-                            "tokenizer_cfg_hash_b3".to_string(),
-                            serde_json::Value::String(model.tokenizer_cfg_hash_b3),
-                        );
-                    }
-                    Ok(None) => {}
-                    Err(e) => {
-                        warn!(
-                            job_id = %job_id,
-                            model_id = %model_id,
-                            error = %e,
-                            "Failed to load base model metadata for adapter linkage"
-                        );
+        let registration_scope = normalize_adapter_registration_scope(&scope_value);
+        if registration_scope != scope_value.trim() {
+            warn!(
+                job_id = %job_id,
+                manifest_scope = %scope_value,
+                normalized_scope = %registration_scope,
+                "Normalizing adapter scope for DB registration"
+            );
+        }
+
+        let adapter_tenant_id = tenant_id.unwrap_or(tenant);
+        let base_model_lookup_tenant = base_model_tenant_or_workspace_id
+            .or(tenant_id)
+            .unwrap_or(adapter_tenant_id);
+        let mut resolved_base_model = None;
+        if let Some(model_id) = base_model_id {
+            match database
+                .get_model_for_tenant(base_model_lookup_tenant, model_id)
+                .await
+            {
+                Ok(Some(model)) => {
+                    resolved_base_model = Some(model);
+                }
+                Ok(None) => {
+                    if base_model_lookup_tenant != adapter_tenant_id {
+                        match database
+                            .get_model_for_tenant(adapter_tenant_id, model_id)
+                            .await
+                        {
+                            Ok(Some(model)) => {
+                                resolved_base_model = Some(model);
+                            }
+                            Ok(None) => {}
+                            Err(e) => {
+                                warn!(
+                                    job_id = %job_id,
+                                    model_id = %model_id,
+                                    error = %e,
+                                    "Failed to load base model metadata with adapter tenant fallback"
+                                );
+                            }
+                        }
                     }
                 }
+                Err(e) => {
+                    warn!(
+                        job_id = %job_id,
+                        model_id = %model_id,
+                        error = %e,
+                        "Failed to load base model metadata for adapter linkage"
+                    );
+                }
+            }
+        }
+        let base_model_id_for_registration = match (base_model_id, resolved_base_model.as_ref()) {
+            (Some(model_id), Some(model)) if model.is_visible_to_tenant(adapter_tenant_id) => {
+                Some(model_id)
+            }
+            (Some(model_id), Some(model)) => {
+                warn!(
+                    job_id = %job_id,
+                    model_id = %model_id,
+                    model_tenant = ?model.tenant_id,
+                    adapter_tenant = %adapter_tenant_id,
+                    "Skipping base_model_id on adapter registration due to tenant visibility mismatch"
+                );
+                None
+            }
+            _ => None,
+        };
+        let adapter_metadata_json = {
+            let mut meta = serde_json::Map::new();
+            if let (Some(model_id), Some(model)) =
+                (base_model_id_for_registration, resolved_base_model.as_ref())
+            {
+                meta.insert(
+                    "base_model_id".to_string(),
+                    serde_json::Value::String(model_id.to_string()),
+                );
+                meta.insert(
+                    "base_model_hash_b3".to_string(),
+                    serde_json::Value::String(model.hash_b3.clone()),
+                );
+                meta.insert(
+                    "tokenizer_hash_b3".to_string(),
+                    serde_json::Value::String(model.tokenizer_hash_b3.clone()),
+                );
+                meta.insert(
+                    "tokenizer_cfg_hash_b3".to_string(),
+                    serde_json::Value::String(model.tokenizer_cfg_hash_b3.clone()),
+                );
             }
             if let Some(adapter_type) = adapter_type.clone() {
                 meta.insert(
@@ -807,7 +878,7 @@ pub(crate) async fn package_and_register_adapter(
         };
 
         let reg_params = AdapterRegistrationBuilder::new()
-            .tenant_id(tenant_id.unwrap_or("default"))
+            .tenant_id(adapter_tenant_id)
             .adapter_id(&packaged.adapter_id)
             .name(adapter_name)
             .hash_b3(&packaged.hash_b3)
@@ -816,10 +887,10 @@ pub(crate) async fn package_and_register_adapter(
             .alpha(orchestrator_cfg.alpha as f64)
             .category(adapter_category)
             .adapter_type(adapter_type.clone())
-            .scope(&scope_value)
+            .scope(registration_scope)
             .domain(Some(domain))
             .purpose(Some(group))
-            .base_model_id(base_model_id)
+            .base_model_id(base_model_id_for_registration)
             .manifest_schema_version(Some(packaged.manifest.version.clone()))
             .content_hash_b3(Some(packaged.hash_b3.clone()))
             .aos_file_path(Some(final_aos_path_str.clone()))
@@ -847,6 +918,7 @@ pub(crate) async fn package_and_register_adapter(
                 info!(
                     job_id = %job_id,
                     adapter_id = %packaged.adapter_id,
+                    scope = registration_scope,
                     db_id = %db_id,
                     "Adapter registered in database"
                 );
@@ -1246,4 +1318,25 @@ pub(crate) async fn package_and_register_adapter(
     );
 
     Ok(())
+}
+
+#[cfg(test)]
+mod tests {
+    use super::normalize_adapter_registration_scope;
+
+    #[test]
+    fn normalize_adapter_registration_scope_maps_legacy_values() {
+        assert_eq!(normalize_adapter_registration_scope("project"), "tenant");
+        assert_eq!(normalize_adapter_registration_scope(""), "tenant");
+        assert_eq!(normalize_adapter_registration_scope("  "), "tenant");
+        assert_eq!(normalize_adapter_registration_scope("workspace"), "tenant");
+    }
+
+    #[test]
+    fn normalize_adapter_registration_scope_preserves_valid_values() {
+        assert_eq!(normalize_adapter_registration_scope("global"), "global");
+        assert_eq!(normalize_adapter_registration_scope("tenant"), "tenant");
+        assert_eq!(normalize_adapter_registration_scope("repo"), "repo");
+        assert_eq!(normalize_adapter_registration_scope("commit"), "commit");
+    }
 }

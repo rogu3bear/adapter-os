@@ -347,6 +347,58 @@ fn test_coreml_preference_without_gpu_uses_cpu_and_reason() {
 }
 
 #[test]
+fn test_init_kernels_disables_gpu_backward_when_mlx_unavailable_and_gpu_optional() {
+    std::env::set_var("AOS_FORCE_GPU_BACKEND", "none");
+
+    let mut trainer = MicroLoRATrainer::new_for_test(TrainingConfig {
+        require_gpu: false,
+        ..Default::default()
+    })
+    .unwrap();
+
+    trainer
+        .init_kernels(&[])
+        .expect("init should succeed when MLX is unavailable and GPU is optional");
+
+    assert!(
+        !trainer.config.use_gpu_backward,
+        "GPU backward should be disabled when MLX is unavailable"
+    );
+    assert_eq!(trainer.backend_info(), Some("CPU"));
+
+    let reason = trainer.backend_reason().unwrap_or_default();
+    assert!(
+        reason.contains("gpu_backward_disabled_missing_mlx"),
+        "expected fallback reason, got: {reason}"
+    );
+
+    std::env::remove_var("AOS_FORCE_GPU_BACKEND");
+}
+
+#[test]
+fn test_init_kernels_errors_when_gpu_backward_requires_mlx_and_gpu_required() {
+    std::env::set_var("AOS_FORCE_GPU_BACKEND", "none");
+
+    let mut trainer = MicroLoRATrainer::new_for_test(TrainingConfig {
+        require_gpu: true,
+        ..Default::default()
+    })
+    .unwrap();
+
+    let error = trainer
+        .init_kernels(&[])
+        .expect_err("MLX unavailable should error when GPU is required");
+    assert!(
+        error
+            .to_string()
+            .contains("GPU backward requires MLX backend"),
+        "unexpected error: {error}"
+    );
+
+    std::env::remove_var("AOS_FORCE_GPU_BACKEND");
+}
+
+#[test]
 fn test_coreml_latency_metrics_tracking() {
     let trainer = MicroLoRATrainer::new_for_test(TrainingConfig::default()).unwrap();
     trainer.record_coreml_forward_latency(10);

@@ -1719,7 +1719,10 @@ pub(crate) async fn run_training_job(
         if let Some(ref error_message) = reason {
             let mut jobs = jobs_ref_for_state.write().await;
             if let Some(job) = jobs.get_mut(&job_id) {
-                if matches!(job.status, TrainingJobStatus::Pending | TrainingJobStatus::Running) {
+                if matches!(
+                    job.status,
+                    TrainingJobStatus::Pending | TrainingJobStatus::Running
+                ) {
                     job.status = TrainingJobStatus::Failed;
                     job.error_message = Some(error_message.clone());
                     if job.completed_at.is_none() {

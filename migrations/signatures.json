@@ -1,6 +1,6 @@
 {
   "schema_version": "1.0",
-  "signed_at": "2026-02-12T23:54:55Z",
+  "signed_at": "2026-02-13T23:47:38Z",
   "public_key": "LS0tLS1CRUdJTiBQVUJMSUMgS0VZLS0tLS0KTUNvd0JRWURLMlZ3QXlFQUI4YzQxRktSQnNJQlVIMENRY0l0TUdUNGt3ZGxTWGhkSXg2c3d2U0dMQ0U9Ci0tLS0tRU5EIFBVQkxJQyBLRVktLS0tLQo=",
   "signatures": {
     "0001_init.sql": {"hash": "f8660473370b023cfcb2207b3ed774f8ae90069c269ae2d953e7a3d2abc6e2ed", "signature": "MSEb3f3FTSTqU4pYbRKYaLkId86TstCeVZ8yyP+8uMzk0rpMgMRSC5ZXxxJpNLNQSQ4L1n0kbPmSBzToGfGpAg==", "algorithm": "ed25519", "hash_algorithm": "blake3"},
@@ -320,6 +320,8 @@
     "20260211120000_error_instances.sql": {"hash": "514f092b5b98b37634c4fafe73330e1766422a311cb75d958f1a6e92232277cb", "signature": "By4cI5gdErMmIh1xd9yS9DiUhVtPKeLFyA5nT+jHwDdSriwkyfF50LhuKXchwxdGtDzDtbBt/dFf3r+BleaIAQ==", "algorithm": "ed25519", "hash_algorithm": "blake3"},
     "20260211130000_key_rotation_events.sql": {"hash": "d975e34903b3efc4afb1abb51d47f16a561dd4b1ad075548a0cb7b16cb812c54", "signature": "N/grRD1kreJgIYhv9aPl20BMg9Sky9LEQ2FN+2Tk/kSudCQS65Zw35rnWlVn0tH95aWF6u9i102S44K4fJkcCA==", "algorithm": "ed25519", "hash_algorithm": "blake3"},
     "20260211140000_tenant_weight_encryption_keys.sql": {"hash": "505e566fe0dfe9a9bb652a796b0ce53bca8b86c799d76f1a2674147a9428cbd1", "signature": "2BZMi+MZkqr8lZfcT0BppOyausYeVsnJtb3BJchFsQ437HkqayOvIEm1WTWMl0luNZK5/El3gxo8mThgeCU9BA==", "algorithm": "ed25519", "hash_algorithm": "blake3"},
-    "20260212000000_provenance_certificates.sql": {"hash": "e170238f864bc1beadafe618c12ddb5217ea01959ee707ee842be10359a523e4", "signature": "hx17xP+NMHj+b5mWacAK0Q7ZE5XxRGVGT3OI84EeyzgSRNXlaMrku6HkMPWz/X8hpMdXSK4+HflP72M1v9gFAA==", "algorithm": "ed25519", "hash_algorithm": "blake3"}
+    "20260212000000_provenance_certificates.sql": {"hash": "e170238f864bc1beadafe618c12ddb5217ea01959ee707ee842be10359a523e4", "signature": "hx17xP+NMHj+b5mWacAK0Q7ZE5XxRGVGT3OI84EeyzgSRNXlaMrku6HkMPWz/X8hpMdXSK4+HflP72M1v9gFAA==", "algorithm": "ed25519", "hash_algorithm": "blake3"},
+    "20260213202000_allow_system_base_model_refs.sql": {"hash": "27895706a1079ea46d14e9814fd19680d075d639fe779812bcd53f8872f3e723", "signature": "ogL4ksDcf/+VZIaEjvYr0XqtePS+bnOjGinQFBo23W5jwqmH5ZtNjbxWypcrdK+LvHpHCodU9MWMvEJfD/TBCg==", "algorithm": "ed25519", "hash_algorithm": "blake3"},
+    "20260213203000_add_artifacts_stored_path.sql": {"hash": "5393ee66fb76633f4dc84da5a0033f57d78a4a7edb6d6c8b62cad8a241cbf2cb", "signature": "yhxpOlqhWso+dni7GAPJpFff/lSBkGti869vmHjEsiu3ggouCIk/X+Az9Ij9rDKcweFnI7soZwpk8x8vJooqDA==", "algorithm": "ed25519", "hash_algorithm": "blake3"}
   }
 }
