@@ -14,6 +14,7 @@
 mod components;
 pub mod dialogs;
 mod utils;
+pub(crate) use utils::is_terminal_worker_status;
 
 use crate::api::ApiClient;
 use crate::components::{
@@ -31,18 +32,39 @@ use std::sync::Arc;
 use crate::components::{IconPlus, IconRefresh, IconX};
 use components::{WorkerDetailPanel, WorkerDetailView, WorkersList, WorkersSummary};
 use dialogs::{PlanOption, SpawnWorkerDialog};
-use utils::{
-    is_recent_timestamp, is_terminal_worker_status, WorkerHealthRecord, WorkerHealthSummary,
-};
+use utils::{is_recent_timestamp, WorkerHealthRecord, WorkerHealthSummary};
 
 /// Workers management page
 #[component]
 pub fn Workers() -> impl IntoView {
     const ACTIVE_WINDOW_SECS: u64 = 5 * 60;
 
-    // Fetch workers list
-    let (workers, refetch_workers) =
-        use_api_resource(|client: Arc<ApiClient>| async move { client.list_workers().await });
+    // Dialog state
+    let show_spawn_dialog = RwSignal::new(false);
+    let selected_worker = RwSignal::new(Option::<String>::None);
+    let show_history = RwSignal::new(false);
+    let action_loading = RwSignal::new(false);
+    let action_error = RwSignal::new(Option::<String>::None);
+    let pending_drain_worker = RwSignal::new(Option::<String>::None);
+    let pending_stop_worker = RwSignal::new(Option::<String>::None);
+    let show_drain_confirm = RwSignal::new(false);
+    let show_stop_confirm = RwSignal::new(false);
+    let notifications = use_notifications();
+
+    // Fetch workers list (terminal entries hidden unless history is explicitly enabled)
+    let (workers, refetch_workers) = use_api_resource({
+        let show_history = show_history;
+        move |client: Arc<ApiClient>| {
+            let include_history = show_history.get_untracked();
+            async move {
+                if include_history {
+                    client.list_workers_with_history().await
+                } else {
+                    client.list_workers().await
+                }
+            }
+        }
+    });
 
     // Fetch worker health summary (health status + incident counts)
     let (worker_health, refetch_worker_health) =
@@ -60,18 +82,6 @@ pub fn Workers() -> impl IntoView {
     let (plans, _refetch_plans) = use_api_resource(|client: Arc<ApiClient>| async move {
         client.get::<Vec<PlanOption>>("/v1/plans").await
     });
-
-    // Dialog state
-    let show_spawn_dialog = RwSignal::new(false);
-    let selected_worker = RwSignal::new(Option::<String>::None);
-    let show_history = RwSignal::new(false);
-    let action_loading = RwSignal::new(false);
-    let action_error = RwSignal::new(Option::<String>::None);
-    let pending_drain_worker = RwSignal::new(Option::<String>::None);
-    let pending_stop_worker = RwSignal::new(Option::<String>::None);
-    let show_drain_confirm = RwSignal::new(false);
-    let show_stop_confirm = RwSignal::new(false);
-    let notifications = use_notifications();
 
     // Debug logging for list sizes
     #[cfg(debug_assertions)]
@@ -126,6 +136,7 @@ pub fn Workers() -> impl IntoView {
                             // If we just hid history, selection may no longer be visible.
                             selected_worker.set(None);
                         }
+                        refetch_workers.run(());
                     })
                 >
                     {move || {
@@ -155,14 +166,14 @@ pub fn Workers() -> impl IntoView {
 
                         if show_history.get() {
                             if total > 0 {
-                                format!("Hide History ({})", total)
+                                format!("Hide Inactive History ({})", total)
                             } else {
-                                "Hide History".to_string()
+                                "Hide Inactive History".to_string()
                             }
                         } else if hidden > 0 {
-                            format!("Show History (+{})", hidden)
+                            format!("Show Inactive History (+{})", hidden)
                         } else {
-                            "Show History".to_string()
+                            "Show Inactive History".to_string()
                         }
                     }}
                 </Button>

@@ -26,6 +26,15 @@ use tracing::{error, info, warn};
 #[derive(Deserialize)]
 pub struct ListWorkersQuery {
     pub tenant_id: Option<String>,
+    #[serde(default)]
+    pub include_inactive: Option<bool>,
+}
+
+pub(crate) fn is_terminal_worker_status(status: &str) -> bool {
+    status.eq_ignore_ascii_case("stopped")
+        || status.eq_ignore_ascii_case("error")
+        || status.eq_ignore_ascii_case("crashed")
+        || status.eq_ignore_ascii_case("failed")
 }
 
 async fn push_worker_health_event(
@@ -230,7 +239,12 @@ pub async fn worker_spawn(
     get,
     path = "/v1/workers",
     params(
-        ("tenant_id" = Option<String>, Query, description = "Filter by tenant ID")
+        ("tenant_id" = Option<String>, Query, description = "Filter by tenant ID"),
+        (
+            "include_inactive" = Option<bool>,
+            Query,
+            description = "Include terminal workers in results (stopped/error/crashed/failed)"
+        )
     ),
     responses(
         (status = 200, description = "Workers list", body = Vec<WorkerResponse>),
@@ -270,6 +284,16 @@ pub async fn list_workers(
             .list_all_workers()
             .await
             .map_err(ApiError::db_error)?
+    };
+
+    let include_inactive = query.include_inactive.unwrap_or(false);
+    let workers = if include_inactive {
+        workers
+    } else {
+        workers
+            .into_iter()
+            .filter(|w| !is_terminal_worker_status(&w.status))
+            .collect()
     };
 
     // Build response with model lookups
