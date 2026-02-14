@@ -862,6 +862,20 @@ struct ArchiveChatSessionRequestUi {
     reason: Option<String>,
 }
 
+/// Lightweight representation of a backend chat session for hydration.
+/// Fields match the subset of `ChatSession` (from adapteros-db) that the UI needs.
+#[derive(Debug, Clone, Deserialize)]
+pub struct BackendChatSession {
+    pub id: String,
+    pub name: String,
+    #[serde(default)]
+    pub title: Option<String>,
+    #[serde(default)]
+    pub status: Option<String>,
+    pub created_at: String,
+    pub updated_at: String,
+}
+
 impl ChatAction {
     pub fn new(client: Arc<ApiClient>, state: RwSignal<ChatState>) -> Self {
         Self {
@@ -921,6 +935,13 @@ impl ChatAction {
                 &format!("/v1/chat/sessions/{}/restore", session_id),
                 &serde_json::json!({}),
             )
+            .await
+    }
+
+    /// List chat sessions from the backend for hydration on page load.
+    pub async fn list_backend_sessions(&self) -> Result<Vec<BackendChatSession>, ApiError> {
+        self.client
+            .get::<Vec<BackendChatSession>>("/v1/chat/sessions?limit=50")
             .await
     }
 
@@ -2803,6 +2824,59 @@ impl ChatSessionsManager {
         }
 
         sessions_to_meta_for_archive(sessions, archived)
+    }
+
+    /// Merge backend sessions into localStorage, inserting stubs for any
+    /// sessions not already present locally.  Returns `true` if any new
+    /// sessions were added.
+    pub fn merge_backend_sessions(backend: &[BackendChatSession]) -> bool {
+        let Some(window) = web_sys::window() else {
+            return false;
+        };
+        let Ok(Some(storage)) = window.local_storage() else {
+            return false;
+        };
+
+        let mut sessions: Vec<StoredChatSession> = storage
+            .get_item(SESSIONS_STORAGE_KEY)
+            .ok()
+            .flatten()
+            .and_then(|d| serde_json::from_str(&d).ok())
+            .unwrap_or_default();
+
+        let mut added = false;
+        for bs in backend {
+            // Skip archived/deleted backend sessions
+            if bs.status.as_deref() == Some("archived") || bs.status.as_deref() == Some("deleted") {
+                continue;
+            }
+            // Skip if already in localStorage
+            if sessions.iter().any(|s| s.id == bs.id) {
+                continue;
+            }
+            let title = bs.title.clone().unwrap_or_else(|| bs.name.clone());
+            sessions.push(StoredChatSession {
+                id: bs.id.clone(),
+                title,
+                target: ChatTarget::Default.display_name(),
+                messages: Vec::new(),
+                archived: false,
+                verified_mode: false,
+                placeholder: false,
+                created_at: bs.created_at.clone(),
+                updated_at: bs.updated_at.clone(),
+            });
+            added = true;
+        }
+
+        if added {
+            sessions.sort_by(|a, b| b.updated_at.cmp(&a.updated_at));
+            sessions.truncate(MAX_SESSIONS);
+            if let Ok(json) = serde_json::to_string(&sessions) {
+                let _ = storage.set_item(SESSIONS_STORAGE_KEY, &json);
+            }
+        }
+        added
     }
 
     /// Load a specific session by ID
