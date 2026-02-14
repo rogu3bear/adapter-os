@@ -664,6 +664,7 @@ fn ModelDetailContent(
     let client = use_api();
     let client_load = Arc::clone(&client);
     let client_unload = Arc::clone(&client);
+    let client_validate = Arc::clone(&client);
 
     // Load model handler
     let on_load = {
@@ -738,6 +739,35 @@ fn ModelDetailContent(
         show_unload_confirm.set(true);
     };
 
+    // Validate model handler
+    let (validating, set_validating) = signal(false);
+    let on_validate = {
+        let model_id = model.model_id.clone();
+        let model_name = model_name_for_toast.clone();
+        let notifications = notifications.clone();
+        move |_| {
+            let id = model_id.clone();
+            let name = model_name.clone();
+            let client = Arc::clone(&client_validate);
+            let notifications = notifications.clone();
+            set_validating.set(true);
+            wasm_bindgen_futures::spawn_local(async move {
+                match client.validate_model(&id).await {
+                    Ok(_) => {
+                        notifications.success(
+                            "Validation passed",
+                            &format!("{} passed all validation checks.", name),
+                        );
+                    }
+                    Err(e) => {
+                        report_error_with_toast(&e, "Validation failed", None, true);
+                    }
+                }
+                let _ = set_validating.try_set(false);
+            });
+        }
+    };
+
     let unload_confirm_desc = format!(
         "Unloading {} will stop any active inference using this model. Sessions in progress may be interrupted.",
         model.model_name,
@@ -794,25 +824,42 @@ fn ModelDetailContent(
                             {move || {
                                 let manage_disabled = !can_manage_models.get();
                                 let request_in_flight = loading.try_get().unwrap_or(false);
+                                let is_validating = validating.try_get().unwrap_or(false);
                                 let action_disabled =
                                     manage_disabled || request_in_flight || lifecycle_in_progress;
+                                let validate_disabled =
+                                    manage_disabled || is_validating || lifecycle_in_progress;
 
                                 if request_in_flight {
                                     view! { <Spinner /> }.into_any()
                                 } else if is_unloading {
                                     view! {
                                         <Button variant=ButtonVariant::Outline disabled=true>
+                                            "Validate"
+                                        </Button>
+                                        <Button variant=ButtonVariant::Outline disabled=true>
                                             "Unload"
                                         </Button>
                                     }.into_any()
                                 } else if is_loading {
                                     view! {
+                                        <Button variant=ButtonVariant::Outline disabled=true>
+                                            "Validate"
+                                        </Button>
                                         <Button variant=ButtonVariant::Primary disabled=true>
                                             "Load"
                                         </Button>
                                     }.into_any()
                                 } else if is_loaded {
                                     view! {
+                                        <Button
+                                            variant=ButtonVariant::Outline
+                                            disabled=validate_disabled
+                                            loading=Signal::from(validating)
+                                            on_click=Callback::new(on_validate.clone())
+                                        >
+                                            "Validate"
+                                        </Button>
                                         <Button
                                             variant=ButtonVariant::Outline
                                             disabled=action_disabled
@@ -823,6 +870,14 @@ fn ModelDetailContent(
                                     }.into_any()
                                 } else {
                                     view! {
+                                        <Button
+                                            variant=ButtonVariant::Outline
+                                            disabled=validate_disabled
+                                            loading=Signal::from(validating)
+                                            on_click=Callback::new(on_validate.clone())
+                                        >
+                                            "Validate"
+                                        </Button>
                                         <Button
                                             variant=ButtonVariant::Primary
                                             disabled=action_disabled

@@ -2,9 +2,6 @@
 //!
 //! Pure helper functions for formatting timestamps and durations.
 
-/// Maximum workers to show initially (client-side pagination)
-pub const WORKERS_PAGE_SIZE: usize = 10;
-
 /// Maximum nodes to show initially (client-side pagination)
 pub const NODES_PAGE_SIZE: usize = 10;
 
