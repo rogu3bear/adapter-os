@@ -1418,11 +1418,40 @@ fn ChatConversationPanel(
             // Try to load session from localStorage
             if let Some(stored) = ChatSessionsManager::load_session(&id) {
                 let msg_count = stored.messages.len();
+                let is_stub = msg_count == 0 && !stored.placeholder;
                 action.restore_session(stored);
                 session_error.set(None);
                 web_sys::console::log_1(
                     &format!("[Chat] Restored session {} with {} messages", id, msg_count).into(),
                 );
+                // If this is a server-recovered stub with no local messages,
+                // fetch messages from the backend and restore them.
+                if is_stub {
+                    let action = action.clone();
+                    let id = id.clone();
+                    wasm_bindgen_futures::spawn_local(async move {
+                        match action.fetch_session_messages(&id).await {
+                            Ok(messages) if !messages.is_empty() => {
+                                if let Some(updated) =
+                                    ChatSessionsManager::backfill_session_messages(&id, &messages)
+                                {
+                                    action.restore_session(updated);
+                                    refresh_sessions.run(());
+                                }
+                            }
+                            Ok(_) => {} // No messages on server either
+                            Err(e) => {
+                                web_sys::console::warn_1(
+                                    &format!(
+                                        "[Chat] Failed to backfill messages for {}: {}",
+                                        id, e
+                                    )
+                                    .into(),
+                                );
+                            }
+                        }
+                    });
+                }
             } else {
                 // Session not found — create an empty placeholder so the URL is stable
                 // and the session list can show it immediately.
