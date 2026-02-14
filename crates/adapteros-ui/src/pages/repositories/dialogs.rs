@@ -3,7 +3,7 @@
 //! Uses canonical Dialog component for ARIA compliance and keyboard handling.
 
 use crate::api::{ApiClient, RegisterRepositoryRequest};
-use crate::components::{Button, ButtonVariant, Dialog, Input};
+use crate::components::{Button, ButtonVariant, Dialog, FormField, Input};
 use crate::signals::{use_auth, use_notifications};
 use leptos::prelude::*;
 
@@ -103,26 +103,30 @@ pub fn RegisterRepositoryDialog(open: RwSignal<bool>) -> impl IntoView {
 
             // Form
             <div class="space-y-4">
-                <Input
-                    value=repo_id
-                    label="Repository ID".to_string()
-                    placeholder="my-project".to_string()
-                />
-                <Input
-                    value=path
-                    label="Path".to_string()
-                    placeholder="/path/to/repository".to_string()
-                />
-                <Input
-                    value=languages
-                    label="Languages (comma-separated)".to_string()
-                    placeholder="rust, python, typescript".to_string()
-                />
-                <Input
-                    value=default_branch
-                    label="Default Branch".to_string()
-                    placeholder="main".to_string()
-                />
+                <FormField label="Repository ID" name="repo_id">
+                    <Input
+                        value=repo_id
+                        placeholder="my-project".to_string()
+                    />
+                </FormField>
+                <FormField label="Path" name="path">
+                    <Input
+                        value=path
+                        placeholder="/path/to/repository".to_string()
+                    />
+                </FormField>
+                <FormField label="Languages (comma-separated)" name="languages">
+                    <Input
+                        value=languages
+                        placeholder="rust, python, typescript".to_string()
+                    />
+                </FormField>
+                <FormField label="Default Branch" name="default_branch">
+                    <Input
+                        value=default_branch
+                        placeholder="main".to_string()
+                    />
+                </FormField>
             </div>
 
             // Footer

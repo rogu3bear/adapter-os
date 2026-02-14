@@ -5,14 +5,14 @@
 
 use crate::api::{
     report_error_with_toast, use_sse_json, ApiClient, CreateErrorAlertRuleRequest,
-    ErrorAlertHistoryListResponse, ErrorAlertHistoryResponse, ErrorAlertRuleResponse,
-    ProcessCrashDumpResponse, SseState, UpdateErrorAlertRuleRequest,
+    ErrorAlertHistoryResponse, ErrorAlertRuleResponse, ProcessCrashDumpResponse, SseState,
+    UpdateErrorAlertRuleRequest,
 };
 use crate::components::{
-    AsyncBoundary, Badge, BadgeVariant, Button, ButtonSize, ButtonVariant, Card,
-    ConfirmationDialog, ConfirmationSeverity, Dialog, EmptyState, Input, LoadingDisplay,
-    PageBreadcrumbItem, PageScaffold, Select, TabNav, TabPanel, Table, TableBody, TableCell,
-    TableHead, TableHeader, TableRow,
+    loaded_signal, AsyncBoundary, Badge, BadgeVariant, Button, ButtonSize, ButtonVariant, Card,
+    Column, ConfirmationDialog, ConfirmationSeverity, DataTable, Dialog, EmptyState, Input,
+    PageBreadcrumbItem, PageScaffold, Select, SkeletonTable, TabNav, TabPanel, Table, TableBody,
+    TableCell, TableHead, TableHeader, TableRow,
 };
 use crate::hooks::{use_api_resource, use_scope_alive, LoadingState};
 use adapteros_api_types::telemetry::{ClientErrorItem, ClientErrorStatsResponse};
@@ -125,40 +125,67 @@ fn LiveFeedSection() -> impl IntoView {
             </div>
 
             // Live errors list
-            <Card>
-                {move || {
-                    let errors = live_errors.try_get().unwrap_or_default();
-                    if errors.is_empty() {
+            {
+                let live_vec = Signal::derive(move || {
+                    live_errors.try_get().unwrap_or_default().iter().cloned().collect::<Vec<_>>()
+                });
+                let live_data = loaded_signal(live_vec);
+
+                let columns: Vec<Column<ClientErrorItem>> = vec![
+                    Column::custom("Time", |e: &ClientErrorItem| {
+                        let ts = format_timestamp(&e.client_timestamp);
                         view! {
-                            <div class="py-12 text-center">
-                                <div class="text-muted-foreground">"No incidents detected"</div>
-                                <div class="text-sm text-muted-foreground mt-2">"Errors will appear here in real-time when they occur"</div>
-                            </div>
-                        }.into_any()
-                    } else {
+                            <span class="text-xs text-muted-foreground font-mono">{ts}</span>
+                        }
+                    }),
+                    Column::custom("Type", |e: &ClientErrorItem| {
+                        let variant = match e.error_type.as_str() {
+                            "Network" | "Server" | "Panic" => BadgeVariant::Destructive,
+                            "Http" | "JsBootError" => BadgeVariant::Warning,
+                            "Validation" => BadgeVariant::Secondary,
+                            _ => BadgeVariant::Outline,
+                        };
+                        let label = e.error_type.clone();
+                        view! { <Badge variant=variant>{label}</Badge> }
+                    }),
+                    Column::custom("Message", |e: &ClientErrorItem| {
+                        let title = e.message.clone();
+                        let display = truncate_message(&e.message, 80);
                         view! {
-                            <Table>
-                                <TableHeader>
-                                    <TableRow>
-                                        <TableHead>"Time"</TableHead>
-                                        <TableHead>"Type"</TableHead>
-                                        <TableHead>"Message"</TableHead>
-                                        <TableHead>"Status"</TableHead>
-                                        <TableHead>"Page"</TableHead>
-                                    </TableRow>
-                                </TableHeader>
-                                <TableBody>
-                                    {errors.iter().cloned().collect::<Vec<_>>().into_iter().map(|error| {
-                                        view! {
-                                            <ErrorRow error=error/>
-                                        }
-                                    }).collect::<Vec<_>>()}
-                                </TableBody>
-                            </Table>
-                        }.into_any()
-                    }
-                }}
-            </Card>
+                            <span class="text-sm truncate max-w-md block" title=title>{display}</span>
+                        }
+                    }),
+                    Column::custom("Status", |e: &ClientErrorItem| {
+                        if let Some(status) = e.http_status {
+                            let variant = if status >= 500 {
+                                BadgeVariant::Destructive
+                            } else if status >= 400 {
+                                BadgeVariant::Warning
+                            } else {
+                                BadgeVariant::Secondary
+                            };
+                            view! { <Badge variant=variant>{status.to_string()}</Badge> }.into_any()
+                        } else {
+                            view! { <span /> }.into_any()
+                        }
+                    }),
+                    Column::custom("Page", |e: &ClientErrorItem| {
+                        let page = e.page.clone().unwrap_or_else(|| "-".to_string());
+                        view! {
+                            <span class="text-xs text-muted-foreground font-mono">{page}</span>
+                        }
+                    }),
+                ];
+
+                view! {
+                    <DataTable
+                        data=live_data
+                        columns=columns
+                        empty_title="No incidents detected"
+                        empty_description="Errors will appear here in real-time when they occur"
+                    />
+                }
+            }
         </div>
     }
 }
@@ -260,7 +287,7 @@ fn HistorySection() -> impl IntoView {
     view! {
         <div class="space-y-4">
             // Filters
-            <div class="flex items-center gap-4">
+            <div class="flex flex-wrap items-center gap-4">
                 <Select
                     value=error_type_filter
                     label="Type".to_string()
@@ -606,105 +633,84 @@ fn AlertHistoryPanel() -> impl IntoView {
                 </div>
             </div>
 
-            <AsyncBoundary
-                state=history
-                on_retry=Callback::new(move |_| refetch_history.run(()))
-                render=move |data: ErrorAlertHistoryListResponse| {
-                    if data.alerts.is_empty() {
+            {
+                let alert_data: ReadSignal<LoadingState<Vec<ErrorAlertHistoryResponse>>> = {
+                    let (read, write) = signal(LoadingState::Loading);
+                    Effect::new(move || {
+                        let state = history.try_get().unwrap_or(LoadingState::Loading);
+                        let mapped = match state {
+                            LoadingState::Idle => LoadingState::Idle,
+                            LoadingState::Loading => LoadingState::Loading,
+                            LoadingState::Loaded(resp) => LoadingState::Loaded(resp.alerts),
+                            LoadingState::Error(e) => LoadingState::Error(e),
+                        };
+                        write.set(mapped);
+                    });
+                    read
+                };
+
+                let columns: Vec<Column<ErrorAlertHistoryResponse>> = vec![
+                    Column::custom("Triggered", |a: &ErrorAlertHistoryResponse| {
+                        let ts = format_date_time(&a.triggered_at);
                         view! {
-                            <EmptyState
-                                title="No alerts triggered"
-                                description="Alert history will appear here when rules fire."
-                                icon="bell"
-                            />
-                        }.into_any()
-                    } else {
-                        let shown = data.alerts.len();
-                        let total = data.total;
-                        let rows: Vec<_> = data.alerts
-                            .into_iter()
-                            .map(|alert| view! { <AlertHistoryRow alert=alert/> })
-                            .collect();
+                            <span class="text-xs text-muted-foreground font-mono">{ts}</span>
+                        }
+                    }),
+                    Column::custom("Rule", |a: &ErrorAlertHistoryResponse| {
+                        let label = a.rule_name.clone()
+                            .unwrap_or_else(|| truncate_message(&a.rule_id, 12));
+                        let title = a.rule_id.clone();
                         view! {
-                            <div>
-                                <div class="px-4 py-2 text-sm text-muted-foreground border-b">
-                                    {format!("Showing {} of {} alerts", shown, total)}
-                                </div>
-                                <Table>
-                                    <TableHeader>
-                                        <TableRow>
-                                            <TableHead>"Triggered"</TableHead>
-                                            <TableHead>"Rule"</TableHead>
-                                            <TableHead>"Errors"</TableHead>
-                                            <TableHead>"Status"</TableHead>
-                                            <TableHead>"Acknowledged"</TableHead>
-                                            <TableHead>"Resolved"</TableHead>
-                                        </TableRow>
-                                    </TableHeader>
-                                    <TableBody>
-                                        {rows}
-                                    </TableBody>
-                                </Table>
-                            </div>
-                        }.into_any()
-                    }
+                            <span class="text-sm font-mono" title=title>{label}</span>
+                        }
+                    }),
+                    Column::custom("Errors", |a: &ErrorAlertHistoryResponse| {
+                        let count = a.error_count.to_string();
+                        view! {
+                            <span class="text-sm font-medium">{count}</span>
+                        }
+                    }),
+                    Column::custom("Status", |a: &ErrorAlertHistoryResponse| {
+                        let (label, variant) = if a.resolved_at.is_some() {
+                            ("Resolved", BadgeVariant::Success)
+                        } else if a.acknowledged_at.is_some() {
+                            ("Acknowledged", BadgeVariant::Secondary)
+                        } else {
+                            ("Active", BadgeVariant::Warning)
+                        };
+                        view! { <Badge variant=variant>{label}</Badge> }
+                    }),
+                    Column::custom("Acknowledged", |a: &ErrorAlertHistoryResponse| {
+                        let ts = a.acknowledged_at.as_deref()
+                            .map(format_date_time)
+                            .unwrap_or_else(|| "-".to_string());
+                        view! {
+                            <span class="text-xs text-muted-foreground">{ts}</span>
+                        }
+                    }),
+                    Column::custom("Resolved", |a: &ErrorAlertHistoryResponse| {
+                        let note = a.resolution_note.clone().unwrap_or_default();
+                        let ts = a.resolved_at.as_deref()
+                            .map(format_date_time)
+                            .unwrap_or_else(|| "-".to_string());
+                        view! {
+                            <span class="text-xs text-muted-foreground" title=note>{ts}</span>
+                        }
+                    }),
+                ];
+
+                view! {
+                    <DataTable
+                        data=alert_data
+                        columns=columns
+                        on_retry=Callback::new(move |_| refetch_history.run(()))
+                        empty_title="No alerts triggered"
+                        empty_description="Alert history will appear here when rules fire."
+                        card=false
+                    />
                 }
-            />
+            }
         </Card>
-    }
-}
-
-/// Alert history row
-#[component]
-fn AlertHistoryRow(alert: ErrorAlertHistoryResponse) -> impl IntoView {
-    let (status_label, status_variant) = if alert.resolved_at.is_some() {
-        ("Resolved", BadgeVariant::Success)
-    } else if alert.acknowledged_at.is_some() {
-        ("Acknowledged", BadgeVariant::Secondary)
-    } else {
-        ("Active", BadgeVariant::Warning)
-    };
-
-    let rule_label = alert
-        .rule_name
-        .clone()
-        .unwrap_or_else(|| truncate_message(&alert.rule_id, 12));
-    let rule_title = alert.rule_id.clone();
-    let acknowledged = alert
-        .acknowledged_at
-        .as_deref()
-        .map(format_date_time)
-        .unwrap_or_else(|| "-".to_string());
-    let resolved = alert
-        .resolved_at
-        .as_deref()
-        .map(format_date_time)
-        .unwrap_or_else(|| "-".to_string());
-    let resolution_note = alert.resolution_note.clone().unwrap_or_default();
-
-    view! {
-        <TableRow>
-            <TableCell>
-                <span class="text-xs text-muted-foreground font-mono">
-                    {format_date_time(&alert.triggered_at)}
-                </span>
-            </TableCell>
-            <TableCell>
-                <span class="text-sm font-mono" title=rule_title>{rule_label}</span>
-            </TableCell>
-            <TableCell>
-                <span class="text-sm font-medium">{alert.error_count.to_string()}</span>
-            </TableCell>
-            <TableCell>
-                <Badge variant=status_variant>{status_label}</Badge>
-            </TableCell>
-            <TableCell>
-                <span class="text-xs text-muted-foreground">{acknowledged}</span>
-            </TableCell>
-            <TableCell>
-                <span class="text-xs text-muted-foreground" title=resolution_note>{resolved}</span>
-            </TableCell>
-        </TableRow>
     }
 }
 
@@ -902,7 +908,7 @@ fn CrashesSection() -> impl IntoView {
 
             {move || match workers.try_get().unwrap_or(LoadingState::Loading) {
                 LoadingState::Idle | LoadingState::Loading => {
-                    view! { <LoadingDisplay message="Loading workers..."/> }.into_any()
+                    view! { <SkeletonTable rows=5 columns=5 /> }.into_any()
                 }
                 LoadingState::Error(e) => {
                     view! {
@@ -934,105 +940,75 @@ fn CrashesSection() -> impl IntoView {
                             </Card>
                         }.into_any()
                     } else {
+                        let columns: Vec<Column<ProcessCrashDumpResponse>> = vec![
+                            Column::custom("Time", |c: &ProcessCrashDumpResponse| {
+                                let ts = format_date_time(&c.crash_timestamp);
+                                view! {
+                                    <span class="text-xs text-muted-foreground font-mono">{ts}</span>
+                                }
+                            }),
+                            Column::custom("Worker", |c: &ProcessCrashDumpResponse| {
+                                let title = c.worker_id.clone();
+                                let label = truncate_message(&c.worker_id, 12);
+                                view! {
+                                    <span class="text-xs font-mono" title=title>{label}</span>
+                                }
+                            }),
+                            Column::custom("Type", |c: &ProcessCrashDumpResponse| {
+                                let crash_type = c.crash_type.clone();
+                                view! {
+                                    <span class="text-sm font-medium">{crash_type}</span>
+                                }
+                            }),
+                            Column::custom("Recovery", |c: &ProcessCrashDumpResponse| {
+                                let action = c.recovery_action.clone()
+                                    .unwrap_or_else(|| "\u{2014}".to_string());
+                                let recovered = c.recovered_at.as_deref()
+                                    .map(format_date_time)
+                                    .unwrap_or_else(|| "-".to_string());
+                                view! {
+                                    <div class="space-y-1">
+                                        <span class="text-sm">{action}</span>
+                                        <span class="text-xs text-muted-foreground">
+                                            {"Recovered: "}{recovered}
+                                        </span>
+                                    </div>
+                                }
+                            }),
+                            Column::custom("Details", |c: &ProcessCrashDumpResponse| {
+                                let stack = c.stack_trace.clone()
+                                    .unwrap_or_else(|| "No stack trace".to_string());
+                                let preview = truncate_message(&stack, 80);
+                                view! {
+                                    <span class="text-xs text-muted-foreground" title=stack>{preview}</span>
+                                }
+                            }),
+                        ];
+
+                        let empty_title = if selected_worker_id.try_get().unwrap_or_default().is_empty() {
+                            "Select a worker"
+                        } else {
+                            "No crash dumps"
+                        };
+                        let empty_desc = if selected_worker_id.try_get().unwrap_or_default().is_empty() {
+                            "Choose a worker to view crash dumps."
+                        } else {
+                            "No crash data recorded for this worker."
+                        };
+
                         view! {
-                            <Card>
-                                <AsyncBoundary
-                                    state=crashes
-                                    on_retry=Callback::new(move |_| refetch_crashes.run(()))
-                                    loading_message="Loading crash dumps...".to_string()
-                                    render=move |data| {
-                                        let data: Vec<ProcessCrashDumpResponse> = data;
-                                        if selected_worker_id.try_get().unwrap_or_default().is_empty() {
-                                            view! {
-                                                <EmptyState
-                                                    title="Select a worker"
-                                                    description="Choose a worker to view crash dumps."
-                                                />
-                                            }.into_any()
-                                        } else if data.is_empty() {
-                                            view! {
-                                                <EmptyState
-                                                    title="No crash dumps"
-                                                    description="No crash data recorded for this worker."
-                                                />
-                                            }.into_any()
-                                        } else {
-                                            let rows: Vec<_> = data
-                                                .into_iter()
-                                                .map(|crash| view! { <CrashRow crash=crash/> })
-                                                .collect();
-                                            view! {
-                                                <Table>
-                                                    <TableHeader>
-                                                        <TableRow>
-                                                            <TableHead>"Time"</TableHead>
-                                                            <TableHead>"Worker"</TableHead>
-                                                            <TableHead>"Type"</TableHead>
-                                                            <TableHead>"Recovery"</TableHead>
-                                                            <TableHead>"Details"</TableHead>
-                                                        </TableRow>
-                                                    </TableHeader>
-                                                    <TableBody>
-                                                        {rows}
-                                                    </TableBody>
-                                                </Table>
-                                            }.into_any()
-                                        }
-                                    }
-                                />
-                            </Card>
+                            <DataTable
+                                data=crashes
+                                columns=columns
+                                on_retry=Callback::new(move |_| refetch_crashes.run(()))
+                                empty_title=empty_title
+                                empty_description=empty_desc
+                            />
                         }.into_any()
                     }
                 }
             }}
         </div>
-    }
-}
-
-/// Crash dump row
-#[component]
-fn CrashRow(crash: ProcessCrashDumpResponse) -> impl IntoView {
-    let stack = crash
-        .stack_trace
-        .clone()
-        .unwrap_or_else(|| "No stack trace".to_string());
-    let stack_preview = truncate_message(&stack, 80);
-    let worker_label = truncate_message(&crash.worker_id, 12);
-    let recovery_label = crash
-        .recovery_action
-        .clone()
-        .unwrap_or_else(|| "—".to_string());
-    let recovered_at = crash
-        .recovered_at
-        .as_deref()
-        .map(format_date_time)
-        .unwrap_or_else(|| "-".to_string());
-
-    view! {
-        <TableRow>
-            <TableCell>
-                <span class="text-xs text-muted-foreground font-mono">
-                    {format_date_time(&crash.crash_timestamp)}
-                </span>
-            </TableCell>
-            <TableCell>
-                <span class="text-xs font-mono" title=crash.worker_id.clone()>{worker_label}</span>
-            </TableCell>
-            <TableCell>
-                <span class="text-sm font-medium">{crash.crash_type.clone()}</span>
-            </TableCell>
-            <TableCell>
-                <div class="space-y-1">
-                    <span class="text-sm">{recovery_label}</span>
-                    <span class="text-xs text-muted-foreground">
-                        {"Recovered: "}{recovered_at}
-                    </span>
-                </div>
-            </TableCell>
-            <TableCell>
-                <span class="text-xs text-muted-foreground" title=stack>{stack_preview}</span>
-            </TableCell>
-        </TableRow>
     }
 }
 
@@ -1333,7 +1309,7 @@ fn CreateAlertRuleDialog(open: RwSignal<bool>, on_created: Callback<()>) -> impl
                     </p>
                 </div>
 
-                <div class="grid grid-cols-2 gap-4">
+                <div class="grid grid-cols-1 md:grid-cols-2 gap-4">
                     <Input
                         value=threshold_count
                         label="Threshold Count".to_string()

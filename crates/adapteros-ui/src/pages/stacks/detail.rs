@@ -94,7 +94,7 @@ pub fn StackDetail() -> impl IntoView {
                     LoadingState::Error(e) if e.is_not_found() => {
                         view! {
                             <div class="flex min-h-[40vh] flex-col items-center justify-center px-4">
-                                <div class="card p-8 max-w-md w-full text-center">
+                                <Card class="p-8 max-w-md w-full text-center">
                                     <div class="text-4xl font-bold text-muted-foreground mb-2">"404"</div>
                                     <h2 class="heading-3 mb-2">"Stack not found"</h2>
                                     <p class="text-muted-foreground mb-6">
@@ -103,7 +103,7 @@ pub fn StackDetail() -> impl IntoView {
                                     <a href="/stacks" class="btn btn-primary btn-md">
                                         "View all stacks"
                                     </a>
-                                </div>
+                                </Card>
                             </div>
                         }.into_any()
                     }

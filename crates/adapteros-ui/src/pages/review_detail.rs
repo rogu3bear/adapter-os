@@ -3,9 +3,9 @@
 //! Displays full pause context and provides a structured form to submit
 //! a human review (assessment, issues, suggestions, comments, confidence).
 
-use crate::api::ApiClient;
+use crate::api::{report_error_with_toast, ApiClient};
 use crate::components::{
-    Badge, BadgeVariant, Button, ButtonSize, ButtonVariant, Card, ErrorDisplay, Input,
+    Badge, BadgeVariant, Button, ButtonSize, ButtonVariant, Card, ErrorDisplay, FormField, Input,
     LoadingDisplay, PageBreadcrumbItem, PageScaffold, PageScaffoldActions, RefreshButton, Select,
     Textarea,
 };
@@ -68,7 +68,7 @@ pub fn ReviewDetail() -> impl IntoView {
                 LoadingState::Error(e) if e.is_not_found() => {
                     view! {
                         <div class="flex min-h-[40vh] flex-col items-center justify-center px-4">
-                            <div class="card p-8 max-w-md w-full text-center">
+                            <Card class="p-8 max-w-md w-full text-center">
                                 <div class="text-4xl font-bold text-muted-foreground mb-2">"404"</div>
                                 <h2 class="heading-3 mb-2">"Review not found"</h2>
                                 <p class="text-muted-foreground mb-6">
@@ -77,7 +77,7 @@ pub fn ReviewDetail() -> impl IntoView {
                                 <a href="/reviews" class="btn btn-primary btn-md">
                                     "View all reviews"
                                 </a>
-                            </div>
+                            </Card>
                         </div>
                     }.into_any()
                 }
@@ -222,6 +222,12 @@ fn ReviewDetailBody(pause: InferenceStateResponse) -> impl IntoView {
                 }
                 Err(e) => {
                     if alive.load(std::sync::atomic::Ordering::SeqCst) {
+                        report_error_with_toast(
+                            &e,
+                            "Failed to submit review",
+                            Some("/reviews"),
+                            true,
+                        );
                         submit_error.set(Some(format!("Failed to submit review: {}", e)));
                         submitting.set(false);
                     }
@@ -301,33 +307,37 @@ fn ReviewDetailBody(pause: InferenceStateResponse) -> impl IntoView {
 
             <Card title="Submit Review".to_string() description="This is currently a gate-only mechanism: the control plane forwards the review to the worker to resume inference. The review itself is not persisted.">
                 <div class="grid gap-4">
-                    <Input
-                        value=reviewer
-                        label="Reviewer"
-                        placeholder="human"
-                        input_type="text".to_string()
-                    />
+                    <FormField label="Reviewer" name="reviewer">
+                        <Input
+                            value=reviewer
+                            placeholder="human"
+                            input_type="text".to_string()
+                        />
+                    </FormField>
 
-                    <Select
-                        value=assessment
-                        options=assessment_options
-                        label="Assessment"
-                    />
+                    <FormField label="Assessment" name="assessment">
+                        <Select
+                            value=assessment
+                            options=assessment_options
+                        />
+                    </FormField>
 
-                    <Textarea
-                        value=comments
-                        label="Comments (optional)"
-                        placeholder="Write any additional context, rationale, or next steps..."
-                        rows=4
-                    />
+                    <FormField label="Comments (optional)" name="comments">
+                        <Textarea
+                            value=comments
+                            placeholder="Write any additional context, rationale, or next steps..."
+                            rows=4
+                        />
+                    </FormField>
 
-                    <Input
-                        value=confidence
-                        label="Confidence (0.0 - 1.0, optional)"
-                        placeholder="e.g. 0.85"
-                        input_type="number".to_string()
-                        class="max-w-xs".to_string()
-                    />
+                    <FormField label="Confidence (0.0 - 1.0, optional)" name="confidence">
+                        <Input
+                            value=confidence
+                            placeholder="e.g. 0.85"
+                            input_type="number".to_string()
+                            class="max-w-xs".to_string()
+                        />
+                    </FormField>
 
                     <div class="pt-2 border-t">
                         <div class="flex items-center justify-between gap-2">
@@ -345,56 +355,69 @@ fn ReviewDetailBody(pause: InferenceStateResponse) -> impl IntoView {
                         </div>
 
                         <div class="mt-3 grid gap-3">
-                            {move || {
-                                issues.try_get().unwrap_or_default().into_iter().map(|issue| {
-                                    let id = issue.id.clone();
-                                    let remove = Callback::new(move |_: ()| {
-                                        issues.update(|list| list.retain(|i| i.id != id));
-                                    });
-                                    view! {
-                                        <div class="rounded-lg border border-border bg-card p-3 space-y-3">
-                                            <div class="flex items-center justify-between gap-2">
-                                                <p class="text-xs text-muted-foreground font-mono">{format!("issue:{}", issue.id)}</p>
-                                                <Button
-                                                    variant=ButtonVariant::Ghost
-                                                    size=ButtonSize::IconSm
-                                                    aria_label="Remove issue".to_string()
-                                                    on_click=Callback::new(move |_| remove.run(()))
-                                                >
-                                                    <crate::components::IconTrash/>
-                                                </Button>
-                                            </div>
+                            {
+                                let severity_options = severity_options.clone();
+                                let scope_options = scope_options.clone();
+                                move || {
+                                    issues.try_get().unwrap_or_default().into_iter().map(|issue| {
+                                        let id = issue.id.clone();
+                                        let remove = Callback::new(move |_: ()| {
+                                            issues.update(|list| list.retain(|i| i.id != id));
+                                        });
+                                        let sev_opts = severity_options.clone();
+                                        let cat_opts = scope_options.clone();
+                                        view! {
+                                            <div class="rounded-lg border border-border bg-card p-3 space-y-3">
+                                                <div class="flex items-center justify-between gap-2">
+                                                    <p class="text-xs text-muted-foreground font-mono">{format!("issue:{}", issue.id)}</p>
+                                                    <Button
+                                                        variant=ButtonVariant::Ghost
+                                                        size=ButtonSize::IconSm
+                                                        aria_label="Remove issue".to_string()
+                                                        on_click=Callback::new(move |_| remove.run(()))
+                                                    >
+                                                        <crate::components::IconTrash/>
+                                                    </Button>
+                                                </div>
 
-                                            <div class="grid grid-cols-2 gap-3">
-                                                <Select value=issue.severity options=severity_options.clone() label="Severity"/>
-                                                <Select value=issue.category options=scope_options.clone() label="Category"/>
-                                            </div>
+                                                <div class="grid grid-cols-2 gap-3">
+                                                    <FormField label="Severity" name=format!("issue_{}_severity", issue.id)>
+                                                        <Select value=issue.severity options=sev_opts/>
+                                                    </FormField>
+                                                    <FormField label="Category" name=format!("issue_{}_category", issue.id)>
+                                                        <Select value=issue.category options=cat_opts/>
+                                                    </FormField>
+                                                </div>
 
-                                            <Textarea
-                                                value=issue.description
-                                                label="Description"
-                                                placeholder="Describe the issue clearly."
-                                                rows=3
-                                            />
+                                                <FormField label="Description" name=format!("issue_{}_description", issue.id)>
+                                                    <Textarea
+                                                        value=issue.description
+                                                        placeholder="Describe the issue clearly."
+                                                        rows=3
+                                                    />
+                                                </FormField>
 
-                                            <div class="grid grid-cols-2 gap-3">
-                                                <Input
-                                                    value=issue.location
-                                                    label="Location (optional)"
-                                                    placeholder="e.g. crates/foo/src/lib.rs:42"
-                                                    input_type="text".to_string()
-                                                />
-                                                <Input
-                                                    value=issue.suggested_fix
-                                                    label="Suggested Fix (optional)"
-                                                    placeholder="e.g. Add bounds check before indexing"
-                                                    input_type="text".to_string()
-                                                />
+                                                <div class="grid grid-cols-2 gap-3">
+                                                    <FormField label="Location (optional)" name=format!("issue_{}_location", issue.id)>
+                                                        <Input
+                                                            value=issue.location
+                                                            placeholder="e.g. crates/foo/src/lib.rs:42"
+                                                            input_type="text".to_string()
+                                                        />
+                                                    </FormField>
+                                                    <FormField label="Suggested Fix (optional)" name=format!("issue_{}_suggested_fix", issue.id)>
+                                                        <Input
+                                                            value=issue.suggested_fix
+                                                            placeholder="e.g. Add bounds check before indexing"
+                                                            input_type="text".to_string()
+                                                        />
+                                                    </FormField>
+                                                </div>
                                             </div>
-                                        </div>
-                                    }
-                                }).collect::<Vec<_>>()
-                            }}
+                                        }
+                                    }).collect::<Vec<_>>()
+                                }
+                            }
                         </div>
                     </div>
 
@@ -433,12 +456,13 @@ fn ReviewDetailBody(pause: InferenceStateResponse) -> impl IntoView {
                                                     <crate::components::IconTrash/>
                                                 </Button>
                                             </div>
-                                            <Input
-                                                value=s.text
-                                                aria_label="Suggestion"
-                                                placeholder="Add a concise suggestion..."
-                                                input_type="text".to_string()
-                                            />
+                                            <FormField label="Suggestion" name=format!("suggestion_{}", s.id)>
+                                                <Input
+                                                    value=s.text
+                                                    placeholder="Add a concise suggestion..."
+                                                    input_type="text".to_string()
+                                                />
+                                            </FormField>
                                         </div>
                                     }
                                 }).collect::<Vec<_>>()

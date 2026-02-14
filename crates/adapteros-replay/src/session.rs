@@ -20,7 +20,7 @@ use adapteros_trace::{reader::read_trace_bundle, schema::TraceBundle};
 use crate::verification::VerificationMode;
 
 #[derive(Error, Debug)]
-pub enum ReplayError {
+pub enum SessionError {
     #[error("Replay initialization failed: {0}")]
     InitializationError(String),
     #[error("Replay step failed: {0}")]
@@ -42,6 +42,10 @@ pub enum ReplayError {
     #[error("AosError: {0}")]
     AosError(#[from] AosError),
 }
+
+#[allow(deprecated)]
+#[deprecated(note = "Use SessionError instead")]
+pub type ReplayError = SessionError;
 
 #[derive(Debug, Clone, Default)]
 pub struct ReplayStats {
@@ -65,14 +69,14 @@ pub struct ReplaySession {
 }
 
 impl ReplaySession {
-    pub fn from_log(trace_path: &Path) -> std::result::Result<Self, ReplayError> {
+    pub fn from_log(trace_path: &Path) -> std::result::Result<Self, SessionError> {
         Self::from_log_with_mode(trace_path, VerificationMode::Strict)
     }
 
     pub fn from_log_with_mode(
         trace_path: &Path,
         mode: VerificationMode,
-    ) -> std::result::Result<Self, ReplayError> {
+    ) -> std::result::Result<Self, SessionError> {
         info!("Loading trace bundle from: {}", trace_path.display());
         let trace_bundle = read_trace_bundle(trace_path)?;
 
@@ -110,7 +114,7 @@ impl ReplaySession {
         self
     }
 
-    pub async fn step(&self) -> std::result::Result<(), ReplayError> {
+    pub async fn step(&self) -> std::result::Result<(), SessionError> {
         let mut stats = self.stats.lock().await;
         let current_idx = self.current_event_index.load(Ordering::Relaxed) as usize;
 
@@ -126,7 +130,7 @@ impl ReplaySession {
         let actual_hash = expected_event.compute_hash();
         if !self.verify_hash(&expected_event.blake3_hash, &actual_hash) {
             stats.hash_mismatches += 1;
-            return Err(ReplayError::HashMismatch {
+            return Err(SessionError::HashMismatch {
                 step: current_idx,
                 expected: expected_event.blake3_hash,
                 actual: actual_hash,
@@ -163,9 +167,9 @@ impl ReplaySession {
         &self,
         expected_states: &[adapteros_telemetry::replay::RngCheckpoint],
         actual_states: &[adapteros_telemetry::replay::RngCheckpoint],
-    ) -> std::result::Result<(), ReplayError> {
+    ) -> std::result::Result<(), SessionError> {
         if expected_states.len() != actual_states.len() {
-            return Err(ReplayError::InitializationError(format!(
+            return Err(SessionError::InitializationError(format!(
                 "RNG checkpoint count mismatch: expected {}, got {}",
                 expected_states.len(),
                 actual_states.len()
@@ -176,14 +180,14 @@ impl ReplaySession {
         {
             // Compare metadata
             if expected.phase != actual.phase {
-                return Err(ReplayError::InitializationError(format!(
+                return Err(SessionError::InitializationError(format!(
                     "RNG phase mismatch at checkpoint {}: expected '{}', got '{}'",
                     i, expected.phase, actual.phase
                 )));
             }
 
             if expected.label != actual.label {
-                return Err(ReplayError::InitializationError(format!(
+                return Err(SessionError::InitializationError(format!(
                     "RNG label mismatch at checkpoint {}: expected '{}', got '{}'",
                     i, expected.label, actual.label
                 )));
@@ -191,7 +195,7 @@ impl ReplaySession {
 
             // Compare step counts
             if expected.step_count != actual.step_count {
-                return Err(ReplayError::InitializationError(format!(
+                return Err(SessionError::InitializationError(format!(
                     "RNG step count mismatch at checkpoint {} ({}): expected {}, got {}",
                     i, expected.phase, expected.step_count, actual.step_count
                 )));
@@ -199,7 +203,7 @@ impl ReplaySession {
 
             // Compare global nonce
             if expected.global_nonce != actual.global_nonce {
-                return Err(ReplayError::InitializationError(format!(
+                return Err(SessionError::InitializationError(format!(
                     "Global nonce mismatch at checkpoint {} ({}): expected {}, got {}",
                     i, expected.phase, expected.global_nonce, actual.global_nonce
                 )));
@@ -222,9 +226,9 @@ impl ReplaySession {
     ///
     /// Validates the trace bundle signature against the trusted public key.
     /// Returns error if no trusted public key is set or signature verification fails.
-    pub fn verify_replay_signature(&self) -> std::result::Result<(), ReplayError> {
+    pub fn verify_replay_signature(&self) -> std::result::Result<(), SessionError> {
         let pubkey = self.trusted_pubkey.as_ref().ok_or_else(|| {
-            ReplayError::AosError(adapteros_core::AosError::Verification(
+            SessionError::AosError(adapteros_core::AosError::Verification(
                 "No trusted public key configured for signature verification".to_string(),
             ))
         })?;
@@ -236,21 +240,21 @@ impl ReplaySession {
             .signature
             .as_ref()
             .ok_or_else(|| {
-                ReplayError::AosError(adapteros_core::AosError::Verification(
+                SessionError::AosError(adapteros_core::AosError::Verification(
                     "Trace bundle has no signature".to_string(),
                 ))
             })?;
 
         // Decode signature from hex
         let sig_bytes = hex::decode(sig_hex).map_err(|e| {
-            ReplayError::AosError(adapteros_core::AosError::Crypto(format!(
+            SessionError::AosError(adapteros_core::AosError::Crypto(format!(
                 "Invalid signature hex: {}",
                 e
             )))
         })?;
 
         if sig_bytes.len() != 64 {
-            return Err(ReplayError::AosError(adapteros_core::AosError::Crypto(
+            return Err(SessionError::AosError(adapteros_core::AosError::Crypto(
                 format!("Invalid signature length: {}", sig_bytes.len()),
             )));
         }
@@ -258,7 +262,7 @@ impl ReplaySession {
         let mut sig_array = [0u8; 64];
         sig_array.copy_from_slice(&sig_bytes);
         let signature = Signature::from_bytes(&sig_array).map_err(|e| {
-            ReplayError::AosError(adapteros_core::AosError::Crypto(format!(
+            SessionError::AosError(adapteros_core::AosError::Crypto(format!(
                 "Invalid signature format: {}",
                 e
             )))
@@ -267,7 +271,7 @@ impl ReplaySession {
         // Verify signature against bundle hash
         verify_signature(pubkey, self.trace_bundle.bundle_hash.as_bytes(), &signature).map_err(
             |e| {
-                ReplayError::AosError(adapteros_core::AosError::Crypto(format!(
+                SessionError::AosError(adapteros_core::AosError::Crypto(format!(
                     "Replay bundle signature verification failed: {}",
                     e
                 )))
@@ -281,7 +285,7 @@ impl ReplaySession {
     pub async fn run_with_progress<F>(
         &mut self,
         mut progress_callback: F,
-    ) -> std::result::Result<(), ReplayError>
+    ) -> std::result::Result<(), SessionError>
     where
         F: FnMut(ReplayStats),
     {
@@ -318,7 +322,7 @@ impl ReplaySession {
             if !self.verify_hash(&expected_event.blake3_hash, &actual_hash) {
                 let mut stats = self.stats.lock().await;
                 stats.hash_mismatches += 1;
-                return Err(ReplayError::HashMismatch {
+                return Err(SessionError::HashMismatch {
                     step: current_idx,
                     expected: expected_event.blake3_hash,
                     actual: actual_hash,
@@ -343,7 +347,7 @@ impl ReplaySession {
         Ok(())
     }
 
-    pub async fn run(&mut self) -> std::result::Result<(), ReplayError> {
+    pub async fn run(&mut self) -> std::result::Result<(), SessionError> {
         self.run_with_progress(|_| {}).await
     }
 
@@ -377,11 +381,11 @@ impl ReplaySession {
     pub fn compare_outputs(
         &self,
         expected_events: &[adapteros_trace::schema::Event],
-    ) -> std::result::Result<(), ReplayError> {
+    ) -> std::result::Result<(), SessionError> {
         let actual_events = self.executor.get_event_log();
 
         if expected_events.len() != actual_events.len() {
-            return Err(ReplayError::InitializationError(format!(
+            return Err(SessionError::InitializationError(format!(
                 "Event count mismatch: expected {}, got {}",
                 expected_events.len(),
                 actual_events.len()
@@ -391,7 +395,7 @@ impl ReplaySession {
         for (i, expected) in expected_events.iter().enumerate() {
             let actual_hash = expected.compute_hash();
             if expected.blake3_hash != actual_hash {
-                return Err(ReplayError::HashMismatch {
+                return Err(SessionError::HashMismatch {
                     step: i,
                     expected: expected.blake3_hash,
                     actual: actual_hash,
@@ -407,7 +411,7 @@ impl ReplaySession {
     }
 
     /// Validate determinism by comparing executor state with trace bundle
-    pub fn validate_determinism(&self) -> std::result::Result<(), ReplayError> {
+    pub fn validate_determinism(&self) -> std::result::Result<(), SessionError> {
         let executor_tick = self.executor.current_tick();
         let current_idx = self.current_event_index.load(Ordering::Relaxed) as usize;
 
@@ -416,7 +420,7 @@ impl ReplaySession {
 
             // Verify tick progression is consistent
             if executor_tick > 0 && executor_tick < last_event.tick_id {
-                return Err(ReplayError::InitializationError(format!(
+                return Err(SessionError::InitializationError(format!(
                     "Determinism violation: executor tick {} is behind event tick {}",
                     executor_tick, last_event.tick_id
                 )));
@@ -432,7 +436,7 @@ impl ReplaySession {
             .enumerate()
         {
             if !event.verify_hash() {
-                return Err(ReplayError::HashMismatch {
+                return Err(SessionError::HashMismatch {
                     step: i,
                     expected: event.blake3_hash,
                     actual: event.compute_hash(),
@@ -454,9 +458,9 @@ impl ReplaySession {
         &self.trace_bundle
     }
 
-    pub async fn jump_to_step(&mut self, step: usize) -> std::result::Result<(), ReplayError> {
+    pub async fn jump_to_step(&mut self, step: usize) -> std::result::Result<(), SessionError> {
         if step > self.trace_bundle.events.len() {
-            return Err(ReplayError::StepError(format!(
+            return Err(SessionError::StepError(format!(
                 "Step {} is out of bounds (total events: {})",
                 step,
                 self.trace_bundle.events.len()
@@ -485,7 +489,7 @@ pub struct ExecutorState {
     pub pending_tasks: usize,
 }
 
-pub async fn replay_trace(trace_path: &Path) -> std::result::Result<ReplayStats, ReplayError> {
+pub async fn replay_trace(trace_path: &Path) -> std::result::Result<ReplayStats, SessionError> {
     let mut session = ReplaySession::from_log(trace_path)?;
     session.run().await?;
     Ok(session.stats().await)

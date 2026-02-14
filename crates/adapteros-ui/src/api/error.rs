@@ -332,7 +332,19 @@ fn user_message_for_code(
             "Session is locked due to suspicious activity. Contact an admin.".to_string()
         }
         "DEVICE_MISMATCH" => "Device mismatch detected. Log in again from this device.".to_string(),
-        "INVALID_CREDENTIALS" => "Invalid username or password.".to_string(),
+        "INVALID_CREDENTIALS" | "MISSING_CREDENTIALS" => {
+            "Invalid username or password.".to_string()
+        }
+        "ACCOUNT_DISABLED" => "Account is disabled. Contact an admin.".to_string(),
+        "ACCOUNT_LOCKED" => {
+            "Account is locked due to too many failed attempts. Try again later.".to_string()
+        }
+        "USER_NOT_FOUND" => "Account not found. Check your credentials.".to_string(),
+        "WEAK_PASSWORD" => "Password is too weak. Use a stronger password.".to_string(),
+        "INVALID_EMAIL" => "Invalid email address format.".to_string(),
+        "EMAIL_EXISTS" => "An account with this email already exists.".to_string(),
+        "REGISTRATION_DISABLED" => "Registration is currently disabled.".to_string(),
+        "RATE_LIMIT_EXCEEDED" => "Too many attempts. Try again later.".to_string(),
 
         // -- 403 Forbidden: authorization and policy errors --
         "POLICY_VIOLATION" => policy_violation_message(error, details),
@@ -408,7 +420,7 @@ fn user_message_for_code(
         "INCOMPATIBLE_SCHEMA_VERSION" => {
             "Schema version is incompatible. Update required.".to_string()
         }
-        "ADAPTER_BASE_MODEL_MISMATCH" => {
+        "ADAPTER_BASE_MODEL_MISMATCH" | "BASE_MODEL_MISMATCH" => {
             "Adapter was trained on a different base model than the one loaded.".to_string()
         }
         "DETERMINISM_ERROR" => {
@@ -446,9 +458,13 @@ fn user_message_for_code(
         "CLIENT_CLOSED_REQUEST" => "Request cancelled.".to_string(),
 
         // -- 500 Internal Server Error --
-        "INTERNAL_ERROR" => "Internal server error. Retry in a moment.".to_string(),
-        "EXPORT_FAILED" => "Export operation failed. Check storage and retry.".to_string(),
-        "DATABASE_ERROR" => "Database error. Retry in a moment.".to_string(),
+        "INTERNAL_ERROR" | "INTERNAL_SERVER_ERROR" => {
+            "Internal server error. Retry in a moment.".to_string()
+        }
+        "EXPORT_FAILED" | "EXPORT_ERROR" => {
+            "Export operation failed. Check storage and retry.".to_string()
+        }
+        "DATABASE_ERROR" | "DB_ERROR" => "Database error. Retry in a moment.".to_string(),
         "CRYPTO_ERROR" => "Cryptographic operation failed. Check key configuration.".to_string(),
         "CONFIG_ERROR" => "Server configuration error. Contact an admin.".to_string(),
         "RAG_ERROR" => "Document retrieval failed. Check the knowledge base.".to_string(),
@@ -507,6 +523,58 @@ fn user_message_for_code(
 
         // -- Payload --
         "PAYLOAD_TOO_LARGE" => "Request is too large. Reduce the payload size.".to_string(),
+
+        // -- Dataset / training --
+        "DATASET_NOT_FOUND" => {
+            if let Some(detail) = details.and_then(|v| v.as_str()).filter(|s| !s.is_empty()) {
+                format!("Dataset not found: {detail}")
+            } else {
+                "Dataset not found. Check the dataset ID and try again.".to_string()
+            }
+        }
+        "DATASET_VERSION_NOT_FOUND" => {
+            "Dataset version not found. The version may have been deleted.".to_string()
+        }
+        "DATASET_ERROR" => {
+            if let Some(detail) = details.and_then(|v| v.as_str()).filter(|s| !s.is_empty()) {
+                format!("Dataset error: {detail}")
+            } else {
+                error.to_string()
+            }
+        }
+        "TRAINING_ERROR" | "TRAINING_START_FAILED" => {
+            if let Some(detail) = details.and_then(|v| v.as_str()).filter(|s| !s.is_empty()) {
+                format!("Training failed: {detail}")
+            } else {
+                "Training job could not be started. Check the configuration and try again."
+                    .to_string()
+            }
+        }
+        "WORKER_CAPABILITY_MISSING" => {
+            "No worker with the required capabilities is available.".to_string()
+        }
+        "INVALID_ADAPTER_TYPE" => "Invalid adapter type. Check the supported types.".to_string(),
+        "DATASET_EMPTY" => "Dataset is empty. Upload data before starting training.".to_string(),
+        "DATASET_TRUST_BLOCKED" => {
+            "Dataset trust check failed. The dataset has been blocked.".to_string()
+        }
+        "DATASET_TRUST_NEEDS_APPROVAL" => {
+            "Dataset requires trust approval before it can be used for training.".to_string()
+        }
+
+        // -- Adapter lifecycle --
+        "LIFECYCLE_TRANSITION_DENIED" => {
+            "Lifecycle transition denied. Check adapter requirements.".to_string()
+        }
+        "LIFECYCLE_PROMOTION_FAILED" | "LIFECYCLE_PROMOTION_INVALID" => {
+            "Adapter promotion failed. Check promotion gates and requirements.".to_string()
+        }
+        "LIFECYCLE_DEMOTION_FAILED" | "LIFECYCLE_DEMOTION_INVALID" => {
+            "Adapter demotion failed. Check if the adapter is in use.".to_string()
+        }
+        "ADAPTER_IN_USE" => {
+            "Adapter is in use by an active stack. Remove it from stacks first.".to_string()
+        }
 
         // -- Fallback --
         _ => {

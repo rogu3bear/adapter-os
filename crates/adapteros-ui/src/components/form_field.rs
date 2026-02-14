@@ -150,7 +150,7 @@ pub fn FormField(
             {error.map(|signal| {
                 let error_id = error_id.clone();
                 view! {
-                    {move || signal.get().map(|text| view! {
+                    {move || signal.try_get().flatten().map(|text| view! {
                         <p id=error_id.clone() class="form-field-error" role="alert">{text}</p>
                     })}
                 }

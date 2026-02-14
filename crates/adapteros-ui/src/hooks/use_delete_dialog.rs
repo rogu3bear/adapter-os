@@ -38,7 +38,7 @@
 use leptos::prelude::*;
 
 /// State for a delete confirmation dialog
-#[derive(Clone)]
+#[derive(Clone, Copy)]
 pub struct DeleteDialogState {
     /// Whether the dialog is visible
     pub show: RwSignal<bool>,

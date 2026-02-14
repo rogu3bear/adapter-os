@@ -1,5 +1,6 @@
 //! 404 Not Found page
 
+use crate::components::Card;
 use leptos::prelude::*;
 use leptos_router::hooks::use_location;
 
@@ -53,7 +54,7 @@ pub fn NotFound() -> impl IntoView {
 
     view! {
         <div class="flex min-h-[60vh] flex-col items-center justify-center px-4">
-            <div class="card p-8 max-w-md w-full text-center">
+            <Card class="p-8 max-w-md w-full text-center">
                 <div class="text-6xl font-bold text-muted-foreground mb-2">"404"</div>
                 <h1 class="heading-2 mb-2">"Page not found"</h1>
                 <p class="text-muted-foreground mb-6">
@@ -92,7 +93,7 @@ pub fn NotFound() -> impl IntoView {
                         "Go to Dashboard"
                     </a>
                 </div>
-            </div>
+            </Card>
         </div>
     }
 }

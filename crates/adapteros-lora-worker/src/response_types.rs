@@ -1,15 +1,12 @@
 //! Response types for inference and patch proposals.
 //!
 //! This module contains all response-related types including:
-//! - InferenceResponse: Main response structure for inference
-//! - InferenceErrorDetails: Typed error information
 //! - PatchProposalResponse: Response for patch proposal requests
 //! - ResponseTrace: Trace information with evidence and router decisions
 //! - Various supporting types for telemetry and tracing
 
-use adapteros_api_types::{inference::FusionIntervalTrace, RunReceipt};
+use adapteros_api_types::inference::FusionIntervalTrace;
 use adapteros_core::B3Hash;
-use adapteros_policy::RefusalResponse;
 use serde::{Deserialize, Serialize};
 
 /// Placement decision trace entry
@@ -46,41 +43,6 @@ pub struct CoremlVerificationSnapshot {
     pub mismatch: bool,
 }
 
-/// Structured error details for inference failures
-///
-/// This enum provides typed error information for specific failure modes,
-/// allowing clients to programmatically handle different error cases.
-#[derive(Debug, Clone, Serialize, Deserialize, PartialEq, Eq)]
-#[serde(tag = "type")]
-pub enum InferenceErrorDetails {
-    /// Model cache budget exceeded during eviction
-    ///
-    /// This error occurs when the model cache cannot free enough memory
-    /// to accommodate a new model load, typically because entries are
-    /// pinned (base models) or active (in-flight inference).
-    #[serde(rename = "cache_budget_exceeded")]
-    CacheBudgetExceeded {
-        /// Memory needed in megabytes
-        needed_mb: u64,
-        /// Memory freed during eviction attempt in megabytes
-        freed_mb: u64,
-        /// Number of pinned entries that blocked eviction
-        pinned_count: usize,
-        /// Number of active entries that blocked eviction
-        active_count: usize,
-        /// Maximum cache budget in megabytes
-        max_mb: u64,
-        /// Optional model key identifier (for diagnostics)
-        model_key: Option<String>,
-    },
-    /// Generic worker error (fallback for unstructured errors)
-    #[serde(rename = "worker_error")]
-    WorkerError {
-        /// Error message
-        message: String,
-    },
-}
-
 /// Token usage computed by the worker tokenizer.
 #[derive(Debug, Clone, Serialize, Deserialize)]
 pub struct TokenUsage {
@@ -88,116 +50,6 @@ pub struct TokenUsage {
     pub completion_tokens: u32,
     pub billed_input_tokens: u32,
     pub billed_output_tokens: u32,
-}
-
-/// Inference response
-#[derive(Debug, Clone, Serialize, Deserialize)]
-pub struct InferenceResponse {
-    pub text: Option<String>,
-    pub status: String,
-    pub trace: ResponseTrace,
-    #[serde(default, skip_serializing_if = "Option::is_none")]
-    pub run_receipt: Option<RunReceipt>,
-    #[serde(default, skip_serializing_if = "Option::is_none")]
-    pub token_usage: Option<TokenUsage>,
-    #[serde(skip_serializing_if = "Option::is_none")]
-    pub refusal: Option<RefusalResponse>,
-    /// Patch proposal if requested
-    #[serde(skip_serializing_if = "Option::is_none")]
-    pub patch_proposal: Option<PatchProposalResponse>,
-    /// Stack ID for telemetry correlation
-    #[serde(default, skip_serializing_if = "Option::is_none")]
-    pub stack_id: Option<String>,
-    /// Stack version for telemetry correlation
-    #[serde(default, skip_serializing_if = "Option::is_none")]
-    pub stack_version: Option<i64>,
-    /// Normalized backend identifier for deterministic responses.
-    ///
-    /// This field contains a canonical identifier that is consistent across
-    /// hardware configurations to enable deterministic replay/comparison:
-    /// - `"native"` for MLX variants (mlx, mlxbridge)
-    /// - `"accelerated"` for Apple hardware acceleration (coreml, metal)
-    /// - `"cpu"` for CPU-only execution
-    ///
-    /// Use `backend_raw` for observability/telemetry when the actual backend matters.
-    #[serde(default, skip_serializing_if = "Option::is_none")]
-    pub backend_used: Option<String>,
-    /// Raw backend identifier for telemetry/observability.
-    ///
-    /// Contains the device-specific backend name (e.g., "mlx", "coreml", "metal")
-    /// for debugging and telemetry purposes. For deterministic comparison, use
-    /// the normalized `backend_used` field instead.
-    #[serde(default, skip_serializing_if = "Option::is_none")]
-    pub backend_raw: Option<String>,
-    /// Backend version/build identifier (e.g., crate/FFI version)
-    #[serde(default, skip_serializing_if = "Option::is_none")]
-    pub backend_version: Option<String>,
-    /// Whether backend fallback occurred during execution
-    #[serde(default)]
-    pub fallback_triggered: bool,
-    /// Requested CoreML compute preference (if applicable)
-    #[serde(default, skip_serializing_if = "Option::is_none")]
-    pub coreml_compute_preference: Option<String>,
-    /// CoreML compute units actually used (if applicable)
-    #[serde(default, skip_serializing_if = "Option::is_none")]
-    pub coreml_compute_units: Option<String>,
-    /// Whether CoreML leveraged GPU for this inference (if applicable)
-    #[serde(default, skip_serializing_if = "Option::is_none")]
-    pub coreml_gpu_used: Option<bool>,
-    /// Hash of the fused CoreML package manifest used (if applicable)
-    #[serde(default, skip_serializing_if = "Option::is_none")]
-    pub coreml_package_hash: Option<String>,
-    /// Expected hash used for verification, if available.
-    #[serde(default, skip_serializing_if = "Option::is_none")]
-    pub coreml_expected_package_hash: Option<String>,
-    /// Whether the computed hash mismatched the expected value.
-    #[serde(default, skip_serializing_if = "Option::is_none")]
-    pub coreml_hash_mismatch: Option<bool>,
-    /// Backend selected after fallback (if different from requested)
-    #[serde(default, skip_serializing_if = "Option::is_none")]
-    pub fallback_backend: Option<String>,
-    /// Determinism mode applied after resolution
-    #[serde(default, skip_serializing_if = "Option::is_none")]
-    pub determinism_mode_applied: Option<String>,
-    /// Pinned adapters that were unavailable (CHAT-PIN-02)
-    ///
-    /// These are pinned adapter IDs that were not present in the worker's
-    /// loaded adapter set (manifest.adapters). Returned for UI warning display.
-    #[serde(default, skip_serializing_if = "Option::is_none")]
-    pub unavailable_pinned_adapters: Option<Vec<String>>,
-    /// Routing fallback mode when pinned adapters are unavailable (PRD-6A)
-    ///
-    /// - `None`: All pinned adapters were available (or no pins configured)
-    /// - `Some("partial")`: Some pinned adapters unavailable, using available pins + stack
-    /// - `Some("stack_only")`: All pinned adapters unavailable, routing uses stack only
-    #[serde(default, skip_serializing_if = "Option::is_none")]
-    pub pinned_routing_fallback: Option<String>,
-    /// Evidence-bound pinned degradation (counts + digest, no raw IDs).
-    ///
-    /// Only populated when pinned adapters are unavailable at execution time.
-    #[serde(default, skip_serializing_if = "Option::is_none")]
-    pub pinned_degradation_evidence: Option<adapteros_core::PinnedDegradationEvidence>,
-    /// Placement decisions per token (optional)
-    #[serde(default, skip_serializing_if = "Option::is_none")]
-    pub placement_trace: Option<Vec<PlacementTraceEntry>>,
-
-    // Stop Controller Fields (PRD: Hard Deterministic Stop Controller)
-    /// Stop reason code explaining why generation terminated
-    #[serde(default, skip_serializing_if = "Option::is_none")]
-    pub stop_reason_code: Option<adapteros_api_types::inference::StopReasonCode>,
-    /// Token index at which the stop decision was made
-    #[serde(default, skip_serializing_if = "Option::is_none")]
-    pub stop_reason_token_index: Option<u32>,
-    /// BLAKE3 digest of the StopPolicySpec used (hex encoded)
-    #[serde(default, skip_serializing_if = "Option::is_none")]
-    pub stop_policy_digest_b3: Option<String>,
-
-    /// Structured error details when status indicates failure
-    ///
-    /// Contains typed error information for specific failure modes.
-    /// This field is `None` for successful responses or unstructured errors.
-    #[serde(default, skip_serializing_if = "Option::is_none")]
-    pub error_details: Option<InferenceErrorDetails>,
 }
 
 /// Token payload for streaming inference.

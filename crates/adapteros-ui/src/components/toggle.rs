@@ -23,7 +23,7 @@ pub fn Toggle(
         StoredValue::new(id.unwrap_or_else(|| format!("toggle-{}", uuid::Uuid::new_v4())));
 
     let toggle = move |_| {
-        if !disabled.get() {
+        if !disabled.try_get().unwrap_or(false) {
             checked.update(|v| *v = !*v);
         }
     };
@@ -50,12 +50,12 @@ pub fn Toggle(
                 type="button"
                 id=button_id.get_value()
                 role="switch"
-                aria-checked=move || checked.get().to_string()
+                aria-checked=move || checked.try_get().unwrap_or(false).to_string()
                 aria-label=effective_aria_label
-                disabled=move || disabled.get()
+                disabled=move || disabled.try_get().unwrap_or(false)
                 class=move || {
                     let base = "toggle";
-                    let state = if checked.get() { "toggle-on" } else { "toggle-off" };
+                    let state = if checked.try_get().unwrap_or(false) { "toggle-on" } else { "toggle-off" };
                     format!("{} {}", base, state)
                 }
                 on:click=toggle
@@ -63,7 +63,7 @@ pub fn Toggle(
                 <span
                     class=move || {
                         let base = "toggle-thumb";
-                        let state = if checked.get() {
+                        let state = if checked.try_get().unwrap_or(false) {
                             "toggle-thumb-on"
                         } else {
                             "toggle-thumb-off"
@@ -110,10 +110,10 @@ pub fn Select(
                 id=input_id
                 name=name
                 class=full_class
-                disabled=move || disabled.get()
+                disabled=move || disabled.try_get().unwrap_or(false)
                 aria-describedby=described_by
                 aria-label=effective_aria_label
-                prop:value=move || value.get()
+                prop:value=move || value.try_get().unwrap_or_default()
                 on:change=move |ev| {
                     let next = event_target_value(&ev);
                     value.set(next.clone());
@@ -125,7 +125,7 @@ pub fn Select(
                 {options.into_iter().map(|(val, label)| {
                     let val_clone = val.clone();
                     view! {
-                        <option value=val selected=move || value.get() == val_clone>
+                        <option value=val selected=move || value.try_get().unwrap_or_default() == val_clone>
                             {label}
                         </option>
                     }

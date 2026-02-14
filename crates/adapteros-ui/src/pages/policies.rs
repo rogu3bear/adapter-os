@@ -4,9 +4,8 @@
 
 use crate::api::client::{ApiClient, PolicyPackResponse, PolicyValidationResponse};
 use crate::components::{
-    Badge, BadgeVariant, Button, ButtonVariant, Card, EmptyState, EmptyStateVariant, ErrorDisplay,
-    Input, PageBreadcrumbItem, PageScaffold, PageScaffoldActions, SkeletonTable, Spinner,
-    SplitPanel, Table, TableBody, TableCell, TableHead, TableHeader, TableRow, Textarea,
+    Badge, BadgeVariant, Button, ButtonVariant, Card, Column, DataTable, ErrorDisplay, Input, Link,
+    PageBreadcrumbItem, PageScaffold, PageScaffoldActions, Spinner, SplitPanel, Textarea,
 };
 use crate::constants::urls::docs_link;
 use crate::hooks::{use_api_resource, use_scope_alive, LoadingState};
@@ -132,34 +131,73 @@ pub fn Policies() -> impl IntoView {
                             }}
 
                             // Policy list
-                            {move || {
-                                match policies.try_get().unwrap_or_default() {
-                                    LoadingState::Idle | LoadingState::Loading => {
+                            {
+                                let columns: Vec<Column<PolicyPackResponse>> = vec![
+                                    Column::custom("CPID", |p: &PolicyPackResponse| {
+                                        let cpid = p.cpid.clone();
                                         view! {
-                                            <Card>
-                                                <SkeletonTable rows=5 columns=3/>
-                                            </Card>
-                                        }.into_any()
-                                    }
-                                    LoadingState::Loaded(data) => {
+                                            <p class="font-medium font-mono text-sm">{cpid}</p>
+                                        }
+                                    }),
+                                    Column::custom("Hash", |p: &PolicyPackResponse| {
+                                        let hash = p.hash_b3.chars().take(12).collect::<String>();
                                         view! {
-                                            <PolicyList
-                                                policies=data
-                                                selected_cpid=selected_cpid
-                                                on_select=on_policy_select
-                                            />
-                                        }.into_any()
-                                    }
-                                    LoadingState::Error(e) => {
+                                            <span class="text-xs font-mono text-muted-foreground">
+                                                {hash}"..."
+                                            </span>
+                                        }
+                                    }),
+                                    Column::custom("Created", |p: &PolicyPackResponse| {
+                                        let created = format_datetime(&p.created_at);
                                         view! {
-                                            <ErrorDisplay
-                                                error=e
-                                                on_retry=Callback::new(move |_| refetch_policies.run(()))
-                                            />
-                                        }.into_any()
-                                    }
+                                            <span class="text-sm text-muted-foreground">{created}</span>
+                                        }
+                                    }),
+                                ];
+
+                                let row_class = {
+                                    let selected_cpid = selected_cpid;
+                                    Arc::new(move |p: &PolicyPackResponse| {
+                                        if selected_cpid.try_get().flatten().as_ref() == Some(&p.cpid) {
+                                            "bg-muted".to_string()
+                                        } else {
+                                            String::new()
+                                        }
+                                    })
+                                };
+
+                                let on_row_click = Callback::new(move |p: PolicyPackResponse| {
+                                    on_policy_select(p.cpid);
+                                });
+
+                                view! {
+                                    <div class="space-y-2">
+                                        <DataTable
+                                            data=policies
+                                            columns=columns
+                                            on_retry=Callback::new(move |_| refetch_policies.run(()))
+                                            empty_title="No policy packs found"
+                                            empty_description="Policy packs define enforcement rules for inference. Create a policy pack to control model behavior."
+                                            on_row_click=on_row_click
+                                            row_class=row_class
+                                        />
+                                        {move || match policies.get() {
+                                            LoadingState::Loaded(items) if items.is_empty() => view! {
+                                                <div class="text-sm text-muted-foreground text-center">
+                                                    <Link
+                                                        href=docs_link("policies")
+                                                        target="_blank"
+                                                        rel="noopener noreferrer"
+                                                    >
+                                                        "Learn about Policies"
+                                                    </Link>
+                                                </div>
+                                            }.into_any(),
+                                            _ => view! {}.into_any(),
+                                        }}
+                                    </div>
                                 }
-                            }}
+                            }
                         </div>
                     }
                 }
@@ -176,77 +214,6 @@ pub fn Policies() -> impl IntoView {
             />
         </PageScaffold>
     }
-}
-
-/// Policy list component
-#[component]
-fn PolicyList(
-    policies: Vec<PolicyPackResponse>,
-    selected_cpid: RwSignal<Option<String>>,
-    on_select: impl Fn(String) + Copy + Send + 'static,
-) -> impl IntoView {
-    if policies.is_empty() {
-        return view! {
-            <Card>
-                <EmptyState
-                    variant=EmptyStateVariant::Empty
-                    title="No policy packs found"
-                    description="Policy packs define enforcement rules for inference. Create a policy pack to control model behavior."
-                    secondary_label="Learn about Policies"
-                    secondary_href=docs_link("policies")
-                />
-            </Card>
-        }
-        .into_any();
-    }
-
-    view! {
-        <Card>
-            <Table>
-                <TableHeader>
-                    <TableRow>
-                        <TableHead>"CPID"</TableHead>
-                        <TableHead>"Hash"</TableHead>
-                        <TableHead>"Created"</TableHead>
-                    </TableRow>
-                </TableHeader>
-                <TableBody>
-                    {policies
-                        .into_iter()
-                        .map(|policy| {
-                            let cpid = policy.cpid.clone();
-                            let cpid_for_click = cpid.clone();
-
-                            view! {
-                                <tr
-                                    class="border-b transition-colors hover:bg-muted/50 cursor-pointer"
-                                    class:bg-muted=move || selected_cpid.try_get().flatten().as_ref() == Some(&cpid)
-                                    on:click=move |_| on_select(cpid_for_click.clone())
-                                >
-                                    <TableCell>
-                                        <div>
-                                            <p class="font-medium font-mono text-sm">{policy.cpid.clone()}</p>
-                                        </div>
-                                    </TableCell>
-                                    <TableCell>
-                                        <span class="text-xs font-mono text-muted-foreground">
-                                            {policy.hash_b3.chars().take(12).collect::<String>()}"..."
-                                        </span>
-                                    </TableCell>
-                                    <TableCell>
-                                        <span class="text-sm text-muted-foreground">
-                                            {format_datetime(&policy.created_at)}
-                                        </span>
-                                    </TableCell>
-                                </tr>
-                            }
-                        })
-                        .collect::<Vec<_>>()}
-                </TableBody>
-            </Table>
-        </Card>
-    }
-    .into_any()
 }
 
 /// Policy detail panel

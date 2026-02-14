@@ -124,8 +124,8 @@ pub use adapteros_infra_common::{
     extract_repo_identifier_from_metadata, gb_to_bytes, kb_to_bytes, l2_norm, mb_to_bytes,
     normalize, normalize_path_segments, normalize_repo_id, normalize_repo_slug, sanitize_optional,
     sanitize_repo_identifier, sanitize_repo_slug, validate_seed_bytes, validate_seed_bytes_soft,
-    AdapterName, B3Hash, ForkType, StackName, BYTES_PER_GB, BYTES_PER_KB, BYTES_PER_MB, CPID,
-    DEFAULT_TIMEOUT_SECS, EPS as VECTOR_EPS, Q15_GATE_DENOMINATOR, SLOW_TIMEOUT_SECS,
+    B3Hash, BYTES_PER_GB, BYTES_PER_KB, BYTES_PER_MB, CPID, DEFAULT_TIMEOUT_SECS,
+    EPS as VECTOR_EPS, Q15_GATE_DENOMINATOR, SLOW_TIMEOUT_SECS,
 };
 pub use backend::BackendKind;
 pub use build_info::BuildInfo;
@@ -141,7 +141,8 @@ pub use codebase_versioning::{
     MIN_VERSIONING_THRESHOLD,
 };
 pub use model_format::{discover_model_dirs, ModelFormat};
-pub use model_import_status::ModelImportStatus; // For kb_to_bytes etc if I moved them correctly
+pub use model_import_status::ModelImportStatus;
+pub use naming::{AdapterName, ForkType, StackName};
 
 pub use context_manifest::{
     ContextAdapterEntry, ContextAdapterEntryV1, ContextManifest, ContextManifestV1,

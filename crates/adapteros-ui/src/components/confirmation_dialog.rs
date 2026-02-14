@@ -171,12 +171,16 @@ pub fn ConfirmationDialog(
     let can_confirm = {
         let typed_confirmation = typed_confirmation.clone();
         Memo::new(move |_| match (&severity, &typed_confirmation) {
-            (ConfirmationSeverity::Destructive, Some(required)) => typed_input.get() == *required,
+            (ConfirmationSeverity::Destructive, Some(required)) => {
+                typed_input.try_get().unwrap_or_default() == *required
+            }
             _ => true,
         })
     };
 
-    let disabled = Signal::derive(move || !can_confirm.get() || loading.get());
+    let disabled = Signal::derive(move || {
+        !can_confirm.try_get().unwrap_or(false) || loading.try_get().unwrap_or(false)
+    });
 
     // Close handler that also calls on_cancel callback
     let handle_close = {
@@ -190,13 +194,13 @@ pub fn ConfirmationDialog(
     };
 
     let handle_cancel = move |_| {
-        if !loading.get() {
+        if !loading.try_get().unwrap_or(false) {
             handle_close();
         }
     };
 
     let handle_confirm = move |_| {
-        if can_confirm.get() && !loading.get() {
+        if can_confirm.try_get().unwrap_or(false) && !loading.try_get().unwrap_or(false) {
             on_confirm.run(());
         }
     };
@@ -295,7 +299,7 @@ pub fn ConfirmationDialog(
                                         type="text"
                                         class="input"
                                         placeholder=format!("Type {} to confirm", confirm_phrase)
-                                        prop:value=move || typed_input.get()
+                                        prop:value=move || typed_input.try_get().unwrap_or_default()
                                         on:input=move |ev| {
                                             typed_input.set(event_target_value(&ev));
                                         }
