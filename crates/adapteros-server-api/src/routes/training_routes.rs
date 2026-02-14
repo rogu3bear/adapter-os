@@ -45,7 +45,10 @@ pub fn training_routes() -> Router<AppState> {
             "/v1/training/jobs/{job_id}",
             get(handlers::get_training_job),
         )
-        .route("/v1/training/start", post(handlers::start_training))
+        .route(
+            "/v1/training/start",
+            post(handlers::training::start_training),
+        )
         .route(
             "/v1/training/repos/{repo_id}/versions/{version_id}/promote",
             post(handlers::promote_version),

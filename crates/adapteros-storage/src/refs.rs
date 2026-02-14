@@ -26,7 +26,6 @@ use crate::adapter_refs::{AdapterLayout, AdapterName, AdapterRef};
 use crate::error::StorageError;
 use async_trait::async_trait;
 use std::path::{Path, PathBuf};
-use tokio::fs;
 use tracing::{debug, warn};
 
 /// Trait for ref storage operations
@@ -130,14 +129,16 @@ impl FsRefStore {
             .map(|s| s.to_string())
     }
 
-    /// Ensure the refs directory exists
+    /// Ensure the refs directory exists.
+    /// Uses std::fs (synchronous) to avoid deadlocks when called from the
+    /// deterministic executor whose tight poll loop starves tokio::spawn_blocking.
     async fn ensure_refs_dir(
         &self,
         adapter: &AdapterName,
         tenant_id: &str,
     ) -> Result<(), StorageError> {
         let refs_dir = self.refs_dir(adapter, tenant_id);
-        fs::create_dir_all(&refs_dir).await.map_err(|e| {
+        std::fs::create_dir_all(&refs_dir).map_err(|e| {
             StorageError::IoError(std::io::Error::new(
                 e.kind(),
                 format!("Failed to create refs dir {}: {}", refs_dir.display(), e),
@@ -157,11 +158,13 @@ impl RefStore for FsRefStore {
     ) -> Result<Option<String>, StorageError> {
         let ref_path = self.ref_path(adapter, tenant_id, ref_name);
 
-        // Check if ref exists and is a symlink
-        match fs::symlink_metadata(&ref_path).await {
+        // Check if ref exists and is a symlink.
+        // Uses std::fs (synchronous) to avoid deadlocks when called from the
+        // deterministic executor whose tight poll loop starves tokio::spawn_blocking.
+        match std::fs::symlink_metadata(&ref_path) {
             Ok(meta) if meta.file_type().is_symlink() => {
                 // Read the symlink target
-                let target = fs::read_link(&ref_path).await.map_err(|e| {
+                let target = std::fs::read_link(&ref_path).map_err(|e| {
                     StorageError::IoError(std::io::Error::new(
                         e.kind(),
                         format!("Failed to read symlink {}: {}", ref_path.display(), e),
@@ -174,7 +177,7 @@ impl RefStore for FsRefStore {
             Ok(_) => {
                 // Not a symlink - might be a regular file with hash content
                 // Support both symlinks (preferred) and plain files (fallback)
-                match fs::read_to_string(&ref_path).await {
+                match std::fs::read_to_string(&ref_path) {
                     Ok(content) => Ok(Some(content.trim().to_string())),
                     Err(e) => {
                         warn!(
@@ -232,7 +235,7 @@ impl RefStore for FsRefStore {
         #[cfg(not(unix))]
         {
             // On non-Unix, fall back to writing hash to a file
-            fs::write(&temp_path, target_hash).await.map_err(|e| {
+            std::fs::write(&temp_path, target_hash).map_err(|e| {
                 StorageError::IoError(std::io::Error::new(
                     e.kind(),
                     format!(
@@ -244,8 +247,10 @@ impl RefStore for FsRefStore {
             })?;
         }
 
-        // Atomic rename temp to final
-        fs::rename(&temp_path, &ref_path).await.map_err(|e| {
+        // Atomic rename temp to final.
+        // Uses std::fs (synchronous) to avoid deadlocks when called from the
+        // deterministic executor whose tight poll loop starves tokio::spawn_blocking.
+        std::fs::rename(&temp_path, &ref_path).map_err(|e| {
             // Try to clean up temp file
             let _ = std::fs::remove_file(&temp_path);
             StorageError::IoError(std::io::Error::new(
@@ -278,7 +283,7 @@ impl RefStore for FsRefStore {
     ) -> Result<bool, StorageError> {
         let ref_path = self.ref_path(adapter, tenant_id, ref_name);
 
-        match fs::remove_file(&ref_path).await {
+        match std::fs::remove_file(&ref_path) {
             Ok(()) => {
                 debug!(
                     adapter = %adapter,
@@ -309,23 +314,24 @@ impl RefStore for FsRefStore {
         }
 
         let mut refs = Vec::new();
-        let mut entries = fs::read_dir(&refs_dir).await.map_err(|e| {
+        let entries = std::fs::read_dir(&refs_dir).map_err(|e| {
             StorageError::IoError(std::io::Error::new(
                 e.kind(),
                 format!("Failed to read refs dir {}: {}", refs_dir.display(), e),
             ))
         })?;
 
-        while let Some(entry) = entries.next_entry().await.map_err(|e| {
-            StorageError::IoError(std::io::Error::new(
-                e.kind(),
-                format!(
-                    "Failed to read entry in refs dir {}: {}",
-                    refs_dir.display(),
-                    e
-                ),
-            ))
-        })? {
+        for entry_result in entries {
+            let entry = entry_result.map_err(|e| {
+                StorageError::IoError(std::io::Error::new(
+                    e.kind(),
+                    format!(
+                        "Failed to read entry in refs dir {}: {}",
+                        refs_dir.display(),
+                        e
+                    ),
+                ))
+            })?;
             let path = entry.path();
             let ref_name = match path.file_name().and_then(|n| n.to_str()) {
                 Some(n) => n.to_string(),
@@ -340,7 +346,7 @@ impl RefStore for FsRefStore {
             // Get target hash
             if let Some(target_hash) = self.get_ref(adapter, tenant_id, &ref_name).await? {
                 // Get modification time
-                let updated_at = match fs::metadata(&path).await {
+                let updated_at = match std::fs::metadata(&path) {
                     Ok(meta) => meta
                         .modified()
                         .ok()

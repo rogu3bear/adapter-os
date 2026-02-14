@@ -15,7 +15,7 @@ use crate::hooks::{
     use_api, use_api_resource, use_conditional_polling, use_delete_dialog, LoadingState,
 };
 use crate::signals::{try_use_route_context, SelectedEntity};
-use crate::utils::format_bytes;
+use crate::utils::{format_bytes, format_datetime, format_relative_time};
 use leptos::prelude::*;
 use leptos_router::hooks::{use_navigate, use_params_map};
 use serde::Deserialize;
@@ -468,7 +468,7 @@ fn DocumentsList(
                             let size = format_bytes(doc.size_bytes);
                             let chunks = doc.chunk_count.map(|c| c.to_string()).unwrap_or_else(|| "-".to_string());
                             let mime = doc.mime_type.clone();
-                            let created = doc.created_at.clone();
+                            let created = format_relative_time(&doc.created_at);
                             let error = doc.error_message.clone();
                             let delete_state = delete_state_for_rows.clone();
                             let client = Arc::clone(&client);
@@ -653,10 +653,11 @@ fn DocumentsList(
 /// Document upload dialog with validation and progress.
 #[component]
 fn DocumentUploadDialog(open: RwSignal<bool>, on_success: Callback<String>) -> impl IntoView {
-    const MAX_FILE_SIZE: u64 = 50 * 1024 * 1024;
+    const MAX_FILE_SIZE: u64 = 100 * 1024 * 1024;
 
     #[cfg(target_arch = "wasm32")]
-    const SUPPORTED_EXTENSIONS: &[&str] = &[".pdf", ".txt", ".md"];
+    // Keep in sync with backend `detect_document_kind()` (.md and .markdown are both supported).
+    const SUPPORTED_EXTENSIONS: &[&str] = &[".pdf", ".txt", ".md", ".markdown"];
 
     let uploading = RwSignal::new(false);
     let error_msg = RwSignal::new(None::<String>);
@@ -711,6 +712,7 @@ fn DocumentUploadDialog(open: RwSignal<bool>, on_success: Callback<String>) -> i
                     selected_file_name.set(None);
                     selected_file_size.set(None);
                     file_ref.set(None);
+                    input.set_value("");
                     return;
                 }
 
@@ -725,6 +727,7 @@ fn DocumentUploadDialog(open: RwSignal<bool>, on_success: Callback<String>) -> i
                     selected_file_name.set(None);
                     selected_file_size.set(None);
                     file_ref.set(None);
+                    input.set_value("");
                     return;
                 }
 
@@ -732,6 +735,7 @@ fn DocumentUploadDialog(open: RwSignal<bool>, on_success: Callback<String>) -> i
                 selected_file_name.set(Some(name));
                 selected_file_size.set(Some(size));
                 file_ref.set(Some(SendWrapper::new(file)));
+                input.set_value("");
             }
         }
     };
@@ -791,13 +795,13 @@ fn DocumentUploadDialog(open: RwSignal<bool>, on_success: Callback<String>) -> i
                     <label class="text-sm font-medium">"File"</label>
                     <input
                         type="file"
-                        accept=".pdf,.txt,.md"
+                        accept=".pdf,.txt,.md,.markdown"
                         class="block w-full text-sm"
                         disabled=move || uploading.try_get().unwrap_or(false)
                         on:change=handle_file_change
                     />
                     <p class="text-xs text-muted-foreground">
-                        "Supported: PDF, TXT, Markdown, HTML, JSON, JSONL · Max 50 MB"
+                        "Supported: PDF, TXT, Markdown · Max 100 MB"
                     </p>
                     {move || selected_file_name.try_get().flatten().map(|name| {
                         let size = selected_file_size.try_get().flatten().unwrap_or_default();
@@ -1431,19 +1435,19 @@ fn DocumentDetailContent(
             <div class="grid gap-4 md:grid-cols-4">
                 <div>
                     <p class="text-sm text-muted-foreground">"Created At"</p>
-                    <p class="font-medium">{document.created_at.clone()}</p>
+                    <p class="font-medium">{format_datetime(&document.created_at)}</p>
                 </div>
                 <div>
                     <p class="text-sm text-muted-foreground">"Updated At"</p>
-                    <p class="font-medium">{document.updated_at.clone().unwrap_or_else(|| "-".to_string())}</p>
+                    <p class="font-medium">{document.updated_at.as_deref().map(|t| format_datetime(t)).unwrap_or_else(|| "-".to_string())}</p>
                 </div>
                 <div>
                     <p class="text-sm text-muted-foreground">"Processing Started"</p>
-                    <p class="font-medium">{document.processing_started_at.clone().unwrap_or_else(|| "-".to_string())}</p>
+                    <p class="font-medium">{document.processing_started_at.as_deref().map(|t| format_datetime(t)).unwrap_or_else(|| "-".to_string())}</p>
                 </div>
                 <div>
                     <p class="text-sm text-muted-foreground">"Processing Completed"</p>
-                    <p class="font-medium">{document.processing_completed_at.clone().unwrap_or_else(|| "-".to_string())}</p>
+                    <p class="font-medium">{document.processing_completed_at.as_deref().map(|t| format_datetime(t)).unwrap_or_else(|| "-".to_string())}</p>
                 </div>
             </div>
         </Card>

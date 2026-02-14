@@ -237,7 +237,10 @@ async fn test_seed_dev_data_ensures_local_node_even_when_users_exist() -> Result
     let local_exists: i64 = sqlx::query_scalar("SELECT COUNT(*) FROM nodes WHERE id = 'local'")
         .fetch_one(db.pool())
         .await?;
-    assert_eq!(local_exists, 1, "seed_dev_data should ensure nodes.local exists");
+    assert_eq!(
+        local_exists, 1,
+        "seed_dev_data should ensure nodes.local exists"
+    );
 
     Ok(())
 }

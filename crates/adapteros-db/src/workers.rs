@@ -1524,6 +1524,42 @@ impl Db {
         Ok(count > 0)
     }
 
+    /// Purge terminal workers older than `retention_days`.
+    ///
+    /// Deletes rows from `workers` where status is terminal (`stopped`, `error`,
+    /// `crashed`, `failed`) and the
+    /// last status transition (or last heartbeat, whichever is available) is older
+    /// than `retention_days` days ago.
+    ///
+    /// Cascading foreign keys on `worker_status_history` and `worker_incidents`
+    /// handle related row cleanup automatically.
+    ///
+    /// Returns the number of deleted rows.
+    pub async fn purge_terminal_workers(&self, retention_days: u32) -> Result<u64> {
+        let cutoff = format!("-{} days", retention_days);
+
+        let result = sqlx::query(
+            "DELETE FROM workers
+             WHERE status IN ('stopped', 'error', 'crashed', 'failed')
+               AND COALESCE(last_transition_at, last_seen_at, started_at) < datetime('now', ?)",
+        )
+        .bind(&cutoff)
+        .execute(self.pool())
+        .await
+        .map_err(|e| AosError::Database(format!("Failed to purge terminal workers: {}", e)))?;
+
+        let deleted = result.rows_affected();
+        if deleted > 0 {
+            debug!(
+                deleted = deleted,
+                retention_days = retention_days,
+                "Purged terminal workers"
+            );
+        }
+
+        Ok(deleted)
+    }
+
     /// Count invalid transitions for a worker
     pub async fn count_invalid_transitions(&self, worker_id: &str) -> Result<i64> {
         let count = sqlx::query_scalar::<_, i64>(
@@ -1743,5 +1779,82 @@ mod tests {
             let parsed: WorkerIncidentType = s.parse().unwrap();
             assert_eq!(*incident_type, parsed);
         }
+    }
+
+    #[tokio::test]
+    async fn purge_terminal_workers_deletes_crashed_and_failed() {
+        let db = Db::new_in_memory().await.expect("db init should succeed");
+
+        sqlx::query(
+            "INSERT OR IGNORE INTO tenants (id, name, created_at)
+             VALUES ('default', 'default', datetime('now'))",
+        )
+        .execute(db.pool())
+        .await
+        .expect("tenant insert should succeed");
+
+        sqlx::query(
+            "INSERT OR IGNORE INTO nodes (id, hostname, agent_endpoint, status, last_seen_at, labels_json, created_at)
+             VALUES ('node-01', 'test-host', 'http://localhost:9000', 'active', datetime('now'), '{}', datetime('now'))",
+        )
+        .execute(db.pool())
+        .await
+        .expect("node insert should succeed");
+
+        sqlx::query(
+            "INSERT OR IGNORE INTO manifests (id, tenant_id, hash_b3, body_json)
+             VALUES ('test-manifest-id', 'default', 'test-manifest-hash', '{}')",
+        )
+        .execute(db.pool())
+        .await
+        .expect("manifest insert should succeed");
+
+        sqlx::query(
+            "INSERT OR IGNORE INTO plans (id, tenant_id, plan_id_b3, manifest_hash_b3, kernel_hashes_json, layout_hash_b3)
+             VALUES ('test-plan', 'default', 'test-plan-hash', 'test-manifest-hash', '{}', 'layout-hash')",
+        )
+        .execute(db.pool())
+        .await
+        .expect("plan insert should succeed");
+
+        sqlx::query(
+            "INSERT INTO workers
+             (id, tenant_id, node_id, plan_id, uds_path, pid, status, manifest_hash_b3, schema_version, api_version, started_at, registered_at, last_transition_at)
+             VALUES
+             ('worker-crashed', 'default', 'node-01', 'test-plan', '/var/run/crashed.sock', 1001, 'crashed', 'test-manifest-hash', '1.0.0', '1.0.0', datetime('now', '-30 days'), datetime('now', '-30 days'), datetime('now', '-30 days')),
+             ('worker-failed', 'default', 'node-01', 'test-plan', '/var/run/failed.sock', 1002, 'failed', 'test-manifest-hash', '1.0.0', '1.0.0', datetime('now', '-30 days'), datetime('now', '-30 days'), datetime('now', '-30 days')),
+             ('worker-healthy', 'default', 'node-01', 'test-plan', '/var/run/healthy.sock', 1003, 'healthy', 'test-manifest-hash', '1.0.0', '1.0.0', datetime('now', '-30 days'), datetime('now', '-30 days'), datetime('now', '-30 days'))",
+        )
+        .execute(db.pool())
+        .await
+        .expect("worker insert should succeed");
+
+        let deleted = db
+            .purge_terminal_workers(7)
+            .await
+            .expect("purge should succeed");
+        assert_eq!(deleted, 2, "crashed and failed workers should be purged");
+
+        let crashed_count = sqlx::query_scalar::<_, i64>(
+            "SELECT COUNT(*) FROM workers WHERE id = 'worker-crashed'",
+        )
+        .fetch_one(db.pool())
+        .await
+        .expect("query should succeed");
+        let failed_count =
+            sqlx::query_scalar::<_, i64>("SELECT COUNT(*) FROM workers WHERE id = 'worker-failed'")
+                .fetch_one(db.pool())
+                .await
+                .expect("query should succeed");
+        let healthy_count = sqlx::query_scalar::<_, i64>(
+            "SELECT COUNT(*) FROM workers WHERE id = 'worker-healthy'",
+        )
+        .fetch_one(db.pool())
+        .await
+        .expect("query should succeed");
+
+        assert_eq!(crashed_count, 0, "crashed worker should be deleted");
+        assert_eq!(failed_count, 0, "failed worker should be deleted");
+        assert_eq!(healthy_count, 1, "non-terminal worker should remain");
     }
 }

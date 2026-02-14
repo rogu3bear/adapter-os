@@ -22,7 +22,7 @@
 //! - TTL cleanup (prevents DB bloat)
 //! - Log cleanup (prevents disk bloat, reduced frequency in dev)
 //!
-//! ## Production Mode Tasks (17 tasks)
+//! ## Production Mode Tasks (18 tasks)
 //!
 //! 1. Status writer task (5s interval)
 //! 2. KV metrics alert monitor task (5s interval)
@@ -35,12 +35,13 @@
 //! 9. Telemetry bundle GC task (6h interval)
 //! 10. Orphaned training job cleanup task (1h interval)
 //! 11. Stale worker reaper task (60s interval)
-//! 12. Rate limiter eviction task (60s interval)
-//! 13. Inference cache cleanup task (5m interval)
-//! 14. Idempotency store cleanup task (5m interval)
-//! 15. Inference state tracker cleanup task (5m interval)
-//! 16. Telemetry rate limiter cleanup task (60s interval)
-//! 17. Synthetic probe runner (configurable interval, disabled by default)
+//! 12. Terminal worker purge task (1h interval)
+//! 13. Rate limiter eviction task (60s interval)
+//! 14. Inference cache cleanup task (5m interval)
+//! 15. Idempotency store cleanup task (5m interval)
+//! 16. Inference state tracker cleanup task (5m interval)
+//! 17. Telemetry rate limiter cleanup task (60s interval)
+//! 18. Synthetic probe runner (configurable interval, disabled by default)
 //!
 //! Each task uses the `BackgroundTaskSpawner` to integrate with the shutdown coordinator
 //! and task tracking system.
@@ -123,6 +124,12 @@ pub async fn spawn_all_background_tasks(
 ) -> Result<ShutdownCoordinator> {
     // Keep the deterministic executor draining tasks so spawn_deterministic work runs.
     // This loop is intentionally lightweight and exits on shutdown.
+    //
+    // `run_global_executor()` performs at most one pass through the queue per call
+    // (bounded by queue length), then returns so we can yield to tokio's I/O
+    // reactor. Without this yield, async operations inside deterministic tasks
+    // (timers, tokio::fs, RwLock) would never complete on this single-threaded
+    // runtime.
     {
         let mut shutdown_rx = shutdown_coordinator.subscribe_shutdown();
         std::thread::spawn(move || {
@@ -134,6 +141,7 @@ pub async fn spawn_all_background_tasks(
                 let idle_delay = Duration::from_millis(50);
                 loop {
                     tokio::select! {
+                        biased;
                         _ = shutdown_rx.recv() => {
                             info!("Deterministic executor pump received shutdown signal, exiting");
                             break;
@@ -144,6 +152,10 @@ pub async fn spawn_all_background_tasks(
                             }
                         }
                     }
+                    // Yield to the tokio runtime so the I/O reactor can service
+                    // pending wakers (timers, file I/O, locks) before we poll
+                    // the executor again.
+                    tokio::task::yield_now().await;
                     tokio::time::sleep(idle_delay).await;
                 }
             });
@@ -1303,6 +1315,80 @@ pub async fn spawn_all_background_tasks(
             shutdown_coordinator = spawner.into_coordinator();
         } else {
             info!("Stale worker reaper disabled via AOS_STALE_WORKER_REAPER_SECS=0");
+        }
+    }
+
+    // Spawn terminal worker purge task (1h interval)
+    // NOT skipped in dev mode - prevents DB bloat from accumulated terminal workers
+    {
+        let db_clone = db.clone();
+        let retention_days = std::env::var("AOS_WORKER_RETENTION_DAYS")
+            .ok()
+            .and_then(|v| v.parse::<u32>().ok())
+            .unwrap_or(7); // 7 days default
+
+        let interval_secs = std::env::var("AOS_TERMINAL_WORKER_PURGE_SECS")
+            .ok()
+            .and_then(|v| v.parse::<u64>().ok())
+            .unwrap_or(3600); // 1 hour default
+
+        if interval_secs > 0 {
+            let mut spawner = BackgroundTaskSpawner::new(shutdown_coordinator)
+                .with_task_tracker(Arc::clone(&background_tasks));
+            let mut shutdown_rx = spawner.coordinator().subscribe_shutdown();
+            if spawner
+                .spawn_optional(
+                    "Terminal worker purge",
+                    async move {
+                        let mut interval =
+                            tokio::time::interval(Duration::from_secs(interval_secs));
+                        interval.set_missed_tick_behavior(MissedTickBehavior::Skip);
+
+                        loop {
+                            tokio::select! {
+                                biased;
+                                _ = shutdown_rx.recv() => {
+                                    info!("Terminal worker purge received shutdown signal, exiting gracefully");
+                                    break;
+                                }
+                                _ = interval.tick() => {
+                                    match db_clone.purge_terminal_workers(retention_days).await {
+                                        Ok(purged) => {
+                                            if purged > 0 {
+                                                info!(
+                                                    purged,
+                                                    retention_days,
+                                                    "Purged terminal workers older than retention period"
+                                                );
+                                            } else {
+                                                debug!("No terminal workers to purge");
+                                            }
+                                        }
+                                        Err(e) => {
+                                            warn!(
+                                                error = %e,
+                                                retention_days,
+                                                "Failed to purge terminal workers"
+                                            );
+                                        }
+                                    }
+                                }
+                            }
+                        }
+                    },
+                    "Terminal workers may accumulate in database",
+                )
+                .is_ok()
+            {
+                info!(
+                    interval_secs,
+                    retention_days,
+                    "Terminal worker purge task started"
+                );
+            }
+            shutdown_coordinator = spawner.into_coordinator();
+        } else {
+            info!("Terminal worker purge disabled via AOS_TERMINAL_WORKER_PURGE_SECS=0");
         }
     }
 

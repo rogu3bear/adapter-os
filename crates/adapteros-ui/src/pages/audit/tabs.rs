@@ -11,6 +11,7 @@ use crate::components::{
     TableHeader, TableRow,
 };
 use crate::hooks::{use_api_resource, LoadingState};
+use crate::utils::format_datetime;
 use leptos::prelude::*;
 use std::sync::Arc;
 
@@ -147,7 +148,7 @@ fn TimelineRow(entry: AuditLogEntry) -> impl IntoView {
         <TableRow>
             <TableCell>
                 <div>
-                    <p class="text-sm font-mono">{entry.timestamp.clone()}</p>
+                    <p class="text-sm font-mono">{format_datetime(&entry.timestamp)}</p>
                     <p class="text-xs text-muted-foreground font-mono">{entry.id.clone()}</p>
                 </div>
             </TableCell>
@@ -438,7 +439,7 @@ fn ChainEntryRow(entry: AuditChainEntry, is_first: bool) -> impl IntoView {
                         }}
                     </div>
 
-                    <p class="text-xs text-muted-foreground mb-2">{entry.timestamp.clone()}</p>
+                    <p class="text-xs text-muted-foreground mb-2">{format_datetime(&entry.timestamp)}</p>
 
                     // Hash visualization
                     <div class="grid grid-cols-2 gap-4 p-3 bg-muted/30 rounded-md font-mono text-xs">
@@ -1086,7 +1087,7 @@ fn EmbeddingBenchmarkRowView(report: EmbeddingBenchmarkReport) -> impl IntoView 
         <TableRow>
             <TableCell>
                 <div>
-                    <p class="text-sm font-mono">{report.timestamp.clone()}</p>
+                    <p class="text-sm font-mono">{format_datetime(&report.timestamp)}</p>
                     <p class="text-xs text-muted-foreground font-mono">{report.report_id.clone()}</p>
                 </div>
             </TableCell>

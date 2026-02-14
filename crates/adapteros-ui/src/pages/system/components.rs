@@ -22,9 +22,7 @@ use adapteros_api_types::{
 use leptos::prelude::*;
 use std::collections::HashMap;
 
-use super::utils::{
-    format_timestamp, format_uptime, NODES_PAGE_SIZE, TENANTS_PAGE_SIZE, WORKERS_PAGE_SIZE,
-};
+use super::utils::{format_timestamp, format_uptime, NODES_PAGE_SIZE, TENANTS_PAGE_SIZE};
 use crate::components::{IconCheckCircle, IconWarning};
 
 // ============================================================================
@@ -310,200 +308,73 @@ fn StatusOverview(
 }
 
 // ============================================================================
-// Workers Section
+// Workers Summary Section
 // ============================================================================
 
-/// Workers section with table (client-side pagination)
+/// Compact workers summary with status counts and link to /workers
 #[component]
 fn WorkersSection(workers: Vec<WorkerResponse>) -> impl IntoView {
     let total = workers.len();
-    let visible_count = RwSignal::new(WORKERS_PAGE_SIZE);
+    let healthy = workers.iter().filter(|w| w.status == "healthy").count();
+    let draining = workers.iter().filter(|w| w.status == "draining").count();
+    let error = workers.iter().filter(|w| w.status == "error").count();
+    let stopped = workers.iter().filter(|w| w.status == "stopped").count();
+    let other = total - healthy - draining - error - stopped;
 
     view! {
-        <Card title="Workers".to_string() description="Active worker processes and their status".to_string()>
-            {if workers.is_empty() {
+        <Card title="Workers".to_string() description="Worker process overview".to_string()>
+            {if total == 0 {
                 view! {
-                    <div class="text-center py-8">
+                    <div class="text-center py-6">
                         <p class="text-muted-foreground">"No workers registered"</p>
                         <p class="text-sm text-muted-foreground mt-1">"Workers will appear here once they connect"</p>
                     </div>
                 }.into_any()
             } else {
                 view! {
-                    <Table>
-                        <TableHeader>
-                            <TableRow>
-                                <TableHead>"ID"</TableHead>
-                                <TableHead>"Node"</TableHead>
-                                <TableHead>"Status"</TableHead>
-                                <TableHead>"Backend"</TableHead>
-                                <TableHead>"Model"</TableHead>
-                                <TableHead>"Last Heartbeat"</TableHead>
-                            </TableRow>
-                        </TableHeader>
-                        <TableBody>
-                            {move || {
-                                let count = visible_count.get();
-                                workers.iter().take(count).cloned().map(|worker| {
-                                    view! { <WorkerRow worker=worker/> }
-                                }).collect::<Vec<_>>()
-                            }}
-                        </TableBody>
-                    </Table>
-
-                    // Show more button
-                    {move || {
-                        let count = visible_count.get();
-                        if count < total {
-                            let remaining = total - count;
-                            Some(view! {
-                                <div class="text-center py-4 border-t">
-                                    <button
-                                        class="text-sm text-muted-foreground hover:text-foreground underline focus:outline-none focus:ring-2 focus:ring-ring focus:ring-offset-2 rounded"
-                                        on:click=move |_| {
-                                            visible_count.update(|c| *c = (*c + WORKERS_PAGE_SIZE).min(total));
-                                        }
-                                    >
-                                        {format!("Show more ({} remaining)", remaining)}
-                                    </button>
-                                </div>
-                            })
-                        } else {
-                            None
-                        }
-                    }}
+                    <div class="flex items-center gap-6 flex-wrap">
+                        <div class="text-center">
+                            <div class="text-2xl font-bold">{total}</div>
+                            <p class="text-xs text-muted-foreground">"Total"</p>
+                        </div>
+                        {(healthy > 0).then(|| view! {
+                            <div class="flex items-center gap-1.5">
+                                <Badge variant=BadgeVariant::Success>{format!("{} healthy", healthy)}</Badge>
+                            </div>
+                        })}
+                        {(draining > 0).then(|| view! {
+                            <div class="flex items-center gap-1.5">
+                                <Badge variant=BadgeVariant::Warning>{format!("{} draining", draining)}</Badge>
+                            </div>
+                        })}
+                        {(error > 0).then(|| view! {
+                            <div class="flex items-center gap-1.5">
+                                <Badge variant=BadgeVariant::Destructive>{format!("{} error", error)}</Badge>
+                            </div>
+                        })}
+                        {(stopped > 0).then(|| view! {
+                            <div class="flex items-center gap-1.5">
+                                <Badge variant=BadgeVariant::Secondary>{format!("{} stopped", stopped)}</Badge>
+                            </div>
+                        })}
+                        {(other > 0).then(|| view! {
+                            <div class="flex items-center gap-1.5">
+                                <Badge variant=BadgeVariant::Secondary>{format!("{} other", other)}</Badge>
+                            </div>
+                        })}
+                    </div>
                 }.into_any()
             }}
+
+            <div class="mt-4 pt-4 border-t">
+                <a
+                    href="/workers"
+                    class="text-sm font-medium hover:underline focus:outline-none focus:ring-2 focus:ring-ring focus:ring-offset-2 rounded"
+                >
+                    "Manage Workers →"
+                </a>
+            </div>
         </Card>
-    }
-}
-
-/// Single worker row component with real-time status updates
-#[component]
-fn WorkerRow(worker: WorkerResponse) -> impl IntoView {
-    let status = worker.status.as_str();
-    let status_variant = StatusVariant::from_worker_status(status).to_badge_variant();
-
-    // Determine if this worker is in a transitional state
-    let is_transitional = matches!(status, "draining" | "created" | "registered");
-    let is_unhealthy = matches!(status, "error" | "stopped");
-
-    let short_id = adapteros_id::short_id(&worker.id);
-
-    let backend = worker
-        .backend
-        .clone()
-        .filter(|b| !b.is_empty())
-        .unwrap_or_else(|| "Unknown".to_string());
-    let model = worker
-        .model_id
-        .clone()
-        .filter(|m| !m.is_empty())
-        .unwrap_or_else(|| "Not assigned".to_string());
-    let last_seen = worker
-        .last_seen_at
-        .clone()
-        .unwrap_or_else(|| "-".to_string());
-
-    // Row class for visual highlighting of state changes
-    let row_class = if is_unhealthy {
-        "bg-status-error/5"
-    } else if is_transitional {
-        "bg-status-warning/5"
-    } else {
-        ""
-    };
-
-    view! {
-        <TableRow class=row_class>
-            <TableCell>
-                <span class="font-mono text-sm" title=worker.id.clone()>{short_id}</span>
-            </TableCell>
-            <TableCell>
-                <span class="text-sm">{worker.node_id.clone()}</span>
-            </TableCell>
-            <TableCell>
-                <div class="flex items-center gap-2">
-                    <Badge variant=status_variant>
-                        {worker.status.clone()}
-                    </Badge>
-                    // Show animated indicator for transitional states
-                    {is_transitional.then(|| view! {
-                        <span class="relative flex h-2 w-2">
-                            <span class="animate-ping absolute inline-flex h-full w-full rounded-full bg-status-warning opacity-75 pointer-events-none"></span>
-                            <span class="relative inline-flex rounded-full h-2 w-2 bg-status-warning"></span>
-                        </span>
-                    })}
-                    // Show warning icon for error states
-                    {is_unhealthy.then(|| view! {
-                        <IconWarning/>
-                    })}
-                </div>
-            </TableCell>
-            <TableCell>
-                <span class="text-sm">{backend}</span>
-            </TableCell>
-            <TableCell>
-                <span class="text-sm font-mono">{model}</span>
-            </TableCell>
-            <TableCell>
-                <span class="text-sm text-muted-foreground">{format_timestamp(&last_seen)}</span>
-            </TableCell>
-        </TableRow>
-    }
-}
-
-/// Expanded worker details
-#[allow(dead_code)] // Leptos #[component] macro limitation: compiler can't see field usage through macro
-#[component]
-fn WorkerDetails(#[prop(into)] worker: WorkerResponse) -> impl IntoView {
-    let WorkerResponse {
-        tenant_id,
-        plan_id,
-        pid,
-        uds_path,
-        started_at,
-        capabilities,
-        cache_used_mb,
-        cache_max_mb,
-        ..
-    } = worker;
-
-    view! {
-        <div class="grid grid-cols-2 md:grid-cols-4 gap-4 py-2">
-            <div>
-                <p class="text-xs text-muted-foreground">"Tenant ID"</p>
-                <p class="text-sm font-mono">{tenant_id.clone()}</p>
-            </div>
-            <div>
-                <p class="text-xs text-muted-foreground">"Plan ID"</p>
-                <p class="text-sm font-mono">{plan_id.clone()}</p>
-            </div>
-            <div>
-                <p class="text-xs text-muted-foreground">"PID"</p>
-                <p class="text-sm font-mono">{pid.map(|p| p.to_string()).unwrap_or("-".to_string())}</p>
-            </div>
-            <div>
-                <p class="text-xs text-muted-foreground">"UDS Path"</p>
-                <p class="text-sm font-mono truncate" title=uds_path.clone()>{uds_path.clone()}</p>
-            </div>
-            <div>
-                <p class="text-xs text-muted-foreground">"Started At"</p>
-                <p class="text-sm">{format_timestamp(&started_at)}</p>
-            </div>
-            <div>
-                <p class="text-xs text-muted-foreground">"Capabilities"</p>
-                <p class="text-sm">{if capabilities.is_empty() { "-".to_string() } else { capabilities.join(", ") }}</p>
-            </div>
-            <div>
-                <p class="text-xs text-muted-foreground">"Cache Used"</p>
-                <p class="text-sm">{cache_used_mb.map(|m| format!("{} MB", m)).unwrap_or("-".to_string())}</p>
-            </div>
-            <div>
-                <p class="text-xs text-muted-foreground">"Cache Max"</p>
-                <p class="text-sm">{cache_max_mb.map(|m| format!("{} MB", m)).unwrap_or("-".to_string())}</p>
-            </div>
-        </div>
     }
 }
 

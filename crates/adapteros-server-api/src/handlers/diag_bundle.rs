@@ -18,8 +18,8 @@ use adapteros_api_types::API_SCHEMA_VERSION;
 use adapteros_core::B3Hash;
 use adapteros_crypto::bundle_sign;
 use adapteros_db::diagnostics::{
-    get_all_diag_events_for_run, get_bundle_export_by_id, get_diag_run_by_trace_id,
-    insert_bundle_export, CreateBundleExportParams, DiagEventRecord,
+    get_all_diag_events_for_run, get_bundle_export_by_id, get_diag_run_by_id,
+    get_diag_run_by_trace_id, insert_bundle_export, CreateBundleExportParams, DiagEventRecord,
 };
 use adapteros_db::users::Role;
 use axum::body::Body;
@@ -121,8 +121,8 @@ pub async fn create_bundle_export(
         }
     }
 
-    // Get the diagnostic run
-    let run = get_diag_run_by_trace_id(state.db.pool(), tenant_id, &request.trace_id)
+    // Get the diagnostic run (accept trace_id or run_id for backwards compat).
+    let run = match get_diag_run_by_trace_id(state.db.pool(), tenant_id, &request.trace_id)
         .await
         .map_err(|e| {
             (
@@ -133,17 +133,31 @@ pub async fn create_bundle_export(
                         .with_string_details(e.to_string()),
                 ),
             )
-        })?
-        .ok_or_else(|| {
-            (
-                StatusCode::NOT_FOUND,
-                Json(
-                    ErrorResponse::new("Diagnostic run not found")
-                        .with_code("NOT_FOUND")
-                        .with_string_details(format!("trace_id: {}", request.trace_id)),
-                ),
-            )
-        })?;
+        })? {
+        Some(record) => record,
+        None => get_diag_run_by_id(state.db.pool(), tenant_id, &request.trace_id)
+            .await
+            .map_err(|e| {
+                (
+                    StatusCode::INTERNAL_SERVER_ERROR,
+                    Json(
+                        ErrorResponse::new("Failed to get diagnostic run")
+                            .with_code("DATABASE_ERROR")
+                            .with_string_details(e.to_string()),
+                    ),
+                )
+            })?
+            .ok_or_else(|| {
+                (
+                    StatusCode::NOT_FOUND,
+                    Json(
+                        ErrorResponse::new("Diagnostic run not found")
+                            .with_code("NOT_FOUND")
+                            .with_string_details(format!("trace_id: {}", request.trace_id)),
+                    ),
+                )
+            })?,
+    };
 
     // Get all events for the run
     let events = get_all_diag_events_for_run(state.db.pool(), tenant_id, &run.id, 50000)

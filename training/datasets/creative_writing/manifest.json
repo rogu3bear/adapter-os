@@ -1,0 +1,42 @@
+{
+  "dataset_id": "creative-writing-style-v1",
+  "name": "Creative Writing Style Dataset",
+  "description": "Starter dataset for creative writing style adaptation. Contains input/target pairs focused on narrative voice and prose quality.",
+  "version": "1.0.0",
+  "created_at": "2026-02-13",
+  "strategy": "creative_writing",
+  "source_documents": [
+    {
+      "name": "creative_writing_style_v1.positive.jsonl",
+      "type": "jsonl",
+      "examples_count": 20
+    }
+  ],
+  "statistics": {
+    "total_examples": 20,
+    "total_chunks": 20,
+    "avg_sequence_length": 0,
+    "source_format": "jsonl"
+  },
+  "training_config": {
+    "recommended_rank": 16,
+    "recommended_alpha": 32,
+    "max_seq_length": 512,
+    "strategy": "CreativeWriting"
+  },
+  "metadata": {
+    "purpose": "creative writing style transfer",
+    "domain": "creative-writing",
+    "use_case": "Train adapters to mirror or extend creative tone and storytelling structure",
+    "quality": "high",
+    "validation_status": "pending"
+  },
+  "files": [
+    {
+      "path": "creative_writing_style_v1.positive.jsonl",
+      "format": "jsonl",
+      "examples_count": 20,
+      "size_bytes": 0
+    }
+  ]
+}

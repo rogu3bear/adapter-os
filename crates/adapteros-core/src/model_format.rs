@@ -51,6 +51,15 @@ impl ModelFormat {
     /// - `.gguf` → `Gguf`
     /// - Default → `SafeTensors`
     pub fn detect_from_dir(path: &Path) -> ModelFormat {
+        // If the directory itself is a CoreML ML package, treat it as such.
+        if path
+            .extension()
+            .and_then(|s| s.to_str())
+            .is_some_and(|ext| ext.eq_ignore_ascii_case("mlpackage"))
+        {
+            return ModelFormat::MlPackage;
+        }
+
         let entries = match std::fs::read_dir(path) {
             Ok(entries) => entries,
             Err(_) => return ModelFormat::SafeTensors,

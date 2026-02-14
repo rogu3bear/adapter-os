@@ -189,6 +189,10 @@ impl ApiClient {
         self.auth_token.read().ok().and_then(|t| t.clone())
     }
 
+    fn training_idempotency_key() -> String {
+        format!("idem-train-{}", uuid::Uuid::new_v4().simple())
+    }
+
     /// Build a request with common headers
     fn request(&self, method: &str, path: &str) -> RequestBuilder {
         let url = format!("{}{}", self.base_url, path);
@@ -219,6 +223,10 @@ impl ApiClient {
             if let Some(token) = csrf_token_from_cookie() {
                 req = req.header("X-CSRF-Token", &token);
             }
+        }
+
+        if method == "POST" && (path == "/v1/training/jobs" || path == "/v1/training/start") {
+            req = req.header("Idempotency-Key", &Self::training_idempotency_key());
         }
 
         // Only add Authorization header for bearer tokens (not cookie auth).
@@ -488,9 +496,16 @@ impl ApiClient {
         self.get("/v1/workers").await
     }
 
+    /// List workers including stopped/error entries
+    pub async fn list_workers_with_history(
+        &self,
+    ) -> ApiResult<Vec<adapteros_api_types::WorkerResponse>> {
+        self.get("/v1/workers?include_inactive=true").await
+    }
+
     /// Get worker details
     pub async fn get_worker(&self, id: &str) -> ApiResult<adapteros_api_types::WorkerResponse> {
-        self.get(&format!("/v1/workers/{}", id)).await
+        self.get(&format!("/v1/workers/{}/detail", id)).await
     }
 
     /// Spawn a new worker
@@ -514,6 +529,14 @@ impl ApiClient {
     }
 
     /// Get worker metrics
+    ///
+    /// TODO: Backend has no `/v1/workers/{id}/metrics` route. This will 404.
+    /// Callers (WorkerDetailPanel, WorkerDetailView) gracefully degrade to
+    /// None when the fetch errors, so no visible breakage occurs. When a
+    /// dedicated metrics endpoint is added on the backend, update this path.
+    /// The worker detail endpoint (`/v1/workers/{id}/detail`) returns a
+    /// `WorkerDetailResponse` with `resource_usage` that could be used as a
+    /// fallback data source.
     pub async fn get_worker_metrics(&self, id: &str) -> ApiResult<WorkerMetricsResponse> {
         self.get(&format!("/v1/workers/{}/metrics", id)).await
     }
@@ -671,6 +694,12 @@ impl ApiClient {
     /// Unload a model from memory
     pub async fn unload_model(&self, id: &str) -> ApiResult<ModelStatusResponse> {
         self.post_empty(&format!("/v1/models/{}/unload", id)).await
+    }
+
+    /// Validate a model (check files, tokenizer, etc.)
+    pub async fn validate_model(&self, id: &str) -> ApiResult<serde_json::Value> {
+        self.post_empty(&format!("/v1/models/{}/validate", id))
+            .await
     }
 
     // --- Stacks ---

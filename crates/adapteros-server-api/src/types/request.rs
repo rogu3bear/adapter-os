@@ -373,6 +373,16 @@ pub struct WorkerInferRequest {
     /// When enabled, incomplete multi-byte UTF-8 sequences are buffered until complete
     #[serde(default = "default_utf8_healing_worker")]
     pub utf8_healing: bool,
+
+    /// FIM prefix (code before cursor). When both `fim_prefix` and `fim_suffix`
+    /// are present, the worker builds a FIM token sequence instead of tokenizing
+    /// `prompt` directly.
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub fim_prefix: Option<String>,
+
+    /// FIM suffix (code after cursor).
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub fim_suffix: Option<String>,
 }
 
 /// Compare policies request
@@ -495,9 +505,9 @@ pub fn training_config_from_request(
         weight_group_config: None,
         lr_schedule: None,
         final_lr: None,
-        early_stopping: None,
-        patience: None,
-        min_delta: None,
+        early_stopping: req.early_stopping,
+        patience: req.patience,
+        min_delta: req.min_delta,
         checkpoint_frequency: None,
         max_checkpoints: None,
         preferred_backend: req.preferred_backend,
@@ -549,10 +559,52 @@ mod training_config_tests {
             force_resume: None,
             multi_module_training: None,
             lora_layer_indices: None,
+            early_stopping: None,
+            patience: None,
+            min_delta: None,
         };
 
         let cfg = training_config_from_request(req);
         assert_eq!(cfg.preferred_backend, Some(TrainingBackendKind::CoreML));
         assert_eq!(cfg.coreml_training_fallback, Some(TrainingBackendKind::Mlx));
+    }
+
+    #[test]
+    fn training_config_from_request_preserves_early_stopping_fields() {
+        let req = TrainingConfigRequest {
+            rank: 4,
+            alpha: 8,
+            targets: vec!["q_proj".to_string()],
+            training_contract_version: TRAINING_DATA_CONTRACT_VERSION.to_string(),
+            pad_token_id: 0,
+            ignore_index: 0,
+            coreml_placement: None,
+            epochs: 1,
+            learning_rate: 0.001,
+            batch_size: 2,
+            warmup_steps: None,
+            max_seq_length: None,
+            gradient_accumulation_steps: None,
+            validation_split: None,
+            preferred_backend: None,
+            backend_policy: None,
+            coreml_training_fallback: None,
+            enable_coreml_export: None,
+            require_gpu: Some(false),
+            max_gpu_memory_mb: None,
+            base_model_path: None,
+            preprocessing: None,
+            force_resume: None,
+            multi_module_training: None,
+            lora_layer_indices: None,
+            early_stopping: Some(true),
+            patience: Some(7),
+            min_delta: Some(0.01),
+        };
+
+        let cfg = training_config_from_request(req);
+        assert_eq!(cfg.early_stopping, Some(true));
+        assert_eq!(cfg.patience, Some(7));
+        assert_eq!(cfg.min_delta, Some(0.01));
     }
 }

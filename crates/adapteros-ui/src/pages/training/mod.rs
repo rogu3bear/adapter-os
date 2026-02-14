@@ -34,7 +34,7 @@ use crate::hooks::{use_api_resource, use_conditional_polling, LoadingState};
 use crate::signals::{try_use_route_context, SelectedEntity};
 use adapteros_api_types::TrainingListParams;
 use leptos::prelude::*;
-use leptos_router::hooks::{use_navigate, use_query_map};
+use leptos_router::hooks::use_query_map;
 use std::sync::Arc;
 
 use components::{CoremlFilters, StatusFilter, TrainingJobList};
@@ -60,6 +60,14 @@ pub fn Training() -> impl IntoView {
     let source_document_id = RwSignal::new(None::<String>);
     // Track initial dataset for training (from query params)
     let initial_dataset_id = RwSignal::new(None::<String>);
+    let initial_base_model_id = RwSignal::new(None::<String>);
+    let initial_preferred_backend = RwSignal::new(None::<String>);
+    let initial_backend_policy = RwSignal::new(None::<String>);
+    let initial_epochs = RwSignal::new(None::<String>);
+    let initial_learning_rate = RwSignal::new(None::<String>);
+    let initial_batch_size = RwSignal::new(None::<String>);
+    let initial_rank = RwSignal::new(None::<String>);
+    let initial_alpha = RwSignal::new(None::<String>);
 
     // Adapter name filter (from adapter detail provenance link)
     let adapter_name_filter = RwSignal::new(None::<String>);
@@ -70,7 +78,6 @@ pub fn Training() -> impl IntoView {
     // Handle query parameters for document-to-training and dataset-to-training workflows
     let query = use_query_map();
     let params_consumed = RwSignal::new(false);
-    let navigate = use_navigate();
     Effect::new(move || {
         let Some(params) = query.try_get() else {
             return;
@@ -84,7 +91,8 @@ pub fn Training() -> impl IntoView {
             || params.get("open_wizard").is_some()
             || params.get("job_id").is_some()
             || params.get("adapter_name").is_some()
-            || params.get("return_to").is_some();
+            || params.get("return_to").is_some()
+            || params.get("base_model_id").is_some();
         if !has_params {
             return;
         }
@@ -99,6 +107,30 @@ pub fn Training() -> impl IntoView {
         if let Some(ds_id) = params.get("dataset_id") {
             initial_dataset_id.set(Some(ds_id.clone()));
             create_dialog_open.set(true);
+        }
+        if let Some(base_model_id) = params.get("base_model_id") {
+            initial_base_model_id.set(Some(base_model_id.clone()));
+        }
+        if let Some(preferred_backend) = params.get("preferred_backend") {
+            initial_preferred_backend.set(Some(preferred_backend.clone()));
+        }
+        if let Some(backend_policy) = params.get("backend_policy") {
+            initial_backend_policy.set(Some(backend_policy.clone()));
+        }
+        if let Some(epochs) = params.get("epochs") {
+            initial_epochs.set(Some(epochs.clone()));
+        }
+        if let Some(learning_rate) = params.get("learning_rate") {
+            initial_learning_rate.set(Some(learning_rate.clone()));
+        }
+        if let Some(batch_size) = params.get("batch_size") {
+            initial_batch_size.set(Some(batch_size.clone()));
+        }
+        if let Some(rank) = params.get("rank") {
+            initial_rank.set(Some(rank.clone()));
+        }
+        if let Some(alpha) = params.get("alpha") {
+            initial_alpha.set(Some(alpha.clone()));
         }
         // Generic wizard auto-open (from chat/adapters CTAs)
         if params.get("open_wizard").as_deref() == Some("1") {
@@ -116,15 +148,17 @@ pub fn Training() -> impl IntoView {
         if let Some(path) = params.get("return_to") {
             return_to.set(Some(path.clone()));
         }
-        // Mark consumed and clean URL to prevent re-triggering on browser back
+        // Mark consumed and clean URL without route navigation/remount.
         params_consumed.set(true);
-        navigate(
-            "/training",
-            leptos_router::NavigateOptions {
-                replace: true,
-                ..Default::default()
-            },
-        );
+        if let Some(window) = web_sys::window() {
+            if let Ok(history) = window.history() {
+                let _ = history.replace_state_with_url(
+                    &wasm_bindgen::JsValue::NULL,
+                    "",
+                    Some("/training"),
+                );
+            }
+        }
     });
 
     // Fetch training jobs with server-side filtering
@@ -150,10 +184,10 @@ pub fn Training() -> impl IntoView {
         }
     });
 
-    // Derive whether we need to poll (only when there are running or pending jobs)
+    // Derive whether we need to poll (only when there are active jobs)
     let should_poll = Signal::derive(move || {
         matches!(jobs.get(), LoadingState::Loaded(ref data) if data.jobs.iter().any(|job| {
-            matches!(job.status.as_str(), "running" | "pending" | "queued")
+            matches!(job.status.as_str(), "running" | "pending")
         }))
     });
 
@@ -172,9 +206,12 @@ pub fn Training() -> impl IntoView {
     };
 
     let on_job_created = move |job_id: String| {
-        create_dialog_open.set(false);
+        // If this scope was disposed (e.g., route changed), ignore late async completion.
+        if create_dialog_open.try_set(false).is_none() {
+            return;
+        }
         refetch_jobs.run(());
-        selected_job_id.set(Some(job_id));
+        let _ = selected_job_id.try_set(Some(job_id));
     };
 
     // Derive selection state for SplitPanel
@@ -292,6 +329,14 @@ pub fn Training() -> impl IntoView {
                 on_created=on_job_created
                 initial_dataset_id=initial_dataset_id
                 source_document_id=source_document_id
+                initial_base_model_id=initial_base_model_id
+                initial_preferred_backend=initial_preferred_backend
+                initial_backend_policy=initial_backend_policy
+                initial_epochs=initial_epochs
+                initial_learning_rate=initial_learning_rate
+                initial_batch_size=initial_batch_size
+                initial_rank=initial_rank
+                initial_alpha=initial_alpha
             />
         </PageScaffold>
     }

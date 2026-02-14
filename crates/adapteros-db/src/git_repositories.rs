@@ -21,6 +21,36 @@ pub struct GitRepository {
 }
 
 impl Db {
+    /// Ensure the synthetic direct-training git repository exists.
+    ///
+    /// The training pipeline persists `repository_training_jobs` with a non-null
+    /// `repo_id`. When callers provide `repo_id = None`, training uses this
+    /// synthetic parent row so FK constraints remain valid without changing
+    /// API behavior.
+    pub async fn ensure_direct_training_repo_exists(&self, created_by: &str) -> Result<()> {
+        const DIRECT_TRAINING_REPO_ID: &str = "direct-training";
+        const DIRECT_TRAINING_REPO_PK: &str = "rep-direct-training";
+
+        sqlx::query(
+            "INSERT OR IGNORE INTO git_repositories \
+             (id, repo_id, path, branch, analysis_json, evidence_json, security_scan_json, status, created_by) \
+             VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?)",
+        )
+        .bind(DIRECT_TRAINING_REPO_PK)
+        .bind(DIRECT_TRAINING_REPO_ID)
+        .bind(format!("direct-training://{DIRECT_TRAINING_REPO_ID}"))
+        .bind("main")
+        .bind("{}")
+        .bind("[]")
+        .bind("{}")
+        .bind("active")
+        .bind(created_by)
+        .execute(self.pool())
+        .await
+        .map_err(|e| AosError::Database(e.to_string()))?;
+        Ok(())
+    }
+
     /// Create a new git repository record
     ///
     /// Evidence: migrations/0002_patch_proposals.sql:1-18

@@ -43,6 +43,13 @@ const BOS_TOKEN_CANDIDATES: &[&str] = &[
     "<|begin_of_text|>",
 ];
 
+/// FIM (Fill-in-the-Middle) token strings for code completion models.
+///
+/// Qwen2.5 and other code models use these tokens natively for infill generation.
+const FIM_PREFIX_TOKEN: &str = "<|fim_prefix|>";
+const FIM_SUFFIX_TOKEN: &str = "<|fim_suffix|>";
+const FIM_MIDDLE_TOKEN: &str = "<|fim_middle|>";
+
 /// Special token ID map loaded from tokenizer configuration.
 ///
 /// This struct provides the canonical source of truth for special token IDs
@@ -62,6 +69,12 @@ pub struct SpecialTokenMap {
     pub im_start_id: Option<u32>,
     /// Instruction end marker (Qwen/ChatML style)
     pub im_end_id: Option<u32>,
+    /// Fill-in-the-Middle prefix token (`<|fim_prefix|>`)
+    pub fim_prefix_id: Option<u32>,
+    /// Fill-in-the-Middle suffix token (`<|fim_suffix|>`)
+    pub fim_suffix_id: Option<u32>,
+    /// Fill-in-the-Middle middle/infill token (`<|fim_middle|>`)
+    pub fim_middle_id: Option<u32>,
     /// Source of the token IDs for debugging
     #[serde(skip)]
     pub source: TokenMapSource,
@@ -87,6 +100,20 @@ pub enum TokenMapSource {
     /// Default/fallback (should not be used in production)
     #[default]
     Unknown,
+}
+
+/// Resolved FIM (Fill-in-the-Middle) token IDs for code completion.
+///
+/// All three tokens must be present for FIM to work. Use
+/// [`SpecialTokenMap::fim_tokens()`] to extract this from a loaded token map.
+#[derive(Debug, Clone, Copy, PartialEq, Eq)]
+pub struct FIMTokens {
+    /// `<|fim_prefix|>` token ID
+    pub prefix_id: u32,
+    /// `<|fim_suffix|>` token ID
+    pub suffix_id: u32,
+    /// `<|fim_middle|>` token ID
+    pub middle_id: u32,
 }
 
 /// Raw tokenizer_config.json structure for deserialization.
@@ -217,6 +244,11 @@ impl SpecialTokenMap {
         let im_start_id = Self::lookup_token_in_vocab(tokenizer_path, "<|im_start|>");
         let im_end_id = Self::lookup_token_in_vocab(tokenizer_path, "<|im_end|>");
 
+        // Check for FIM tokens (code completion models)
+        let fim_prefix_id = Self::lookup_token_in_vocab(tokenizer_path, FIM_PREFIX_TOKEN);
+        let fim_suffix_id = Self::lookup_token_in_vocab(tokenizer_path, FIM_SUFFIX_TOKEN);
+        let fim_middle_id = Self::lookup_token_in_vocab(tokenizer_path, FIM_MIDDLE_TOKEN);
+
         Ok(Self {
             eos_token_id,
             bos_token_id,
@@ -224,6 +256,9 @@ impl SpecialTokenMap {
             unk_token_id,
             im_start_id,
             im_end_id,
+            fim_prefix_id,
+            fim_suffix_id,
+            fim_middle_id,
             source: TokenMapSource::TokenizerConfig,
         })
     }
@@ -250,6 +285,11 @@ impl SpecialTokenMap {
         let im_start_id = Self::lookup_token_in_vocab(tokenizer_path, "<|im_start|>");
         let im_end_id = Self::lookup_token_in_vocab(tokenizer_path, "<|im_end|>");
 
+        // Check for FIM tokens (code completion models)
+        let fim_prefix_id = Self::lookup_token_in_vocab(tokenizer_path, FIM_PREFIX_TOKEN);
+        let fim_suffix_id = Self::lookup_token_in_vocab(tokenizer_path, FIM_SUFFIX_TOKEN);
+        let fim_middle_id = Self::lookup_token_in_vocab(tokenizer_path, FIM_MIDDLE_TOKEN);
+
         Ok(Self {
             eos_token_id,
             bos_token_id,
@@ -257,6 +297,9 @@ impl SpecialTokenMap {
             unk_token_id: None,
             im_start_id,
             im_end_id,
+            fim_prefix_id,
+            fim_suffix_id,
+            fim_middle_id,
             source: TokenMapSource::VocabLookup,
         })
     }
@@ -341,6 +384,20 @@ impl SpecialTokenMap {
         })
     }
 
+    /// Check whether all three FIM tokens are available.
+    pub fn has_fim_support(&self) -> bool {
+        self.fim_prefix_id.is_some() && self.fim_suffix_id.is_some() && self.fim_middle_id.is_some()
+    }
+
+    /// Extract resolved FIM token IDs, returning `None` if any are missing.
+    pub fn fim_tokens(&self) -> Option<FIMTokens> {
+        Some(FIMTokens {
+            prefix_id: self.fim_prefix_id?,
+            suffix_id: self.fim_suffix_id?,
+            middle_id: self.fim_middle_id?,
+        })
+    }
+
     /// Compute BLAKE3 digest of the tokenizer file for receipts.
     pub fn compute_tokenizer_digest(tokenizer_path: &Path) -> Result<[u8; 32]> {
         let content = std::fs::read(tokenizer_path).map_err(|e| {
@@ -377,10 +434,52 @@ mod tests {
             unk_token_id: None,
             im_start_id: Some(151644),
             im_end_id: Some(151645),
+            fim_prefix_id: None,
+            fim_suffix_id: None,
+            fim_middle_id: None,
             source: TokenMapSource::TokenizerConfig,
         };
         let json = serde_json::to_string(&map).unwrap();
         assert!(json.contains("\"eos_token_id\":151645"));
+    }
+
+    #[test]
+    fn test_fim_tokens_extraction() {
+        let map = SpecialTokenMap {
+            eos_token_id: 151645,
+            bos_token_id: None,
+            pad_token_id: None,
+            unk_token_id: None,
+            im_start_id: None,
+            im_end_id: None,
+            fim_prefix_id: Some(151659),
+            fim_suffix_id: Some(151661),
+            fim_middle_id: Some(151660),
+            source: TokenMapSource::Unknown,
+        };
+        assert!(map.has_fim_support());
+        let fim = map.fim_tokens().unwrap();
+        assert_eq!(fim.prefix_id, 151659);
+        assert_eq!(fim.suffix_id, 151661);
+        assert_eq!(fim.middle_id, 151660);
+    }
+
+    #[test]
+    fn test_fim_tokens_partial_returns_none() {
+        let map = SpecialTokenMap {
+            eos_token_id: 151645,
+            bos_token_id: None,
+            pad_token_id: None,
+            unk_token_id: None,
+            im_start_id: None,
+            im_end_id: None,
+            fim_prefix_id: Some(151659),
+            fim_suffix_id: None, // missing
+            fim_middle_id: Some(151660),
+            source: TokenMapSource::Unknown,
+        };
+        assert!(!map.has_fim_support());
+        assert!(map.fim_tokens().is_none());
     }
 
     #[test]

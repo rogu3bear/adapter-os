@@ -78,7 +78,7 @@ NODE_PORT="${AOS_NODE_PORT:-9443}"
 
 # Canonical dev model (single source of truth)
 DEFAULT_MODEL_DIR="/var/models/Llama-3.2-3B-Instruct-4bit"
-DEFAULT_MANIFEST_PATH="$PROJECT_ROOT/manifests/mistral7b-4bit-mlx.yaml"
+DEFAULT_MANIFEST_PATH="$PROJECT_ROOT/manifests/llama3.2-3b-instruct-4bit.yaml"
 # Manifest hash is loaded from .env (DEFAULT_MANIFEST_HASH or AOS_MANIFEST_HASH)
 # No hardcoded fallback - .env is the single source of truth for the hash value
 DEFAULT_MANIFEST_HASH="${DEFAULT_MANIFEST_HASH:-${AOS_MANIFEST_HASH:-}}"
@@ -1211,10 +1211,10 @@ start_worker() {
     # requested so demo boots don't silently fall back to Metal/CPU.
     if is_dev_mode && [ "$backend" = "coreml" ] && [ "${AOS_WORKER_AUTO_BUILD_COREML:-1}" != "0" ]; then
         if command -v cargo >/dev/null 2>&1; then
-            status_msg "Ensuring worker built with CoreML support (cargo build -p adapteros-lora-worker --features coreml-backend)..."
-            cargo build -p adapteros-lora-worker --features coreml-backend >/dev/null 2>&1 || {
-                error_msg "Failed to build worker with CoreML support."
-                error_msg "Try: cargo build -p adapteros-lora-worker --features coreml-backend"
+            status_msg "Ensuring worker built with CoreML+MLX support (cargo build -p adapteros-lora-worker --features coreml-backend,mlx)..."
+            cargo build -p adapteros-lora-worker --features coreml-backend,mlx >/dev/null 2>&1 || {
+                error_msg "Failed to build worker with CoreML+MLX support."
+                error_msg "Try: cargo build -p adapteros-lora-worker --features coreml-backend,mlx"
                 return 1
             }
         else
@@ -1228,7 +1228,7 @@ start_worker() {
         return 1
     fi
 
-    # Determine manifest and model paths (default to 32B model)
+    # Determine manifest and model paths (default to 3B model)
     local manifest_path="${AOS_WORKER_MANIFEST:-$DEFAULT_MANIFEST_PATH}"
     local manifest_hash="${AOS_MANIFEST_HASH:-$DEFAULT_MANIFEST_HASH}"
     local model_path="${AOS_MODEL_PATH:-$DEFAULT_MODEL_DIR}"

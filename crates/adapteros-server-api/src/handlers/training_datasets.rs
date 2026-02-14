@@ -10,7 +10,10 @@ use crate::services::{
 use crate::state::AppState;
 #[cfg(feature = "embeddings")]
 use crate::types::DatasetResponse;
-use crate::types::{CanonicalRow, DatasetManifest, ErrorResponse, JobResponse};
+use crate::types::{
+    CanonicalRow, DatasetManifest, ErrorResponse, JobResponse, PostActionsRequest,
+    TrainingConfigRequest, TrainingJobResponse,
+};
 #[cfg(feature = "embeddings")]
 use axum::response::IntoResponse;
 use axum::{
@@ -433,6 +436,74 @@ pub struct StreamRowsQuery {
     pub split: Option<String>,
     #[serde(default)]
     pub shuffle_seed: Option<String>,
+}
+
+/// Request payload for creating an adapter from a dataset.
+#[derive(Debug, Clone, serde::Deserialize, ToSchema)]
+pub struct CreateAdapterFromDatasetRequest {
+    /// Base model id used for adapter training.
+    pub base_model_id: String,
+
+    /// Optional workspace/tenant scope for the training job.
+    #[serde(default)]
+    pub workspace_id: Option<String>,
+
+    /// Optional dataset version id override. Defaults to latest for the dataset.
+    #[serde(default)]
+    pub dataset_version_id: Option<String>,
+
+    /// Optional adapter name.
+    #[serde(default)]
+    pub adapter_name: Option<String>,
+
+    /// Optional training config override.
+    #[serde(default)]
+    pub training_config: Option<TrainingConfigRequest>,
+
+    /// Optional post-training actions.
+    #[serde(default)]
+    pub post_actions: Option<PostActionsRequest>,
+}
+
+/// Create an adapter from a dataset via training.
+#[utoipa::path(
+    post,
+    path = "/v1/adapters/from-dataset/{dataset_id}",
+    params(
+        ("dataset_id" = String, Path, description = "Dataset identifier")
+    ),
+    request_body = CreateAdapterFromDatasetRequest,
+    responses(
+        (status = 202, description = "Training job started", body = TrainingJobResponse),
+        (status = 400, description = "Invalid request"),
+        (status = 403, description = "Tenant isolation violation"),
+        (status = 500, description = "Failed to start training", body = ErrorResponse),
+        (status = 503, description = "Service unavailable")
+    ),
+    tag = "datasets"
+)]
+pub async fn create_adapter_from_dataset(
+    State(state): State<AppState>,
+    Extension(claims): Extension<Claims>,
+    Path(dataset_id): Path<String>,
+    Json(request): Json<CreateAdapterFromDatasetRequest>,
+) -> Result<(StatusCode, Json<TrainingJobResponse>), ApiError> {
+    require_permission(&claims, Permission::TrainingStart)?;
+
+    let response = crate::handlers::training::start_training_from_dataset(
+        &state,
+        &claims,
+        &dataset_id,
+        request.dataset_version_id,
+        request.adapter_name,
+        request.base_model_id,
+        request.workspace_id,
+        request.training_config,
+        request.post_actions,
+    )
+    .await?;
+
+    Ok((StatusCode::ACCEPTED, Json(response)))
 }
 
 /// Fetch a normalized dataset manifest for a specific dataset version.

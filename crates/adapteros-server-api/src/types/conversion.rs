@@ -63,6 +63,8 @@ impl From<(&InferRequest, &Claims)> for super::context::InferenceRequestInternal
             utf8_healing: None,
             abstention_threshold: None, // AARA lifecycle
             citation_mode: None,        // AARA lifecycle
+            fim_prefix: None,
+            fim_suffix: None,
         }
     }
 }

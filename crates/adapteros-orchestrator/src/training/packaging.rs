@@ -21,6 +21,17 @@ use crate::training::job::{
 };
 use crate::training::versioning::{compute_combined_data_spec_hash, VersioningSnapshot};
 
+fn normalize_adapter_registration_scope(scope: &str) -> &'static str {
+    match scope.trim() {
+        "global" => "global",
+        "tenant" => "tenant",
+        "repo" => "repo",
+        "commit" => "commit",
+        "project" | "" => "tenant",
+        _ => "tenant",
+    }
+}
+
 /// Load plan/model bytes for GPU initialization.
 ///
 /// - Uses `AOS_MODEL_PATH` (or legacy fallbacks) to find model assets.
@@ -161,6 +172,7 @@ pub(crate) async fn package_and_register_adapter(
     synthetic_mode: bool,
     data_lineage_mode: DataLineageMode,
     base_model_id: Option<&str>,
+    base_model_tenant_or_workspace_id: Option<&str>,
     category: Option<&str>,
     versioning_snapshot: Option<&VersioningSnapshot>,
     dataset_version_ids_for_training: Option<&Vec<DatasetVersionSelection>>,
@@ -179,7 +191,7 @@ pub(crate) async fn package_and_register_adapter(
         let job = jobs.get(job_id);
         let scope_val = job
             .and_then(|j| j.scope.clone())
-            .unwrap_or_else(|| "project".to_string());
+            .unwrap_or_else(|| "tenant".to_string());
         let tier_val = job.and_then(|j| j.lora_tier);
         let backend_policy = job.and_then(|j| j.backend_policy.clone());
         let corr = job.and_then(|j| j.correlation_id.clone());
@@ -273,8 +285,14 @@ pub(crate) async fn package_and_register_adapter(
         }
     }
 
-    // Add scope metadata from versioning snapshot for provenance tracking
+    // Add scope metadata from versioning snapshot for provenance tracking.
+    // Only insert codebase-scope keys (scope_repo_id, scope_commit) when there
+    // is actual code provenance (code_commit_sha). The versioning snapshot's
+    // repo_id is the adapter-registry repo, not a source-code repository, so
+    // inserting it unconditionally would cause metadata_indicates_codebase() to
+    // misclassify non-codebase adapters and require scan_roots.
     if let Some(vs) = versioning_snapshot {
+        let has_code_provenance = vs.code_commit_sha.is_some();
         if let Some(ref repo) = vs.repo_name {
             package_metadata.insert("scope_repo".to_string(), repo.clone());
         }
@@ -284,8 +302,10 @@ pub(crate) async fn package_and_register_adapter(
         if let Some(ref branch) = vs.target_branch {
             package_metadata.insert("scope_branch".to_string(), branch.clone());
         }
-        if let Some(ref repo_id) = vs.repo_id {
-            package_metadata.insert("scope_repo_id".to_string(), repo_id.clone());
+        if has_code_provenance {
+            if let Some(ref repo_id) = vs.repo_id {
+                package_metadata.insert("scope_repo_id".to_string(), repo_id.clone());
+            }
         }
     }
 
@@ -486,7 +506,9 @@ pub(crate) async fn package_and_register_adapter(
             versioning_snapshot.and_then(|v| v.version_label.clone()),
         ) {
             let repo_dir = adapters_root.join(tenant).join(repo_name);
-            if let Err(e) = tokio::fs::create_dir_all(&repo_dir).await {
+            // Use std::fs (synchronous) -- these are small directory/file ops where
+            // async overhead is unnecessary.
+            if let Err(e) = std::fs::create_dir_all(&repo_dir) {
                 warn!(
                     job_id = %job_id,
                     error = %e,
@@ -497,7 +519,7 @@ pub(crate) async fn package_and_register_adapter(
             if dest != packaged.weights_path {
                 // Atomic copy: write to temp file first, verify hash, then rename
                 let temp_dest = dest.with_extension("aos.tmp");
-                if let Err(e) = tokio::fs::copy(&packaged.weights_path, &temp_dest).await {
+                if let Err(e) = std::fs::copy(&packaged.weights_path, &temp_dest) {
                     warn!(
                         job_id = %job_id,
                         error = %e,
@@ -505,20 +527,20 @@ pub(crate) async fn package_and_register_adapter(
                         "Failed to copy packaged artifact to versioned path"
                     );
                     // Clean up temp file if it exists
-                    let _ = tokio::fs::remove_file(&temp_dest).await;
+                    let _ = std::fs::remove_file(&temp_dest);
                 } else {
                     // Verify the copy succeeded by reading and hashing
-                    match tokio::fs::read(&temp_dest).await {
+                    match std::fs::read(&temp_dest) {
                         Ok(bytes) => {
                             let actual_hash = blake3::hash(&bytes).to_hex().to_string();
                             // Atomic rename only after successful copy
-                            if let Err(e) = tokio::fs::rename(&temp_dest, &dest).await {
+                            if let Err(e) = std::fs::rename(&temp_dest, &dest) {
                                 warn!(
                                     job_id = %job_id,
                                     error = %e,
                                     "Failed to finalize artifact copy"
                                 );
-                                let _ = tokio::fs::remove_file(&temp_dest).await;
+                                let _ = std::fs::remove_file(&temp_dest);
                             } else {
                                 info!(
                                     job_id = %job_id,
@@ -526,6 +548,23 @@ pub(crate) async fn package_and_register_adapter(
                                     dest = %dest.display(),
                                     "Artifact copied and verified"
                                 );
+                                // Copy companion files (.sig, .pub) alongside the archive
+                                for ext in &["aos.sig", "aos.pub"] {
+                                    let src_companion = packaged.weights_path.with_extension(ext);
+                                    if src_companion.exists() {
+                                        let dest_companion = dest.with_extension(ext);
+                                        if let Err(e) =
+                                            std::fs::copy(&src_companion, &dest_companion)
+                                        {
+                                            warn!(
+                                                job_id = %job_id,
+                                                ext = %ext,
+                                                error = %e,
+                                                "Failed to copy companion file"
+                                            );
+                                        }
+                                    }
+                                }
                             }
                         }
                         Err(e) => {
@@ -534,7 +573,7 @@ pub(crate) async fn package_and_register_adapter(
                                 error = %e,
                                 "Failed to verify copied artifact"
                             );
-                            let _ = tokio::fs::remove_file(&temp_dest).await;
+                            let _ = std::fs::remove_file(&temp_dest);
                         }
                     }
                 }
@@ -545,8 +584,7 @@ pub(crate) async fn package_and_register_adapter(
         };
 
         // Read artifact for verification - return error instead of using fallback
-        let (hash, size_bytes) = tokio::fs::read(&target)
-            .await
+        let (hash, size_bytes) = std::fs::read(&target)
             .map(|bytes| {
                 (
                     blake3::hash(&bytes).to_hex().to_string(),
@@ -575,7 +613,7 @@ pub(crate) async fn package_and_register_adapter(
     artifact_metadata.insert("training_seed".to_string(), serde_json::json!(trainer_seed));
 
     if let Some(database) = db {
-        let signature_b64 = match tokio::fs::read(final_aos_path.with_extension("aos.sig")).await {
+        let signature_b64 = match std::fs::read(final_aos_path.with_extension("aos.sig")) {
             Ok(sig) => base64::engine::general_purpose::STANDARD.encode(sig),
             Err(e) => {
                 warn!(
@@ -750,38 +788,97 @@ pub(crate) async fn package_and_register_adapter(
             .cloned()
             .unwrap_or_else(|| "unspecified".to_string());
         let scope_value = packaged.manifest.scope.clone();
-        let adapter_metadata_json = {
-            let mut meta = serde_json::Map::new();
-            if let (Some(tenant), Some(model_id)) = (tenant_id, base_model_id) {
-                match database.get_model_for_tenant(tenant, model_id).await {
-                    Ok(Some(model)) => {
-                        meta.insert(
-                            "base_model_id".to_string(),
-                            serde_json::Value::String(model_id.to_string()),
-                        );
-                        meta.insert(
-                            "base_model_hash_b3".to_string(),
-                            serde_json::Value::String(model.hash_b3),
-                        );
-                        meta.insert(
-                            "tokenizer_hash_b3".to_string(),
-                            serde_json::Value::String(model.tokenizer_hash_b3),
-                        );
-                        meta.insert(
-                            "tokenizer_cfg_hash_b3".to_string(),
-                            serde_json::Value::String(model.tokenizer_cfg_hash_b3),
-                        );
-                    }
-                    Ok(None) => {}
-                    Err(e) => {
-                        warn!(
-                            job_id = %job_id,
-                            model_id = %model_id,
-                            error = %e,
-                            "Failed to load base model metadata for adapter linkage"
-                        );
+        let registration_scope = normalize_adapter_registration_scope(&scope_value);
+        if registration_scope != scope_value.trim() {
+            warn!(
+                job_id = %job_id,
+                manifest_scope = %scope_value,
+                normalized_scope = %registration_scope,
+                "Normalizing adapter scope for DB registration"
+            );
+        }
+
+        let adapter_tenant_id = tenant_id.unwrap_or(tenant);
+        let base_model_lookup_tenant = base_model_tenant_or_workspace_id
+            .or(tenant_id)
+            .unwrap_or(adapter_tenant_id);
+        let mut resolved_base_model = None;
+        if let Some(model_id) = base_model_id {
+            match database
+                .get_model_for_tenant(base_model_lookup_tenant, model_id)
+                .await
+            {
+                Ok(Some(model)) => {
+                    resolved_base_model = Some(model);
+                }
+                Ok(None) => {
+                    if base_model_lookup_tenant != adapter_tenant_id {
+                        match database
+                            .get_model_for_tenant(adapter_tenant_id, model_id)
+                            .await
+                        {
+                            Ok(Some(model)) => {
+                                resolved_base_model = Some(model);
+                            }
+                            Ok(None) => {}
+                            Err(e) => {
+                                warn!(
+                                    job_id = %job_id,
+                                    model_id = %model_id,
+                                    error = %e,
+                                    "Failed to load base model metadata with adapter tenant fallback"
+                                );
+                            }
+                        }
                     }
                 }
+                Err(e) => {
+                    warn!(
+                        job_id = %job_id,
+                        model_id = %model_id,
+                        error = %e,
+                        "Failed to load base model metadata for adapter linkage"
+                    );
+                }
+            }
+        }
+        let base_model_id_for_registration = match (base_model_id, resolved_base_model.as_ref()) {
+            (Some(model_id), Some(model)) if model.is_visible_to_tenant(adapter_tenant_id) => {
+                Some(model_id)
+            }
+            (Some(model_id), Some(model)) => {
+                warn!(
+                    job_id = %job_id,
+                    model_id = %model_id,
+                    model_tenant = ?model.tenant_id,
+                    adapter_tenant = %adapter_tenant_id,
+                    "Skipping base_model_id on adapter registration due to tenant visibility mismatch"
+                );
+                None
+            }
+            _ => None,
+        };
+        let adapter_metadata_json = {
+            let mut meta = serde_json::Map::new();
+            if let (Some(model_id), Some(model)) =
+                (base_model_id_for_registration, resolved_base_model.as_ref())
+            {
+                meta.insert(
+                    "base_model_id".to_string(),
+                    serde_json::Value::String(model_id.to_string()),
+                );
+                meta.insert(
+                    "base_model_hash_b3".to_string(),
+                    serde_json::Value::String(model.hash_b3.clone()),
+                );
+                meta.insert(
+                    "tokenizer_hash_b3".to_string(),
+                    serde_json::Value::String(model.tokenizer_hash_b3.clone()),
+                );
+                meta.insert(
+                    "tokenizer_cfg_hash_b3".to_string(),
+                    serde_json::Value::String(model.tokenizer_cfg_hash_b3.clone()),
+                );
             }
             if let Some(adapter_type) = adapter_type.clone() {
                 meta.insert(
@@ -807,7 +904,7 @@ pub(crate) async fn package_and_register_adapter(
         };
 
         let reg_params = AdapterRegistrationBuilder::new()
-            .tenant_id(tenant_id.unwrap_or("default"))
+            .tenant_id(adapter_tenant_id)
             .adapter_id(&packaged.adapter_id)
             .name(adapter_name)
             .hash_b3(&packaged.hash_b3)
@@ -816,10 +913,10 @@ pub(crate) async fn package_and_register_adapter(
             .alpha(orchestrator_cfg.alpha as f64)
             .category(adapter_category)
             .adapter_type(adapter_type.clone())
-            .scope(&scope_value)
+            .scope(registration_scope)
             .domain(Some(domain))
             .purpose(Some(group))
-            .base_model_id(base_model_id)
+            .base_model_id(base_model_id_for_registration)
             .manifest_schema_version(Some(packaged.manifest.version.clone()))
             .content_hash_b3(Some(packaged.hash_b3.clone()))
             .aos_file_path(Some(final_aos_path_str.clone()))
@@ -847,6 +944,7 @@ pub(crate) async fn package_and_register_adapter(
                 info!(
                     job_id = %job_id,
                     adapter_id = %packaged.adapter_id,
+                    scope = registration_scope,
                     db_id = %db_id,
                     "Adapter registered in database"
                 );
@@ -1246,4 +1344,25 @@ pub(crate) async fn package_and_register_adapter(
     );
 
     Ok(())
+}
+
+#[cfg(test)]
+mod tests {
+    use super::normalize_adapter_registration_scope;
+
+    #[test]
+    fn normalize_adapter_registration_scope_maps_legacy_values() {
+        assert_eq!(normalize_adapter_registration_scope("project"), "tenant");
+        assert_eq!(normalize_adapter_registration_scope(""), "tenant");
+        assert_eq!(normalize_adapter_registration_scope("  "), "tenant");
+        assert_eq!(normalize_adapter_registration_scope("workspace"), "tenant");
+    }
+
+    #[test]
+    fn normalize_adapter_registration_scope_preserves_valid_values() {
+        assert_eq!(normalize_adapter_registration_scope("global"), "global");
+        assert_eq!(normalize_adapter_registration_scope("tenant"), "tenant");
+        assert_eq!(normalize_adapter_registration_scope("repo"), "repo");
+        assert_eq!(normalize_adapter_registration_scope("commit"), "commit");
+    }
 }

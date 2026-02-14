@@ -14,6 +14,7 @@ use adapteros_api_types::training::{
 };
 use adapteros_api_types::workers::WorkerCapabilities;
 use adapteros_api_types::{InferRequest, API_SCHEMA_VERSION};
+use adapteros_db::adapter_repositories::CreateRepositoryParams;
 use adapteros_db::workers::WorkerRegistrationParams;
 use adapteros_model_hub::manifest::ManifestV3;
 use adapteros_orchestrator::TrainingService;
@@ -80,6 +81,31 @@ async fn test_chunked_upload_full_loop_e2e_harness() {
     if let Err(err) = run_chunked_upload_full_loop(&mut harness).await {
         eprintln!("chunked upload E2E failed: {:#}", err);
         panic!("chunked upload E2E failed");
+    }
+}
+
+#[tokio::test]
+async fn test_create_training_job_optional_metadata_roundtrip_e2e_harness() {
+    let _guard = common::env_lock().await;
+    let setup = match E2eHarness::from_env().await {
+        Ok(setup) => setup,
+        Err(err) => {
+            eprintln!("create training metadata harness init failed: {:#}", err);
+            panic!("create training metadata harness init failed");
+        }
+    };
+
+    let mut harness = match setup {
+        HarnessSetup::Skip { reason } => {
+            eprintln!("skipping: {}", reason);
+            return;
+        }
+        HarnessSetup::Ready(h) => h,
+    };
+
+    if let Err(err) = run_create_training_job_optional_metadata_roundtrip(&mut harness).await {
+        eprintln!("create training metadata roundtrip failed: {:#}", err);
+        panic!("create training metadata roundtrip failed");
     }
 }
 
@@ -333,6 +359,129 @@ async fn run_chunked_upload_full_loop(harness: &mut E2eHarness) -> Result<()> {
     Ok(())
 }
 
+async fn run_create_training_job_optional_metadata_roundtrip(
+    harness: &mut E2eHarness,
+) -> Result<()> {
+    let token = String::new();
+    let tenant_id = "default";
+    let (_paths, app) = prepare_harness_app(harness)?;
+    let model_id = harness.model.registered_id.clone();
+
+    register_worker(
+        &harness.state.db,
+        tenant_id,
+        &harness.uds_path,
+        true,
+        backend_from_env(),
+    )
+    .await?;
+
+    let upload = upload_dataset(&app, &token).await?;
+    let dataset_version_id = upload
+        .dataset_version_id
+        .clone()
+        .ok_or_else(|| anyhow!("dataset_version_id missing from upload response"))?;
+
+    harness
+        .trust_dataset_version(&dataset_version_id)
+        .await
+        .context("mark dataset version safety")?;
+
+    let repo_id = harness
+        .state
+        .db
+        .create_adapter_repository(CreateRepositoryParams {
+            tenant_id,
+            name: "golden-metadata-repo",
+            base_model_id: Some(&model_id),
+            default_branch: Some("main"),
+            created_by: Some("dev-no-auth"),
+            description: Some("golden metadata repo"),
+        })
+        .await?;
+
+    let mut config = default_training_config();
+    config.early_stopping = Some(true);
+    config.patience = Some(3);
+    config.min_delta = Some(0.005);
+
+    let request_body = CreateTrainingJobRequest {
+        workspace_id: tenant_id.to_string(),
+        base_model_id: model_id,
+        dataset_id: upload.dataset_id.clone(),
+        dataset_version_id: Some(dataset_version_id.clone()),
+        adapter_name: Some(format!("golden-meta-{}", Uuid::new_v4().simple())),
+        params: config,
+        lora_tier: None,
+        template_id: Some("tpl-golden-roundtrip".to_string()),
+        repo_id: Some(repo_id.clone()),
+        description: Some("golden metadata roundtrip".to_string()),
+        adapter_type: Some("identify".to_string()),
+        category: Some("code".to_string()),
+    };
+
+    let job = start_training_job_with_request(&app, &token, request_body).await?;
+    assert_eq!(job.template_id.as_deref(), Some("tpl-golden-roundtrip"));
+    assert_eq!(job.repo_id.as_deref(), Some(repo_id.as_str()));
+    assert_eq!(job.category.as_deref(), Some("code"));
+    assert_eq!(
+        job.description.as_deref(),
+        Some("golden metadata roundtrip")
+    );
+    assert_eq!(job.dataset_id.as_deref(), Some(upload.dataset_id.as_str()));
+
+    let versions = job
+        .dataset_version_ids
+        .as_ref()
+        .ok_or_else(|| anyhow!("dataset_version_ids missing from job response"))?;
+    if !versions
+        .iter()
+        .any(|selection| selection.dataset_version_id == dataset_version_id)
+    {
+        bail!(
+            "dataset_version_ids do not include expected version {}",
+            dataset_version_id
+        );
+    }
+
+    let completed = poll_training_job(&app, &token, &job.id, Duration::from_secs(120))
+        .await
+        .context("wait for metadata roundtrip training completion")?;
+    assert_eq!(
+        completed.template_id.as_deref(),
+        Some("tpl-golden-roundtrip")
+    );
+    assert_eq!(completed.repo_id.as_deref(), Some(repo_id.as_str()));
+    assert_eq!(completed.category.as_deref(), Some("code"));
+    assert_eq!(
+        completed.description.as_deref(),
+        Some("golden metadata roundtrip")
+    );
+    assert_eq!(
+        completed.dataset_id.as_deref(),
+        Some(upload.dataset_id.as_str())
+    );
+
+    let stored = harness
+        .state
+        .db
+        .get_training_job(&job.id)
+        .await?
+        .ok_or_else(|| anyhow!("training job {} not found in database", job.id))?;
+    let stored_cfg: adapteros_types::training::TrainingConfig =
+        serde_json::from_str(&stored.training_config_json).context("parse training_config_json")?;
+    assert_eq!(stored.repo_id, repo_id);
+    assert_eq!(stored_cfg.early_stopping, Some(true));
+    assert_eq!(stored_cfg.patience, Some(3));
+    assert!(
+        (stored_cfg.min_delta.unwrap_or_default() - 0.005).abs() < 1e-6,
+        "expected min_delta 0.005, got {:?}",
+        stored_cfg.min_delta
+    );
+
+    Ok(())
+}
+
 async fn upload_dataset(app: &axum::Router, token: &str) -> Result<UploadDatasetResponse> {
     let boundary = format!("----adapteros-boundary-{}", Uuid::new_v4().simple());
     let jsonl = r#"{"prompt":"Hello","response":"Hi"}
@@ -520,7 +669,48 @@ async fn start_training_job(
     dataset_id: &str,
     dataset_version_id: &str,
 ) -> Result<TrainingJobResponse> {
-    let config = TrainingConfigRequest {
+    let request_body = CreateTrainingJobRequest {
+        workspace_id: workspace_id.to_string(),
+        base_model_id: base_model_id.to_string(),
+        dataset_id: dataset_id.to_string(),
+        dataset_version_id: Some(dataset_version_id.to_string()),
+        adapter_name: Some(format!("golden-adapter-{}", Uuid::new_v4().simple())),
+        params: default_training_config(),
+        lora_tier: None,
+        template_id: None,
+        repo_id: None,
+        description: None,
+        adapter_type: None,
+        category: None,
+    };
+
+    start_training_job_with_request(app, token, request_body).await
+}
+
+async fn start_training_job_with_request(
+    app: &axum::Router,
+    token: &str,
+    request_body: CreateTrainingJobRequest,
+) -> Result<TrainingJobResponse> {
+    let request = request_with_optional_auth(
+        Request::builder()
+            .method(Method::POST)
+            .uri("/v1/training/jobs")
+            .header("content-type", "application/json"),
+        token,
+    )
+    .body(Body::from(serde_json::to_vec(&request_body)?))
+    .unwrap();
+
+    let (status, job) = send_json::<TrainingJobResponse>(app, request).await?;
+    if status != StatusCode::CREATED {
+        bail!("training start failed with status {}", status);
+    }
+    Ok(job)
+}
+
+fn default_training_config() -> TrainingConfigRequest {
+    TrainingConfigRequest {
         rank: 2,
         alpha: 4,
         targets: vec!["q_proj".to_string()],
@@ -546,38 +736,10 @@ async fn start_training_job(
         force_resume: None,
         multi_module_training: None,
         lora_layer_indices: None,
-    };
-
-    let request_body = CreateTrainingJobRequest {
-        workspace_id: workspace_id.to_string(),
-        base_model_id: base_model_id.to_string(),
-        dataset_id: dataset_id.to_string(),
-        dataset_version_id: Some(dataset_version_id.to_string()),
-        adapter_name: Some(format!("golden-adapter-{}", Uuid::new_v4().simple())),
-        params: config,
-        lora_tier: None,
-        template_id: None,
-        repo_id: None,
-        description: None,
-        adapter_type: None,
-        category: None,
-    };
-
-    let request = request_with_optional_auth(
-        Request::builder()
-            .method(Method::POST)
-            .uri("/v1/training/jobs")
-            .header("content-type", "application/json"),
-        token,
-    )
-    .body(Body::from(serde_json::to_vec(&request_body)?))
-    .unwrap();
-
-    let (status, job) = send_json::<TrainingJobResponse>(app, request).await?;
-    if status != StatusCode::CREATED {
-        bail!("training start failed with status {}", status);
+        early_stopping: None,
+        patience: None,
+        min_delta: None,
     }
-    Ok(job)
 }
 
 async fn poll_training_job(

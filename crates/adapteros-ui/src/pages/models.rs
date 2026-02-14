@@ -5,16 +5,18 @@
 use crate::api::{
     report_error_with_toast, AllModelsStatusResponse, ApiClient, ApiError,
     ModelArchitectureSummary, ModelListResponse, ModelLoadStatus, ModelStatusResponse,
-    ModelWithStatsResponse,
+    ModelWithStatsResponse, SeedModelRequest,
 };
 use crate::components::{
-    AsyncBoundary, Badge, BadgeVariant, Button, ButtonVariant, Card, CopyableId, ErrorDisplay,
-    ListEmptyCard, LoadingDisplay, PageBreadcrumbItem, PageScaffold, PageScaffoldActions,
-    SkeletonTable, Spinner, SplitPanel, Table, TableBody, TableCell, TableHead, TableHeader,
-    TableRow,
+    AsyncBoundary, Badge, BadgeVariant, Button, ButtonVariant, Card, ConfirmationDialog,
+    ConfirmationSeverity, CopyableId, Dialog, ErrorDisplay, Input, ListEmptyCard, LoadingDisplay,
+    PageBreadcrumbItem, PageScaffold, PageScaffoldActions, Select, SkeletonTable, Spinner,
+    SplitPanel, Table, TableBody, TableCell, TableHead, TableHeader, TableRow,
 };
 use crate::hooks::{use_api, use_api_resource, use_polling, LoadingState, Refetch};
-use crate::signals::{try_use_route_context, use_refetch_signal, RefetchTopic};
+use crate::signals::{
+    try_use_route_context, use_auth, use_notifications, use_refetch_signal, RefetchTopic,
+};
 use crate::utils::{format_bytes, format_datetime};
 use leptos::prelude::*;
 use leptos_router::hooks::use_params_map;
@@ -43,6 +45,9 @@ struct MergedModelRow {
     training_job_count: Option<i64>,
     import_status: Option<String>,
     architecture: Option<ModelArchitectureSummary>,
+    capabilities: Option<Vec<String>>,
+    imported_at: Option<String>,
+    tenant_id: Option<String>,
 }
 
 /// Merged models data with aggregate fields.
@@ -86,6 +91,9 @@ fn merge_models(
                 training_job_count: reg.map(|r| r.training_job_count),
                 import_status: reg.and_then(|r| r.import_status.clone()),
                 architecture: reg.and_then(|r| r.architecture.clone()),
+                capabilities: reg.and_then(|r| r.capabilities.clone()),
+                imported_at: reg.and_then(|r| r.imported_at.clone()),
+                tenant_id: reg.and_then(|r| r.tenant_id.clone()),
             }
         })
         .collect();
@@ -110,6 +118,9 @@ fn merge_models(
                     training_job_count: Some(m.training_job_count),
                     import_status: m.import_status.clone(),
                     architecture: m.architecture.clone(),
+                    capabilities: m.capabilities.clone(),
+                    imported_at: m.imported_at.clone(),
+                    tenant_id: m.tenant_id.clone(),
                 });
             }
         }
@@ -141,6 +152,9 @@ fn registered_as_fallback(reg: &ModelListResponse) -> MergedModelsData {
             training_job_count: Some(m.training_job_count),
             import_status: m.import_status.clone(),
             architecture: m.architecture.clone(),
+            capabilities: m.capabilities.clone(),
+            imported_at: m.imported_at.clone(),
+            tenant_id: m.tenant_id.clone(),
         })
         .collect();
 
@@ -161,6 +175,9 @@ pub fn Models() -> impl IntoView {
     // Shared selection state
     let sel = crate::components::use_split_panel_selection_state();
     let selected_id = sel.selected_id;
+
+    // Import dialog state
+    let show_import_dialog = RwSignal::new(false);
 
     // Fetch base model status list (models with load status)
     let (models_status, refetch_models_status) = use_api_resource(
@@ -272,12 +289,23 @@ pub fn Models() -> impl IntoView {
         >
             <PageScaffoldActions slot>
                 <Button
+                    variant=ButtonVariant::Primary
+                    on_click=Callback::new(move |_| show_import_dialog.set(true))
+                >
+                    "Import Model"
+                </Button>
+                <Button
                     variant=ButtonVariant::Outline
                     on_click=Callback::new(move |_| refetch_all(()))
                 >
                     "Refresh"
                 </Button>
             </PageScaffoldActions>
+
+            <SeedModelDialog
+                open=show_import_dialog
+                on_imported=Callback::new(move |_: ()| refetch_all(()))
+            />
 
             <SplitPanel
                 has_selection=sel.has_selection
@@ -308,6 +336,7 @@ pub fn Models() -> impl IntoView {
                                                 models=data
                                                 selected_id=selected_id
                                                 on_select=on_select
+                                                on_import=Callback::new(move |_| show_import_dialog.set(true))
                                             />
                                         }.into_any()
                                     }
@@ -362,6 +391,7 @@ fn ModelList(
     models: MergedModelsData,
     selected_id: RwSignal<Option<String>>,
     on_select: Callback<String>,
+    on_import: Callback<()>,
 ) -> impl IntoView {
     if models.rows.is_empty() {
         let has_active_context = models.active_model_count > 0 || models.total_memory_mb > 0;
@@ -370,16 +400,32 @@ fn ModelList(
             view! {
                 <ListEmptyCard
                     title="Worker connected, model pending"
-                    description="A worker is active but no model has been registered yet. Seed a model with `aosctl models seed` to begin.".to_string()
+                    description="A worker is active but no model has been registered yet. Import a model or run `aosctl models seed` from the CLI.".to_string()
                 />
+                <div class="flex justify-center mt-4">
+                    <Button
+                        variant=ButtonVariant::Primary
+                        on_click=Callback::new(move |_| on_import.run(()))
+                    >
+                        "Import Model"
+                    </Button>
+                </div>
             }
             .into_any()
         } else {
             view! {
                 <ListEmptyCard
                     title="No models registered"
-                    description="Seed a model with `aosctl models seed`, then load it into a worker to enable inference.".to_string()
+                    description="Import a model to get started, or run `aosctl models seed` from the CLI.".to_string()
                 />
+                <div class="flex justify-center mt-4">
+                    <Button
+                        variant=ButtonVariant::Primary
+                        on_click=Callback::new(move |_| on_import.run(()))
+                    >
+                        "Import Model"
+                    </Button>
+                </div>
             }
             .into_any()
         };
@@ -426,11 +472,21 @@ fn ModelList(
                                 .map(|c| c.to_string())
                                 .unwrap_or_else(|| "-".to_string());
 
+                            let model_id_for_key = model_id_for_click.clone();
+
                             view! {
                                 <tr
                                     class="border-b transition-colors hover:bg-muted/50 cursor-pointer"
                                     class:bg-muted=move || selected_id.try_get().flatten().as_ref() == Some(&model_id)
                                     on:click=move |_| on_select.run(model_id_for_click.clone())
+                                    on:keydown=move |e: web_sys::KeyboardEvent| {
+                                        if e.key() == "Enter" || e.key() == " " {
+                                            e.prevent_default();
+                                            on_select.run(model_id_for_key.clone());
+                                        }
+                                    }
+                                    role="button"
+                                    tabindex=0
                                 >
                                     <TableCell>
                                         <div>
@@ -521,6 +577,7 @@ fn ModelDetailPanel(
                 <button
                     class="text-muted-foreground hover:text-foreground"
                     on:click=move |_| on_close()
+                    aria-label="Close detail panel"
                 >
                     <svg
                         xmlns="http://www.w3.org/2000/svg"
@@ -585,54 +642,165 @@ fn ModelDetailContent(
     let status_label = model_status_label(model.status);
 
     let is_loaded = model.is_loaded;
+    let is_loading = matches!(model.status, ModelLoadStatus::Loading);
+    let is_unloading = matches!(model.status, ModelLoadStatus::Unloading);
+    let lifecycle_in_progress = is_loading || is_unloading;
     let model_id_load = model.model_id.clone();
     let model_id_unload = model.model_id.clone();
+    let model_name_for_toast = model.model_name.clone();
     let (loading, set_loading) = signal(false);
+    let show_unload_confirm = RwSignal::new(false);
+
+    let notifications = use_notifications();
+
+    let (auth_state, _) = use_auth();
+    let can_manage_models = Signal::derive(move || {
+        auth_state
+            .get()
+            .user()
+            .map(|u| {
+                u.role.eq_ignore_ascii_case("admin") || u.role.eq_ignore_ascii_case("operator")
+            })
+            .unwrap_or(false)
+    });
+    let current_role = Signal::derive(move || {
+        auth_state
+            .get()
+            .user()
+            .map(|u| u.role.clone())
+            .unwrap_or_else(|| "unknown".to_string())
+    });
 
     // Use shared API client instead of ApiClient::new() in handlers
     let client = use_api();
     let client_load = Arc::clone(&client);
     let client_unload = Arc::clone(&client);
+    let client_validate = Arc::clone(&client);
 
     // Load model handler
-    let on_load = move |_| {
-        let id = model_id_load.clone();
-        let client = Arc::clone(&client_load);
-        let on_update = on_update;
-        set_loading.set(true);
-        wasm_bindgen_futures::spawn_local(async move {
-            match client.load_model(&id).await {
-                Ok(_) => {
-                    on_update.run(());
+    let on_load = {
+        let model_name = model_name_for_toast.clone();
+        let model_id = model_id_load.clone();
+        let notifications = notifications.clone();
+        move |_| {
+            let id = model_id.clone();
+            let name = model_name.clone();
+            let client = Arc::clone(&client_load);
+            let notifications = notifications.clone();
+            let on_update = on_update;
+            set_loading.set(true);
+            wasm_bindgen_futures::spawn_local(async move {
+                match client.load_model(&id).await {
+                    Ok(_) => {
+                        notifications.success_with_action(
+                            "Model loaded",
+                            &format!("{} is ready for inference.", name),
+                            "View Model",
+                            &format!("/models/{}", id),
+                        );
+                        on_update.run(());
+                    }
+                    Err(e) => {
+                        report_error_with_toast(&e, "Failed to load model", Some("/models"), true);
+                    }
                 }
-                Err(e) => {
-                    report_error_with_toast(&e, "Failed to load model", Some("/models"), true);
-                }
-            }
-            let _ = set_loading.try_set(false);
-        });
+                let _ = set_loading.try_set(false);
+            });
+        }
     };
 
-    // Unload model handler
-    let on_unload = move |_| {
-        let id = model_id_unload.clone();
-        let client = Arc::clone(&client_unload);
-        let on_update = on_update;
-        set_loading.set(true);
-        wasm_bindgen_futures::spawn_local(async move {
-            match client.unload_model(&id).await {
-                Ok(_) => {
-                    on_update.run(());
+    // Unload model handler (called from confirmation dialog)
+    let do_unload = {
+        let model_name = model_name_for_toast.clone();
+        let model_id = model_id_unload.clone();
+        let notifications = notifications.clone();
+        move |_: ()| {
+            show_unload_confirm.set(false);
+            let id = model_id.clone();
+            let name = model_name.clone();
+            let client = Arc::clone(&client_unload);
+            let notifications = notifications.clone();
+            let on_update = on_update;
+            set_loading.set(true);
+            wasm_bindgen_futures::spawn_local(async move {
+                match client.unload_model(&id).await {
+                    Ok(_) => {
+                        notifications.success(
+                            "Model unloaded",
+                            &format!("{} has been removed from memory.", name),
+                        );
+                        on_update.run(());
+                    }
+                    Err(e) => {
+                        report_error_with_toast(
+                            &e,
+                            "Failed to unload model",
+                            Some("/models"),
+                            true,
+                        );
+                    }
                 }
-                Err(e) => {
-                    report_error_with_toast(&e, "Failed to unload model", Some("/models"), true);
-                }
-            }
-            let _ = set_loading.try_set(false);
-        });
+                let _ = set_loading.try_set(false);
+            });
+        }
     };
+
+    // Unload button opens confirmation dialog instead of calling API directly
+    let on_unload = move |_| {
+        show_unload_confirm.set(true);
+    };
+
+    // Validate model handler
+    let (validating, set_validating) = signal(false);
+    let on_validate = {
+        let model_id = model.model_id.clone();
+        let model_name = model_name_for_toast.clone();
+        let notifications = notifications.clone();
+        move |_| {
+            let id = model_id.clone();
+            let name = model_name.clone();
+            let client = Arc::clone(&client_validate);
+            let notifications = notifications.clone();
+            set_validating.set(true);
+            wasm_bindgen_futures::spawn_local(async move {
+                match client.validate_model(&id).await {
+                    Ok(_) => {
+                        notifications.success(
+                            "Validation passed",
+                            &format!("{} passed all validation checks.", name),
+                        );
+                    }
+                    Err(e) => {
+                        report_error_with_toast(&e, "Validation failed", None, true);
+                    }
+                }
+                let _ = set_validating.try_set(false);
+            });
+        }
+    };
+
+    let unload_confirm_desc = format!(
+        "Unloading {} will stop any active inference using this model. Sessions in progress may be interrupted.",
+        model.model_name,
+    );
+
+    // Extract fields from merged_row before the view block to avoid move issues
+    let detail_imported_at = merged_row.as_ref().and_then(|r| r.imported_at.clone());
+    let detail_tenant_id = merged_row.as_ref().and_then(|r| r.tenant_id.clone());
 
     view! {
+        // Unload confirmation dialog
+        <ConfirmationDialog
+            open=show_unload_confirm
+            title="Unload Model"
+            description=unload_confirm_desc
+            severity=ConfirmationSeverity::Warning
+            confirm_text="Unload Model"
+            on_confirm=Callback::new(do_unload)
+            on_cancel=Callback::new(move |_| show_unload_confirm.set(false))
+            loading=Signal::from(loading)
+        />
+
         // Status
         <Card title="Status".to_string()>
             <div class="space-y-4">
@@ -644,38 +812,130 @@ fn ModelDetailContent(
                         <Badge variant=status_label.0>
                             {status_label.1}
                         </Badge>
-                    </div>
-                    <div class="flex gap-2">
                         {move || {
-                            if loading.try_get().unwrap_or(false) {
-                                view! { <Spinner /> }.into_any()
-                            } else if is_loaded {
+                            if can_manage_models.get() {
                                 view! {
-                                    <Button
-                                        variant=ButtonVariant::Outline
-                                        on_click=Callback::new(on_unload.clone())
-                                    >
-                                        "Unload"
-                                    </Button>
-                                }.into_any()
+                                    <Badge variant=BadgeVariant::Success>
+                                        "Manage Access"
+                                    </Badge>
+                                }
+                                .into_any()
                             } else {
                                 view! {
-                                    <Button
-                                        variant=ButtonVariant::Primary
-                                        on_click=Callback::new(on_load.clone())
-                                    >
-                                        "Load"
-                                    </Button>
-                                }.into_any()
+                                    <Badge variant=BadgeVariant::Warning>
+                                        "Read-only Access"
+                                    </Badge>
+                                }
+                                .into_any()
+                            }
+                        }}
+                    </div>
+                    <div class="flex flex-col gap-1 items-end">
+                        <div class="flex gap-2">
+                            {move || {
+                                let manage_disabled = !can_manage_models.get();
+                                let request_in_flight = loading.try_get().unwrap_or(false);
+                                let is_validating = validating.try_get().unwrap_or(false);
+                                let action_disabled =
+                                    manage_disabled || request_in_flight || lifecycle_in_progress;
+                                let validate_disabled =
+                                    manage_disabled || is_validating || lifecycle_in_progress;
+
+                                if request_in_flight {
+                                    view! { <Spinner /> }.into_any()
+                                } else if is_unloading {
+                                    view! {
+                                        <Button variant=ButtonVariant::Outline disabled=true>
+                                            "Validate"
+                                        </Button>
+                                        <Button variant=ButtonVariant::Outline disabled=true>
+                                            "Unload"
+                                        </Button>
+                                    }.into_any()
+                                } else if is_loading {
+                                    view! {
+                                        <Button variant=ButtonVariant::Outline disabled=true>
+                                            "Validate"
+                                        </Button>
+                                        <Button variant=ButtonVariant::Primary disabled=true>
+                                            "Load"
+                                        </Button>
+                                    }.into_any()
+                                } else if is_loaded {
+                                    view! {
+                                        <Button
+                                            variant=ButtonVariant::Outline
+                                            disabled=validate_disabled
+                                            loading=Signal::from(validating)
+                                            on_click=Callback::new(on_validate.clone())
+                                        >
+                                            "Validate"
+                                        </Button>
+                                        <Button
+                                            variant=ButtonVariant::Outline
+                                            disabled=action_disabled
+                                            on_click=Callback::new(on_unload.clone())
+                                        >
+                                            "Unload"
+                                        </Button>
+                                    }.into_any()
+                                } else {
+                                    view! {
+                                        <Button
+                                            variant=ButtonVariant::Outline
+                                            disabled=validate_disabled
+                                            loading=Signal::from(validating)
+                                            on_click=Callback::new(on_validate.clone())
+                                        >
+                                            "Validate"
+                                        </Button>
+                                        <Button
+                                            variant=ButtonVariant::Primary
+                                            disabled=action_disabled
+                                            on_click=Callback::new(on_load.clone())
+                                        >
+                                            "Load"
+                                        </Button>
+                                    }.into_any()
+                                }
+                            }}
+                        </div>
+                        {move || {
+                            if can_manage_models.get() {
+                                view! {
+                                    <p class="text-xs text-muted-foreground">
+                                        "Your role can load and unload models."
+                                    </p>
+                                }
+                                .into_any()
+                            } else {
+                                let role = current_role.get();
+                                view! {
+                                    <div class="rounded-md border border-warning/40 bg-warning/10 p-3">
+                                        <p class="text-xs text-warning-foreground">
+                                            {format!(
+                                                "Current role: {}. Load and unload actions require Admin or Operator.",
+                                                role
+                                            )}
+                                        </p>
+                                    </div>
+                                }
+                                .into_any()
                             }
                         }}
                     </div>
                 </div>
 
-                {if matches!(model.status, ModelLoadStatus::Loading) {
+                {if is_loading {
                     Some(view! {
                         <p class="text-xs text-muted-foreground">
                             "Model loading. Inference will be ready once loading completes."
+                        </p>
+                    })
+                } else if is_unloading {
+                    Some(view! {
+                        <p class="text-xs text-muted-foreground">
+                            "Model unloading. Inference using this model is being drained."
                         </p>
                     })
                 } else if !model.is_loaded {
@@ -688,10 +948,20 @@ fn ModelDetailContent(
                     None
                 }}
 
-                {model.error_message.clone().map(|err| view! {
-                    <div class="rounded-lg border border-destructive bg-destructive/10 p-3">
-                        <p class="text-sm text-destructive">{err}</p>
-                    </div>
+                {model.error_message.clone().map(|err| {
+                    if lifecycle_in_progress {
+                        view! {
+                            <div class="rounded-lg border border-warning/40 bg-warning/10 p-3">
+                                <p class="text-sm text-warning-foreground">{format!("Backend busy: {}", err)}</p>
+                            </div>
+                        }
+                    } else {
+                        view! {
+                            <div class="rounded-lg border border-destructive bg-destructive/10 p-3">
+                                <p class="text-sm text-destructive">{err}</p>
+                            </div>
+                        }
+                    }
                 })}
             </div>
         </Card>
@@ -718,6 +988,15 @@ fn ModelDetailContent(
                         <span class="text-muted-foreground">"Loaded At"</span>
                         <span>{format_datetime(&ts)}</span>
                     </div>
+                })}
+                {detail_imported_at.map(|ts| view! {
+                    <div class="flex justify-between">
+                        <span class="text-muted-foreground">"Imported At"</span>
+                        <span>{format_datetime(&ts)}</span>
+                    </div>
+                })}
+                {detail_tenant_id.map(|tid| view! {
+                    <CopyableId id=tid label="Tenant ID".to_string() truncate=24 />
                 })}
             </div>
         </Card>
@@ -842,6 +1121,21 @@ fn ModelDetailContent(
                 </Card>
             })
         })}
+
+        // Capabilities (from registered metadata)
+        {merged_row.as_ref().and_then(|row| {
+            let caps = row.capabilities.as_ref().filter(|c| !c.is_empty())?;
+            let caps = caps.clone();
+            Some(view! {
+                <Card title="Capabilities".to_string() class="mt-4".to_string()>
+                    <div class="flex flex-wrap gap-2">
+                        {caps.into_iter().map(|cap| view! {
+                            <Badge variant=BadgeVariant::Secondary>{cap}</Badge>
+                        }).collect::<Vec<_>>()}
+                    </div>
+                </Card>
+            })
+        })}
     }
 }
 
@@ -917,6 +1211,9 @@ pub fn ModelDetail() -> impl IntoView {
                 training_job_count: reg_model.map(|r| r.training_job_count),
                 import_status: reg_model.and_then(|r| r.import_status.clone()),
                 architecture: reg_model.and_then(|r| r.architecture.clone()),
+                capabilities: reg_model.and_then(|r| r.capabilities.clone()),
+                imported_at: reg_model.and_then(|r| r.imported_at.clone()),
+                tenant_id: reg_model.and_then(|r| r.tenant_id.clone()),
             })
         } else {
             None
@@ -950,6 +1247,176 @@ pub fn ModelDetail() -> impl IntoView {
                 }
             />
         </PageScaffold>
+    }
+}
+
+// ============================================================================
+// Seed/Import model dialog
+// ============================================================================
+
+/// Dialog for importing a new model into the system.
+#[component]
+fn SeedModelDialog(open: RwSignal<bool>, on_imported: Callback<()>) -> impl IntoView {
+    let model_path = RwSignal::new(String::new());
+    let model_name = RwSignal::new(String::new());
+    let format = RwSignal::new("mlx".to_string());
+    let backend = RwSignal::new("mlx".to_string());
+
+    let (loading, set_loading) = signal(false);
+    let notifications = use_notifications();
+    let client = use_api();
+
+    let is_valid = move || !model_path.get().trim().is_empty();
+
+    let format_options: Vec<(String, String)> = vec![
+        ("mlx".to_string(), "MLX".to_string()),
+        ("safetensors".to_string(), "SafeTensors".to_string()),
+        ("gguf".to_string(), "GGUF".to_string()),
+        ("pytorch".to_string(), "PyTorch".to_string()),
+    ];
+
+    let backend_options: Vec<(String, String)> = vec![
+        ("mlx".to_string(), "MLX".to_string()),
+        ("metal".to_string(), "Metal".to_string()),
+        ("coreml".to_string(), "CoreML".to_string()),
+    ];
+
+    let reset_form = move || {
+        model_path.set(String::new());
+        model_name.set(String::new());
+        format.set("mlx".to_string());
+        backend.set("mlx".to_string());
+    };
+
+    let on_submit = {
+        let notifications = notifications.clone();
+        move |_| {
+            let path = model_path.get().trim().to_string();
+            if path.is_empty() {
+                return;
+            }
+
+            // Derive name from path if not provided
+            let name = {
+                let n = model_name.get().trim().to_string();
+                if n.is_empty() {
+                    path.rsplit('/').next().unwrap_or(&path).to_string()
+                } else {
+                    n
+                }
+            };
+
+            let request = SeedModelRequest {
+                model_name: name,
+                model_path: path,
+                format: format.get(),
+                backend: backend.get(),
+                capabilities: None,
+                metadata: None,
+            };
+
+            let client = Arc::clone(&client);
+            let notifications = notifications.clone();
+            let on_imported = on_imported;
+            set_loading.set(true);
+            open.set(false);
+
+            wasm_bindgen_futures::spawn_local(async move {
+                match client.seed_model(&request).await {
+                    Ok(_) => {
+                        notifications.success_with_action(
+                            "Model imported",
+                            "Model is being registered.",
+                            "View Models",
+                            "/models",
+                        );
+                        on_imported.run(());
+                    }
+                    Err(e) => {
+                        report_error_with_toast(
+                            &e,
+                            "Failed to import model",
+                            Some("/models"),
+                            true,
+                        );
+                    }
+                }
+                let _ = set_loading.try_set(false);
+            });
+
+            reset_form();
+        }
+    };
+
+    view! {
+        <Dialog
+            open=open
+            title="Import Model".to_string()
+            description="Register a model from the local filesystem".to_string()
+        >
+            <div class="space-y-4 overflow-y-auto" style="max-height: 60vh">
+                <Input
+                    value=model_path
+                    label="Model Path".to_string()
+                    placeholder="/var/models/Llama-3.2-3B-Instruct-4bit".to_string()
+                />
+                <p class="text-xs text-muted-foreground -mt-2">
+                    "Absolute path to the model directory on disk (required)"
+                </p>
+
+                <Input
+                    value=model_name
+                    label="Model Name".to_string()
+                    placeholder="Auto-derived from path".to_string()
+                />
+                <p class="text-xs text-muted-foreground -mt-2">
+                    "Display name for the model (optional)"
+                </p>
+
+                <Select
+                    value=format
+                    options=format_options
+                    label="Format".to_string()
+                />
+                <p class="text-xs text-muted-foreground -mt-2">
+                    "Model file format"
+                </p>
+
+                <Select
+                    value=backend
+                    options=backend_options
+                    label="Backend".to_string()
+                />
+                <p class="text-xs text-muted-foreground -mt-2">
+                    "Inference backend to use"
+                </p>
+
+                <div class="flex justify-end gap-2 pt-4">
+                    <Button
+                        variant=ButtonVariant::Secondary
+                        on_click=Callback::new(move |_| {
+                            open.set(false);
+                            reset_form();
+                        })
+                    >
+                        "Cancel"
+                    </Button>
+                    <Button
+                        variant=ButtonVariant::Primary
+                        disabled=Signal::derive(move || !is_valid() || loading.get())
+                        loading=Signal::from(loading)
+                        on_click=Callback::new(on_submit.clone())
+                    >
+                        "Import"
+                    </Button>
+                </div>
+
+                <p class="text-xs text-muted-foreground border-t pt-3">
+                    "You can also import models from the CLI: "
+                    <code class="font-mono text-xs">"aosctl models seed"</code>
+                </p>
+            </div>
+        </Dialog>
     }
 }
 

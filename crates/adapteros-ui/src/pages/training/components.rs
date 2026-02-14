@@ -201,7 +201,6 @@ pub fn JobStatusBadge(status: String) -> impl IntoView {
         "completed" => (BadgeVariant::Success, "Completed"),
         "failed" => (BadgeVariant::Destructive, "Failed"),
         "cancelled" => (BadgeVariant::Warning, "Cancelled"),
-        "paused" => (BadgeVariant::Secondary, "Paused"),
         _ => (BadgeVariant::Secondary, "Unknown"),
     };
 

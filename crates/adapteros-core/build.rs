@@ -18,10 +18,19 @@ fn main() {
     // Watch the migrations directory for changes
     println!("cargo:rerun-if-changed={}", migrations_dir.display());
 
-    // Watch .git/HEAD for rebuild on branch switch (not .git/index which changes on every add/commit)
+    // Watch .git/HEAD for rebuild on branch switch
     let git_head = workspace_root.join(".git/HEAD");
     if git_head.exists() {
         println!("cargo:rerun-if-changed={}", git_head.display());
+        // Also watch the branch ref so new commits on the same branch trigger rebuild
+        if let Ok(head_content) = std::fs::read_to_string(&git_head) {
+            if let Some(ref_path) = head_content.trim().strip_prefix("ref: ") {
+                let ref_file = workspace_root.join(".git").join(ref_path);
+                if ref_file.exists() {
+                    println!("cargo:rerun-if-changed={}", ref_file.display());
+                }
+            }
+        }
     }
 
     // If build provenance env vars change, make sure we re-run.

@@ -672,7 +672,7 @@ impl Default for TrainingConfig {
             vocab_size: 32000, // Default LLaMA/Mistral vocab size
             training_contract_version: TRAINING_DATA_CONTRACT_VERSION.to_string(),
             pad_token_id: 0,
-            ignore_index: 0,
+            ignore_index: -100,
             coreml_placement: None,
             preferred_backend: None,
             backend_policy: None,

@@ -19,7 +19,6 @@ use std::sync::Arc;
 use std::time::Duration;
 
 use adapteros_core::{AlgorithmVersionBundle, AosError, Result};
-use adapteros_deterministic_exec::spawn_deterministic;
 use tokio::sync::RwLock;
 use tracing::{error, info, warn};
 
@@ -406,7 +405,18 @@ impl TrainingService {
                         ))
                     })?;
 
-                let trust_state = canonical_trust_state(&ds_version.trust_state);
+                let stored_trust_state = canonical_trust_state(&ds_version.trust_state);
+                let trust_state = db
+                    .get_effective_trust_state(&sel.dataset_version_id)
+                    .await
+                    .map_err(|e| {
+                        AosError::Database(format!(
+                            "failed to load effective trust_state for dataset version {}: {}",
+                            sel.dataset_version_id, e
+                        ))
+                    })?
+                    .map(|state| canonical_trust_state(&state))
+                    .unwrap_or(stored_trust_state);
                 if trust_state == "blocked" {
                     return Err(AosError::Validation(format!(
                         "dataset version {} trust_state={} blocks training",
@@ -534,11 +544,7 @@ impl TrainingService {
             }
         }
         if !combined_inputs.is_empty() {
-            let combined_hash = if combined_inputs.len() == 1 && data_spec_hash.is_none() {
-                combined_inputs[0].1.clone()
-            } else {
-                compute_combined_data_spec_hash(&combined_inputs)
-            };
+            let combined_hash = compute_combined_data_spec_hash(&combined_inputs);
             if let Some(ref provided) = data_spec_hash {
                 if provided != &combined_hash {
                     return Err(AosError::Validation("DATA_SPEC_HASH_MISMATCH".to_string()));
@@ -702,8 +708,18 @@ impl TrainingService {
         if let Some(ref db) = self.db {
             let config_json = serde_json::to_string(&config).unwrap_or_else(|_| "{}".to_string());
 
-            let db_repo_id = repo_id.as_deref().unwrap_or("direct-training");
             let created_by = initiated_by.as_deref().unwrap_or("system");
+            if repo_id.is_none() {
+                if let Err(e) = db.ensure_direct_training_repo_exists(created_by).await {
+                    warn!(
+                        job_id = %job_id,
+                        error = %e,
+                        "Failed to ensure synthetic direct-training repo parent row (job will run without durable training job linkage)"
+                    );
+                }
+            }
+
+            let db_repo_id = repo_id.as_deref().unwrap_or("direct-training");
 
             // Extract first dataset_version_id for provenance tracking
             let dataset_version_id = job
@@ -783,184 +799,79 @@ impl TrainingService {
         // Spawn deterministic training task
         let jobs_ref = self.jobs.clone();
         let cancel_tokens_ref = self.cancel_tokens.clone();
-        let cfg_for_run = job.config.clone();
-        let job_id_for_run = job.id.clone();
-        let adapter_name_for_run = job.adapter_name.clone();
-        let dataset_id_for_run = job.dataset_id.clone();
-        let tenant_id_for_run = tenant_id;
-        let db_for_run = self.db.clone();
-        let storage_for_run = self.storage_root.clone();
-        let artifacts_for_run = self.artifacts_root.clone();
-        let category_for_run = category;
-        let post_actions_for_run = post_actions_json;
-        let base_model_id_for_run = job.base_model_id.clone();
-        let base_model_id_for_det = base_model_id_for_run.clone();
-        let jobs_ref_det = jobs_ref.clone();
-        let job_id_det = job_id_for_run.clone();
-        let adapter_name_det = adapter_name_for_run.clone();
-        let cfg_for_det = cfg_for_run.clone();
-        let dataset_id_for_det = dataset_id_for_run.clone();
-        let tenant_id_for_det = tenant_id_for_run.clone();
-        let db_for_det = db_for_run.clone();
-        let storage_for_det = storage_for_run.clone();
-        let artifacts_for_det = artifacts_for_run.clone();
-        let category_for_det = category_for_run.clone();
-        let post_actions_for_det = post_actions_for_run.clone();
-        let dataset_id_for_fallback = dataset_id_for_run.clone();
-        let tenant_id_for_fallback = tenant_id_for_run.clone();
-        let db_for_fallback = db_for_run.clone();
-        let storage_for_fallback = storage_for_run.clone();
-        let artifacts_for_fallback = artifacts_for_run.clone();
-        let category_for_fallback = category_for_run.clone();
-        let post_actions_for_fallback = post_actions_for_run.clone();
-        let base_model_id_for_fallback = base_model_id_for_run.clone();
-        let jobs_ref_fallback = jobs_ref.clone();
-        let job_id_for_fallback = job_id_for_run.clone();
-        let adapter_name_for_fallback = adapter_name_for_run.clone();
-        let cfg_for_fallback = cfg_for_run.clone();
-        let synthetic_mode_for_run = synthetic_mode;
-        let data_lineage_mode_for_run = data_lineage_mode;
-        let cancel_token_for_run = cancel_token.clone();
-        let cancel_tokens_for_det = cancel_tokens_ref.clone();
+        let cfg = job.config.clone();
+        let job_id_spawn = job.id.clone();
+        let adapter_name = job.adapter_name.clone();
+        let dataset_id = job.dataset_id.clone();
+        let tenant_id_spawn = tenant_id;
+        let db = self.db.clone();
+        let storage = self.storage_root.clone();
+        let artifacts = self.artifacts_root.clone();
+        let category_spawn = category;
+        let post_actions = post_actions_json;
+        let base_model_id_spawn = job.base_model_id.clone();
+        let scope_spawn = scope.clone();
+        let cancel_token_spawn = cancel_token.clone();
         let job_timeout = training_job_timeout();
-        let job_id_for_timeout = job_id_for_run.clone();
-        let jobs_ref_for_timeout = jobs_ref.clone();
-        if let Err(e) = spawn_deterministic(
-            format!("training-job:{}", job_id_for_run),
-            async move {
-                // Wrap training job with timeout to prevent indefinite hangs
-                let training_future = run_training_job(
-                    jobs_ref_det.clone(),
-                    job_id_det.clone(),
-                    adapter_name_det,
-                    cfg_for_det,
-                    dataset_id_for_det,
-                    synthetic_mode_for_run,
-                    data_lineage_mode_for_run,
-                    tenant_id_for_det,
-                    db_for_det,
-                    storage_for_det,
-                    artifacts_for_det,
-                    category_for_det,
-                    post_actions_for_det,
-                    base_model_id_for_det,
-                    cancel_token_for_run.clone(),
-                );
+        // Training runs on the main tokio runtime rather than the deterministic
+        // executor. The executor's single-threaded poll loop starves tokio I/O,
+        // deadlocking any async work inside the training pipeline. Training has
+        // its own seed-based determinism so executor tick tracking is not required.
+        tokio::spawn(async move {
+            let jobs_ref_timeout = jobs_ref.clone();
+            let training_future = run_training_job(
+                jobs_ref,
+                job_id_spawn.clone(),
+                adapter_name,
+                cfg,
+                dataset_id,
+                synthetic_mode,
+                data_lineage_mode,
+                tenant_id_spawn,
+                db,
+                storage,
+                artifacts,
+                category_spawn,
+                post_actions,
+                base_model_id_spawn,
+                scope_spawn,
+                cancel_token_spawn.clone(),
+            );
 
-                let result = match tokio::time::timeout(job_timeout, training_future).await {
-                    Ok(inner_result) => inner_result,
-                    Err(_elapsed) => {
-                        // Training job timed out - log and mark as failed
-                        warn!(
-                            job_id = %job_id_for_timeout,
-                            timeout_secs = job_timeout.as_secs(),
-                            "TRAINING_JOB_TIMEOUT: Training job exceeded maximum duration - consider increasing AOS_TRAINING_JOB_TIMEOUT_SECS"
-                        );
-                        // Signal cancellation so any in-progress work can clean up
-                        cancel_token_for_run.store(true, Ordering::SeqCst);
-                        // Update job status to failed with timeout reason
-                        {
-                            let mut jobs = jobs_ref_for_timeout.write().await;
-                            if let Some(job) = jobs.get_mut(&job_id_for_timeout) {
-                                job.status = TrainingJobStatus::Failed;
-                                job.error_message = Some(format!(
-                                    "TRAINING_JOB_TIMEOUT: Training job exceeded maximum duration of {} seconds",
-                                    job_timeout.as_secs()
-                                ));
-                            }
-                        }
-                        Err(AosError::Timeout {
-                            duration: job_timeout,
-                        })
-                    }
-                };
-
-                {
-                    let mut tokens = cancel_tokens_for_det.write().await;
-                    tokens.remove(&job_id_for_run);
-                }
-
-                if let Err(err) = result {
-                    tracing::error!("Training job {} failed: {}", job_id_for_run, err);
-                }
-            },
-        ) {
-            // Allow explicit non-deterministic fallback for tests/sandboxes
-            if cfg!(test) || std::env::var("AOS_ALLOW_NONDET_TRAINING").is_ok() {
-                tracing::warn!(
-                    "Deterministic executor unavailable, falling back to tokio::spawn for job {}",
-                    job_id
-                );
-                let cancel_tokens_for_fallback = cancel_tokens_ref.clone();
-                let cancel_token_for_fallback = cancel_token.clone();
-                let job_timeout_fallback = training_job_timeout();
-                let job_id_for_timeout_fallback = job_id.clone();
-                let jobs_ref_for_timeout_fallback = jobs_ref.clone();
-                tokio::spawn(async move {
-                    // Wrap training job with timeout to prevent indefinite hangs
-                    let training_future = run_training_job(
-                        jobs_ref_fallback.clone(),
-                        job_id_for_fallback.clone(),
-                        adapter_name_for_fallback.clone(),
-                        cfg_for_fallback.clone(),
-                        dataset_id_for_fallback,
-                        synthetic_mode_for_run,
-                        data_lineage_mode_for_run,
-                        tenant_id_for_fallback,
-                        db_for_fallback,
-                        storage_for_fallback,
-                        artifacts_for_fallback,
-                        category_for_fallback,
-                        post_actions_for_fallback,
-                        base_model_id_for_fallback,
-                        cancel_token_for_fallback.clone(),
+            let result = match tokio::time::timeout(job_timeout, training_future).await {
+                Ok(inner_result) => inner_result,
+                Err(_elapsed) => {
+                    warn!(
+                        job_id = %job_id_spawn,
+                        timeout_secs = job_timeout.as_secs(),
+                        "TRAINING_JOB_TIMEOUT: Training job exceeded maximum duration - consider increasing AOS_TRAINING_JOB_TIMEOUT_SECS"
                     );
-
-                    let result = match tokio::time::timeout(job_timeout_fallback, training_future)
-                        .await
+                    cancel_token_spawn.store(true, Ordering::SeqCst);
                     {
-                        Ok(inner_result) => inner_result,
-                        Err(_elapsed) => {
-                            warn!(
-                                job_id = %job_id_for_timeout_fallback,
-                                timeout_secs = job_timeout_fallback.as_secs(),
-                                "TRAINING_JOB_TIMEOUT: Training job exceeded maximum duration (fallback path)"
-                            );
-                            cancel_token_for_fallback.store(true, Ordering::SeqCst);
-                            {
-                                let mut jobs = jobs_ref_for_timeout_fallback.write().await;
-                                if let Some(job) = jobs.get_mut(&job_id_for_timeout_fallback) {
-                                    job.status = TrainingJobStatus::Failed;
-                                    job.error_message = Some(format!(
-                                        "TRAINING_JOB_TIMEOUT: Training job exceeded maximum duration of {} seconds",
-                                        job_timeout_fallback.as_secs()
-                                    ));
-                                }
-                            }
-                            Err(AosError::Timeout {
-                                duration: job_timeout_fallback,
-                            })
+                        let mut jobs = jobs_ref_timeout.write().await;
+                        if let Some(job) = jobs.get_mut(&job_id_spawn) {
+                            job.status = TrainingJobStatus::Failed;
+                            job.error_message = Some(format!(
+                                "TRAINING_JOB_TIMEOUT: Training job exceeded maximum duration of {} seconds",
+                                job_timeout.as_secs()
+                            ));
                         }
-                    };
-
-                    let mut tokens = cancel_tokens_for_fallback.write().await;
-                    tokens.remove(&job_id_for_fallback);
-                    if let Err(err) = result {
-                        tracing::error!(
-                            "Training job {} failed (nondet fallback): {}",
-                            job_id_for_fallback,
-                            err
-                        );
                     }
-                });
-            } else {
-                tracing::error!("Failed to spawn deterministic training task: {}", e);
-                return Err(adapteros_core::AosError::DeterminismViolation(format!(
-                    "Training job {} requires deterministic executor: {}",
-                    job_id, e
-                )));
+                    Err(AosError::Timeout {
+                        duration: job_timeout,
+                    })
+                }
+            };
+
+            {
+                let mut tokens = cancel_tokens_ref.write().await;
+                tokens.remove(&job_id_spawn);
             }
-        }
+
+            if let Err(err) = result {
+                tracing::error!("Training job {} failed: {}", job_id_spawn, err);
+            }
+        });
 
         tracing::info!("Training job created: {}", job_id);
 

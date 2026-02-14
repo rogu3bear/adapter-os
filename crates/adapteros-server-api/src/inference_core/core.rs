@@ -888,6 +888,8 @@ impl<'a> InferenceCore<'a> {
             stop_policy: request.stop_policy.clone(),
             policy_mask_digest_b3: Some(policy_mask_digest),
             utf8_healing: request.utf8_healing.unwrap_or(true),
+            fim_prefix: request.fim_prefix.clone(),
+            fim_suffix: request.fim_suffix.clone(),
         };
 
         if let Some(ref envelope) = worker_request.run_envelope {
@@ -1949,7 +1951,7 @@ impl<'a> InferenceCore<'a> {
         let adapters = self
             .state
             .db
-            .list_adapters_for_tenant(tenant_id)
+            .list_adapters_for_tenant_unthrottled(tenant_id)
             .await
             .map_err(|e| {
                 InferenceError::DatabaseError(format!(
@@ -2030,7 +2032,7 @@ impl<'a> InferenceCore<'a> {
         let adapters = self
             .state
             .db
-            .list_adapters_for_tenant(tenant_id)
+            .list_adapters_for_tenant_unthrottled(tenant_id)
             .await
             .map_err(|e| {
                 InferenceError::WorkerError(format!(

@@ -14,14 +14,15 @@
 mod components;
 pub mod dialogs;
 mod utils;
+pub(crate) use utils::is_terminal_worker_status;
 
-use crate::api::ApiClient;
+use crate::api::{report_error_with_toast, ApiClient};
 use crate::components::{
     Button, ButtonVariant, ConfirmationDialog, ConfirmationSeverity, ErrorDisplay, LoadingDisplay,
     PageBreadcrumbItem, PageScaffold, PageScaffoldActions, RefreshButton, SkeletonCard,
     SkeletonTable, SplitPanel, SplitRatio,
 };
-use crate::hooks::{use_api_resource, use_polling, LoadingState};
+use crate::hooks::{use_api, use_api_resource, use_polling, LoadingState};
 use crate::signals::use_notifications;
 use adapteros_api_types::SpawnWorkerRequest;
 use leptos::prelude::*;
@@ -31,18 +32,39 @@ use std::sync::Arc;
 use crate::components::{IconPlus, IconRefresh, IconX};
 use components::{WorkerDetailPanel, WorkerDetailView, WorkersList, WorkersSummary};
 use dialogs::{PlanOption, SpawnWorkerDialog};
-use utils::{
-    is_recent_timestamp, is_terminal_worker_status, WorkerHealthRecord, WorkerHealthSummary,
-};
+use utils::{is_recent_timestamp, WorkerHealthRecord, WorkerHealthSummary};
 
 /// Workers management page
 #[component]
 pub fn Workers() -> impl IntoView {
     const ACTIVE_WINDOW_SECS: u64 = 5 * 60;
 
-    // Fetch workers list
-    let (workers, refetch_workers) =
-        use_api_resource(|client: Arc<ApiClient>| async move { client.list_workers().await });
+    // Dialog state
+    let show_spawn_dialog = RwSignal::new(false);
+    let selected_worker = RwSignal::new(Option::<String>::None);
+    let show_history = RwSignal::new(false);
+    let action_loading = RwSignal::new(false);
+    let action_error = RwSignal::new(Option::<String>::None);
+    let pending_drain_worker = RwSignal::new(Option::<String>::None);
+    let pending_stop_worker = RwSignal::new(Option::<String>::None);
+    let show_drain_confirm = RwSignal::new(false);
+    let show_stop_confirm = RwSignal::new(false);
+    let notifications = use_notifications();
+
+    // Fetch workers list (terminal entries hidden unless history is explicitly enabled)
+    let (workers, refetch_workers) = use_api_resource({
+        let show_history = show_history;
+        move |client: Arc<ApiClient>| {
+            let include_history = show_history.get_untracked();
+            async move {
+                if include_history {
+                    client.list_workers_with_history().await
+                } else {
+                    client.list_workers().await
+                }
+            }
+        }
+    });
 
     // Fetch worker health summary (health status + incident counts)
     let (worker_health, refetch_worker_health) =
@@ -60,18 +82,6 @@ pub fn Workers() -> impl IntoView {
     let (plans, _refetch_plans) = use_api_resource(|client: Arc<ApiClient>| async move {
         client.get::<Vec<PlanOption>>("/v1/plans").await
     });
-
-    // Dialog state
-    let show_spawn_dialog = RwSignal::new(false);
-    let selected_worker = RwSignal::new(Option::<String>::None);
-    let show_history = RwSignal::new(false);
-    let action_loading = RwSignal::new(false);
-    let action_error = RwSignal::new(Option::<String>::None);
-    let pending_drain_worker = RwSignal::new(Option::<String>::None);
-    let pending_stop_worker = RwSignal::new(Option::<String>::None);
-    let show_drain_confirm = RwSignal::new(false);
-    let show_stop_confirm = RwSignal::new(false);
-    let notifications = use_notifications();
 
     // Debug logging for list sizes
     #[cfg(debug_assertions)]
@@ -95,6 +105,7 @@ pub fn Workers() -> impl IntoView {
         selected_worker.set(None);
     });
 
+    let api_client = use_api();
     let notifications_for_spawn = notifications.clone();
 
     view! {
@@ -126,6 +137,7 @@ pub fn Workers() -> impl IntoView {
                             // If we just hid history, selection may no longer be visible.
                             selected_worker.set(None);
                         }
+                        refetch_workers.run(());
                     })
                 >
                     {move || {
@@ -155,14 +167,14 @@ pub fn Workers() -> impl IntoView {
 
                         if show_history.get() {
                             if total > 0 {
-                                format!("Hide History ({})", total)
+                                format!("Hide Inactive History ({})", total)
                             } else {
-                                "Hide History".to_string()
+                                "Hide Inactive History".to_string()
                             }
                         } else if hidden > 0 {
-                            format!("Show History (+{})", hidden)
+                            format!("Show Inactive History (+{})", hidden)
                         } else {
-                            "Show History".to_string()
+                            "Show Inactive History".to_string()
                         }
                     }}
                 </Button>
@@ -338,10 +350,11 @@ pub fn Workers() -> impl IntoView {
                                 loading=Signal::from(action_loading)
                                 on_spawn=Callback::new({
                                     let notifications = notifications.clone();
+                                    let api_client = api_client.clone();
                                     move |request: SpawnWorkerRequest| {
                                         action_loading.set(true);
                                         show_spawn_dialog.set(false);
-                                        let client = ApiClient::new();
+                                        let client = api_client.clone();
                                         let notifications = notifications.clone();
                                         wasm_bindgen_futures::spawn_local(async move {
                                             match client.spawn_worker(&request).await {
@@ -357,6 +370,7 @@ pub fn Workers() -> impl IntoView {
                                                 }
                                                 Err(e) => {
                                                     action_error.set(Some(e.user_message()));
+                                                    report_error_with_toast(&e, "Failed to spawn worker", Some("/workers"), true);
                                                 }
                                             }
                                             action_loading.set(false);
@@ -379,25 +393,32 @@ pub fn Workers() -> impl IntoView {
                                         description=drain_desc
                                         severity=ConfirmationSeverity::Warning
                                         confirm_text="Drain"
-                                        on_confirm=Callback::new(move |_| {
-                                            show_drain_confirm.set(false);
-                                            if let Some(worker_id) = pending_drain_worker.get_untracked() {
-                                                action_loading.set(true);
-                                                let client = ApiClient::new();
-                                                wasm_bindgen_futures::spawn_local(async move {
-                                                    match client.drain_worker(&worker_id).await {
-                                                        Ok(_) => {
-                                                            action_error.set(None);
-                                                            refetch_workers.run(());
+                                        on_confirm=Callback::new({
+                                            let api_client = api_client.clone();
+                                            let notifications = notifications.clone();
+                                            move |_| {
+                                                show_drain_confirm.set(false);
+                                                if let Some(worker_id) = pending_drain_worker.get_untracked() {
+                                                    action_loading.set(true);
+                                                    let client = api_client.clone();
+                                                    let notifications = notifications.clone();
+                                                    wasm_bindgen_futures::spawn_local(async move {
+                                                        match client.drain_worker(&worker_id).await {
+                                                            Ok(_) => {
+                                                                action_error.set(None);
+                                                                notifications.success("Worker draining", "Worker is draining and will stop accepting new requests.");
+                                                                refetch_workers.run(());
+                                                            }
+                                                            Err(e) => {
+                                                                action_error.set(Some(e.user_message()));
+                                                                report_error_with_toast(&e, "Failed to drain worker", Some("/workers"), true);
+                                                            }
                                                         }
-                                                        Err(e) => {
-                                                            action_error.set(Some(e.user_message()));
-                                                        }
-                                                    }
-                                                    action_loading.set(false);
-                                                });
+                                                        action_loading.set(false);
+                                                    });
+                                                }
+                                                pending_drain_worker.set(None);
                                             }
-                                            pending_drain_worker.set(None);
                                         })
                                         on_cancel=Callback::new(move |_| {
                                             show_drain_confirm.set(false);
@@ -422,25 +443,32 @@ pub fn Workers() -> impl IntoView {
                                         description=stop_desc
                                         severity=ConfirmationSeverity::Warning
                                         confirm_text="Stop"
-                                        on_confirm=Callback::new(move |_| {
-                                            show_stop_confirm.set(false);
-                                            if let Some(worker_id) = pending_stop_worker.get_untracked() {
-                                                action_loading.set(true);
-                                                let client = ApiClient::new();
-                                                wasm_bindgen_futures::spawn_local(async move {
-                                                    match client.stop_worker(&worker_id).await {
-                                                        Ok(_) => {
-                                                            action_error.set(None);
-                                                            refetch_workers.run(());
+                                        on_confirm=Callback::new({
+                                            let api_client = api_client.clone();
+                                            let notifications = notifications.clone();
+                                            move |_| {
+                                                show_stop_confirm.set(false);
+                                                if let Some(worker_id) = pending_stop_worker.get_untracked() {
+                                                    action_loading.set(true);
+                                                    let client = api_client.clone();
+                                                    let notifications = notifications.clone();
+                                                    wasm_bindgen_futures::spawn_local(async move {
+                                                        match client.stop_worker(&worker_id).await {
+                                                            Ok(_) => {
+                                                                action_error.set(None);
+                                                                notifications.success("Worker stopped", "Worker has been stopped.");
+                                                                refetch_workers.run(());
+                                                            }
+                                                            Err(e) => {
+                                                                action_error.set(Some(e.user_message()));
+                                                                report_error_with_toast(&e, "Failed to stop worker", Some("/workers"), true);
+                                                            }
                                                         }
-                                                        Err(e) => {
-                                                            action_error.set(Some(e.user_message()));
-                                                        }
-                                                    }
-                                                    action_loading.set(false);
-                                                });
+                                                        action_loading.set(false);
+                                                    });
+                                                }
+                                                pending_stop_worker.set(None);
                                             }
-                                            pending_stop_worker.set(None);
                                         })
                                         on_cancel=Callback::new(move |_| {
                                             show_stop_confirm.set(false);

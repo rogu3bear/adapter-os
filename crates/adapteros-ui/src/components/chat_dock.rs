@@ -208,6 +208,21 @@ fn TargetSelector() -> impl IntoView {
     let options = RwSignal::new(TargetOptions::default());
     let has_loaded = RwSignal::new(false);
 
+    // Fetch system status to resolve active model name for "Auto" display.
+    let (system_status, _) =
+        use_api_resource(|client: Arc<ApiClient>| async move { client.system_status().await });
+    let active_model_name =
+        Signal::derive(
+            move || match system_status.try_get().unwrap_or(LoadingState::Idle) {
+                LoadingState::Loaded(ref status) => status
+                    .kernel
+                    .as_ref()
+                    .and_then(|k| k.model.as_ref())
+                    .and_then(|m| m.model_id.clone()),
+                _ => None,
+            },
+        );
+
     let toggle_dropdown = move |_| {
         show_dropdown.update(|v| *v = !*v);
     };
@@ -340,7 +355,10 @@ fn TargetSelector() -> impl IntoView {
                 class="flex w-full items-center justify-between rounded-md border bg-background px-3 py-2 text-sm hover:bg-muted transition-colors"
                 on:click=toggle_dropdown
             >
-                <span class="truncate">{move || chat_state.get().target.display_name()}</span>
+                <span class="truncate">{move || {
+                    let model = active_model_name.try_get().flatten();
+                    chat_state.get().target.display_name_with_model(model.as_deref())
+                }}</span>
                 <svg
                     xmlns="http://www.w3.org/2000/svg"
                     class="h-4 w-4 text-muted-foreground"
@@ -364,7 +382,7 @@ fn TargetSelector() -> impl IntoView {
                             <div class="p-1">
                                 <DynamicTargetOption
                                     target=ChatTarget::Default
-                                    label="Default".to_string()
+                                    label="Auto".to_string()
                                     on_select=select.clone()
                                 />
 

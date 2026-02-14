@@ -603,12 +603,29 @@ impl DeterministicExecutor {
         }
     }
 
-    /// Run in normal mode (original behavior)
+    /// Run in normal mode until all tasks complete.
+    ///
+    /// Performs bounded passes through the queue, yielding to the async
+    /// runtime between passes so the I/O reactor can service pending
+    /// wakers (timers, file I/O, locks).
     async fn run_normal_mode(&self) -> Result<()> {
-        self.run_normal_mode_with_limit(None).await
+        loop {
+            self.run_normal_mode_with_limit(None).await?;
+            if self.task_queue.lock().is_empty() {
+                break;
+            }
+            // Yield between passes so the host runtime can process I/O.
+            tokio::task::yield_now().await;
+        }
+        Ok(())
     }
 
     /// Run in normal mode for a bounded number of task polls.
+    ///
+    /// When `max_steps` is `None`, the executor performs at most one full pass
+    /// through the current queue (polling each queued task once) and then returns.
+    /// This prevents a tight spin-loop that would starve the host async runtime's
+    /// I/O reactor when tasks return `Poll::Pending`.
     async fn run_normal_mode_with_limit(&self, max_steps: Option<u64>) -> Result<()> {
         self.running.store(1, Ordering::Relaxed);
         trace!(mode = "normal", "Starting deterministic executor");
@@ -630,12 +647,14 @@ impl DeterministicExecutor {
             }
         }
 
+        // When no explicit limit is given, bound to one pass through the queue
+        // so the caller can yield to the async runtime between passes.
+        let effective_limit = max_steps.unwrap_or_else(|| self.task_queue.lock().len() as u64);
+
         let mut steps = 0u64;
         loop {
-            if let Some(limit) = max_steps {
-                if steps >= limit {
-                    break;
-                }
+            if steps >= effective_limit {
+                break;
             }
             let mut task = {
                 // Drop the queue lock before polling to avoid deadlocks.
