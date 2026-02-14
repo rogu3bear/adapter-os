@@ -214,9 +214,12 @@ async fn start(args: TrainStartArgs, output: &OutputWriter) -> Result<()> {
         training_contract_version: adapteros_types::training::TRAINING_DATA_CONTRACT_VERSION
             .to_string(),
         pad_token_id: 0,
-        ignore_index: -1,
+        ignore_index: -100,
         multi_module_training: None,
         lora_layer_indices: None,
+        early_stopping: None,
+        patience: None,
+        min_delta: None,
     };
 
     let adapter_name = args

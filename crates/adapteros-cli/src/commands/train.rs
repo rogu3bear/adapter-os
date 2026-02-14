@@ -86,6 +86,9 @@ impl TrainArgs {
     pub async fn execute(&self) -> Result<()> {
         info!("Starting LoRA training with Rust-native implementation");
 
+        // Validate common hyperparameters
+        self.common.validate()?;
+
         // Load training configuration
         let config = self.load_config()?;
 
@@ -212,7 +215,7 @@ impl TrainArgs {
                 vocab_size: 50272,
                 training_contract_version: TRAINING_DATA_CONTRACT_VERSION.to_string(),
                 pad_token_id: 0,
-                ignore_index: 0,
+                ignore_index: -100,
                 max_gpu_memory_mb: 0,
                 preferred_backend: None,
                 require_gpu: false,
