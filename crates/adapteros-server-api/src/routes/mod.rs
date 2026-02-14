@@ -1557,6 +1557,8 @@ pub fn build(state: AppState) -> Router {
             post(handlers::streaming_infer::streaming_infer_with_progress),
         )
         .route("/v1/infer/batch", post(handlers::batch::batch_infer))
+        // FIM (Fill-in-the-Middle) completions for code
+        .route("/v1/fim/completions", post(handlers::fim::fim_completions))
         // Review protocol routes (human-in-the-loop)
         .route(
             "/v1/infer/{inference_id}/state",

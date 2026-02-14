@@ -373,6 +373,16 @@ pub struct WorkerInferRequest {
     /// When enabled, incomplete multi-byte UTF-8 sequences are buffered until complete
     #[serde(default = "default_utf8_healing_worker")]
     pub utf8_healing: bool,
+
+    /// FIM prefix (code before cursor). When both `fim_prefix` and `fim_suffix`
+    /// are present, the worker builds a FIM token sequence instead of tokenizing
+    /// `prompt` directly.
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub fim_prefix: Option<String>,
+
+    /// FIM suffix (code after cursor).
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub fim_suffix: Option<String>,
 }
 
 /// Compare policies request

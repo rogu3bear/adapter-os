@@ -753,6 +753,89 @@ pub struct KvUsageStats {
     pub kv_quota_enforced: bool,
 }
 
+// =============================================================================
+// FIM (Fill-in-the-Middle) Types
+// =============================================================================
+
+/// Fill-in-the-Middle inference request for code completion.
+///
+/// The model generates code to fill the gap between `prefix` (code before
+/// cursor) and `suffix` (code after cursor). Internally this is encoded as:
+/// `<|fim_prefix|>{prefix}<|fim_suffix|>{suffix}<|fim_middle|>`
+/// and the generated tokens form the completion.
+#[derive(Debug, Clone, Serialize, Deserialize)]
+#[cfg_attr(feature = "server", derive(utoipa::ToSchema))]
+#[serde(rename_all = "snake_case")]
+pub struct FIMRequest {
+    /// Code before the cursor position
+    pub prefix: String,
+    /// Code after the cursor position
+    pub suffix: String,
+    /// Maximum tokens to generate for the infill
+    #[serde(default = "default_fim_max_tokens")]
+    pub max_tokens: u32,
+    /// Sampling temperature (0.0 = greedy)
+    #[serde(default = "default_fim_temperature")]
+    pub temperature: f32,
+    /// Optional stop sequences (in addition to built-in FIM stops)
+    #[serde(default, skip_serializing_if = "Vec::is_empty")]
+    pub stop_sequences: Vec<String>,
+    /// Adapter ID to use for generation (routes through existing adapter router)
+    #[serde(skip_serializing_if = "Option::is_none")]
+    pub adapter_id: Option<String>,
+    /// Stack ID to use for multi-adapter routing
+    #[serde(skip_serializing_if = "Option::is_none")]
+    pub stack_id: Option<String>,
+    /// Whether to stream the response via SSE
+    #[serde(default)]
+    pub stream: bool,
+    /// Run envelope for audit trail
+    #[serde(skip_serializing_if = "Option::is_none")]
+    pub run_envelope: Option<RunEnvelope>,
+}
+
+fn default_fim_max_tokens() -> u32 {
+    256
+}
+
+fn default_fim_temperature() -> f32 {
+    0.0
+}
+
+/// Fill-in-the-Middle inference response.
+#[derive(Debug, Clone, Serialize, Deserialize)]
+#[cfg_attr(feature = "server", derive(utoipa::ToSchema))]
+#[serde(rename_all = "snake_case")]
+pub struct FIMResponse {
+    /// Generated infill text (the code that fills the gap)
+    pub completion: String,
+    /// Token IDs generated
+    pub token_ids: Vec<u32>,
+    /// Number of tokens generated
+    pub tokens_generated: u32,
+    /// Why generation stopped
+    #[serde(skip_serializing_if = "Option::is_none")]
+    pub stop_reason: Option<String>,
+    /// Adapter used for generation
+    #[serde(skip_serializing_if = "Option::is_none")]
+    pub adapter_id: Option<String>,
+    /// Schema version
+    pub schema_version: String,
+}
+
+impl Default for FIMResponse {
+    fn default() -> Self {
+        Self {
+            completion: String::new(),
+            token_ids: Vec::new(),
+            tokens_generated: 0,
+            stop_reason: None,
+            adapter_id: None,
+            schema_version: schema_version().to_string(),
+        }
+    }
+}
+
 #[cfg(all(test, feature = "server"))]
 mod tests {
     use super::*;

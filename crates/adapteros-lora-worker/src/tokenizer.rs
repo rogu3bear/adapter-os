@@ -125,6 +125,11 @@ impl QwenTokenizer {
         &self.special_tokens
     }
 
+    /// Get resolved FIM token IDs if the model supports Fill-in-the-Middle.
+    pub fn fim_tokens(&self) -> Option<adapteros_core::tokenizer_config::FIMTokens> {
+        self.special_tokens.fim_tokens()
+    }
+
     /// Create a tokenizer from an existing tokenizers::Tokenizer instance with explicit tokens.
     ///
     /// This is primarily intended for tests where we want to avoid loading
@@ -181,6 +186,9 @@ mod tests {
             unk_token_id: None,
             im_start_id: Some(151644),
             im_end_id: Some(151645),
+            fim_prefix_id: None,
+            fim_suffix_id: None,
+            fim_middle_id: None,
             source: TokenMapSource::Unknown,
         };
         let tokenizer = QwenTokenizer::from_tokenizer_with_tokens(
