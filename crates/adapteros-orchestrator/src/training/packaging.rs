@@ -285,8 +285,14 @@ pub(crate) async fn package_and_register_adapter(
         }
     }
 
-    // Add scope metadata from versioning snapshot for provenance tracking
+    // Add scope metadata from versioning snapshot for provenance tracking.
+    // Only insert codebase-scope keys (scope_repo_id, scope_commit) when there
+    // is actual code provenance (code_commit_sha). The versioning snapshot's
+    // repo_id is the adapter-registry repo, not a source-code repository, so
+    // inserting it unconditionally would cause metadata_indicates_codebase() to
+    // misclassify non-codebase adapters and require scan_roots.
     if let Some(vs) = versioning_snapshot {
+        let has_code_provenance = vs.code_commit_sha.is_some();
         if let Some(ref repo) = vs.repo_name {
             package_metadata.insert("scope_repo".to_string(), repo.clone());
         }
@@ -296,8 +302,10 @@ pub(crate) async fn package_and_register_adapter(
         if let Some(ref branch) = vs.target_branch {
             package_metadata.insert("scope_branch".to_string(), branch.clone());
         }
-        if let Some(ref repo_id) = vs.repo_id {
-            package_metadata.insert("scope_repo_id".to_string(), repo_id.clone());
+        if has_code_provenance {
+            if let Some(ref repo_id) = vs.repo_id {
+                package_metadata.insert("scope_repo_id".to_string(), repo_id.clone());
+            }
         }
     }
 
@@ -498,7 +506,9 @@ pub(crate) async fn package_and_register_adapter(
             versioning_snapshot.and_then(|v| v.version_label.clone()),
         ) {
             let repo_dir = adapters_root.join(tenant).join(repo_name);
-            if let Err(e) = tokio::fs::create_dir_all(&repo_dir).await {
+            // Use std::fs (synchronous) because this runs inside the deterministic
+            // executor whose tight poll loop deadlocks with tokio::spawn_blocking.
+            if let Err(e) = std::fs::create_dir_all(&repo_dir) {
                 warn!(
                     job_id = %job_id,
                     error = %e,
@@ -509,7 +519,7 @@ pub(crate) async fn package_and_register_adapter(
             if dest != packaged.weights_path {
                 // Atomic copy: write to temp file first, verify hash, then rename
                 let temp_dest = dest.with_extension("aos.tmp");
-                if let Err(e) = tokio::fs::copy(&packaged.weights_path, &temp_dest).await {
+                if let Err(e) = std::fs::copy(&packaged.weights_path, &temp_dest) {
                     warn!(
                         job_id = %job_id,
                         error = %e,
@@ -517,20 +527,20 @@ pub(crate) async fn package_and_register_adapter(
                         "Failed to copy packaged artifact to versioned path"
                     );
                     // Clean up temp file if it exists
-                    let _ = tokio::fs::remove_file(&temp_dest).await;
+                    let _ = std::fs::remove_file(&temp_dest);
                 } else {
                     // Verify the copy succeeded by reading and hashing
-                    match tokio::fs::read(&temp_dest).await {
+                    match std::fs::read(&temp_dest) {
                         Ok(bytes) => {
                             let actual_hash = blake3::hash(&bytes).to_hex().to_string();
                             // Atomic rename only after successful copy
-                            if let Err(e) = tokio::fs::rename(&temp_dest, &dest).await {
+                            if let Err(e) = std::fs::rename(&temp_dest, &dest) {
                                 warn!(
                                     job_id = %job_id,
                                     error = %e,
                                     "Failed to finalize artifact copy"
                                 );
-                                let _ = tokio::fs::remove_file(&temp_dest).await;
+                                let _ = std::fs::remove_file(&temp_dest);
                             } else {
                                 info!(
                                     job_id = %job_id,
@@ -538,6 +548,23 @@ pub(crate) async fn package_and_register_adapter(
                                     dest = %dest.display(),
                                     "Artifact copied and verified"
                                 );
+                                // Copy companion files (.sig, .pub) alongside the archive
+                                for ext in &["aos.sig", "aos.pub"] {
+                                    let src_companion = packaged.weights_path.with_extension(ext);
+                                    if src_companion.exists() {
+                                        let dest_companion = dest.with_extension(ext);
+                                        if let Err(e) =
+                                            std::fs::copy(&src_companion, &dest_companion)
+                                        {
+                                            warn!(
+                                                job_id = %job_id,
+                                                ext = %ext,
+                                                error = %e,
+                                                "Failed to copy companion file"
+                                            );
+                                        }
+                                    }
+                                }
                             }
                         }
                         Err(e) => {
@@ -546,7 +573,7 @@ pub(crate) async fn package_and_register_adapter(
                                 error = %e,
                                 "Failed to verify copied artifact"
                             );
-                            let _ = tokio::fs::remove_file(&temp_dest).await;
+                            let _ = std::fs::remove_file(&temp_dest);
                         }
                     }
                 }
@@ -557,8 +584,7 @@ pub(crate) async fn package_and_register_adapter(
         };
 
         // Read artifact for verification - return error instead of using fallback
-        let (hash, size_bytes) = tokio::fs::read(&target)
-            .await
+        let (hash, size_bytes) = std::fs::read(&target)
             .map(|bytes| {
                 (
                     blake3::hash(&bytes).to_hex().to_string(),
@@ -587,7 +613,7 @@ pub(crate) async fn package_and_register_adapter(
     artifact_metadata.insert("training_seed".to_string(), serde_json::json!(trainer_seed));
 
     if let Some(database) = db {
-        let signature_b64 = match tokio::fs::read(final_aos_path.with_extension("aos.sig")).await {
+        let signature_b64 = match std::fs::read(final_aos_path.with_extension("aos.sig")) {
             Ok(sig) => base64::engine::general_purpose::STANDARD.encode(sig),
             Err(e) => {
                 warn!(

@@ -94,7 +94,7 @@ impl super::types::AdapterPackager {
             let path = entry.path();
             if let Some(ext) = path.extension() {
                 if ext == "aos" {
-                    if let Ok(meta) = tokio::fs::metadata(path).await {
+                    if let Ok(meta) = std::fs::metadata(path) {
                         total = total.saturating_add(meta.len());
                     }
                 }
@@ -473,7 +473,7 @@ impl super::types::AdapterPackager {
         let adapter_dir = self
             .adapter_dir(tenant_id, adapter_id)
             .map_err(|e| AosError::Validation(format!("Invalid adapter path: {}", e)))?;
-        tokio::fs::create_dir_all(&adapter_dir).await.map_err(|e| {
+        std::fs::create_dir_all(&adapter_dir).map_err(|e| {
             AosError::Training(format!("Failed to create adapter directory: {}", e))
         })?;
 
@@ -600,9 +600,10 @@ impl super::types::AdapterPackager {
         let temp_path = temp_dir.path().join("temp.aos");
         writer.write_archive(&temp_path, &manifest)?;
 
-        // Read the archive and compute the final content hash
-        let archive_bytes = tokio::fs::read(&temp_path)
-            .await
+        // Read the archive and compute the final content hash.
+        // Use std::fs (synchronous) because this runs inside the deterministic executor
+        // whose tight poll loop deadlocks with tokio::fs::spawn_blocking futures.
+        let archive_bytes = std::fs::read(&temp_path)
             .map_err(|e| AosError::Training(format!("Failed to read temp archive: {}", e)))?;
         let archive_hash = blake3::hash(&archive_bytes).to_hex().to_string();
 
@@ -612,7 +613,7 @@ impl super::types::AdapterPackager {
 
         // Create parent directories for the content-addressed path
         if let Some(parent) = content_addressed_path.parent() {
-            tokio::fs::create_dir_all(parent).await.map_err(|e| {
+            std::fs::create_dir_all(parent).map_err(|e| {
                 AosError::Training(format!(
                     "Failed to create objects directory {}: {}",
                     parent.display(),
@@ -622,19 +623,16 @@ impl super::types::AdapterPackager {
         }
 
         // Copy to content-addressed location
-        tokio::fs::copy(&temp_path, &content_addressed_path)
-            .await
-            .map_err(|e| {
-                AosError::Training(format!(
-                    "Failed to copy archive to {}: {}",
-                    content_addressed_path.display(),
-                    e
-                ))
-            })?;
+        std::fs::copy(&temp_path, &content_addressed_path).map_err(|e| {
+            AosError::Training(format!(
+                "Failed to copy archive to {}: {}",
+                content_addressed_path.display(),
+                e
+            ))
+        })?;
 
         // Deterministic signature for the archive to allow reproducible verification
-        self.sign_archive(&content_addressed_path, adapter_id)
-            .await?;
+        self.sign_archive(&content_addressed_path, adapter_id)?;
 
         // Create/update the draft ref pointing to the new hash
         let adapter_name = AdapterName::subject(adapter_id);
@@ -1050,26 +1048,25 @@ impl super::types::AdapterPackager {
         Ok(())
     }
 
-    /// Deterministic archive signing for .aos outputs
-    async fn sign_archive(&self, aos_path: &Path, adapter_id: &str) -> Result<()> {
-        let archive_bytes = tokio::fs::read(aos_path).await.map_err(|e| {
+    /// Deterministic archive signing for .aos outputs.
+    /// Uses std::fs (synchronous) because this runs inside the deterministic executor
+    /// whose tight poll loop deadlocks with tokio::fs::spawn_blocking futures.
+    fn sign_archive(&self, aos_path: &Path, adapter_id: &str) -> Result<()> {
+        let archive_bytes = std::fs::read(aos_path).map_err(|e| {
             AosError::Training(format!("Failed to read archive for signing: {}", e))
         })?;
         let keypair = Self::load_signing_keypair("aos-archive", adapter_id, &archive_bytes)?;
         let signature = keypair.sign(&archive_bytes);
 
         let sig_path = aos_path.with_extension("aos.sig");
-        tokio::fs::write(&sig_path, signature.to_bytes())
-            .await
+        std::fs::write(&sig_path, signature.to_bytes())
             .map_err(|e| AosError::Training(format!("Failed to write archive signature: {}", e)))?;
 
         let pubkey_path = aos_path.with_extension("aos.pub");
         let pubkey_hex = hex::encode(keypair.public_key().to_bytes());
-        tokio::fs::write(&pubkey_path, pubkey_hex)
-            .await
-            .map_err(|e| {
-                AosError::Training(format!("Failed to write archive public key: {}", e))
-            })?;
+        std::fs::write(&pubkey_path, pubkey_hex).map_err(|e| {
+            AosError::Training(format!("Failed to write archive public key: {}", e))
+        })?;
 
         info!(
             path = %aos_path.display(),
