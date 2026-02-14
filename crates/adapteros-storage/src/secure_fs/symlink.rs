@@ -227,4 +227,79 @@ mod tests {
             assert!(check_result.is_err());
         }
     }
+
+    #[test]
+    fn test_chained_symlink_three_hop_resolution() -> Result<()> {
+        let temp_dir = new_test_tempdir()?;
+        let final_target = temp_dir.path().join("target.txt");
+        std::fs::write(&final_target, "payload")?;
+
+        let link_c = temp_dir.path().join("link_c");
+        std::os::unix::fs::symlink(&final_target, &link_c)?;
+        let link_b = temp_dir.path().join("link_b");
+        std::os::unix::fs::symlink(&link_c, &link_b)?;
+        let link_a = temp_dir.path().join("link_a");
+        std::os::unix::fs::symlink(&link_b, &link_a)?;
+
+        check_symlink_safety(&link_a)?;
+
+        let chain = resolve_symlink_chain(&link_a)?;
+        assert_eq!(
+            chain.len(),
+            3,
+            "Chain should contain 3 symlink hops, got {}",
+            chain.len()
+        );
+        Ok(())
+    }
+
+    #[test]
+    fn test_chained_symlink_exceeds_max_depth() -> Result<()> {
+        let temp_dir = new_test_tempdir()?;
+        let final_target = temp_dir.path().join("deep_target.txt");
+        std::fs::write(&final_target, "deep")?;
+
+        let mut prev = final_target;
+        for i in 0..8 {
+            let link = temp_dir.path().join(format!("deep_link_{}", i));
+            std::os::unix::fs::symlink(&prev, &link)?;
+            prev = link;
+        }
+
+        let result = check_symlink_safety(&prev);
+        assert!(
+            result.is_err(),
+            "Chain of 8 symlinks should exceed max_depth of 5"
+        );
+        let err_msg = result.unwrap_err().to_string();
+        assert!(
+            err_msg.contains("exceeds maximum"),
+            "Error should mention depth limit: {}",
+            err_msg
+        );
+        Ok(())
+    }
+
+    #[test]
+    fn test_circular_symlink_detected() -> Result<()> {
+        let temp_dir = new_test_tempdir()?;
+
+        let link_a = temp_dir.path().join("circ_a");
+        let link_b = temp_dir.path().join("circ_b");
+        let link_c = temp_dir.path().join("circ_c");
+
+        std::os::unix::fs::symlink(&link_a, &link_c)?;
+        std::os::unix::fs::symlink(&link_c, &link_b)?;
+        std::os::unix::fs::symlink(&link_b, &link_a)?;
+
+        let result = check_symlink_safety(&link_a);
+        assert!(result.is_err(), "Circular symlink chain should be rejected");
+        let err_msg = result.unwrap_err().to_string();
+        assert!(
+            err_msg.contains("Circular symlink") || err_msg.contains("exceeds maximum"),
+            "Error should indicate circular or depth issue: {}",
+            err_msg
+        );
+        Ok(())
+    }
 }

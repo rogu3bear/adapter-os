@@ -1,0 +1,19 @@
+=== /login (session audit_login) ===
+### Browser `audit_login` opened with pid 13871.
+- audit_login:
+  - browser-type: chrome
+  - user-data-dir: <in-memory>
+  - headed: false
+---
+### Ran Playwright code
+```js
+await page.goto('http://127.0.0.1:8080/login');
+```
+### Page
+- Page URL: http://127.0.0.1:8080/login
+- Page Title: adapterOS
+- Console: 1 errors, 1 warnings
+### Snapshot
+- [Snapshot](.playwright-cli/page-2026-02-13T20-26-35-484Z.yml)
+### Events
+- New console entries: .playwright-cli/console-2026-02-13T20-26-34-842Z.log#L1-L2

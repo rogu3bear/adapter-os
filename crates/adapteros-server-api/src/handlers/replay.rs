@@ -732,6 +732,8 @@ pub async fn execute_replay_session(
         utf8_healing: Some(true),
         abstention_threshold: None, // AARA lifecycle
         citation_mode: None,        // AARA lifecycle
+        fim_prefix: None,
+        fim_suffix: None,
     };
 
     // Execute inference through the unified pipeline with replay context (PRD-02)

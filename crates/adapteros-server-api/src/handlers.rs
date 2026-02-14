@@ -67,6 +67,7 @@ pub mod evidence;
 pub mod execution_policy;
 pub mod federation;
 pub mod filesystem;
+pub mod fim;
 pub mod git;
 pub mod git_repository;
 pub mod golden;

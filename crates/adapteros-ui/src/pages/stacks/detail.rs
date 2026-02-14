@@ -11,6 +11,7 @@ use crate::components::{
 };
 use crate::contexts::use_in_flight;
 use crate::hooks::{use_api, use_api_resource, LoadingState, Refetch};
+use crate::utils::format_datetime;
 use adapteros_api_types::AdapterResponse;
 use leptos::prelude::*;
 use leptos_router::hooks::use_params_map;
@@ -361,11 +362,11 @@ pub fn StackDetailContent(
             <div class="grid gap-4 md:grid-cols-2">
                 <div>
                     <p class="text-sm text-muted-foreground">"Created At"</p>
-                    <p class="font-medium">{stack.created_at.clone()}</p>
+                    <p class="font-medium">{format_datetime(&stack.created_at)}</p>
                 </div>
                 <div>
                     <p class="text-sm text-muted-foreground">"Updated At"</p>
-                    <p class="font-medium">{stack.updated_at.clone()}</p>
+                    <p class="font-medium">{format_datetime(&stack.updated_at)}</p>
                 </div>
             </div>
         </Card>

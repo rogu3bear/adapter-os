@@ -4,7 +4,7 @@
 
 use crate::api::{ApiClient, ApiError};
 use crate::boot_log;
-use adapteros_api_types::{FailureCode, UserInfoResponse};
+use adapteros_api_types::{FailureCode, SwitchTenantRequest, UserInfoResponse};
 use leptos::prelude::*;
 use serde::Deserialize;
 use std::sync::Arc;
@@ -258,6 +258,35 @@ impl AuthAction {
         let _ = self.client.logout().await;
         self.client.clear_auth_status();
         self.state.set(AuthState::Unauthenticated);
+    }
+
+    /// Switch to a different tenant
+    ///
+    /// POSTs to `/v1/auth/tenants/switch`. The server issues new httpOnly cookies
+    /// scoped to the target tenant. On success, re-fetches `/v1/auth/me` to update
+    /// the auth state with the new tenant context.
+    pub async fn switch_tenant(&self, tenant_id: &str) -> Result<(), ApiError> {
+        let req = SwitchTenantRequest {
+            tenant_id: tenant_id.to_string(),
+        };
+
+        self.client
+            .post::<_, adapteros_api_types::SwitchTenantResponse>("/v1/auth/tenants/switch", &req)
+            .await?;
+
+        // Server has set new httpOnly cookies for the target tenant.
+        // Re-fetch user info to update auth state with the new tenant_id.
+        match self.client.me().await {
+            Ok(user) => {
+                self.state.set(AuthState::Authenticated(Box::new(user)));
+                Ok(())
+            }
+            Err(e) => {
+                let auth_error = AuthError::from_api_error(&e);
+                self.state.set(AuthState::Error(auth_error));
+                Err(e)
+            }
+        }
     }
 
     /// Check current auth status

@@ -1,0 +1,12 @@
+/Users/star/Dev/adapter-os/target-loader-test/debug/deps/cipher-959447f4366655cf.d: /Users/star/.cargo/registry/src/index.crates.io-1949cf8c6b5b557f/cipher-0.4.4/src/lib.rs /Users/star/.cargo/registry/src/index.crates.io-1949cf8c6b5b557f/cipher-0.4.4/src/block.rs /Users/star/.cargo/registry/src/index.crates.io-1949cf8c6b5b557f/cipher-0.4.4/src/errors.rs /Users/star/.cargo/registry/src/index.crates.io-1949cf8c6b5b557f/cipher-0.4.4/src/stream.rs /Users/star/.cargo/registry/src/index.crates.io-1949cf8c6b5b557f/cipher-0.4.4/src/stream_core.rs /Users/star/.cargo/registry/src/index.crates.io-1949cf8c6b5b557f/cipher-0.4.4/src/stream_wrapper.rs
+
+/Users/star/Dev/adapter-os/target-loader-test/debug/deps/libcipher-959447f4366655cf.rlib: /Users/star/.cargo/registry/src/index.crates.io-1949cf8c6b5b557f/cipher-0.4.4/src/lib.rs /Users/star/.cargo/registry/src/index.crates.io-1949cf8c6b5b557f/cipher-0.4.4/src/block.rs /Users/star/.cargo/registry/src/index.crates.io-1949cf8c6b5b557f/cipher-0.4.4/src/errors.rs /Users/star/.cargo/registry/src/index.crates.io-1949cf8c6b5b557f/cipher-0.4.4/src/stream.rs /Users/star/.cargo/registry/src/index.crates.io-1949cf8c6b5b557f/cipher-0.4.4/src/stream_core.rs /Users/star/.cargo/registry/src/index.crates.io-1949cf8c6b5b557f/cipher-0.4.4/src/stream_wrapper.rs
+
+/Users/star/Dev/adapter-os/target-loader-test/debug/deps/libcipher-959447f4366655cf.rmeta: /Users/star/.cargo/registry/src/index.crates.io-1949cf8c6b5b557f/cipher-0.4.4/src/lib.rs /Users/star/.cargo/registry/src/index.crates.io-1949cf8c6b5b557f/cipher-0.4.4/src/block.rs /Users/star/.cargo/registry/src/index.crates.io-1949cf8c6b5b557f/cipher-0.4.4/src/errors.rs /Users/star/.cargo/registry/src/index.crates.io-1949cf8c6b5b557f/cipher-0.4.4/src/stream.rs /Users/star/.cargo/registry/src/index.crates.io-1949cf8c6b5b557f/cipher-0.4.4/src/stream_core.rs /Users/star/.cargo/registry/src/index.crates.io-1949cf8c6b5b557f/cipher-0.4.4/src/stream_wrapper.rs
+
+/Users/star/.cargo/registry/src/index.crates.io-1949cf8c6b5b557f/cipher-0.4.4/src/lib.rs:
+/Users/star/.cargo/registry/src/index.crates.io-1949cf8c6b5b557f/cipher-0.4.4/src/block.rs:
+/Users/star/.cargo/registry/src/index.crates.io-1949cf8c6b5b557f/cipher-0.4.4/src/errors.rs:
+/Users/star/.cargo/registry/src/index.crates.io-1949cf8c6b5b557f/cipher-0.4.4/src/stream.rs:
+/Users/star/.cargo/registry/src/index.crates.io-1949cf8c6b5b557f/cipher-0.4.4/src/stream_core.rs:
+/Users/star/.cargo/registry/src/index.crates.io-1949cf8c6b5b557f/cipher-0.4.4/src/stream_wrapper.rs:

@@ -42,7 +42,7 @@ use adapteros_core::{AosError, B3Hash, Result, CPID};
 use adapteros_types::coreml::CoreMLPlacementSpec;
 use schemars::JsonSchema;
 use serde::{Deserialize, Serialize};
-use std::collections::{BTreeMap, HashMap};
+use std::collections::BTreeMap;
 
 /// RoPE scaling configuration
 #[derive(Debug, Clone, Serialize, Deserialize, JsonSchema)]
@@ -195,7 +195,7 @@ pub struct Adapter {
     pub free_tokens: Option<Vec<FreeTokenHint>>,
     /// Hot expert hints for MoE pre-warming (layer_idx -> [expert_ids])
     #[serde(default)]
-    pub hot_experts: Option<HashMap<usize, Vec<u8>>>,
+    pub hot_experts: Option<BTreeMap<usize, Vec<u8>>>,
 }
 
 /// Free token hint for MoE optimization

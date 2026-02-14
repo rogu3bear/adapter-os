@@ -59,8 +59,8 @@ pub const PINNED_BOOST: f32 = 0.3;
 /// Dev-only fixture path for the default local Llama-3.2-3B-Instruct-4bit model.
 pub const DEV_MODEL_PATH: &str = "/var/models/Llama-3.2-3B-Instruct-4bit";
 
-/// Dev-only fixture path for the default local Llama-3.2-3B-Instruct-4bit manifest.
-pub const DEV_MANIFEST_PATH: &str = "manifests/mistral7b-4bit-mlx.yaml";
+/// Dev-only fixture path for the default local manifest.
+pub const DEV_MANIFEST_PATH: &str = "manifests/qwen7b-4bit-mlx-base-only.yaml";
 
 /// Default cache root for base models (can be overridden via AOS_MODEL_CACHE_DIR).
 pub const DEFAULT_MODEL_CACHE_ROOT: &str = "var/models";

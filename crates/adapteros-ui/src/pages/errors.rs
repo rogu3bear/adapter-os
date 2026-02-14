@@ -803,8 +803,9 @@ fn AlertsSection() -> impl IntoView {
 fn CrashesSection() -> impl IntoView {
     let selected_worker_id = RwSignal::new(String::new());
 
-    let (workers, refetch_workers) =
-        use_api_resource(move |client: Arc<ApiClient>| async move { client.list_workers().await });
+    let (workers, refetch_workers) = use_api_resource(move |client: Arc<ApiClient>| async move {
+        client.list_workers_with_history().await
+    });
 
     let (crashes, refetch_crashes) = use_api_resource(move |client: Arc<ApiClient>| {
         let worker_id = selected_worker_id.try_get().unwrap_or_default();

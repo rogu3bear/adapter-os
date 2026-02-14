@@ -45,6 +45,9 @@ const CONTEXT_TOGGLES_KEY: &str = "adapteros_chat_context_toggles";
 /// LocalStorage key for chat sessions.
 const SESSIONS_STORAGE_KEY: &str = "adapteros_chat_sessions";
 
+/// Dev-only fallback token emitted by backend when no worker is available.
+const DEV_ECHO_NO_WORKER_PREFIX: &str = "[DEV ECHO] No inference worker available.";
+
 /// LocalStorage key for default pinned adapters (persisted across sessions).
 #[allow(dead_code)]
 const PINNED_ADAPTERS_KEY: &str = "adapteros_pinned_adapters";
@@ -461,10 +464,21 @@ pub enum ChatTarget {
 impl ChatTarget {
     pub fn display_name(&self) -> String {
         match self {
-            Self::Default => "Default".to_string(),
+            Self::Default => "Auto".to_string(),
             Self::Model(name) => format!("Model: {}", name),
             Self::Stack(name) => format!("Stack: {}", name),
             Self::PolicyPack(name) => format!("Policy: {}", name),
+        }
+    }
+
+    /// Display name that resolves "Auto" to the active model when known.
+    pub fn display_name_with_model(&self, active_model: Option<&str>) -> String {
+        match self {
+            Self::Default => match active_model {
+                Some(name) => format!("Auto ({})", name),
+                None => "Auto".to_string(),
+            },
+            other => other.display_name(),
         }
     }
 }
@@ -842,6 +856,37 @@ struct CreateChatSessionResponseUi {
     session_id: String,
 }
 
+#[derive(Debug, Clone, Serialize)]
+struct ArchiveChatSessionRequestUi {
+    #[serde(skip_serializing_if = "Option::is_none")]
+    reason: Option<String>,
+}
+
+/// Lightweight representation of a backend chat session for hydration.
+/// Fields match the subset of `ChatSession` (from adapteros-db) that the UI needs.
+#[derive(Debug, Clone, Deserialize)]
+pub struct BackendChatSession {
+    pub id: String,
+    pub name: String,
+    #[serde(default)]
+    pub title: Option<String>,
+    #[serde(default)]
+    pub status: Option<String>,
+    pub created_at: String,
+    pub updated_at: String,
+}
+
+/// A single message fetched from the backend for session backfill.
+#[derive(Debug, Clone, Deserialize)]
+pub struct BackendChatMessage {
+    pub id: String,
+    pub role: String,
+    pub content: String,
+    pub timestamp: String,
+    pub created_at: String,
+    pub sequence: i64,
+}
+
 impl ChatAction {
     pub fn new(client: Arc<ApiClient>, state: RwSignal<ChatState>) -> Self {
         Self {
@@ -880,6 +925,45 @@ impl ChatAction {
         let req = CreateChatSessionRequestUi { name, title };
         let resp: CreateChatSessionResponseUi = self.client.post("/v1/chat/sessions", &req).await?;
         Ok(resp.session_id)
+    }
+
+    /// Archive a backend chat session.
+    pub async fn archive_backend_session(
+        &self,
+        session_id: &str,
+        reason: Option<String>,
+    ) -> Result<(), ApiError> {
+        let req = ArchiveChatSessionRequestUi { reason };
+        self.client
+            .post_no_response(&format!("/v1/chat/sessions/{}/archive", session_id), &req)
+            .await
+    }
+
+    /// Restore an archived backend chat session.
+    pub async fn restore_backend_session(&self, session_id: &str) -> Result<(), ApiError> {
+        self.client
+            .post_no_response(
+                &format!("/v1/chat/sessions/{}/restore", session_id),
+                &serde_json::json!({}),
+            )
+            .await
+    }
+
+    /// List chat sessions from the backend for hydration on page load.
+    pub async fn list_backend_sessions(&self) -> Result<Vec<BackendChatSession>, ApiError> {
+        self.client
+            .get::<Vec<BackendChatSession>>("/v1/chat/sessions?limit=50")
+            .await
+    }
+
+    /// Fetch messages for a specific backend session (for backfilling stubs).
+    pub async fn fetch_session_messages(
+        &self,
+        session_id: &str,
+    ) -> Result<Vec<BackendChatMessage>, ApiError> {
+        self.client
+            .get::<Vec<BackendChatMessage>>(&format!("/v1/chat/sessions/{}/messages", session_id))
+            .await
     }
 
     /// Queue a message for later delivery (when inference becomes ready)
@@ -1214,18 +1298,38 @@ impl ChatAction {
                     // Mark the last message as no longer streaming and add trace info
                     // Use try_update to avoid panic if signal is disposed during navigation
                     let _ = state.try_update(|s| {
+                        let mut remove_empty_assistant = false;
                         if let Some(last) = s.messages.last_mut() {
                             if last.role == "assistant" {
-                                last.is_streaming = false;
-                                last.trace_id = trace_info.trace_id;
-                                last.latency_ms = trace_info.latency_ms;
-                                last.token_count = trace_info.token_count;
-                                last.prompt_tokens = trace_info.prompt_tokens;
-                                last.completion_tokens = trace_info.completion_tokens;
-                                last.backend_used = trace_info.backend_used;
+                                if last.content.trim().is_empty() {
+                                    remove_empty_assistant = true;
+                                } else {
+                                    last.is_streaming = false;
+                                    last.trace_id = trace_info.trace_id;
+                                    last.latency_ms = trace_info.latency_ms;
+                                    last.token_count = trace_info.token_count;
+                                    last.prompt_tokens = trace_info.prompt_tokens;
+                                    last.completion_tokens = trace_info.completion_tokens;
+                                    last.backend_used = trace_info.backend_used;
+                                }
                             }
                         }
-                        s.stream_notice = None;
+                        if remove_empty_assistant {
+                            s.messages.pop();
+                        }
+                        let keep_notice = s
+                            .stream_notice
+                            .as_ref()
+                            .map(|notice| {
+                                matches!(
+                                    notice.tone,
+                                    StreamNoticeTone::Warning | StreamNoticeTone::Paused
+                                )
+                            })
+                            .unwrap_or(false);
+                        if !keep_notice {
+                            s.stream_notice = None;
+                        }
                         s.stream_recovery = None;
                         // When dock is open, mark new messages as read immediately
                         if s.dock_state == DockState::Docked {
@@ -1970,7 +2074,15 @@ impl ProgressiveLatencyTimer {
         }
         #[cfg(not(target_arch = "wasm32"))]
         {
-            let _ = state;
+            // Keep thresholds visible to host-target checks/tests even though
+            // runtime latency notices are WASM-only.
+            let _ = (
+                state,
+                LATENCY_STAGE_1_MS,
+                LATENCY_STAGE_2_MS,
+                LATENCY_STAGE_3_MS,
+                TTFT_DISPLAY_MS,
+            );
             Self {}
         }
     }
@@ -2133,6 +2245,43 @@ fn mark_partial_assistant(state: &mut ChatState, assistant_id: &str) {
     }
 }
 
+fn is_low_signal_stream_error(message: &str) -> bool {
+    let normalized = message.trim().to_ascii_lowercase();
+    matches!(
+        normalized.as_str(),
+        "" | "error" | "stream error" | "server error" | "internal error" | "internal server error"
+    )
+}
+
+fn stream_failure_fallback_label(failure: &StreamFailure) -> String {
+    if let Some(code) = failure.code.as_deref().filter(|value| !value.is_empty()) {
+        let mapped = ApiError::Structured {
+            error: failure.message.clone(),
+            code: code.to_string(),
+            failure_code: None,
+            hint: None,
+            details: None,
+            request_id: None,
+            error_id: None,
+            fingerprint: None,
+            session_id: None,
+            diag_trace_id: None,
+            otel_trace_id: None,
+        }
+        .user_message();
+
+        if !is_low_signal_stream_error(&mapped) {
+            return mapped;
+        }
+    }
+
+    if is_low_signal_stream_error(&failure.message) {
+        "Request failed. Retry in a moment.".to_string()
+    } else {
+        failure.message.clone()
+    }
+}
+
 /// Human-readable error label with context for the user.
 ///
 /// Maps error codes and messages to clear, actionable labels that help users
@@ -2147,7 +2296,7 @@ fn stream_notice_from_failure(failure: &StreamFailure) -> StreamNotice {
         "BACKPRESSURE" | "CACHE_BUDGET_EXCEEDED" | "REQUEST_TIMEOUT" | "STREAM_IDLE_TIMEOUT"
     ) {
         // Transient server-side pressure - likely to resolve on retry
-        "Server is busy"
+        "Server is busy".to_string()
     } else if matches!(
         code,
         "WORKER_DEGRADED"
@@ -2156,34 +2305,33 @@ fn stream_notice_from_failure(failure: &StreamFailure) -> StreamNotice {
             | "WORKER_ID_UNAVAILABLE"
     ) {
         // Worker-specific issue - retry may route to different worker
-        "No workers available"
+        "No workers available".to_string()
     } else if matches!(code, "SERVICE_UNAVAILABLE") {
         if message_lower.contains("worker") {
-            "No workers available"
+            "No workers available".to_string()
         } else {
-            "Service temporarily unavailable"
+            "Service temporarily unavailable".to_string()
         }
     } else if matches!(
         code,
         "DUPLICATE_REQUEST" | "IDEMPOTENCY_CONFLICT" | "IDEMPOTENCY_TIMEOUT"
     ) {
         // Idempotency conflict - user should wait, not retry immediately
-        "Request already in progress"
+        "Request already in progress".to_string()
     } else if message_lower.contains("network") || message_lower.contains("fetch failed") {
         // Client-side network issue
-        "Connection lost"
+        "Connection lost".to_string()
     } else if message_lower.contains("unauthorized") || code == "UNAUTHORIZED" {
         // Auth issue - not retryable without re-login
-        "Session expired"
+        "Session expired".to_string()
     } else if message_lower.contains("forbidden") || code == "FORBIDDEN" {
         // Permission issue - not retryable
-        "Access denied"
+        "Access denied".to_string()
     } else if message_lower.contains("rate limit") || code == "RATE_LIMITED" {
         // Rate limiting - retryable after delay
-        "Too many requests"
+        "Too many requests".to_string()
     } else {
-        // Generic fallback
-        "Something went wrong"
+        stream_failure_fallback_label(failure)
     };
 
     if failure.retryable {
@@ -2191,6 +2339,10 @@ fn stream_notice_from_failure(failure: &StreamFailure) -> StreamNotice {
     } else {
         StreamNotice::error(label, false)
     }
+}
+
+fn is_dev_worker_unavailable_echo(token: &str) -> bool {
+    token.trim_start().starts_with(DEV_ECHO_NO_WORKER_PREFIX)
 }
 
 /// Helper to safely update state, returning false if signal is disposed
@@ -2424,6 +2576,21 @@ async fn stream_inference_to_state(
             let parsed = parse_sse_payload_with_info(&data);
 
             if let Some(token_content) = parsed.token {
+                if is_dev_worker_unavailable_echo(&token_content) {
+                    if !try_update_state(state, |s| {
+                        s.loading = false;
+                        s.streaming = false;
+                        s.stream_notice = Some(StreamNotice::warning(
+                            "No worker connected. Start a worker to enable real inference.",
+                            false,
+                        ));
+                        s.paused_inference = None;
+                    }) {
+                        return Ok(trace_info);
+                    }
+                    continue;
+                }
+
                 // Append token to the last (assistant) message
                 // Use try_update_state to avoid panic if signal is disposed during navigation
                 let is_first_token = !first_token_logged;
@@ -2596,6 +2763,8 @@ pub struct ChatSessionMeta {
     pub target: String,
     pub message_count: usize,
     pub preview: String,
+    #[serde(default)]
+    pub archived: bool,
     pub created_at: String,
     pub updated_at: String,
 }
@@ -2607,6 +2776,9 @@ pub struct StoredChatSession {
     pub title: String,
     pub target: String,
     pub messages: Vec<StoredMessage>,
+    /// Whether the session is archived in local storage.
+    #[serde(default)]
+    pub archived: bool,
     /// Session-local mode toggle (Fast/Verified)
     #[serde(default)]
     pub verified_mode: bool,
@@ -2676,6 +2848,15 @@ impl ChatSessionsManager {
 
     /// Load all session metadata from localStorage
     pub fn load_sessions() -> Vec<ChatSessionMeta> {
+        Self::load_sessions_by_archive(false)
+    }
+
+    /// Load archived session metadata from localStorage.
+    pub fn load_archived_sessions() -> Vec<ChatSessionMeta> {
+        Self::load_sessions_by_archive(true)
+    }
+
+    fn load_sessions_by_archive(archived: bool) -> Vec<ChatSessionMeta> {
         let Some(window) = web_sys::window() else {
             return Vec::new();
         };
@@ -2699,25 +2880,98 @@ impl ChatSessionsManager {
             }
         }
 
-        // Deterministic ordering: most recently updated first.
-        sessions.sort_by(|a, b| b.updated_at.cmp(&a.updated_at));
+        sessions_to_meta_for_archive(sessions, archived)
+    }
 
-        sessions
-            .into_iter()
-            .map(|s| ChatSessionMeta {
-                id: s.id,
-                title: s.title,
-                target: s.target,
-                message_count: s.messages.len(),
-                preview: s
-                    .messages
-                    .last()
-                    .map(|m| truncate_string(&m.content, 100))
-                    .unwrap_or_default(),
-                created_at: s.created_at,
-                updated_at: s.updated_at,
+    /// Merge backend sessions into localStorage, inserting stubs for any
+    /// sessions not already present locally.  Returns `true` if any new
+    /// sessions were added.
+    pub fn merge_backend_sessions(backend: &[BackendChatSession]) -> bool {
+        let Some(window) = web_sys::window() else {
+            return false;
+        };
+        let Ok(Some(storage)) = window.local_storage() else {
+            return false;
+        };
+
+        let mut sessions: Vec<StoredChatSession> = storage
+            .get_item(SESSIONS_STORAGE_KEY)
+            .ok()
+            .flatten()
+            .and_then(|d| serde_json::from_str(&d).ok())
+            .unwrap_or_default();
+
+        let mut added = false;
+        for bs in backend {
+            // Skip archived/deleted backend sessions
+            if bs.status.as_deref() == Some("archived") || bs.status.as_deref() == Some("deleted") {
+                continue;
+            }
+            // Skip if already in localStorage
+            if sessions.iter().any(|s| s.id == bs.id) {
+                continue;
+            }
+            let title = bs.title.clone().unwrap_or_else(|| bs.name.clone());
+            sessions.push(StoredChatSession {
+                id: bs.id.clone(),
+                title,
+                target: ChatTarget::Default.display_name(),
+                messages: Vec::new(),
+                archived: false,
+                verified_mode: false,
+                placeholder: false,
+                created_at: bs.created_at.clone(),
+                updated_at: bs.updated_at.clone(),
+            });
+            added = true;
+        }
+
+        if added {
+            sessions.sort_by(|a, b| b.updated_at.cmp(&a.updated_at));
+            sessions.truncate(MAX_SESSIONS);
+            if let Ok(json) = serde_json::to_string(&sessions) {
+                let _ = storage.set_item(SESSIONS_STORAGE_KEY, &json);
+            }
+        }
+        added
+    }
+
+    /// Backfill a stub session with messages fetched from the backend.
+    /// Only populates messages when the local session has none (i.e. is a stub).
+    /// Returns the updated session on success, or `None` if the session was not found locally.
+    pub fn backfill_session_messages(
+        session_id: &str,
+        messages: &[BackendChatMessage],
+    ) -> Option<StoredChatSession> {
+        let mut session = Self::load_session(session_id)?;
+        // Only backfill if session has no local messages (stub)
+        if !session.messages.is_empty() {
+            return Some(session);
+        }
+        session.messages = messages
+            .iter()
+            .map(|m| StoredMessage {
+                id: m.id.clone(),
+                role: m.role.clone(),
+                content: m.content.clone(),
+                timestamp: m.timestamp.clone(),
+                trace_id: None,
+                latency_ms: None,
+                token_count: None,
+                prompt_tokens: None,
+                completion_tokens: None,
+                backend_used: None,
             })
-            .collect()
+            .collect();
+        // Update title from first user message if still default
+        if session.title == "New Chat" {
+            if let Some(first_user) = session.messages.iter().find(|m| m.role == "user") {
+                session.title = truncate_string(&first_user.content, 50);
+            }
+        }
+        session.placeholder = false;
+        Self::save_session(&session);
+        Some(session)
     }
 
     /// Load a specific session by ID
@@ -2738,6 +2992,7 @@ impl ChatSessionsManager {
             title: "New Chat".to_string(),
             target: ChatTarget::Default.display_name(),
             messages: Vec::new(),
+            archived: false,
             verified_mode: false,
             placeholder: true,
             created_at: now.clone(),
@@ -2821,6 +3076,21 @@ impl ChatSessionsManager {
         }
     }
 
+    /// Mark a session as archived.
+    pub fn archive_session(id: &str) {
+        Self::set_session_archived(id, true);
+    }
+
+    /// Mark a session as active again.
+    pub fn unarchive_session(id: &str) {
+        Self::set_session_archived(id, false);
+    }
+
+    /// Check whether a session is archived.
+    pub fn is_session_archived(id: &str) -> bool {
+        Self::load_session(id).map(|s| s.archived).unwrap_or(false)
+    }
+
     /// Create a session from current dock state
     ///
     /// If an existing session is provided, its `created_at` is preserved.
@@ -2831,6 +3101,7 @@ impl ChatSessionsManager {
             id,
             state,
             existing.as_ref().map(|s| s.created_at.as_str()),
+            existing.as_ref().map(|s| s.archived).unwrap_or(false),
         )
     }
 
@@ -2839,6 +3110,7 @@ impl ChatSessionsManager {
         id: &str,
         state: &ChatState,
         created_at: Option<&str>,
+        archived: bool,
     ) -> StoredChatSession {
         let now = crate::utils::now_utc().to_rfc3339();
         let title = state
@@ -2880,11 +3152,46 @@ impl ChatSessionsManager {
                     }
                 })
                 .collect(),
+            archived,
             verified_mode: state.verified_mode,
             placeholder: false,
             // Preserve original created_at if updating an existing session
             created_at: created_at.unwrap_or(&now).to_string(),
             updated_at: now,
+        }
+    }
+
+    fn set_session_archived(id: &str, archived: bool) {
+        let Some(window) = web_sys::window() else {
+            return;
+        };
+        let Ok(Some(storage)) = window.local_storage() else {
+            return;
+        };
+
+        let mut sessions: Vec<StoredChatSession> = storage
+            .get_item(SESSIONS_STORAGE_KEY)
+            .ok()
+            .flatten()
+            .and_then(|d| serde_json::from_str(&d).ok())
+            .unwrap_or_default();
+
+        let now = crate::utils::now_utc().to_rfc3339();
+        let mut changed = false;
+        for session in sessions.iter_mut() {
+            if session.id == id {
+                session.archived = archived;
+                session.updated_at = now.clone();
+                changed = true;
+                break;
+            }
+        }
+
+        if changed {
+            sessions.sort_by(|a, b| b.updated_at.cmp(&a.updated_at));
+            if let Ok(json) = serde_json::to_string(&sessions) {
+                let _ = storage.set_item(SESSIONS_STORAGE_KEY, &json);
+            }
         }
     }
 
@@ -2906,6 +3213,33 @@ impl ChatSessionsManager {
             age <= ttl
         });
     }
+}
+
+fn sessions_to_meta_for_archive(
+    mut sessions: Vec<StoredChatSession>,
+    archived: bool,
+) -> Vec<ChatSessionMeta> {
+    // Deterministic ordering: most recently updated first.
+    sessions.sort_by(|a, b| b.updated_at.cmp(&a.updated_at));
+
+    sessions
+        .into_iter()
+        .filter(|s| s.archived == archived)
+        .map(|s| ChatSessionMeta {
+            id: s.id,
+            title: s.title,
+            target: s.target,
+            message_count: s.messages.len(),
+            preview: s
+                .messages
+                .last()
+                .map(|m| truncate_string(&m.content, 100))
+                .unwrap_or_default(),
+            archived: s.archived,
+            created_at: s.created_at,
+            updated_at: s.updated_at,
+        })
+        .collect()
 }
 
 /// Truncate a string to a maximum number of characters, respecting UTF-8 boundaries.
@@ -2985,6 +3319,104 @@ mod tests {
         assert!(!ChatSessionsManager::is_valid_session_id("ses_abc 123"));
     }
 
+    #[test]
+    fn chat_session_meta_archived_defaults_false() {
+        let json = r#"{
+            "id": "ses_abc123",
+            "title": "Chat",
+            "target": "Default",
+            "message_count": 0,
+            "preview": "",
+            "created_at": "2024-01-01T00:00:00Z",
+            "updated_at": "2024-01-01T00:00:00Z"
+        }"#;
+        let meta: ChatSessionMeta = serde_json::from_str(json).expect("deserialize");
+        assert!(!meta.archived);
+    }
+
+    #[test]
+    fn sessions_to_meta_for_archive_filters_and_orders() {
+        let active_old = StoredChatSession {
+            id: "ses_active_old".to_string(),
+            title: "Active old".to_string(),
+            target: "Default".to_string(),
+            messages: vec![StoredMessage {
+                id: "m1".to_string(),
+                role: "user".to_string(),
+                content: "old".to_string(),
+                timestamp: "2024-01-01T00:00:00Z".to_string(),
+                trace_id: None,
+                latency_ms: None,
+                token_count: None,
+                prompt_tokens: None,
+                completion_tokens: None,
+                backend_used: None,
+            }],
+            archived: false,
+            verified_mode: false,
+            placeholder: false,
+            created_at: "2024-01-01T00:00:00Z".to_string(),
+            updated_at: "2024-01-01T00:00:00Z".to_string(),
+        };
+        let archived_new = StoredChatSession {
+            id: "ses_archived_new".to_string(),
+            title: "Archived new".to_string(),
+            target: "Default".to_string(),
+            messages: vec![StoredMessage {
+                id: "m2".to_string(),
+                role: "assistant".to_string(),
+                content: "new".to_string(),
+                timestamp: "2024-01-02T00:00:00Z".to_string(),
+                trace_id: None,
+                latency_ms: None,
+                token_count: None,
+                prompt_tokens: None,
+                completion_tokens: None,
+                backend_used: None,
+            }],
+            archived: true,
+            verified_mode: false,
+            placeholder: false,
+            created_at: "2024-01-02T00:00:00Z".to_string(),
+            updated_at: "2024-01-02T00:00:00Z".to_string(),
+        };
+        let active_new = StoredChatSession {
+            id: "ses_active_new".to_string(),
+            title: "Active new".to_string(),
+            target: "Default".to_string(),
+            messages: vec![StoredMessage {
+                id: "m3".to_string(),
+                role: "assistant".to_string(),
+                content: "fresh".to_string(),
+                timestamp: "2024-01-03T00:00:00Z".to_string(),
+                trace_id: None,
+                latency_ms: None,
+                token_count: None,
+                prompt_tokens: None,
+                completion_tokens: None,
+                backend_used: None,
+            }],
+            archived: false,
+            verified_mode: false,
+            placeholder: false,
+            created_at: "2024-01-03T00:00:00Z".to_string(),
+            updated_at: "2024-01-03T00:00:00Z".to_string(),
+        };
+
+        let sessions = vec![active_old, archived_new, active_new];
+
+        let active = sessions_to_meta_for_archive(sessions.clone(), false);
+        assert_eq!(active.len(), 2);
+        assert_eq!(active[0].id, "ses_active_new");
+        assert_eq!(active[1].id, "ses_active_old");
+        assert!(!active[0].archived);
+
+        let archived = sessions_to_meta_for_archive(sessions, true);
+        assert_eq!(archived.len(), 1);
+        assert_eq!(archived[0].id, "ses_archived_new");
+        assert!(archived[0].archived);
+    }
+
     /// Tests for is_abort_error string-based detection
     mod abort_error_detection {
         use super::*;
@@ -3025,6 +3457,28 @@ mod tests {
             assert!(!is_abort_error("ABORTED"));
             // Only lowercase variations are detected
             assert!(is_abort_error("aborted"));
+        }
+    }
+
+    mod stream_notice_mapping {
+        use super::*;
+
+        #[test]
+        fn stream_notice_uses_canonical_code_mapping_for_generic_error_text() {
+            let failure = StreamFailure::new("error", Some("INTERNAL_ERROR".to_string()), false);
+            let notice = stream_notice_from_failure(&failure);
+            assert_eq!(notice.message, "Internal server error. Retry in a moment.");
+            assert_eq!(notice.tone, StreamNoticeTone::Error);
+            assert!(!notice.retryable);
+        }
+
+        #[test]
+        fn stream_notice_replaces_low_signal_message_without_code() {
+            let failure = StreamFailure::new("error", None, true);
+            let notice = stream_notice_from_failure(&failure);
+            assert_eq!(notice.message, "Request failed. Retry in a moment.");
+            assert_eq!(notice.tone, StreamNoticeTone::Warning);
+            assert!(notice.retryable);
         }
     }
 

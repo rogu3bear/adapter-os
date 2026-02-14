@@ -218,6 +218,41 @@ mod tests {
     use super::*;
 
     #[test]
+    fn stale_adapter_cache_key_not_reused_on_hash_change() {
+        let key_h1 = AdapterCacheKey::new(
+            "adapter-x",
+            B3Hash::hash(b"version-1-weights"),
+            None,
+            "mlx",
+            "k1",
+            None,
+            None,
+        );
+        let key_h2 = AdapterCacheKey::new(
+            "adapter-x",
+            B3Hash::hash(b"version-2-weights"),
+            None,
+            "mlx",
+            "k1",
+            None,
+            None,
+        );
+
+        assert_ne!(
+            key_h1, key_h2,
+            "Same adapter path with different hash must produce different cache keys"
+        );
+
+        let mut cache: HashMap<AdapterCacheKey, &str> = HashMap::new();
+        cache.insert(key_h1, "stale-entry");
+        assert_eq!(
+            cache.get(&key_h2),
+            None,
+            "HashMap lookup with updated hash must not return stale entry"
+        );
+    }
+
+    #[test]
     fn drain_waits_for_refs() {
         let store = AdapterStore::new();
         let rc = Arc::new(AtomicUsize::new(0));

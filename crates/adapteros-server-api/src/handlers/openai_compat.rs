@@ -1133,6 +1133,8 @@ async fn chat_completions_streaming(
         utf8_healing: None,
         abstention_threshold: None,
         citation_mode: None,
+        fim_prefix: None,
+        fim_suffix: None,
     };
     if let Some(lock) = session_lock.as_ref() {
         internal_request.adapter_stack = None;

@@ -185,6 +185,7 @@ pub fn GenerateDatasetWizard(
                             }
                         }
                     });
+                    input.set_value("");
                 }
             }
         }

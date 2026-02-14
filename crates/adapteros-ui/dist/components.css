@@ -2682,19 +2682,6 @@
   display: inline-flex;
 }
 
-/* Screen reader only - visually hidden but accessible */
-.sr-only {
-  position: absolute;
-  width: 1px;
-  height: 1px;
-  padding: 0;
-  margin: -1px;
-  overflow: hidden;
-  clip: rect(0, 0, 0, 0);
-  white-space: nowrap;
-  border-width: 0;
-}
-
 .overflow-hidden {
   overflow: hidden;
 }
@@ -3220,6 +3207,39 @@
 
 .sidebar-chevron--open {
   transform: rotate(180deg);
+}
+
+/* Profile toggle footer */
+.sidebar-footer {
+  flex-shrink: 0;
+  padding: 0.25rem;
+  border-top: 1px solid var(--color-border);
+}
+
+.sidebar-profile-toggle {
+  display: flex;
+  align-items: center;
+  gap: 0.5rem;
+  width: 100%;
+  padding: 0.375rem 0.5rem;
+  border: none;
+  border-radius: var(--radius, 6px);
+  background: transparent;
+  color: var(--color-muted-foreground);
+  font-size: 0.75rem;
+  font-weight: 500;
+  cursor: pointer;
+  transition: background-color 150ms ease, color 150ms ease;
+}
+
+.sidebar-profile-toggle:hover {
+  background: var(--color-muted);
+  color: var(--color-foreground);
+}
+
+.sidebar--collapsed .sidebar-profile-toggle {
+  justify-content: center;
+  padding: 0.5rem;
 }
 
 /* Mobile: hide sidebar, use hamburger menu instead */
@@ -7318,23 +7338,6 @@
   opacity: 0.7;
 }
 
-/* ===== Status Text Colors ===== */
-.text-status-success {
-  color: hsl(142 76% 36%);
-}
-
-.text-status-warning {
-  color: hsl(38 92% 50%);
-}
-
-.text-status-error {
-  color: hsl(0 84% 60%);
-}
-
-.text-status-info {
-  color: hsl(221 83% 53%);
-}
-
 /* ===== Toast Action Link ===== */
 .toast-action-link {
   display: inline-block;
@@ -7714,6 +7717,162 @@
   text-decoration: underline;
 }
 
+.welcome-header {
+  display: flex;
+  flex-direction: column;
+  align-items: center;
+  gap: 0.5rem;
+  margin-bottom: 1.5rem;
+}
+
+.welcome-logo {
+  width: 3rem;
+  height: 3rem;
+  color: var(--color-primary);
+  margin-bottom: 0.25rem;
+}
+
+.welcome-loading {
+  display: flex;
+  flex-direction: column;
+  align-items: center;
+  gap: 0.75rem;
+  padding: 2rem 0;
+}
+
+.welcome-error {
+  display: flex;
+  align-items: flex-start;
+  gap: 0.75rem;
+  padding: 1rem;
+  border-radius: var(--radius);
+  background: color-mix(in srgb, var(--color-destructive) 8%, transparent);
+  border: 1px solid color-mix(in srgb, var(--color-destructive) 20%, transparent);
+  text-align: left;
+}
+
+.welcome-checklist {
+  text-align: left;
+}
+
+.welcome-progress-bar {
+  height: 4px;
+  border-radius: 2px;
+  background: var(--color-muted);
+  overflow: hidden;
+  margin-bottom: 0.5rem;
+}
+
+.welcome-progress-fill {
+  height: 100%;
+  border-radius: 2px;
+  background: var(--color-primary);
+  transition: width 0.4s ease;
+}
+
+.welcome-progress-label {
+  font-size: 0.75rem;
+  color: var(--color-muted-foreground);
+  margin: 0 0 1rem 0;
+  text-align: center;
+}
+
+.welcome-checks {
+  list-style: none;
+  padding: 0;
+  margin: 0;
+  display: flex;
+  flex-direction: column;
+  gap: 0.25rem;
+}
+
+.welcome-check-item {
+  display: flex;
+  align-items: center;
+  gap: 0.75rem;
+  padding: 0.75rem;
+  border-radius: var(--radius);
+  transition: background 0.15s ease;
+}
+
+.welcome-check-item:hover {
+  background: var(--color-muted);
+}
+
+.welcome-check-icon {
+  width: 1.25rem;
+  height: 1.25rem;
+  flex-shrink: 0;
+}
+
+.welcome-check-ready .welcome-check-icon {
+  color: var(--color-status-success);
+}
+.welcome-check-issue .welcome-check-icon {
+  color: var(--color-status-warning);
+}
+.welcome-check-unknown .welcome-check-icon {
+  color: var(--color-muted-foreground);
+}
+
+.welcome-check-content {
+  flex: 1;
+  min-width: 0;
+  display: flex;
+  flex-direction: column;
+  gap: 0.125rem;
+}
+
+.welcome-check-label {
+  font-size: 0.875rem;
+  font-weight: 600;
+  color: var(--color-foreground);
+}
+
+.welcome-check-hint {
+  font-size: 0.75rem;
+  color: var(--color-muted-foreground);
+}
+
+.welcome-check-action {
+  font-size: 0.75rem;
+  font-weight: 500;
+  color: var(--color-primary);
+  text-decoration: none;
+  white-space: nowrap;
+  flex-shrink: 0;
+  padding: 0.25rem 0.5rem;
+  border-radius: calc(var(--radius) - 0.125rem);
+  transition: background 0.15s ease;
+}
+
+.welcome-check-action:hover {
+  background: color-mix(in srgb, var(--color-primary) 10%, transparent);
+}
+
+.welcome-ready {
+  display: flex;
+  flex-direction: column;
+  align-items: center;
+  gap: 0.5rem;
+  margin-top: 1.5rem;
+  padding-top: 1.5rem;
+  border-top: 1px solid var(--glass-border);
+}
+
+.welcome-ready-icon {
+  width: 2rem;
+  height: 2rem;
+  color: var(--color-status-success);
+}
+
+.welcome-ready-text {
+  font-size: 0.9375rem;
+  font-weight: 600;
+  color: var(--color-foreground);
+  margin: 0;
+}
+
 /* ===== SLO Performance Strip (Dashboard) ===== */
 
 .slo-performance-strip {
@@ -7843,8 +8002,8 @@
 .markdown-content p:first-child { margin-top: 0; }
 .markdown-content p:last-child { margin-bottom: 0; }
 .markdown-content pre {
-    background: hsla(var(--muted), 0.5);
-    border: 1px solid hsla(var(--border));
+    background: color-mix(in srgb, var(--color-muted) 50%, transparent);
+    border: 1px solid var(--color-border);
     border-radius: 0.375rem;
     padding: 0.75rem;
     overflow-x: auto;
@@ -7856,7 +8015,7 @@
     font-size: 0.875em;
 }
 .markdown-content :not(pre) > code {
-    background: hsla(var(--muted), 0.5);
+    background: color-mix(in srgb, var(--color-muted) 50%, transparent);
     border-radius: 0.25rem;
     padding: 0.125em 0.25em;
 }
@@ -7866,7 +8025,7 @@
 }
 .markdown-content li { margin: 0.125em 0; }
 .markdown-content blockquote {
-    border-left: 3px solid hsla(var(--border));
+    border-left: 3px solid var(--color-border);
     padding-left: 0.75em;
     margin: 0.5em 0;
     opacity: 0.85;
@@ -7877,12 +8036,12 @@
     font-size: 0.875em;
 }
 .markdown-content th, .markdown-content td {
-    border: 1px solid hsla(var(--border));
+    border: 1px solid var(--color-border);
     padding: 0.375rem 0.625rem;
 }
 .markdown-content th { font-weight: 600; }
 .markdown-content a {
-    color: hsl(var(--primary));
+    color: var(--color-primary);
     text-decoration: underline;
     text-underline-offset: 2px;
 }
@@ -7896,7 +8055,7 @@
 .markdown-content h3 { font-size: 1em; }
 .markdown-content hr {
     border: none;
-    border-top: 1px solid hsla(var(--border));
+    border-top: 1px solid var(--color-border);
     margin: 0.75em 0;
 }
 

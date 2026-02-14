@@ -1,0 +1,12 @@
+/Users/star/Dev/adapter-os/target-aos-rectify-db/debug/deps/sqlx-39adc9f86e4c0f9a.d: /Users/star/.cargo/registry/src/index.crates.io-1949cf8c6b5b557f/sqlx-0.8.6/src/lib.rs /Users/star/.cargo/registry/src/index.crates.io-1949cf8c6b5b557f/sqlx-0.8.6/src/macros/mod.rs /Users/star/.cargo/registry/src/index.crates.io-1949cf8c6b5b557f/sqlx-0.8.6/src/ty_match.rs /Users/star/.cargo/registry/src/index.crates.io-1949cf8c6b5b557f/sqlx-0.8.6/src/spec_error.rs /Users/star/.cargo/registry/src/index.crates.io-1949cf8c6b5b557f/sqlx-0.8.6/src/lib.md /Users/star/.cargo/registry/src/index.crates.io-1949cf8c6b5b557f/sqlx-0.8.6/src/macros/test.md
+
+/Users/star/Dev/adapter-os/target-aos-rectify-db/debug/deps/libsqlx-39adc9f86e4c0f9a.rlib: /Users/star/.cargo/registry/src/index.crates.io-1949cf8c6b5b557f/sqlx-0.8.6/src/lib.rs /Users/star/.cargo/registry/src/index.crates.io-1949cf8c6b5b557f/sqlx-0.8.6/src/macros/mod.rs /Users/star/.cargo/registry/src/index.crates.io-1949cf8c6b5b557f/sqlx-0.8.6/src/ty_match.rs /Users/star/.cargo/registry/src/index.crates.io-1949cf8c6b5b557f/sqlx-0.8.6/src/spec_error.rs /Users/star/.cargo/registry/src/index.crates.io-1949cf8c6b5b557f/sqlx-0.8.6/src/lib.md /Users/star/.cargo/registry/src/index.crates.io-1949cf8c6b5b557f/sqlx-0.8.6/src/macros/test.md
+
+/Users/star/Dev/adapter-os/target-aos-rectify-db/debug/deps/libsqlx-39adc9f86e4c0f9a.rmeta: /Users/star/.cargo/registry/src/index.crates.io-1949cf8c6b5b557f/sqlx-0.8.6/src/lib.rs /Users/star/.cargo/registry/src/index.crates.io-1949cf8c6b5b557f/sqlx-0.8.6/src/macros/mod.rs /Users/star/.cargo/registry/src/index.crates.io-1949cf8c6b5b557f/sqlx-0.8.6/src/ty_match.rs /Users/star/.cargo/registry/src/index.crates.io-1949cf8c6b5b557f/sqlx-0.8.6/src/spec_error.rs /Users/star/.cargo/registry/src/index.crates.io-1949cf8c6b5b557f/sqlx-0.8.6/src/lib.md /Users/star/.cargo/registry/src/index.crates.io-1949cf8c6b5b557f/sqlx-0.8.6/src/macros/test.md
+
+/Users/star/.cargo/registry/src/index.crates.io-1949cf8c6b5b557f/sqlx-0.8.6/src/lib.rs:
+/Users/star/.cargo/registry/src/index.crates.io-1949cf8c6b5b557f/sqlx-0.8.6/src/macros/mod.rs:
+/Users/star/.cargo/registry/src/index.crates.io-1949cf8c6b5b557f/sqlx-0.8.6/src/ty_match.rs:
+/Users/star/.cargo/registry/src/index.crates.io-1949cf8c6b5b557f/sqlx-0.8.6/src/spec_error.rs:
+/Users/star/.cargo/registry/src/index.crates.io-1949cf8c6b5b557f/sqlx-0.8.6/src/lib.md:
+/Users/star/.cargo/registry/src/index.crates.io-1949cf8c6b5b557f/sqlx-0.8.6/src/macros/test.md:

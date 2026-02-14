@@ -126,6 +126,9 @@ const ICON_SHIELD: &str = "M9 12l2 2 4-4m5.618-4.016A11.955 11.955 0 0112 2.944a
 /// Org / Building icon
 const ICON_BUILDING: &str = "M19 21V5a2 2 0 00-2-2H7a2 2 0 00-2 2v16m14 0h2m-2 0h-5m-9 0H3m2 0h5M9 7h1m-1 4h1m4-4h1m-1 4h1m-5 10v-5a1 1 0 011-1h2a1 1 0 011 1v5m-4 0h4";
 
+/// Models / Cube icon (foundation model)
+const ICON_CUBE: &str = "M21 16V8a2 2 0 00-1-1.73l-7-4a2 2 0 00-2 0l-7 4A2 2 0 003 8v8a2 2 0 001 1.73l7 4a2 2 0 002 0l7-4A2 2 0 0021 16z M3.27 6.96L12 12.01l8.73-5.05M12 22.08V12";
+
 /// Chat icon (for separate chat button in taskbar)
 pub const ICON_CHAT: &str = "M8 12h.01M12 12h.01M16 12h.01M21 12c0 4.418-4.03 8-9 8a9.863 9.863 0 01-4.255-.949L3 20l1.395-3.72C3.512 15.042 3 13.574 3 12c0-4.418 4.03-8 9-8s9 3.582 9 8z";
 
@@ -377,7 +380,7 @@ static NAV_GROUPS_FULL: &[NavGroup] = &[
     },
 ];
 
-/// Primary profile navigation groups (MVP: 4 focused groups)
+/// Primary profile navigation groups (MVP: 5 focused groups)
 static NAV_GROUPS_PRIMARY: &[NavGroup] = &[
     // 1. Infer (Alt+1) — Chat
     NavGroup {
@@ -422,11 +425,11 @@ static NAV_GROUPS_PRIMARY: &[NavGroup] = &[
         show_in_mobile: true,
         scope: NavScope::PrimaryOnly,
     },
-    // 4. Deploy (Alt+4) — Models
+    // 4. Models (Alt+4) — Foundation models
     NavGroup {
         id: "deploy",
         label: "Models",
-        icon: ICON_ROCKET,
+        icon: ICON_CUBE,
         alt_shortcut: Some(4),
         items: &[NavItem::new("models", "Models", "/models").with_keywords(&[
             "llm",
@@ -434,6 +437,46 @@ static NAV_GROUPS_PRIMARY: &[NavGroup] = &[
             "base",
             "weights",
         ])],
+        collapsed_by_default: false,
+        show_in_taskbar: true,
+        show_in_mobile: true,
+        scope: NavScope::PrimaryOnly,
+    },
+    // 5. Adapters (Alt+5) — Adapters
+    NavGroup {
+        id: "adapters",
+        label: "Adapters",
+        icon: ICON_BRANCH,
+        alt_shortcut: Some(5),
+        items: &[
+            NavItem::new("adapters", "Adapters", "/adapters").with_keywords(&[
+                "lora",
+                "finetune",
+                "weights",
+                "models",
+                "lifecycle",
+            ]),
+        ],
+        collapsed_by_default: false,
+        show_in_taskbar: true,
+        show_in_mobile: true,
+        scope: NavScope::PrimaryOnly,
+    },
+    // 6. Operate (Alt+6) — Workers
+    NavGroup {
+        id: "operate",
+        label: "Workers",
+        icon: ICON_EYE,
+        alt_shortcut: Some(6),
+        items: &[
+            NavItem::new("workers", "Workers", "/workers").with_keywords(&[
+                "runtime",
+                "instances",
+                "compute",
+                "nodes",
+                "process",
+            ]),
+        ],
         collapsed_by_default: false,
         show_in_taskbar: true,
         show_in_mobile: true,

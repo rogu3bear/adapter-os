@@ -20,9 +20,9 @@ use adapteros_api_types::diagnostics::{
     ListDiagRunsResponse, RouterStepDiff, StageTiming, TimingDiff,
 };
 use adapteros_db::diagnostics::{
-    get_all_diag_events_for_run, get_diag_run_by_trace_id, get_router_step_events,
-    get_stage_timing_summary, list_diag_events_paginated, list_diag_runs_paginated,
-    DiagEventRecord, DiagRunRecord,
+    get_all_diag_events_for_run, get_diag_run_by_id, get_diag_run_by_trace_id,
+    get_router_step_events, get_stage_timing_summary, list_diag_events_paginated,
+    list_diag_runs_paginated, DiagEventRecord, DiagRunRecord,
 };
 use adapteros_db::users::Role;
 use axum::extract::{Extension, Path, Query, State};
@@ -1020,8 +1020,11 @@ pub async fn export_diag_run(
         "Exporting diagnostic run"
     );
 
-    // Get the run
-    let run = get_diag_run_by_trace_id(state.db.pool(), tenant_id, &request.trace_id)
+    // Get the run.
+    //
+    // Note: callers historically pass either trace_id (preferred) or diag run_id.
+    // Preserve compatibility by falling back to run_id lookup.
+    let run = match get_diag_run_by_trace_id(state.db.pool(), tenant_id, &request.trace_id)
         .await
         .map_err(|e| {
             (
@@ -1032,17 +1035,31 @@ pub async fn export_diag_run(
                         .with_string_details(e.to_string()),
                 ),
             )
-        })?
-        .ok_or_else(|| {
-            (
-                StatusCode::NOT_FOUND,
-                Json(
-                    ErrorResponse::new("Diagnostic run not found")
-                        .with_code("NOT_FOUND")
-                        .with_string_details(format!("trace_id: {}", request.trace_id)),
-                ),
-            )
-        })?;
+        })? {
+        Some(record) => record,
+        None => get_diag_run_by_id(state.db.pool(), tenant_id, &request.trace_id)
+            .await
+            .map_err(|e| {
+                (
+                    StatusCode::INTERNAL_SERVER_ERROR,
+                    Json(
+                        ErrorResponse::new("Failed to get diagnostic run")
+                            .with_code("DATABASE_ERROR")
+                            .with_string_details(e.to_string()),
+                    ),
+                )
+            })?
+            .ok_or_else(|| {
+                (
+                    StatusCode::NOT_FOUND,
+                    Json(
+                        ErrorResponse::new("Diagnostic run not found")
+                            .with_code("NOT_FOUND")
+                            .with_string_details(format!("trace_id: {}", request.trace_id)),
+                    ),
+                )
+            })?,
+    };
 
     // Get events if requested
     let (events, events_exported, truncated) = if request.include_events {

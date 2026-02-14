@@ -211,7 +211,7 @@ pub struct ChunkResponse {
 
 /// Upload document request (multipart form)
 /// Expected fields:
-/// - file: Document file (required, .pdf/.md/.txt)
+/// - file: Document file (required, .pdf/.md/.markdown/.txt)
 /// - name: Document name (optional, defaults to filename)
 #[utoipa::path(
     post,
@@ -336,7 +336,7 @@ pub async fn upload_document(
 
     let file_data = file_data.ok_or_else(|| ApiError::bad_request("No file uploaded"))?;
     let document_kind = document_kind.ok_or_else(|| {
-        ApiError::bad_request("Unsupported document type. Supported: .pdf, .md, .txt")
+        ApiError::bad_request("Unsupported document type. Supported: .pdf, .md, .markdown, .txt")
     })?;
 
     if mime_type.is_empty() || mime_type == "application/octet-stream" {

@@ -21,12 +21,75 @@ use std::io::{BufRead, BufReader};
 use std::path::{Path, PathBuf};
 use tracing::warn;
 
-// Locked framing constants (Plan 4).
-const MAX_INPUT_TOKENS: usize = 256;
-const MAX_TARGET_TOKENS: usize = 128;
-const STRIDE_TOKENS: usize = 256;
+// Default framing constants (overridable via FramingConfig or env).
+const DEFAULT_MAX_INPUT_TOKENS: usize = 256;
+const DEFAULT_MAX_TARGET_TOKENS: usize = 128;
+const DEFAULT_STRIDE_TOKENS: usize = 256;
 const SCHEMA_SUPERVISED: &str = "supervised";
 const SCHEMA_RAW_CONTINUATION: &str = "raw_continuation_v1";
+
+/// Framing constants for training data loading.
+///
+/// Controls how raw text is chunked into input/target pairs for training.
+/// Resolved from environment variables, `TrainingConfig.max_seq_length`,
+/// or defaults (256/128/256 for backward compatibility).
+#[derive(Debug, Clone, Copy)]
+pub struct FramingConfig {
+    /// Maximum input (prompt) token length.
+    pub max_input_tokens: usize,
+    /// Maximum target (completion) token length.
+    pub max_target_tokens: usize,
+    /// Stride for sliding-window chunking of raw continuation text.
+    pub stride_tokens: usize,
+}
+
+impl FramingConfig {
+    /// Resolve from environment variables, falling back to defaults.
+    pub fn from_env_or_default() -> Self {
+        use super::limits::parse_env_usize;
+        Self {
+            max_input_tokens: parse_env_usize(
+                "AOS_LOADER_MAX_INPUT_TOKENS",
+                DEFAULT_MAX_INPUT_TOKENS,
+            ),
+            max_target_tokens: parse_env_usize(
+                "AOS_LOADER_MAX_TARGET_TOKENS",
+                DEFAULT_MAX_TARGET_TOKENS,
+            ),
+            stride_tokens: parse_env_usize("AOS_LOADER_STRIDE_TOKENS", DEFAULT_STRIDE_TOKENS),
+        }
+    }
+
+    /// Derive framing from a `TrainingConfig`, respecting `max_seq_length`.
+    ///
+    /// When `max_seq_length` is set and larger than the env/default values,
+    /// the sequence budget is split 2/3 input and 1/3 target. Env overrides
+    /// still take precedence as the floor.
+    pub fn from_training_config(config: &adapteros_types::training::TrainingConfig) -> Self {
+        let base = Self::from_env_or_default();
+        match config.max_seq_length {
+            Some(max_seq) if max_seq > 0 => {
+                let max_seq = max_seq as usize;
+                Self {
+                    max_input_tokens: (max_seq * 2 / 3).max(base.max_input_tokens),
+                    max_target_tokens: (max_seq / 3).max(base.max_target_tokens),
+                    stride_tokens: (max_seq * 2 / 3).max(base.stride_tokens),
+                }
+            }
+            _ => base,
+        }
+    }
+}
+
+impl Default for FramingConfig {
+    fn default() -> Self {
+        Self {
+            max_input_tokens: DEFAULT_MAX_INPUT_TOKENS,
+            max_target_tokens: DEFAULT_MAX_TARGET_TOKENS,
+            stride_tokens: DEFAULT_STRIDE_TOKENS,
+        }
+    }
+}
 
 /// Dataset manifest describing positive/negative inputs.
 #[derive(Debug, Deserialize)]
@@ -57,24 +120,69 @@ pub struct DatasetEntry {
 }
 
 /// Load training examples from a manifest using the provided tokenizer.
+///
+/// Uses default framing constants (from env or 256/128/256).
 pub fn load_examples_from_manifest<P: AsRef<Path>>(
     manifest_path: P,
     tokenizer: &QwenTokenizer,
+) -> Result<Vec<TrainingExampleV1>> {
+    load_examples_from_manifest_with_framing(
+        manifest_path,
+        tokenizer,
+        &FramingConfig::from_env_or_default(),
+    )
+}
+
+/// Load training examples from a manifest with explicit framing configuration.
+///
+/// Use `FramingConfig::from_training_config(&config)` to derive framing from
+/// a `TrainingConfig`, or `FramingConfig::from_env_or_default()` for env/defaults.
+pub fn load_examples_from_manifest_with_framing<P: AsRef<Path>>(
+    manifest_path: P,
+    tokenizer: &QwenTokenizer,
+    framing: &FramingConfig,
 ) -> Result<Vec<TrainingExampleV1>> {
     let pad_token_id = tokenizer.pad_token_id().ok_or_else(|| {
         AosError::Training("Tokenizer missing pad_token_id for dataset manifest".to_string())
     })?;
     let vocab_size = tokenizer.vocab_size(true);
-    load_examples_with_encoder(manifest_path, pad_token_id, vocab_size, |text| {
-        tokenizer.encode(text)
-    })
+    load_examples_with_encoder_and_framing(
+        manifest_path,
+        pad_token_id,
+        vocab_size,
+        framing,
+        |text| tokenizer.encode(text),
+    )
 }
 
 /// Load training examples using a caller-provided encoding closure (useful for testing).
+///
+/// Uses default framing constants (from env or 256/128/256).
 pub fn load_examples_with_encoder<P, F>(
     manifest_path: P,
     pad_token_id: u32,
     vocab_size: usize,
+    encoder: F,
+) -> Result<Vec<TrainingExampleV1>>
+where
+    P: AsRef<Path>,
+    F: Fn(&str) -> Result<Vec<u32>>,
+{
+    load_examples_with_encoder_and_framing(
+        manifest_path,
+        pad_token_id,
+        vocab_size,
+        &FramingConfig::from_env_or_default(),
+        encoder,
+    )
+}
+
+/// Load training examples using a caller-provided encoding closure with explicit framing.
+pub fn load_examples_with_encoder_and_framing<P, F>(
+    manifest_path: P,
+    pad_token_id: u32,
+    vocab_size: usize,
+    framing: &FramingConfig,
     encoder: F,
 ) -> Result<Vec<TrainingExampleV1>>
 where
@@ -358,7 +466,7 @@ where
                     ))
                 })?;
             let tokens = encoder(text)?;
-            if tokens.len() <= MAX_INPUT_TOKENS {
+            if tokens.len() <= framing.max_input_tokens {
                 warn!(
                     line_number,
                     token_count = tokens.len(),
@@ -370,11 +478,11 @@ where
             let mut produced = 0usize;
             let mut start = 0usize;
             while start < tokens.len() {
-                let input_end = start + MAX_INPUT_TOKENS;
+                let input_end = start + framing.max_input_tokens;
                 if input_end >= tokens.len() {
                     break;
                 }
-                let target_end = input_end + MAX_TARGET_TOKENS;
+                let target_end = input_end + framing.max_target_tokens;
                 let input_tokens = tokens[start..input_end].to_vec();
                 let target_tokens = tokens[input_end..tokens.len().min(target_end)].to_vec();
                 if input_tokens.is_empty() || target_tokens.is_empty() {
@@ -424,7 +532,7 @@ where
                 }
 
                 produced += 1;
-                start = start.saturating_add(STRIDE_TOKENS);
+                start = start.saturating_add(framing.stride_tokens);
             }
 
             if produced == 0 {
@@ -582,5 +690,160 @@ mod tests {
 
         assert_eq!(examples.len(), 1);
         assert_eq!(weight_from_metadata(&examples[0].metadata), Some(0.5));
+    }
+
+    #[test]
+    fn test_framing_config_default() {
+        let fc = FramingConfig::default();
+        assert_eq!(fc.max_input_tokens, 256);
+        assert_eq!(fc.max_target_tokens, 128);
+        assert_eq!(fc.stride_tokens, 256);
+    }
+
+    #[test]
+    fn test_framing_config_from_training_config_with_seq_length() {
+        let mut tc = adapteros_types::training::TrainingConfig::default_for_adapter();
+        tc.max_seq_length = Some(2048);
+        let fc = FramingConfig::from_training_config(&tc);
+        // 2048 * 2/3 = 1365, 2048 / 3 = 682
+        assert_eq!(fc.max_input_tokens, 1365);
+        assert_eq!(fc.max_target_tokens, 682);
+        assert_eq!(fc.stride_tokens, 1365);
+    }
+
+    #[test]
+    fn test_framing_config_from_training_config_none_uses_defaults() {
+        let mut tc = adapteros_types::training::TrainingConfig::default_for_adapter();
+        tc.max_seq_length = None;
+        let fc = FramingConfig::from_training_config(&tc);
+        // Should fall back to env-or-default (256/128/256 without env vars)
+        assert!(fc.max_input_tokens >= 256);
+        assert!(fc.max_target_tokens >= 128);
+    }
+
+    #[test]
+    fn test_raw_continuation_respects_custom_framing() {
+        let tmp = tempdir().expect("failed to create temp dir");
+        let manifest_path = tmp.path().join("manifest.json");
+        let data_path = tmp.path().join("raw.jsonl");
+
+        // Create a text with 600 "tokens" (chars as u32)
+        let long_text: String = (0..600u32)
+            .map(|i| (b'a' + (i % 26) as u8) as char)
+            .collect();
+
+        fs::write(
+            &manifest_path,
+            serde_json::json!({
+                "name": "raw_test",
+                "training_contract_version": TRAINING_DATA_CONTRACT_VERSION,
+                "entries": [
+                    { "path": "raw.jsonl", "format": "jsonl", "weight": 1.0 }
+                ]
+            })
+            .to_string(),
+        )
+        .unwrap();
+
+        let mut f = File::create(&data_path).unwrap();
+        writeln!(f, "{}", serde_json::json!({ "text": long_text })).unwrap();
+
+        let encoder =
+            |text: &str| -> Result<Vec<u32>> { Ok(text.chars().map(|c| c as u32).collect()) };
+
+        // With default framing (256/128/256): produces chunks
+        let default_framing = FramingConfig::default();
+        let ex_default = load_examples_with_encoder_and_framing(
+            &manifest_path,
+            0,
+            1024,
+            &default_framing,
+            &encoder,
+        )
+        .unwrap();
+
+        // With larger framing (400/200/400): produces fewer, bigger chunks
+        let big_framing = FramingConfig {
+            max_input_tokens: 400,
+            max_target_tokens: 200,
+            stride_tokens: 400,
+        };
+        let ex_big =
+            load_examples_with_encoder_and_framing(&manifest_path, 0, 1024, &big_framing, &encoder)
+                .unwrap();
+
+        // Bigger framing should produce fewer chunks
+        assert!(
+            ex_big.len() < ex_default.len(),
+            "bigger framing ({}) should produce fewer chunks than default ({})",
+            ex_big.len(),
+            ex_default.len()
+        );
+
+        // Verify the big framing chunks have the right max sizes
+        for ex in &ex_big {
+            assert!(ex.input_tokens.len() <= 400);
+            assert!(ex.target_tokens.len() <= 200);
+        }
+    }
+
+    /// A6: Tenant isolation - manifest in tenant A cannot reference data in tenant B.
+    ///
+    /// The loader resolves entry paths relative to the manifest directory and calls
+    /// `canonicalize_strict_in_allowed_roots` with `allowed_roots = [manifest_dir]`.
+    /// An absolute path pointing outside that root must be rejected.
+    #[test]
+    fn test_tenant_isolation_cross_tenant_path_rejected() {
+        let tenant_a = tempdir().expect("failed to create temp dir for tenant A");
+        let tenant_b = tempdir().expect("failed to create temp dir for tenant B");
+
+        // Create data in tenant B's directory
+        let tenant_b_data = tenant_b.path().join("secrets.jsonl");
+        let mut f = File::create(&tenant_b_data).expect("failed to create tenant B data file");
+        writeln!(
+            f,
+            "{}",
+            serde_json::json!({
+                "prompt": "secret prompt",
+                "completion": "secret completion"
+            })
+        )
+        .expect("failed to write tenant B data");
+
+        // Create manifest in tenant A that references tenant B's data via absolute path
+        let manifest_path = tenant_a.path().join("manifest.json");
+        fs::write(
+            &manifest_path,
+            serde_json::json!({
+                "name": "cross_tenant_attack",
+                "training_contract_version": TRAINING_DATA_CONTRACT_VERSION,
+                "entries": [
+                    {
+                        "path": tenant_b_data.to_string_lossy(),
+                        "format": "jsonl",
+                        "weight": 1.0
+                    }
+                ]
+            })
+            .to_string(),
+        )
+        .expect("failed to write manifest");
+
+        let encoder =
+            |text: &str| -> Result<Vec<u32>> { Ok(text.chars().map(|c| c as u32).collect()) };
+        let result = load_examples_with_encoder(&manifest_path, 0, 1024, encoder);
+
+        assert!(
+            result.is_err(),
+            "Loading data from tenant B's directory via tenant A's manifest must be rejected"
+        );
+        let err_msg = result.unwrap_err().to_string();
+        assert!(
+            err_msg.contains("rejected")
+                || err_msg.contains("outside")
+                || err_msg.contains("allowed"),
+            "Error should indicate path policy violation: {}",
+            err_msg
+        );
     }
 }

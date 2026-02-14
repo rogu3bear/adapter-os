@@ -57,7 +57,11 @@ pub use formats::{ColumnMapping, DatasetFormat, ParserConfig, RawSample, TextStr
 pub use json_loader::{load_json_dataset_with_tokenizer, JsonLoaderConfig};
 pub use learning_rate_schedule::{LRScheduleType, LRScheduler, LRSchedulerConfig};
 pub use limits::DatasetSizeLimits;
-pub use loader::{load_examples_from_manifest, load_examples_with_encoder, DatasetManifest};
+pub use loader::{
+    load_examples_from_manifest, load_examples_from_manifest_with_framing,
+    load_examples_with_encoder, load_examples_with_encoder_and_framing, DatasetManifest,
+    FramingConfig,
+};
 pub use metrics::{MetricsConfig, MetricsSnapshot, TrainingMetrics, TrainingReport};
 pub use normalize::{normalize_text, NormalizationConfig, NORMALIZATION_SCHEME};
 pub use packager::{

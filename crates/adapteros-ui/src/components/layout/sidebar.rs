@@ -8,7 +8,9 @@
 //! Keyboard: Alt+1..8 shortcuts remain functional via Shell handler
 
 use super::nav_registry::{nav_groups, NavGroup, NavItem, DASHBOARD_ITEM};
+use crate::signals::settings::{update_setting, use_settings};
 use crate::signals::use_ui_profile;
+use adapteros_api_types::UiProfile;
 use leptos::prelude::*;
 use leptos_router::hooks::use_location;
 
@@ -122,6 +124,11 @@ pub fn SidebarNav() -> impl IntoView {
                     }).collect::<Vec<_>>()
                 }}
             </nav>
+
+            // Profile toggle footer
+            <ProfileToggle
+                is_expanded=Signal::derive(move || sidebar.try_get().map(|s| s.is_expanded()).unwrap_or(false))
+            />
         </aside>
     }
 }
@@ -150,6 +157,10 @@ fn SidebarGroup(group: &'static NavGroup, is_expanded: Signal<bool>) -> impl Int
 
     // Single-item groups navigate directly instead of expanding
     let is_single = items.len() == 1;
+    // In collapsed mode, multi-item groups should still be navigable.
+    // We link the group icon to the first item and avoid rendering sub-items,
+    // since items intentionally don't carry their own icons.
+    let is_expanded_now = move || is_expanded.try_get().unwrap_or(false);
 
     view! {
         <div class="sidebar-group">
@@ -190,55 +201,80 @@ fn SidebarGroup(group: &'static NavGroup, is_expanded: Signal<bool>) -> impl Int
                     </a>
                 }.into_any()
             } else {
-                // Multi-item group: expand/collapse
+                let first_item = items[0];
+
+                // Multi-item group:
+                // - Expanded: button toggles open/closed and reveals sub-items
+                // - Collapsed: link navigates to the first item (keeps icon-only rail usable)
                 view! {
-                    <button
-                        class=move || format!(
-                            "sidebar-group-header {}",
-                            if group_is_active() { "sidebar-group-header--active" } else { "" }
-                        )
-                        on:click=move |_| set_group_open.update(|v| *v = !*v)
-                        title=move || {
-                            if is_expanded.try_get().unwrap_or(false) {
-                                label.to_string()
-                            } else {
-                                match alt_shortcut {
-                                    Some(n) => format!("{} (Alt+{})", label, n),
-                                    None => label.to_string(),
-                                }
+                    {move || {
+                        if is_expanded_now() {
+                            view! {
+                                <button
+                                    class=move || format!(
+                                        "sidebar-group-header {}",
+                                        if group_is_active() { "sidebar-group-header--active" } else { "" }
+                                    )
+                                    on:click=move |_| set_group_open.update(|v| *v = !*v)
+                                    title=move || label.to_string()
+                                >
+                                    <svg class="sidebar-icon" width="18" height="18" viewBox="0 0 24 24"
+                                        fill="none" stroke="currentColor" stroke-width="2"
+                                        stroke-linecap="round" stroke-linejoin="round"
+                                    >
+                                        <path d=icon_path/>
+                                    </svg>
+                                    <span class="sidebar-label">{label}</span>
+                                    {alt_shortcut.map(|n| view! {
+                                        <kbd class="sidebar-kbd">{format!("Alt+{}", n)}</kbd>
+                                    })}
+                                    <svg
+                                        class=move || format!(
+                                            "sidebar-chevron {}",
+                                            if group_open.try_get().unwrap_or(true) { "sidebar-chevron--open" } else { "" }
+                                        )
+                                        width="14" height="14" viewBox="0 0 24 24"
+                                        fill="none" stroke="currentColor" stroke-width="2"
+                                    >
+                                        <path stroke-linecap="round" stroke-linejoin="round" d="M19 9l-7 7-7-7"/>
+                                    </svg>
+                                </button>
                             }
+                            .into_any()
+                        } else {
+                            view! {
+                                <a
+                                    href=first_item.route
+                                    class=move || format!(
+                                        "sidebar-group-header {}",
+                                        if group_is_active() { "sidebar-group-header--active" } else { "" }
+                                    )
+                                    title=move || {
+                                        match alt_shortcut {
+                                            Some(n) => format!("{} (Alt+{})", label, n),
+                                            None => label.to_string(),
+                                        }
+                                    }
+                                >
+                                    <svg class="sidebar-icon" width="18" height="18" viewBox="0 0 24 24"
+                                        fill="none" stroke="currentColor" stroke-width="2"
+                                        stroke-linecap="round" stroke-linejoin="round"
+                                    >
+                                        <path d=icon_path/>
+                                    </svg>
+                                </a>
+                            }
+                            .into_any()
                         }
-                    >
-                        <svg class="sidebar-icon" width="18" height="18" viewBox="0 0 24 24"
-                            fill="none" stroke="currentColor" stroke-width="2"
-                            stroke-linecap="round" stroke-linejoin="round"
-                        >
-                            <path d=icon_path/>
-                        </svg>
-                        <Show when=move || is_expanded.try_get().unwrap_or(false)>
-                            <span class="sidebar-label">{label}</span>
-                            {alt_shortcut.map(|n| view! {
-                                <kbd class="sidebar-kbd">{format!("Alt+{}", n)}</kbd>
-                            })}
-                            <svg
-                                class=move || format!(
-                                    "sidebar-chevron {}",
-                                    if group_open.try_get().unwrap_or(true) { "sidebar-chevron--open" } else { "" }
-                                )
-                                width="14" height="14" viewBox="0 0 24 24"
-                                fill="none" stroke="currentColor" stroke-width="2"
-                            >
-                                <path stroke-linecap="round" stroke-linejoin="round" d="M19 9l-7 7-7-7"/>
-                            </svg>
-                        </Show>
-                    </button>
-                }.into_any()
+                    }}
+                }
+                .into_any()
             }}
 
             // Sub-items (only for multi-item groups, when expanded)
-            <Show when=move || !is_single && (group_open.try_get().unwrap_or(true) || !is_expanded.try_get().unwrap_or(false))>
+            <Show when=move || !is_single && is_expanded_now() && group_open.try_get().unwrap_or(true)>
                 <div class=move || {
-                    if is_expanded.try_get().unwrap_or(false) { "sidebar-items" } else { "sidebar-items sidebar-items--collapsed" }
+                    "sidebar-items"
                 }>
                     {items.iter().filter(|i| !i.hidden).map(|item| {
                         view! {
@@ -297,5 +333,55 @@ fn SidebarItem(
                 <span class="sidebar-label">{label}</span>
             </Show>
         </a>
+    }
+}
+
+/// Clickable profile indicator in sidebar footer.
+/// Shows "Primary" or "Full" and toggles on click.
+#[component]
+fn ProfileToggle(is_expanded: Signal<bool>) -> impl IntoView {
+    let ui_profile = use_ui_profile();
+    let settings = use_settings();
+
+    let toggle = move |_| {
+        let current = ui_profile.get_untracked();
+        let next = match current {
+            UiProfile::Primary => UiProfile::Full,
+            UiProfile::Full => UiProfile::Primary,
+        };
+        update_setting(settings, |s| {
+            s.ui_profile = Some(next);
+        });
+    };
+
+    let label = move || match ui_profile.try_get().unwrap_or(UiProfile::Primary) {
+        UiProfile::Primary => "Primary",
+        UiProfile::Full => "Full",
+    };
+
+    let title = move || match ui_profile.try_get().unwrap_or(UiProfile::Primary) {
+        UiProfile::Primary => "Primary profile \u{2014} click to switch to Full",
+        UiProfile::Full => "Full profile \u{2014} click to switch to Primary",
+    };
+
+    view! {
+        <div class="sidebar-footer">
+            <button
+                class="sidebar-profile-toggle"
+                on:click=toggle
+                title=title
+            >
+                // Swap icon
+                <svg class="sidebar-icon" width="16" height="16" viewBox="0 0 24 24"
+                    fill="none" stroke="currentColor" stroke-width="2"
+                    stroke-linecap="round" stroke-linejoin="round"
+                >
+                    <path d="M16 3h5v5M4 20L21 3M21 16v5h-5M15 15l6 6M4 4l5 5"/>
+                </svg>
+                <Show when=move || is_expanded.try_get().unwrap_or(false)>
+                    <span class="sidebar-label">{label}</span>
+                </Show>
+            </button>
+        </div>
     }
 }

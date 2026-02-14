@@ -1953,4 +1953,30 @@ mod tests {
             "Raw and typed digests must match for same bytes"
         );
     }
+
+    #[test]
+    fn config_reload_same_seed_produces_identical_derivation() {
+        let global = B3Hash::hash(b"immutability-test");
+        let config_a = DeterminismConfig::builder().fixed_seed(42).build();
+        let seed_s1 = with_determinism_config(config_a, || derive_seed(&global, "reload-label"));
+        let config_b = DeterminismConfig::builder().fixed_seed(42).build();
+        let seed_s2 = with_determinism_config(config_b, || derive_seed(&global, "reload-label"));
+        assert_eq!(
+            seed_s1, seed_s2,
+            "Re-applying the same fixed_seed must produce identical derived seeds"
+        );
+    }
+
+    #[test]
+    fn config_reload_different_seed_produces_different_derivation() {
+        let global = B3Hash::hash(b"immutability-test");
+        let config_a = DeterminismConfig::builder().fixed_seed(42).build();
+        let seed_s1 = with_determinism_config(config_a, || derive_seed(&global, "reload-label"));
+        let config_b = DeterminismConfig::builder().fixed_seed(99).build();
+        let seed_s2 = with_determinism_config(config_b, || derive_seed(&global, "reload-label"));
+        assert_ne!(
+            seed_s1, seed_s2,
+            "Changing fixed_seed from 42 to 99 must change derived seed"
+        );
+    }
 }

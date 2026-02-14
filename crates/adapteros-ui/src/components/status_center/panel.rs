@@ -143,6 +143,20 @@ pub fn StatusCenterPanel(
                                 </div>
                             }.into_any()
                         }
+                        StatusLoadingState::LoadedWithError(ref data, ref e) => {
+                            let status = data.status.clone();
+                            let state = data.state.clone();
+                            let error_msg = e.to_string();
+
+                            view! {
+                                <div class="status-center-warning">
+                                    <p class="status-center-error-text">"Using cached status. Refreshing..."</p>
+                                    <p class="status-center-error-detail">{error_msg}</p>
+                                    <div class="status-center-divider status-center-divider--spaced"></div>
+                                </div>
+                                <StatusCenterSections status=status state=state />
+                            }.into_any()
+                        }
                         StatusLoadingState::Loaded(ref data) => {
                             let status = data.status.clone();
                             let state = data.state.clone();

@@ -63,6 +63,7 @@ impl MLXTokenizer {
             bos_token_id = ?special_tokens.bos_token_id,
             im_start_id = ?special_tokens.im_start_id,
             im_end_id = ?special_tokens.im_end_id,
+            fim_support = special_tokens.has_fim_support(),
             path = %path.display(),
             "Tokenizer loaded successfully with SpecialTokenMap"
         );
@@ -124,6 +125,9 @@ impl MLXTokenizer {
                 unk_token_id: None,
                 im_start_id: None,
                 im_end_id: Some(eos_token_id),
+                fim_prefix_id: None,
+                fim_suffix_id: None,
+                fim_middle_id: None,
                 source: TokenMapSource::Unknown,
             },
         }
@@ -198,6 +202,11 @@ impl MLXTokenizer {
     /// Get the special token map
     pub fn special_tokens(&self) -> &SpecialTokenMap {
         &self.special_tokens
+    }
+
+    /// Get resolved FIM token IDs if the model supports Fill-in-the-Middle.
+    pub fn fim_tokens(&self) -> Option<adapteros_core::tokenizer_config::FIMTokens> {
+        self.special_tokens.fim_tokens()
     }
 
     /// Get vocabulary size
@@ -341,6 +350,9 @@ mod tests {
             unk_token_id: None,
             im_start_id: Some(151644),
             im_end_id: Some(151645),
+            fim_prefix_id: None,
+            fim_suffix_id: None,
+            fim_middle_id: None,
             source: TokenMapSource::Unknown,
         };
         let mlx_tokenizer = MLXTokenizer::new(tokenizer, special_tokens);
@@ -365,6 +377,9 @@ mod tests {
                 unk_token_id: None,
                 im_start_id: Some(151644),
                 im_end_id: Some(151645),
+                fim_prefix_id: None,
+                fim_suffix_id: None,
+                fim_middle_id: None,
                 source: TokenMapSource::Unknown,
             },
         );

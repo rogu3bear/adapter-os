@@ -501,7 +501,34 @@ async fn test_process_access_controls_schema() -> Result<()> {
     Ok(())
 }
 
-/// Test 9: Verify table indexes exist for performance
+/// Test 9: Validate artifacts table schema includes stored_path
+#[tokio::test]
+async fn test_artifacts_table_schema_includes_stored_path() -> Result<()> {
+    let db = create_test_db().await?;
+
+    let rows = sqlx::query("PRAGMA table_info(artifacts)")
+        .fetch_all(db.pool())
+        .await?;
+
+    let mut artifact_columns = HashSet::new();
+    for row in rows {
+        let col_name: String = row.get(1);
+        artifact_columns.insert(col_name);
+    }
+
+    assert!(
+        artifact_columns.contains("stored_path"),
+        "artifacts table must expose stored_path column for artifact persistence",
+    );
+
+    println!(
+        "✓ Artifacts table schema includes stored_path ({} columns)",
+        artifact_columns.len()
+    );
+    Ok(())
+}
+
+/// Test 10: Verify table indexes exist for performance
 #[tokio::test]
 async fn test_critical_indexes_exist() -> Result<()> {
     let db = create_test_db().await?;

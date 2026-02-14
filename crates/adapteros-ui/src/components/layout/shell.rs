@@ -36,7 +36,7 @@ pub fn Shell() -> impl IntoView {
     provide_ui_profile_context();
     provide_sidebar_context();
     provide_route_context();
-    let (chat_state, _chat_action) = use_chat();
+    let (chat_state, chat_action) = use_chat();
     let search = use_search();
     let route_context = use_route_context();
     web_sys::console::log_1(&"[Shell] Got chat context".into());
@@ -50,6 +50,7 @@ pub fn Shell() -> impl IntoView {
 
     // Track route changes for contextual actions in Command Palette
     let location = use_location();
+    let dock_action = chat_action;
     Effect::new(move || {
         let Some(pathname) = location.pathname.try_get() else {
             return;
@@ -57,6 +58,16 @@ pub fn Shell() -> impl IntoView {
         route_context.set_route(&pathname);
         // Clear selection when route changes
         route_context.clear_selected();
+
+        // Auto-narrow dock on dashboard to give sparklines/charts room
+        if matches!(pathname.as_str(), "/" | "/dashboard") {
+            if chat_state
+                .try_get()
+                .is_some_and(|s| s.dock_state == DockState::Docked)
+            {
+                dock_action.set_dock_state(DockState::Narrow);
+            }
+        }
 
         // Update document title based on current route
         let title = match pathname.as_str() {
@@ -169,11 +180,14 @@ pub fn Shell() -> impl IntoView {
                 return;
             }
 
-            // Alt+1..Alt+8 jumps to workflow group
+            // Alt+0 jumps to Dashboard, Alt+1..Alt+8 jumps to workflow group
             // ASSUMPTION: On macOS, Option key maps to alt_key
             if alt_key && !ctrl_or_cmd {
                 if let Some(digit) = key.chars().next().and_then(|c| c.to_digit(10)) {
-                    if (1..=8).contains(&digit) {
+                    if digit == 0 {
+                        event.prevent_default();
+                        navigate("/", Default::default());
+                    } else if (1..=8).contains(&digit) {
                         if let Some(profile) = ui_profile.try_get_untracked() {
                             if let Some(route) = route_for_alt_shortcut(profile, digit as u8) {
                                 event.prevent_default();

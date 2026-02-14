@@ -5,6 +5,7 @@ use crate::components::{
     SimpleConfirmDialog,
 };
 use crate::signals::use_auth;
+use crate::utils::{format_datetime, format_relative_time};
 use leptos::prelude::*;
 
 /// Profile section
@@ -112,20 +113,23 @@ pub fn ProfileSection() -> impl IntoView {
                                 {user.last_login_at.clone().map(|last| view! {
                                     <div class="grid grid-cols-3 gap-4 items-center">
                                         <span class="text-sm font-medium text-muted-foreground">"Last Login"</span>
-                                        <span class="col-span-2 text-sm">{last}</span>
+                                        <span class="col-span-2 text-sm">{format_relative_time(&last)}</span>
                                     </div>
                                 })}
 
                                 // Member Since
                                 <div class="grid grid-cols-3 gap-4 items-center">
                                     <span class="text-sm font-medium text-muted-foreground">"Member Since"</span>
-                                    <span class="col-span-2 text-sm">{user.created_at.clone()}</span>
+                                    <span class="col-span-2 text-sm">{format_datetime(&user.created_at)}</span>
                                 </div>
                             </div>
                         }.into_any()
                     } else {
                         view! {
-                            <p class="text-muted-foreground">"Loading user information..."</p>
+                            <div class="flex items-center gap-2">
+                                <crate::components::Spinner />
+                                <p class="text-muted-foreground">"Loading user information\u{2026}"</p>
+                            </div>
                         }.into_any()
                     }
                 }}

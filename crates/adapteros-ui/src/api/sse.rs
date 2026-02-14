@@ -20,7 +20,7 @@ use web_sys::{EventSource, EventSourceInit, MessageEvent};
 
 type MessageClosure = Closure<dyn FnMut(MessageEvent)>;
 type MessageClosureList = Rc<RefCell<Vec<MessageClosure>>>;
-type EventClosure = Closure<dyn FnMut()>;
+type EventClosure = Closure<dyn FnMut(web_sys::Event)>;
 type EventClosureList = Rc<RefCell<Vec<EventClosure>>>;
 type SubscriptionList = Rc<RefCell<Vec<(String, MessageClosure)>>>;
 type SseHandler = Rc<RefCell<Option<Rc<dyn Fn(SseEvent)>>>>;
@@ -77,7 +77,9 @@ impl Default for CircuitBreakerConfig {
             retry_delay_ms: 1000,
             max_retry_delay_ms: 30000,
             reset_timeout_ms: 60000,
-            idle_timeout_ms: Some(120_000),
+            // Keep connections resilient to slow or intermittent proxies by avoiding
+            // aggressive idle-driven reconnects; explicit onerror/reconnect handles liveness.
+            idle_timeout_ms: None,
             // SSE uses cookies for auth; default to sending credentials for same-origin
             with_credentials: true,
             auth_query_param: None,
@@ -327,20 +329,54 @@ fn connect_with_handler(
     };
 
     let ctx_for_open = ctx.clone();
-    let on_open = Closure::wrap(Box::new(move || {
+    let on_open = Closure::wrap(Box::new(move |_evt: web_sys::Event| {
         let _ = ctx_for_open.state.try_set(SseState::Connected);
         reset_failures(&ctx_for_open);
         clear_reconnect(&ctx_for_open);
         // Use try_set to avoid panic if signal is disposed during navigation
         let _ = ctx_for_open.last_event_at.try_set(Some(Date::now()));
-    }) as Box<dyn FnMut()>);
+    }) as Box<dyn FnMut(web_sys::Event)>);
     event_source.set_onopen(Some(on_open.as_ref().unchecked_ref()));
     ctx.event_closures.borrow_mut().push(on_open);
 
     let ctx_for_error = ctx.clone();
-    let on_error = Closure::wrap(Box::new(move || {
+    let handler_for_error = handler.clone();
+    let on_error = Closure::wrap(Box::new(move |evt: web_sys::Event| {
+        // Some SSE streams emit application-level errors using `event: error`.
+        // In browsers, that can dispatch as an EventSource "error" event even though the
+        // transport is healthy. If we treat those as failures, we can create reconnect loops
+        // and trip the circuit breaker spuriously.
+        if let Some(msg) = evt.dyn_ref::<MessageEvent>() {
+            // If an explicit "error" subscription exists, let it handle the MessageEvent and
+            // skip transport failure handling. Otherwise, route it through the generic handler.
+            if ctx_for_error
+                .subscriptions
+                .borrow()
+                .iter()
+                .any(|(t, _)| t == "error")
+            {
+                return;
+            }
+
+            let _ = ctx_for_error.last_event_at.try_set(Some(Date::now()));
+            let data = msg.data().as_string().unwrap_or_default();
+            let last_event_id = msg.last_event_id();
+            let last_event_id = if last_event_id.is_empty() {
+                None
+            } else {
+                Some(last_event_id)
+            };
+
+            handler_for_error(SseEvent {
+                event_type: "error".to_string(),
+                data,
+                last_event_id,
+            });
+            return;
+        }
+
         handle_failure(ctx_for_error.clone(), "eventsource error");
-    }) as Box<dyn FnMut()>);
+    }) as Box<dyn FnMut(web_sys::Event)>);
     event_source.set_onerror(Some(on_error.as_ref().unchecked_ref()));
     ctx.event_closures.borrow_mut().push(on_error);
 
@@ -659,12 +695,21 @@ where
         on_event: F,
         parse_failures: Rc<std::cell::Cell<u32>>,
         connection_weak: Weak<SseConnection>,
+        allowed_event_types: Vec<String>,
     ) -> impl Fn(SseEvent) + Clone
     where
         T: for<'de> serde::Deserialize<'de> + 'static,
         F: Fn(T) + Clone + 'static,
     {
+        let allowed_event_types = std::rc::Rc::new(allowed_event_types);
         move |event: SseEvent| {
+            let Some(_) = allowed_event_types
+                .iter()
+                .find(|event_type| event_type.as_str() == event.event_type)
+            else {
+                return;
+            };
+
             let data = event.data.trim();
             if data.is_empty() || data == "[DONE]" {
                 return;
@@ -699,8 +744,15 @@ where
                                 on_event.clone(),
                                 Rc::clone(&parse_failures),
                                 connection_weak.clone(),
+                                allowed_event_types.iter().cloned().collect(),
                             );
-                            if let Err(err) = conn.connect(handler) {
+                            let event_type_refs: Vec<&str> = allowed_event_types
+                                .iter()
+                                .map(|event_type| event_type.as_str())
+                                .collect();
+                            if let Err(err) =
+                                conn.connect_with_event_types(&event_type_refs, handler.clone())
+                            {
                                 tracing::warn!(
                                     "SSE reconnect failed for {}: {}",
                                     endpoint_name,
@@ -719,6 +771,7 @@ where
         on_event,
         Rc::clone(&parse_failures),
         connection_weak.clone(),
+        event_types.clone(),
     );
 
     // Connect on mount
@@ -751,10 +804,17 @@ where
     // Reconnect function (same connection, reset circuit)
     let connection_reconnect = Rc::clone(&connection);
     let handler_reconnect = handler.clone();
+    let event_types_for_reconnect = event_types.clone();
     let endpoint_name_reconnect = endpoint_name.clone();
     let reconnect = move || {
         connection_reconnect.reset_circuit();
-        if let Err(err) = connection_reconnect.connect(handler_reconnect.clone()) {
+        let event_type_refs: Vec<&str> = event_types_for_reconnect
+            .iter()
+            .map(|event| event.as_str())
+            .collect();
+        if let Err(err) = connection_reconnect
+            .connect_with_event_types(&event_type_refs, handler_reconnect.clone())
+        {
             tracing::warn!(
                 "SSE reconnect failed for {}: {}",
                 endpoint_name_reconnect,

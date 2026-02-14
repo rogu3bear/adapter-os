@@ -1,0 +1,11 @@
+/Users/star/Dev/adapter-os/target-aos-rectify-db/debug/deps/htmlescape-52725206c9a8c4c6.d: /Users/star/.cargo/registry/src/index.crates.io-1949cf8c6b5b557f/htmlescape-0.3.1/src/lib.rs /Users/star/.cargo/registry/src/index.crates.io-1949cf8c6b5b557f/htmlescape-0.3.1/src/encode.rs /Users/star/.cargo/registry/src/index.crates.io-1949cf8c6b5b557f/htmlescape-0.3.1/src/decode.rs /Users/star/.cargo/registry/src/index.crates.io-1949cf8c6b5b557f/htmlescape-0.3.1/src/entities.rs /Users/star/.cargo/registry/src/index.crates.io-1949cf8c6b5b557f/htmlescape-0.3.1/src/io_support.rs
+
+/Users/star/Dev/adapter-os/target-aos-rectify-db/debug/deps/libhtmlescape-52725206c9a8c4c6.rlib: /Users/star/.cargo/registry/src/index.crates.io-1949cf8c6b5b557f/htmlescape-0.3.1/src/lib.rs /Users/star/.cargo/registry/src/index.crates.io-1949cf8c6b5b557f/htmlescape-0.3.1/src/encode.rs /Users/star/.cargo/registry/src/index.crates.io-1949cf8c6b5b557f/htmlescape-0.3.1/src/decode.rs /Users/star/.cargo/registry/src/index.crates.io-1949cf8c6b5b557f/htmlescape-0.3.1/src/entities.rs /Users/star/.cargo/registry/src/index.crates.io-1949cf8c6b5b557f/htmlescape-0.3.1/src/io_support.rs
+
+/Users/star/Dev/adapter-os/target-aos-rectify-db/debug/deps/libhtmlescape-52725206c9a8c4c6.rmeta: /Users/star/.cargo/registry/src/index.crates.io-1949cf8c6b5b557f/htmlescape-0.3.1/src/lib.rs /Users/star/.cargo/registry/src/index.crates.io-1949cf8c6b5b557f/htmlescape-0.3.1/src/encode.rs /Users/star/.cargo/registry/src/index.crates.io-1949cf8c6b5b557f/htmlescape-0.3.1/src/decode.rs /Users/star/.cargo/registry/src/index.crates.io-1949cf8c6b5b557f/htmlescape-0.3.1/src/entities.rs /Users/star/.cargo/registry/src/index.crates.io-1949cf8c6b5b557f/htmlescape-0.3.1/src/io_support.rs
+
+/Users/star/.cargo/registry/src/index.crates.io-1949cf8c6b5b557f/htmlescape-0.3.1/src/lib.rs:
+/Users/star/.cargo/registry/src/index.crates.io-1949cf8c6b5b557f/htmlescape-0.3.1/src/encode.rs:
+/Users/star/.cargo/registry/src/index.crates.io-1949cf8c6b5b557f/htmlescape-0.3.1/src/decode.rs:
+/Users/star/.cargo/registry/src/index.crates.io-1949cf8c6b5b557f/htmlescape-0.3.1/src/entities.rs:
+/Users/star/.cargo/registry/src/index.crates.io-1949cf8c6b5b557f/htmlescape-0.3.1/src/io_support.rs:
