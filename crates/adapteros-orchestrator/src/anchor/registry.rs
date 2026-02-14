@@ -1,7 +1,8 @@
 //! Document registry for anchoring training data to source documents
 
 use super::types::{
-    AnchoredChunk, DocumentChunkInfo, RegisteredDocument, SourceChangeEvent, SourceDocument,
+    AnchoredChunk, ChangeType, DocumentChunkInfo, RegisteredDocument, SourceChangeEvent,
+    SourceDocument,
 };
 use adapteros_core::{AosError, B3Hash, Result};
 use chrono::Utc;
@@ -305,9 +306,15 @@ impl DocumentRegistry {
         let size_delta = current_content.len() as i64 - doc.size_bytes as i64;
         let affected_adapters = self.get_adapters_for_document(doc_id).await;
 
-        let event = SourceChangeEvent::new(&doc.id, &doc.path, &doc.content_hash_b3, &current_hash)
-            .with_size_delta(size_delta)
-            .with_affected_adapters(affected_adapters);
+        let event = SourceChangeEvent::new(
+            &doc.id,
+            &doc.path,
+            &doc.content_hash_b3,
+            &current_hash,
+            ChangeType::Modified,
+        )
+        .with_size_delta(size_delta)
+        .with_affected_adapters(affected_adapters);
 
         warn!(
             doc_id = doc_id,

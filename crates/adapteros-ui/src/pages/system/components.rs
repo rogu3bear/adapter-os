@@ -8,8 +8,8 @@ use crate::api::{
     SystemHealthResponse, SystemReadyResponse,
 };
 use crate::components::{
-    Badge, BadgeVariant, Card, Spinner, StatusColor, StatusIndicator, StatusVariant, Table,
-    TableBody, TableCell, TableHead, TableHeader, TableRow,
+    loaded_signal, Badge, BadgeVariant, Card, Column, DataTable, Spinner, StatusColor,
+    StatusIndicator, StatusVariant, Table, TableBody, TableCell, TableHead, TableHeader, TableRow,
 };
 use crate::hooks::LoadingState;
 use adapteros_api_types::{
@@ -388,92 +388,69 @@ fn NodesSection(nodes: Vec<NodeResponse>) -> impl IntoView {
     let total = nodes.len();
     let visible_count = RwSignal::new(NODES_PAGE_SIZE);
 
+    let columns: Vec<Column<NodeResponse>> = vec![
+        Column::custom("ID", |node: &NodeResponse| {
+            let short_id = adapteros_id::short_id(&node.node.id);
+            let full_id = node.node.id.clone();
+            view! { <span class="font-mono text-sm" title=full_id>{short_id}</span> }
+        }),
+        Column::text("Hostname", |node: &NodeResponse| node.node.hostname.clone()),
+        Column::custom("Status", |node: &NodeResponse| {
+            let variant = StatusVariant::from_worker_status(&node.node.status).to_badge_variant();
+            let status = node.node.status.clone();
+            view! { <Badge variant=variant>{status}</Badge> }
+        }),
+        Column::custom("Endpoint", |node: &NodeResponse| {
+            let endpoint = node.node.agent_endpoint.clone();
+            view! { <span class="text-sm font-mono">{endpoint}</span> }
+        }),
+        Column::custom("Last Seen", |node: &NodeResponse| {
+            let ts = node
+                .node
+                .last_seen_at
+                .clone()
+                .map(|t| format_timestamp(&t))
+                .unwrap_or("-".to_string());
+            view! { <span class="text-sm text-muted-foreground">{ts}</span> }
+        }),
+    ];
+
+    let visible_nodes = Signal::derive(move || {
+        let count = visible_count.get();
+        nodes.iter().take(count).cloned().collect::<Vec<_>>()
+    });
+
     view! {
         <Card title="Nodes".to_string() description="Cluster nodes and their connectivity status".to_string()>
-            {if nodes.is_empty() {
-                view! {
-                    <div class="text-center py-8">
-                        <p class="text-muted-foreground">"No nodes registered"</p>
-                    </div>
-                }.into_any()
-            } else {
-                view! {
-                    <Table>
-                        <TableHeader>
-                            <TableRow>
-                                <TableHead>"ID"</TableHead>
-                                <TableHead>"Hostname"</TableHead>
-                                <TableHead>"Status"</TableHead>
-                                <TableHead>"Endpoint"</TableHead>
-                                <TableHead>"Last Seen"</TableHead>
-                            </TableRow>
-                        </TableHeader>
-                        <TableBody>
-                            {move || {
-                                let count = visible_count.get();
-                                nodes.iter().take(count).cloned().map(|node| {
-                                    view! { <NodeRow node=node/> }
-                                }).collect::<Vec<_>>()
-                            }}
-                        </TableBody>
-                    </Table>
+            <DataTable
+                data=loaded_signal(visible_nodes)
+                columns=columns
+                empty_title="No nodes registered"
+                card=false
+            />
 
-                    // Show more button
-                    {move || {
-                        let count = visible_count.get();
-                        if count < total {
-                            let remaining = total - count;
-                            Some(view! {
-                                <div class="text-center py-4 border-t">
-                                    <button
-                                        class="text-sm text-muted-foreground hover:text-foreground underline focus:outline-none focus:ring-2 focus:ring-ring focus:ring-offset-2 rounded"
-                                        on:click=move |_| {
-                                            visible_count.update(|c| *c = (*c + NODES_PAGE_SIZE).min(total));
-                                        }
-                                    >
-                                        {format!("Show more ({} remaining)", remaining)}
-                                    </button>
-                                </div>
-                            })
-                        } else {
-                            None
-                        }
-                    }}
-                }.into_any()
+            // Show more button
+            {move || {
+                let count = visible_count.get();
+                if count < total {
+                    let remaining = total - count;
+                    Some(view! {
+                        <div class="text-center py-4 border-t">
+                            <button
+                                class="text-sm text-muted-foreground hover:text-foreground underline focus:outline-none focus:ring-2 focus:ring-ring focus:ring-offset-2 rounded"
+                                on:click=move |_| {
+                                    visible_count.update(|c| *c = (*c + NODES_PAGE_SIZE).min(total));
+                                }
+                            >
+                                {format!("Show more ({} remaining)", remaining)}
+                            </button>
+                        </div>
+                    })
+                } else {
+                    None
+                }
             }}
         </Card>
-    }
-}
-
-/// Single node row component
-#[component]
-fn NodeRow(node: NodeResponse) -> impl IntoView {
-    let status_variant = StatusVariant::from_worker_status(&node.node.status).to_badge_variant();
-
-    let short_id = adapteros_id::short_id(&node.node.id);
-
-    view! {
-        <TableRow>
-            <TableCell>
-                <span class="font-mono text-sm" title=node.node.id.clone()>{short_id}</span>
-            </TableCell>
-            <TableCell>
-                <span class="text-sm">{node.node.hostname.clone()}</span>
-            </TableCell>
-            <TableCell>
-                <Badge variant=status_variant>
-                    {node.node.status.clone()}
-                </Badge>
-            </TableCell>
-            <TableCell>
-                <span class="text-sm font-mono">{node.node.agent_endpoint.clone()}</span>
-            </TableCell>
-            <TableCell>
-                <span class="text-sm text-muted-foreground">
-                    {node.node.last_seen_at.clone().map(|t| format_timestamp(&t)).unwrap_or("-".to_string())}
-                </span>
-            </TableCell>
-        </TableRow>
     }
 }
 
@@ -613,235 +590,169 @@ fn TenantsSection(tenants: Vec<TenantState>) -> impl IntoView {
     let total = tenants.len();
     let visible_count = RwSignal::new(TENANTS_PAGE_SIZE);
 
-    view! {
-        <Card title="Tenants".to_string() description="Tenant status and active stacks".to_string()>
-            {if tenants.is_empty() {
-                view! {
-                    <div class="text-center py-8">
-                        <p class="text-muted-foreground">"No tenants available"</p>
-                    </div>
-                }.into_any()
-            } else {
-                view! {
-                    <Table>
-                        <TableHeader>
-                            <TableRow>
-                                <TableHead>"Tenant"</TableHead>
-                                <TableHead>"Status"</TableHead>
-                                <TableHead>"Active Stack"</TableHead>
-                                <TableHead>"Stacks"</TableHead>
-                                <TableHead>"Adapters"</TableHead>
-                                <TableHead>"Memory"</TableHead>
-                            </TableRow>
-                        </TableHeader>
-                        <TableBody>
-                            {move || {
-                                let count = visible_count.get();
-                                tenants.iter().take(count).cloned().map(|tenant| {
-                                    view! { <TenantRow tenant=tenant/> }
-                                }).collect::<Vec<_>>()
-                            }}
-                        </TableBody>
-                    </Table>
-
-                    {move || {
-                        let count = visible_count.get();
-                        if count < total {
-                            let remaining = total - count;
-                            Some(view! {
-                                <div class="text-center py-4 border-t">
-                                    <button
-                                        class="text-sm text-muted-foreground hover:text-foreground underline focus:outline-none focus:ring-2 focus:ring-ring focus:ring-offset-2 rounded"
-                                        on:click=move |_| {
-                                            visible_count.update(|c| *c = (*c + TENANTS_PAGE_SIZE).min(total));
-                                        }
-                                    >
-                                        {format!("Show more ({} remaining)", remaining)}
-                                    </button>
-                                </div>
-                            })
-                        } else {
-                            None
-                        }
-                    }}
-                }.into_any()
-            }}
-        </Card>
-    }
-}
-
-#[component]
-fn TenantRow(tenant: TenantState) -> impl IntoView {
-    let status_variant = match tenant.status.as_str() {
-        "active" => BadgeVariant::Success,
-        "paused" => BadgeVariant::Warning,
-        "archived" => BadgeVariant::Secondary,
-        "error" => BadgeVariant::Destructive,
-        _ => BadgeVariant::Secondary,
-    };
-    let active_stack = tenant
-        .stacks
-        .iter()
-        .find(|stack| stack.is_active)
-        .map(|stack| stack.name.clone())
-        .unwrap_or_else(|| "-".to_string());
-    let active_stack_title = active_stack.clone();
-    let active_stack_label = active_stack.clone();
-    let short_tenant_id = adapteros_id::short_id(&tenant.tenant_id);
-
-    view! {
-        <TableRow>
-            <TableCell>
+    let columns: Vec<Column<TenantState>> = vec![
+        Column::custom("Tenant", |tenant: &TenantState| {
+            let name = tenant.name.clone();
+            let full_id = tenant.tenant_id.clone();
+            let short_id = adapteros_id::short_id(&tenant.tenant_id);
+            view! {
                 <div>
-                    <p class="text-sm font-medium">{tenant.name.clone()}</p>
-                    <p class="text-xs text-muted-foreground font-mono" title=tenant.tenant_id.clone()>
-                        {short_tenant_id}
+                    <p class="text-sm font-medium">{name}</p>
+                    <p class="text-xs text-muted-foreground font-mono" title=full_id>
+                        {short_id}
                     </p>
                 </div>
-            </TableCell>
-            <TableCell>
-                <Badge variant=status_variant>{tenant.status.clone()}</Badge>
-            </TableCell>
-            <TableCell>
-                <span class="text-sm truncate" title=active_stack_title>{active_stack_label}</span>
-            </TableCell>
-            <TableCell>
-                <span class="text-sm">{tenant.stacks.len()}</span>
-            </TableCell>
-            <TableCell>
-                <span class="text-sm">{tenant.adapter_count}</span>
-            </TableCell>
-            <TableCell>
-                <span class="text-sm">{format!("{:.1} MB", tenant.memory_usage_mb)}</span>
-            </TableCell>
-        </TableRow>
+            }
+        }),
+        Column::custom("Status", |tenant: &TenantState| {
+            let variant = match tenant.status.as_str() {
+                "active" => BadgeVariant::Success,
+                "paused" => BadgeVariant::Warning,
+                "archived" => BadgeVariant::Secondary,
+                "error" => BadgeVariant::Destructive,
+                _ => BadgeVariant::Secondary,
+            };
+            let status = tenant.status.clone();
+            view! { <Badge variant=variant>{status}</Badge> }
+        }),
+        Column::custom("Active Stack", |tenant: &TenantState| {
+            let active_stack = tenant
+                .stacks
+                .iter()
+                .find(|s| s.is_active)
+                .map(|s| s.name.clone())
+                .unwrap_or_else(|| "-".to_string());
+            let title = active_stack.clone();
+            view! { <span class="text-sm truncate" title=title>{active_stack}</span> }
+        }),
+        Column::custom("Stacks", |tenant: &TenantState| {
+            let count = tenant.stacks.len();
+            view! { <span class="text-sm">{count}</span> }
+        }),
+        Column::custom("Adapters", |tenant: &TenantState| {
+            let count = tenant.adapter_count;
+            view! { <span class="text-sm">{count}</span> }
+        }),
+        Column::custom("Memory", |tenant: &TenantState| {
+            let mem = format!("{:.1} MB", tenant.memory_usage_mb);
+            view! { <span class="text-sm">{mem}</span> }
+        }),
+    ];
+
+    let visible_tenants = Signal::derive(move || {
+        let count = visible_count.get();
+        tenants.iter().take(count).cloned().collect::<Vec<_>>()
+    });
+
+    view! {
+        <Card title="Tenants".to_string() description="Tenant status and active stacks".to_string()>
+            <DataTable
+                data=loaded_signal(visible_tenants)
+                columns=columns
+                empty_title="No tenants available"
+                card=false
+            />
+
+            {move || {
+                let count = visible_count.get();
+                if count < total {
+                    let remaining = total - count;
+                    Some(view! {
+                        <div class="text-center py-4 border-t">
+                            <button
+                                class="text-sm text-muted-foreground hover:text-foreground underline focus:outline-none focus:ring-2 focus:ring-ring focus:ring-offset-2 rounded"
+                                on:click=move |_| {
+                                    visible_count.update(|c| *c = (*c + TENANTS_PAGE_SIZE).min(total));
+                                }
+                            >
+                                {format!("Show more ({} remaining)", remaining)}
+                            </button>
+                        </div>
+                    })
+                } else {
+                    None
+                }
+            }}
+        </Card>
     }
 }
 
 #[component]
 fn NodeServicesSection(services: Vec<ServiceState>) -> impl IntoView {
+    let columns: Vec<Column<ServiceState>> = vec![
+        Column::custom("Service", |svc: &ServiceState| {
+            let name = svc.name.clone();
+            view! { <span class="text-sm font-medium">{name}</span> }
+        }),
+        Column::custom("Status", |svc: &ServiceState| {
+            let (variant, label) = match svc.status {
+                ServiceHealthStatus::Healthy => (BadgeVariant::Success, "Healthy"),
+                ServiceHealthStatus::Degraded => (BadgeVariant::Warning, "Degraded"),
+                ServiceHealthStatus::Unhealthy => (BadgeVariant::Destructive, "Unhealthy"),
+                ServiceHealthStatus::Unknown => (BadgeVariant::Secondary, "Unknown"),
+            };
+            view! { <Badge variant=variant>{label}</Badge> }
+        }),
+        Column::custom("Last Check", |svc: &ServiceState| {
+            let ts = format_timestamp(&svc.last_check);
+            view! { <span class="text-sm text-muted-foreground">{ts}</span> }
+        }),
+    ];
+
+    let items = Signal::derive(move || services.clone());
+
     view! {
         <Card title="Node Services".to_string() description="Service health checks".to_string()>
-            {if services.is_empty() {
-                view! {
-                    <div class="text-center py-8">
-                        <p class="text-muted-foreground">"No service data reported"</p>
-                    </div>
-                }.into_any()
-            } else {
-                view! {
-                    <Table>
-                        <TableHeader>
-                            <TableRow>
-                                <TableHead>"Service"</TableHead>
-                                <TableHead>"Status"</TableHead>
-                                <TableHead>"Last Check"</TableHead>
-                            </TableRow>
-                        </TableHeader>
-                        <TableBody>
-                            {services.into_iter().map(|service| {
-                                view! { <ServiceRow service=service/> }
-                            }).collect::<Vec<_>>()}
-                        </TableBody>
-                    </Table>
-                }.into_any()
-            }}
+            <DataTable
+                data=loaded_signal(items)
+                columns=columns
+                empty_title="No service data reported"
+                card=false
+            />
         </Card>
-    }
-}
-
-#[component]
-fn ServiceRow(service: ServiceState) -> impl IntoView {
-    let status_variant = match service.status {
-        ServiceHealthStatus::Healthy => BadgeVariant::Success,
-        ServiceHealthStatus::Degraded => BadgeVariant::Warning,
-        ServiceHealthStatus::Unhealthy => BadgeVariant::Destructive,
-        ServiceHealthStatus::Unknown => BadgeVariant::Secondary,
-    };
-    let status_label = match service.status {
-        ServiceHealthStatus::Healthy => "Healthy",
-        ServiceHealthStatus::Degraded => "Degraded",
-        ServiceHealthStatus::Unhealthy => "Unhealthy",
-        ServiceHealthStatus::Unknown => "Unknown",
-    };
-
-    view! {
-        <TableRow>
-            <TableCell>
-                <span class="text-sm font-medium">{service.name.clone()}</span>
-            </TableCell>
-            <TableCell>
-                <Badge variant=status_variant>{status_label}</Badge>
-            </TableCell>
-            <TableCell>
-                <span class="text-sm text-muted-foreground">
-                    {format_timestamp(&service.last_check)}
-                </span>
-            </TableCell>
-        </TableRow>
     }
 }
 
 #[component]
 fn TopAdaptersSection(adapters: Vec<AdapterMemorySummary>) -> impl IntoView {
-    view! {
-        <Card title="Top Adapters".to_string() description="Highest memory adapters".to_string()>
-            {if adapters.is_empty() {
-                view! {
-                    <div class="text-center py-8">
-                        <p class="text-muted-foreground">"No adapter memory data available"</p>
-                    </div>
-                }.into_any()
-            } else {
-                view! {
-                    <Table>
-                        <TableHeader>
-                            <TableRow>
-                                <TableHead>"Adapter"</TableHead>
-                                <TableHead>"State"</TableHead>
-                                <TableHead>"Tenant"</TableHead>
-                                <TableHead>"Memory"</TableHead>
-                            </TableRow>
-                        </TableHeader>
-                        <TableBody>
-                            {adapters.into_iter().map(|adapter| {
-                                view! { <TopAdapterRow adapter=adapter/> }
-                            }).collect::<Vec<_>>()}
-                        </TableBody>
-                    </Table>
-                }.into_any()
-            }}
-        </Card>
-    }
-}
-
-#[component]
-fn TopAdapterRow(adapter: AdapterMemorySummary) -> impl IntoView {
-    let short_adapter_id = adapteros_id::short_id(&adapter.adapter_id);
-    let short_tenant_id = adapteros_id::short_id(&adapter.tenant_id);
-
-    view! {
-        <TableRow>
-            <TableCell>
+    let columns: Vec<Column<AdapterMemorySummary>> = vec![
+        Column::custom("Adapter", |a: &AdapterMemorySummary| {
+            let name = a.name.clone();
+            let full_id = a.adapter_id.clone();
+            let short_id = adapteros_id::short_id(&a.adapter_id);
+            view! {
                 <div>
-                    <p class="text-sm font-medium">{adapter.name.clone()}</p>
-                    <p class="text-xs text-muted-foreground font-mono" title=adapter.adapter_id.clone()>
-                        {short_adapter_id}
+                    <p class="text-sm font-medium">{name}</p>
+                    <p class="text-xs text-muted-foreground font-mono" title=full_id>
+                        {short_id}
                     </p>
                 </div>
-            </TableCell>
-            <TableCell>
-                <span class="text-sm">{adapter.state.to_string()}</span>
-            </TableCell>
-            <TableCell>
-                <span class="text-sm font-mono" title=adapter.tenant_id.clone()>
-                    {short_tenant_id}
-                </span>
-            </TableCell>
-            <TableCell>
-                <span class="text-sm">{format!("{:.1} MB", adapter.memory_mb)}</span>
-            </TableCell>
-        </TableRow>
+            }
+        }),
+        Column::text("State", |a: &AdapterMemorySummary| a.state.to_string()),
+        Column::custom("Tenant", |a: &AdapterMemorySummary| {
+            let full_id = a.tenant_id.clone();
+            let short_id = adapteros_id::short_id(&a.tenant_id);
+            view! {
+                <span class="text-sm font-mono" title=full_id>{short_id}</span>
+            }
+        }),
+        Column::text("Memory", |a: &AdapterMemorySummary| {
+            format!("{:.1} MB", a.memory_mb)
+        }),
+    ];
+
+    let items = Signal::derive(move || adapters.clone());
+
+    view! {
+        <Card title="Top Adapters".to_string() description="Highest memory adapters".to_string()>
+            <DataTable
+                data=loaded_signal(items)
+                columns=columns
+                empty_title="No adapter memory data available"
+                card=false
+            />
+        </Card>
     }
 }
 

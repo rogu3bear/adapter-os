@@ -4,36 +4,10 @@
 //! ensuring consistent UI patterns and no infinite spinners.
 
 use crate::api::ApiError;
+use crate::components::layout::BreadcrumbItem;
 use crate::components::{Badge, BadgeVariant, Button, ButtonVariant, Spinner};
 use adapteros_api_types::FailureCode;
 use leptos::prelude::*;
-
-/// Breadcrumb item for navigation hierarchy
-#[derive(Debug, Clone)]
-pub struct Breadcrumb {
-    /// Display label for the breadcrumb
-    pub label: String,
-    /// Optional navigation href (None for current page)
-    pub href: Option<String>,
-}
-
-impl Breadcrumb {
-    /// Create a new breadcrumb with a link
-    pub fn new(label: impl Into<String>, href: impl Into<String>) -> Self {
-        Self {
-            label: label.into(),
-            href: Some(href.into()),
-        }
-    }
-
-    /// Create a breadcrumb for the current page (no link)
-    pub fn current(label: impl Into<String>) -> Self {
-        Self {
-            label: label.into(),
-            href: None,
-        }
-    }
-}
 
 /// Get the appropriate badge variant for a failure code
 fn failure_code_variant(code: FailureCode) -> BadgeVariant {
@@ -594,7 +568,7 @@ pub fn PageHeader(
     subtitle: Option<String>,
     /// Optional breadcrumb navigation
     #[prop(optional)]
-    breadcrumbs: Option<Vec<Breadcrumb>>,
+    breadcrumbs: Option<Vec<BreadcrumbItem>>,
     /// Optional action buttons (rendered on the right)
     #[prop(optional)]
     children: Option<Children>,
@@ -602,7 +576,7 @@ pub fn PageHeader(
     view! {
         <div class="page-header">
             // Breadcrumb navigation
-            {breadcrumbs.map(|crumbs| {
+            {breadcrumbs.map(|crumbs: Vec<BreadcrumbItem>| {
                 view! {
                     <nav class="page-header-breadcrumbs" aria-label="Breadcrumb">
                         <ol class="page-header-breadcrumb-list">

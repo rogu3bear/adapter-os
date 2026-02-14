@@ -92,9 +92,9 @@ where
                             type="button"
                             id=button_id
                             aria-controls=panel_id
-                            aria-selected=move || (active.get() == tab_id_for_aria).to_string()
+                            aria-selected=move || active.try_get().map(|v| v == tab_id_for_aria).unwrap_or(false).to_string()
                             class=move || {
-                                if active.get() == tab_id_for_class {
+                                if active.try_get().map(|v| v == tab_id_for_class).unwrap_or(false) {
                                     "tab-button tab-button-active"
                                 } else {
                                     "tab-button"
@@ -147,9 +147,9 @@ where
             type="button"
             id=button_id
             aria-controls=panel_id
-            aria-selected=move || (active.get() == tab_for_aria).to_string()
+            aria-selected=move || active.try_get().map(|v| v == tab_for_aria).unwrap_or(false).to_string()
             class=move || {
-                let is_active = active.get() == tab_for_class;
+                let is_active = active.try_get().map(|v| v == tab_for_class).unwrap_or(false);
                 let base = if is_active {
                     "tab-button tab-button-active"
                 } else {
@@ -167,7 +167,7 @@ where
             {label}
             {move || {
                 badge_count.and_then(|count| {
-                    let c = count.get();
+                    let c = count.try_get().unwrap_or(0);
                     if c > 0 {
                         let aria_label = if c == 1 {
                             "1 item".to_string()
@@ -223,9 +223,9 @@ where
             role="tabpanel"
             id=panel_id
             aria-labelledby=labelledby_id
-            aria-hidden=move || (active.get() != tab_for_hidden).to_string()
+            aria-hidden=move || active.try_get().map(|v| v != tab_for_hidden).unwrap_or(true).to_string()
             class=move || {
-                let display = if active.get() == tab_for_class { "block" } else { "hidden" };
+                let display = if active.try_get().map(|v| v == tab_for_class).unwrap_or(false) { "block" } else { "hidden" };
                 if class.is_empty() {
                     display.to_string()
                 } else {

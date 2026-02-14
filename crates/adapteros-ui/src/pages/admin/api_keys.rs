@@ -5,8 +5,9 @@
 use crate::api::{report_error_with_toast, ApiClient, ApiKeyInfo, CreateApiKeyRequest};
 use crate::components::{
     use_split_panel_selection_state, Badge, BadgeVariant, Button, ButtonVariant, Card,
-    ConfirmationDialog, ConfirmationSeverity, ErrorDisplay, FormDialog, Input, SkeletonTable,
-    SplitPanel, SplitRatio, Table, TableBody, TableCell, TableHead, TableHeader, TableRow,
+    ConfirmationDialog, ConfirmationSeverity, ErrorDisplay, FormDialog, FormField, Input,
+    SkeletonTable, SplitPanel, SplitRatio, Table, TableBody, TableCell, TableHead, TableHeader,
+    TableRow,
 };
 use crate::hooks::{use_api_resource, use_polling, LoadingState};
 use crate::signals::{use_notifications, use_refetch_signal, RefetchTopic};
@@ -233,11 +234,12 @@ pub fn ApiKeysSection() -> impl IntoView {
                 })
             >
                 <div class="space-y-3">
-                    <Input
-                        value=new_key_name
-                        label="Key Name".to_string()
-                        placeholder="e.g., Production API, Development Key".to_string()
-                    />
+                    <FormField label="Key Name" name="key_name">
+                        <Input
+                            value=new_key_name
+                            placeholder="e.g., Production API, Development Key".to_string()
+                        />
+                    </FormField>
 
                     <div>
                         <label class="text-sm font-medium mb-2 block">"Permissions"</label>

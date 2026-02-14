@@ -2625,9 +2625,17 @@ fn ChatConversationPanel(
                                         let has_recovery = state.stream_recovery.is_some();
 
                                         if has_error {
+                                            let fallback_error = state
+                                                .error
+                                                .as_deref()
+                                                .map(str::trim)
+                                                .filter(|msg| !msg.is_empty() && !msg.eq_ignore_ascii_case("error"))
+                                                .map(|msg| msg.to_string());
+
                                             let display_msg = notice.as_ref()
                                                 .map(|n| n.message.clone())
-                                                .unwrap_or_else(|| "Something went wrong".to_string());
+                                                .or(fallback_error)
+                                                .unwrap_or_else(|| "Request failed. Retry in a moment.".to_string());
 
                                             let retryable = notice.as_ref()
                                                 .map(|n| n.retryable)

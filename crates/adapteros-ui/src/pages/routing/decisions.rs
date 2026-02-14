@@ -365,21 +365,23 @@ fn DecisionsList(
 
     view! {
         <Card>
-            <Table>
-                <TableHeader>
-                    <TableRow>
-                        <TableHead>"Timestamp"</TableHead>
-                        <TableHead>"Stack ID"</TableHead>
-                        <TableHead>"Entropy"</TableHead>
-                        <TableHead>"K-Value"</TableHead>
-                        <TableHead>"Latency"</TableHead>
-                        <TableHead>"Overhead"</TableHead>
-                    </TableRow>
-                </TableHeader>
-                <TableBody>
-                    {decision_rows}
-                </TableBody>
-            </Table>
+            <div class="overflow-x-auto">
+                <Table>
+                    <TableHeader>
+                        <TableRow>
+                            <TableHead>"Timestamp"</TableHead>
+                            <TableHead>"Stack ID"</TableHead>
+                            <TableHead>"Entropy"</TableHead>
+                            <TableHead>"K-Value"</TableHead>
+                            <TableHead>"Latency"</TableHead>
+                            <TableHead>"Overhead"</TableHead>
+                        </TableRow>
+                    </TableHeader>
+                    <TableBody>
+                        {decision_rows}
+                    </TableBody>
+                </Table>
+            </div>
 
             // Pagination info
             <div class="flex items-center justify-between mt-4 text-sm text-muted-foreground">

@@ -1,6 +1,14 @@
 //! DataTable component with built-in async state handling
 //!
 //! High-level table that wraps LoadingState and renders loading, empty, or data automatically.
+//!
+//! When the caller already has a `Vec<T>` (no loading state needed), use [`loaded_signal`]
+//! to wrap it into the signal type DataTable expects:
+//!
+//! ```rust,ignore
+//! let items = Signal::derive(move || filtered_items.get());
+//! view! { <DataTable data=loaded_signal(items) columns=columns /> }
+//! ```
 
 use crate::components::{
     Card, EmptyState, EmptyStateVariant, Table, TableBody, TableCell, TableHead, TableHeader,
@@ -59,6 +67,27 @@ impl<T: Clone + 'static> Column<T> {
     }
 }
 
+/// Wrap a `Signal<Vec<T>>` into the `ReadSignal<LoadingState<Vec<T>>>` that [`DataTable`] expects.
+///
+/// Use this when the parent already owns the data and handles loading/error states itself,
+/// eliminating the boilerplate of creating a `LoadingState::Loaded` wrapper signal.
+///
+/// # Example
+/// ```rust,ignore
+/// let items = Signal::derive(move || my_vec_signal.get());
+/// view! { <DataTable data=loaded_signal(items) columns=columns /> }
+/// ```
+pub fn loaded_signal<T>(source: Signal<Vec<T>>) -> ReadSignal<LoadingState<Vec<T>>>
+where
+    T: Clone + Send + Sync + 'static,
+{
+    let (read, write) = signal(LoadingState::Loaded(source.get_untracked()));
+    Effect::new(move || {
+        write.set(LoadingState::Loaded(source.get()));
+    });
+    read
+}
+
 /// High-level data table with async state handling
 ///
 /// Wraps `LoadingState` and automatically renders:
@@ -109,6 +138,10 @@ pub fn DataTable<T>(
     /// Optional row click callback
     #[prop(optional)]
     on_row_click: Option<Callback<T>>,
+    /// Optional per-row CSS class function.
+    /// Called for each row; the returned string is appended to the row's class attribute.
+    #[prop(optional)]
+    row_class: Option<Arc<dyn Fn(&T) -> String + Send + Sync>>,
     /// Whether to wrap in a Card
     #[prop(optional, default = true)]
     card: bool,
@@ -120,6 +153,7 @@ where
     T: Clone + Send + Sync + 'static,
 {
     let columns = StoredValue::new(columns);
+    let row_class = StoredValue::new(row_class);
     let empty_title = empty_title.unwrap_or_else(|| "No data".to_string());
     let empty_description = empty_description.clone();
 
@@ -170,9 +204,22 @@ where
                         let on_click = on_row_click;
                         let has_click = on_click.is_some();
 
+                        let mut tr_class = if has_click {
+                            "table-row cursor-pointer".to_string()
+                        } else {
+                            "table-row".to_string()
+                        };
+                        if let Some(ref rc) = row_class.get_value() {
+                            let extra = rc(&item);
+                            if !extra.is_empty() {
+                                tr_class.push(' ');
+                                tr_class.push_str(&extra);
+                            }
+                        }
+
                         view! {
                             <tr
-                                class=if has_click { "table-row cursor-pointer" } else { "table-row" }
+                                class=tr_class
                                 on:click=move |_| {
                                     if let Some(ref cb) = on_click {
                                         cb.run(item_for_click.clone());

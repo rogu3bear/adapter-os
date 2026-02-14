@@ -6,34 +6,8 @@
 use leptos::prelude::*;
 use leptos_router::hooks::use_location;
 
+use crate::components::layout::BreadcrumbItem;
 use crate::components::{IconChevronRight, IconHome};
-
-/// Breadcrumb item for custom trails
-#[derive(Debug, Clone)]
-pub struct BreadcrumbItem {
-    /// Display label
-    pub label: String,
-    /// Navigation href (None = current page, not clickable)
-    pub href: Option<String>,
-}
-
-impl BreadcrumbItem {
-    /// Create a clickable breadcrumb
-    pub fn link(label: impl Into<String>, href: impl Into<String>) -> Self {
-        Self {
-            label: label.into(),
-            href: Some(href.into()),
-        }
-    }
-
-    /// Create a non-clickable breadcrumb (current page)
-    pub fn current(label: impl Into<String>) -> Self {
-        Self {
-            label: label.into(),
-            href: None,
-        }
-    }
-}
 
 /// Route-aware breadcrumb trail
 ///
@@ -47,7 +21,7 @@ impl BreadcrumbItem {
 ///
 /// // Custom items
 /// <BreadcrumbTrail items=vec![
-///     BreadcrumbItem::link("Adapters", "/adapters"),
+///     BreadcrumbItem::new("Adapters", "/adapters"),
 ///     BreadcrumbItem::current("my-adapter"),
 /// ]/>
 /// ```
@@ -72,7 +46,7 @@ pub fn BreadcrumbTrail(
             return vec![BreadcrumbItem::current("Dashboard")];
         }
 
-        let mut result = vec![BreadcrumbItem::link("Home", "/")];
+        let mut result = vec![BreadcrumbItem::new("Home", "/")];
         let mut current_path = String::new();
 
         for (i, segment) in segments.iter().enumerate() {
@@ -86,7 +60,7 @@ pub fn BreadcrumbTrail(
                 // Last segment is current page
                 result.push(BreadcrumbItem::current(label));
             } else {
-                result.push(BreadcrumbItem::link(label, current_path.clone()));
+                result.push(BreadcrumbItem::new(label, current_path.clone()));
             }
         }
 

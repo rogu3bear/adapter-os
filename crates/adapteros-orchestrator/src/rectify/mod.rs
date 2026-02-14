@@ -34,5 +34,8 @@ mod types;
 mod workflow;
 
 pub use detector::ChangeDetector;
-pub use types::{AffectedAdapter, ChangeAction, RectifyResult, RectifyStatus, SourceChangeEvent};
-pub use workflow::RectifyWorkflow;
+pub use types::{
+    AffectedAdapter, ChangeAction, ChangeType, NewAdapterVersion, RectifyResult, RectifyStatus,
+    SourceChangeEvent, VersionState,
+};
+pub use workflow::{BatchRectifyWorkflow, RectifyBatchSummary, RectifyWorkflow};

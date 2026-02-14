@@ -280,7 +280,7 @@ pub fn Dialog(
         // Backdrop - uses .dialog-overlay CSS class
         <div
             class=move || {
-                if open.get() {
+                if open.try_get().unwrap_or(false) {
                     "dialog-overlay"
                 } else {
                     "hidden"
@@ -294,7 +294,7 @@ pub fn Dialog(
         <div
             id=dialog_id.clone()
             class=move || {
-                if open.get() {
+                if open.try_get().unwrap_or(false) {
                     let mut classes = vec!["dialog-content", size.class()];
                     if scrollable {
                         classes.push("dialog-scrollable");

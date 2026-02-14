@@ -6,6 +6,8 @@ use axum::{
     Router,
 };
 use rust_embed::RustEmbed;
+use std::path::{Component, Path, PathBuf};
+use tokio::fs;
 
 // Note: This will be empty until web-ui is built with trunk
 #[derive(RustEmbed)]
@@ -33,21 +35,8 @@ async fn spa_fallback(uri: Uri) -> impl IntoResponse {
 
     // Check if this is a static asset (CSS, JS, WASM, etc.) before SPA fallback
     let path = uri.path().trim_start_matches('/');
-    if let Some(content) = Assets::get(path) {
-        let mime = mime_guess::from_path(path).first_or_octet_stream();
-        return match Response::builder()
-            .status(StatusCode::OK)
-            .header(header::CONTENT_TYPE, mime.as_ref())
-            .header(header::CACHE_CONTROL, "public, max-age=31536000, immutable")
-            .body(Body::from(content.data.into_owned()))
-        {
-            Ok(response) => response.into_response(),
-            Err(_) => (
-                StatusCode::INTERNAL_SERVER_ERROR,
-                "Failed to build response",
-            )
-                .into_response(),
-        };
+    if let Some(response) = serve_asset_response(path).await {
+        return response.into_response();
     }
 
     index_handler().await.into_response()
@@ -67,26 +56,54 @@ async fn index_handler() -> impl IntoResponse {
 async fn static_handler(uri: Uri) -> impl IntoResponse {
     let path = uri.path().trim_start_matches('/');
 
-    match <Assets as RustEmbed>::get(path) {
-        Some(content) => {
-            let mime = mime_guess::from_path(path).first_or_octet_stream();
-
-            match Response::builder()
-                .status(StatusCode::OK)
-                .header(header::CONTENT_TYPE, mime.as_ref())
-                .header(header::CACHE_CONTROL, "public, max-age=31536000, immutable")
-                .body(Body::from(content.data.into_owned()))
-            {
-                Ok(response) => response.into_response(),
-                Err(_) => (
-                    StatusCode::INTERNAL_SERVER_ERROR,
-                    "Failed to build response",
-                )
-                    .into_response(),
-            }
-        }
+    match serve_asset_response(path).await {
+        Some(response) => response.into_response(),
         None => not_found().await.into_response(),
     }
+}
+
+async fn serve_asset_response(path: &str) -> Option<Response<Body>> {
+    if let Some(content) = Assets::get(path) {
+        return build_asset_response(content.data.into_owned(), path);
+    }
+
+    if let Some(body) = read_disk_asset(path).await {
+        return build_asset_response(body, path);
+    }
+
+    None
+}
+
+fn build_asset_response(body: Vec<u8>, path: &str) -> Option<Response<Body>> {
+    let mime = mime_guess::from_path(path).first_or_octet_stream();
+
+    Response::builder()
+        .status(StatusCode::OK)
+        .header(header::CONTENT_TYPE, mime.as_ref())
+        .header(header::CACHE_CONTROL, "public, max-age=31536000, immutable")
+        .body(Body::from(body))
+        .ok()
+}
+
+async fn read_disk_asset(path: &str) -> Option<Vec<u8>> {
+    let asset_path = static_asset_path(path)?;
+    fs::read(asset_path).await.ok()
+}
+
+fn static_asset_path(path: &str) -> Option<PathBuf> {
+    if path.is_empty() {
+        return None;
+    }
+
+    let relative = Path::new(path);
+    if relative
+        .components()
+        .any(|component| !matches!(component, Component::Normal(_)))
+    {
+        return None;
+    }
+
+    Some(Path::new(env!("CARGO_MANIFEST_DIR")).join("static").join(relative))
 }
 
 async fn not_found() -> impl IntoResponse {

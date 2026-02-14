@@ -9,8 +9,9 @@ use crate::api::{
 };
 use crate::components::{
     Badge, BadgeVariant, Button, ButtonSize, ButtonVariant, Card, EmptyState, EmptyStateVariant,
-    ErrorDisplay, LoadingDisplay, PageBreadcrumbItem, PageScaffold, PageScaffoldActions, Spinner,
-    TabButton, Table, TableBody, TableCell, TableHead, TableHeader, TableRow,
+    ErrorDisplay, PageBreadcrumbItem, PageScaffold, PageScaffoldActions, SkeletonCard,
+    SkeletonStatsGrid, Spinner, TabButton, Table, TableBody, TableCell, TableHead, TableHeader,
+    TableRow,
 };
 use crate::hooks::{use_api_resource, use_polling, LoadingState};
 use adapteros_api_types::HealthResponse;
@@ -117,7 +118,7 @@ pub fn Monitoring() -> impl IntoView {
             </PageScaffoldActions>
 
             // Inline status bar
-            <div class="flex items-center gap-6 px-4 py-2 glass-tier-1 rounded-lg text-sm">
+            <div class="flex flex-wrap items-center gap-3 md:gap-6 px-4 py-2 glass-tier-1 rounded-lg text-sm">
                 <span class="flex items-center gap-2">
                     <span class="text-muted-foreground">"Alerts"</span>
                     <Badge variant=BadgeVariant::Destructive>
@@ -179,7 +180,11 @@ pub fn Monitoring() -> impl IntoView {
                             match alerts.try_get().unwrap_or_default() {
                                 LoadingState::Idle | LoadingState::Loading => {
                                     view! {
-                                        <LoadingDisplay message="Loading alerts..."/>
+                                        <div class="space-y-3">
+                                            <SkeletonCard has_header=true />
+                                            <SkeletonCard has_header=true />
+                                            <SkeletonCard has_header=true />
+                                        </div>
                                     }.into_any()
                                 }
                                 LoadingState::Loaded(data) => {
@@ -273,7 +278,11 @@ pub fn Monitoring() -> impl IntoView {
                             match anomalies.try_get().unwrap_or_default() {
                                 LoadingState::Idle | LoadingState::Loading => {
                                     view! {
-                                        <LoadingDisplay message="Loading anomalies..."/>
+                                        <div class="space-y-3">
+                                            <SkeletonCard has_header=true />
+                                            <SkeletonCard has_header=true />
+                                            <SkeletonCard has_header=true />
+                                        </div>
                                     }.into_any()
                                 }
                                 LoadingState::Loaded(data) => {
@@ -345,7 +354,7 @@ pub fn Monitoring() -> impl IntoView {
                             match health_metrics.try_get().unwrap_or_default() {
                                 LoadingState::Idle | LoadingState::Loading => {
                                     view! {
-                                        <LoadingDisplay message="Loading health metrics..."/>
+                                        <SkeletonStatsGrid count=6 />
                                     }.into_any()
                                 }
                                 LoadingState::Loaded(data) => {
