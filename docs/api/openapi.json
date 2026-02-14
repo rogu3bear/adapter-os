@@ -7228,6 +7228,62 @@
         ],
         "type": "object"
       },
+      "CreateAdapterFromDatasetRequest": {
+        "description": "Request payload for creating an adapter from a dataset.",
+        "properties": {
+          "adapter_name": {
+            "description": "Optional adapter name.",
+            "type": [
+              "string",
+              "null"
+            ]
+          },
+          "base_model_id": {
+            "description": "Base model id used for adapter training.",
+            "type": "string"
+          },
+          "dataset_version_id": {
+            "description": "Optional dataset version id override. Defaults to latest for the dataset.",
+            "type": [
+              "string",
+              "null"
+            ]
+          },
+          "post_actions": {
+            "oneOf": [
+              {
+                "type": "null"
+              },
+              {
+                "$ref": "#/components/schemas/PostActionsRequest",
+                "description": "Optional post-training actions."
+              }
+            ]
+          },
+          "training_config": {
+            "oneOf": [
+              {
+                "type": "null"
+              },
+              {
+                "$ref": "#/components/schemas/TrainingConfigRequest",
+                "description": "Optional training config override."
+              }
+            ]
+          },
+          "workspace_id": {
+            "description": "Optional workspace/tenant scope for the training job.",
+            "type": [
+              "string",
+              "null"
+            ]
+          }
+        },
+        "required": [
+          "base_model_id"
+        ],
+        "type": "object"
+      },
       "CreateApiKeyRequest": {
         "description": "Request to create a new API key",
         "properties": {
@@ -27442,6 +27498,24 @@
       "SynthesizeDatasetRequest": {
         "description": "Request to synthesize training data from document chunks",
         "properties": {
+          "adapter_name": {
+            "description": "Optional adapter name for auto-training",
+            "type": [
+              "string",
+              "null"
+            ]
+          },
+          "auto_train": {
+            "description": "Whether to start training immediately after synthesis",
+            "type": "boolean"
+          },
+          "base_model_id": {
+            "description": "Base model id for auto-training",
+            "type": [
+              "string",
+              "null"
+            ]
+          },
           "chunks": {
             "description": "Document chunks to synthesize from",
             "items": {
@@ -27460,6 +27534,13 @@
               }
             ]
           },
+          "dataset_version_id": {
+            "description": "Dataset version ID to train. Defaults to the freshly created version.",
+            "type": [
+              "string",
+              "null"
+            ]
+          },
           "description": {
             "description": "Optional description",
             "type": [
@@ -27470,6 +27551,28 @@
           "name": {
             "description": "Name for the resulting dataset",
             "type": "string"
+          },
+          "post_actions": {
+            "oneOf": [
+              {
+                "type": "null"
+              },
+              {
+                "$ref": "#/components/schemas/PostActionsRequest",
+                "description": "Optional post-actions for auto-training"
+              }
+            ]
+          },
+          "training_config": {
+            "oneOf": [
+              {
+                "type": "null"
+              },
+              {
+                "$ref": "#/components/schemas/TrainingConfigRequest",
+                "description": "Optional training config override for auto-training"
+              }
+            ]
           },
           "workspace_id": {
             "description": "Optional workspace ID for tenant isolation",
@@ -27497,6 +27600,10 @@
             "description": "ID of the created dataset",
             "type": "string"
           },
+          "dataset_version_id": {
+            "description": "Version ID of the created dataset",
+            "type": "string"
+          },
           "examples_by_type": {
             "$ref": "#/components/schemas/ExampleCounts",
             "description": "Breakdown by type"
@@ -27511,6 +27618,13 @@
             "minimum": 0,
             "type": "integer"
           },
+          "stack_id": {
+            "description": "Stack ID associated with the training job",
+            "type": [
+              "string",
+              "null"
+            ]
+          },
           "status": {
             "description": "Status message",
             "type": "string"
@@ -27524,10 +27638,18 @@
             "description": "Total examples generated",
             "minimum": 0,
             "type": "integer"
+          },
+          "training_job_id": {
+            "description": "Training job ID when auto-training started",
+            "type": [
+              "string",
+              "null"
+            ]
           }
         },
         "required": [
           "dataset_id",
+          "dataset_version_id",
           "name",
           "chunks_processed",
           "total_examples",
@@ -29432,6 +29554,13 @@
               "null"
             ]
           },
+          "early_stopping": {
+            "description": "Enable early stopping when validation loss stops improving.",
+            "type": [
+              "boolean",
+              "null"
+            ]
+          },
           "enable_coreml_export": {
             "description": "Opt-in CoreML export after successful training",
             "type": [
@@ -29495,6 +29624,14 @@
               "null"
             ]
           },
+          "min_delta": {
+            "description": "Minimum loss change to qualify as an improvement (requires early_stopping).",
+            "format": "float",
+            "type": [
+              "number",
+              "null"
+            ]
+          },
           "multi_module_training": {
             "description": "Enable multi-module training (train separate weights per target module).",
             "type": [
@@ -29506,6 +29643,15 @@
             "format": "int32",
             "minimum": 0,
             "type": "integer"
+          },
+          "patience": {
+            "description": "Number of epochs without improvement before stopping (requires early_stopping).",
+            "format": "int32",
+            "minimum": 0,
+            "type": [
+              "integer",
+              "null"
+            ]
           },
           "preferred_backend": {
             "description": "Optional GPU backend preference (coreml, mlx, metal, cpu)",
@@ -30374,6 +30520,13 @@
               "null"
             ]
           },
+          "stack_id": {
+            "description": "Stack ID for adapter stack association",
+            "type": [
+              "string",
+              "null"
+            ]
+          },
           "started_at": {
             "type": [
               "string",
@@ -31053,8 +31206,7 @@
           "running",
           "completed",
           "failed",
-          "cancelled",
-          "paused"
+          "cancelled"
         ],
         "type": "string"
       },
@@ -35798,6 +35950,67 @@
         "summary": "Upsert a synthetic directory adapter and optionally activate it.",
         "tags": [
           "adapters"
+        ]
+      }
+    },
+    "/v1/adapters/from-dataset/{dataset_id}": {
+      "post": {
+        "operationId": "create_adapter_from_dataset",
+        "parameters": [
+          {
+            "description": "Dataset identifier",
+            "in": "path",
+            "name": "dataset_id",
+            "required": true,
+            "schema": {
+              "type": "string"
+            }
+          }
+        ],
+        "requestBody": {
+          "content": {
+            "application/json": {
+              "schema": {
+                "$ref": "#/components/schemas/CreateAdapterFromDatasetRequest"
+              }
+            }
+          },
+          "required": true
+        },
+        "responses": {
+          "202": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/TrainingJobResponse"
+                }
+              }
+            },
+            "description": "Training job started"
+          },
+          "400": {
+            "description": "Invalid request"
+          },
+          "403": {
+            "description": "Tenant isolation violation"
+          },
+          "500": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ErrorResponse"
+                }
+              }
+            },
+            "description": "Failed to start training"
+          },
+          "503": {
+            "description": "Service unavailable"
+          }
+        },
+        "summary": "Create an adapter from a dataset via training.",
+        "tags": [
+          "datasets"
         ]
       }
     },
@@ -44244,7 +44457,7 @@
             "description": "Internal server error"
           }
         },
-        "summary": "Upload document request (multipart form)\nExpected fields:\n- file: Document file (required, .pdf/.md/.txt)\n- name: Document name (optional, defaults to filename)",
+        "summary": "Upload document request (multipart form)\nExpected fields:\n- file: Document file (required, .pdf/.md/.markdown/.txt)\n- name: Document name (optional, defaults to filename)",
         "tags": [
           "documents"
         ]
@@ -57333,7 +57546,7 @@
             "description": "Failed to start training"
           }
         },
-        "summary": "Start a new training job",
+        "summary": "Start a new training job (compatibility endpoint; prefer POST /v1/training/jobs)",
         "tags": [
           "training"
         ]
@@ -57928,6 +58141,15 @@
             "required": false,
             "schema": {
               "type": "string"
+            }
+          },
+          {
+            "description": "Include terminal workers in results (stopped/error/crashed/failed)",
+            "in": "query",
+            "name": "include_inactive",
+            "required": false,
+            "schema": {
+              "type": "boolean"
             }
           }
         ],
