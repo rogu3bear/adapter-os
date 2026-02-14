@@ -1520,12 +1520,66 @@ pub async fn create_training_job(
     // Using workspace_id here can produce false negatives for non-default workspaces.
     ensure_training_worker_capable(&state, &claims.tenant_id).await?;
 
+    // Validate dataset exists and belongs to this tenant
+    let dataset_id = crate::id_resolver::resolve_any_id(&state.db, &req.dataset_id)
+        .await
+        .map_err(|e| {
+            (
+                StatusCode::BAD_REQUEST,
+                Json(
+                    ErrorResponse::new("invalid dataset_id")
+                        .with_code("DATASET_ERROR")
+                        .with_string_details(e.to_string()),
+                ),
+            )
+        })?;
+
+    let dataset = state
+        .db
+        .get_training_dataset(&dataset_id)
+        .await
+        .map_err(|e| {
+            (
+                StatusCode::INTERNAL_SERVER_ERROR,
+                Json(
+                    ErrorResponse::new("failed to look up dataset")
+                        .with_code("DATASET_ERROR")
+                        .with_string_details(e.to_string()),
+                ),
+            )
+        })?
+        .ok_or_else(|| {
+            (
+                StatusCode::NOT_FOUND,
+                Json(
+                    ErrorResponse::new("dataset not found")
+                        .with_code("DATASET_NOT_FOUND")
+                        .with_string_details(format!(
+                            "No dataset with id '{}' exists. Create one first via the datasets API.",
+                            dataset_id
+                        )),
+                ),
+            )
+        })?;
+
+    let dataset_tenant = dataset.tenant_id.as_deref().unwrap_or(&claims.tenant_id);
+    validate_tenant_isolation(&claims, dataset_tenant).map_err(|e| {
+        (
+            StatusCode::FORBIDDEN,
+            Json(
+                ErrorResponse::new("dataset belongs to a different tenant")
+                    .with_code("TENANT_ISOLATION_ERROR")
+                    .with_string_details(e.to_string()),
+            ),
+        )
+    })?;
+
     // Resolve dataset version (default to latest)
     let dataset_version_id = match req.dataset_version_id {
         Some(id) => id,
         None => state
             .db
-            .ensure_dataset_version_exists(&req.dataset_id)
+            .ensure_dataset_version_exists(&dataset_id)
             .await
             .map_err(|e| {
                 (
@@ -1588,7 +1642,7 @@ pub async fn create_training_job(
             None,                           // repo_id
             None,                           // target_branch
             None,                           // base_version_id
-            Some(req.dataset_id.clone()),   // dataset_id
+            Some(dataset_id.clone()),       // dataset_id
             Some(dataset_version_ids),      // dataset_version_ids
             false,                          // synthetic_mode
             DataLineageMode::DatasetOnly,   // lineage
