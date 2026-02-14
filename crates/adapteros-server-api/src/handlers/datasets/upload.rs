@@ -39,7 +39,6 @@ use adapteros_db::training_datasets::{
 };
 use adapteros_storage::secure_fs::path_policy::canonicalize_strict_in_allowed_roots;
 use adapteros_storage::{ByteStorage, DatasetCategory, FsByteStorage, StorageKey};
-use adapteros_types::training::DataLineageMode;
 use axum::{
     extract::{Multipart, State},
     http::StatusCode,
@@ -1023,25 +1022,28 @@ pub async fn upload_dataset(
                 "Starting auto-training job"
             );
 
-            match start_training_from_upload(
+            match crate::handlers::training::start_training_from_dataset(
                 &state,
                 &claims,
                 &dataset_id,
-                name,
+                Some(dataset_version_id.clone()),
+                Some(name),
                 model_id,
+                Some(storage_workspace),
                 config,
                 post_actions,
             )
             .await
             {
-                Ok((job_id, sid)) => {
+                Ok(job) => {
+                    let job_id = job.id;
                     info!(
                         job_id = %job_id,
-                        stack_id = ?sid,
+                        stack_id = ?job.stack_id,
                         "Auto-training job started successfully"
                     );
                     training_job_id = Some(job_id);
-                    stack_id = sid;
+                    stack_id = job.stack_id;
                 }
                 Err(e) => {
                     warn!(
@@ -1105,104 +1107,6 @@ pub async fn upload_dataset(
         training_job_id,
         stack_id,
     }))
-}
-
-async fn start_training_from_upload(
-    state: &AppState,
-    claims: &Claims,
-    dataset_id: &str,
-    adapter_name: String,
-    base_model_id: String,
-    config: Option<TrainingConfigRequest>,
-    post_actions: Option<PostActionsRequest>,
-) -> Result<(String, Option<String>), String> {
-    // 1. Ensure worker capable (simplified check)
-    // We assume if we are here, we can try. Training service will validate more.
-
-    // 2. Prepare config
-    let config = config.unwrap_or_else(|| TrainingConfigRequest {
-        epochs: 3,
-        learning_rate: 0.0001,
-        rank: 16,
-        alpha: 32,
-        batch_size: 2,
-        targets: vec!["q_proj".to_string(), "v_proj".to_string()],
-        training_contract_version: "1.0".to_string(),
-        pad_token_id: 0,
-        ignore_index: -100,
-        warmup_steps: None,
-        max_seq_length: None,
-        gradient_accumulation_steps: None,
-        validation_split: None,
-        preferred_backend: None,
-        backend_policy: None,
-        coreml_training_fallback: None,
-        coreml_placement: None,
-        enable_coreml_export: None,
-        require_gpu: None,
-        max_gpu_memory_mb: None,
-        base_model_path: None,
-        preprocessing: None,
-        force_resume: None,
-        multi_module_training: None,
-        lora_layer_indices: None,
-    });
-
-    // 3. Prepare post actions
-    let post_actions = post_actions.unwrap_or(PostActionsRequest {
-        package: Some(true),
-        register: Some(true),
-        create_stack: Some(true),
-        tier: None,
-        adapters_root: None,
-    });
-
-    let post_actions_json = serde_json::to_string(&post_actions)
-        .map_err(|e| format!("Failed to serialize post_actions: {}", e))?;
-
-    // 4. Start training
-    // We need to resolve base model path or ensure it exists.
-    // The orchestrator service handles this usually, but handlers often do `resolve_base_model_path`.
-    // We will trust the ID provided or let the service fail.
-    // However, `ensure_training_worker_capable` in `handlers/training.rs` is useful.
-    // We skip it here to avoid duplicating private logic, relying on service error.
-
-    let job = state
-        .training_service
-        .start_training(
-            adapter_name,
-            config.into(),
-            None,                           // template_id
-            None,                           // repo_id
-            None,                           // target_branch
-            None,                           // base_version_id
-            Some(dataset_id.to_string()),   // dataset_id
-            None,                           // dataset_version_ids (uses latest/default)
-            false,                          // synthetic_mode
-            DataLineageMode::DatasetOnly,   // lineage
-            Some(claims.tenant_id.clone()), // tenant_id
-            Some(claims.sub.clone()),       // initiated_by
-            Some(claims.role.clone()),      // initiated_by_role
-            Some(base_model_id),            // base_model_id
-            None,                           // collection_id
-            None,                           // scope
-            None,                           // lora_tier
-            None,                           // category
-            None,                           // description
-            None,                           // language
-            None,                           // framework_id
-            None,                           // framework_version
-            Some(post_actions_json),        // post_actions_json
-            None,                           // retry_of_job_id
-            None,                           // versioning
-            None,                           // code_commit_sha
-            None,                           // data_spec_json
-            None,                           // data_spec_hash
-        )
-        .await
-        .map_err(|e| format!("Failed to start training: {}", e))?;
-
-    Ok((job.id, job.stack_id))
 }
 
 /// Initiate a chunked upload for files > 10MB

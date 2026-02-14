@@ -139,6 +139,30 @@ pub fn CreateJobWizard(
     /// Optional source document ID (e.g., from document-to-training workflow)
     #[prop(optional)]
     source_document_id: Option<RwSignal<Option<String>>>,
+    /// Optional initial base model ID (from deep-link query params)
+    #[prop(optional)]
+    initial_base_model_id: Option<RwSignal<Option<String>>>,
+    /// Optional initial preferred backend (from deep-link query params)
+    #[prop(optional)]
+    initial_preferred_backend: Option<RwSignal<Option<String>>>,
+    /// Optional initial backend policy (from deep-link query params)
+    #[prop(optional)]
+    initial_backend_policy: Option<RwSignal<Option<String>>>,
+    /// Optional initial epochs (from deep-link query params)
+    #[prop(optional)]
+    initial_epochs: Option<RwSignal<Option<String>>>,
+    /// Optional initial learning rate (from deep-link query params)
+    #[prop(optional)]
+    initial_learning_rate: Option<RwSignal<Option<String>>>,
+    /// Optional initial batch size (from deep-link query params)
+    #[prop(optional)]
+    initial_batch_size: Option<RwSignal<Option<String>>>,
+    /// Optional initial LoRA rank (from deep-link query params)
+    #[prop(optional)]
+    initial_rank: Option<RwSignal<Option<String>>>,
+    /// Optional initial LoRA alpha (from deep-link query params)
+    #[prop(optional)]
+    initial_alpha: Option<RwSignal<Option<String>>>,
 ) -> impl IntoView {
     // Wizard step state
     let current_step = RwSignal::new(WizardStep::default());
@@ -170,6 +194,15 @@ pub fn CreateJobWizard(
             }
         });
     }
+    // Initialize base_model_id from deep-link if provided
+    if let Some(init_model) = initial_base_model_id {
+        Effect::new(move || {
+            if let Some(model) = init_model.try_get().flatten() {
+                let _ = base_model_id.try_set(model);
+            }
+        });
+    }
+
     let category = RwSignal::new("code".to_string());
 
     // Training parameters with preset support
@@ -190,6 +223,57 @@ pub fn CreateJobWizard(
     let preferred_backend = RwSignal::new("auto".to_string());
     let backend_policy = RwSignal::new("auto".to_string());
     let coreml_training_fallback = RwSignal::new("mlx".to_string());
+
+    // Initialize training parameters from deep-link props
+    if let Some(init_epochs) = initial_epochs {
+        Effect::new(move || {
+            if let Some(v) = init_epochs.try_get().flatten() {
+                let _ = epochs.try_set(v);
+            }
+        });
+    }
+    if let Some(init_lr) = initial_learning_rate {
+        Effect::new(move || {
+            if let Some(v) = init_lr.try_get().flatten() {
+                let _ = learning_rate.try_set(v);
+            }
+        });
+    }
+    if let Some(init_bs) = initial_batch_size {
+        Effect::new(move || {
+            if let Some(v) = init_bs.try_get().flatten() {
+                let _ = batch_size.try_set(v);
+            }
+        });
+    }
+    if let Some(init_rank) = initial_rank {
+        Effect::new(move || {
+            if let Some(v) = init_rank.try_get().flatten() {
+                let _ = rank.try_set(v);
+            }
+        });
+    }
+    if let Some(init_alpha) = initial_alpha {
+        Effect::new(move || {
+            if let Some(v) = init_alpha.try_get().flatten() {
+                let _ = alpha.try_set(v);
+            }
+        });
+    }
+    if let Some(init_backend) = initial_preferred_backend {
+        Effect::new(move || {
+            if let Some(v) = init_backend.try_get().flatten() {
+                let _ = preferred_backend.try_set(v);
+            }
+        });
+    }
+    if let Some(init_policy) = initial_backend_policy {
+        Effect::new(move || {
+            if let Some(v) = init_policy.try_get().flatten() {
+                let _ = backend_policy.try_set(v);
+            }
+        });
+    }
 
     // Wizard state
     let dataset_wizard_open = RwSignal::new(false);

@@ -936,8 +936,10 @@ impl ValidationRule for JsonlFormatRule {
             };
 
             let keys: HashSet<&str> = obj.keys().map(|k| k.as_str()).collect();
-            let has_prompt = obj.contains_key("prompt");
-            let has_completion = obj.contains_key("completion");
+            let has_prompt = obj.contains_key("prompt") || obj.contains_key("input");
+            let has_completion = obj.contains_key("completion")
+                || obj.contains_key("target")
+                || obj.contains_key("output");
             let has_response = obj.contains_key("response");
             let has_text = obj.contains_key("text");
             let has_metadata = obj.contains_key("metadata");
@@ -1064,7 +1066,7 @@ impl ValidationRule for JsonlFormatRule {
 
             match line_schema {
                 TrainingJsonlSchema::LegacySupervised => {
-                    let prompt_value = obj.get("prompt");
+                    let prompt_value = obj.get("prompt").or_else(|| obj.get("input"));
                     match prompt_value {
                         Some(value) => match value.as_str() {
                             Some(text) if text.trim().is_empty() => {
@@ -1082,7 +1084,10 @@ impl ValidationRule for JsonlFormatRule {
                         None => missing_fields.push("prompt".to_string()),
                     }
 
-                    let completion_value = obj.get("completion");
+                    let completion_value = obj
+                        .get("completion")
+                        .or_else(|| obj.get("target"))
+                        .or_else(|| obj.get("output"));
                     match completion_value {
                         Some(value) => match value.as_str() {
                             Some(text) if text.trim().is_empty() => {
@@ -1139,7 +1144,7 @@ impl ValidationRule for JsonlFormatRule {
                         None => missing_fields.push("id".to_string()),
                     }
 
-                    let prompt_value = obj.get("prompt");
+                    let prompt_value = obj.get("prompt").or_else(|| obj.get("input"));
                     match prompt_value {
                         Some(value) => match value.as_str() {
                             Some(text) if text.trim().is_empty() => {
@@ -1157,7 +1162,11 @@ impl ValidationRule for JsonlFormatRule {
                         None => missing_fields.push("prompt".to_string()),
                     }
 
-                    let response_value = obj.get("response").or_else(|| obj.get("completion"));
+                    let response_value = obj
+                        .get("response")
+                        .or_else(|| obj.get("completion"))
+                        .or_else(|| obj.get("target"))
+                        .or_else(|| obj.get("output"));
                     match response_value {
                         Some(value) => match value.as_str() {
                             Some(text) if text.trim().is_empty() => {

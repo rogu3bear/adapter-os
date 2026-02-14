@@ -443,17 +443,29 @@ pub(crate) async fn run_training_job(
                     dataset_version_hashes.push(loaded.dataset_hash_b3.clone());
                     dataset_ids_for_receipt.push(loaded.dataset_id.clone());
 
-                    if let Some(ref expected_hash) = data_spec_hash_for_training {
-                        if expected_hash != &loaded.dataset_hash_b3 {
-                            return Err(AosError::Validation(format!(
-                                "Dataset version {} hash mismatch vs data_spec_hash (expected {}, got {})",
-                                sel.dataset_version_id, expected_hash, loaded.dataset_hash_b3
-                            )));
-                        }
-                    }
-
                     let weight = if sel.weight <= 0.0 { 1.0 } else { sel.weight };
                     per_version.push((loaded.examples, weight));
+                }
+
+                // Validate data_spec_hash using the combined hash (matching how it
+                // was computed at job creation time), not per-version hashes.
+                if let Some(ref expected_hash) = data_spec_hash_for_training {
+                    use crate::training::versioning::compute_combined_data_spec_hash;
+                    let entries: Vec<(String, String, f32)> = version_selections
+                        .iter()
+                        .zip(dataset_version_hashes.iter())
+                        .map(|(sel, hash)| {
+                            let w = if sel.weight <= 0.0 { 1.0 } else { sel.weight };
+                            (sel.dataset_version_id.clone(), hash.clone(), w)
+                        })
+                        .collect();
+                    let actual_combined = compute_combined_data_spec_hash(&entries);
+                    if expected_hash != &actual_combined {
+                        return Err(AosError::Validation(format!(
+                            "Combined data_spec_hash mismatch (expected {}, got {})",
+                            expected_hash, actual_combined
+                        )));
+                    }
                 }
 
                 tracing::info!(

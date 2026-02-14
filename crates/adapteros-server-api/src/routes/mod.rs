@@ -238,6 +238,7 @@ use utoipa_swagger_ui::SwaggerUi;
         handlers::datasets::create_dataset_from_text,
         handlers::datasets::create_dataset_from_chat,
         handlers::training_datasets::create_training_dataset_from_upload,
+        handlers::training_datasets::create_adapter_from_dataset,
         handlers::datasets::generate_dataset_from_file,
         handlers::datasets::synthesize_dataset,
         handlers::training_datasets::get_training_dataset_manifest,
@@ -585,7 +586,7 @@ use utoipa_swagger_ui::SwaggerUi;
         handlers::training::get_preprocessed_cache_count,
         handlers::training::list_preprocessed_cache,
         handlers::get_training_job,
-        handlers::start_training,
+        handlers::training::start_training,
         handlers::promote_version,
         handlers::cancel_training,
         handlers::retry_training,
@@ -1812,6 +1813,10 @@ pub fn build(state: AppState) -> Router {
         .route(
             "/v1/training/datasets/from-upload/async",
             post(handlers::training_datasets::create_training_dataset_from_upload_async),
+        )
+        .route(
+            "/v1/adapters/from-dataset/{dataset_id}",
+            post(handlers::training_datasets::create_adapter_from_dataset),
         )
         // Synthesize training data from document chunks
         .route(

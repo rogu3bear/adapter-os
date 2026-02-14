@@ -8,7 +8,7 @@ use crate::auth::Claims;
 use crate::permissions::{require_permission, Permission};
 use crate::services::SynthesisService;
 use crate::state::AppState;
-use crate::types::{ErrorResponse, MAX_TOKENS_LIMIT};
+use crate::types::{ErrorResponse, PostActionsRequest, TrainingConfigRequest, MAX_TOKENS_LIMIT};
 use adapteros_core::B3Hash;
 use adapteros_orchestrator::synthesis::{create_synthesis_request, SynthesisBatchStats};
 use axum::{extract::State, http::StatusCode, response::IntoResponse, Extension, Json};
@@ -37,6 +37,30 @@ pub struct SynthesizeDatasetRequest {
     /// Optional workspace ID for tenant isolation
     #[serde(skip_serializing_if = "Option::is_none")]
     pub workspace_id: Option<String>,
+
+    /// Whether to start training immediately after synthesis
+    #[serde(default)]
+    pub auto_train: bool,
+
+    /// Optional adapter name for auto-training
+    #[serde(skip_serializing_if = "Option::is_none")]
+    pub adapter_name: Option<String>,
+
+    /// Base model id for auto-training
+    #[serde(skip_serializing_if = "Option::is_none")]
+    pub base_model_id: Option<String>,
+
+    /// Dataset version ID to train. Defaults to the freshly created version.
+    #[serde(skip_serializing_if = "Option::is_none")]
+    pub dataset_version_id: Option<String>,
+
+    /// Optional training config override for auto-training
+    #[serde(skip_serializing_if = "Option::is_none")]
+    pub training_config: Option<TrainingConfigRequest>,
+
+    /// Optional post-actions for auto-training
+    #[serde(skip_serializing_if = "Option::is_none")]
+    pub post_actions: Option<PostActionsRequest>,
 }
 
 /// A document chunk to synthesize from
@@ -105,6 +129,9 @@ pub struct SynthesizeDatasetResponse {
     /// ID of the created dataset
     pub dataset_id: String,
 
+    /// Version ID of the created dataset
+    pub dataset_version_id: String,
+
     /// Name of the dataset
     pub name: String,
 
@@ -122,6 +149,12 @@ pub struct SynthesizeDatasetResponse {
 
     /// Total processing time in milliseconds
     pub processing_time_ms: u64,
+
+    /// Training job ID when auto-training started
+    pub training_job_id: Option<String>,
+
+    /// Stack ID associated with the training job
+    pub stack_id: Option<String>,
 
     /// Status message
     pub status: String,
@@ -306,7 +339,7 @@ pub async fn synthesize_dataset(
     let created_by = Some(claims.sub.as_str());
     let workspace_id = request.workspace_id.as_deref();
 
-    let (dataset_id, storage_path, hash_b3) = persist_synthesis_results(
+    let (dataset_id, dataset_version_id, storage_path, hash_b3) = persist_synthesis_results(
         &state,
         &request.name,
         request.description.as_deref(),
@@ -318,8 +351,60 @@ pub async fn synthesize_dataset(
     .await
     .map_err(|e| ApiError::internal(format!("Failed to persist dataset: {}", e)))?;
 
+    let mut training_job_id = None;
+    let mut stack_id = None;
+
+    if request.auto_train {
+        match (&request.adapter_name, request.base_model_id.as_deref()) {
+            (Some(adapter_name), Some(base_model_id)) if !base_model_id.trim().is_empty() => {
+                let training_version_id = request
+                    .dataset_version_id
+                    .clone()
+                    .or_else(|| Some(dataset_version_id.clone()));
+
+                match crate::handlers::training::start_training_from_dataset(
+                    &state,
+                    &claims,
+                    &dataset_id,
+                    training_version_id,
+                    Some(adapter_name.clone()),
+                    base_model_id.to_string(),
+                    request.workspace_id.clone(),
+                    request.training_config.clone(),
+                    request.post_actions.clone(),
+                )
+                .await
+                {
+                    Ok(job) => {
+                        training_job_id = Some(job.id);
+                        stack_id = job.stack_id;
+                        tracing::info!(
+                            dataset_id = %dataset_id,
+                            job_id = %training_job_id.as_deref().unwrap_or(""),
+                            "Auto-training job started for synthesized dataset"
+                        );
+                    }
+                    Err(error) => {
+                        tracing::warn!(
+                            error = %error,
+                            dataset_id = %dataset_id,
+                            "Auto-training failed after synthesis"
+                        );
+                    }
+                }
+            }
+            _ => {
+                tracing::warn!(
+                    dataset_id = %dataset_id,
+                    "auto_train requested without adapter_name/base_model_id"
+                );
+            }
+        }
+    }
+
     let response = SynthesizeDatasetResponse {
         dataset_id: dataset_id.clone(),
+        dataset_version_id,
         name: request.name.clone(),
         chunks_processed: final_stats.chunks_processed,
         total_examples: training_examples.len(),
@@ -330,6 +415,8 @@ pub async fn synthesize_dataset(
         },
         success_rate: final_stats.success_rate(),
         processing_time_ms: final_stats.total_latency_ms,
+        training_job_id,
+        stack_id,
         status: if final_stats.parse_failures == 0 {
             "success".to_string()
         } else {
@@ -363,7 +450,7 @@ async fn persist_synthesis_results(
     tenant_id: &str,
     created_by: Option<&str>,
     workspace_id: Option<&str>,
-) -> Result<(String, String, String), adapteros_core::AosError> {
+) -> Result<(String, String, String, String), adapteros_core::AosError> {
     use adapteros_core::AosError;
 
     // Generate dataset ID
@@ -391,8 +478,32 @@ async fn persist_synthesis_results(
         .map_err(|e| AosError::Io(format!("Failed to create JSONL file: {}", e)))?;
 
     let mut content = String::new();
-    for example in examples {
-        let json = serde_json::to_string(example)?;
+    for (i, example) in examples.iter().enumerate() {
+        let id = format!("synth-{}-{}", dataset_id, i);
+        let mut metadata = serde_json::json!({
+            "example_type": example.example_type.to_string(),
+            "source": example.source,
+            "weight": example.weight,
+            "sample_role": example.sample_role.as_str(),
+            "relevance": example.relevance,
+        });
+        if let Some(ref prov) = example.provenance {
+            metadata["provenance"] = serde_json::json!({
+                "source_file": prov.source_file,
+                "source_hash_b3": prov.source_hash_b3,
+                "chunk_index": prov.chunk_index,
+                "chunk_hash_b3": prov.chunk_hash_b3,
+                "line_start": prov.line_start,
+                "line_end": prov.line_end,
+            });
+        }
+        let row = serde_json::json!({
+            "id": id,
+            "prompt": example.prompt,
+            "response": example.response,
+            "metadata": metadata,
+        });
+        let json = serde_json::to_string(&row)?;
         content.push_str(&json);
         content.push('\n');
     }
@@ -432,7 +543,7 @@ async fn persist_synthesis_results(
 
     // 2. Create the dataset version record (required for training pipeline integration)
     let version_label = format!("v1-synthesis-{}", &dataset_id[..8]);
-    let _version_id = state
+    let dataset_version_id = state
         .db
         .create_training_dataset_version(
             &dataset_id,
@@ -454,7 +565,7 @@ async fn persist_synthesis_results(
         "Persisted synthesis results with version"
     );
 
-    Ok((dataset_id, storage_path, hash_b3))
+    Ok((dataset_id, dataset_version_id, storage_path, hash_b3))
 }
 
 #[cfg(test)]
@@ -483,6 +594,12 @@ mod tests {
             }],
             config: None,
             workspace_id: None,
+            auto_train: false,
+            adapter_name: None,
+            base_model_id: None,
+            dataset_version_id: None,
+            training_config: None,
+            post_actions: None,
         };
 
         let json = serde_json::to_string(&request).unwrap();
