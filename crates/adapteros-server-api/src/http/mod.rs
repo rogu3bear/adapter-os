@@ -311,17 +311,13 @@ async fn _adapter_command_handler<K: FusedKernels + StrictnessControl + Send + S
     Ok(Json(result))
 }
 
-// ErrorResponse imported from adapteros_api_types
-
-/// API error type
+/// API error type for UDS handlers
 #[derive(Debug)]
-pub enum ApiError {
+enum ApiError {
     Internal(String),
     BadRequest(String),
-    NotFound(String),
     PolicyViolation(String),
     WorkerError(String),
-    Unauthorized,
 }
 
 impl IntoResponse for ApiError {
@@ -330,25 +326,17 @@ impl IntoResponse for ApiError {
             ApiError::Internal(msg) => (
                 StatusCode::INTERNAL_SERVER_ERROR,
                 "internal error".to_string(),
-                Some(msg),
+                msg,
             ),
-            ApiError::BadRequest(msg) => (
-                StatusCode::BAD_REQUEST,
-                "bad request".to_string(),
-                Some(msg),
-            ),
-            ApiError::NotFound(msg) => (StatusCode::NOT_FOUND, "not found".to_string(), Some(msg)),
-            ApiError::PolicyViolation(msg) => (
-                StatusCode::FORBIDDEN,
-                "policy violation".to_string(),
-                Some(msg),
-            ),
+            ApiError::BadRequest(msg) => (StatusCode::BAD_REQUEST, "bad request".to_string(), msg),
+            ApiError::PolicyViolation(msg) => {
+                (StatusCode::FORBIDDEN, "policy violation".to_string(), msg)
+            }
             ApiError::WorkerError(msg) => (
                 StatusCode::INTERNAL_SERVER_ERROR,
                 "worker error".to_string(),
-                Some(msg),
+                msg,
             ),
-            ApiError::Unauthorized => (StatusCode::UNAUTHORIZED, "unauthorized".to_string(), None),
         };
 
         let response = ErrorResponse::new(error).with_details(serde_json::json!(details));
@@ -356,7 +344,6 @@ impl IntoResponse for ApiError {
     }
 }
 
-// Conversion from AosError
 impl From<AosError> for ApiError {
     fn from(err: AosError) -> Self {
         match err {

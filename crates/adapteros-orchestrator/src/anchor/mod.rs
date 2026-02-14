@@ -31,5 +31,6 @@ mod types;
 
 pub use registry::DocumentRegistry;
 pub use types::{
-    AnchoredChunk, DocumentChunkInfo, RegisteredDocument, SourceChangeEvent, SourceDocument,
+    AnchoredChunk, ChangeType, DocumentChunkInfo, RegisteredDocument, SourceChangeEvent,
+    SourceDocument,
 };

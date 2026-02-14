@@ -29,6 +29,10 @@ pub mod training_dataset_integration;
 #[cfg(test)]
 pub(crate) mod test_support;
 
+pub use anchor::{
+    AnchoredChunk, ChangeType, DocumentChunkInfo, DocumentRegistry, RegisteredDocument,
+    SourceChangeEvent, SourceDocument,
+};
 pub use behavior_training::{
     BehaviorCategory, BehaviorDataset, BehaviorExample, BehaviorInput, BehaviorMetadata,
     BehaviorTarget, BehaviorTrainingGenerator, DatasetConfig, ExportFilter, SyntheticConfig,
@@ -69,6 +73,10 @@ pub use quality_ratchet::{
     ContaminationResult, DiversityConfig, DiversityMonitor, DiversityReport, GoldenTest,
     GoldenTestResult, GoldenTestSuite, GoldenTolerance, MetricDelta, QualityRatchet, RatchetConfig,
     RatchetResult,
+};
+pub use rectify::{
+    AffectedAdapter, BatchRectifyWorkflow, ChangeAction, ChangeDetector, NewAdapterVersion,
+    RectifyBatchSummary, RectifyResult, RectifyStatus, RectifyWorkflow, VersionState,
 };
 pub use report::{GateReport, GateResult, ReportFormat};
 pub use synthesis::{

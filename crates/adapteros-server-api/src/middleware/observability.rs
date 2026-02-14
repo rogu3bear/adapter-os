@@ -491,6 +491,20 @@ fn derive_hint(code: &str, message: &str, detail: Option<&str>, _status: StatusC
             .to_string();
     }
 
+    // --- Dataset not found / version resolution ---
+    if code_upper == "DATASET_NOT_FOUND"
+        || code_upper == "DATASET_VERSION_NOT_FOUND"
+        || (code_upper == "DATASET_ERROR" && combined.contains("not found"))
+    {
+        return "Dataset not found: list datasets (`GET /v1/training/datasets`) and retry with a valid `dataset_id`"
+            .to_string();
+    }
+
+    if code_upper == "DATASET_ERROR" && combined.contains("resolve") {
+        return "Dataset version could not be resolved: ensure the dataset has at least one version (`POST /v1/training/datasets/{id}/versions`)"
+            .to_string();
+    }
+
     // --- Adapter not found / not active ---
     if code_upper == "ADAPTER_NOT_IN_MANIFEST"
         || code_upper == "ADAPTER_NOT_IN_EFFECTIVE_SET"
@@ -506,6 +520,37 @@ fn derive_hint(code: &str, message: &str, detail: Option<&str>, _status: StatusC
     {
         return "Adapter not found: list adapters (`GET /v1/adapters`) or seed fixtures (`aosctl db seed-fixtures`), then retry with a valid `adapter_id`"
             .to_string();
+    }
+
+    // --- Auth / account ---
+    if code_upper == "ACCOUNT_DISABLED"
+        || code_upper == "ACCOUNT_LOCKED"
+        || code_upper == "USER_NOT_FOUND"
+        || code_upper == "MISSING_CREDENTIALS"
+        || code_upper == "INVALID_CREDENTIALS"
+    {
+        return "Authentication failed: verify credentials or check account status in admin panel"
+            .to_string();
+    }
+
+    // --- Training start / capability ---
+    if code_upper == "TRAINING_START_FAILED"
+        || code_upper == "TRAINING_ERROR"
+        || code_upper == "WORKER_CAPABILITY_MISSING"
+    {
+        return "Training could not start: ensure a worker with training capabilities is running (`./start worker`)"
+            .to_string();
+    }
+
+    // --- Adapter lifecycle ---
+    if code_upper.starts_with("LIFECYCLE_") {
+        return "Lifecycle transition failed: check adapter promotion gates and current lifecycle state"
+            .to_string();
+    }
+
+    // --- Internal server error (normalize inconsistent code names) ---
+    if code_upper == "INTERNAL_SERVER_ERROR" || code_upper == "INTERNAL_ERROR" {
+        return "Internal error: check server logs using `request_id` for details".to_string();
     }
 
     // Fallback: always provide something actionable.

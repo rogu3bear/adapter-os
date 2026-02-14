@@ -4,11 +4,13 @@
 
 use crate::api::{
     ApiClient, AuditChainEntry, AuditChainResponse, AuditLogEntry, AuditLogsResponse,
-    ChainVerificationResponse, ComplianceAuditResponse, EmbeddingBenchmarkReport,
+    ChainVerificationResponse, ComplianceAuditResponse, ComplianceControl,
+    EmbeddingBenchmarkReport,
 };
 use crate::components::{
-    Badge, BadgeVariant, Card, ErrorDisplay, Spinner, Table, TableBody, TableCell, TableHead,
-    TableHeader, TableRow,
+    loaded_signal, Badge, BadgeVariant, Card, Column, DataTable, ErrorDisplay, SkeletonCard,
+    SkeletonStatsGrid, SkeletonTable, Table, TableBody, TableCell, TableHead, TableHeader,
+    TableRow,
 };
 use crate::hooks::{use_api_resource, LoadingState};
 use crate::utils::format_datetime;
@@ -38,9 +40,7 @@ pub fn TimelineTab(
                 match logs.get() {
                     LoadingState::Idle | LoadingState::Loading => {
                         view! {
-                            <div class="flex items-center justify-center py-12">
-                                <Spinner/>
-                            </div>
+                            <SkeletonTable rows=5 columns=6 />
                         }
                         .into_any()
                     }
@@ -58,30 +58,32 @@ pub fn TimelineTab(
                             let logs_data = data.logs;
 
                             view! {
-                                <Table>
-                                    <TableHeader>
-                                        <TableRow>
-                                            <TableHead>"Timestamp"</TableHead>
-                                            <TableHead>"Action"</TableHead>
-                                            <TableHead>"Resource"</TableHead>
-                                            <TableHead>"Events"</TableHead>
-                                            <TableHead>"User"</TableHead>
-                                            <TableHead>"Status"</TableHead>
-                                        </TableRow>
-                                    </TableHeader>
-                                    <TableBody>
-                                        {move || {
-                                            let count = visible_count.get().min(log_count);
-                                            logs_data
-                                                .iter()
-                                                .take(count)
-                                                .map(|entry| {
-                                                    view! { <TimelineRow entry=entry.clone()/> }
-                                                })
-                                                .collect::<Vec<_>>()
-                                        }}
-                                    </TableBody>
-                                </Table>
+                                <div class="overflow-x-auto">
+                                    <Table>
+                                        <TableHeader>
+                                            <TableRow>
+                                                <TableHead>"Timestamp"</TableHead>
+                                                <TableHead>"Action"</TableHead>
+                                                <TableHead>"Resource"</TableHead>
+                                                <TableHead>"Events"</TableHead>
+                                                <TableHead>"User"</TableHead>
+                                                <TableHead>"Status"</TableHead>
+                                            </TableRow>
+                                        </TableHeader>
+                                        <TableBody>
+                                            {move || {
+                                                let count = visible_count.get().min(log_count);
+                                                logs_data
+                                                    .iter()
+                                                    .take(count)
+                                                    .map(|entry| {
+                                                        view! { <TimelineRow entry=entry.clone()/> }
+                                                    })
+                                                    .collect::<Vec<_>>()
+                                            }}
+                                        </TableBody>
+                                    </Table>
+                                </div>
 
                                 // Show more button if there are hidden items
                                 {move || {
@@ -282,8 +284,10 @@ pub fn HashChainTab(
                 match chain.get() {
                     LoadingState::Idle | LoadingState::Loading => {
                         view! {
-                            <div class="flex items-center justify-center py-12">
-                                <Spinner/>
+                            <div class="space-y-4">
+                                <SkeletonCard has_header=true />
+                                <SkeletonCard has_header=true />
+                                <SkeletonCard has_header=true />
                             </div>
                         }
                         .into_any()
@@ -442,7 +446,7 @@ fn ChainEntryRow(entry: AuditChainEntry, is_first: bool) -> impl IntoView {
                     <p class="text-xs text-muted-foreground mb-2">{format_datetime(&entry.timestamp)}</p>
 
                     // Hash visualization
-                    <div class="grid grid-cols-2 gap-4 p-3 bg-muted/30 rounded-md font-mono text-xs">
+                    <div class="grid grid-cols-1 md:grid-cols-2 gap-4 p-3 bg-muted/30 rounded-md font-mono text-xs">
                         <div>
                             <p class="text-muted-foreground mb-1">"Entry Hash"</p>
                             <p class="text-foreground" title=entry.entry_hash.clone()>
@@ -576,7 +580,7 @@ pub fn MerkleTreeTab(
                                     </div>
 
                                     // Tree stats
-                                    <div class="grid grid-cols-3 gap-2 pt-4 border-t text-center">
+                                    <div class="grid grid-cols-1 sm:grid-cols-3 gap-2 pt-4 border-t text-center">
                                         <div>
                                             <p class="text-xs text-muted-foreground">"Total Entries"</p>
                                             <p class="text-sm font-mono">{entry_count.to_string()}</p>
@@ -612,9 +616,7 @@ pub fn MerkleTreeTab(
                         }
                         LoadingState::Loading => {
                             view! {
-                                <div class="flex items-center justify-center py-12">
-                                    <Spinner/>
-                                </div>
+                                <SkeletonCard has_header=true />
                             }
                             .into_any()
                         }
@@ -764,9 +766,7 @@ pub fn MerkleTreeTab(
                         }
                         LoadingState::Loading => {
                             view! {
-                                <div class="flex items-center justify-center py-12">
-                                    <Spinner/>
-                                </div>
+                                <SkeletonCard has_header=true />
                             }
                             .into_any()
                         }
@@ -840,58 +840,47 @@ pub fn ComplianceTab(
                                 </div>
 
                                 // Controls list
-                                <div>
+                                <div class="overflow-x-auto">
                                     <h3 class="heading-4 mb-4">"Compliance Controls"</h3>
-                                    <Table>
-                                        <TableHeader>
-                                            <TableRow>
-                                                <TableHead>"Control ID"</TableHead>
-                                                <TableHead>"Name"</TableHead>
-                                                <TableHead>"Status"</TableHead>
-                                                <TableHead>"Last Checked"</TableHead>
-                                                <TableHead>"Findings"</TableHead>
-                                            </TableRow>
-                                        </TableHeader>
-                                        <TableBody>
-                                            {data
-                                                .controls
-                                                .into_iter()
-                                                .map(|control| {
-                                                    let status_variant = match control.status.as_str() {
-                                                        "compliant" => BadgeVariant::Success,
-                                                        "non_compliant" => BadgeVariant::Destructive,
-                                                        "pending" => BadgeVariant::Warning,
-                                                        _ => BadgeVariant::Secondary,
-                                                    };
-                                                    view! {
-                                                        <TableRow>
-                                                            <TableCell>
-                                                                <span class="font-mono text-sm">
-                                                                    {control.control_id.clone()}
-                                                                </span>
-                                                            </TableCell>
-                                                            <TableCell>{control.control_name.clone()}</TableCell>
-                                                            <TableCell>
-                                                                <Badge variant=status_variant>
-                                                                    {control.status.clone()}
-                                                                </Badge>
-                                                            </TableCell>
-                                                            <TableCell>
-                                                                <span class="text-sm text-muted-foreground">
-                                                                    {control.last_checked.clone()}
-                                                                </span>
-                                                            </TableCell>
-                                                            <TableCell>
-                                                                <span class="text-sm">
-                                                                    {control.findings.len()}{" findings"}
-                                                                </span>
-                                                            </TableCell>
-                                                        </TableRow>
-                                                    }
-                                                })
-                                                .collect::<Vec<_>>()}
-                                        </TableBody>
-                                    </Table>
+                                    {
+                                        let controls_signal = Signal::derive({
+                                            let controls = data.controls.clone();
+                                            move || controls.clone()
+                                        });
+                                        let columns = vec![
+                                            Column::custom("Control ID", |c: &ComplianceControl| {
+                                                let id = c.control_id.clone();
+                                                view! { <span class="font-mono text-sm">{id}</span> }
+                                            }),
+                                            Column::text("Name", |c: &ComplianceControl| c.control_name.clone()),
+                                            Column::custom("Status", |c: &ComplianceControl| {
+                                                let variant = match c.status.as_str() {
+                                                    "compliant" => BadgeVariant::Success,
+                                                    "non_compliant" => BadgeVariant::Destructive,
+                                                    "pending" => BadgeVariant::Warning,
+                                                    _ => BadgeVariant::Secondary,
+                                                };
+                                                let status = c.status.clone();
+                                                view! { <Badge variant=variant>{status}</Badge> }
+                                            }),
+                                            Column::custom("Last Checked", |c: &ComplianceControl| {
+                                                let checked = c.last_checked.clone();
+                                                view! { <span class="text-sm text-muted-foreground">{checked}</span> }
+                                            }),
+                                            Column::custom("Findings", |c: &ComplianceControl| {
+                                                let count = c.findings.len();
+                                                view! { <span class="text-sm">{count}{" findings"}</span> }
+                                            }),
+                                        ];
+                                        view! {
+                                            <DataTable
+                                                data=loaded_signal(controls_signal)
+                                                columns=columns
+                                                empty_title="No controls found"
+                                                card=false
+                                            />
+                                        }
+                                    }
                                 </div>
 
                                 <p class="text-xs text-muted-foreground">
@@ -903,8 +892,9 @@ pub fn ComplianceTab(
                     }
                     LoadingState::Loading => {
                         view! {
-                            <div class="flex items-center justify-center py-12">
-                                <Spinner/>
+                            <div class="space-y-6">
+                                <SkeletonStatsGrid count=4 />
+                                <SkeletonTable rows=5 columns=5 />
                             </div>
                         }
                         .into_any()
@@ -950,8 +940,9 @@ pub fn EmbeddingsTab() -> impl IntoView {
             match benchmarks.get() {
                 LoadingState::Idle | LoadingState::Loading => {
                     view! {
-                        <div class="flex items-center justify-center py-12">
-                            <Spinner/>
+                        <div class="space-y-6">
+                            <SkeletonStatsGrid count=4 />
+                            <SkeletonTable rows=5 columns=6 />
                         </div>
                     }
                     .into_any()
@@ -1026,28 +1017,72 @@ pub fn EmbeddingsTab() -> impl IntoView {
                                 </div>
 
                                 // Reports table
-                                <Card title="Benchmark History".to_string()>
-                                    <Table>
-                                        <TableHeader>
-                                            <TableRow>
-                                                <TableHead>"Timestamp"</TableHead>
-                                                <TableHead>"Model"</TableHead>
-                                                <TableHead>"Corpus"</TableHead>
-                                                <TableHead>"Recall@10"</TableHead>
-                                                <TableHead>"nDCG@10"</TableHead>
-                                                <TableHead>"Determinism"</TableHead>
-                                            </TableRow>
-                                        </TableHeader>
-                                        <TableBody>
-                                            {reports
-                                                .into_iter()
-                                                .map(|report| {
-                                                    view! { <EmbeddingBenchmarkRowView report=report/> }
-                                                })
-                                                .collect::<Vec<_>>()}
-                                        </TableBody>
-                                    </Table>
-                                </Card>
+                                <div class="overflow-x-auto">{
+                                    let reports_signal = Signal::derive({
+                                        let reports = reports.clone();
+                                        move || reports.clone()
+                                    });
+                                    let columns = vec![
+                                        Column::custom("Timestamp", |r: &EmbeddingBenchmarkReport| {
+                                            let ts = format_datetime(&r.timestamp);
+                                            let id = r.report_id.clone();
+                                            view! {
+                                                <div>
+                                                    <p class="text-sm font-mono">{ts}</p>
+                                                    <p class="text-xs text-muted-foreground font-mono">{id}</p>
+                                                </div>
+                                            }
+                                        }),
+                                        Column::custom("Model", |r: &EmbeddingBenchmarkReport| {
+                                            let display = if r.is_finetuned {
+                                                format!("{} (finetuned)", r.model_name)
+                                            } else {
+                                                r.model_name.clone()
+                                            };
+                                            let hash = adapteros_id::format_hash_short(&r.model_hash);
+                                            view! {
+                                                <div>
+                                                    <p class="text-sm">{display}</p>
+                                                    <p class="text-xs text-muted-foreground font-mono">{hash}</p>
+                                                </div>
+                                            }
+                                        }),
+                                        Column::custom("Corpus", |r: &EmbeddingBenchmarkReport| {
+                                            let version = r.corpus_version.clone();
+                                            let chunks = r.num_chunks;
+                                            view! {
+                                                <div>
+                                                    <p class="text-sm">{version}</p>
+                                                    <p class="text-xs text-muted-foreground">{format!("{} chunks", chunks)}</p>
+                                                </div>
+                                            }
+                                        }),
+                                        Column::custom("Recall@10", |r: &EmbeddingBenchmarkReport| {
+                                            let val = format!("{:.1}%", r.recall_at_10 * 100.0);
+                                            view! { <span class="font-mono text-sm">{val}</span> }
+                                        }),
+                                        Column::custom("nDCG@10", |r: &EmbeddingBenchmarkReport| {
+                                            let val = format!("{:.1}%", r.ndcg_at_10 * 100.0);
+                                            view! { <span class="font-mono text-sm">{val}</span> }
+                                        }),
+                                        Column::custom("Determinism", |r: &EmbeddingBenchmarkReport| {
+                                            let variant = if r.determinism_pass {
+                                                BadgeVariant::Success
+                                            } else {
+                                                BadgeVariant::Destructive
+                                            };
+                                            let label = if r.determinism_pass { "PASS" } else { "FAIL" };
+                                            view! { <Badge variant=variant>{label}</Badge> }
+                                        }),
+                                    ];
+                                    view! {
+                                        <DataTable
+                                            data=loaded_signal(reports_signal)
+                                            columns=columns
+                                            empty_title="No benchmarks found"
+                                        />
+                                    }
+                                }</div>
                             </div>
                         }
                         .into_any()
@@ -1064,56 +1099,5 @@ pub fn EmbeddingsTab() -> impl IntoView {
                 }
             }
         }}
-    }
-}
-
-#[component]
-fn EmbeddingBenchmarkRowView(report: EmbeddingBenchmarkReport) -> impl IntoView {
-    let model_display = if report.is_finetuned {
-        format!("{} (finetuned)", report.model_name)
-    } else {
-        report.model_name.clone()
-    };
-
-    let hash_short = adapteros_id::format_hash_short(&report.model_hash);
-
-    let determinism_variant = if report.determinism_pass {
-        BadgeVariant::Success
-    } else {
-        BadgeVariant::Destructive
-    };
-
-    view! {
-        <TableRow>
-            <TableCell>
-                <div>
-                    <p class="text-sm font-mono">{format_datetime(&report.timestamp)}</p>
-                    <p class="text-xs text-muted-foreground font-mono">{report.report_id.clone()}</p>
-                </div>
-            </TableCell>
-            <TableCell>
-                <div>
-                    <p class="text-sm">{model_display}</p>
-                    <p class="text-xs text-muted-foreground font-mono">{hash_short}</p>
-                </div>
-            </TableCell>
-            <TableCell>
-                <div>
-                    <p class="text-sm">{report.corpus_version.clone()}</p>
-                    <p class="text-xs text-muted-foreground">{format!("{} chunks", report.num_chunks)}</p>
-                </div>
-            </TableCell>
-            <TableCell>
-                <span class="font-mono text-sm">{format!("{:.1}%", report.recall_at_10 * 100.0)}</span>
-            </TableCell>
-            <TableCell>
-                <span class="font-mono text-sm">{format!("{:.1}%", report.ndcg_at_10 * 100.0)}</span>
-            </TableCell>
-            <TableCell>
-                <Badge variant=determinism_variant>
-                    {if report.determinism_pass { "PASS" } else { "FAIL" }}
-                </Badge>
-            </TableCell>
-        </TableRow>
     }
 }

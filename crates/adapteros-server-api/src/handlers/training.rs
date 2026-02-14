@@ -1574,6 +1574,67 @@ pub async fn create_training_job(
         )
     })?;
 
+    // If a repository context is provided for dataset-backed training, ensure it exists
+    // and belongs to the caller's tenant scope.
+    if let Some(repo_id) = req.repo_id.as_deref() {
+        let repo_tenant = match state
+            .db
+            .get_repository_by_repo_id(&claims.tenant_id, repo_id)
+            .await
+        {
+            Ok(Some(repo)) => Some(repo.tenant_id),
+            Ok(None) => state
+                .db
+                .get_adapter_repository(&claims.tenant_id, repo_id)
+                .await
+                .map_err(|e| {
+                    error!(repo_id = %repo_id, error = %e, "Failed to load adapter repository");
+                    (
+                        StatusCode::INTERNAL_SERVER_ERROR,
+                        Json(
+                            ErrorResponse::new("Failed to load repository")
+                                .with_code("INTERNAL_ERROR")
+                                .with_string_details(e.to_string()),
+                        ),
+                    )
+                })?
+                .map(|repo| repo.tenant_id),
+            Err(e) => {
+                error!(repo_id = %repo_id, error = %e, "Failed to load repository");
+                return Err((
+                    StatusCode::INTERNAL_SERVER_ERROR,
+                    Json(
+                        ErrorResponse::new("Failed to load repository")
+                            .with_code("INTERNAL_ERROR")
+                            .with_string_details(e.to_string()),
+                    ),
+                ));
+            }
+        };
+
+        let repo_tenant_id = repo_tenant.ok_or_else(|| {
+            (
+                StatusCode::BAD_REQUEST,
+                Json(
+                    ErrorResponse::new("repository not found")
+                        .with_code("VALIDATION_ERROR")
+                        .with_string_details(format!("Unknown repo_id '{}'", repo_id)),
+                ),
+            )
+        })?;
+
+        validate_tenant_isolation(&claims, &repo_tenant_id).map_err(|e| {
+            (
+                StatusCode::FORBIDDEN,
+                Json(
+                    ErrorResponse::new("repository belongs to a different tenant")
+                        .with_code("TENANT_ISOLATION_ERROR")
+                        .with_string_details(e.to_string()),
+                ),
+            )
+        })?;
+    }
+
     // Resolve dataset version (default to latest)
     let dataset_version_id = match req.dataset_version_id {
         Some(version_id) => {
@@ -1686,8 +1747,8 @@ pub async fn create_training_job(
         .start_training(
             adapter_name,
             config,
-            None,                           // template_id
-            None,                           // repo_id
+            req.template_id.clone(),        // template_id
+            req.repo_id.clone(),            // repo_id
             None,                           // target_branch
             None,                           // base_version_id
             Some(dataset_id.clone()),       // dataset_id
@@ -1701,8 +1762,8 @@ pub async fn create_training_job(
             None,                           // collection_id
             Some(workspace_id.clone()),     // scope
             req.lora_tier,                  // lora tier
-            None,                           // category
-            None,                           // description
+            req.category.clone(),           // category
+            req.description.clone(),        // description
             None,                           // language
             None,                           // framework_id
             None,                           // framework_version

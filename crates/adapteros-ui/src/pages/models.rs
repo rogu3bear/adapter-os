@@ -9,9 +9,9 @@ use crate::api::{
 };
 use crate::components::{
     AsyncBoundary, Badge, BadgeVariant, Button, ButtonVariant, Card, ConfirmationDialog,
-    ConfirmationSeverity, CopyableId, Dialog, ErrorDisplay, Input, ListEmptyCard, LoadingDisplay,
-    PageBreadcrumbItem, PageScaffold, PageScaffoldActions, Select, SkeletonTable, Spinner,
-    SplitPanel, Table, TableBody, TableCell, TableHead, TableHeader, TableRow,
+    ConfirmationSeverity, CopyableId, Dialog, ErrorDisplay, FormField, Input, ListEmptyCard,
+    LoadingDisplay, PageBreadcrumbItem, PageScaffold, PageScaffoldActions, Select, SkeletonTable,
+    Spinner, SplitPanel, Table, TableBody, TableCell, TableHead, TableHeader, TableRow,
 };
 use crate::hooks::{use_api, use_api_resource, use_polling, LoadingState, Refetch};
 use crate::signals::{
@@ -1355,41 +1355,33 @@ fn SeedModelDialog(open: RwSignal<bool>, on_imported: Callback<()>) -> impl Into
             description="Register a model from the local filesystem".to_string()
         >
             <div class="space-y-4 overflow-y-auto" style="max-height: 60vh">
-                <Input
-                    value=model_path
-                    label="Model Path".to_string()
-                    placeholder="/var/models/Llama-3.2-3B-Instruct-4bit".to_string()
-                />
-                <p class="text-xs text-muted-foreground -mt-2">
-                    "Absolute path to the model directory on disk (required)"
-                </p>
+                <FormField label="Model Path" name="model_path" required=true help="Absolute path to the model directory on disk".to_string()>
+                    <Input
+                        value=model_path
+                        placeholder="/var/models/Llama-3.2-3B-Instruct-4bit".to_string()
+                    />
+                </FormField>
 
-                <Input
-                    value=model_name
-                    label="Model Name".to_string()
-                    placeholder="Auto-derived from path".to_string()
-                />
-                <p class="text-xs text-muted-foreground -mt-2">
-                    "Display name for the model (optional)"
-                </p>
+                <FormField label="Model Name" name="model_name" help="Display name for the model (optional)".to_string()>
+                    <Input
+                        value=model_name
+                        placeholder="Auto-derived from path".to_string()
+                    />
+                </FormField>
 
-                <Select
-                    value=format
-                    options=format_options
-                    label="Format".to_string()
-                />
-                <p class="text-xs text-muted-foreground -mt-2">
-                    "Model file format"
-                </p>
+                <FormField label="Format" name="model_format" help="Model file format".to_string()>
+                    <Select
+                        value=format
+                        options=format_options
+                    />
+                </FormField>
 
-                <Select
-                    value=backend
-                    options=backend_options
-                    label="Backend".to_string()
-                />
-                <p class="text-xs text-muted-foreground -mt-2">
-                    "Inference backend to use"
-                </p>
+                <FormField label="Backend" name="model_backend" help="Inference backend to use".to_string()>
+                    <Select
+                        value=backend
+                        options=backend_options
+                    />
+                </FormField>
 
                 <div class="flex justify-end gap-2 pt-4">
                     <Button

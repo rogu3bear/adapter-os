@@ -13,7 +13,7 @@
 //! - Provenance tracking (source model hash, generation receipts)
 
 #[cfg(target_arch = "wasm32")]
-use crate::api::ApiClient;
+use crate::api::{report_error_with_toast, ApiClient};
 use crate::components::{Button, ButtonVariant, Dialog, DialogSize, FormField, Input, Spinner};
 use adapteros_api_types::training::{GenerateDatasetResponse, GeneratedSample};
 use leptos::prelude::*;
@@ -180,6 +180,12 @@ pub fn GenerateDatasetWizard(
                                 // Don't auto-inject - let user review and click "Use this dataset"
                             }
                             Err(e) => {
+                                report_error_with_toast(
+                                    &e,
+                                    "Dataset generation failed",
+                                    Some("/training"),
+                                    true,
+                                );
                                 error.set(Some(format!("Generation failed: {}", e)));
                                 generating.set(false);
                             }

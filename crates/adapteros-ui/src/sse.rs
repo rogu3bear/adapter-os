@@ -32,6 +32,8 @@
 use serde::Deserialize;
 
 #[cfg(target_arch = "wasm32")]
+use crate::api::{report_error_with_toast, ApiError};
+#[cfg(target_arch = "wasm32")]
 use wasm_bindgen::prelude::*;
 
 /// SSE event types from the adapterOS streaming inference endpoint.
@@ -252,10 +254,18 @@ pub fn parse_sse_event_with_info(event_data: &str) -> ParsedSseEvent {
             InferenceEvent::Error { message } => {
                 // Log error but don't return it as content
                 #[cfg(target_arch = "wasm32")]
-                web_sys::console::error_1(&JsValue::from_str(&format!(
-                    "Stream error: {}",
-                    message
-                )));
+                {
+                    web_sys::console::error_1(&JsValue::from_str(&format!(
+                        "Stream error: {}",
+                        message
+                    )));
+                    report_error_with_toast(
+                        &ApiError::Server(message),
+                        "Inference stream error",
+                        None,
+                        true,
+                    );
+                }
                 #[cfg(not(target_arch = "wasm32"))]
                 let _ = &message; // Silence unused variable warning in non-wasm builds
             }

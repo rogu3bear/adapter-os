@@ -52,7 +52,7 @@ pub fn StatusHeatmap(
                 aria-label="Worker status heatmap"
             >
                 {move || {
-                    let d = data.get();
+                    let d = data.try_get().unwrap_or_default();
 
                     if !d.has_data() {
                         return view! {
@@ -204,7 +204,7 @@ pub fn MiniHeatmap(
     view! {
         <div class={format!("mini-heatmap {}", class)}>
             {move || {
-                let d = data.get();
+                let d = data.try_get().unwrap_or_default();
 
                 if !d.has_data() {
                     return view! {

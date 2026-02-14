@@ -2,7 +2,7 @@
 //!
 //! Modal dialogs for worker management actions.
 
-use crate::components::{Button, ButtonVariant, Dialog, Input, Select};
+use crate::components::{Button, ButtonVariant, Dialog, FormField, Input, Select};
 use adapteros_api_types::{NodeResponse, SpawnWorkerRequest};
 use leptos::prelude::*;
 
@@ -118,24 +118,20 @@ pub fn SpawnWorkerDialog(
         >
             <div class="space-y-4 overflow-y-auto" style="max-height: 60vh">
                 // Node selection (required)
-                <Select
-                    value=node_id
-                    options=node_options
-                    label="Node".to_string()
-                />
-                <p class="text-xs text-muted-foreground -mt-2">
-                    "The cluster node where the worker will run"
-                </p>
+                <FormField label="Node" name="node" required=true help="The cluster node where the worker will run".to_string()>
+                    <Select
+                        value=node_id
+                        options=node_options
+                    />
+                </FormField>
 
                 // Deployment config selection (required) - renamed from "Plan"
-                <Select
-                    value=plan_id
-                    options=plan_options
-                    label="Deployment Config".to_string()
-                />
-                <p class="text-xs text-muted-foreground -mt-2">
-                    "Defines which adapters and routing rules the worker uses"
-                </p>
+                <FormField label="Deployment Config" name="deployment_config" required=true help="Defines which adapters and routing rules the worker uses".to_string()>
+                    <Select
+                        value=plan_id
+                        options=plan_options
+                    />
+                </FormField>
 
                 // Show tenant ID as read-only info when a plan is selected
                 {move || {
@@ -155,14 +151,12 @@ pub fn SpawnWorkerDialog(
                 // Advanced option - Socket Path (auto-generated, rarely needs changing)
                 <div class="border-t pt-4">
                     <p class="text-xs font-medium text-muted-foreground mb-2">"Advanced (optional)"</p>
-                    <Input
-                        value=uds_path
-                        label="Socket Path".to_string()
-                        placeholder="var/run/aos-worker.sock".to_string()
-                    />
-                    <p class="text-xs text-muted-foreground -mt-2">
-                        "Auto-generated when a node is selected. Most users won't need to change this."
-                    </p>
+                    <FormField label="Socket Path" name="socket_path" help="Auto-generated when a node is selected. Most users won't need to change this.".to_string()>
+                        <Input
+                            value=uds_path
+                            placeholder="var/run/aos-worker.sock".to_string()
+                        />
+                    </FormField>
                 </div>
 
                 <div class="flex justify-end gap-2 pt-4">

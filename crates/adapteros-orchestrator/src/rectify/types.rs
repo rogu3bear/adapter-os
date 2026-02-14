@@ -3,75 +3,8 @@
 use chrono::{DateTime, Utc};
 use serde::{Deserialize, Serialize};
 
-/// Event indicating a source document has changed
-#[derive(Debug, Clone, Serialize, Deserialize)]
-pub struct SourceChangeEvent {
-    /// Document that changed
-    pub document_id: String,
-    /// Original path
-    pub path: String,
-    /// Previous content hash
-    pub old_hash_b3: String,
-    /// New content hash
-    pub new_hash_b3: String,
-    /// When the change was detected
-    pub detected_at: DateTime<Utc>,
-    /// Type of change
-    pub change_type: ChangeType,
-    /// Size change in bytes (positive = grew, negative = shrunk)
-    pub size_delta: i64,
-}
-
-impl SourceChangeEvent {
-    /// Create a new change event
-    pub fn new(
-        document_id: impl Into<String>,
-        path: impl Into<String>,
-        old_hash: impl Into<String>,
-        new_hash: impl Into<String>,
-        change_type: ChangeType,
-    ) -> Self {
-        Self {
-            document_id: document_id.into(),
-            path: path.into(),
-            old_hash_b3: old_hash.into(),
-            new_hash_b3: new_hash.into(),
-            detected_at: Utc::now(),
-            change_type,
-            size_delta: 0,
-        }
-    }
-
-    /// Builder: set size delta
-    pub fn with_size_delta(mut self, delta: i64) -> Self {
-        self.size_delta = delta;
-        self
-    }
-
-    /// Check if the document was deleted
-    pub fn is_deletion(&self) -> bool {
-        matches!(self.change_type, ChangeType::Deleted)
-    }
-
-    /// Check if this is a content modification
-    pub fn is_modification(&self) -> bool {
-        matches!(self.change_type, ChangeType::Modified)
-    }
-}
-
-/// Type of change detected in source document
-#[derive(Debug, Clone, Copy, PartialEq, Eq, Serialize, Deserialize)]
-#[serde(rename_all = "snake_case")]
-pub enum ChangeType {
-    /// Document content was modified
-    Modified,
-    /// Document was deleted
-    Deleted,
-    /// Document was renamed/moved
-    Renamed,
-    /// New document added (won't have affected adapters)
-    Added,
-}
+// SourceChangeEvent and ChangeType are defined in anchor::types (single source of truth)
+pub use crate::anchor::{ChangeType, SourceChangeEvent};
 
 /// An adapter affected by source changes
 #[derive(Debug, Clone, Serialize, Deserialize)]

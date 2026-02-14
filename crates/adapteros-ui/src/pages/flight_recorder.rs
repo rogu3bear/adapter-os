@@ -12,8 +12,9 @@ use crate::api::{ApiClient, UiInferenceTraceDetailResponse};
 use crate::components::{
     ActionCard, ActionCardVariant, AsyncBoundary, Badge, BadgeVariant, Button, ButtonVariant, Card,
     CopyableId, DiffResults, EmptyState, EmptyStateVariant, Link, PageBreadcrumbItem, PageScaffold,
-    PageScaffoldActions, Select, Spinner, SplitPanel, SplitRatio, Table, TableBody, TableCell,
-    TableHead, TableHeader, TableRow, TokenDecisionsPaged, TraceViewerWithData,
+    PageScaffoldActions, Select, SkeletonDetailSection, Spinner, SplitPanel, SplitRatio, Table,
+    TableBody, TableCell, TableHead, TableHeader, TableRow, TokenDecisionsPaged,
+    TraceViewerWithData,
 };
 use crate::components::{ButtonSize, Input};
 use crate::constants::pagination::TOKEN_DECISIONS_PAGE_SIZE;
@@ -550,17 +551,8 @@ fn RunDetailHub(run_id: String, on_close: Callback<()>) -> impl IntoView {
 
             // Tab content
             {move || match export_data.try_get().unwrap_or_default() {
-                LoadingState::Idle => view! {
-                    <div class="flex items-center justify-center py-12">
-                        <Spinner/>
-                        <span class="ml-3 text-muted-foreground">"Loading run..."</span>
-                    </div>
-                }.into_any(),
-                LoadingState::Loading => view! {
-                    <div class="flex items-center justify-center py-12">
-                        <Spinner/>
-                        <span class="ml-3 text-muted-foreground">"Loading run..."</span>
-                    </div>
+                LoadingState::Idle | LoadingState::Loading => view! {
+                    <SkeletonDetailSection rows=6 has_title=true/>
                 }.into_any(),
                 LoadingState::Loaded(export) => {
                     let trace_id = export.run.trace_id.clone();
@@ -2280,12 +2272,7 @@ fn DiffTab(export: DiagExportResponse, compare_trace: Option<String>) -> impl In
             {move || {
                 if diff_loading.try_get().unwrap_or(false) {
                     view! {
-                        <Card>
-                            <div class="flex items-center justify-center py-12">
-                                <Spinner/>
-                                <span class="ml-2 text-muted-foreground">"Comparing runs..."</span>
-                            </div>
-                        </Card>
+                        <SkeletonDetailSection rows=5 has_title=true/>
                     }.into_any()
                 } else if let Some(result) = diff_result.try_get().flatten() {
                     view! { <DiffResults result=result/> }.into_any()

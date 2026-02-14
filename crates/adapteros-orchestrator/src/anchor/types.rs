@@ -3,6 +3,20 @@
 use chrono::{DateTime, Utc};
 use serde::{Deserialize, Serialize};
 
+/// Type of change detected in source document
+#[derive(Debug, Clone, Copy, PartialEq, Eq, Serialize, Deserialize)]
+#[serde(rename_all = "snake_case")]
+pub enum ChangeType {
+    /// Document content was modified
+    Modified,
+    /// Document was deleted
+    Deleted,
+    /// Document was renamed/moved
+    Renamed,
+    /// New document added (won't have affected adapters)
+    Added,
+}
+
 /// A source document registered in the system
 #[derive(Debug, Clone, Serialize, Deserialize)]
 pub struct SourceDocument {
@@ -170,6 +184,10 @@ impl AnchoredChunk {
 }
 
 /// Event indicating a source document has changed
+///
+/// Unified type used by both the anchor and rectify modules.
+/// Anchor creates these events when detecting content changes;
+/// rectify consumes them to trigger adapter re-training.
 #[derive(Debug, Clone, Serialize, Deserialize)]
 pub struct SourceChangeEvent {
     /// Document that changed
@@ -182,6 +200,8 @@ pub struct SourceChangeEvent {
     pub new_hash_b3: String,
     /// When the change was detected
     pub detected_at: DateTime<Utc>,
+    /// Type of change
+    pub change_type: ChangeType,
     /// Size change in bytes (positive = grew, negative = shrunk)
     pub size_delta: i64,
     /// Affected adapters that were trained on this document
@@ -195,6 +215,7 @@ impl SourceChangeEvent {
         path: impl Into<String>,
         old_hash: impl Into<String>,
         new_hash: impl Into<String>,
+        change_type: ChangeType,
     ) -> Self {
         Self {
             document_id: document_id.into(),
@@ -202,6 +223,7 @@ impl SourceChangeEvent {
             old_hash_b3: old_hash.into(),
             new_hash_b3: new_hash.into(),
             detected_at: Utc::now(),
+            change_type,
             size_delta: 0,
             affected_adapter_ids: Vec::new(),
         }
@@ -217,6 +239,16 @@ impl SourceChangeEvent {
     pub fn with_affected_adapters(mut self, adapter_ids: Vec<String>) -> Self {
         self.affected_adapter_ids = adapter_ids;
         self
+    }
+
+    /// Check if the document was deleted
+    pub fn is_deletion(&self) -> bool {
+        matches!(self.change_type, ChangeType::Deleted)
+    }
+
+    /// Check if this is a content modification
+    pub fn is_modification(&self) -> bool {
+        matches!(self.change_type, ChangeType::Modified)
     }
 }
 
