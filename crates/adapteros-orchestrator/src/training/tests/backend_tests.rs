@@ -6,6 +6,7 @@ use std::collections::HashMap;
 use std::sync::atomic::AtomicBool;
 use std::sync::Arc;
 
+use adapteros_lora_worker::backend_factory::BackendCapabilities;
 use adapteros_lora_worker::training::TrainingBackend as WorkerTrainingBackend;
 use tempfile::TempDir;
 use tokio::sync::RwLock;
@@ -272,4 +273,131 @@ async fn gpu_required_errors_when_unavailable() {
     assert_eq!(failed.status, TrainingJobStatus::Failed);
     assert_eq!(failed.require_gpu, Some(true));
     std::env::remove_var("AOS_FORCE_GPU_BACKEND");
+}
+
+// ---------------------------------------------------------------------------
+// CPU-proxy detection: `use_gpu_backward` derivation logic
+//
+// The orchestrator determines `use_gpu_backward` via:
+//   runtime_caps.has_mlx || matches!(preferred_backend.preferred, Some(Mlx))
+//
+// These tests verify that equation against all meaningful input combinations
+// without invoking the full training pipeline (detect_capabilities is
+// hardware-dependent and cannot be mocked).
+// ---------------------------------------------------------------------------
+
+/// Replicates the orchestrator's `use_gpu_backward` derivation so we can
+/// test it in isolation from `detect_capabilities()` side-effects.
+fn derive_use_gpu_backward(
+    caps: &BackendCapabilities,
+    preferred: &Option<WorkerTrainingBackend>,
+) -> bool {
+    caps.has_mlx || matches!(preferred, Some(WorkerTrainingBackend::Mlx))
+}
+
+#[test]
+fn cpu_proxy_no_mlx_no_preference_yields_cpu_backward() {
+    let caps = BackendCapabilities {
+        has_mlx: false,
+        ..Default::default()
+    };
+    let mapped = map_preferred_backend(None, None);
+    assert!(
+        !derive_use_gpu_backward(&caps, &mapped.preferred),
+        "no MLX + no preference should produce use_gpu_backward=false (CPU proxy)"
+    );
+}
+
+#[test]
+fn cpu_proxy_no_mlx_metal_preference_yields_cpu_backward() {
+    let caps = BackendCapabilities {
+        has_mlx: false,
+        has_metal: true,
+        ..Default::default()
+    };
+    let mapped = map_preferred_backend(Some(TrainingBackendKind::Metal), None);
+    assert!(
+        !derive_use_gpu_backward(&caps, &mapped.preferred),
+        "no MLX + Metal preference should produce use_gpu_backward=false"
+    );
+}
+
+#[test]
+fn cpu_proxy_no_mlx_coreml_preference_yields_cpu_backward() {
+    let caps = BackendCapabilities {
+        has_mlx: false,
+        has_coreml: true,
+        ..Default::default()
+    };
+    let mapped = map_preferred_backend(Some(TrainingBackendKind::CoreML), None);
+    assert!(
+        !derive_use_gpu_backward(&caps, &mapped.preferred),
+        "no MLX + CoreML preference should produce use_gpu_backward=false"
+    );
+}
+
+#[test]
+fn mlx_detected_yields_gpu_backward() {
+    let caps = BackendCapabilities {
+        has_mlx: true,
+        ..Default::default()
+    };
+    // Even without an explicit preference, has_mlx alone triggers GPU backward.
+    let mapped = map_preferred_backend(None, None);
+    assert!(
+        derive_use_gpu_backward(&caps, &mapped.preferred),
+        "has_mlx=true should produce use_gpu_backward=true regardless of preference"
+    );
+}
+
+#[test]
+fn mlx_preference_without_runtime_mlx_yields_gpu_backward() {
+    let caps = BackendCapabilities {
+        has_mlx: false,
+        ..Default::default()
+    };
+    let mapped = map_preferred_backend(Some(TrainingBackendKind::Mlx), None);
+    assert!(
+        derive_use_gpu_backward(&caps, &mapped.preferred),
+        "MLX preference should produce use_gpu_backward=true even without runtime MLX"
+    );
+}
+
+#[test]
+fn mlx_detected_and_mlx_preference_yields_gpu_backward() {
+    let caps = BackendCapabilities {
+        has_mlx: true,
+        ..Default::default()
+    };
+    let mapped = map_preferred_backend(Some(TrainingBackendKind::Mlx), None);
+    assert!(
+        derive_use_gpu_backward(&caps, &mapped.preferred),
+        "both MLX detected and preferred should produce use_gpu_backward=true"
+    );
+}
+
+#[test]
+fn cpu_proxy_config_does_not_require_base_model() {
+    use adapteros_lora_worker::training::TrainingConfig as WorkerTrainingConfig;
+
+    let mut cfg = WorkerTrainingConfig::default();
+    cfg.use_gpu_backward = false;
+    cfg.validation_split = 0.0;
+    cfg.multi_module_training = false;
+    assert!(
+        !cfg.requires_base_model(),
+        "CPU-proxy config (use_gpu_backward=false) should not require a base model"
+    );
+}
+
+#[test]
+fn gpu_backward_config_requires_base_model() {
+    use adapteros_lora_worker::training::TrainingConfig as WorkerTrainingConfig;
+
+    let mut cfg = WorkerTrainingConfig::default();
+    cfg.use_gpu_backward = true;
+    assert!(
+        cfg.requires_base_model(),
+        "GPU backward config should require a base model"
+    );
 }
