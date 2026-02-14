@@ -333,7 +333,7 @@ impl<'a> CodeContextRetriever<'a> {
         let target_module = &target.module_path;
 
         // Iterate graph symbols, find functions in the same module
-        for (id, symbol) in self.graph.symbols.iter() {
+        for (_id, symbol) in self.graph.symbols.iter() {
             if similar.len() >= self.config.max_similar_functions {
                 break;
             }
@@ -428,7 +428,7 @@ impl<'a> CodeContextRetriever<'a> {
                 SymbolKind::Struct | SymbolKind::Enum | SymbolKind::Trait | SymbolKind::Type
             ) && symbol.name == name
             {
-                return Some((*id, symbol));
+                return Some((id.clone(), symbol));
             }
         }
         None
