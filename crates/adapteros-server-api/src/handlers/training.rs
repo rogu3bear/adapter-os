@@ -916,6 +916,217 @@ pub(crate) async fn ensure_training_worker_capable(
     Ok(())
 }
 
+fn default_dataset_to_training_config() -> TrainingConfigRequest {
+    TrainingConfigRequest {
+        epochs: 3,
+        learning_rate: 0.0001,
+        rank: 16,
+        alpha: 32,
+        batch_size: 2,
+        targets: vec!["q_proj".to_string(), "v_proj".to_string()],
+        training_contract_version: "1.0".to_string(),
+        pad_token_id: 0,
+        ignore_index: -100,
+        warmup_steps: None,
+        max_seq_length: None,
+        gradient_accumulation_steps: None,
+        validation_split: None,
+        preferred_backend: None,
+        backend_policy: None,
+        coreml_training_fallback: None,
+        coreml_placement: None,
+        enable_coreml_export: None,
+        require_gpu: None,
+        max_gpu_memory_mb: None,
+        base_model_path: None,
+        preprocessing: None,
+        force_resume: None,
+        multi_module_training: None,
+        lora_layer_indices: None,
+        early_stopping: None,
+        patience: None,
+        min_delta: None,
+    }
+}
+
+fn default_training_post_actions() -> PostActionsRequest {
+    PostActionsRequest {
+        package: Some(true),
+        register: Some(true),
+        create_stack: Some(true),
+        tier: None,
+        adapters_root: None,
+    }
+}
+
+#[allow(clippy::too_many_arguments)]
+pub(crate) async fn start_training_from_dataset(
+    state: &AppState,
+    claims: &Claims,
+    dataset_id: &str,
+    dataset_version_id: Option<String>,
+    adapter_name: Option<String>,
+    base_model_id: String,
+    workspace_id: Option<String>,
+    config: Option<TrainingConfigRequest>,
+    post_actions: Option<PostActionsRequest>,
+) -> Result<TrainingJobResponse, ApiError> {
+    let workspace_id = workspace_id
+        .and_then(|id| {
+            let id = id.trim().to_string();
+            (!id.is_empty()).then_some(id)
+        })
+        .unwrap_or_else(|| claims.tenant_id.clone());
+
+    if workspace_id != claims.tenant_id {
+        let access = state
+            .db
+            .check_workspace_access_with_admin(
+                &workspace_id,
+                &claims.sub,
+                &claims.tenant_id,
+                &claims.admin_tenants,
+            )
+            .await
+            .map_err(ApiError::db_error)?;
+        if access.is_none() {
+            return Err(ApiError::forbidden(
+                "Access denied: you are not a member of this workspace",
+            ));
+        }
+    }
+
+    let dataset_id = crate::id_resolver::resolve_any_id(&state.db, dataset_id)
+        .await
+        .map_err(ApiError::from)?;
+
+    let dataset = state
+        .db
+        .get_training_dataset(&dataset_id)
+        .await
+        .map_err(ApiError::db_error)?
+        .ok_or_else(|| ApiError::not_found("Dataset not found"))?;
+
+    let dataset_tenant = dataset
+        .tenant_id
+        .as_deref()
+        .unwrap_or(&claims.tenant_id)
+        .to_string();
+    validate_tenant_isolation(claims, &dataset_tenant)?;
+
+    let base_model_id = base_model_id.trim().to_string();
+    if base_model_id.is_empty() {
+        return Err(ApiError::bad_request(
+            "base_model_id is required. Training without a base model produces incorrect adapters.",
+        ));
+    }
+
+    let base_model_path = resolve_base_model_path(state, &claims.tenant_id, &base_model_id).await?;
+
+    ensure_training_worker_capable(state, &claims.tenant_id)
+        .await
+        .map_err(ApiError::from)?;
+
+    let mut config_req = config.unwrap_or_else(default_dataset_to_training_config);
+    config_req.base_model_path = Some(base_model_path);
+    let config = training_config_from_request(config_req);
+
+    let post_actions = post_actions.unwrap_or_else(default_training_post_actions);
+    let post_actions_json = serde_json::to_string(&post_actions)
+        .map_err(|e| ApiError::internal(format!("Failed to serialize post_actions: {e}")))?;
+
+    let resolved_dataset_version_id = match dataset_version_id {
+        Some(version_id) => {
+            let version_id = crate::id_resolver::resolve_any_id(&state.db, &version_id)
+                .await
+                .map_err(ApiError::from)?;
+            let version = state
+                .db
+                .get_training_dataset_version_for_tenant(&version_id, &claims.tenant_id)
+                .await
+                .map_err(ApiError::db_error)?
+                .ok_or_else(|| ApiError::not_found("Dataset version not found"))?;
+
+            if version.dataset_id != dataset.id {
+                return Err(ApiError::bad_request(
+                    "dataset_version_id does not belong to dataset_id",
+                ));
+            }
+
+            version_id
+        }
+        None => state
+            .db
+            .ensure_dataset_version_exists(&dataset_id)
+            .await
+            .map_err(ApiError::db_error)?,
+    };
+
+    let adapter_name = adapter_name.unwrap_or_else(|| {
+        format!(
+            "ws-{}-{}",
+            workspace_id,
+            &uuid::Uuid::now_v7().simple().to_string()[..6]
+        )
+    });
+
+    let dataset_version_ids = vec![CoreDatasetVersionSelection {
+        dataset_version_id: resolved_dataset_version_id,
+        weight: 1.0,
+    }];
+
+    let job = state
+        .training_service
+        .start_training(
+            adapter_name,
+            config,
+            None,                           // template_id
+            None,                           // repo_id
+            None,                           // target_branch
+            None,                           // base_version_id
+            Some(dataset_id),               // dataset_id
+            Some(dataset_version_ids),      // dataset_version_ids
+            false,                          // synthetic_mode
+            DataLineageMode::DatasetOnly,   // data_lineage_mode
+            Some(claims.tenant_id.clone()), // tenant_id
+            Some(claims.sub.clone()),       // initiated_by
+            Some(claims.role.clone()),      // initiated_by_role
+            Some(base_model_id),            // base_model_id
+            None,                           // collection_id
+            Some(workspace_id),             // scope
+            None,                           // lora_tier
+            None,                           // category
+            None,                           // description
+            None,                           // language
+            None,                           // framework_id
+            None,                           // framework_version
+            Some(post_actions_json),        // post_actions_json
+            None,                           // retry_of_job_id
+            None,                           // versioning
+            None,                           // code_commit_sha
+            None,                           // data_spec_json
+            None,                           // data_spec_hash
+        )
+        .await
+        .map_err(ApiError::from)?;
+
+    let response = crate::types::training_job_to_response(job);
+
+    state
+        .sse_manager
+        .emit_lifecycle(
+            crate::sse::SseStreamType::Training,
+            &crate::sse::lifecycle_events::TrainingLifecycleEvent::JobStarted {
+                job_id: response.id.clone(),
+                adapter_id: response.adapter_name.clone(),
+                config_summary: format!("epochs={}", response.total_epochs),
+            },
+        )
+        .await;
+
+    Ok(response)
+}
+
 async fn record_training_rejection_metric(state: &AppState, series: &str) {
     state
         .metrics_registry
@@ -1151,7 +1362,10 @@ pub async fn list_training_jobs(
                     )
                 })?;
 
-            db_jobs.into_iter().map(record_to_training_job).collect()
+            db_jobs
+                .into_iter()
+                .filter_map(|r| record_to_training_job(r).ok())
+                .collect()
         } else {
             jobs
         }
@@ -1173,7 +1387,10 @@ pub async fn list_training_jobs(
             })?;
 
         // Convert DB records to TrainingJob domain objects
-        db_jobs.into_iter().map(record_to_training_job).collect()
+        db_jobs
+            .into_iter()
+            .filter_map(|r| record_to_training_job(r).ok())
+            .collect()
     };
 
     // Apply additional filters (status, adapter_name, template_id, dataset_id)
@@ -1940,7 +2157,6 @@ pub async fn get_preprocess_status(
 /// Start a new training job (compatibility endpoint; prefer POST /v1/training/jobs)
 #[utoipa::path(
     post,
-    deprecated,
     path = "/v1/training/start",
     request_body = StartTrainingRequest,
     responses(
@@ -3216,7 +3432,7 @@ mod tests {
             targets: vec![],
             training_contract_version: TRAINING_DATA_CONTRACT_VERSION.to_string(),
             pad_token_id: 0,
-            ignore_index: 0,
+            ignore_index: -100,
             epochs: 1,
             learning_rate: 0.1,
             batch_size: 1,
@@ -3236,6 +3452,9 @@ mod tests {
             force_resume: None,
             multi_module_training: None,
             lora_layer_indices: None,
+            early_stopping: None,
+            patience: None,
+            min_delta: None,
         };
         let repo = dummy_repo(Some("model-1"));
         let model = dummy_model("model-1");
@@ -3258,7 +3477,7 @@ mod tests {
             targets: vec!["q_proj".to_string()],
             training_contract_version: TRAINING_DATA_CONTRACT_VERSION.to_string(),
             pad_token_id: 0,
-            ignore_index: 0,
+            ignore_index: -100,
             epochs: 1,
             learning_rate: 0.001,
             batch_size: 1,
@@ -3278,6 +3497,9 @@ mod tests {
             force_resume: None,
             multi_module_training: None,
             lora_layer_indices: None,
+            early_stopping: None,
+            patience: None,
+            min_delta: None,
         };
         let repo = dummy_repo(Some("expected-model"));
         let model = dummy_model("actual-model");
@@ -3294,7 +3516,7 @@ mod tests {
             targets: vec!["q_proj".to_string()],
             training_contract_version: TRAINING_DATA_CONTRACT_VERSION.to_string(),
             pad_token_id: 0,
-            ignore_index: 0,
+            ignore_index: -100,
             epochs: 1,
             learning_rate: 0.001,
             batch_size: 1,
@@ -3314,6 +3536,9 @@ mod tests {
             force_resume: None,
             multi_module_training: None,
             lora_layer_indices: None,
+            early_stopping: None,
+            patience: None,
+            min_delta: None,
         };
         let repo = dummy_repo(Some("model-1"));
         let model = dummy_model("model-1");
