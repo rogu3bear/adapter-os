@@ -7,7 +7,6 @@ use crate::api::ApiError;
 use crate::components::{Badge, BadgeVariant, Button, ButtonVariant, Spinner};
 use adapteros_api_types::FailureCode;
 use leptos::prelude::*;
-use wasm_bindgen::JsCast;
 
 /// Breadcrumb item for navigation hierarchy
 #[derive(Debug, Clone)]
@@ -159,61 +158,20 @@ fn build_error_payload(error: &ApiError) -> String {
     payload
 }
 
-/// Copy text to clipboard using the Clipboard API
+/// Copy text to clipboard using the canonical async utility, adapted for callback style.
 fn copy_to_clipboard(
     text: &str,
     on_success: impl Fn() + 'static,
     on_error: impl Fn(String) + 'static,
 ) {
-    if let Some(window) = web_sys::window() {
-        let navigator = window.navigator();
-        let clipboard = if js_sys::Reflect::has(&navigator, &"clipboard".into()).unwrap_or(false) {
-            js_sys::Reflect::get(&navigator, &"clipboard".into()).ok()
+    let text = text.to_string();
+    wasm_bindgen_futures::spawn_local(async move {
+        if crate::utils::copy_to_clipboard(&text).await {
+            on_success();
         } else {
-            None
-        };
-
-        let Some(clipboard) = clipboard else {
-            on_error("Clipboard API not available".to_string());
-            return;
-        };
-
-        let text = text.to_string();
-        let on_success = std::rc::Rc::new(std::cell::RefCell::new(Some(on_success)));
-        let on_error = std::rc::Rc::new(std::cell::RefCell::new(Some(on_error)));
-
-        let success_cb = on_success.clone();
-        let error_cb = on_error.clone();
-
-        let success_closure =
-            wasm_bindgen::closure::Closure::once(Box::new(move |_: wasm_bindgen::JsValue| {
-                if let Some(cb) = success_cb.borrow_mut().take() {
-                    cb();
-                }
-            })
-                as Box<dyn FnOnce(wasm_bindgen::JsValue)>);
-
-        let error_closure =
-            wasm_bindgen::closure::Closure::once(Box::new(move |e: wasm_bindgen::JsValue| {
-                if let Some(cb) = error_cb.borrow_mut().take() {
-                    cb(format!("{:?}", e));
-                }
-            })
-                as Box<dyn FnOnce(wasm_bindgen::JsValue)>);
-
-        let promise = js_sys::Promise::resolve(&clipboard);
-        let _ = promise.then(&success_closure).catch(&error_closure);
-
-        // Attempt write_text if available; ignore if missing.
-        if let Ok(write_fn) = js_sys::Reflect::get(&clipboard, &"writeText".into()) {
-            if let Ok(write_fn) = write_fn.dyn_into::<js_sys::Function>() {
-                let _ = write_fn.call1(&clipboard, &text.into());
-            }
+            on_error("Clipboard write failed".to_string());
         }
-
-        success_closure.forget();
-        error_closure.forget();
-    }
+    });
 }
 
 /// Error display component with retry functionality

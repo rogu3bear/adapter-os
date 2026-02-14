@@ -1039,7 +1039,7 @@ pub fn MetricsChart(job_id: String) -> impl IntoView {
                                     <path
                                         d=path_data
                                         fill="none"
-                                        stroke="hsl(var(--primary))"
+                                        stroke="var(--color-primary)"
                                         stroke-width="2"
                                         stroke-linecap="round"
                                         stroke-linejoin="round"
