@@ -201,7 +201,7 @@ pub async fn initialize_executor(
     let executor_config = ExecutorConfig {
         global_seed,
         enable_event_logging: true,
-        max_ticks_per_task: 1_000_000,
+        max_ticks_per_task: 100_000_000,
         enforcement_mode: EnforcementMode::AuditOnly,
         ..Default::default()
     };
