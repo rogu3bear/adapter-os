@@ -44,9 +44,7 @@ async fn training_pipeline_produces_registered_aos() {
     std::fs::create_dir_all(&base_model_dir).unwrap();
     let tokenizer_path = base_model_dir.join("tokenizer.json");
     std::fs::write(&tokenizer_path, b"{\"model\":{}}").unwrap();
-    let tokenizer_hash_b3 = B3Hash::hash_file(&tokenizer_path)
-        .unwrap()
-        .to_hex();
+    let tokenizer_hash_b3 = B3Hash::hash_file(&tokenizer_path).unwrap().to_hex();
     sqlx::query("INSERT INTO models (id, name, hash_b3, config_hash_b3, tokenizer_hash_b3, tokenizer_cfg_hash_b3, license_hash_b3, license_text, model_card_hash_b3, model_path, tenant_id) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)")
         .bind("qwen2.5-7b") // id must match base_model_id supplied to training_service
         .bind("qwen2.5-7b")

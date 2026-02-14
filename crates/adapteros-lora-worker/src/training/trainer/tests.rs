@@ -352,6 +352,7 @@ fn test_init_kernels_disables_gpu_backward_when_mlx_unavailable_and_gpu_optional
 
     let mut trainer = MicroLoRATrainer::new_for_test(TrainingConfig {
         require_gpu: false,
+        use_gpu_backward: true,
         ..Default::default()
     })
     .unwrap();
@@ -377,10 +378,11 @@ fn test_init_kernels_disables_gpu_backward_when_mlx_unavailable_and_gpu_optional
 
 #[test]
 fn test_init_kernels_errors_when_gpu_backward_requires_mlx_and_gpu_required() {
-    std::env::set_var("AOS_FORCE_GPU_BACKEND", "none");
+    std::env::set_var("AOS_FORCE_GPU_BACKEND", "coreml");
 
     let mut trainer = MicroLoRATrainer::new_for_test(TrainingConfig {
         require_gpu: true,
+        use_gpu_backward: true,
         ..Default::default()
     })
     .unwrap();
@@ -1716,4 +1718,774 @@ fn test_layer_indices_backward_compat_empty() {
 
     assert!(config.lora_layer_indices.is_empty());
     // When empty, the training loop falls back to default_lora_layer_idx()
+}
+
+// ============================================================================
+// CPU Proxy Training Unit Tests
+// ============================================================================
+
+/// Helper: build a MicroLoRATrainer configured for CPU proxy training.
+fn cpu_proxy_trainer(hidden_dim: usize, vocab_size: usize) -> MicroLoRATrainer {
+    let config = TrainingConfig {
+        rank: 2,
+        alpha: 4.0,
+        hidden_dim,
+        vocab_size,
+        learning_rate: 0.01,
+        batch_size: 1,
+        epochs: 1,
+        use_gpu_backward: false,
+        require_gpu: false,
+        validation_split: 0.0,
+        multi_module_training: false,
+        ignore_index: -100,
+        ..Default::default()
+    };
+    MicroLoRATrainer::new_for_test(config).unwrap()
+}
+
+// --- scale_proxy_token tests ---
+
+#[test]
+fn test_scale_proxy_token_boundaries() {
+    let trainer = cpu_proxy_trainer(4, 100);
+    // token 0 → (0/99)*2 - 1 = -1.0
+    let low = trainer.scale_proxy_token(0);
+    assert!(
+        (low - (-1.0)).abs() < 1e-6,
+        "token 0 should map to -1.0, got {low}"
+    );
+
+    // token 99 → (99/99)*2 - 1 = 1.0
+    let high = trainer.scale_proxy_token(99);
+    assert!(
+        (high - 1.0).abs() < 1e-6,
+        "token 99 should map to 1.0, got {high}"
+    );
+
+    // token 50 → (50/99)*2 - 1 ≈ 0.0101
+    let mid = trainer.scale_proxy_token(50);
+    let expected = (50.0 / 99.0) * 2.0 - 1.0;
+    assert!(
+        (mid - expected).abs() < 1e-6,
+        "token 50 mismatch: got {mid}, expected {expected}"
+    );
+}
+
+#[test]
+fn test_scale_proxy_token_vocab_size_one() {
+    // vocab_size=1 → denom = max(1-1, 1) = max(0, 1) = 1
+    let trainer = cpu_proxy_trainer(4, 1);
+    let val = trainer.scale_proxy_token(0);
+    // (0/1)*2 - 1 = -1.0
+    assert!(
+        (val - (-1.0)).abs() < 1e-6,
+        "vocab_size=1, token 0 should be -1.0, got {val}"
+    );
+}
+
+#[test]
+fn test_scale_proxy_token_monotonic() {
+    let trainer = cpu_proxy_trainer(4, 1000);
+    let mut prev = trainer.scale_proxy_token(0);
+    for t in 1..1000u32 {
+        let cur = trainer.scale_proxy_token(t);
+        assert!(
+            cur > prev,
+            "scale_proxy_token must be monotonically increasing: token {t}"
+        );
+        prev = cur;
+    }
+}
+
+// --- compute_proxy_loss_and_grad tests ---
+
+#[test]
+fn test_compute_proxy_loss_and_grad_basic() {
+    let trainer = cpu_proxy_trainer(4, 100);
+    // output that exactly equals the scaled token values → loss should be 0
+    let tokens = vec![0u32, 50, 99];
+    let output: Vec<f32> = tokens
+        .iter()
+        .map(|&t| trainer.scale_proxy_token(t))
+        .collect();
+    // Pad output to hidden_dim=4
+    let mut padded_output = output.clone();
+    padded_output.push(0.0);
+
+    let (loss, grad, count) = trainer
+        .compute_proxy_loss_and_grad(&padded_output, &tokens)
+        .unwrap();
+    assert_eq!(count, 3);
+    assert!(
+        loss.abs() < 1e-10,
+        "perfect predictions should give near-zero loss, got {loss}"
+    );
+    // All grads in the usable range should be near-zero
+    for i in 0..3 {
+        assert!(
+            grad[i].abs() < 1e-10,
+            "grad[{i}] should be near-zero, got {}",
+            grad[i]
+        );
+    }
+}
+
+#[test]
+fn test_compute_proxy_loss_and_grad_nonzero_loss() {
+    let trainer = cpu_proxy_trainer(4, 100);
+    let tokens = vec![50u32];
+    let target_val = trainer.scale_proxy_token(50);
+    let output = vec![target_val + 1.0, 0.0, 0.0, 0.0]; // off by 1.0
+
+    let (loss, grad, count) = trainer
+        .compute_proxy_loss_and_grad(&output, &tokens)
+        .unwrap();
+    assert_eq!(count, 1);
+    // MSE = (1.0)^2 / 1 = 1.0
+    assert!((loss - 1.0).abs() < 1e-6, "expected loss=1.0, got {loss}");
+    // grad[0] = 2.0/1 * 1.0 = 2.0 (diff * scale where scale = 2/count)
+    assert!(
+        (grad[0] - 2.0).abs() < 1e-6,
+        "expected grad[0]=2.0, got {}",
+        grad[0]
+    );
+}
+
+#[test]
+fn test_compute_proxy_loss_and_grad_empty_output() {
+    let trainer = cpu_proxy_trainer(4, 100);
+    let result = trainer.compute_proxy_loss_and_grad(&[], &[1, 2, 3]);
+    assert!(result.is_err(), "empty output should be an error");
+}
+
+#[test]
+fn test_compute_proxy_loss_and_grad_empty_tokens() {
+    let trainer = cpu_proxy_trainer(4, 100);
+    let result = trainer.compute_proxy_loss_and_grad(&[1.0, 2.0, 3.0, 4.0], &[]);
+    assert!(result.is_err(), "empty tokens should be an error");
+}
+
+#[test]
+fn test_compute_proxy_loss_and_grad_ignore_index() {
+    // ignore_index must be >= 0 for the masking to activate.
+    // Use ignore_index=99 and tokens that match it.
+    let config = TrainingConfig {
+        rank: 2,
+        alpha: 4.0,
+        hidden_dim: 4,
+        vocab_size: 100,
+        learning_rate: 0.01,
+        batch_size: 1,
+        epochs: 1,
+        use_gpu_backward: false,
+        require_gpu: false,
+        validation_split: 0.0,
+        multi_module_training: false,
+        ignore_index: 99,
+        ..Default::default()
+    };
+    let trainer = MicroLoRATrainer::new_for_test(config).unwrap();
+    let tokens = vec![99u32, 99u32];
+    let output = vec![1.0, 2.0, 0.0, 0.0];
+
+    let (loss, _grad, count) = trainer
+        .compute_proxy_loss_and_grad(&output, &tokens)
+        .unwrap();
+    assert_eq!(count, 0, "all tokens ignored, count should be 0");
+    assert!(
+        (loss - 0.0).abs() < 1e-10,
+        "all-ignored should return loss=0.0"
+    );
+}
+
+#[test]
+fn test_compute_proxy_loss_and_grad_partial_ignore() {
+    // Use a positive ignore_index so the masking logic activates
+    let config = TrainingConfig {
+        rank: 2,
+        alpha: 4.0,
+        hidden_dim: 4,
+        vocab_size: 100,
+        learning_rate: 0.01,
+        batch_size: 1,
+        epochs: 1,
+        use_gpu_backward: false,
+        require_gpu: false,
+        validation_split: 0.0,
+        multi_module_training: false,
+        ignore_index: 99,
+        ..Default::default()
+    };
+    let trainer = MicroLoRATrainer::new_for_test(config).unwrap();
+    let tokens = vec![50u32, 99u32]; // second token is the ignore index
+    let target_val = trainer.scale_proxy_token(50);
+    let output = vec![target_val + 0.5, 999.0, 0.0, 0.0]; // second token ignored
+
+    let (loss, grad, count) = trainer
+        .compute_proxy_loss_and_grad(&output, &tokens)
+        .unwrap();
+    assert_eq!(count, 1);
+    // MSE = 0.5^2 / 1 = 0.25
+    assert!((loss - 0.25).abs() < 1e-6, "expected loss=0.25, got {loss}");
+    // Second position should have zero gradient (ignored)
+    assert!(
+        (grad[1] - 0.0).abs() < 1e-10,
+        "ignored position grad should be 0"
+    );
+}
+
+#[test]
+fn test_compute_proxy_loss_and_grad_negative_ignore_index_disables_masking() {
+    // Default ignore_index=-100 should disable masking entirely
+    let trainer = cpu_proxy_trainer(4, 100);
+    let tokens = vec![50u32, 60u32];
+    let t0 = trainer.scale_proxy_token(50);
+    let t1 = trainer.scale_proxy_token(60);
+    let output = vec![t0, t1, 0.0, 0.0];
+
+    let (_loss, _grad, count) = trainer
+        .compute_proxy_loss_and_grad(&output, &tokens)
+        .unwrap();
+    // With negative ignore_index, no tokens are masked
+    assert_eq!(count, 2, "negative ignore_index should not mask any tokens");
+}
+
+#[test]
+fn test_compute_proxy_loss_and_grad_truncates_to_min_len() {
+    let trainer = cpu_proxy_trainer(8, 100);
+    // output is 8 elements but only 2 tokens → usable = 2
+    let tokens = vec![10u32, 20];
+    let t0 = trainer.scale_proxy_token(10);
+    let t1 = trainer.scale_proxy_token(20);
+    let output = vec![t0, t1, 99.0, 99.0, 99.0, 99.0, 99.0, 99.0];
+
+    let (loss, grad, count) = trainer
+        .compute_proxy_loss_and_grad(&output, &tokens)
+        .unwrap();
+    assert_eq!(count, 2);
+    assert!(loss.abs() < 1e-10, "matched values should give ~0 loss");
+    // Positions beyond usable should remain zero
+    for i in 2..8 {
+        assert!(
+            (grad[i] - 0.0).abs() < 1e-10,
+            "grad[{i}] beyond usable should be 0"
+        );
+    }
+}
+
+// --- validate_cpu_proxy_training tests ---
+
+#[test]
+fn test_validate_cpu_proxy_training_ok() {
+    let trainer = cpu_proxy_trainer(4, 100);
+    assert!(trainer.validate_cpu_proxy_training().is_ok());
+}
+
+#[test]
+fn test_validate_cpu_proxy_training_require_gpu_fails() {
+    let config = TrainingConfig {
+        require_gpu: true,
+        use_gpu_backward: false,
+        validation_split: 0.0,
+        ..Default::default()
+    };
+    let trainer = MicroLoRATrainer::new_for_test(config).unwrap();
+    let err = trainer.validate_cpu_proxy_training().unwrap_err();
+    assert!(err.to_string().contains("require_gpu"), "got: {err}");
+}
+
+#[test]
+fn test_validate_cpu_proxy_training_nonzero_validation_split_fails() {
+    let config = TrainingConfig {
+        use_gpu_backward: false,
+        require_gpu: false,
+        validation_split: 0.2,
+        ..Default::default()
+    };
+    let trainer = MicroLoRATrainer::new_for_test(config).unwrap();
+    let err = trainer.validate_cpu_proxy_training().unwrap_err();
+    assert!(err.to_string().contains("validation_split"), "got: {err}");
+}
+
+#[test]
+fn test_validate_cpu_proxy_training_multi_module_fails() {
+    let config = TrainingConfig {
+        use_gpu_backward: false,
+        require_gpu: false,
+        validation_split: 0.0,
+        multi_module_training: true,
+        ..Default::default()
+    };
+    let trainer = MicroLoRATrainer::new_for_test(config).unwrap();
+    let err = trainer.validate_cpu_proxy_training().unwrap_err();
+    assert!(
+        err.to_string().contains("multi_module_training"),
+        "got: {err}"
+    );
+}
+
+// --- apply_proxy_update tests ---
+
+#[test]
+fn test_apply_proxy_update_modifies_weights() {
+    let trainer = cpu_proxy_trainer(4, 100);
+    let mut weights = trainer.init_weights_deterministic().unwrap();
+    let initial_a = weights.lora_a.clone();
+    let initial_b = weights.lora_b.clone();
+
+    let hidden = vec![1.0f32, 0.5, -0.3, 0.8];
+    let grad_output = vec![0.1, -0.2, 0.05, 0.3];
+    let lr = 0.01;
+
+    trainer
+        .apply_proxy_update(&mut weights, &hidden, &grad_output, lr)
+        .unwrap();
+
+    // Weights should have changed
+    assert_ne!(weights.lora_a, initial_a, "lora_a should be updated");
+    assert_ne!(weights.lora_b, initial_b, "lora_b should be updated");
+}
+
+#[test]
+fn test_apply_proxy_update_zero_gradient_no_change() {
+    let trainer = cpu_proxy_trainer(4, 100);
+    let mut weights = trainer.init_weights_deterministic().unwrap();
+    let initial_a = weights.lora_a.clone();
+    let initial_b = weights.lora_b.clone();
+
+    let hidden = vec![1.0f32, 0.5, -0.3, 0.8];
+    let grad_output = vec![0.0, 0.0, 0.0, 0.0];
+    let lr = 0.01;
+
+    trainer
+        .apply_proxy_update(&mut weights, &hidden, &grad_output, lr)
+        .unwrap();
+
+    assert_eq!(
+        weights.lora_a, initial_a,
+        "zero grad should not change lora_a"
+    );
+    assert_eq!(
+        weights.lora_b, initial_b,
+        "zero grad should not change lora_b"
+    );
+}
+
+#[test]
+fn test_apply_proxy_update_clamps_large_updates() {
+    let trainer = cpu_proxy_trainer(4, 100);
+    let mut weights = trainer.init_weights_deterministic().unwrap();
+    let before_a = weights.lora_a.clone();
+
+    // Very large gradient and hidden values → updates should be clamped to MAX_UPDATE=0.1
+    let hidden = vec![100.0f32, 100.0, 100.0, 100.0];
+    let grad_output = vec![100.0, 100.0, 100.0, 100.0];
+    let lr = 100.0;
+
+    trainer
+        .apply_proxy_update(&mut weights, &hidden, &grad_output, lr)
+        .unwrap();
+
+    // Each weight update should be clamped. Check that changes are bounded.
+    for r in 0..2 {
+        for h in 0..4 {
+            let diff = (weights.lora_a[r][h] - before_a[r][h]).abs();
+            assert!(
+                diff <= 0.1 + 1e-6,
+                "lora_a[{r}][{h}] update {diff} exceeds MAX_UPDATE=0.1"
+            );
+        }
+    }
+}
+
+#[test]
+fn test_apply_proxy_update_sanitizes_nan_gradient() {
+    let trainer = cpu_proxy_trainer(4, 100);
+    let mut weights = trainer.init_weights_deterministic().unwrap();
+    let initial_a = weights.lora_a.clone();
+    let initial_b = weights.lora_b.clone();
+
+    let hidden = vec![1.0f32, 0.5, -0.3, 0.8];
+    let grad_output = vec![f32::NAN, f32::NAN, f32::NAN, f32::NAN];
+    let lr = 0.01;
+
+    // Should not error; NaN grads are zeroed internally
+    trainer
+        .apply_proxy_update(&mut weights, &hidden, &grad_output, lr)
+        .unwrap();
+
+    // NaN grads get sanitized to 0.0, so weights should not change
+    assert_eq!(
+        weights.lora_a, initial_a,
+        "NaN grads should be zeroed, no weight change"
+    );
+    assert_eq!(
+        weights.lora_b, initial_b,
+        "NaN grads should be zeroed, no weight change"
+    );
+}
+
+// --- train_batch_cpu_proxy tests ---
+
+#[test]
+fn test_train_batch_cpu_proxy_single_example() {
+    let mut trainer = cpu_proxy_trainer(4, 100);
+    let mut weights = trainer.init_weights_deterministic().unwrap();
+    let initial_a = weights.lora_a.clone();
+
+    let ex = example(vec![10, 20, 30, 40], vec![50, 60, 70, 80]);
+    let prepared = make_prepared(&ex, 4);
+
+    let loss = trainer
+        .train_batch_cpu_proxy(&mut weights, &[prepared])
+        .unwrap();
+    assert!(loss.is_finite(), "loss should be finite, got {loss}");
+    assert!(loss >= 0.0, "MSE loss should be non-negative, got {loss}");
+    assert_ne!(
+        weights.lora_a, initial_a,
+        "weights should be updated after training"
+    );
+}
+
+#[test]
+fn test_train_batch_cpu_proxy_multiple_examples() {
+    let mut trainer = cpu_proxy_trainer(4, 100);
+    let mut weights = trainer.init_weights_deterministic().unwrap();
+
+    let examples: Vec<_> = (0..3)
+        .map(|i| {
+            let base = (i * 4) as u32;
+            let ex = example(
+                vec![base, base + 1, base + 2, base + 3],
+                vec![base + 10, base + 11, base + 12, base + 13],
+            );
+            make_prepared(&ex, 4)
+        })
+        .collect();
+
+    let loss = trainer
+        .train_batch_cpu_proxy(&mut weights, &examples)
+        .unwrap();
+    assert!(loss.is_finite());
+    assert!(loss >= 0.0);
+
+    // Verify metrics were updated
+    let metrics = trainer.get_performance_metrics();
+    assert_eq!(metrics.total_batches, 1);
+    assert_eq!(metrics.total_examples_processed, 3);
+}
+
+#[test]
+fn test_train_batch_cpu_proxy_hidden_dim_mismatch() {
+    let mut trainer = cpu_proxy_trainer(8, 100); // hidden_dim=8
+    let mut weights = trainer.init_weights_deterministic().unwrap();
+
+    // Create example with scaled_input of size 4, but trainer expects 8
+    let ex = example(vec![1, 2, 3, 4], vec![5, 6, 7, 8]);
+    let prepared = make_prepared(&ex, 4); // prepared with hidden_dim=4
+
+    let result = trainer.train_batch_cpu_proxy(&mut weights, &[prepared]);
+    assert!(result.is_err(), "hidden dim mismatch should error");
+    let err = result.unwrap_err().to_string();
+    assert!(
+        err.contains("mismatch"),
+        "expected mismatch error, got: {err}"
+    );
+}
+
+#[test]
+fn test_train_batch_cpu_proxy_all_ignored_tokens() {
+    // Use a positive ignore_index so the masking logic is active
+    let config = TrainingConfig {
+        rank: 2,
+        alpha: 4.0,
+        hidden_dim: 4,
+        vocab_size: 100,
+        learning_rate: 0.01,
+        batch_size: 1,
+        epochs: 1,
+        use_gpu_backward: false,
+        require_gpu: false,
+        validation_split: 0.0,
+        multi_module_training: false,
+        ignore_index: 99,
+        ..Default::default()
+    };
+    let mut trainer = MicroLoRATrainer::new_for_test(config).unwrap();
+    let mut weights = trainer.init_weights_deterministic().unwrap();
+
+    let ex = example(vec![1, 2, 3, 4], vec![99, 99, 99, 99]);
+    let prepared = make_prepared(&ex, 4);
+
+    let result = trainer.train_batch_cpu_proxy(&mut weights, &[prepared]);
+    assert!(result.is_err(), "all-ignored batch should error");
+    let err = result.unwrap_err().to_string();
+    assert!(
+        err.contains("no valid targets"),
+        "expected 'no valid targets' error, got: {err}"
+    );
+}
+
+#[test]
+fn test_train_batch_cpu_proxy_deterministic() {
+    // Two runs with identical inputs should produce identical loss and weights
+    let run = || {
+        let mut trainer = cpu_proxy_trainer(4, 100);
+        let mut weights = trainer.init_weights_deterministic().unwrap();
+        let ex = example(vec![10, 20, 30, 40], vec![50, 60, 70, 80]);
+        let prepared = make_prepared(&ex, 4);
+        let loss = trainer
+            .train_batch_cpu_proxy(&mut weights, &[prepared])
+            .unwrap();
+        (loss, weights)
+    };
+
+    let (loss1, w1) = run();
+    let (loss2, w2) = run();
+
+    assert_eq!(
+        loss1, loss2,
+        "deterministic runs should produce identical loss"
+    );
+    assert_eq!(
+        w1.lora_a, w2.lora_a,
+        "deterministic runs should produce identical lora_a"
+    );
+    assert_eq!(
+        w1.lora_b, w2.lora_b,
+        "deterministic runs should produce identical lora_b"
+    );
+}
+
+#[test]
+fn test_train_batch_cpu_proxy_stable_over_many_steps() {
+    // Verify that training over many steps remains stable (no NaN, no explosion).
+    // The CPU proxy path uses scaled-token MSE, which is a proxy loss --
+    // full convergence requires real hidden states from a base model.
+    let mut trainer = cpu_proxy_trainer(4, 100);
+    let mut weights = trainer.init_weights_deterministic().unwrap();
+
+    let ex = example(vec![1, 2, 3, 4], vec![2, 3, 4, 5]);
+    let prepared = make_prepared(&ex, 4);
+
+    let mut last_loss = 0.0f32;
+    for step in 0..100 {
+        last_loss = trainer
+            .train_batch_cpu_proxy(&mut weights, &[prepared.clone()])
+            .unwrap();
+        assert!(
+            last_loss.is_finite(),
+            "loss became non-finite at step {step}: {last_loss}"
+        );
+    }
+
+    // After 100 steps, loss should still be finite and non-negative
+    assert!(last_loss >= 0.0, "final loss should be non-negative");
+
+    // All weights should remain finite
+    for (r, row) in weights.lora_a.iter().enumerate() {
+        for (h, &val) in row.iter().enumerate() {
+            assert!(
+                val.is_finite(),
+                "lora_a[{r}][{h}] is not finite after 100 steps"
+            );
+        }
+    }
+}
+
+// ============================================================================
+// CPU Proxy Weight Compatibility Tests (G-3)
+// ============================================================================
+
+#[test]
+fn test_cpu_proxy_weight_dimensions() {
+    let rank = 4;
+    let hidden_dim = 32;
+    let mut trainer = cpu_proxy_trainer(hidden_dim, 100);
+    // Override rank to 4 for this test
+    trainer.config.rank = rank;
+    let mut weights = trainer.init_weights_deterministic().unwrap();
+
+    // Verify initial dimensions: lora_a is rank x hidden_dim, lora_b is hidden_dim x rank
+    assert_eq!(
+        weights.lora_a.len(),
+        rank,
+        "lora_a outer dim should be rank"
+    );
+    assert_eq!(
+        weights.lora_a[0].len(),
+        hidden_dim,
+        "lora_a inner dim should be hidden_dim"
+    );
+    assert_eq!(
+        weights.lora_b.len(),
+        hidden_dim,
+        "lora_b outer dim should be hidden_dim"
+    );
+    assert_eq!(
+        weights.lora_b[0].len(),
+        rank,
+        "lora_b inner dim should be rank"
+    );
+
+    // Train on synthetic data
+    let examples: Vec<_> = (0..5)
+        .map(|i| {
+            let base = (i * hidden_dim as u32) % 90;
+            let input: Vec<u32> = (0..hidden_dim as u32).map(|j| base + j).collect();
+            let target: Vec<u32> = (0..hidden_dim as u32).map(|j| base + j + 1).collect();
+            let ex = example(input, target);
+            make_prepared(&ex, hidden_dim)
+        })
+        .collect();
+
+    for batch in &examples {
+        trainer
+            .train_batch_cpu_proxy(&mut weights, std::slice::from_ref(batch))
+            .unwrap();
+    }
+
+    // After training, dimensions must be unchanged
+    assert_eq!(
+        weights.lora_a.len(),
+        rank,
+        "lora_a rank dim changed after training"
+    );
+    assert_eq!(
+        weights.lora_a[0].len(),
+        hidden_dim,
+        "lora_a hidden dim changed after training"
+    );
+    assert_eq!(
+        weights.lora_b.len(),
+        hidden_dim,
+        "lora_b hidden dim changed after training"
+    );
+    assert_eq!(
+        weights.lora_b[0].len(),
+        rank,
+        "lora_b rank dim changed after training"
+    );
+}
+
+#[test]
+fn test_cpu_proxy_weights_are_nonzero_after_training() {
+    let hidden_dim = 16;
+    let mut trainer = cpu_proxy_trainer(hidden_dim, 100);
+    let mut weights = trainer.init_weights_deterministic().unwrap();
+
+    // Train multiple steps to ensure weights are meaningfully updated
+    let ex = example(
+        (0..hidden_dim as u32).collect(),
+        (1..=hidden_dim as u32).collect(),
+    );
+    let prepared = make_prepared(&ex, hidden_dim);
+
+    for _ in 0..10 {
+        trainer
+            .train_batch_cpu_proxy(&mut weights, &[prepared.clone()])
+            .unwrap();
+    }
+
+    // lora_a is initialized with small random values, so it's already non-zero.
+    // lora_b is initialized to zeros - verify training actually updated it.
+    let lora_b_has_nonzero = weights
+        .lora_b
+        .iter()
+        .any(|row| row.iter().any(|&v| v != 0.0));
+    assert!(
+        lora_b_has_nonzero,
+        "lora_b should have non-zero values after training (was initialized to zeros)"
+    );
+
+    let lora_a_has_nonzero = weights
+        .lora_a
+        .iter()
+        .any(|row| row.iter().any(|&v| v != 0.0));
+    assert!(
+        lora_a_has_nonzero,
+        "lora_a should have non-zero values after training"
+    );
+}
+
+#[test]
+fn test_cpu_proxy_weights_serialize_to_json() {
+    let hidden_dim = 8;
+    let mut trainer = cpu_proxy_trainer(hidden_dim, 100);
+    let mut weights = trainer.init_weights_deterministic().unwrap();
+
+    // Train to get non-trivial weights
+    let ex = example(
+        (0..hidden_dim as u32).collect(),
+        (10..10 + hidden_dim as u32).collect(),
+    );
+    let prepared = make_prepared(&ex, hidden_dim);
+    trainer
+        .train_batch_cpu_proxy(&mut weights, &[prepared])
+        .unwrap();
+
+    // Serialize to JSON
+    let json = serde_json::to_string(&weights).expect("weights should serialize to JSON");
+
+    // Deserialize back
+    let restored: LoRAWeights =
+        serde_json::from_str(&json).expect("weights should deserialize from JSON");
+
+    // Verify roundtrip fidelity
+    assert_eq!(weights.lora_a, restored.lora_a, "lora_a roundtrip mismatch");
+    assert_eq!(weights.lora_b, restored.lora_b, "lora_b roundtrip mismatch");
+    assert!(
+        restored.modules.is_empty(),
+        "CPU proxy uses single-module mode, modules should be empty"
+    );
+
+    // Verify JSON structure has expected keys
+    let parsed: serde_json::Value =
+        serde_json::from_str(&json).expect("should parse as JSON value");
+    assert!(
+        parsed.get("lora_a").is_some(),
+        "JSON should contain lora_a key"
+    );
+    assert!(
+        parsed.get("lora_b").is_some(),
+        "JSON should contain lora_b key"
+    );
+    // modules should be absent (skip_serializing_if = "BTreeMap::is_empty")
+    assert!(
+        parsed.get("modules").is_none(),
+        "modules should be omitted when empty"
+    );
+}
+
+#[test]
+fn test_cpu_proxy_weights_all_finite() {
+    let hidden_dim = 16;
+    let mut trainer = cpu_proxy_trainer(hidden_dim, 100);
+    let mut weights = trainer.init_weights_deterministic().unwrap();
+
+    // Train multiple steps
+    let ex = example(
+        (0..hidden_dim as u32).collect(),
+        (50..50 + hidden_dim as u32).collect(),
+    );
+    let prepared = make_prepared(&ex, hidden_dim);
+
+    for _ in 0..20 {
+        trainer
+            .train_batch_cpu_proxy(&mut weights, &[prepared.clone()])
+            .unwrap();
+    }
+
+    // All weight values must be finite (no NaN or Inf)
+    for (r, row) in weights.lora_a.iter().enumerate() {
+        for (h, &val) in row.iter().enumerate() {
+            assert!(val.is_finite(), "lora_a[{r}][{h}] is not finite: {val}");
+        }
+    }
+    for (h, row) in weights.lora_b.iter().enumerate() {
+        for (r, &val) in row.iter().enumerate() {
+            assert!(val.is_finite(), "lora_b[{h}][{r}] is not finite: {val}");
+        }
+    }
 }

@@ -463,3 +463,65 @@ async fn test_stack_handle_validity_after_swap() {
     // Generations should differ
     assert!(handle_after.generation > handle_before.generation);
 }
+
+/// Test concurrent swaps targeting the SAME adapter ID.
+///
+/// Spawns multiple tasks that each attempt to swap to the same adapter ID
+/// simultaneously. Asserts: no panics, no data races, final state contains
+/// at least one valid active adapter.
+#[tokio::test]
+async fn test_concurrent_same_adapter_id_swap() {
+    let table = Arc::new(AdapterTable::new());
+
+    let hash_initial = B3Hash::hash(b"contested-initial");
+    let hash_a = B3Hash::hash(b"target-a");
+    let hash_b = B3Hash::hash(b"target-b");
+
+    table
+        .preload("contested".to_string(), hash_initial, 50)
+        .await
+        .unwrap();
+    table
+        .preload("target-a".to_string(), hash_a, 50)
+        .await
+        .unwrap();
+    table
+        .preload("target-b".to_string(), hash_b, 50)
+        .await
+        .unwrap();
+
+    table.swap(&["contested".to_string()], &[]).await.unwrap();
+
+    let mut handles = vec![];
+
+    for i in 0..4 {
+        let table_clone = table.clone();
+        let target = if i % 2 == 0 {
+            "target-a".to_string()
+        } else {
+            "target-b".to_string()
+        };
+        handles.push(tokio::spawn(async move {
+            let _ = table_clone
+                .swap(&[target], &["contested".to_string()])
+                .await;
+        }));
+    }
+
+    for handle in handles {
+        handle.await.expect("Task must not panic");
+    }
+
+    let active = table.get_active();
+    assert!(
+        !active.is_empty(),
+        "Must have at least one active adapter after concurrent swaps"
+    );
+    for entry in &active {
+        assert!(
+            entry.id == "target-a" || entry.id == "target-b" || entry.id == "contested",
+            "Active adapter must be one of the valid swap targets, got: {}",
+            entry.id
+        );
+    }
+}

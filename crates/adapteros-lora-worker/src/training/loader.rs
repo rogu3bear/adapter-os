@@ -583,4 +583,64 @@ mod tests {
         assert_eq!(examples.len(), 1);
         assert_eq!(weight_from_metadata(&examples[0].metadata), Some(0.5));
     }
+
+    /// A6: Tenant isolation - manifest in tenant A cannot reference data in tenant B.
+    ///
+    /// The loader resolves entry paths relative to the manifest directory and calls
+    /// `canonicalize_strict_in_allowed_roots` with `allowed_roots = [manifest_dir]`.
+    /// An absolute path pointing outside that root must be rejected.
+    #[test]
+    fn test_tenant_isolation_cross_tenant_path_rejected() {
+        let tenant_a = tempdir().expect("failed to create temp dir for tenant A");
+        let tenant_b = tempdir().expect("failed to create temp dir for tenant B");
+
+        // Create data in tenant B's directory
+        let tenant_b_data = tenant_b.path().join("secrets.jsonl");
+        let mut f = File::create(&tenant_b_data).expect("failed to create tenant B data file");
+        writeln!(
+            f,
+            "{}",
+            serde_json::json!({
+                "prompt": "secret prompt",
+                "completion": "secret completion"
+            })
+        )
+        .expect("failed to write tenant B data");
+
+        // Create manifest in tenant A that references tenant B's data via absolute path
+        let manifest_path = tenant_a.path().join("manifest.json");
+        fs::write(
+            &manifest_path,
+            serde_json::json!({
+                "name": "cross_tenant_attack",
+                "training_contract_version": TRAINING_DATA_CONTRACT_VERSION,
+                "entries": [
+                    {
+                        "path": tenant_b_data.to_string_lossy(),
+                        "format": "jsonl",
+                        "weight": 1.0
+                    }
+                ]
+            })
+            .to_string(),
+        )
+        .expect("failed to write manifest");
+
+        let encoder =
+            |text: &str| -> Result<Vec<u32>> { Ok(text.chars().map(|c| c as u32).collect()) };
+        let result = load_examples_with_encoder(&manifest_path, 0, 1024, encoder);
+
+        assert!(
+            result.is_err(),
+            "Loading data from tenant B's directory via tenant A's manifest must be rejected"
+        );
+        let err_msg = result.unwrap_err().to_string();
+        assert!(
+            err_msg.contains("rejected")
+                || err_msg.contains("outside")
+                || err_msg.contains("allowed"),
+            "Error should indicate path policy violation: {}",
+            err_msg
+        );
+    }
 }

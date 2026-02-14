@@ -437,6 +437,7 @@ pub async fn run_worker() -> Result<()> {
                 ))
             })?;
             let manifest = parse_manifest(&manifest_raw)?;
+            manifest.validate()?;
             let computed_hash = manifest.compute_hash()?;
             if computed_hash != expected_hash {
                 return Err(AosError::Validation(format!(
@@ -464,6 +465,7 @@ pub async fn run_worker() -> Result<()> {
             let manifest_json =
                 fetch_manifest_from_cp(&args.cp_url, &args.tenant_id, &expected_hash)?;
             let manifest = parse_manifest(&manifest_json)?;
+            manifest.validate()?;
             let computed_hash = manifest.compute_hash()?;
             if computed_hash != expected_hash {
                 return Err(AosError::Validation(format!(
@@ -503,6 +505,7 @@ pub async fn run_worker() -> Result<()> {
             ))
         })?;
         let manifest = parse_manifest(&manifest_raw)?;
+        manifest.validate()?;
         let computed_hash = manifest.compute_hash()?;
         let canonical_json = manifest
             .to_json()
