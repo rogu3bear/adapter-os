@@ -876,6 +876,17 @@ pub struct BackendChatSession {
     pub updated_at: String,
 }
 
+/// A single message fetched from the backend for session backfill.
+#[derive(Debug, Clone, Deserialize)]
+pub struct BackendChatMessage {
+    pub id: String,
+    pub role: String,
+    pub content: String,
+    pub timestamp: String,
+    pub created_at: String,
+    pub sequence: i64,
+}
+
 impl ChatAction {
     pub fn new(client: Arc<ApiClient>, state: RwSignal<ChatState>) -> Self {
         Self {
@@ -942,6 +953,16 @@ impl ChatAction {
     pub async fn list_backend_sessions(&self) -> Result<Vec<BackendChatSession>, ApiError> {
         self.client
             .get::<Vec<BackendChatSession>>("/v1/chat/sessions?limit=50")
+            .await
+    }
+
+    /// Fetch messages for a specific backend session (for backfilling stubs).
+    pub async fn fetch_session_messages(
+        &self,
+        session_id: &str,
+    ) -> Result<Vec<BackendChatMessage>, ApiError> {
+        self.client
+            .get::<Vec<BackendChatMessage>>(&format!("/v1/chat/sessions/{}/messages", session_id))
             .await
     }
 
@@ -2877,6 +2898,44 @@ impl ChatSessionsManager {
             }
         }
         added
+    }
+
+    /// Backfill a stub session with messages fetched from the backend.
+    /// Only populates messages when the local session has none (i.e. is a stub).
+    /// Returns the updated session on success, or `None` if the session was not found locally.
+    pub fn backfill_session_messages(
+        session_id: &str,
+        messages: &[BackendChatMessage],
+    ) -> Option<StoredChatSession> {
+        let mut session = Self::load_session(session_id)?;
+        // Only backfill if session has no local messages (stub)
+        if !session.messages.is_empty() {
+            return Some(session);
+        }
+        session.messages = messages
+            .iter()
+            .map(|m| StoredMessage {
+                id: m.id.clone(),
+                role: m.role.clone(),
+                content: m.content.clone(),
+                timestamp: m.timestamp.clone(),
+                trace_id: None,
+                latency_ms: None,
+                token_count: None,
+                prompt_tokens: None,
+                completion_tokens: None,
+                backend_used: None,
+            })
+            .collect();
+        // Update title from first user message if still default
+        if session.title == "New Chat" {
+            if let Some(first_user) = session.messages.iter().find(|m| m.role == "user") {
+                session.title = truncate_string(&first_user.content, 50);
+            }
+        }
+        session.placeholder = false;
+        Self::save_session(&session);
+        Some(session)
     }
 
     /// Load a specific session by ID
