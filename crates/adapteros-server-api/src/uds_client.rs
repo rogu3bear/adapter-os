@@ -2099,6 +2099,8 @@ mod tests {
             ),
             policy_mask_digest_b3: None,
             utf8_healing: true,
+            fim_prefix: None,
+            fim_suffix: None,
         };
 
         let serialized =

@@ -188,6 +188,13 @@ pub struct InferenceRequestInternal {
     /// - "on_request": Include when explicitly requested
     /// - "always": Always include citations
     pub citation_mode: Option<CitationMode>,
+
+    // === FIM (Fill-in-the-Middle) ===
+    /// FIM prefix (code before cursor). When set, the worker builds a FIM
+    /// token sequence instead of tokenizing `prompt` directly.
+    pub fim_prefix: Option<String>,
+    /// FIM suffix (code after cursor).
+    pub fim_suffix: Option<String>,
 }
 
 /// Citation mode for inference responses (AARA lifecycle)
@@ -255,6 +262,8 @@ impl InferenceRequestInternal {
             utf8_healing: None,
             abstention_threshold: None,
             citation_mode: None,
+            fim_prefix: None,
+            fim_suffix: None,
         }
     }
 

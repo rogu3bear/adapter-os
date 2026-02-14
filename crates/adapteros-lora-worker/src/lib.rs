@@ -233,6 +233,7 @@ pub mod evidence;
 pub mod execution;
 pub mod export;
 pub mod filter_engine;
+pub mod fim;
 pub mod framework_adapters;
 pub mod galaxy_loader;
 pub mod generation;
