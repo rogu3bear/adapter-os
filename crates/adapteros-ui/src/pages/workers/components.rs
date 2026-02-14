@@ -306,6 +306,14 @@ pub fn WorkerRow(
         <tr
             class="table-row cursor-pointer hover:bg-muted/50"
             on:click=move |_| on_select.run(())
+            on:keydown=move |e: web_sys::KeyboardEvent| {
+                if e.key() == "Enter" || e.key() == " " {
+                    e.prevent_default();
+                    on_select.run(());
+                }
+            }
+            role="button"
+            tabindex=0
         >
             <TableCell>
                 <a

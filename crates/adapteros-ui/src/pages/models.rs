@@ -472,11 +472,21 @@ fn ModelList(
                                 .map(|c| c.to_string())
                                 .unwrap_or_else(|| "-".to_string());
 
+                            let model_id_for_key = model_id_for_click.clone();
+
                             view! {
                                 <tr
                                     class="border-b transition-colors hover:bg-muted/50 cursor-pointer"
                                     class:bg-muted=move || selected_id.try_get().flatten().as_ref() == Some(&model_id)
                                     on:click=move |_| on_select.run(model_id_for_click.clone())
+                                    on:keydown=move |e: web_sys::KeyboardEvent| {
+                                        if e.key() == "Enter" || e.key() == " " {
+                                            e.prevent_default();
+                                            on_select.run(model_id_for_key.clone());
+                                        }
+                                    }
+                                    role="button"
+                                    tabindex=0
                                 >
                                     <TableCell>
                                         <div>
@@ -567,6 +577,7 @@ fn ModelDetailPanel(
                 <button
                     class="text-muted-foreground hover:text-foreground"
                     on:click=move |_| on_close()
+                    aria-label="Close detail panel"
                 >
                     <svg
                         xmlns="http://www.w3.org/2000/svg"

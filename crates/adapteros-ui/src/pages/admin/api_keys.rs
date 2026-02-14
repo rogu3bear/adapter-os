@@ -388,26 +388,26 @@ pub fn ApiKeysSection() -> impl IntoView {
                                                                     let key_id_click = key.id.clone();
                                                                     let key_id_for_revoke = key.id.clone();
                                                                     let key_name_for_revoke = key.name.clone();
-                                                                    let is_selected = {
-                                                                        let kid = key.id.clone();
-                                                                        move || selected_id.get().as_deref() == Some(kid.as_str())
-                                                                    };
                                                                     let is_revoking = Signal::derive({
                                                                         let kid = key.id.clone();
                                                                         move || revoking_id.try_get().flatten() == Some(kid.clone())
                                                                     });
 
+                                                                    let key_id_key = key_id_click.clone();
+
                                                                     view! {
-                                                                        <TableRow
-                                                                            class=move || if is_selected() {
-                                                                                "cursor-pointer bg-muted/50"
-                                                                            } else {
-                                                                                "cursor-pointer hover:bg-muted/30"
+                                                                        <tr
+                                                                            class="border-b transition-colors hover:bg-muted/50 cursor-pointer"
+                                                                            class:bg-muted=move || selected_id.try_get().flatten().as_ref() == Some(&key_id)
+                                                                            on:click=move |_| on_select.run(key_id_click.clone())
+                                                                            on:keydown=move |e: web_sys::KeyboardEvent| {
+                                                                                if e.key() == "Enter" || e.key() == " " {
+                                                                                    e.prevent_default();
+                                                                                    on_select.run(key_id_key.clone());
+                                                                                }
                                                                             }
-                                                                            on_click=Callback::new({
-                                                                                let id = key_id_click.clone();
-                                                                                move |_| on_select.run(id.clone())
-                                                                            })
+                                                                            role="button"
+                                                                            tabindex=0
                                                                         >
                                                                             <TableCell>
                                                                                 <div class="flex items-center gap-2">
@@ -449,7 +449,7 @@ pub fn ApiKeysSection() -> impl IntoView {
                                                                                     {move || if is_revoking.try_get().unwrap_or(false) { "Revoking..." } else { "Revoke" }}
                                                                                 </Button>
                                                                             </TableCell>
-                                                                        </TableRow>
+                                                                        </tr>
                                                                     }
                                                                 }).collect::<Vec<_>>()
                                                             }}

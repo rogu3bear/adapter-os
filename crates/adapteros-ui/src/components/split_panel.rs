@@ -147,7 +147,7 @@ where
                                 let detail_class =
                                     format!("{} border-l px-4 min-w-0 box-border", ratio.detail_class());
                                 view! {
-                                    <div class=detail_class>
+                                    <div class=detail_class role="complementary" aria-label="Detail panel">
                                         {detail_fn()}
                                     </div>
                                 }

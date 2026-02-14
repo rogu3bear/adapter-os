@@ -93,7 +93,7 @@ pub fn Button(
     view! {
         <button
             class=full_class
-            disabled=move || disabled.get() || loading.get()
+            disabled=move || disabled.try_get().unwrap_or(false) || loading.try_get().unwrap_or(false)
             aria-label=move || (!aria_label.is_empty()).then(|| aria_label.clone())
             data-testid=move || data_testid.clone()
             on:click=move |_| {
@@ -103,7 +103,7 @@ pub fn Button(
             }
         >
             {move || {
-                if loading.get() {
+                if loading.try_get().unwrap_or(false) {
                     view! {
                         <Spinner size=SpinnerSize::Sm class="mr-2".to_string()/>
                     }.into_any()
