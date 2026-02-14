@@ -8,6 +8,7 @@ use std::time::Duration;
 
 pub mod anchor;
 pub mod behavior_training;
+pub mod bootstrap;
 pub mod code_context;
 pub mod code_ingestion;
 pub mod code_jobs;
@@ -17,6 +18,7 @@ pub mod codegen_eval;
 pub mod dataset_cleanup;
 pub mod federation_daemon;
 pub mod gates;
+pub mod quality_ratchet;
 pub mod rectify;
 pub mod report;
 pub mod supervisor;
@@ -30,6 +32,11 @@ pub(crate) mod test_support;
 pub use behavior_training::{
     BehaviorCategory, BehaviorDataset, BehaviorExample, BehaviorInput, BehaviorMetadata,
     BehaviorTarget, BehaviorTrainingGenerator, DatasetConfig, ExportFilter, SyntheticConfig,
+};
+pub use bootstrap::{
+    BootstrapConfig, BootstrapController, BootstrapSummary, CodeProposal, IterationOutcome,
+    IterationSuccess, ProposalOpportunity, ProposalType, ProposalValidator, ValidationResult,
+    ValidationStage,
 };
 pub use code_context::{
     build_rag_enriched_prompt, CodeContext, CodeContextConfig, CodeContextRetriever,
@@ -57,6 +64,12 @@ pub use federation_daemon::{
     FederationDaemon, FederationDaemonConfig, FederationVerificationReport,
 };
 pub use gates::*;
+pub use quality_ratchet::{
+    AdapterVersionHistory, AdapterVersionRecord, BootstrapAuditRecord, ContaminationGuard,
+    ContaminationResult, DiversityConfig, DiversityMonitor, DiversityReport, GoldenTest,
+    GoldenTestResult, GoldenTestSuite, GoldenTolerance, MetricDelta, QualityRatchet, RatchetConfig,
+    RatchetResult,
+};
 pub use report::{GateReport, GateResult, ReportFormat};
 pub use synthesis::{
     create_synthesis_request, SynthesisBatchStats, SynthesisEngine, SynthesisEngineConfig,
