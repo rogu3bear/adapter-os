@@ -8,7 +8,9 @@
 //! Keyboard: Alt+1..8 shortcuts remain functional via Shell handler
 
 use super::nav_registry::{nav_groups, NavGroup, NavItem, DASHBOARD_ITEM};
+use crate::signals::settings::{update_setting, use_settings};
 use crate::signals::use_ui_profile;
+use adapteros_api_types::UiProfile;
 use leptos::prelude::*;
 use leptos_router::hooks::use_location;
 
@@ -122,6 +124,11 @@ pub fn SidebarNav() -> impl IntoView {
                     }).collect::<Vec<_>>()
                 }}
             </nav>
+
+            // Profile toggle footer
+            <ProfileToggle
+                is_expanded=Signal::derive(move || sidebar.try_get().map(|s| s.is_expanded()).unwrap_or(false))
+            />
         </aside>
     }
 }
@@ -326,5 +333,55 @@ fn SidebarItem(
                 <span class="sidebar-label">{label}</span>
             </Show>
         </a>
+    }
+}
+
+/// Clickable profile indicator in sidebar footer.
+/// Shows "Primary" or "Full" and toggles on click.
+#[component]
+fn ProfileToggle(is_expanded: Signal<bool>) -> impl IntoView {
+    let ui_profile = use_ui_profile();
+    let settings = use_settings();
+
+    let toggle = move |_| {
+        let current = ui_profile.get_untracked();
+        let next = match current {
+            UiProfile::Primary => UiProfile::Full,
+            UiProfile::Full => UiProfile::Primary,
+        };
+        update_setting(settings, |s| {
+            s.ui_profile = Some(next);
+        });
+    };
+
+    let label = move || match ui_profile.try_get().unwrap_or(UiProfile::Primary) {
+        UiProfile::Primary => "Primary",
+        UiProfile::Full => "Full",
+    };
+
+    let title = move || match ui_profile.try_get().unwrap_or(UiProfile::Primary) {
+        UiProfile::Primary => "Primary profile \u{2014} click to switch to Full",
+        UiProfile::Full => "Full profile \u{2014} click to switch to Primary",
+    };
+
+    view! {
+        <div class="sidebar-footer">
+            <button
+                class="sidebar-profile-toggle"
+                on:click=toggle
+                title=title
+            >
+                // Swap icon
+                <svg class="sidebar-icon" width="16" height="16" viewBox="0 0 24 24"
+                    fill="none" stroke="currentColor" stroke-width="2"
+                    stroke-linecap="round" stroke-linejoin="round"
+                >
+                    <path d="M16 3h5v5M4 20L21 3M21 16v5h-5M15 15l6 6M4 4l5 5"/>
+                </svg>
+                <Show when=move || is_expanded.try_get().unwrap_or(false)>
+                    <span class="sidebar-label">{label}</span>
+                </Show>
+            </button>
+        </div>
     }
 }
