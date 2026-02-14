@@ -1,7 +1,7 @@
 {
   "schema": "adapteros.manifest.v3",
   "base": {
-    "model_id": "Qwen2.5-7B-Instruct-4bit-MLX",
+    "model_id": "Qwen2.5-7B-Instruct-4bit",
     "model_hash": "53227c71512c207e0fa10c8aee0f36116fcd7637d31949c41e694d74284b1a29",
     "arch": "qwen2",
     "vocab_size": 152064,
@@ -19,7 +19,7 @@
   "coreml": null,
   "fusion": null,
   "router": {
-    "k_sparse": 0,
+    "k_sparse": 1,
     "gate_quant": "q15",
     "entropy_floor": 0.02,
     "tau": 1.0,
