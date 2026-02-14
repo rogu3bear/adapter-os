@@ -1151,7 +1151,7 @@ fn SessionListItem(
     view! {
         <div
             class=move || format!(
-                "group flex items-start gap-2 p-3 transition-colors {}",
+                "group flex items-start gap-2 py-2 px-3 transition-colors {}",
                 if selected.try_get().unwrap_or(false) {
                     "bg-primary/10 border-l-2 border-l-primary"
                 } else {
@@ -1182,7 +1182,7 @@ fn SessionListItem(
                     {if !session_preview.is_empty() {
                         let preview = session_preview.clone();
                         Some(view! {
-                            <p class="text-xs text-muted-foreground mt-0.5 line-clamp-2">
+                            <p class="text-xs text-muted-foreground mt-0.5 line-clamp-1">
                                 {preview}
                             </p>
                         })
@@ -1214,7 +1214,7 @@ fn SessionListItem(
                 </div>
             </a>
 
-            <div class="flex items-center gap-1 opacity-100 md:opacity-0 md:group-hover:opacity-100 transition-all shrink-0">
+            <div class="flex items-center gap-1 shrink-0">
                 {archive_action.map(|archive| view! {
                     <button
                         class="p-1 rounded hover:bg-primary/10 text-muted-foreground hover:text-primary transition-colors"
