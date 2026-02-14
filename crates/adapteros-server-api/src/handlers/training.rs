@@ -1576,7 +1576,55 @@ pub async fn create_training_job(
 
     // Resolve dataset version (default to latest)
     let dataset_version_id = match req.dataset_version_id {
-        Some(id) => id,
+        Some(version_id) => {
+            let version_id = crate::id_resolver::resolve_any_id(&state.db, &version_id)
+                .await
+                .map_err(|e| {
+                    (
+                        StatusCode::BAD_REQUEST,
+                        Json(
+                            ErrorResponse::new("invalid dataset_version_id")
+                                .with_code("DATASET_ERROR")
+                                .with_string_details(e.to_string()),
+                        ),
+                    )
+                })?;
+            let version = state
+                .db
+                .get_training_dataset_version_for_tenant(&version_id, &claims.tenant_id)
+                .await
+                .map_err(|e| {
+                    (
+                        StatusCode::FORBIDDEN,
+                        Json(
+                            ErrorResponse::new("dataset version access denied")
+                                .with_code("TENANT_ISOLATION_ERROR")
+                                .with_string_details(e.to_string()),
+                        ),
+                    )
+                })?
+                .ok_or_else(|| {
+                    (
+                        StatusCode::NOT_FOUND,
+                        Json(
+                            ErrorResponse::new("dataset version not found")
+                                .with_code("DATASET_VERSION_NOT_FOUND"),
+                        ),
+                    )
+                })?;
+
+            if version.dataset_id != dataset.id {
+                return Err((
+                    StatusCode::BAD_REQUEST,
+                    Json(
+                        ErrorResponse::new("dataset_version_id does not belong to dataset_id")
+                            .with_code("DATASET_ERROR"),
+                    ),
+                ));
+            }
+
+            version_id
+        }
         None => state
             .db
             .ensure_dataset_version_exists(&dataset_id)
