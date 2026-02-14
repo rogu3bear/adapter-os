@@ -3,6 +3,7 @@
 //! Thin top bar with branding, command palette hint, and user menu.
 //! Responsive: collapses to hamburger menu on mobile viewports.
 
+use crate::api::report_error_with_toast;
 use crate::components::glass_toggle::GlassThemeToggle;
 use crate::components::global_search::GlobalSearchBox;
 use crate::components::layout::nav_registry::build_mobile_nav_items;
@@ -11,7 +12,8 @@ use crate::components::status::{Badge, BadgeVariant};
 use crate::components::status_center::use_status_center;
 use crate::constants::urls::docs_url;
 use crate::signals::{
-    use_auth, use_notification_state, use_search, use_ui_profile, use_ui_profile_state,
+    use_auth, use_notification_state, use_notifications, use_refetch, use_search, use_ui_profile,
+    use_ui_profile_state,
 };
 use leptos::prelude::*;
 use wasm_bindgen::prelude::*;
@@ -197,6 +199,9 @@ pub fn TopBar() -> impl IntoView {
                 }}
                 // Error history button with unread badge
                 <ErrorHistoryButton />
+
+                // Tenant picker (multi-tenant users only)
+                <TenantPicker />
 
                 // Glass theme toggle (PRD-UI-100) - secondary action, hidden on mobile
                 <div class="topbar-action-secondary">
@@ -436,6 +441,106 @@ fn MobileMenu(
                 </div>
             </nav>
         </div>
+    }
+}
+
+/// Tenant picker for users with access to multiple tenants.
+///
+/// Shows a dropdown select when `admin_tenants.len() > 1`. On selection change,
+/// POSTs to the tenant switch endpoint, refreshes auth state, and triggers
+/// a global refetch so all tenant-scoped data reloads.
+#[component]
+fn TenantPicker() -> impl IntoView {
+    let (auth_state, auth_action) = use_auth();
+    let notifications = use_notifications();
+    let refetch = use_refetch();
+    let auth_action_stored = StoredValue::new(auth_action);
+    let notifications_stored = StoredValue::new(notifications);
+    let refetch_stored = StoredValue::new(refetch);
+    let (switching, set_switching) = signal(false);
+
+    // Extract tenant info reactively
+    let tenants = Signal::derive(move || {
+        auth_state
+            .get()
+            .user()
+            .map(|u| (u.tenant_id.clone(), u.admin_tenants.clone()))
+    });
+
+    let on_change = move |ev: web_sys::Event| {
+        let target = ev
+            .target()
+            .and_then(|t| t.dyn_into::<web_sys::HtmlSelectElement>().ok());
+        let selected = match target {
+            Some(el) => el.value(),
+            None => return,
+        };
+
+        // Skip if already on this tenant
+        if tenants
+            .get()
+            .map(|(current, _)| current == selected)
+            .unwrap_or(true)
+        {
+            return;
+        }
+
+        set_switching.set(true);
+        let selected_id = selected.clone();
+
+        auth_action_stored.with_value(|action| {
+            let action = action.clone();
+            wasm_bindgen_futures::spawn_local(async move {
+                match action.switch_tenant(&selected_id).await {
+                    Ok(()) => {
+                        notifications_stored.with_value(|n| {
+                            n.success("Tenant switched", &format!("Now using {}", selected_id));
+                        });
+                        refetch_stored.with_value(|r| r.all());
+                    }
+                    Err(e) => {
+                        report_error_with_toast(&e, "Failed to switch tenant", None, true);
+                    }
+                }
+                set_switching.set(false);
+            });
+        });
+    };
+
+    view! {
+        {move || {
+            let info = tenants.get();
+            match info {
+                Some((current, admin_tenants)) if admin_tenants.len() > 1 => {
+                    let options = admin_tenants
+                        .iter()
+                        .map(|t| {
+                            let selected = t == &current;
+                            let val = t.clone();
+                            let label = t.clone();
+                            view! {
+                                <option value=val selected=selected>{label}</option>
+                            }
+                        })
+                        .collect::<Vec<_>>();
+
+                    Some(view! {
+                        <div class="topbar-action-secondary flex items-center">
+                            <select
+                                class="tenant-picker text-xs bg-transparent border border-border/50 rounded px-2 py-1 text-foreground cursor-pointer hover:bg-muted/50 transition-colors focus:outline-none focus:ring-1 focus:ring-primary/50"
+                                on:change=on_change
+                                disabled=move || switching.get()
+                                aria-label="Switch tenant"
+                                title="Switch workspace"
+                            >
+                                {options}
+                            </select>
+                        </div>
+                    })
+                }
+                _ => None,
+            }
+        }}
     }
 }
 

@@ -17,16 +17,14 @@ use crate::components::{
     Spinner,
 };
 use crate::hooks::{use_api_resource, use_polling, use_sse_notifications, LoadingState};
-use crate::pages::workers::dialogs::{PlanOption, SpawnWorkerDialog};
 use adapteros_api_types::{
-    workers::WorkerStatusUpdate, HealthResponse, SpawnWorkerRequest, SystemStateResponse,
-    WorkerResponse,
+    workers::WorkerStatusUpdate, HealthResponse, SystemStateResponse, WorkerResponse,
 };
 use leptos::prelude::*;
 use std::collections::HashMap;
 use std::sync::Arc;
 
-use crate::components::{IconPlus, IconRefresh};
+use crate::components::IconRefresh;
 use components::{SseIndicator, SystemContent};
 
 /// SSE event wrapper for worker updates from /v1/stream/workers
@@ -89,15 +87,6 @@ pub fn System() -> impl IntoView {
             .get::<SystemStateResponse>("/v1/system/state?include_adapters=false&top_adapters=10")
             .await
     });
-
-    // Fetch plans for spawn form
-    let (plans, _refetch_plans) = use_api_resource(|client: Arc<ApiClient>| async move {
-        client.get::<Vec<PlanOption>>("/v1/plans").await
-    });
-
-    // Spawn dialog state
-    let show_spawn_dialog = RwSignal::new(false);
-    let spawn_error = RwSignal::new(Option::<String>::None);
 
     // Real-time worker status updates via SSE
     // Maps worker_id -> (status, timestamp) for incremental updates
@@ -215,29 +204,7 @@ pub fn System() -> impl IntoView {
                     <IconRefresh/>
                     "Refresh"
                 </Button>
-                <Button
-                    variant=ButtonVariant::Primary
-                    on_click=Callback::new(move |_| show_spawn_dialog.set(true))
-                >
-                    <IconPlus/>
-                    "Spawn Worker"
-                </Button>
             </PageScaffoldActions>
-
-                // Error banner for spawn errors
-                {move || spawn_error.get().map(|e| view! {
-                    <div class="rounded-lg border border-destructive bg-destructive/10 p-4">
-                        <div class="flex items-center justify-between">
-                            <p class="text-destructive font-medium">{e}</p>
-                            <button
-                                class="text-destructive hover:text-destructive/80"
-                                on:click=move |_| spawn_error.set(None)
-                            >
-                                "×"
-                            </button>
-                        </div>
-                    </div>
-                })}
 
                 // Main content
                 {move || {
@@ -306,41 +273,6 @@ pub fn System() -> impl IntoView {
                     }
                 }}
 
-                // Spawn worker dialog
-                {move || {
-                    let nodes_list = match nodes.get() {
-                        LoadingState::Loaded(n) => n,
-                        _ => Vec::new(),
-                    };
-                    let plans_list = match plans.get() {
-                        LoadingState::Loaded(p) => p,
-                        _ => Vec::new(),
-                    };
-                    view! {
-                        <SpawnWorkerDialog
-                            open=show_spawn_dialog
-                            nodes=nodes_list
-                            plans=plans_list
-                            on_spawn=Callback::new({
-                                move |request: SpawnWorkerRequest| {
-                                    show_spawn_dialog.set(false);
-                                    let client = ApiClient::new();
-                                    wasm_bindgen_futures::spawn_local(async move {
-                                        match client.spawn_worker(&request).await {
-                                            Ok(_) => {
-                                                spawn_error.set(None);
-                                                refetch_workers.run(());
-                                            }
-                                            Err(e) => {
-                                                spawn_error.set(Some(format!("Failed to spawn worker: {}", e)));
-                                            }
-                                        }
-                                    });
-                                }
-                            })
-                        />
-                    }
-                }}
         </PageScaffold>
     }
 }

@@ -15,7 +15,7 @@ use crate::hooks::{
     use_api, use_api_resource, use_conditional_polling, use_delete_dialog, LoadingState,
 };
 use crate::signals::{try_use_route_context, SelectedEntity};
-use crate::utils::format_bytes;
+use crate::utils::{format_bytes, format_datetime, format_relative_time};
 use leptos::prelude::*;
 use leptos_router::hooks::{use_navigate, use_params_map};
 use serde::Deserialize;
@@ -468,7 +468,7 @@ fn DocumentsList(
                             let size = format_bytes(doc.size_bytes);
                             let chunks = doc.chunk_count.map(|c| c.to_string()).unwrap_or_else(|| "-".to_string());
                             let mime = doc.mime_type.clone();
-                            let created = doc.created_at.clone();
+                            let created = format_relative_time(&doc.created_at);
                             let error = doc.error_message.clone();
                             let delete_state = delete_state_for_rows.clone();
                             let client = Arc::clone(&client);
@@ -1435,19 +1435,19 @@ fn DocumentDetailContent(
             <div class="grid gap-4 md:grid-cols-4">
                 <div>
                     <p class="text-sm text-muted-foreground">"Created At"</p>
-                    <p class="font-medium">{document.created_at.clone()}</p>
+                    <p class="font-medium">{format_datetime(&document.created_at)}</p>
                 </div>
                 <div>
                     <p class="text-sm text-muted-foreground">"Updated At"</p>
-                    <p class="font-medium">{document.updated_at.clone().unwrap_or_else(|| "-".to_string())}</p>
+                    <p class="font-medium">{document.updated_at.as_deref().map(|t| format_datetime(t)).unwrap_or_else(|| "-".to_string())}</p>
                 </div>
                 <div>
                     <p class="text-sm text-muted-foreground">"Processing Started"</p>
-                    <p class="font-medium">{document.processing_started_at.clone().unwrap_or_else(|| "-".to_string())}</p>
+                    <p class="font-medium">{document.processing_started_at.as_deref().map(|t| format_datetime(t)).unwrap_or_else(|| "-".to_string())}</p>
                 </div>
                 <div>
                     <p class="text-sm text-muted-foreground">"Processing Completed"</p>
-                    <p class="font-medium">{document.processing_completed_at.clone().unwrap_or_else(|| "-".to_string())}</p>
+                    <p class="font-medium">{document.processing_completed_at.as_deref().map(|t| format_datetime(t)).unwrap_or_else(|| "-".to_string())}</p>
                 </div>
             </div>
         </Card>

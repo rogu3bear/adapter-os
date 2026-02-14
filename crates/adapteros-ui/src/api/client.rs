@@ -505,7 +505,7 @@ impl ApiClient {
 
     /// Get worker details
     pub async fn get_worker(&self, id: &str) -> ApiResult<adapteros_api_types::WorkerResponse> {
-        self.get(&format!("/v1/workers/{}", id)).await
+        self.get(&format!("/v1/workers/{}/detail", id)).await
     }
 
     /// Spawn a new worker
@@ -529,6 +529,14 @@ impl ApiClient {
     }
 
     /// Get worker metrics
+    ///
+    /// TODO: Backend has no `/v1/workers/{id}/metrics` route. This will 404.
+    /// Callers (WorkerDetailPanel, WorkerDetailView) gracefully degrade to
+    /// None when the fetch errors, so no visible breakage occurs. When a
+    /// dedicated metrics endpoint is added on the backend, update this path.
+    /// The worker detail endpoint (`/v1/workers/{id}/detail`) returns a
+    /// `WorkerDetailResponse` with `resource_usage` that could be used as a
+    /// fallback data source.
     pub async fn get_worker_metrics(&self, id: &str) -> ApiResult<WorkerMetricsResponse> {
         self.get(&format!("/v1/workers/{}/metrics", id)).await
     }
@@ -686,6 +694,12 @@ impl ApiClient {
     /// Unload a model from memory
     pub async fn unload_model(&self, id: &str) -> ApiResult<ModelStatusResponse> {
         self.post_empty(&format!("/v1/models/{}/unload", id)).await
+    }
+
+    /// Validate a model (check files, tokenizer, etc.)
+    pub async fn validate_model(&self, id: &str) -> ApiResult<serde_json::Value> {
+        self.post_empty(&format!("/v1/models/{}/validate", id))
+            .await
     }
 
     // --- Stacks ---

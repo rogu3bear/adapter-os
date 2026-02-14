@@ -882,7 +882,10 @@ pub fn LogViewer(job_id: String) -> impl IntoView {
             {move || {
                 if loading.try_get().unwrap_or(true) {
                     view! {
-                        <div class="text-muted-foreground">"Loading logs..."</div>
+                        <div class="flex items-center gap-2 text-muted-foreground">
+                            <crate::components::Spinner />
+                            <span>"Loading logs\u{2026}"</span>
+                        </div>
                     }.into_any()
                 } else if let Some(err) = error.try_get().flatten() {
                     view! {
@@ -956,8 +959,9 @@ pub fn MetricsChart(job_id: String) -> impl IntoView {
             {move || {
                 if loading.try_get().unwrap_or(true) {
                     view! {
-                        <div class="h-32 flex items-center justify-center text-muted-foreground">
-                            "Loading metrics..."
+                        <div class="h-32 flex items-center justify-center text-muted-foreground gap-2">
+                            <crate::components::Spinner />
+                            <span>"Loading metrics\u{2026}"</span>
                         </div>
                     }.into_any()
                 } else if let Some(err) = error.try_get().flatten() {

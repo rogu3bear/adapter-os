@@ -13,6 +13,7 @@ use crate::components::{
 use crate::hooks::{use_api_resource, use_sse_notifications, LoadingState};
 use crate::pages::workers::is_terminal_worker_status;
 use crate::signals::use_auth;
+use crate::utils::format_relative_time;
 use adapteros_api_types::{
     InferenceReadyState, StatusIndicator as ApiStatusIndicator, SystemMetricsResponse,
     SystemStatusResponse, WorkerResponse,
@@ -445,7 +446,7 @@ fn DashboardContent(
                             pulsing=is_ready
                             label=if is_ready { "Ready".to_string() } else { "Not Ready".to_string() }
                         />
-                        <p class="text-xs text-muted-foreground mt-1">{status.timestamp.clone()}</p>
+                        <p class="text-xs text-muted-foreground mt-1">{format_relative_time(&status.timestamp)}</p>
                     </div>
                 </div>
             </Card>
@@ -590,6 +591,11 @@ fn DashboardContent(
                             </div>
                         }.into_any()
                     }}
+                    <div class="mt-3 pt-3 border-t border-border">
+                        <a href="/workers" class="text-xs text-muted-foreground hover:text-foreground transition-colors">
+                            "View all workers \u{2192}"
+                        </a>
+                    </div>
                 </Card>
 
                 // Activity feed
@@ -604,7 +610,10 @@ fn DashboardContent(
                         }
                         match activity.try_get().unwrap_or(LoadingState::Loading) {
                             LoadingState::Idle | LoadingState::Loading => view! {
-                                <div class="text-sm text-muted-foreground">"Loading activity..."</div>
+                                <div class="flex items-center gap-2 py-4 justify-center text-muted-foreground">
+                                    <Spinner/>
+                                    <span class="text-sm">"Loading activity\u{2026}"</span>
+                                </div>
                             }.into_any(),
                             LoadingState::Error(_) => view! {
                                 <div class="text-sm text-muted-foreground">"Activity unavailable."</div>
@@ -634,7 +643,7 @@ fn DashboardContent(
                                                             <div class="text-sm font-medium">{event.event_type}</div>
                                                             <div class="text-xs text-muted-foreground">{target}</div>
                                                         </div>
-                                                        <div class="text-xs text-muted-foreground">{when}</div>
+                                                        <div class="text-xs text-muted-foreground">{format_relative_time(&when)}</div>
                                                     </a>
                                                 }
                                             }).collect::<Vec<_>>()}
@@ -756,17 +765,19 @@ fn SloPerformanceSection(
                     warn=false
                 />
 
-                // Models (from system status)
-                <SloMetric
-                    label="Models"
-                    value=match (models_loaded, models_total) {
-                        (Some(l), Some(t)) => Some(format!("{}/{}", l, t)),
-                        (Some(l), None) => Some(format!("{} loaded", l)),
-                        (None, Some(t)) => Some(format!("{} total", t)),
-                        (None, None) => None,
-                    }
-                    warn=false
-                />
+                // Models (from system status) - clickable link to /models
+                <a href="/models" class="no-underline text-inherit" title="View models">
+                    <SloMetric
+                        label="Models"
+                        value=match (models_loaded, models_total) {
+                            (Some(l), Some(t)) => Some(format!("{}/{}", l, t)),
+                            (Some(l), None) => Some(format!("{} loaded", l)),
+                            (None, Some(t)) => Some(format!("{} total", t)),
+                            (None, None) => None,
+                        }
+                        warn=false
+                    />
+                </a>
 
                 // Memory pressure (from system status)
                 <SloMetric
@@ -924,7 +935,10 @@ fn LiveMetricsSection(
                             </div>
                         }.into_any(),
                         None => view! {
-                            <div class="h-20"></div>
+                            <div class="flex items-center justify-center py-6 text-muted-foreground gap-2">
+                                <Spinner/>
+                                <span class="text-sm">"Connecting to metrics stream\u{2026}"</span>
+                            </div>
                         }.into_any(),
                     }
                 }}
