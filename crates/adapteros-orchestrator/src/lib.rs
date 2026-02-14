@@ -8,9 +8,12 @@ use std::time::Duration;
 
 pub mod anchor;
 pub mod behavior_training;
+pub mod code_context;
 pub mod code_ingestion;
 pub mod code_jobs;
+pub mod code_training_gen;
 pub mod codebase_ingestion;
+pub mod codegen_eval;
 pub mod dataset_cleanup;
 pub mod federation_daemon;
 pub mod gates;
@@ -28,12 +31,25 @@ pub use behavior_training::{
     BehaviorCategory, BehaviorDataset, BehaviorExample, BehaviorInput, BehaviorMetadata,
     BehaviorTarget, BehaviorTrainingGenerator, DatasetConfig, ExportFilter, SyntheticConfig,
 };
+pub use code_context::{
+    build_rag_enriched_prompt, CodeContext, CodeContextConfig, CodeContextRetriever,
+    ContextCitation, FunctionSnippet, TestSnippet, TokenBudget, TypeSnippet,
+};
 pub use code_ingestion::{
     normalize_repo_id, normalize_repo_slug, CodeDatasetConfig, CodeIngestionPipeline,
     CodeIngestionRequest, CodeIngestionResult, CodeIngestionSource,
 };
 pub use code_jobs::{CodeJobManager, CommitDeltaJob, ScanRepositoryJob, UpdateIndicesJob};
+pub use code_training_gen::{
+    CodeTrainingGenConfig, CodeTrainingGenStats, CodeTrainingGenerator, CodeTrainingPair,
+    CodeTrainingStrategy,
+};
 pub use codebase_ingestion::{CodebaseIngestion, IngestionConfig, IngestionResult};
+pub use codegen_eval::{
+    assign_split, normalized_edit_distance, split_dataset, token_overlap, CodeGenQualityReport,
+    CompilationChecker, CompilationCheckerConfig, CompilationResult, DatasetSplit, EvalSample,
+    QualityGateThresholds, QualityReportBuilder, StrategyMetrics,
+};
 pub use dataset_cleanup::{
     CleanupConfig, CleanupResult, DatasetCleanupManager, StorageHealthReport, StorageQuotaStatus,
 };

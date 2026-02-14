@@ -1596,7 +1596,7 @@ pub(crate) async fn run_training_job(
                     return Ok(());
                 }
 
-                // Package and register adapter
+                // Package and register adapter.
                 if let Err(err) = package_and_register_adapter(
                     jobs_ref.clone(),
                     &job_id,
