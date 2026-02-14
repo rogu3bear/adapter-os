@@ -212,7 +212,6 @@ pub enum TrainingStatus {
     Completed,
     Failed,
     Cancelled,
-    Paused,
 }
 
 impl TrainingStatus {
@@ -223,7 +222,6 @@ impl TrainingStatus {
             TrainingStatus::Completed => "completed",
             TrainingStatus::Failed => "failed",
             TrainingStatus::Cancelled => "cancelled",
-            TrainingStatus::Paused => "paused",
         }
     }
 
@@ -242,7 +240,6 @@ impl TrainingStatus {
     /// - `"completed"` -> `Completed`
     /// - `"failed"` -> `Failed`
     /// - `"cancelled"` -> `Cancelled`
-    /// - `"paused"` -> `Paused`
     ///
     /// Case is normalized (lowercase comparison).
     pub fn from_db_string(value: &str) -> Result<Self, String> {
@@ -252,9 +249,8 @@ impl TrainingStatus {
             "completed" => Ok(Self::Completed),
             "failed" => Ok(Self::Failed),
             "cancelled" => Ok(Self::Cancelled),
-            "paused" => Ok(Self::Paused),
             _ => Err(format!(
-                "Unknown TrainingStatus value: '{}'. Valid values: pending, running, completed, failed, cancelled, paused",
+                "Unknown TrainingStatus value: '{}'. Valid values: pending, running, completed, failed, cancelled",
                 value
             )),
         }
@@ -293,8 +289,8 @@ impl TrustState {
     pub fn from_db_string(value: &str) -> Self {
         match value.to_ascii_lowercase().as_str() {
             "allowed" => Self::Allowed,
-            "allowed_with_warning" => Self::AllowedWithWarning,
-            "blocked" => Self::Blocked,
+            "allowed_with_warning" | "warn" => Self::AllowedWithWarning,
+            "blocked" | "blocked_regressed" => Self::Blocked,
             "needs_approval" => Self::NeedsApproval,
             _ => Self::Unknown,
         }
@@ -489,6 +485,15 @@ pub struct TrainingConfigRequest {
     /// Layer indices for LoRA injection (e.g., [0, 8, 16, 24, 31]).
     #[serde(default, skip_serializing_if = "Option::is_none")]
     pub lora_layer_indices: Option<Vec<usize>>,
+    /// Enable early stopping when validation loss stops improving.
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub early_stopping: Option<bool>,
+    /// Number of epochs without improvement before stopping (requires early_stopping).
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub patience: Option<u32>,
+    /// Minimum loss change to qualify as an improvement (requires early_stopping).
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub min_delta: Option<f32>,
 }
 
 /// Create training job request (WASM-compatible)
@@ -966,6 +971,9 @@ pub struct TrainingJobResponse {
     pub data_spec: Option<String>,
     #[serde(skip_serializing_if = "Option::is_none")]
     pub hyperparameters: Option<String>,
+    /// Stack ID for adapter stack association
+    #[serde(skip_serializing_if = "Option::is_none")]
+    pub stack_id: Option<String>,
     /// Human-readable display name derived from the job's typed ID word alias.
     /// Example: "job-swift-moon". Populated when the ID uses the TypedId format.
     #[serde(skip_serializing_if = "Option::is_none")]
@@ -1186,6 +1194,7 @@ impl From<TrainingJob> for TrainingJobResponse {
             signature_status: job.signature_status,
             metrics_snapshot_id: None,
             hyperparameters: None,
+            stack_id: job.stack_id,
             display_name,
         }
     }
@@ -1329,9 +1338,9 @@ impl From<TrainingConfigRequest> for TrainingConfig {
             weight_group_config: None,
             lr_schedule: Some("cosine".to_string()),
             final_lr: Some(req.learning_rate * 0.1),
-            early_stopping: Some(false),
-            patience: Some(5),
-            min_delta: Some(0.001),
+            early_stopping: req.early_stopping,
+            patience: req.patience.or(Some(5)),
+            min_delta: req.min_delta.or(Some(0.001)),
             checkpoint_frequency: Some(5),
             max_checkpoints: Some(3),
             preferred_backend: req.preferred_backend,
@@ -1345,8 +1354,8 @@ impl From<TrainingConfigRequest> for TrainingConfig {
             validation_split: req.validation_split,
             preprocessing: req.preprocessing,
             force_resume: req.force_resume.unwrap_or(false),
-            multi_module_training: false,
-            lora_layer_indices: Vec::new(),
+            multi_module_training: req.multi_module_training.unwrap_or(false),
+            lora_layer_indices: req.lora_layer_indices.clone().unwrap_or_default(),
         }
     }
 }
