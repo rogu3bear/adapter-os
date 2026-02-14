@@ -1,6 +1,7 @@
 use std::path::Path;
 use std::time::Duration;
 
+use adapteros_core::B3Hash;
 use adapteros_db::sqlx;
 use adapteros_orchestrator::TrainingService;
 use adapteros_types::training::{DataLineageMode, TrainingConfig, TrainingJobStatus};
@@ -39,16 +40,24 @@ async fn training_pipeline_produces_registered_aos() {
         .await
         .unwrap();
     // Seed a base model in the models table to satisfy FK (minimal placeholder hashes)
-    sqlx::query("INSERT INTO models (id, name, hash_b3, config_hash_b3, tokenizer_hash_b3, tokenizer_cfg_hash_b3, license_hash_b3, license_text, model_card_hash_b3, tenant_id) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?)")
+    let base_model_dir = temp_dir.path().join("base-model");
+    std::fs::create_dir_all(&base_model_dir).unwrap();
+    let tokenizer_path = base_model_dir.join("tokenizer.json");
+    std::fs::write(&tokenizer_path, b"{\"model\":{}}").unwrap();
+    let tokenizer_hash_b3 = B3Hash::hash_file(&tokenizer_path)
+        .unwrap()
+        .to_hex();
+    sqlx::query("INSERT INTO models (id, name, hash_b3, config_hash_b3, tokenizer_hash_b3, tokenizer_cfg_hash_b3, license_hash_b3, license_text, model_card_hash_b3, model_path, tenant_id) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)")
         .bind("qwen2.5-7b") // id must match base_model_id supplied to training_service
         .bind("qwen2.5-7b")
         .bind("00")
         .bind("00")
-        .bind("00")
+        .bind(tokenizer_hash_b3.as_str())
         .bind("00")
         .bind("00")
         .bind("placeholder")
         .bind("placeholder-card")
+        .bind(base_model_dir.to_string_lossy().to_string())
         .bind("system")
         .execute(db.pool())
         .await
@@ -150,46 +159,43 @@ async fn training_pipeline_produces_registered_aos() {
     );
     let completed_job = completed_job.expect("completed job should be available");
 
-    let persisted_repo_id: String = sqlx::query_scalar(
-        "SELECT repo_id FROM repository_training_jobs WHERE id = ?",
-    )
-    .bind(&job.id)
-    .fetch_one(db.pool())
-    .await
-    .expect("training job should be persisted in repository_training_jobs");
+    let persisted_repo_id: String =
+        sqlx::query_scalar("SELECT repo_id FROM repository_training_jobs WHERE id = ?")
+            .bind(&job.id)
+            .fetch_one(db.pool())
+            .await
+            .expect("training job should be persisted in repository_training_jobs");
     assert_eq!(
-        persisted_repo_id,
-        "direct-training",
+        persisted_repo_id, "direct-training",
         "direct-training jobs must persist with synthetic repo id"
     );
 
-    let direct_repo_count: i64 = sqlx::query_scalar(
-        "SELECT COUNT(1) FROM git_repositories WHERE repo_id = ?",
-    )
-    .bind("direct-training")
-    .fetch_one(db.pool())
-    .await
-    .expect("direct-training synthetic repo should exist");
+    let direct_repo_count: i64 =
+        sqlx::query_scalar("SELECT COUNT(1) FROM git_repositories WHERE repo_id = ?")
+            .bind("direct-training")
+            .fetch_one(db.pool())
+            .await
+            .expect("direct-training synthetic repo should exist");
     assert_eq!(
-        direct_repo_count,
-        1,
+        direct_repo_count, 1,
         "direct-training synthetic repo should be ensured exactly once per DB"
     );
 
-    let artifact_stored_path: Option<String> = sqlx::query_scalar(
-        "SELECT stored_path FROM artifacts WHERE hash_b3 = ?",
-    )
-    .bind(
-        completed_job
-            .weights_hash_b3
-            .as_deref()
-            .expect("completed job should have weights_hash_b3"),
-    )
-    .fetch_optional(db.pool())
-    .await
-    .expect("artifact query should succeed");
+    let artifact_stored_path: Option<String> =
+        sqlx::query_scalar("SELECT stored_path FROM artifacts WHERE hash_b3 = ?")
+            .bind(
+                completed_job
+                    .weights_hash_b3
+                    .as_deref()
+                    .expect("completed job should have weights_hash_b3"),
+            )
+            .fetch_optional(db.pool())
+            .await
+            .expect("artifact query should succeed");
     assert!(
-        artifact_stored_path.as_deref().is_some_and(|path| !path.trim().is_empty()),
+        artifact_stored_path
+            .as_deref()
+            .is_some_and(|path| !path.trim().is_empty()),
         "artifact row should include stored_path"
     );
 
