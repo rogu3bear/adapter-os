@@ -3,12 +3,11 @@ use std::collections::HashSet;
 
 use super::trainer::{LoRAWeights, TrainingConfig};
 
-pub const LOSS_IGNORE_INDEX: i32 = 0;
+pub const LOSS_IGNORE_INDEX: i32 = -100;
 
 #[derive(Debug, Clone, Copy, PartialEq, Eq)]
 pub enum LossKind {
     CrossEntropy,
-    LegacyMse,
 }
 
 #[derive(Debug, Clone, Copy, PartialEq, Eq)]
@@ -19,7 +18,6 @@ pub enum LossNormalization {
 #[derive(Debug, Clone, Copy, PartialEq, Eq)]
 pub enum LossLogitsSource {
     HiddenPlusLoraProjection,
-    HiddenPlusLora,
 }
 
 #[derive(Debug, Clone, PartialEq, Eq)]
@@ -34,11 +32,9 @@ impl LossSpec {
     pub fn summary(&self) -> String {
         let kind = match self.kind {
             LossKind::CrossEntropy => "cross_entropy",
-            LossKind::LegacyMse => "legacy_mse",
         };
         let logits = match self.logits_source {
             LossLogitsSource::HiddenPlusLoraProjection => "hidden_plus_lora@lm_head",
-            LossLogitsSource::HiddenPlusLora => "hidden_plus_lora",
         };
         format!(
             "loss={} normalization=mean_tokens ignore_index={} logits={}",
@@ -93,19 +89,6 @@ pub fn training_loss_spec(ignore_index: i32) -> LossSpec {
 
 pub fn validation_loss_spec(ignore_index: i32) -> LossSpec {
     training_loss_spec(ignore_index)
-}
-
-pub fn legacy_training_loss_spec(ignore_index: i32) -> LossSpec {
-    LossSpec {
-        kind: LossKind::LegacyMse,
-        normalization: LossNormalization::MeanTokens,
-        ignore_index,
-        logits_source: LossLogitsSource::HiddenPlusLora,
-    }
-}
-
-pub fn legacy_validation_loss_spec(ignore_index: i32) -> LossSpec {
-    legacy_training_loss_spec(ignore_index)
 }
 
 fn audit_targets(targets: &[u32], spec: &LossSpec) -> (usize, usize, Vec<String>) {
@@ -203,10 +186,11 @@ pub fn compute_validation_loss_with_output_proj(
         ));
     }
 
+    let ignore_index = config.ignore_index;
     let logits = build_logits(config, weights, hidden, output_proj)?;
     let targets_i32: Vec<i32> = targets.iter().map(|&t| t as i32).collect();
     let targets_tensor = MLXFFITensor::from_ints(&targets_i32, vec![1, targets.len()])?;
-    let loss_tensor = mlx_cross_entropy_loss_gpu(&logits, &targets_tensor, LOSS_IGNORE_INDEX)?;
+    let loss_tensor = mlx_cross_entropy_loss_gpu(&logits, &targets_tensor, ignore_index)?;
     let loss_vec = loss_tensor.to_float_vec()?;
     let loss = loss_vec
         .first()
@@ -215,7 +199,7 @@ pub fn compute_validation_loss_with_output_proj(
 
     Ok(build_loss_report(
         loss,
-        validation_loss_spec(LOSS_IGNORE_INDEX),
+        validation_loss_spec(ignore_index),
         targets,
     ))
 }
@@ -276,9 +260,22 @@ mod tests {
     }
 
     #[test]
-    fn audit_targets_reports_ignore_index() {
+    fn negative_ignore_index_skips_masking() {
+        // With LOSS_IGNORE_INDEX = -100, no u32 token can match, so no masking occurs
         let spec = training_loss_spec(LOSS_IGNORE_INDEX);
-        let targets = vec![1, LOSS_IGNORE_INDEX as u32, 2, LOSS_IGNORE_INDEX as u32];
+        let targets = vec![0, 1, 2, 3];
+        let report = build_loss_report(0.5, spec, &targets);
+        assert_eq!(report.masked_tokens, 0);
+        assert_eq!(report.valid_tokens, 4);
+        assert!(report.warnings.is_empty());
+    }
+
+    #[test]
+    fn audit_targets_reports_ignore_index() {
+        // Use a positive ignore_index to exercise the masking path
+        let pad_token: i32 = 0;
+        let spec = training_loss_spec(pad_token);
+        let targets = vec![1, pad_token as u32, 2, pad_token as u32];
         let report = build_loss_report(0.5, spec, &targets);
         assert_eq!(report.masked_tokens, 2);
         assert_eq!(report.valid_tokens, 2);
@@ -287,8 +284,9 @@ mod tests {
 
     #[test]
     fn audit_targets_reports_all_masked() {
-        let spec = training_loss_spec(LOSS_IGNORE_INDEX);
-        let targets = vec![LOSS_IGNORE_INDEX as u32, LOSS_IGNORE_INDEX as u32];
+        let pad_token: i32 = 0;
+        let spec = training_loss_spec(pad_token);
+        let targets = vec![pad_token as u32, pad_token as u32];
         let report = build_loss_report(0.5, spec, &targets);
         assert_eq!(report.valid_tokens, 0);
         assert!(report
@@ -299,9 +297,11 @@ mod tests {
 
     #[test]
     fn reference_loss_respects_ignore_index() {
+        // Use a positive ignore_index to exercise the masking path
+        let pad_token: i32 = 0;
         let logits = vec![vec![0.0, 0.0], vec![0.0, 0.0]];
-        let targets = vec![LOSS_IGNORE_INDEX as u32, 1];
-        let loss = reference_cross_entropy_loss(&logits, &targets, LOSS_IGNORE_INDEX);
+        let targets = vec![pad_token as u32, 1];
+        let loss = reference_cross_entropy_loss(&logits, &targets, pad_token);
         let expected = (2.0f32).ln();
         assert!((loss - expected).abs() < 1e-6);
     }

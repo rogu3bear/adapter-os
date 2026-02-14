@@ -10,7 +10,7 @@ use super::coreml_pipeline::{
 };
 use super::dataset::example_hash_for_tokens;
 use super::learning_rate_schedule::{LRScheduleType, LRScheduler, LRSchedulerConfig};
-use super::loss::{self, LOSS_IGNORE_INDEX};
+use super::loss;
 use super::perplexity::compute_perplexity;
 use super::preprocessing::{preprocess_examples, PreprocessResult};
 use adapteros_core::{derive_seed, AosError, Result};
@@ -2457,15 +2457,10 @@ Use --force-resume to override (may produce incorrect results).",
 
         let start = Instant::now();
         let adapter_id = Self::generate_adapter_id();
-        let (use_cross_entropy_loss, use_chunked, vocab_threshold, force_ce, force_legacy) =
+        let (use_cross_entropy_loss, use_chunked, vocab_threshold, force_legacy) =
             self.resolve_cross_entropy_loss();
         self.use_cross_entropy_loss = use_cross_entropy_loss;
-        if force_ce {
-            info!(
-                vocab_size = self.config.vocab_size,
-                vocab_threshold, "Cross-entropy loss forced via AOS_TRAIN_FORCE_CE"
-            );
-        } else if force_legacy {
+        if force_legacy {
             warn!(
                 vocab_size = self.config.vocab_size,
                 vocab_threshold, "Legacy MSE loss forced via AOS_TRAIN_LEGACY_LOSS"
@@ -2733,27 +2728,6 @@ Use --force-resume to override (may produce incorrect results).",
         })
     }
 
-    /// Legacy training loop with per-epoch callback (pre-CoreML pipeline)
-    ///
-    /// The callback is invoked after each epoch with (epoch_index starting at 1, epoch_loss).
-    /// This method automatically selects the best available GPU backend if kernels have been
-    /// initialized, otherwise falls back to CPU training.
-    ///
-    /// # Arguments
-    /// * `examples` - Training examples with input/target pairs
-    /// * `on_epoch` - Callback invoked after each epoch with (epoch_number, epoch_loss)
-    #[allow(dead_code)]
-    pub async fn train_with_callback_legacy<C>(
-        &mut self,
-        examples: &[TrainingExample],
-        on_epoch: C,
-    ) -> Result<TrainingResult>
-    where
-        C: FnMut(EpochMetrics),
-    {
-        self.train_with_callback(examples, on_epoch).await
-    }
-
     /// Initialize LoRA weight matrices with deterministic seeding
     fn init_weights_deterministic(&self) -> Result<LoRAWeights> {
         use rand::{Rng, SeedableRng};
@@ -2981,11 +2955,7 @@ Use --force-resume to override (may produce incorrect results).",
         let patience = self.config.patience.unwrap_or(5);
         #[cfg(feature = "multi-backend")]
         let min_delta = self.config.min_delta.unwrap_or(0.001);
-        let training_loss_spec = if self.use_cross_entropy_loss {
-            loss::training_loss_spec(self.config.ignore_index)
-        } else {
-            loss::legacy_training_loss_spec(self.config.ignore_index)
-        };
+        let training_loss_spec = loss::training_loss_spec(self.config.ignore_index);
         info!(loss_spec = %training_loss_spec.summary(), "Training loss spec");
         if validation_enabled {
             let validation_loss_spec = loss::validation_loss_spec(self.config.ignore_index);
@@ -4579,7 +4549,7 @@ Use --force-resume to override (may produce incorrect results).",
         let lora_b_tensor = MLXFFITensor::from_data(&lora_b_flat, vec![hidden_dim, rank])?;
 
         // Compute loss and gradients on GPU using cross-entropy
-        // ignore_index = 0 (typically padding token)
+        // ignore_index from config (default -100, standard for CE loss masking)
         let result = mlx_lora_backward_ce_gpu(
             &hidden_tensor,
             &output_proj,
@@ -4588,7 +4558,7 @@ Use --force-resume to override (may produce incorrect results).",
             &lora_b_tensor,
             alpha,
             rank,
-            LOSS_IGNORE_INDEX,
+            self.config.ignore_index,
             seed,
         )?;
 
@@ -4735,7 +4705,7 @@ Use --force-resume to override (may produce incorrect results).",
             &lora_b_tensor,
             alpha,
             rank,
-            LOSS_IGNORE_INDEX,
+            self.config.ignore_index,
             seed,
         )?;
 
@@ -4855,30 +4825,24 @@ Use --force-resume to override (may produce incorrect results).",
 
     /// Decide whether to use cross-entropy loss and chunked mode based on vocab size.
     ///
-    /// Returns: (use_cross_entropy, use_chunked, vocab_threshold, force_ce, force_legacy)
+    /// Returns: (use_cross_entropy, use_chunked, vocab_threshold, force_legacy)
     ///
-    /// Cross-entropy loss is now enabled by default for all vocabulary sizes thanks to
-    /// the chunked implementation which handles large vocabularies (>100K tokens) by
-    /// processing in memory-efficient chunks with log-sum-exp numerical stability.
-    fn resolve_cross_entropy_loss(&self) -> (bool, bool, usize, bool, bool) {
-        let force_ce = std::env::var("AOS_TRAIN_FORCE_CE").ok().as_deref() == Some("1");
+    /// Cross-entropy loss is the default. `AOS_TRAIN_LEGACY_LOSS=1` forces legacy MSE mode.
+    /// Large vocabularies (>100K tokens) use chunked CE for memory efficiency.
+    fn resolve_cross_entropy_loss(&self) -> (bool, bool, usize, bool) {
         let force_legacy = std::env::var("AOS_TRAIN_LEGACY_LOSS").ok().as_deref() == Some("1");
         let vocab_threshold = std::env::var("AOS_TRAIN_CE_CHUNK_THRESHOLD")
             .ok()
             .and_then(|value| value.parse::<usize>().ok())
             .unwrap_or(CHUNKED_CE_VOCAB_THRESHOLD);
 
-        // CE loss is now always enabled unless explicitly forced to legacy mode
         let use_cross_entropy = !force_legacy;
-
-        // Use chunked mode for large vocabularies (memory-efficient, numerically stable)
         let use_chunked = self.config.vocab_size > vocab_threshold;
 
         (
             use_cross_entropy,
             use_chunked,
             vocab_threshold,
-            force_ce,
             force_legacy,
         )
     }
@@ -5211,7 +5175,7 @@ Use --force-resume to override (may produce incorrect results).",
                 &lora_b_tensor,
                 alpha,
                 rank,
-                LOSS_IGNORE_INDEX,
+                self.config.ignore_index,
                 epoch_seed.wrapping_add(idx as u64),
             )?;
 
