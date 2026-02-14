@@ -189,6 +189,27 @@ fn ChatWorkspace(
         })
     };
 
+    // Hydrate sessions from the backend — recovers sessions lost from localStorage.
+    {
+        let chat_action = chat_action.clone();
+        wasm_bindgen_futures::spawn_local(async move {
+            match chat_action.list_backend_sessions().await {
+                Ok(backend_sessions) => {
+                    if ChatSessionsManager::merge_backend_sessions(&backend_sessions) {
+                        sessions.set(ChatSessionsManager::load_sessions());
+                        archived_sessions.set(ChatSessionsManager::load_archived_sessions());
+                    }
+                }
+                Err(e) => {
+                    // Non-fatal: localStorage sessions still work; log for debugging.
+                    web_sys::console::warn_1(
+                        &format!("[Chat] Failed to hydrate sessions from backend: {}", e).into(),
+                    );
+                }
+            }
+        });
+    }
+
     // Derive a non-optional session ID for the conversation panel
     let session_id_for_panel =
         Signal::derive(move || selected_session_id.try_get().flatten().unwrap_or_default());
