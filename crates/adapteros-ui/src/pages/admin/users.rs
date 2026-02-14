@@ -140,10 +140,6 @@ pub fn UsersSection() -> impl IntoView {
                                                         visible_users.get().into_iter().map(|user| {
                                                             let user_id = user.id.clone();
                                                             let user_id_click = user.id.clone();
-                                                            let is_selected = {
-                                                                let uid = user.id.clone();
-                                                                move || selected_id.get().as_deref() == Some(uid.as_str())
-                                                            };
                                                             let role_variant = match user.role.as_str() {
                                                                 "admin" => BadgeVariant::Destructive,
                                                                 "operator" => BadgeVariant::Warning,
@@ -152,16 +148,10 @@ pub fn UsersSection() -> impl IntoView {
                                                             let last_login = user.last_login_at.clone()
                                                                 .unwrap_or_else(|| "Never".to_string());
                                                             view! {
-                                                                <TableRow
-                                                                    class=move || if is_selected() {
-                                                                        "cursor-pointer bg-muted/50"
-                                                                    } else {
-                                                                        "cursor-pointer hover:bg-muted/30"
-                                                                    }
-                                                                    on_click=Callback::new({
-                                                                        let id = user_id_click.clone();
-                                                                        move |_| on_select.run(id.clone())
-                                                                    })
+                                                                <tr
+                                                                    class="border-b transition-colors hover:bg-muted/50 cursor-pointer"
+                                                                    class:bg-muted=move || selected_id.try_get().flatten().as_ref() == Some(&user_id)
+                                                                    on:click=move |_| on_select.run(user_id_click.clone())
                                                                 >
                                                                     <TableCell>
                                                                         <span class="font-medium">{user.email.clone()}</span>
@@ -175,7 +165,7 @@ pub fn UsersSection() -> impl IntoView {
                                                                     <TableCell>
                                                                         <span class="text-sm text-muted-foreground">{last_login}</span>
                                                                     </TableCell>
-                                                                </TableRow>
+                                                                </tr>
                                                             }
                                                         }).collect::<Vec<_>>()
                                                     }}
