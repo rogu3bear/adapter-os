@@ -24,7 +24,7 @@ impl DatasetSizeLimits {
     }
 }
 
-fn parse_env_usize(name: &str, default: usize) -> usize {
+pub(crate) fn parse_env_usize(name: &str, default: usize) -> usize {
     std::env::var(name)
         .ok()
         .and_then(|value| value.parse::<usize>().ok())

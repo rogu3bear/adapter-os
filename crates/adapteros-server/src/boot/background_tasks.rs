@@ -124,6 +124,12 @@ pub async fn spawn_all_background_tasks(
 ) -> Result<ShutdownCoordinator> {
     // Keep the deterministic executor draining tasks so spawn_deterministic work runs.
     // This loop is intentionally lightweight and exits on shutdown.
+    //
+    // `run_global_executor()` performs at most one pass through the queue per call
+    // (bounded by queue length), then returns so we can yield to tokio's I/O
+    // reactor. Without this yield, async operations inside deterministic tasks
+    // (timers, tokio::fs, RwLock) would never complete on this single-threaded
+    // runtime.
     {
         let mut shutdown_rx = shutdown_coordinator.subscribe_shutdown();
         std::thread::spawn(move || {
@@ -135,6 +141,7 @@ pub async fn spawn_all_background_tasks(
                 let idle_delay = Duration::from_millis(50);
                 loop {
                     tokio::select! {
+                        biased;
                         _ = shutdown_rx.recv() => {
                             info!("Deterministic executor pump received shutdown signal, exiting");
                             break;
@@ -145,6 +152,10 @@ pub async fn spawn_all_background_tasks(
                             }
                         }
                     }
+                    // Yield to the tokio runtime so the I/O reactor can service
+                    // pending wakers (timers, file I/O, locks) before we poll
+                    // the executor again.
+                    tokio::task::yield_now().await;
                     tokio::time::sleep(idle_delay).await;
                 }
             });
