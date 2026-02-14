@@ -9,6 +9,25 @@ use base64::Engine as _;
 use tokio::sync::RwLock;
 use tracing::{error, info, warn};
 
+/// Run an async future synchronously by dispatching to a dedicated thread that
+/// calls `Handle::block_on`. This is necessary because the packaging path runs
+/// inside the deterministic executor whose tight poll loop deadlocks with
+/// tokio's `spawn_blocking` (used by `tokio::fs` and sqlx). By executing the
+/// async work on a real OS thread with the tokio runtime handle, we bypass the
+/// deterministic executor's poll loop entirely.
+fn block_on_async<F, T>(fut: F) -> T
+where
+    F: std::future::Future<Output = T> + Send + 'static,
+    T: Send + 'static,
+{
+    let handle = tokio::runtime::Handle::current();
+    std::thread::scope(|s| {
+        s.spawn(move || handle.block_on(fut))
+            .join()
+            .expect("block_on_async thread panicked")
+    })
+}
+
 use adapteros_lora_worker::training::{
     AdapterPackager, LoRAQuantizer, TrainingConfig as WorkerTrainingConfig, TrainingResult,
 };
