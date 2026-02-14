@@ -4,6 +4,7 @@
 //! - Desktop (>=1024px): Two-column layout with list left, detail right
 //! - Tablet/Mobile (<1024px): Stacked layout with "Back to list" button
 
+use crate::components::icons::IconArrowLeft;
 use crate::components::responsive::use_is_tablet_or_smaller;
 use leptos::prelude::*;
 
@@ -88,7 +89,7 @@ where
 
     // Determine the current mode
     let mode = Memo::new(move |_| {
-        if is_stacked.get() {
+        if is_stacked.try_get().unwrap_or(false) {
             SplitMode::Stacked
         } else {
             SplitMode::Desktop
@@ -119,8 +120,8 @@ where
 
     view! {
         {move || {
-            let current_mode = mode.get();
-            let selected = has_selection.get();
+            let current_mode = mode.try_get().unwrap_or(SplitMode::Desktop);
+            let selected = has_selection.try_get().unwrap_or(false);
             let list_fn = list_panel.clone();
             let detail_fn = detail_panel.clone();
             let back_text = back_text.clone();
@@ -166,7 +167,7 @@ where
                                     on:click=move |_| on_close.run(())
                                     aria-label=back_text.clone()
                                 >
-                                    <BackArrowIcon/>
+                                    <IconArrowLeft/>
                                     <span>{back_text.clone()}</span>
                                 </button>
 
@@ -184,25 +185,5 @@ where
                 }
             }
         }}
-    }
-}
-
-/// Back arrow icon for stacked mode.
-#[component]
-fn BackArrowIcon() -> impl IntoView {
-    view! {
-        <svg
-            xmlns="http://www.w3.org/2000/svg"
-            class="h-4 w-4"
-            viewBox="0 0 24 24"
-            fill="none"
-            stroke="currentColor"
-            stroke-width="2"
-            stroke-linecap="round"
-            stroke-linejoin="round"
-        >
-            <path d="M19 12H5"/>
-            <path d="m12 19-7-7 7-7"/>
-        </svg>
     }
 }

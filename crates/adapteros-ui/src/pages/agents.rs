@@ -5,9 +5,8 @@
 
 use crate::api::{ApiClient, ApiError};
 use crate::components::{
-    Button, ButtonSize, ButtonVariant, Card, EmptyState, EmptyStateVariant, ErrorDisplay,
-    LoadingDisplay, PageBreadcrumbItem, PageScaffold, PageScaffoldActions, RefreshButton, Table,
-    TableBody, TableCell, TableHead, TableHeader, TableRow,
+    Button, ButtonSize, ButtonVariant, Card, Column, DataTable, EmptyState, EmptyStateVariant,
+    PageBreadcrumbItem, PageScaffold, PageScaffoldActions, RefreshButton,
 };
 use crate::hooks::{use_api_resource, LoadingState};
 use crate::utils::format_relative_time;
@@ -238,110 +237,85 @@ pub fn Agents() -> impl IntoView {
                             }}
                         </div>
                         {move || match sessions.try_get().unwrap_or(LoadingState::Idle) {
-                            LoadingState::Idle | LoadingState::Loading => {
-                                view! { <LoadingDisplay message="Loading sessions..."/> }.into_any()
-                            }
-                            LoadingState::Loaded(data) => {
-                                if data.is_empty() {
-                                    view! {
-                                        <EmptyState
-                                            title="No Active Sessions"
-                                            description="Multi-agent inference sessions will appear here when active."
-                                            // Use the default SVG path for the selected EmptyStateVariant.
-                                            // The `icon` prop expects SVG path data, not an icon name.
-                                        />
-                                    }.into_any()
-                                } else {
-                                    view! {
-                                        <Table>
-                                            <TableHeader>
-                                                <TableRow>
-                                                    <TableHead>"Session"</TableHead>
-                                                    <TableHead>"Status"</TableHead>
-                                                    <TableHead>"Created"</TableHead>
-                                                    <TableHead>"Adapters"</TableHead>
-                                                </TableRow>
-                                            </TableHeader>
-                                            <TableBody>
-                                                {data
-                                                    .into_iter()
-                                                    .map(|session| {
-                                                        let session_id = session.id.clone();
-                                                        let session_label = short_id(&session_id);
-                                                        let status = if session.status.is_empty() {
-                                                            "unknown".to_string()
-                                                        } else {
-                                                            session.status.clone()
-                                                        };
-                                                        let created_at = if session.created_at.is_empty() {
-                                                            "-".to_string()
-                                                        } else {
-                                                            format_relative_time(&session.created_at)
-                                                        };
-                                                        let adapters = session.adapters.unwrap_or_default();
-                                                        let adapters_label = if adapters.is_empty() {
-                                                            "—".to_string()
-                                                        } else {
-                                                            let visible = adapters
-                                                                .iter()
-                                                                .take(3)
-                                                                .map(|id| short_id(id))
-                                                                .collect::<Vec<_>>()
-                                                                .join(", ");
-                                                            if adapters.len() > 3 {
-                                                                format!("{}, +{}", visible, adapters.len() - 3)
-                                                            } else {
-                                                                visible
-                                                            }
-                                                        };
-                                                        let adapters_title = if adapters.is_empty() {
-                                                            String::new()
-                                                        } else {
-                                                            adapters.join(", ")
-                                                        };
+                            LoadingState::Error(ApiError::NotFound(_)) => view! {
+                                <EmptyState
+                                    title="Sessions Unavailable"
+                                    description="Orchestration sessions endpoint is not available on this backend."
+                                    variant=EmptyStateVariant::Unavailable
+                                    action_label="Retry"
+                                    on_action=refetch_sessions.as_callback()
+                                />
+                            }.into_any(),
+                            LoadingState::Error(ApiError::Structured { ref code, .. }) if code == "NOT_FOUND" => view! {
+                                <EmptyState
+                                    title="Sessions Unavailable"
+                                    description="Orchestration sessions endpoint is not available on this backend."
+                                    variant=EmptyStateVariant::Unavailable
+                                    action_label="Retry"
+                                    on_action=refetch_sessions.as_callback()
+                                />
+                            }.into_any(),
+                            _ => {
+                                let columns: Vec<Column<OrchestrationSession>> = vec![
+                                    Column::custom("Session", |s: &OrchestrationSession| {
+                                        let id = s.id.clone();
+                                        let label = short_id(&id);
+                                        view! {
+                                            <span class="font-mono" title=id>{label}</span>
+                                        }
+                                    }),
+                                    Column::custom("Status", |s: &OrchestrationSession| {
+                                        let status = if s.status.is_empty() {
+                                            "unknown".to_string()
+                                        } else {
+                                            s.status.clone()
+                                        };
+                                        view! { <span>{status}</span> }
+                                    }),
+                                    Column::custom("Created", |s: &OrchestrationSession| {
+                                        let created = if s.created_at.is_empty() {
+                                            "-".to_string()
+                                        } else {
+                                            format_relative_time(&s.created_at)
+                                        };
+                                        view! { <span class="text-muted-foreground">{created}</span> }
+                                    }),
+                                    Column::custom("Adapters", |s: &OrchestrationSession| {
+                                        let adapters = s.adapters.clone().unwrap_or_default();
+                                        let label = if adapters.is_empty() {
+                                            "\u{2014}".to_string()
+                                        } else {
+                                            let visible = adapters
+                                                .iter()
+                                                .take(3)
+                                                .map(|id| short_id(id))
+                                                .collect::<Vec<_>>()
+                                                .join(", ");
+                                            if adapters.len() > 3 {
+                                                format!("{}, +{}", visible, adapters.len() - 3)
+                                            } else {
+                                                visible
+                                            }
+                                        };
+                                        let title = if adapters.is_empty() {
+                                            String::new()
+                                        } else {
+                                            adapters.join(", ")
+                                        };
+                                        view! { <span title=title>{label}</span> }
+                                    }),
+                                ];
 
-                                                        view! {
-                                                            <TableRow>
-                                                                <TableCell class="font-mono">
-                                                                    <span title=session_id>{session_label}</span>
-                                                                </TableCell>
-                                                                <TableCell>{status}</TableCell>
-                                                                <TableCell class="text-muted-foreground">{created_at}</TableCell>
-                                                                <TableCell>
-                                                                    <span title=adapters_title>{adapters_label}</span>
-                                                                </TableCell>
-                                                            </TableRow>
-                                                        }
-                                                    })
-                                                    .collect::<Vec<_>>()}
-                                            </TableBody>
-                                        </Table>
-                                    }
-                                    .into_any()
-                                }
-                            }
-                            LoadingState::Error(error) => match error {
-                                ApiError::NotFound(_) => view! {
-                                    <EmptyState
-                                        title="Sessions Unavailable"
-                                        description="Orchestration sessions endpoint is not available on this backend."
-                                        variant=EmptyStateVariant::Unavailable
-                                        action_label="Retry"
-                                        on_action=refetch_sessions.as_callback()
+                                view! {
+                                    <DataTable
+                                        data=sessions
+                                        columns=columns
+                                        on_retry=refetch_sessions.as_callback()
+                                        empty_title="No Active Sessions"
+                                        empty_description="Multi-agent inference sessions will appear here when active."
+                                        card=false
                                     />
-                                }.into_any(),
-                                ApiError::Structured { code, .. } if code == "NOT_FOUND" => view! {
-                                    <EmptyState
-                                        title="Sessions Unavailable"
-                                        description="Orchestration sessions endpoint is not available on this backend."
-                                        variant=EmptyStateVariant::Unavailable
-                                        action_label="Retry"
-                                        on_action=refetch_sessions.as_callback()
-                                    />
-                                }.into_any(),
-                                other => view! {
-                                    <ErrorDisplay error=other on_retry=refetch_sessions.as_callback()/>
-                                }.into_any(),
+                                }.into_any()
                             }
                         }}
                     </Card>

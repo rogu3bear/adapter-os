@@ -63,7 +63,7 @@ pub fn AdapterDetailPanel(
     view! {
         <div class="adapter-detail-panel">
             {move || {
-                if loading.get() {
+                if loading.try_get().unwrap_or(false) {
                     return view! {
                         <div class="adapter-detail-loading">
                             <Spinner />
@@ -71,13 +71,13 @@ pub fn AdapterDetailPanel(
                     }.into_any();
                 }
 
-                match adapter.get() {
+                match adapter.try_get().flatten() {
                     None => view! {
                         <AdapterDetailEmpty />
                     }.into_any(),
                     Some(data) => {
                         let ctx = suggestion_context
-                            .map(|s| s.get())
+                            .and_then(|s| s.try_get())
                             .unwrap_or_default();
                         view! {
                             <AdapterDetailContent
@@ -238,7 +238,7 @@ fn AdapterDetailContent(
             <div class="adapter-detail-status">
                 <Badge variant=lifecycle_variant>{lifecycle_state}</Badge>
                 <Badge variant=runtime_variant>{runtime_state}</Badge>
-                {move || is_in_flight.get().then(|| view! {
+                {move || is_in_flight.try_get().unwrap_or(false).then(|| view! {
                     <Badge variant=BadgeVariant::Warning>"In Use"</Badge>
                 })}
                 {is_pinned.then(|| view! {

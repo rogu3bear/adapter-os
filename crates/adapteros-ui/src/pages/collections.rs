@@ -9,15 +9,15 @@
 //! Uses canonical Dialog and ErrorDisplay components for consistency.
 
 use crate::api::{
-    report_error_with_toast, ApiClient, CollectionDetailResponse, CollectionResponse,
-    CreateCollectionRequest, DocumentListParams, DocumentListResponse,
+    report_error_with_toast, ApiClient, CollectionDetailResponse, CollectionDocumentInfo,
+    CollectionResponse, CreateCollectionRequest, DocumentListParams, DocumentListResponse,
 };
 use crate::components::{
-    async_state::AsyncBoundary, Badge, BadgeVariant, Button, ButtonVariant, Card, Checkbox,
-    ConfirmationDialog, ConfirmationSeverity, CopyableId, Dialog, EmptyStateVariant, Input,
-    ListEmptyCard, PageBreadcrumbItem, PageScaffold, PageScaffoldActions, PaginationControls,
-    RefreshButton, Select, Spinner, Table, TableBody, TableCell, TableHead, TableHeader, TableRow,
-    Textarea,
+    async_state::AsyncBoundary, loaded_signal, Badge, BadgeVariant, Button, ButtonVariant, Card,
+    Checkbox, Column, ConfirmationDialog, ConfirmationSeverity, CopyableId, DataTable, Dialog,
+    EmptyStateVariant, FormField, Input, ListEmptyCard, PageBreadcrumbItem, PageScaffold,
+    PageScaffoldActions, PaginationControls, RefreshButton, Select, Spinner, Table, TableBody,
+    TableCell, TableHead, TableHeader, TableRow, Textarea,
 };
 use crate::hooks::{use_api, use_api_resource, use_scope_alive, LoadingState};
 use crate::utils::{format_bytes, format_date};
@@ -147,17 +147,18 @@ pub fn Collections() -> impl IntoView {
             >
                 // Form
                 <div class="grid gap-4 py-4">
-                    <Input
-                        value=new_name
-                        label="Name".to_string()
-                        placeholder="My Collection".to_string()
-                        required=true
-                    />
-                    <Textarea
-                        value=new_description
-                        label="Description (optional)".to_string()
-                        placeholder="A collection of documents for...".to_string()
-                    />
+                    <FormField label="Name" name="collection-name" required=true>
+                        <Input
+                            value=new_name
+                            placeholder="My Collection".to_string()
+                        />
+                    </FormField>
+                    <FormField label="Description" name="collection-description">
+                        <Textarea
+                            value=new_description
+                            placeholder="A collection of documents for...".to_string()
+                        />
+                    </FormField>
 
                     // Error display
                     {move || create_error.try_get().flatten().map(|e| view! {
@@ -209,87 +210,77 @@ fn CollectionsList(
         .into_any();
     }
 
-    view! {
-        <Card>
-            <Table>
-                <TableHeader>
-                    <TableRow>
-                        <TableHead>"Name"</TableHead>
-                        <TableHead>"Description"</TableHead>
-                        <TableHead>"Documents"</TableHead>
-                        <TableHead>"Created"</TableHead>
-                        <TableHead>"Actions"</TableHead>
-                    </TableRow>
-                </TableHeader>
-                <TableBody>
-                    {collections
-                        .into_iter()
-                        .map(|collection| {
-                            let id = collection.collection_id.clone();
-                            let id_link = id.clone();
-                            let name = collection.name.clone();
-                            let description = collection.description.clone().unwrap_or_default();
-                            let doc_count = collection.document_count;
-                            let created = format_date(&collection.created_at);
-
-                            let badge_variant = if doc_count > 0 { BadgeVariant::Success } else { BadgeVariant::Secondary };
-
-                            view! {
-                                <TableRow>
-                                    <TableCell>
-                                        <a
-                                            href=format!("/collections/{}", id_link)
-                                            class="font-medium hover:underline"
-                                        >
-                                            {name}
-                                        </a>
-                                    </TableCell>
-                                    <TableCell>
-                                        <span class="text-muted-foreground truncate max-w-xs block">
-                                            {if description.is_empty() { "-".to_string() } else { description }}
-                                        </span>
-                                    </TableCell>
-                                    <TableCell>
-                                        <Badge variant=badge_variant>
-                                            {doc_count.to_string()}
-                                        </Badge>
-                                    </TableCell>
-                                    <TableCell>
-                                        <span class="text-muted-foreground text-sm">{created}</span>
-                                    </TableCell>
-                                    <TableCell>
-                                        <a
-                                            href=format!("/collections/{}", id)
-                                            class="text-sm text-primary hover:underline"
-                                        >
-                                            "View"
-                                        </a>
-                                    </TableCell>
-                                </TableRow>
-                            }
-                        })
-                        .collect::<Vec<_>>()}
-                </TableBody>
-            </Table>
-
-            // Pagination
-            {if pages > 1 {
-                let on_page_change_prev = on_page_change.clone();
-                let on_page_change_next = on_page_change.clone();
-                Some(view! {
-                    <PaginationControls
-                        current_page=page as usize
-                        total_pages=pages as usize
-                        total_items=total as usize
-                        class="border-t px-4 py-3".to_string()
-                        on_prev=Callback::new(move |_| on_page_change_prev(page.saturating_sub(1)))
-                        on_next=Callback::new(move |_| on_page_change_next((page + 1).min(pages)))
-                    />
-                })
+    let columns: Vec<Column<CollectionResponse>> = vec![
+        Column::custom("Name", |c: &CollectionResponse| {
+            let id = c.collection_id.clone();
+            let name = c.name.clone();
+            view! {
+                <a href=format!("/collections/{}", id) class="font-medium hover:underline">
+                    {name}
+                </a>
+            }
+        }),
+        Column::custom("Description", |c: &CollectionResponse| {
+            let desc = c.description.clone().unwrap_or_default();
+            view! {
+                <span class="text-muted-foreground truncate max-w-xs block">
+                    {if desc.is_empty() { "-".to_string() } else { desc }}
+                </span>
+            }
+        }),
+        Column::custom("Documents", |c: &CollectionResponse| {
+            let count = c.document_count;
+            let variant = if count > 0 {
+                BadgeVariant::Success
             } else {
-                None
-            }}
-        </Card>
+                BadgeVariant::Secondary
+            };
+            view! { <Badge variant=variant>{count.to_string()}</Badge> }
+        }),
+        Column::custom("Created", |c: &CollectionResponse| {
+            let created = format_date(&c.created_at);
+            view! { <span class="text-muted-foreground text-sm">{created}</span> }
+        }),
+        Column::custom("Actions", |c: &CollectionResponse| {
+            let id = c.collection_id.clone();
+            view! {
+                <a href=format!("/collections/{}", id) class="text-sm text-primary hover:underline">
+                    "View"
+                </a>
+            }
+        }),
+    ];
+
+    let data = loaded_signal(Signal::derive({
+        let collections = collections.clone();
+        move || collections.clone()
+    }));
+
+    view! {
+        <DataTable
+            data=data
+            columns=columns
+            empty_title="No collections yet"
+            empty_description="Create your first collection to start organizing documents."
+        />
+
+        // Pagination
+        {if pages > 1 {
+            let on_page_change_prev = on_page_change.clone();
+            let on_page_change_next = on_page_change.clone();
+            Some(view! {
+                <PaginationControls
+                    current_page=page as usize
+                    total_pages=pages as usize
+                    total_items=total as usize
+                    class="border-t px-4 py-3".to_string()
+                    on_prev=Callback::new(move |_| on_page_change_prev(page.saturating_sub(1)))
+                    on_next=Callback::new(move |_| on_page_change_next((page + 1).min(pages)))
+                />
+            })
+        } else {
+            None
+        }}
     }
     .into_any()
 }
@@ -464,7 +455,7 @@ fn CollectionDetailContent<F>(
     on_add_documents: Callback<()>,
 ) -> impl IntoView
 where
-    F: Fn(String) + Clone + Send + 'static,
+    F: Fn(String) + Clone + Send + Sync + 'static,
 {
     // Clone values upfront to avoid move issues
     let name = collection.name.clone();
@@ -561,62 +552,60 @@ where
                     </div>
                 }.into_any()
             } else {
+                let remove_fn: Arc<dyn Fn(String) + Send + Sync> = Arc::new(remove_document);
+                let remove_for_col = Arc::clone(&remove_fn);
+
+                let columns: Vec<Column<CollectionDocumentInfo>> = vec![
+                    Column::custom("Name", |doc: &CollectionDocumentInfo| {
+                        let name = doc.name.clone();
+                        let doc_id = doc.document_id.clone();
+                        view! {
+                            <div>
+                                <p class="font-medium">{name}</p>
+                                <CopyableId id=doc_id truncate=24 />
+                            </div>
+                        }
+                    }),
+                    Column::custom("Size", |doc: &CollectionDocumentInfo| {
+                        view! { <span>{format_bytes(doc.size_bytes)}</span> }
+                    }),
+                    Column::custom("Status", |doc: &CollectionDocumentInfo| {
+                        let status = doc.status.clone();
+                        let variant = match status.as_str() {
+                            "indexed" => BadgeVariant::Success,
+                            "pending" => BadgeVariant::Warning,
+                            "error" => BadgeVariant::Destructive,
+                            _ => BadgeVariant::Secondary,
+                        };
+                        view! { <Badge variant=variant>{status}</Badge> }
+                    }),
+                    Column::custom("Added", |doc: &CollectionDocumentInfo| {
+                        let added = format_date(&doc.added_at);
+                        view! { <span class="text-muted-foreground text-sm">{added}</span> }
+                    }),
+                    Column::custom("Actions", move |doc: &CollectionDocumentInfo| {
+                        let doc_id = doc.document_id.clone();
+                        let remove = Arc::clone(&remove_for_col);
+                        view! {
+                            <button
+                                class="text-sm text-destructive hover:underline"
+                                on:click=move |_| remove(doc_id.clone())
+                            >
+                                "Remove"
+                            </button>
+                        }
+                    }),
+                ];
+
+                let docs = collection.documents.clone();
+                let data = loaded_signal(Signal::derive(move || docs.clone()));
+
                 view! {
-                    <Table>
-                        <TableHeader>
-                            <TableRow>
-                                <TableHead>"Name"</TableHead>
-                                <TableHead>"Size"</TableHead>
-                                <TableHead>"Status"</TableHead>
-                                <TableHead>"Added"</TableHead>
-                                <TableHead>"Actions"</TableHead>
-                            </TableRow>
-                        </TableHeader>
-                        <TableBody>
-                            {collection.documents.clone().into_iter().map(|doc| {
-                                let doc_id = doc.document_id.clone();
-                                let doc_id_remove = doc_id.clone();
-                                let name = doc.name.clone();
-                                let size = format_bytes(doc.size_bytes);
-                                let status = doc.status.clone();
-                                let added = format_date(&doc.added_at);
-                                let remove_document = remove_document.clone();
-
-                                let status_variant = match status.as_str() {
-                                    "indexed" => BadgeVariant::Success,
-                                    "pending" => BadgeVariant::Warning,
-                                    "error" => BadgeVariant::Destructive,
-                                    _ => BadgeVariant::Secondary,
-                                };
-
-                                view! {
-                                    <TableRow>
-                                        <TableCell>
-                                            <div>
-                                                <p class="font-medium">{name}</p>
-                                                <CopyableId id=doc_id.clone() truncate=24 />
-                                            </div>
-                                        </TableCell>
-                                        <TableCell>{size}</TableCell>
-                                        <TableCell>
-                                            <Badge variant=status_variant>{status}</Badge>
-                                        </TableCell>
-                                        <TableCell>
-                                            <span class="text-muted-foreground text-sm">{added}</span>
-                                        </TableCell>
-                                        <TableCell>
-                                            <button
-                                                class="text-sm text-destructive hover:underline"
-                                                on:click=move |_| remove_document(doc_id_remove.clone())
-                                            >
-                                                "Remove"
-                                            </button>
-                                        </TableCell>
-                                    </TableRow>
-                                }
-                            }).collect::<Vec<_>>()}
-                        </TableBody>
-                    </Table>
+                    <DataTable
+                        data=data
+                        columns=columns
+                        card=false
+                    />
                 }.into_any()
             }}
         </Card>
@@ -766,21 +755,24 @@ fn AddDocumentsDialog(
         >
             <div class="space-y-4 py-2">
                 <div class="grid gap-3 md:grid-cols-2">
-                    <Select
-                        value=status_filter
-                        options=vec![
-                            ("indexed".to_string(), "Indexed".to_string()),
-                            ("processing".to_string(), "Processing".to_string()),
-                            ("failed".to_string(), "Failed".to_string()),
-                            ("".to_string(), "All Statuses".to_string()),
-                        ]
-                        class="w-full".to_string()
-                    />
-                    <Input
-                        value=search_query
-                        label="Search".to_string()
-                        placeholder="Filter by name or ID".to_string()
-                    />
+                    <FormField label="Status" name="doc-status-filter">
+                        <Select
+                            value=status_filter
+                            options=vec![
+                                ("indexed".to_string(), "Indexed".to_string()),
+                                ("processing".to_string(), "Processing".to_string()),
+                                ("failed".to_string(), "Failed".to_string()),
+                                ("".to_string(), "All Statuses".to_string()),
+                            ]
+                            class="w-full".to_string()
+                        />
+                    </FormField>
+                    <FormField label="Search" name="doc-search">
+                        <Input
+                            value=search_query
+                            placeholder="Filter by name or ID".to_string()
+                        />
+                    </FormField>
                 </div>
 
                 {move || {

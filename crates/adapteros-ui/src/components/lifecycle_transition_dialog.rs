@@ -73,23 +73,27 @@ pub fn LifecycleTransitionDialog(
     });
 
     let handle_cancel = move |_| {
-        if !loading.get() {
+        if !loading.try_get().unwrap_or(false) {
             open.set(false);
             reason.set(String::new());
         }
     };
 
     let handle_confirm = move |_| {
-        if can_confirm.get() && !loading.get() {
-            on_confirm.run(reason.get());
+        if can_confirm.try_get().unwrap_or(false) && !loading.try_get().unwrap_or(false) {
+            on_confirm.run(reason.try_get().unwrap_or_default());
         }
     };
 
     // Keyboard handler for Ctrl+Enter to confirm
     let handle_keydown = move |ev: KeyboardEvent| {
-        if ev.key() == "Enter" && ev.ctrl_key() && can_confirm.get() && !loading.get() {
+        if ev.key() == "Enter"
+            && ev.ctrl_key()
+            && can_confirm.try_get().unwrap_or(false)
+            && !loading.try_get().unwrap_or(false)
+        {
             ev.prevent_default();
-            on_confirm.run(reason.get());
+            on_confirm.run(reason.try_get().unwrap_or_default());
         }
     };
 
@@ -101,7 +105,7 @@ pub fn LifecycleTransitionDialog(
         >
             <div class="space-y-4" on:keydown=handle_keydown>
                 // Transition summary
-                {move || transition.get().map(|t| {
+                {move || transition.try_get().flatten().map(|t| {
                     view! {
                         <div class="space-y-4">
                             // Adapter name
@@ -172,7 +176,7 @@ pub fn LifecycleTransitionDialog(
                                     placeholder="Enter the reason for this state change (required for audit trail)..."
                                     id="transition-reason".to_string()
                                     rows=3
-                                    disabled=loading.get()
+                                    disabled=loading.try_get().unwrap_or(false)
                                 />
                                 <p class="text-xs text-muted-foreground">
                                     "This reason will be recorded in the audit log."
@@ -194,7 +198,7 @@ pub fn LifecycleTransitionDialog(
                     <Button
                         variant=ButtonVariant::Primary
                         on_click=Callback::new(handle_confirm)
-                        disabled=Signal::derive(move || !can_confirm.get() || loading.get())
+                        disabled=Signal::derive(move || !can_confirm.try_get().unwrap_or(false) || loading.try_get().unwrap_or(false))
                         loading=loading
                     >
                         "Confirm Transition"

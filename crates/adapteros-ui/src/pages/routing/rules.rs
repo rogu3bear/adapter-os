@@ -2,8 +2,8 @@
 
 use crate::api::{report_error_with_toast, ApiClient};
 use crate::components::{
-    Button, ButtonVariant, Card, EmptyState, ErrorDisplay, Input, LoadingDisplay, RefreshButton,
-    Select, Spinner, Table, TableBody, TableCell, TableHead, TableHeader, TableRow,
+    loaded_signal, Button, ButtonVariant, Card, Column, DataTable, EmptyState, ErrorDisplay, Input,
+    LoadingDisplay, RefreshButton, Select, Spinner,
 };
 use crate::hooks::{use_api, use_api_resource, use_scope_alive, LoadingState};
 use adapteros_api_types::{CreateRoutingRuleRequest, RoutingRuleResponse};
@@ -232,77 +232,73 @@ fn RulesTable(rules: Vec<RoutingRuleResponse>, on_delete: Callback<()>) -> impl 
     let client = use_api();
     let deleting = RwSignal::new(false);
 
-    if rules.is_empty() {
-        return view! {
-            <Card>
-                <EmptyState
-                    title="No rules defined"
-                    description="Condition-based routing rules will appear here."
-                />
-            </Card>
-        }
-        .into_any();
-    }
-
-    let rules_view = rules.into_iter().map(|rule| {
-        let id = rule.id.clone();
+    let delete_rule = {
         let client = Arc::clone(&client);
-        let alive = alive.clone();
-
-        let delete_handler = Callback::new({
+        Arc::new(move |id: String| {
+            let client = Arc::clone(&client);
             let alive = alive.clone();
-            move |_| {
-                let id = id.clone();
-                let client = Arc::clone(&client);
-                let alive = alive.clone();
-                deleting.set(true);
-                wasm_bindgen_futures::spawn_local(async move {
-                    if let Err(e) = client.delete_routing_rule(&id).await {
-                        report_error_with_toast(&e, "Failed to delete routing rule", Some("/routing"), true);
-                    }
-                    deleting.set(false);
-                    if alive.load(std::sync::atomic::Ordering::SeqCst) {
-                        on_delete.run(());
-                    }
-                });
-            }
-        });
+            deleting.set(true);
+            wasm_bindgen_futures::spawn_local(async move {
+                if let Err(e) = client.delete_routing_rule(&id).await {
+                    report_error_with_toast(
+                        &e,
+                        "Failed to delete routing rule",
+                        Some("/routing"),
+                        true,
+                    );
+                }
+                deleting.set(false);
+                if alive.load(std::sync::atomic::Ordering::SeqCst) {
+                    on_delete.run(());
+                }
+            });
+        })
+    };
 
-        view! {
-            <TableRow>
-                <TableCell class="font-mono text-xs">{rule.condition_logic}</TableCell>
-                <TableCell>{rule.target_adapter_id}</TableCell>
-                <TableCell>{rule.priority}</TableCell>
-                <TableCell class="text-right">
+    let delete_for_col = Arc::clone(&delete_rule);
+
+    let columns: Vec<Column<RoutingRuleResponse>> = vec![
+        Column::custom("Condition", |r: &RoutingRuleResponse| {
+            let logic = r.condition_logic.clone();
+            view! { <span class="font-mono text-xs">{logic}</span> }
+        }),
+        Column::text("Target Adapter", |r: &RoutingRuleResponse| {
+            r.target_adapter_id.clone()
+        }),
+        Column::text("Priority", |r: &RoutingRuleResponse| r.priority.to_string()),
+        Column::custom("Actions", move |r: &RoutingRuleResponse| {
+            let id = r.id.clone();
+            let delete = Arc::clone(&delete_for_col);
+            view! {
+                <div class="text-right">
                     <Button
                         variant=ButtonVariant::Ghost
-                        on_click=delete_handler
+                        on_click=Callback::new(move |_| delete(id.clone()))
                     >
                         <svg xmlns="http://www.w3.org/2000/svg" class="h-4 w-4 text-destructive" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2">
                             <path stroke-linecap="round" stroke-linejoin="round" d="M19 7l-.867 12.142A2 2 0 0116.138 21H7.862a2 2 0 01-1.995-1.858L5 7m5 4v6m4-6v6m1-10V4a1 1 0 00-1-1h-4a1 1 0 00-1 1v3M4 7h16" />
                         </svg>
                     </Button>
-                </TableCell>
-            </TableRow>
-        }
-    }).collect_view();
+                </div>
+            }
+        })
+        .with_class("text-right".to_string()),
+    ];
+
+    let data = loaded_signal(Signal::derive({
+        let rules = rules.clone();
+        move || rules.clone()
+    }));
 
     view! {
-        <Card>
-            <Table>
-                <TableHeader>
-                    <TableRow>
-                        <TableHead>"Condition"</TableHead>
-                        <TableHead>"Target Adapter"</TableHead>
-                        <TableHead>"Priority"</TableHead>
-                        <TableHead class="text-right">"Actions"</TableHead>
-                    </TableRow>
-                </TableHeader>
-                <TableBody>
-                    {rules_view}
-                </TableBody>
-            </Table>
-        </Card>
+        <div class="overflow-x-auto">
+            <DataTable
+                data=data
+                columns=columns
+                empty_title="No rules defined"
+                empty_description="Condition-based routing rules will appear here."
+            />
+        </div>
     }
     .into_any()
 }

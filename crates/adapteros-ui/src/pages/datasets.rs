@@ -4,14 +4,14 @@
 //! and deleting datasets used for adapter training.
 
 use crate::api::{
-    ApiClient, DatasetListResponse, DatasetPreviewResponse, DatasetSafetyCheckResult,
-    DatasetStatisticsResponse, DatasetVersionsResponse,
+    report_error_with_toast, ApiClient, DatasetListResponse, DatasetPreviewResponse,
+    DatasetSafetyCheckResult, DatasetStatisticsResponse, DatasetVersionsResponse,
 };
 use crate::components::{
-    Badge, BadgeVariant, BreadcrumbItem, BreadcrumbTrail, Button, ButtonVariant, Card, Checkbox,
-    Combobox, ComboboxOption, ConfirmationDialog, ConfirmationSeverity, CopyableId, EmptyState,
-    ErrorDisplay, Input, LoadingDisplay, PageBreadcrumbItem, PageHeader, PageScaffold,
-    PageScaffoldActions, RefreshButton, Select, Spinner, TabNav, TabPanel, Table, TableBody,
+    Badge, BadgeVariant, BreadcrumbTrail, Button, ButtonVariant, Card, Checkbox, Combobox,
+    ComboboxOption, ConfirmationDialog, ConfirmationSeverity, CopyableId, EmptyState, ErrorDisplay,
+    Input, PageBreadcrumbItem, PageHeader, PageScaffold, PageScaffoldActions, RefreshButton,
+    Select, SkeletonCard, SkeletonDetailSection, SkeletonTable, TabNav, TabPanel, Table, TableBody,
     TableCell, TableHead, TableHeader, TableRow, Toggle,
 };
 use crate::hooks::{
@@ -291,7 +291,7 @@ pub fn Datasets() -> impl IntoView {
             {move || {
                 match datasets.try_get().unwrap_or(LoadingState::Idle) {
                     LoadingState::Idle | LoadingState::Loading => {
-                        view! { <LoadingDisplay message="Loading datasets..."/> }.into_any()
+                        view! { <SkeletonTable rows=5 columns=4/> }.into_any()
                     }
                     LoadingState::Loaded(data) => {
                         view! {
@@ -1534,47 +1534,46 @@ pub fn DatasetDetail() -> impl IntoView {
         refetch_trigger.update(|n| *n = n.wrapping_add(1));
     };
 
-    // Delete state
+    // Delete state (using standard hook)
     let client = use_api();
-    let deleting = RwSignal::new(false);
-    let show_delete_confirm = RwSignal::new(false);
-    let delete_error = RwSignal::new(Option::<String>::None);
+    let detail_delete_state = use_delete_dialog();
+    let detail_delete_for_cancel = detail_delete_state.clone();
+    let on_cancel_delete = Callback::new(move |_| detail_delete_for_cancel.cancel());
 
-    let on_cancel_delete = Callback::new(move |_| {
-        show_delete_confirm.set(false);
-        delete_error.set(None);
-    });
-
+    let detail_delete_for_confirm = detail_delete_state.clone();
     let on_confirm_delete = {
         let client = Arc::clone(&client);
         let nav_store = navigate_store;
         Callback::new(move |_| {
-            let id = dataset_id();
-            deleting.set(true);
-            delete_error.set(None);
-            let client = Arc::clone(&client);
-            let nav_store = nav_store;
-            wasm_bindgen_futures::spawn_local(async move {
-                match client.delete_dataset(&id).await {
-                    Ok(_) => {
-                        nav_store.with_value(|nav| nav("/datasets", Default::default()));
+            if let Some(id) = detail_delete_for_confirm.get_pending_id() {
+                detail_delete_for_confirm.start_delete();
+                let client = Arc::clone(&client);
+                let delete_state = detail_delete_for_confirm.clone();
+                let nav_store = nav_store;
+                wasm_bindgen_futures::spawn_local(async move {
+                    match client.delete_dataset(&id).await {
+                        Ok(_) => {
+                            delete_state.finish_delete(Ok(()));
+                            nav_store.with_value(|nav| nav("/datasets", Default::default()));
+                        }
+                        Err(e) => {
+                            delete_state.finish_delete(Err(format!("Failed to delete: {}", e)));
+                        }
                     }
-                    Err(e) => {
-                        delete_error.set(Some(format!("Failed to delete: {}", e)));
-                        deleting.set(false);
-                    }
-                }
-            });
+                });
+            }
         })
     };
+    let detail_delete_for_loading = detail_delete_state.clone();
+    let detail_delete_for_button = detail_delete_state.clone();
 
     view! {
         <div class="space-y-6">
             // Breadcrumb navigation
             <BreadcrumbTrail items=vec![
-                BreadcrumbItem::link("Data", "/datasets"),
-                BreadcrumbItem::link("Datasets", "/datasets"),
-                BreadcrumbItem::current(dataset_id()),
+                PageBreadcrumbItem::new("Data", "/datasets"),
+                PageBreadcrumbItem::new("Datasets", "/datasets"),
+                PageBreadcrumbItem::current(dataset_id()),
             ]/>
 
             {move || {
@@ -1592,7 +1591,7 @@ pub fn DatasetDetail() -> impl IntoView {
                 } else {
                     match dataset.try_get().unwrap_or(LoadingState::Idle) {
                         LoadingState::Idle | LoadingState::Loading => {
-                            view! { <LoadingDisplay message="Loading dataset..."/> }.into_any()
+                            view! { <SkeletonDetailSection rows=6 has_title=true/> }.into_any()
                         }
                         LoadingState::Loaded(data) => {
                             let gating = dataset_gating(&data);
@@ -1634,7 +1633,10 @@ pub fn DatasetDetail() -> impl IntoView {
                                         })}
                                         <Button
                                             variant=ButtonVariant::Destructive
-                                            on_click=Callback::new(move |_| show_delete_confirm.set(true))
+                                            on_click=Callback::new({
+                                                let ds = detail_delete_for_button.clone();
+                                                move |_| ds.confirm(dataset_id(), dataset_id())
+                                            })
                                         >
                                             "Delete"
                                         </Button>
@@ -1764,7 +1766,7 @@ pub fn DatasetDetail() -> impl IntoView {
 
                                                 {move || match preview.try_get().unwrap_or(LoadingState::Idle) {
                                                     LoadingState::Idle | LoadingState::Loading => {
-                                                        view! { <div class="flex justify-center py-6"><Spinner/></div> }.into_any()
+                                                        view! { <SkeletonCard has_header=true/> }.into_any()
                                                     }
                                                     LoadingState::Loaded(DatasetPreviewResponse { examples, total_examples, .. }) => {
                                                         if examples.is_empty() {
@@ -1905,7 +1907,7 @@ pub fn DatasetDetail() -> impl IntoView {
                                                 })}
                                                 {move || match versions.try_get().unwrap_or(LoadingState::Idle) {
                                                     LoadingState::Idle | LoadingState::Loading => {
-                                                        view! { <div class="flex justify-center py-4"><Spinner/></div> }.into_any()
+                                                        view! { <SkeletonTable rows=3 columns=3/> }.into_any()
                                                     }
                                                     LoadingState::Loaded(DatasetVersionsResponse { versions, .. }) => {
                                                         if versions.is_empty() {
@@ -2091,7 +2093,7 @@ pub fn DatasetDetail() -> impl IntoView {
                                                     <h3 class="heading-4 mb-4">"Statistics"</h3>
                                                     {move || match stats.try_get().unwrap_or(LoadingState::Idle) {
                                                         LoadingState::Idle | LoadingState::Loading => {
-                                                            view! { <div class="flex justify-center py-4"><Spinner/></div> }.into_any()
+                                                            view! { <SkeletonDetailSection rows=3/> }.into_any()
                                                         }
                                                         LoadingState::Loaded(stats_data) => {
                                                             view! {
@@ -2125,7 +2127,7 @@ pub fn DatasetDetail() -> impl IntoView {
                                     </TabPanel>
 
                                     <ConfirmationDialog
-                                        open=show_delete_confirm
+                                        open=detail_delete_for_loading.show
                                         title="Delete Dataset"
                                         description=format!("Are you sure you want to delete this dataset? This action cannot be undone.")
                                         severity=ConfirmationSeverity::Destructive
@@ -2133,7 +2135,7 @@ pub fn DatasetDetail() -> impl IntoView {
                                         cancel_text="Cancel"
                                         on_confirm=on_confirm_delete
                                         on_cancel=on_cancel_delete
-                                        loading=Signal::derive(move || deleting.try_get().unwrap_or(false))
+                                        loading=Signal::derive(move || detail_delete_for_loading.deleting.try_get().unwrap_or(false))
                                     />
                                 </div>
                             }.into_any()
@@ -2414,6 +2416,12 @@ fn DatasetDraftView(
                                 ds.id
                             }
                             Err(e) => {
+                                report_error_with_toast(
+                                    &e,
+                                    "Dataset creation failed",
+                                    Some("/datasets"),
+                                    true,
+                                );
                                 training_error.set(Some(format!("Dataset error: {}", e)));
                                 is_training.set(false);
                                 return;
@@ -2954,7 +2962,7 @@ fn DatasetDraftView(
                             view! { <p class="text-sm text-muted-foreground">"No dataset selected"</p> }.into_any()
                         }
                         LoadingState::Loading => {
-                            view! { <div class="flex justify-center py-4"><Spinner/></div> }.into_any()
+                            view! { <SkeletonDetailSection rows=3/> }.into_any()
                         }
                         LoadingState::Loaded(stats_data) => {
                             view! {

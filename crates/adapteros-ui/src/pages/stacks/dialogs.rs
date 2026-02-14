@@ -5,7 +5,8 @@
 
 use crate::api::{ApiClient, CreateStackRequest, StackResponse, UpdateStackRequest, WorkflowType};
 use crate::components::{
-    AsyncBoundaryWithEmpty, Button, ButtonVariant, Checkbox, Dialog, Input, Select, Textarea,
+    AsyncBoundaryWithEmpty, Button, ButtonVariant, Checkbox, Dialog, FormField, Input, Select,
+    Textarea,
 };
 use crate::hooks::{use_api, use_api_resource, Refetch};
 use crate::signals::use_notifications;
@@ -96,37 +97,41 @@ pub fn CreateStackDialog(open: RwSignal<bool>, refetch: Refetch) -> impl IntoVie
             description="Create a new stack to compose multiple adapters for inference."
         >
             <div class="space-y-4 py-4">
-                <Input
-                    value=name
-                    label="Name".to_string()
-                    placeholder="my-stack".to_string()
-                />
+                <FormField label="Name" name="stack_name">
+                    <Input
+                        value=name
+                        placeholder="my-stack".to_string()
+                    />
+                </FormField>
 
-                <Textarea
-                    value=description
-                    label="Description"
-                    placeholder="Optional description for this stack".to_string()
-                />
+                <FormField label="Description" name="stack_description">
+                    <Textarea
+                        value=description
+                        placeholder="Optional description for this stack".to_string()
+                    />
+                </FormField>
 
-                <Select
-                    value=workflow_type
-                    label="Workflow Type"
-                    options=vec![
-                        ("parallel".to_string(), "Parallel".to_string()),
-                        ("sequential".to_string(), "Sequential".to_string()),
-                        ("upstream_downstream".to_string(), "Upstream/Downstream".to_string()),
-                    ]
-                />
+                <FormField label="Workflow Type" name="workflow_type">
+                    <Select
+                        value=workflow_type
+                        options=vec![
+                            ("parallel".to_string(), "Parallel".to_string()),
+                            ("sequential".to_string(), "Sequential".to_string()),
+                            ("upstream_downstream".to_string(), "Upstream/Downstream".to_string()),
+                        ]
+                    />
+                </FormField>
 
-                <Select
-                    value=determinism_mode
-                    label="Determinism Mode"
-                    options=vec![
-                        ("strict".to_string(), "Strict".to_string()),
-                        ("besteffort".to_string(), "Best Effort".to_string()),
-                        ("relaxed".to_string(), "Relaxed".to_string()),
-                    ]
-                />
+                <FormField label="Determinism Mode" name="determinism_mode">
+                    <Select
+                        value=determinism_mode
+                        options=vec![
+                            ("strict".to_string(), "Strict".to_string()),
+                            ("besteffort".to_string(), "Best Effort".to_string()),
+                            ("relaxed".to_string(), "Relaxed".to_string()),
+                        ]
+                    />
+                </FormField>
 
                 // Adapter selection
                 <div class="space-y-2">
@@ -311,27 +316,30 @@ pub fn EditStackDialog(
             description="Update the stack configuration and adapters."
         >
             <div class="space-y-4 py-4">
-                <Input
-                    value=name
-                    label="Name".to_string()
-                    placeholder="my-stack".to_string()
-                />
+                <FormField label="Name" name="edit_stack_name">
+                    <Input
+                        value=name
+                        placeholder="my-stack".to_string()
+                    />
+                </FormField>
 
-                <Textarea
-                    value=description
-                    label="Description"
-                    placeholder="Optional description for this stack".to_string()
-                />
+                <FormField label="Description" name="edit_stack_description">
+                    <Textarea
+                        value=description
+                        placeholder="Optional description for this stack".to_string()
+                    />
+                </FormField>
 
-                <Select
-                    value=workflow_type
-                    label="Workflow Type"
-                    options=vec![
-                        ("parallel".to_string(), "Parallel".to_string()),
-                        ("sequential".to_string(), "Sequential".to_string()),
-                        ("upstream_downstream".to_string(), "Upstream/Downstream".to_string()),
-                    ]
-                />
+                <FormField label="Workflow Type" name="edit_workflow_type">
+                    <Select
+                        value=workflow_type
+                        options=vec![
+                            ("parallel".to_string(), "Parallel".to_string()),
+                            ("sequential".to_string(), "Sequential".to_string()),
+                            ("upstream_downstream".to_string(), "Upstream/Downstream".to_string()),
+                        ]
+                    />
+                </FormField>
 
                 // Adapter selection
                 <div class="space-y-2">

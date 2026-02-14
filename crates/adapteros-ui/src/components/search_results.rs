@@ -52,7 +52,8 @@ pub fn SearchResultsList(
             <For
                 each=move || {
                     results
-                        .get()
+                        .try_get()
+                        .unwrap_or_default()
                         .into_iter()
                         .enumerate()
                         .collect::<Vec<(usize, SearchResult)>>()
@@ -61,13 +62,13 @@ pub fn SearchResultsList(
                 children=move |(idx, result)| {
                     let on_select = on_select;
                     let result_clone = result.clone();
-                    let is_selected = Signal::derive(move || selected_index.get() == idx);
+                    let is_selected = Signal::derive(move || selected_index.try_get().unwrap_or(0) == idx);
 
                     view! {
                         <div
                             class=move || {
                                 let base = "search-result";
-                                if is_selected.get() {
+                                if is_selected.try_get().unwrap_or(false) {
                                     format!("{} search-result-selected", base)
                                 } else {
                                     base.to_string()

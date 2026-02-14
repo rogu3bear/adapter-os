@@ -47,7 +47,7 @@ pub fn PageLoader() -> impl IntoView {
                 aria-live="polite"
                 aria-labelledby="page-loader-text"
             >
-                <div class="spinner spinner-lg" aria-hidden="true"></div>
+                <Spinner size=SpinnerSize::Lg />
                 <p id="page-loader-text" class="text-muted-foreground">"Loading..."</p>
             </div>
         </div>

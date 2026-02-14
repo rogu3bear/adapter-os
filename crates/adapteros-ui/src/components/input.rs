@@ -58,7 +58,7 @@ pub fn Input(
     let described_by = field_ctx.and_then(|ctx| ctx.described_by.clone());
 
     // Character counter
-    let char_count = move || value.get().len();
+    let char_count = move || value.try_get().unwrap_or_default().len();
 
     // Determine if we have any form of accessible label
     let has_visible_label = label.is_some();
@@ -98,13 +98,13 @@ pub fn Input(
                     type=input_type_val
                     class=full_class
                     placeholder=placeholder
-                    disabled=move || disabled.get()
+                    disabled=move || disabled.try_get().unwrap_or(false)
                     required=required
                     maxlength=max_length.map(|n| n.to_string())
                     aria-invalid=error.is_some().to_string()
                     aria-describedby=full_described_by
                     aria-label=effective_aria_label
-                    prop:value=move || value.get()
+                    prop:value=move || value.try_get().unwrap_or_default()
                     on:input=move |ev| {
                         value.set(event_target_value(&ev));
                     }
@@ -232,14 +232,14 @@ pub fn Textarea(
                 name=name
                 class=full_class
                 placeholder=placeholder
-                disabled=move || disabled.get()
+                disabled=move || disabled.try_get().unwrap_or(false)
                 required=required
                 rows=rows.unwrap_or(3)
                 aria-label=effective_aria_label
                 aria-describedby=full_described_by
                 aria-invalid=error.is_some().to_string()
                 data-testid=move || data_testid.clone()
-                prop:value=move || value.get()
+                prop:value=move || value.try_get().unwrap_or_default()
                 on:input=move |ev| {
                     value.set(event_target_value(&ev));
                 }

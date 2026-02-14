@@ -102,9 +102,9 @@ pub fn ProgressStages(
             })}
             <div class="progress-stages-list">
                 {move || {
-                    let current = current_stage.get();
-                    let completed = completed_stages.get();
-                    let errors = error_stages.map(|s| s.get()).unwrap_or_default();
+                    let current = current_stage.try_get().flatten();
+                    let completed = completed_stages.try_get().unwrap_or_default();
+                    let errors = error_stages.and_then(|s| s.try_get()).unwrap_or_default();
 
                     stages.with_value(|stages| {
                         stages.iter().map(|stage| {
@@ -179,9 +179,9 @@ pub fn InlineProgress(
     view! {
         <div class="inline-progress">
             <Spinner />
-            <span class="inline-progress-label">{move || label.get()}</span>
+            <span class="inline-progress-label">{move || label.try_get().unwrap_or_default()}</span>
             {detail.map(|d| view! {
-                <span class="inline-progress-detail">{move || d.get()}</span>
+                <span class="inline-progress-detail">{move || d.try_get().unwrap_or_default()}</span>
             })}
         </div>
     }

@@ -67,11 +67,11 @@ pub use adapter_bar::{
 pub use adapter_detail_panel::{AdapterDetailPanel, AdapterSuggestionContext};
 pub use adapter_lifecycle_controls::AdapterLifecycleControls;
 pub use async_state::{
-    AsyncBoundary, AsyncBoundaryWithEmpty, AsyncBoundaryWithErrorRender, Breadcrumb, DetailRow,
-    EmptyState, EmptyStateVariant, ErrorDisplay, LoadingDisplay, PageHeader, RefreshButton,
+    AsyncBoundary, AsyncBoundaryWithEmpty, AsyncBoundaryWithErrorRender, DetailRow, EmptyState,
+    EmptyStateVariant, ErrorDisplay, LoadingDisplay, PageHeader, RefreshButton,
 };
 pub use auth::{AuthProvider, ProtectedRoute};
-pub use breadcrumb_trail::{humanize_segment, BreadcrumbItem, BreadcrumbTrail};
+pub use breadcrumb_trail::{humanize_segment, BreadcrumbTrail};
 pub use button::{Button, ButtonSize, ButtonVariant};
 pub use card::Card;
 pub use chat_dock::{ChatDock, ChatDockPanel, MobileChatOverlay, NarrowChatDock};
@@ -85,7 +85,7 @@ pub use copyable_id::CopyableId;
 pub use danger_zone::{
     AlertBanner, BannerVariant, DangerZone, DangerZoneItem, InfoBanner, WarningBanner,
 };
-pub use data_table::{Column, DataTable};
+pub use data_table::{loaded_signal, Column, DataTable};
 pub use diag_diff::DiffResults;
 pub use dialog::{Dialog, DialogSize};
 pub use error_boundary::{InlineErrorBoundary, RouteErrorBoundary};
@@ -97,8 +97,9 @@ pub use hash_display::HashDisplay;
 pub use inference_banner::InferenceBanner;
 pub use input::{Input, Textarea};
 pub use layout::{
-    BreadcrumbItem as PageBreadcrumbItem, Header, PageScaffold, PageScaffoldActions,
-    PageScaffoldInspector, Shell, Sidebar, SidebarNav, SidebarState, Taskbar, TopBar,
+    BreadcrumbItem, BreadcrumbItem as PageBreadcrumbItem, Header, PageScaffold,
+    PageScaffoldActions, PageScaffoldInspector, Shell, Sidebar, SidebarNav, SidebarState, Taskbar,
+    TopBar,
 };
 pub use lifecycle_transition_dialog::{LifecycleTransitionDialog, LifecycleTransitionInfo};
 pub use link::{Link, LinkVariant};

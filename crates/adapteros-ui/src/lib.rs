@@ -247,7 +247,7 @@ pub fn App() -> impl IntoView {
 fn BaseUrlError(reason: String) -> impl IntoView {
     view! {
         <div class="min-h-screen flex items-center justify-center bg-background">
-            <div class="max-w-xl w-full mx-4 space-y-3 rounded-lg border border-destructive/40 bg-destructive/10 p-6 shadow-lg">
+            <div class="card max-w-xl w-full mx-4 space-y-3 border-destructive p-6">
                 <div class="flex items-center gap-2">
                     <span class="text-lg font-semibold text-destructive">"adapterOS UI cannot start"</span>
                 </div>

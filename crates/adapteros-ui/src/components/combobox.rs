@@ -89,8 +89,8 @@ pub fn Combobox(
 
     // Filter options based on current input value
     let filtered_options = Memo::new(move |_| {
-        let query = value.get().to_lowercase();
-        let all_options = options.get();
+        let query = value.try_get().unwrap_or_default().to_lowercase();
+        let all_options = options.try_get().unwrap_or_default();
 
         if query.is_empty() {
             all_options
@@ -227,11 +227,11 @@ pub fn Combobox(
 
     // Check if current value matches any option (for validation indicator)
     let is_valid_selection = Memo::new(move |_| {
-        let current = value.get();
+        let current = value.try_get().unwrap_or_default();
         if current.is_empty() {
             return allow_free_text;
         }
-        let opts = options.get();
+        let opts = options.try_get().unwrap_or_default();
         opts.iter().any(|opt| opt.value == current) || allow_free_text
     });
 
@@ -253,21 +253,21 @@ pub fn Combobox(
                     type="text"
                     class=full_class
                     placeholder=placeholder
-                    disabled=move || disabled.get()
+                    disabled=move || disabled.try_get().unwrap_or(false)
                     autocomplete="off"
                     role="combobox"
-                    aria-expanded=move || dropdown_open.get().to_string()
+                    aria-expanded=move || dropdown_open.try_get().unwrap_or(false).to_string()
                     aria-controls=listbox_id_store.with_value(|id| id.clone())
                     aria-autocomplete="list"
                     aria-activedescendant=move || {
-                        if dropdown_open.get() {
+                        if dropdown_open.try_get().unwrap_or(false) {
                             let input_id = input_id_store.with_value(|id| id.clone());
-                            Some(format!("{}-option-{}", input_id, selected_index.get()))
+                            Some(format!("{}-option-{}", input_id, selected_index.try_get().unwrap_or(0)))
                         } else {
                             None
                         }
                     }
-                    prop:value=move || value.get()
+                    prop:value=move || value.try_get().unwrap_or_default()
                     on:input=on_input
                     on:focus=on_focus
                     on:blur=on_blur
@@ -291,7 +291,7 @@ pub fn Combobox(
                     <svg
                         class=move || format!(
                             "h-4 w-4 transition-transform {}",
-                            if dropdown_open.get() { "rotate-180" } else { "" }
+                            if dropdown_open.try_get().unwrap_or(false) { "rotate-180" } else { "" }
                         )
                         fill="none"
                         stroke="currentColor"
@@ -303,7 +303,7 @@ pub fn Combobox(
 
                 // Valid selection checkmark
                 {move || {
-                    if is_valid_selection.get() && !value.get().is_empty() {
+                    if is_valid_selection.try_get().unwrap_or(false) && !value.try_get().unwrap_or_default().is_empty() {
                         Some(view! {
                             <span class="absolute right-8 top-1/2 -translate-y-1/2 text-success">
                                 <svg class="h-4 w-4" fill="none" stroke="currentColor" viewBox="0 0 24 24">
@@ -318,7 +318,7 @@ pub fn Combobox(
             </div>
 
             // Dropdown list
-            <Show when=move || dropdown_open.get() && !filtered_options.get().is_empty()>
+            <Show when=move || dropdown_open.try_get().unwrap_or(false) && !filtered_options.try_get().unwrap_or_default().is_empty()>
                 {
                     let listbox_id_inner = listbox_id_store.with_value(|id| id.clone());
                     view! {
@@ -328,14 +328,14 @@ pub fn Combobox(
                             class="combobox-dropdown absolute z-50 mt-1 w-full max-h-60 overflow-auto rounded-md border border-border bg-popover shadow-lg"
                         >
                             <For
-                                each=move || filtered_options.get().into_iter().enumerate()
+                                each=move || filtered_options.try_get().unwrap_or_default().into_iter().enumerate()
                                 key=|(idx, opt)| format!("{}-{}", idx, opt.value.clone())
                                 children={
                                     let select_option = select_option;
                                     move |(idx, opt)| {
                                         let opt_for_click = opt.clone();
                                         let opt_for_view = opt.clone();
-                                        let is_selected = move || selected_index.get() == idx as i32;
+                                        let is_selected = move || selected_index.try_get().unwrap_or(0) == idx as i32;
                                         let option_id = input_id_store.with_value(|id| format!("{}-option-{}", id, idx));
 
                                         view! {
@@ -373,7 +373,7 @@ pub fn Combobox(
             </Show>
 
             // Empty state when dropdown is open but no matches
-            <Show when=move || dropdown_open.get() && filtered_options.get().is_empty() && !value.get().is_empty()>
+            <Show when=move || dropdown_open.try_get().unwrap_or(false) && filtered_options.try_get().unwrap_or_default().is_empty() && !value.try_get().unwrap_or_default().is_empty()>
                 <div class="absolute z-50 mt-1 w-full rounded-md border border-border bg-popover p-3 text-sm text-muted-foreground shadow-lg">
                     "No matching options"
                 </div>
@@ -432,7 +432,8 @@ pub fn ModelCombobox(
     // Convert models to combobox options
     let options = Memo::new(move |_| {
         models
-            .get()
+            .try_get()
+            .unwrap_or_default()
             .into_iter()
             .map(|m| {
                 let desc = match (&m.format, &m.backend) {
@@ -453,7 +454,7 @@ pub fn ModelCombobox(
     // Find the full model when selected
     let on_option_select = move |opt: ComboboxOption| {
         if let Some(ref cb) = on_select {
-            let all_models = models.get();
+            let all_models = models.try_get().unwrap_or_default();
             if let Some(model) = all_models.iter().find(|m| m.id == opt.value) {
                 cb.run(model.clone());
             }
@@ -465,7 +466,7 @@ pub fn ModelCombobox(
         Some(l) => view! {
             <Combobox
                 value=value
-                options=Signal::derive(move || options.get())
+                options=Signal::derive(move || options.try_get().unwrap_or_default())
                 placeholder=placeholder
                 label=l
                 disabled=disabled
@@ -476,7 +477,7 @@ pub fn ModelCombobox(
         None => view! {
             <Combobox
                 value=value
-                options=Signal::derive(move || options.get())
+                options=Signal::derive(move || options.try_get().unwrap_or_default())
                 placeholder=placeholder
                 disabled=disabled
                 on_select=Callback::new(on_option_select)
