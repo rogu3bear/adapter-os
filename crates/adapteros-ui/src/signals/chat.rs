@@ -2245,6 +2245,43 @@ fn mark_partial_assistant(state: &mut ChatState, assistant_id: &str) {
     }
 }
 
+fn is_low_signal_stream_error(message: &str) -> bool {
+    let normalized = message.trim().to_ascii_lowercase();
+    matches!(
+        normalized.as_str(),
+        "" | "error" | "stream error" | "server error" | "internal error" | "internal server error"
+    )
+}
+
+fn stream_failure_fallback_label(failure: &StreamFailure) -> String {
+    if let Some(code) = failure.code.as_deref().filter(|value| !value.is_empty()) {
+        let mapped = ApiError::Structured {
+            error: failure.message.clone(),
+            code: code.to_string(),
+            failure_code: None,
+            hint: None,
+            details: None,
+            request_id: None,
+            error_id: None,
+            fingerprint: None,
+            session_id: None,
+            diag_trace_id: None,
+            otel_trace_id: None,
+        }
+        .user_message();
+
+        if !is_low_signal_stream_error(&mapped) {
+            return mapped;
+        }
+    }
+
+    if is_low_signal_stream_error(&failure.message) {
+        "Request failed. Retry in a moment.".to_string()
+    } else {
+        failure.message.clone()
+    }
+}
+
 /// Human-readable error label with context for the user.
 ///
 /// Maps error codes and messages to clear, actionable labels that help users
@@ -2259,7 +2296,7 @@ fn stream_notice_from_failure(failure: &StreamFailure) -> StreamNotice {
         "BACKPRESSURE" | "CACHE_BUDGET_EXCEEDED" | "REQUEST_TIMEOUT" | "STREAM_IDLE_TIMEOUT"
     ) {
         // Transient server-side pressure - likely to resolve on retry
-        "Server is busy"
+        "Server is busy".to_string()
     } else if matches!(
         code,
         "WORKER_DEGRADED"
@@ -2268,34 +2305,33 @@ fn stream_notice_from_failure(failure: &StreamFailure) -> StreamNotice {
             | "WORKER_ID_UNAVAILABLE"
     ) {
         // Worker-specific issue - retry may route to different worker
-        "No workers available"
+        "No workers available".to_string()
     } else if matches!(code, "SERVICE_UNAVAILABLE") {
         if message_lower.contains("worker") {
-            "No workers available"
+            "No workers available".to_string()
         } else {
-            "Service temporarily unavailable"
+            "Service temporarily unavailable".to_string()
         }
     } else if matches!(
         code,
         "DUPLICATE_REQUEST" | "IDEMPOTENCY_CONFLICT" | "IDEMPOTENCY_TIMEOUT"
     ) {
         // Idempotency conflict - user should wait, not retry immediately
-        "Request already in progress"
+        "Request already in progress".to_string()
     } else if message_lower.contains("network") || message_lower.contains("fetch failed") {
         // Client-side network issue
-        "Connection lost"
+        "Connection lost".to_string()
     } else if message_lower.contains("unauthorized") || code == "UNAUTHORIZED" {
         // Auth issue - not retryable without re-login
-        "Session expired"
+        "Session expired".to_string()
     } else if message_lower.contains("forbidden") || code == "FORBIDDEN" {
         // Permission issue - not retryable
-        "Access denied"
+        "Access denied".to_string()
     } else if message_lower.contains("rate limit") || code == "RATE_LIMITED" {
         // Rate limiting - retryable after delay
-        "Too many requests"
+        "Too many requests".to_string()
     } else {
-        // Generic fallback
-        "Something went wrong"
+        stream_failure_fallback_label(failure)
     };
 
     if failure.retryable {
@@ -3421,6 +3457,28 @@ mod tests {
             assert!(!is_abort_error("ABORTED"));
             // Only lowercase variations are detected
             assert!(is_abort_error("aborted"));
+        }
+    }
+
+    mod stream_notice_mapping {
+        use super::*;
+
+        #[test]
+        fn stream_notice_uses_canonical_code_mapping_for_generic_error_text() {
+            let failure = StreamFailure::new("error", Some("INTERNAL_ERROR".to_string()), false);
+            let notice = stream_notice_from_failure(&failure);
+            assert_eq!(notice.message, "Internal server error. Retry in a moment.");
+            assert_eq!(notice.tone, StreamNoticeTone::Error);
+            assert!(!notice.retryable);
+        }
+
+        #[test]
+        fn stream_notice_replaces_low_signal_message_without_code() {
+            let failure = StreamFailure::new("error", None, true);
+            let notice = stream_notice_from_failure(&failure);
+            assert_eq!(notice.message, "Request failed. Retry in a moment.");
+            assert_eq!(notice.tone, StreamNoticeTone::Warning);
+            assert!(notice.retryable);
         }
     }
 

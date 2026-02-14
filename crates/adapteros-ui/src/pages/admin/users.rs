@@ -1,6 +1,6 @@
 //! Users section component with SplitPanel list-detail layout.
 
-use crate::api::{ApiClient, ListUsersResponse, UserResponse};
+use crate::api::{ApiClient, UserResponse};
 use crate::components::{
     use_split_panel_selection_state, Badge, BadgeVariant, Button, ButtonVariant, Card, EmptyState,
     EmptyStateVariant, ErrorDisplay, PaginationControls, SkeletonTable, SplitPanel, SplitRatio,
@@ -147,11 +147,21 @@ pub fn UsersSection() -> impl IntoView {
                                                             };
                                                             let last_login = user.last_login_at.clone()
                                                                 .unwrap_or_else(|| "Never".to_string());
+                                                            let user_id_key = user_id_click.clone();
+
                                                             view! {
                                                                 <tr
                                                                     class="border-b transition-colors hover:bg-muted/50 cursor-pointer"
                                                                     class:bg-muted=move || selected_id.try_get().flatten().as_ref() == Some(&user_id)
                                                                     on:click=move |_| on_select.run(user_id_click.clone())
+                                                                    on:keydown=move |e: web_sys::KeyboardEvent| {
+                                                                        if e.key() == "Enter" || e.key() == " " {
+                                                                            e.prevent_default();
+                                                                            on_select.run(user_id_key.clone());
+                                                                        }
+                                                                    }
+                                                                    role="button"
+                                                                    tabindex=0
                                                                 >
                                                                     <TableCell>
                                                                         <span class="font-medium">{user.email.clone()}</span>
@@ -181,7 +191,7 @@ pub fn UsersSection() -> impl IntoView {
                                                     <PaginationControls
                                                         current_page=cp
                                                         total_pages=tp
-                                                        total_items=Some(ti)
+                                                        total_items=ti
                                                         on_prev=Callback::new(move |_| {
                                                             current_page.update(|p| *p = p.saturating_sub(1).max(1));
                                                         })
