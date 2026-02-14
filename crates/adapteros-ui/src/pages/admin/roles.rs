@@ -1,4 +1,8 @@
 //! Roles section component
+//!
+//! System roles are configured at the platform level and are not
+//! editable through the API. This page displays the built-in role
+//! definitions and their associated permissions.
 
 use crate::components::{Badge, BadgeVariant, Card};
 use leptos::prelude::*;
@@ -41,44 +45,50 @@ pub fn RolesSection() -> impl IntoView {
     ];
 
     view! {
-        <div class="grid gap-4">
-            {roles.into_iter().map(|(name, desc, perms)| {
-                let variant = match name {
-                    "Admin" => BadgeVariant::Destructive,
-                    "Operator" => BadgeVariant::Default,
-                    _ => BadgeVariant::Secondary,
-                };
+        <div class="space-y-4">
+            <div class="text-sm text-muted-foreground">
+                "System roles are configured at the platform level and cannot be modified through the UI."
+            </div>
 
-                view! {
-                    <Card>
-                        <div class="flex items-start justify-between">
-                            <div class="flex-1">
-                                <div class="flex items-center gap-2 mb-2">
-                                    <Badge variant=variant>{name}</Badge>
-                                </div>
-                                <p class="text-sm text-muted-foreground mb-4">{desc}</p>
-                                <div class="space-y-1">
-                                    {perms.into_iter().map(|perm| view! {
-                                        <div class="flex items-center gap-2 text-sm">
-                                            <svg
-                                                xmlns="http://www.w3.org/2000/svg"
-                                                class="h-4 w-4 text-status-success"
-                                                viewBox="0 0 24 24"
-                                                fill="none"
-                                                stroke="currentColor"
-                                                stroke-width="2"
-                                            >
-                                                <polyline points="20 6 9 17 4 12"/>
-                                            </svg>
-                                            <span>{perm}</span>
-                                        </div>
-                                    }).collect::<Vec<_>>()}
+            <div class="grid gap-4">
+                {roles.into_iter().map(|(name, desc, perms)| {
+                    let variant = match name {
+                        "Admin" => BadgeVariant::Destructive,
+                        "Operator" => BadgeVariant::Default,
+                        _ => BadgeVariant::Secondary,
+                    };
+
+                    view! {
+                        <Card>
+                            <div class="flex items-start justify-between">
+                                <div class="flex-1">
+                                    <div class="flex items-center gap-2 mb-2">
+                                        <Badge variant=variant>{name}</Badge>
+                                    </div>
+                                    <p class="text-sm text-muted-foreground mb-4">{desc}</p>
+                                    <div class="space-y-1">
+                                        {perms.into_iter().map(|perm| view! {
+                                            <div class="flex items-center gap-2 text-sm">
+                                                <svg
+                                                    xmlns="http://www.w3.org/2000/svg"
+                                                    class="h-4 w-4 text-status-success"
+                                                    viewBox="0 0 24 24"
+                                                    fill="none"
+                                                    stroke="currentColor"
+                                                    stroke-width="2"
+                                                >
+                                                    <polyline points="20 6 9 17 4 12"/>
+                                                </svg>
+                                                <span>{perm}</span>
+                                            </div>
+                                        }).collect::<Vec<_>>()}
+                                    </div>
                                 </div>
                             </div>
-                        </div>
-                    </Card>
-                }
-            }).collect::<Vec<_>>()}
+                        </Card>
+                    }
+                }).collect::<Vec<_>>()}
+            </div>
         </div>
     }
 }
