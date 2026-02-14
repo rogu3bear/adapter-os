@@ -1212,7 +1212,7 @@ fn SessionListItem(
                     }}
 
                     // Metadata
-                    <div class="flex items-center gap-2 mt-1 text-2xs text-muted-foreground">
+                    <div class="flex items-center gap-2 mt-0.5 text-2xs text-muted-foreground">
                         {move || {
                             let show_timestamps = settings
                                 .try_get()
@@ -1287,29 +1287,7 @@ fn SessionListItem(
     }
 }
 
-/// Format a timestamp as relative time
-fn format_relative_time(timestamp: &str) -> String {
-    use chrono::{DateTime, Utc};
-
-    let Ok(dt) = DateTime::parse_from_rfc3339(timestamp) else {
-        return timestamp.to_string();
-    };
-
-    let now = crate::utils::now_utc();
-    let diff = now.signed_duration_since(dt.with_timezone(&Utc));
-
-    if diff.num_minutes() < 1 {
-        "Just now".to_string()
-    } else if diff.num_minutes() < 60 {
-        format!("{} min ago", diff.num_minutes())
-    } else if diff.num_hours() < 24 {
-        format!("{} hours ago", diff.num_hours())
-    } else if diff.num_days() < 7 {
-        format!("{} days ago", diff.num_days())
-    } else {
-        dt.format("%b %d").to_string()
-    }
-}
+use crate::utils::format_relative_time;
 
 fn generate_readable_id(_prefix: &str, _slug_source: &str) -> String {
     adapteros_id::TypedId::new(adapteros_id::IdPrefix::Ses).to_string()
