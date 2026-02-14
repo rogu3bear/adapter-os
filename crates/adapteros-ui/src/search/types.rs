@@ -122,7 +122,7 @@ impl SearchResult {
             title: name.to_string(),
             subtitle: None,
             score,
-            action: SearchAction::Navigate("/models".to_string()),
+            action: SearchAction::Navigate(format!("/models/{}", id)),
             shortcut: None,
         }
     }

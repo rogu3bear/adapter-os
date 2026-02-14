@@ -5,7 +5,7 @@
 use super::state::{DataSource, DatasetStatus, DocumentStatus, PreprocessStatus};
 use crate::api::{DatasetResponse, DocumentResponse, PreprocessedCacheEntry};
 use crate::components::{Badge, BadgeVariant, Button, ButtonVariant, Card, Spinner};
-use crate::utils::format_bytes;
+use crate::utils::{format_bytes, format_datetime};
 use leptos::prelude::*;
 
 /// Dataset version summary (used in detail panel).
@@ -178,7 +178,7 @@ fn DocumentDetail(
                 let doc_mime = doc.mime_type.clone();
                 let doc_size = format_bytes(doc.size_bytes);
                 let doc_hash = doc.hash_b3.clone();
-                let doc_created = doc.created_at.clone();
+                let doc_created = format_datetime(&doc.created_at);
                 let doc_chunks = doc.chunk_count;
                 let doc_error = doc.error_message.clone();
                 let doc_retries = doc.retry_count;
@@ -304,7 +304,7 @@ fn DatasetDetail(
                 let ds_size = format_bytes(ds.total_size_bytes.unwrap_or(0));
                 let ds_files = ds.file_count.unwrap_or(0).to_string();
                 let ds_desc = ds.description.clone();
-                let ds_created = ds.created_at.clone();
+                let ds_created = format_datetime(&ds.created_at);
                 let validation_errors = ds.validation_errors.clone();
 
                 view! {
@@ -372,7 +372,7 @@ fn DatasetDetail(
                                             let version_id = v.dataset_version_id.clone();
                                             let version_num = v.version_number.to_string();
                                             let version_label = v.version_label.clone();
-                                            let version_date = v.created_at.clone();
+                                            let version_date = format_datetime(&v.created_at);
                                             view! {
                                                 <div class="data-detail-version-item" data-version-id=version_id>
                                                     <span class="data-detail-version-number">

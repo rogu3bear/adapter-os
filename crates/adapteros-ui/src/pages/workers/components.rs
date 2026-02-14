@@ -2,13 +2,14 @@
 //!
 //! Subcomponents for displaying worker lists, details, and metrics.
 
-use crate::api::{ApiClient, ApiError, WorkerMetricsResponse};
+use crate::api::{report_error_with_toast, ApiClient, ApiError, WorkerMetricsResponse};
 use crate::components::{
     Badge, BadgeVariant, Button, ButtonSize, ButtonVariant, Card, ConfirmationDialog,
     ConfirmationSeverity, CopyableId, EmptyState, EmptyStateVariant, Spinner, StatusColor,
     StatusIndicator, Table, TableBody, TableCell, TableHead, TableHeader, TableRow,
 };
-use crate::hooks::{use_api_resource, use_navigate, use_scope_alive, LoadingState};
+use crate::hooks::{use_api, use_api_resource, use_navigate, use_scope_alive, LoadingState};
+use crate::signals::use_notifications;
 use adapteros_api_types::WorkerResponse;
 use leptos::prelude::*;
 use std::sync::Arc;
@@ -635,6 +636,9 @@ pub fn WorkerDetailView(
     on_refresh: Callback<()>,
 ) -> impl IntoView {
     let alive = use_scope_alive();
+    let navigate = leptos_router::hooks::use_navigate();
+    let notifications = use_notifications();
+    let api_client = use_api();
     let action_loading = RwSignal::new(false);
     let action_error = RwSignal::new(Option::<String>::None);
     let show_stop_confirm = RwSignal::new(false);
@@ -729,22 +733,27 @@ pub fn WorkerDetailView(
                         confirm_text="Drain"
                         on_confirm=Callback::new({
                             let alive = alive.clone();
+                            let api_client = api_client.clone();
+                            let notifications = notifications.clone();
                             move |_| {
                                 show_drain_confirm.set(false);
                                 action_loading.set(true);
-                                let client = ApiClient::new();
+                                let client = api_client.clone();
                                 let worker_id = worker_id.clone();
                                 let alive = alive.clone();
+                                let notifications = notifications.clone();
                                 wasm_bindgen_futures::spawn_local(async move {
                                     match client.drain_worker(&worker_id).await {
                                         Ok(_) => {
                                             action_error.set(None);
+                                            notifications.success("Worker draining", "Worker is draining and will stop accepting new requests.");
                                             if alive.load(std::sync::atomic::Ordering::SeqCst) {
                                                 on_refresh.run(());
                                             }
                                         }
                                         Err(e) => {
                                             action_error.set(Some(e.user_message()));
+                                            report_error_with_toast(&e, "Failed to drain worker", Some("/workers"), true);
                                         }
                                     }
                                     action_loading.set(false);
@@ -773,24 +782,33 @@ pub fn WorkerDetailView(
                         description=stop_desc
                         severity=ConfirmationSeverity::Warning
                         confirm_text="Stop"
-                        on_confirm=Callback::new(move |_| {
-                            show_stop_confirm.set(false);
-                            action_loading.set(true);
-                            let client = ApiClient::new();
-                            let worker_id = worker_id.clone();
-                            wasm_bindgen_futures::spawn_local(async move {
-                                match client.stop_worker(&worker_id).await {
-                                    Ok(_) => {
-                                        if let Some(window) = web_sys::window() {
-                                            let _ = window.location().set_href("/workers");
+                        on_confirm=Callback::new({
+                            let api_client = api_client.clone();
+                            let notifications = notifications.clone();
+                            let navigate = navigate.clone();
+                            move |_| {
+                                show_stop_confirm.set(false);
+                                action_loading.set(true);
+                                let client = api_client.clone();
+                                let worker_id = worker_id.clone();
+                                let notifications = notifications.clone();
+                                let navigate = navigate.clone();
+                                wasm_bindgen_futures::spawn_local(async move {
+                                    match client.stop_worker(&worker_id).await {
+                                        Ok(_) => {
+                                            action_error.set(None);
+                                            let short = &worker_id[..8.min(worker_id.len())];
+                                            notifications.success("Worker stopped", &format!("Worker {} has been stopped.", short));
+                                            navigate("/workers", Default::default());
+                                        }
+                                        Err(e) => {
+                                            action_error.set(Some(e.user_message()));
+                                            report_error_with_toast(&e, "Failed to stop worker", Some("/workers"), true);
                                         }
                                     }
-                                    Err(e) => {
-                                        action_error.set(Some(e.user_message()));
-                                    }
-                                }
-                                action_loading.set(false);
-                            });
+                                    action_loading.set(false);
+                                });
+                            }
                         })
                         on_cancel=Callback::new(move |_| {
                             show_stop_confirm.set(false);

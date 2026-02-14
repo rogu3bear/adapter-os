@@ -5,10 +5,11 @@
 use crate::api::{report_error_with_toast, ApiClient, ApiKeyInfo, CreateApiKeyRequest};
 use crate::components::{
     Badge, BadgeVariant, Button, ButtonVariant, Card, ConfirmationDialog, ConfirmationSeverity,
-    ErrorDisplay, Input, Spinner, Table, TableBody, TableCell, TableHead, TableHeader, TableRow,
+    ErrorDisplay, FormDialog, Input, SkeletonTable, Table, TableBody, TableCell, TableHead,
+    TableHeader, TableRow,
 };
-use crate::hooks::{use_api_resource, LoadingState};
-use crate::signals::use_notifications;
+use crate::hooks::{use_api_resource, use_polling, LoadingState};
+use crate::signals::{use_notifications, use_refetch_signal, RefetchTopic};
 use crate::utils::format_date;
 use leptos::prelude::*;
 use std::sync::Arc;
@@ -22,6 +23,20 @@ pub fn ApiKeysSection() -> impl IntoView {
     // Fetch API keys from API
     let (keys, refetch) =
         use_api_resource(move |client: Arc<ApiClient>| async move { client.list_api_keys().await });
+
+    // Periodic polling (30s)
+    let refetch_poll = refetch;
+    let _cancel_poll = use_polling(30_000, move || {
+        refetch_poll.run(());
+        async {}
+    });
+
+    // SSE-driven refetch
+    let api_keys_counter = use_refetch_signal(RefetchTopic::ApiKeys);
+    Effect::new(move || {
+        let _ = api_keys_counter.get();
+        refetch.run(());
+    });
 
     // Dialog state
     let show_create_dialog = RwSignal::new(false);
@@ -41,7 +56,7 @@ pub fn ApiKeysSection() -> impl IntoView {
     let revoke_target_name = RwSignal::new(String::new());
 
     // Create key handler
-    let on_create = move |_| {
+    let on_create = Callback::new(move |_| {
         let name = new_key_name.try_get().unwrap_or_default();
         if name.trim().is_empty() {
             create_error.set(Some("Name is required".to_string()));
@@ -71,7 +86,7 @@ pub fn ApiKeysSection() -> impl IntoView {
                     report_error_with_toast(
                         &e,
                         "Failed to create API key",
-                        Some("/admin/api-keys"),
+                        Some("/admin?tab=keys"),
                         true,
                     );
                     create_error.set(Some(e.user_message()));
@@ -79,7 +94,7 @@ pub fn ApiKeysSection() -> impl IntoView {
             }
             creating.set(false);
         });
-    };
+    });
 
     // Copy to clipboard using wasm-bindgen
     let on_copy = move |_| {
@@ -87,7 +102,6 @@ pub fn ApiKeysSection() -> impl IntoView {
             spawn_local(async move {
                 if copy_to_clipboard(&token).await {
                     copied.set(true);
-                    // Reset after 2 seconds
                     gloo_timers::future::TimeoutFuture::new(2000).await;
                     copied.set(false);
                 }
@@ -120,7 +134,7 @@ pub fn ApiKeysSection() -> impl IntoView {
                         report_error_with_toast(
                             &e,
                             "Failed to revoke API key",
-                            Some("/admin/api-keys"),
+                            Some("/admin?tab=keys"),
                             true,
                         );
                     }
@@ -193,111 +207,72 @@ pub fn ApiKeysSection() -> impl IntoView {
                 }
             }}
 
-            // Create dialog
-            {move || {
-                if show_create_dialog.try_get().unwrap_or(false) {
-                    view! {
-                        <Card>
-                            <div class="space-y-4">
-                                <div class="flex items-center justify-between">
-                                    <h3 class="heading-4">"Generate New API Key"</h3>
+            // Create dialog (FormDialog with focus trapping, Escape to close)
+            <FormDialog
+                open=show_create_dialog
+                title="Generate New API Key"
+                submit_label="Generate Key"
+                loading=Signal::from(creating)
+                on_submit=on_create
+                on_cancel=Callback::new(move |_| {
+                    create_error.set(None);
+                })
+            >
+                <div class="space-y-3">
+                    <Input
+                        value=new_key_name
+                        label="Key Name".to_string()
+                        placeholder="e.g., Production API, Development Key".to_string()
+                    />
+
+                    <div>
+                        <label class="text-sm font-medium mb-2 block">"Permissions"</label>
+                        <div class="flex flex-wrap gap-2">
+                            {["admin", "operator", "viewer"].into_iter().map(|scope| {
+                                let scope_str = scope.to_string();
+                                let scope_for_check = scope_str.clone();
+                                let scope_for_toggle = scope_str.clone();
+                                view! {
                                     <button
-                                        class="text-muted-foreground hover:text-foreground focus:outline-none focus:ring-2 focus:ring-ring focus:ring-offset-2 rounded"
-                                        aria-label="Close"
+                                        class=move || {
+                                            let is_selected = selected_scopes.try_get().unwrap_or_default().contains(&scope_for_check);
+                                            if is_selected {
+                                                "px-3 py-1.5 rounded-md text-sm font-medium bg-primary text-primary-foreground focus:outline-none focus:ring-2 focus:ring-ring focus:ring-offset-2"
+                                            } else {
+                                                "px-3 py-1.5 rounded-md text-sm font-medium bg-muted text-muted-foreground hover:bg-muted/80 focus:outline-none focus:ring-2 focus:ring-ring focus:ring-offset-2"
+                                            }
+                                        }
                                         type="button"
-                                        on:click=move |_| {
-                                            show_create_dialog.set(false);
-                                            create_error.set(None);
+                                        aria-pressed={
+                                            let scope = scope_for_toggle.clone();
+                                            move || selected_scopes.try_get().unwrap_or_default().contains(&scope)
+                                        }
+                                        on:click={
+                                            let scope = scope_for_toggle.clone();
+                                            move |_| toggle_scope(scope.clone())
                                         }
                                     >
-                                        <svg xmlns="http://www.w3.org/2000/svg" class="h-5 w-5" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2">
-                                            <line x1="18" y1="6" x2="6" y2="18"/>
-                                            <line x1="6" y1="6" x2="18" y2="18"/>
-                                        </svg>
+                                        {scope_str.clone()}
                                     </button>
-                                </div>
+                                }
+                            }).collect::<Vec<_>>()}
+                        </div>
+                        <p class="text-xs text-muted-foreground mt-1">
+                            "Select the permission levels this key should have"
+                        </p>
+                    </div>
+                </div>
 
-                                <div class="space-y-3">
-                                    <Input
-                                        value=new_key_name
-                                        label="Key Name".to_string()
-                                        placeholder="e.g., Production API, Development Key".to_string()
-                                    />
-
-                                    <div>
-                                        <label class="text-sm font-medium mb-2 block">"Permissions"</label>
-                                        <div class="flex flex-wrap gap-2">
-                                            {["admin", "operator", "viewer"].into_iter().map(|scope| {
-                                                let scope_str = scope.to_string();
-                                                let scope_for_check = scope_str.clone();
-                                                let scope_for_toggle = scope_str.clone();
-                                                view! {
-                                                    <button
-                                                        class=move || {
-                                                            let is_selected = selected_scopes.try_get().unwrap_or_default().contains(&scope_for_check);
-                                                            if is_selected {
-                                                                "px-3 py-1.5 rounded-md text-sm font-medium bg-primary text-primary-foreground focus:outline-none focus:ring-2 focus:ring-ring focus:ring-offset-2"
-                                                            } else {
-                                                                "px-3 py-1.5 rounded-md text-sm font-medium bg-muted text-muted-foreground hover:bg-muted/80 focus:outline-none focus:ring-2 focus:ring-ring focus:ring-offset-2"
-                                                            }
-                                                        }
-                                                        type="button"
-                                                        aria-pressed={
-                                                            let scope = scope_for_toggle.clone();
-                                                            move || selected_scopes.try_get().unwrap_or_default().contains(&scope)
-                                                        }
-                                                        on:click={
-                                                            let scope = scope_for_toggle.clone();
-                                                            move |_| toggle_scope(scope.clone())
-                                                        }
-                                                    >
-                                                        {scope_str.clone()}
-                                                    </button>
-                                                }
-                                            }).collect::<Vec<_>>()}
-                                        </div>
-                                        <p class="text-xs text-muted-foreground mt-1">
-                                            "Select the permission levels this key should have"
-                                        </p>
-                                    </div>
-                                </div>
-
-                                {move || {
-                                    if let Some(error) = create_error.try_get().flatten() {
-                                        view! {
-                                            <div class="text-sm text-destructive">{error}</div>
-                                        }.into_any()
-                                    } else {
-                                        view! {}.into_any()
-                                    }
-                                }}
-
-                                <div class="flex justify-end gap-2 pt-2">
-                                    <Button
-                                        variant=ButtonVariant::Ghost
-                                        on_click=Callback::new(move |_| {
-                                            show_create_dialog.set(false);
-                                            create_error.set(None);
-                                        })
-                                    >
-                                        "Cancel"
-                                    </Button>
-                                    <Button
-                                        variant=ButtonVariant::Primary
-                                        on_click=Callback::new(on_create)
-                                        disabled=Signal::from(creating)
-                                        loading=Signal::from(creating)
-                                    >
-                                        {move || if creating.try_get().unwrap_or(false) { "Generating..." } else { "Generate Key" }}
-                                    </Button>
-                                </div>
-                            </div>
-                        </Card>
-                    }.into_any()
-                } else {
-                    view! {}.into_any()
-                }
-            }}
+                {move || {
+                    if let Some(error) = create_error.try_get().flatten() {
+                        view! {
+                            <div class="text-sm text-destructive">{error}</div>
+                        }.into_any()
+                    } else {
+                        view! {}.into_any()
+                    }
+                }}
+            </FormDialog>
 
             // Keys list
             <Card>
@@ -305,9 +280,7 @@ pub fn ApiKeysSection() -> impl IntoView {
                     match keys.try_get().unwrap_or(LoadingState::Idle) {
                         LoadingState::Idle | LoadingState::Loading => {
                             view! {
-                                <div class="flex items-center justify-center py-12">
-                                    <Spinner/>
-                                </div>
+                                <SkeletonTable rows=3 columns=4/>
                             }.into_any()
                         }
                         LoadingState::Loaded(data) => {

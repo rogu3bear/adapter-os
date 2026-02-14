@@ -10,6 +10,7 @@ use crate::components::{
     TableBody, TableCell, TableHead, TableHeader, TableRow,
 };
 use crate::hooks::{use_api_resource, LoadingState};
+use crate::utils::format_relative_time;
 use adapteros_api_types::orchestration::OrchestrationConfig;
 use leptos::prelude::*;
 use std::sync::Arc;
@@ -196,10 +197,24 @@ pub fn Agents() -> impl IntoView {
                             }.into_any()
                         }
                         LoadingState::Loading | LoadingState::Idle => {
-                            view! { <div class="animate-pulse h-32 bg-muted rounded-md"></div> }.into_any()
+                            view! {
+                                <div class="flex items-center justify-center h-32 text-muted-foreground gap-2">
+                                    <crate::components::Spinner />
+                                    <span class="text-sm">"Loading config\u{2026}"</span>
+                                </div>
+                            }.into_any()
                         }
-                        LoadingState::Error(_) => {
-                            view! { <p class="text-xs text-destructive">"Failed to load config"</p> }.into_any()
+                        LoadingState::Error(ref e) => {
+                            view! {
+                                <div class="flex items-center gap-2 text-destructive p-3 rounded-md bg-destructive/10">
+                                    <svg class="w-4 h-4 flex-shrink-0" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round">
+                                        <circle cx="12" cy="12" r="10"/>
+                                        <line x1="12" y1="8" x2="12" y2="12"/>
+                                        <line x1="12" y1="16" x2="12.01" y2="16"/>
+                                    </svg>
+                                    <p class="text-xs">{format!("Failed to load config: {}", e)}</p>
+                                </div>
+                            }.into_any()
                         }
                     }}
                 </Card>
@@ -261,7 +276,7 @@ pub fn Agents() -> impl IntoView {
                                                         let created_at = if session.created_at.is_empty() {
                                                             "-".to_string()
                                                         } else {
-                                                            session.created_at.clone()
+                                                            format_relative_time(&session.created_at)
                                                         };
                                                         let adapters = session.adapters.unwrap_or_default();
                                                         let adapters_label = if adapters.is_empty() {
