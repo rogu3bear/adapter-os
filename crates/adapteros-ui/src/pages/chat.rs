@@ -2452,17 +2452,22 @@ fn ChatConversationPanel(
                                                 "Ask a question to begin. The system will automatically route your request to the best adapters for the task."
                                             </p>
                                         </div>
-                                        // Suggestion chips
+                                        // Suggestion chips (clickable to pre-fill)
                                         <div class="flex flex-wrap justify-center gap-2 pt-2">
-                                            <span class="text-xs px-3 py-1.5 rounded-full bg-muted text-muted-foreground">
-                                                "Summarize a document"
-                                            </span>
-                                            <span class="text-xs px-3 py-1.5 rounded-full bg-muted text-muted-foreground">
-                                                "Explain a concept"
-                                            </span>
-                                            <span class="text-xs px-3 py-1.5 rounded-full bg-muted text-muted-foreground">
-                                                "Review code"
-                                            </span>
+                                            {["Summarize a document", "Explain a concept", "Review code"].into_iter().map(|prompt| {
+                                                let prompt_text = prompt.to_string();
+                                                view! {
+                                                    <button
+                                                        type="button"
+                                                        class="text-xs px-3 py-1.5 rounded-full bg-muted text-muted-foreground hover:bg-primary/10 hover:text-primary transition-colors cursor-pointer"
+                                                        on:click=move |_| {
+                                                            message.set(prompt_text.clone());
+                                                        }
+                                                    >
+                                                        {prompt}
+                                                    </button>
+                                                }
+                                            }).collect::<Vec<_>>()}
                                         </div>
                                     </div>
                                 </div>
@@ -3407,6 +3412,20 @@ fn ChatTargetSelector() -> impl IntoView {
                 </svg>
             </button>
 
+            // Backdrop to close dropdown on outside click
+            {move || {
+                if show_dropdown.try_get().unwrap_or(false) {
+                    Some(view! {
+                        <div
+                            class="fixed inset-0 z-40"
+                            on:click=move |_| show_dropdown.set(false)
+                        />
+                    })
+                } else {
+                    None
+                }
+            }}
+
             // Dropdown menu
             {move || {
                 if show_dropdown.try_get().unwrap_or(false) {
@@ -3435,8 +3454,9 @@ fn ChatTargetSelector() -> impl IntoView {
                                 // Loading indicator
                                 {if opts.loading {
                                     Some(view! {
-                                        <div class="px-2 py-3 text-center text-sm text-muted-foreground">
-                                            <span class="animate-pulse">"Loading options..."</span>
+                                        <div class="flex items-center justify-center gap-2 px-2 py-3 text-sm text-muted-foreground">
+                                            <Spinner/>
+                                            <span>"Loading options\u{2026}"</span>
                                         </div>
                                     })
                                 } else {
