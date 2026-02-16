@@ -5,8 +5,8 @@
 
 use crate::api::{ApiClient, ApiError};
 use crate::components::{
-    Button, ButtonSize, ButtonVariant, Card, Column, DataTable, EmptyState, EmptyStateVariant,
-    PageBreadcrumbItem, PageScaffold, PageScaffoldActions, RefreshButton,
+    Card, Column, DataTable, EmptyState, EmptyStateVariant, PageBreadcrumbItem, PageScaffold,
+    PageScaffoldActions, RefreshButton,
 };
 use crate::hooks::{use_api_resource, LoadingState};
 use crate::utils::format_relative_time;
@@ -72,21 +72,19 @@ pub fn Agents() -> impl IntoView {
     view! {
         <PageScaffold
             title="Agent Orchestration"
-            subtitle="Manage multi-agent sessions and worker executors"
+            subtitle="Monitor active sessions and orchestration settings"
             breadcrumbs=vec![
                 PageBreadcrumbItem::label("Org"),
                 PageBreadcrumbItem::current("Agents"),
             ]
         >
             <PageScaffoldActions slot>
-                <Button
-                    variant=ButtonVariant::Secondary
-                    size=ButtonSize::Sm
-                    disabled=true
-                    attr:title="Session creation is not yet available via the UI. Use the API directly."
+                <span
+                    class="text-xs text-muted-foreground"
+                    title="Session creation is API-only for now. Use POST /v1/orchestration/sessions."
                 >
-                    "Create Session"
-                </Button>
+                    "Read-only beta · Create via API: /v1/orchestration/sessions"
+                </span>
                 <RefreshButton on_click=refetch_all/>
             </PageScaffoldActions>
 

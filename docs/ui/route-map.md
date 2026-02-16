@@ -28,7 +28,7 @@ Naming canon:
 |---|---|---|---|---|
 | `/login` | Org | Hidden | Stable | Public auth entry. |
 | `/safe` | Govern | Hidden | Stable | Public safe-mode fallback (no auth/API calls). |
-| `/style-audit` | Org | Tools | Stable | Style-system audit page (dev utility). |
+| `/style-audit` | Org | Tools | Stable | Style-system audit page (dev utility). Public route; live API-backed sections require authentication. |
 | `/dashboard` | Observe | Hidden | Stable | Redirect alias to `/`. |
 | `/flight-recorder` | Observe | Hidden | Stable | Legacy redirect alias to `/runs`. |
 | `/flight-recorder/:id` | Observe | Hidden | Stable | Legacy redirect alias to `/runs/:id` (preserves query string). |

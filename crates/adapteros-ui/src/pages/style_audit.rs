@@ -17,6 +17,7 @@ use crate::components::{
 };
 use crate::constants::pagination::TOKEN_DECISIONS_PAGE_SIZE;
 use crate::hooks::{use_api_resource, LoadingState};
+use crate::signals::use_auth;
 use chrono::DateTime;
 use leptos::prelude::*;
 use std::collections::HashMap;
@@ -25,6 +26,10 @@ use std::sync::Arc;
 /// Style Audit page - component gallery for visual testing
 #[component]
 pub fn StyleAudit() -> impl IntoView {
+    let (auth_state, _) = use_auth();
+    let is_authenticated =
+        Signal::derive(move || auth_state.try_get().is_some_and(|state| state.is_authenticated()));
+
     // Theme state for toggling
     let is_dark = RwSignal::new(false);
 
@@ -139,7 +144,9 @@ pub fn StyleAudit() -> impl IntoView {
                 <div class="flex items-center justify-between mb-8 pb-4 border-b">
                     <div>
                         <h1 class="heading-1" data-testid="style-audit-heading">"Style Audit"</h1>
-                        <p class="text-muted-foreground mt-1">"PRD-UI-003: Visual Component Gallery"</p>
+                        <p class="text-muted-foreground mt-1">
+                            "PRD-UI-003: Visual Component Gallery. Live metrics and trace examples require login."
+                        </p>
                     </div>
                     <div class="flex items-center gap-4">
                         <span class="text-sm text-muted-foreground">
@@ -153,6 +160,21 @@ pub fn StyleAudit() -> impl IntoView {
                         </button>
                     </div>
                 </div>
+
+                {move || {
+                    if is_authenticated.try_get().unwrap_or(false) {
+                        None
+                    } else {
+                        Some(view! {
+                            <div class="mb-8">
+                                <InfoBanner
+                                    title="Public page".to_string()
+                                    message="Static component previews work without sign-in. Live API-backed examples require an authenticated session."
+                                />
+                            </div>
+                        })
+                    }
+                }}
 
                 // Component Sections
                 <div class="space-y-12">
@@ -194,7 +216,7 @@ pub fn StyleAudit() -> impl IntoView {
 
                     // ===== INFERENCE =====
                     <ComponentSection title="Inference">
-                        <SubSection title="Trace Visualization">
+                        <SubSection title="Trace Visualization (requires login)">
                             <div class="border rounded-lg bg-card p-4 space-y-4">
                                 <div class="flex flex-wrap items-end gap-3">
                                     <div class="w-full sm:w-80">
@@ -259,6 +281,15 @@ pub fn StyleAudit() -> impl IntoView {
                                         // Error fetching recent traces
                                         if let LoadingState::Error(err) = recent_traces.try_get().unwrap_or(LoadingState::Idle) {
                                             if requested_trace_id.try_get().unwrap_or_default().is_empty() {
+                                                if err.requires_auth() {
+                                                    return view! {
+                                                        <InfoBanner
+                                                            title="Sign in required".to_string()
+                                                            message="Live trace samples are only available in authenticated sessions."
+                                                        />
+                                                    }
+                                                    .into_any();
+                                                }
                                                 return view! {
                                                     <ErrorDisplay error=err.clone()/>
                                                 }
@@ -270,7 +301,7 @@ pub fn StyleAudit() -> impl IntoView {
                                         if requested_trace_id.try_get().unwrap_or_default().trim().is_empty() {
                                             view! {
                                                 <div class="text-sm text-muted-foreground">
-                                                    "Enter a trace ID to load trace data."
+                                                    "Enter a trace ID to load trace data. Sign in is required for live traces."
                                                 </div>
                                             }
                                             .into_any()
@@ -301,7 +332,18 @@ pub fn StyleAudit() -> impl IntoView {
                                                 }
                                                 .into_any(),
                                                 LoadingState::Error(err) => view! {
-                                                    <ErrorDisplay error=err.clone()/>
+                                                    {if err.requires_auth() {
+                                                        view! {
+                                                            <InfoBanner
+                                                                title="Sign in required".to_string()
+                                                                message="Live trace detail is only available in authenticated sessions."
+                                                            />
+                                                        }.into_any()
+                                                    } else {
+                                                        view! {
+                                                            <ErrorDisplay error=err.clone()/>
+                                                        }.into_any()
+                                                    }}
                                                 }
                                                 .into_any(),
                                             }
