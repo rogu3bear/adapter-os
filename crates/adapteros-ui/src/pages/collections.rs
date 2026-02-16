@@ -22,7 +22,7 @@ use crate::components::{
 use crate::hooks::{use_api, use_api_resource, use_scope_alive, LoadingState};
 use crate::utils::{format_bytes, format_date};
 use leptos::prelude::*;
-use leptos_router::hooks::use_params_map;
+use leptos_router::hooks::{use_navigate, use_params_map};
 use std::collections::HashSet;
 use std::sync::Arc;
 
@@ -290,6 +290,7 @@ fn CollectionsList(
 pub fn CollectionDetail() -> impl IntoView {
     let params = use_params_map();
     let client = use_api();
+    let navigate = use_navigate();
 
     // Get collection ID from URL
     let collection_id = Memo::new(move |_| {
@@ -320,18 +321,19 @@ pub fn CollectionDetail() -> impl IntoView {
     // Delete handler
     let on_delete = {
         let client = Arc::clone(&client);
+        let navigate = navigate.clone();
         move |_| {
             let id = collection_id.try_get().unwrap_or_default();
             deleting.set(true);
 
             let client = Arc::clone(&client);
+            let navigate = navigate.clone();
             wasm_bindgen_futures::spawn_local(async move {
                 match client.delete_collection(&id).await {
                     Ok(_) => {
-                        // Navigate back to collections list
-                        if let Some(window) = web_sys::window() {
-                            let _ = window.location().set_href("/collections");
-                        }
+                        let _ = deleting.try_set(false);
+                        let _ = show_delete_confirm.try_set(false);
+                        navigate("/collections", Default::default());
                     }
                     Err(e) => {
                         report_error_with_toast(
