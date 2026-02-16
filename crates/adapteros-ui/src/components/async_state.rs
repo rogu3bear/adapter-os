@@ -5,7 +5,9 @@
 
 use crate::api::ApiError;
 use crate::components::layout::BreadcrumbItem;
-use crate::components::{Badge, BadgeVariant, Button, ButtonLink, ButtonSize, ButtonVariant, Spinner};
+use crate::components::{
+    Badge, BadgeVariant, Button, ButtonLink, ButtonSize, ButtonVariant, Card, Spinner,
+};
 use adapteros_api_types::FailureCode;
 use leptos::prelude::*;
 
@@ -537,6 +539,57 @@ pub fn EmptyState(
                     </div>
                 }
             })}
+        </div>
+    }
+}
+
+/// Shared not-found surface for route/entity 404 states.
+#[component]
+pub fn NotFoundSurface(
+    /// Heading title (for example: "Document not found")
+    #[prop(into)]
+    title: String,
+    /// Supporting description text
+    #[prop(into)]
+    description: String,
+    /// Primary action label
+    #[prop(into)]
+    action_label: String,
+    /// Primary action destination
+    #[prop(into)]
+    action_href: String,
+    /// Optional leading status code text
+    #[prop(optional, into)]
+    code: Option<String>,
+    /// Optional minimum-height class override
+    #[prop(optional, into)]
+    class: String,
+    /// Optional additional content rendered between description and action
+    #[prop(optional)]
+    children: Option<Children>,
+) -> impl IntoView {
+    let code_text = code.unwrap_or_else(|| "404".to_string());
+    let container_class = if class.is_empty() {
+        "flex min-h-[40vh] flex-col items-center justify-center px-4".to_string()
+    } else {
+        format!("flex flex-col items-center justify-center px-4 {class}")
+    };
+
+    view! {
+        <div class=container_class>
+            <Card class="p-8 max-w-md w-full text-center">
+                <div class="text-4xl font-bold text-muted-foreground mb-2">{code_text}</div>
+                <h2 class="heading-3 mb-2">{title}</h2>
+                <p class="text-muted-foreground mb-6">{description}</p>
+                {children.map(|slot| view! {
+                    <div class="mb-6">
+                        {slot()}
+                    </div>
+                })}
+                <ButtonLink href=action_href variant=ButtonVariant::Primary size=ButtonSize::Md>
+                    {action_label}
+                </ButtonLink>
+            </Card>
         </div>
     }
 }

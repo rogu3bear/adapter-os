@@ -68,7 +68,7 @@ pub use adapter_detail_panel::{AdapterDetailPanel, AdapterSuggestionContext};
 pub use adapter_lifecycle_controls::AdapterLifecycleControls;
 pub use async_state::{
     AsyncBoundary, AsyncBoundaryWithEmpty, AsyncBoundaryWithErrorRender, DetailRow, EmptyState,
-    EmptyStateVariant, ErrorDisplay, LoadingDisplay, PageHeader, RefreshButton,
+    EmptyStateVariant, ErrorDisplay, LoadingDisplay, NotFoundSurface, PageHeader, RefreshButton,
 };
 pub use auth::{AuthProvider, ProtectedRoute};
 pub use breadcrumb_trail::{humanize_segment, BreadcrumbTrail};
