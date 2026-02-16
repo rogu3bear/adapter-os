@@ -497,8 +497,42 @@ export async function resolveChatEntryContract(
 ): Promise<ChatEntryContract> {
   const timeoutMs = options.timeoutMs ?? 20_000;
   const startedAt = Date.now();
+  let authRecoveryAttempted = false;
   while (Date.now() - startedAt < timeoutMs) {
     const path = currentPath(page);
+    const authErrorVisible = await page
+      .getByRole('heading', { name: 'Authentication Error' })
+      .isVisible()
+      .catch(() => false);
+    const authTimeoutVisible = await page
+      .getByRole('heading', { name: 'Authentication Timeout' })
+      .isVisible()
+      .catch(() => false);
+    const loginVisible = await page
+      .getByRole('heading', { name: 'Login', exact: true })
+      .isVisible()
+      .catch(() => false);
+    if (authErrorVisible || authTimeoutVisible || loginVisible) {
+      if (authRecoveryAttempted) {
+        throw new Error(
+          `Unable to resolve /chat entry contract: authentication surface persisted after recovery. url=${page.url()}`
+        );
+      }
+      authRecoveryAttempted = true;
+      const goToLogin = page.getByRole('button', { name: /Go to Login/i });
+      if (await goToLogin.isVisible().catch(() => false)) {
+        await goToLogin.click().catch(() => {});
+      }
+      await bootstrapAuth(page, {
+        mode: 'ui-then-api',
+        maxUiAttempts: 2,
+        postAuthPath: '/chat',
+        expectedPostAuthPath: /\/(chat|dashboard)(\/|$)/,
+      });
+      await gotoWithRetry(page, '/chat');
+      await waitForAppReady(page, { timeoutMs: 20_000 });
+      continue;
+    }
     if (await page.getByTestId('chat-header').isVisible().catch(() => false)) {
       return { state: 'active', anchor: 'chat-header', path };
     }

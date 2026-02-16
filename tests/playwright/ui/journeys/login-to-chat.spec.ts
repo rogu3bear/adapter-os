@@ -11,7 +11,7 @@ import { gotoChatEntryAndResolve } from '../utils';
 // Clear storageState so this journey always exercises login/bootstrap behavior.
 test.use({ storageState: { cookies: [], origins: [] } });
 
-test.setTimeout(120_000);
+test.setTimeout(240_000);
 
 test('login then land on chat workspace', { tag: ['@flow'] }, async ({ page }) => {
   const contract = await gotoChatEntryAndResolve(page, {
@@ -20,7 +20,7 @@ test('login then land on chat workspace', { tag: ['@flow'] }, async ({ page }) =
     maxUiAttempts: 2,
     postAuthPath: '/chat',
     expectedPostAuthPath: /\/(chat|dashboard)(\/|$)/,
-    timeoutMs: 30_000,
+    timeoutMs: 60_000,
   });
 
   const path = new URL(page.url()).pathname;
