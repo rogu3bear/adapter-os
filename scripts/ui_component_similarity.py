@@ -12,14 +12,10 @@ from dataclasses import dataclass
 from pathlib import Path
 from typing import Any
 
-
 ROOT = Path(__file__).resolve().parents[1]
 UI_SRC = ROOT / "crates" / "adapteros-ui" / "src"
-COMPONENT_ATTR_RE = re.compile(r"#\s*\[\s*component(?:\s*\([^]]*\))?\s*\]", re.MULTILINE)
-FN_RE = re.compile(
-    r"\b(?:pub(?:\([^)]*\))?\s+)?(?:async\s+)?fn\s+([A-Za-z_][A-Za-z0-9_]*)\b",
-    re.MULTILINE,
-)
+ATTR_RE = re.compile(r"(?m)^\s*#\s*\[\s*component\b[^\]]*\]")
+FN_RE = re.compile(r"\b(?:pub\s+)?fn\s+([A-Za-z_][A-Za-z0-9_]*)\b")
 
 
 @dataclass(frozen=True)
@@ -27,9 +23,7 @@ class Component:
     name: str
     file: str
     line: int
-    body: str
     normalized: str
-    tokens: tuple[str, ...]
 
     @property
     def key(self) -> str:
@@ -43,397 +37,298 @@ class Pair:
     ratio: float
 
 
-def _maybe_raw_string_start(text: str, i: int) -> tuple[int, int] | None:
-    """Return (index_after_open_quote, hash_count) if a raw string starts at i."""
-    if i >= len(text):
-        return None
-
-    if text[i] == "r":
-        prefix_start = i
-        j = i + 1
-    elif text[i] == "b" and i + 1 < len(text) and text[i + 1] == "r":
-        prefix_start = i
-        j = i + 2
-    else:
-        return None
-
-    if prefix_start > 0 and (text[prefix_start - 1].isalnum() or text[prefix_start - 1] == "_"):
-        return None
-
-    hashes = 0
-    while j < len(text) and text[j] == "#":
-        hashes += 1
-        j += 1
-    if j < len(text) and text[j] == '"':
-        return (j + 1, hashes)
-    return None
+def is_ident_start(ch: str) -> bool:
+    return ch.isalpha() or ch == "_"
 
 
-def strip_comments(text: str) -> str:
-    """Strip // and /* */ comments while preserving strings/chars."""
+def starts_char_literal(text: str, i: int) -> bool:
+    n = len(text)
+    if i + 2 < n and text[i + 2] == "'":
+        return True
+    if i + 3 < n and text[i + 1] == "\\" and text[i + 3] == "'":
+        return True
+    return False
+
+
+def remove_comments(text: str) -> str:
     out: list[str] = []
     i = 0
-    state = "normal"
+    n = len(text)
     block_depth = 0
+    in_line = False
+    in_str = False
+    in_char = False
+    in_raw = False
     raw_hashes = 0
-    escaped = False
 
-    while i < len(text):
-        ch = text[i]
-        nxt = text[i + 1] if i + 1 < len(text) else ""
+    while i < n:
+        c = text[i]
+        nxt = text[i + 1] if i + 1 < n else ""
 
-        if state == "normal":
-            raw_start = _maybe_raw_string_start(text, i)
-            if raw_start is not None:
-                end_of_open, raw_hashes = raw_start
-                out.append(text[i:end_of_open])
-                i = end_of_open
-                state = "raw_string"
-                continue
-            if ch == "/" and nxt == "/":
-                state = "line_comment"
-                i += 2
-                continue
-            if ch == "/" and nxt == "*":
-                state = "block_comment"
-                block_depth = 1
-                i += 2
-                continue
-            if ch == '"':
-                state = "string"
-                escaped = False
-                out.append(ch)
-                i += 1
-                continue
-            if ch == "'":
-                state = "char"
-                escaped = False
-                out.append(ch)
-                i += 1
-                continue
-            out.append(ch)
+        if in_line:
+            if c == "\n":
+                in_line = False
+                out.append(c)
             i += 1
             continue
 
-        if state == "line_comment":
-            if ch == "\n":
-                out.append("\n")
-                state = "normal"
-            i += 1
-            continue
-
-        if state == "block_comment":
-            if ch == "/" and nxt == "*":
+        if block_depth > 0:
+            if c == "/" and nxt == "*":
                 block_depth += 1
                 i += 2
                 continue
-            if ch == "*" and nxt == "/":
+            if c == "*" and nxt == "/":
                 block_depth -= 1
                 i += 2
-                if block_depth == 0:
-                    state = "normal"
                 continue
-            if ch == "\n":
-                out.append("\n")
             i += 1
             continue
 
-        if state == "string":
-            out.append(ch)
-            if escaped:
-                escaped = False
-            elif ch == "\\":
-                escaped = True
-            elif ch == '"':
-                state = "normal"
+        if in_str:
+            out.append(c)
+            if c == "\\" and i + 1 < n:
+                out.append(text[i + 1])
+                i += 2
+                continue
+            if c == '"':
+                in_str = False
             i += 1
             continue
 
-        if state == "char":
-            out.append(ch)
-            if escaped:
-                escaped = False
-            elif ch == "\\":
-                escaped = True
-            elif ch == "'":
-                state = "normal"
+        if in_char:
+            out.append(c)
+            if c == "\\" and i + 1 < n:
+                out.append(text[i + 1])
+                i += 2
+                continue
+            if c == "'":
+                in_char = False
             i += 1
             continue
 
-        if state == "raw_string":
-            out.append(ch)
-            if ch == '"':
-                closing = True
-                for offset in range(raw_hashes):
-                    if i + 1 + offset >= len(text) or text[i + 1 + offset] != "#":
-                        closing = False
-                        break
-                if closing:
-                    if raw_hashes:
-                        out.append("#" * raw_hashes)
-                    i += 1 + raw_hashes
-                    state = "normal"
+        if in_raw:
+            out.append(c)
+            if c == '"':
+                j = i + 1
+                cnt = 0
+                while j < n and text[j] == "#":
+                    cnt += 1
+                    j += 1
+                if cnt == raw_hashes:
+                    out.extend("#" * cnt)
+                    i = j
+                    in_raw = False
+                    raw_hashes = 0
                     continue
             i += 1
             continue
+
+        if c == "/" and nxt == "/":
+            in_line = True
+            i += 2
+            continue
+        if c == "/" and nxt == "*":
+            block_depth = 1
+            i += 2
+            continue
+
+        if c == "r":
+            j = i + 1
+            hashes = 0
+            while j < n and text[j] == "#":
+                hashes += 1
+                j += 1
+            if j < n and text[j] == '"':
+                out.append("r")
+                if hashes:
+                    out.extend("#" * hashes)
+                out.append('"')
+                i = j + 1
+                in_raw = True
+                raw_hashes = hashes
+                continue
+
+        if c == '"':
+            in_str = True
+            out.append(c)
+            i += 1
+            continue
+
+        if c == "'":
+            if starts_char_literal(text, i):
+                in_char = True
+                out.append(c)
+                i += 1
+                continue
+            if i + 1 < n and is_ident_start(text[i + 1]):
+                out.append(c)
+                i += 1
+                continue
+            in_char = True
+            out.append(c)
+            i += 1
+            continue
+
+        out.append(c)
+        i += 1
 
     return "".join(out)
 
 
-def collapse_whitespace(text: str) -> str:
-    return " ".join(text.split())
-
-
-def normalize_body(body: str) -> str:
-    return collapse_whitespace(strip_comments(body))
-
-
-def tokenize(normalized: str) -> tuple[str, ...]:
-    if not normalized:
-        return ()
-    return tuple(normalized.split(" "))
-
-
-def _find_next_open_brace(text: str, start: int) -> int | None:
-    i = start
-    state = "normal"
-    block_depth = 0
-    raw_hashes = 0
-    escaped = False
-
-    while i < len(text):
-        ch = text[i]
-        nxt = text[i + 1] if i + 1 < len(text) else ""
-
-        if state == "normal":
-            raw_start = _maybe_raw_string_start(text, i)
-            if raw_start is not None:
-                i = raw_start[0]
-                raw_hashes = raw_start[1]
-                state = "raw_string"
-                continue
-            if ch == "/" and nxt == "/":
-                state = "line_comment"
-                i += 2
-                continue
-            if ch == "/" and nxt == "*":
-                state = "block_comment"
-                block_depth = 1
-                i += 2
-                continue
-            if ch == '"':
-                state = "string"
-                escaped = False
-                i += 1
-                continue
-            if ch == "'":
-                state = "char"
-                escaped = False
-                i += 1
-                continue
-            if ch == "{":
-                return i
-            i += 1
-            continue
-
-        if state == "line_comment":
-            if ch == "\n":
-                state = "normal"
-            i += 1
-            continue
-
-        if state == "block_comment":
-            if ch == "/" and nxt == "*":
-                block_depth += 1
-                i += 2
-                continue
-            if ch == "*" and nxt == "/":
-                block_depth -= 1
-                i += 2
-                if block_depth == 0:
-                    state = "normal"
-                continue
-            i += 1
-            continue
-
-        if state == "string":
-            if escaped:
-                escaped = False
-            elif ch == "\\":
-                escaped = True
-            elif ch == '"':
-                state = "normal"
-            i += 1
-            continue
-
-        if state == "char":
-            if escaped:
-                escaped = False
-            elif ch == "\\":
-                escaped = True
-            elif ch == "'":
-                state = "normal"
-            i += 1
-            continue
-
-        if state == "raw_string":
-            if ch == '"':
-                closing = True
-                for offset in range(raw_hashes):
-                    if i + 1 + offset >= len(text) or text[i + 1 + offset] != "#":
-                        closing = False
-                        break
-                if closing:
-                    i += 1 + raw_hashes
-                    state = "normal"
-                    continue
-            i += 1
-            continue
-
-    return None
-
-
-def _find_matching_brace(text: str, open_idx: int) -> int | None:
+def find_matching_brace(text: str, open_idx: int) -> int:
     i = open_idx
+    n = len(text)
     depth = 0
-    state = "normal"
+    in_line = False
     block_depth = 0
+    in_str = False
+    in_char = False
+    in_raw = False
     raw_hashes = 0
-    escaped = False
 
-    while i < len(text):
-        ch = text[i]
-        nxt = text[i + 1] if i + 1 < len(text) else ""
+    while i < n:
+        c = text[i]
+        nxt = text[i + 1] if i + 1 < n else ""
 
-        if state == "normal":
-            raw_start = _maybe_raw_string_start(text, i)
-            if raw_start is not None:
-                i = raw_start[0]
-                raw_hashes = raw_start[1]
-                state = "raw_string"
-                continue
-            if ch == "/" and nxt == "/":
-                state = "line_comment"
-                i += 2
-                continue
-            if ch == "/" and nxt == "*":
-                state = "block_comment"
-                block_depth = 1
-                i += 2
-                continue
-            if ch == '"':
-                state = "string"
-                escaped = False
-                i += 1
-                continue
-            if ch == "'":
-                state = "char"
-                escaped = False
-                i += 1
-                continue
-            if ch == "{":
-                depth += 1
-            elif ch == "}":
-                depth -= 1
-                if depth == 0:
-                    return i
+        if in_line:
+            if c == "\n":
+                in_line = False
             i += 1
             continue
 
-        if state == "line_comment":
-            if ch == "\n":
-                state = "normal"
-            i += 1
-            continue
-
-        if state == "block_comment":
-            if ch == "/" and nxt == "*":
+        if block_depth > 0:
+            if c == "/" and nxt == "*":
                 block_depth += 1
                 i += 2
                 continue
-            if ch == "*" and nxt == "/":
+            if c == "*" and nxt == "/":
                 block_depth -= 1
                 i += 2
-                if block_depth == 0:
-                    state = "normal"
                 continue
             i += 1
             continue
 
-        if state == "string":
-            if escaped:
-                escaped = False
-            elif ch == "\\":
-                escaped = True
-            elif ch == '"':
-                state = "normal"
+        if in_str:
+            if c == "\\":
+                i += 2
+                continue
+            if c == '"':
+                in_str = False
             i += 1
             continue
 
-        if state == "char":
-            if escaped:
-                escaped = False
-            elif ch == "\\":
-                escaped = True
-            elif ch == "'":
-                state = "normal"
+        if in_char:
+            if c == "\\":
+                i += 2
+                continue
+            if c == "'":
+                in_char = False
             i += 1
             continue
 
-        if state == "raw_string":
-            if ch == '"':
-                closing = True
-                for offset in range(raw_hashes):
-                    if i + 1 + offset >= len(text) or text[i + 1 + offset] != "#":
-                        closing = False
-                        break
-                if closing:
-                    i += 1 + raw_hashes
-                    state = "normal"
+        if in_raw:
+            if c == '"':
+                j = i + 1
+                cnt = 0
+                while j < n and text[j] == "#":
+                    cnt += 1
+                    j += 1
+                if cnt == raw_hashes:
+                    in_raw = False
+                    raw_hashes = 0
+                    i = j
                     continue
             i += 1
             continue
 
-    return None
+        if c == "/" and nxt == "/":
+            in_line = True
+            i += 2
+            continue
+
+        if c == "/" and nxt == "*":
+            block_depth = 1
+            i += 2
+            continue
+
+        if c == "r":
+            j = i + 1
+            hashes = 0
+            while j < n and text[j] == "#":
+                hashes += 1
+                j += 1
+            if j < n and text[j] == '"':
+                in_raw = True
+                raw_hashes = hashes
+                i = j + 1
+                continue
+
+        if c == '"':
+            in_str = True
+            i += 1
+            continue
+
+        if c == "'":
+            if starts_char_literal(text, i):
+                in_char = True
+                i += 1
+                continue
+            if i + 1 < n and is_ident_start(text[i + 1]):
+                i += 1
+                continue
+            in_char = True
+            i += 1
+            continue
+
+        if c == "{":
+            depth += 1
+        elif c == "}":
+            depth -= 1
+            if depth == 0:
+                return i
+
+        i += 1
+
+    return -1
 
 
 def should_exclude(path: Path, excluded_suffixes: list[str]) -> bool:
-    path_text = path.as_posix()
-    return any(path_text.endswith(suffix) for suffix in excluded_suffixes)
+    p = path.as_posix()
+    return any(p.endswith(suf) for suf in excluded_suffixes)
 
 
 def extract_components(source_path: Path, root: Path) -> list[Component]:
     text = source_path.read_text(encoding="utf-8")
+    rel_file = source_path.relative_to(root).as_posix()
     components: list[Component] = []
 
-    for attr_match in COMPONENT_ATTR_RE.finditer(text):
-        fn_match = FN_RE.search(text, attr_match.end())
-        if fn_match is None:
+    for am in ATTR_RE.finditer(text):
+        fm = FN_RE.search(text, am.end())
+        if fm is None:
             continue
 
-        next_attr = COMPONENT_ATTR_RE.search(text, attr_match.end())
-        if next_attr is not None and fn_match.start() > next_attr.start():
+        next_attr = ATTR_RE.search(text, am.end())
+        if next_attr is not None and fm.start() > next_attr.start():
             continue
 
-        open_brace = _find_next_open_brace(text, fn_match.end())
-        if open_brace is None:
-            continue
-        close_brace = _find_matching_brace(text, open_brace)
-        if close_brace is None:
+        open_idx = text.find("{", fm.end())
+        if open_idx == -1:
             continue
 
-        body = text[open_brace + 1 : close_brace]
-        normalized = normalize_body(body)
-        line = text.count("\n", 0, fn_match.start()) + 1
-        rel_file = source_path.relative_to(root).as_posix()
+        close_idx = find_matching_brace(text, open_idx)
+        if close_idx == -1:
+            continue
+
+        body = text[open_idx + 1 : close_idx]
+        normalized = " ".join(remove_comments(body).split())
+        line = text.count("\n", 0, fm.start()) + 1
+
         components.append(
             Component(
-                name=fn_match.group(1),
+                name=fm.group(1),
                 file=rel_file,
                 line=line,
-                body=body,
                 normalized=normalized,
-                tokens=tokenize(normalized),
             )
         )
 
@@ -449,12 +344,14 @@ def scan_components(root: Path, excluded_suffixes: list[str]) -> list[Component]
     return components
 
 
-def _max_possible_ratio(len_left: int, len_right: int) -> float:
-    if len_left == 0 and len_right == 0:
+def max_possible_ratio(left_len: int, right_len: int) -> float:
+    if left_len == 0 and right_len == 0:
         return 1.0
-    if len_left == 0 or len_right == 0:
+    if left_len == 0 or right_len == 0:
         return 0.0
-    return (2.0 * min(len_left, len_right)) / float(len_left + len_right)
+    shorter = left_len if left_len < right_len else right_len
+    longer = right_len if left_len < right_len else left_len
+    return (2.0 * shorter) / (shorter + longer)
 
 
 def compute_pairs(
@@ -464,24 +361,29 @@ def compute_pairs(
     total_pairs = 0
     skipped_by_length = 0
     skipped_by_quick = 0
-    lengths = [len(component.tokens) for component in components]
 
-    for left in range(len(components)):
-        for right in range(left + 1, len(components)):
+    norms = [c.normalized for c in components]
+    lengths = [len(n) for n in norms]
+
+    for i in range(len(components)):
+        ai = norms[i]
+        li = lengths[i]
+        for j in range(i + 1, len(components)):
             total_pairs += 1
-            if _max_possible_ratio(lengths[left], lengths[right]) < threshold:
+            bj = norms[j]
+            lj = lengths[j]
+
+            if max_possible_ratio(li, lj) < threshold:
                 skipped_by_length += 1
                 continue
-            matcher = difflib.SequenceMatcher(
-                None,
-                components[left].tokens,
-                components[right].tokens,
-            )
-            if matcher.real_quick_ratio() < threshold or matcher.quick_ratio() < threshold:
+
+            sm = difflib.SequenceMatcher(None, ai, bj)
+            if sm.real_quick_ratio() < threshold or sm.quick_ratio() < threshold:
                 skipped_by_quick += 1
                 continue
-            ratio = matcher.ratio()
-            pairs.append(Pair(left=left, right=right, ratio=ratio))
+
+            pairs.append(Pair(left=i, right=j, ratio=sm.ratio()))
+
     return pairs, total_pairs, skipped_by_length, skipped_by_quick
 
 
@@ -504,25 +406,27 @@ def build_report(
             qualifying_keys.add(components[pair.left].key)
             qualifying_keys.add(components[pair.right].key)
 
-        left_peer, left_ratio = best_peer[pair.left]
-        if pair.ratio > left_ratio:
+        lp, lr = best_peer[pair.left]
+        if pair.ratio > lr:
             best_peer[pair.left] = (pair.right, pair.ratio)
-        right_peer, right_ratio = best_peer[pair.right]
-        if pair.ratio > right_ratio:
+
+        rp, rr = best_peer[pair.right]
+        if pair.ratio > rr:
             best_peer[pair.right] = (pair.left, pair.ratio)
 
     top_pairs = sorted(pairs, key=lambda p: p.ratio, reverse=True)[:10]
+
     qualifying_components: list[dict[str, Any]] = []
-    for idx, component in enumerate(components):
-        peer_idx, ratio = best_peer[idx]
-        if component.key not in qualifying_keys:
+    for idx, comp in enumerate(components):
+        if comp.key not in qualifying_keys:
             continue
+        peer_idx, ratio = best_peer[idx]
         peer = components[peer_idx] if peer_idx is not None else None
         qualifying_components.append(
             {
-                "name": component.name,
-                "file": component.file,
-                "line": component.line,
+                "name": comp.name,
+                "file": comp.file,
+                "line": comp.line,
                 "best_peer_ratio": ratio,
                 "best_peer": (
                     {
@@ -536,7 +440,7 @@ def build_report(
             }
         )
 
-    report = {
+    return {
         "threshold": threshold,
         "total_components": len(components),
         "total_pairs": total_pairs,
@@ -568,7 +472,6 @@ def build_report(
             for pair in top_pairs
         ],
     }
-    return report
 
 
 def print_human_summary(report: dict[str, Any], excluded_suffixes: list[str]) -> None:
