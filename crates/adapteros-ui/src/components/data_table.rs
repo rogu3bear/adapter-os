@@ -142,6 +142,9 @@ pub fn DataTable<T>(
     /// Called for each row; the returned string is appended to the row's class attribute.
     #[prop(optional)]
     row_class: Option<Arc<dyn Fn(&T) -> String + Send + Sync>>,
+    /// Optional per-row accessibility label when rows are interactive.
+    #[prop(optional)]
+    row_aria_label: Option<Arc<dyn Fn(&T) -> String + Send + Sync>>,
     /// Whether to wrap in a Card
     #[prop(optional, default = true)]
     card: bool,
@@ -154,6 +157,7 @@ where
 {
     let columns = StoredValue::new(columns);
     let row_class = StoredValue::new(row_class);
+    let row_aria_label = StoredValue::new(row_aria_label);
     let empty_title = empty_title.unwrap_or_else(|| "No data".to_string());
     let empty_description = empty_description.clone();
 
@@ -201,11 +205,22 @@ where
                     {items.into_iter().map(|item| {
                         let cols = columns.get_value();
                         let item_for_click = item.clone();
+                        let item_for_keydown = item.clone();
                         let on_click = on_row_click;
+                        let on_keydown = on_row_click;
                         let has_click = on_click.is_some();
+                        let aria_label = if has_click {
+                            row_aria_label
+                                .get_value()
+                                .as_ref()
+                                .map(|labeler| labeler(&item))
+                                .or_else(|| Some("Activate row".to_string()))
+                        } else {
+                            None
+                        };
 
                         let mut tr_class = if has_click {
-                            "table-row cursor-pointer".to_string()
+                            "table-row table-row-interactive cursor-pointer".to_string()
                         } else {
                             "table-row".to_string()
                         };
@@ -218,24 +233,54 @@ where
                         }
 
                         view! {
-                            <tr
-                                class=tr_class
-                                on:click=move |_| {
-                                    if let Some(ref cb) = on_click {
-                                        cb.run(item_for_click.clone());
-                                    }
-                                }
-                            >
-                                {cols.iter().map(|col| {
-                                    let content = (col.cell)(&item);
-                                    let col_class = col.class.clone().unwrap_or_default();
-                                    view! {
-                                        <TableCell class=col_class>
-                                            {content}
-                                        </TableCell>
-                                    }
-                                }).collect::<Vec<_>>()}
-                            </tr>
+                            {if has_click {
+                                view! {
+                                    <tr
+                                        class=tr_class
+                                        role="button"
+                                        tabindex=0
+                                        aria-label=aria_label
+                                        on:click=move |_| {
+                                            if let Some(ref cb) = on_click {
+                                                cb.run(item_for_click.clone());
+                                            }
+                                        }
+                                        on:keydown=move |e: web_sys::KeyboardEvent| {
+                                            let key = e.key();
+                                            if key == "Enter" || key == " " {
+                                                e.prevent_default();
+                                                if let Some(ref cb) = on_keydown {
+                                                    cb.run(item_for_keydown.clone());
+                                                }
+                                            }
+                                        }
+                                    >
+                                        {cols.iter().map(|col| {
+                                            let content = (col.cell)(&item);
+                                            let col_class = col.class.clone().unwrap_or_default();
+                                            view! {
+                                                <TableCell class=col_class>
+                                                    {content}
+                                                </TableCell>
+                                            }
+                                        }).collect::<Vec<_>>()}
+                                    </tr>
+                                }.into_any()
+                            } else {
+                                view! {
+                                    <tr class=tr_class>
+                                        {cols.iter().map(|col| {
+                                            let content = (col.cell)(&item);
+                                            let col_class = col.class.clone().unwrap_or_default();
+                                            view! {
+                                                <TableCell class=col_class>
+                                                    {content}
+                                                </TableCell>
+                                            }
+                                        }).collect::<Vec<_>>()}
+                                    </tr>
+                                }.into_any()
+                            }}
                         }
                     }).collect::<Vec<_>>()}
                 </TableBody>

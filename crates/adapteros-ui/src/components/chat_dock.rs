@@ -4,7 +4,7 @@
 //! Provides a command console for interacting with adapterOS.
 
 use crate::api::ApiClient;
-use crate::components::{Button, ButtonSize, ButtonVariant, Spinner, Textarea};
+use crate::components::{Button, ButtonSize, ButtonType, ButtonVariant, Spinner, Textarea};
 use crate::hooks::{use_api_resource, LoadingState};
 use crate::signals::{
     use_chat, use_settings, ChatTarget, ContextToggle, DockState, MessageStatus, PendingPhase,
@@ -1060,13 +1060,6 @@ fn ChatInput() -> impl IntoView {
         })
     };
 
-    let send_callback = Callback::new({
-        let do_send = do_send.clone();
-        move |_: ()| {
-            do_send();
-        }
-    });
-
     view! {
         <div class="border-t p-4">
             <form
@@ -1113,9 +1106,9 @@ fn ChatInput() -> impl IntoView {
                                     // Send button - always enabled if there's text
                                     <Button
                                         size=ButtonSize::Sm
+                                        button_type=ButtonType::Submit
                                         loading=is_loading.get()
                                         disabled=!can_send.get()
-                                        on_click=send_callback
                                     >
                                         "Send"
                                     </Button>

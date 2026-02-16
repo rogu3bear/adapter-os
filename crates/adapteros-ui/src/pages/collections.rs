@@ -22,7 +22,7 @@ use crate::components::{
 use crate::hooks::{use_api, use_api_resource, use_scope_alive, LoadingState};
 use crate::utils::{format_bytes, format_date};
 use leptos::prelude::*;
-use leptos_router::hooks::use_params_map;
+use leptos_router::hooks::{use_navigate, use_params_map};
 use std::collections::HashSet;
 use std::sync::Arc;
 
@@ -49,8 +49,8 @@ pub fn Collections() -> impl IntoView {
 
     // Fetch collections with pagination
     let (collections, _refetch) = use_api_resource(move |client: Arc<ApiClient>| {
-        let current_page = page.try_get().unwrap_or(1);
-        let _trigger = refetch_trigger.try_get().unwrap_or_default(); // Subscribe to trigger changes
+        let current_page = page.get();
+        let _trigger = refetch_trigger.get(); // Subscribe to trigger changes
         async move { client.list_collections(current_page, limit).await }
     });
 
@@ -290,6 +290,7 @@ fn CollectionsList(
 pub fn CollectionDetail() -> impl IntoView {
     let params = use_params_map();
     let client = use_api();
+    let navigate = use_navigate();
 
     // Get collection ID from URL
     let collection_id = Memo::new(move |_| {
@@ -320,18 +321,19 @@ pub fn CollectionDetail() -> impl IntoView {
     // Delete handler
     let on_delete = {
         let client = Arc::clone(&client);
+        let navigate = navigate.clone();
         move |_| {
             let id = collection_id.try_get().unwrap_or_default();
             deleting.set(true);
 
             let client = Arc::clone(&client);
+            let navigate = navigate.clone();
             wasm_bindgen_futures::spawn_local(async move {
                 match client.delete_collection(&id).await {
                     Ok(_) => {
-                        // Navigate back to collections list
-                        if let Some(window) = web_sys::window() {
-                            let _ = window.location().set_href("/collections");
-                        }
+                        let _ = deleting.try_set(false);
+                        let _ = show_delete_confirm.try_set(false);
+                        navigate("/collections", Default::default());
                     }
                     Err(e) => {
                         report_error_with_toast(
@@ -636,6 +638,7 @@ fn AddDocumentsDialog(
         let is_open = open.try_get().unwrap_or(false);
         let page = page.try_get().unwrap_or(1);
         let status_value = status_filter.try_get().unwrap_or_default();
+        let search_value = search_query.try_get().unwrap_or_default();
         let _trigger = refetch_trigger.try_get().unwrap_or_default();
         async move {
             if !is_open {
@@ -653,12 +656,48 @@ fn AddDocumentsDialog(
             } else {
                 Some(status_value)
             };
-            let params = DocumentListParams {
-                status,
-                page: Some(page),
-                limit: Some(20),
-            };
-            client.list_documents(Some(&params)).await
+
+            if search_value.trim().is_empty() {
+                let params = DocumentListParams {
+                    status,
+                    page: Some(page),
+                    limit: Some(20),
+                };
+                client.list_documents(Some(&params)).await
+            } else {
+                // Search mode needs a complete eligible set; page-local filtering
+                // creates false "no results" states.
+                let search_limit = 100_u32;
+                let first_page_params = DocumentListParams {
+                    status: status.clone(),
+                    page: Some(1),
+                    limit: Some(search_limit),
+                };
+                let first_page = client.list_documents(Some(&first_page_params)).await?;
+                let schema_version = first_page.schema_version.clone();
+                let total = first_page.total;
+                let total_pages = first_page.pages.max(1);
+                let mut all_docs = first_page.data;
+
+                for current_page in 2..=total_pages {
+                    let page_params = DocumentListParams {
+                        status: status.clone(),
+                        page: Some(current_page),
+                        limit: Some(search_limit),
+                    };
+                    let response = client.list_documents(Some(&page_params)).await?;
+                    all_docs.extend(response.data);
+                }
+
+                Ok(DocumentListResponse {
+                    schema_version,
+                    data: all_docs,
+                    total,
+                    page: 1,
+                    limit: search_limit,
+                    pages: 1,
+                })
+            }
         }
     });
 

@@ -215,11 +215,11 @@ pub fn TopBar() -> impl IntoView {
                 <div class="relative">
                     <button
                         class="topbar-action flex items-center gap-2 px-2 py-1 rounded-md hover:bg-muted/50 transition-colors"
+                        id="user-menu-button"
                         node_ref=user_menu_button_ref
                         on:click=move |_| set_user_menu_open.update(|v| *v = !*v)
                         aria-expanded=move || user_menu_open.get().to_string()
                         aria-controls="user-menu"
-                        aria-haspopup="menu"
                     >
                         {move || {
                             if let Some(user) = auth_state.get().user() {
@@ -263,7 +263,7 @@ pub fn TopBar() -> impl IntoView {
                         <div
                             class="absolute right-0 top-full mt-1 w-48 rounded-lg shadow-lg z-50"
                             id="user-menu"
-                            role="menu"
+                            aria-labelledby="user-menu-button"
                             node_ref=user_menu_ref
                         >
                             {move || {

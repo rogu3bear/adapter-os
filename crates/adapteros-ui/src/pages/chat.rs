@@ -25,9 +25,10 @@ use crate::api::{api_base_url, report_error_with_toast, ApiClient};
 use crate::components::inference_guidance::{guidance_for, primary_blocker};
 use crate::components::status_center::use_status_center;
 use crate::components::{
-    use_is_tablet_or_smaller, AdapterHeat, AdapterMagnet, Badge, BadgeVariant, Button, ButtonSize,
-    ButtonVariant, ChatAdaptersRegion, Checkbox, ConfirmationDialog, ConfirmationSeverity, Dialog,
-    Input, Markdown, Spinner, SuggestedAdapterView, Textarea, TraceButton, TracePanel,
+    use_is_tablet_or_smaller, AdapterHeat, AdapterMagnet, Badge, BadgeVariant, Button, ButtonLink,
+    ButtonSize, ButtonType, ButtonVariant, ChatAdaptersRegion, Checkbox, ConfirmationDialog,
+    ConfirmationSeverity, Dialog, Input, Markdown, Spinner, SuggestedAdapterView, Textarea,
+    TraceButton, TracePanel,
 };
 use crate::hooks::{use_api_resource, LoadingState};
 use crate::signals::{
@@ -667,9 +668,14 @@ fn ChatUnavailableEntry(
                     </p>
                 </div>
                 <div class="mt-5 flex flex-wrap items-center gap-2">
-                    <a href=action_href class="btn btn-outline btn-sm" data-testid="chat-unavailable-action">
+                    <ButtonLink
+                        href=action_href
+                        variant=ButtonVariant::Outline
+                        size=ButtonSize::Sm
+                        data_testid="chat-unavailable-action"
+                    >
                         {action_label}
-                    </a>
+                    </ButtonLink>
                     <Button
                         variant=ButtonVariant::Secondary
                         size=ButtonSize::Sm
@@ -3449,9 +3455,13 @@ fn ChatConversationPanel(
                                             </p>
                                         </div>
                                         <div class="flex items-center gap-2">
-                                            <a href=action.href class="btn btn-outline btn-sm">
+                                            <ButtonLink
+                                                href=action.href
+                                                variant=ButtonVariant::Outline
+                                                size=ButtonSize::Sm
+                                            >
                                                 {action.label}
-                                            </a>
+                                            </ButtonLink>
                                             {status_center.map(|ctx| view! {
                                                     <button
                                                         class="text-xs text-muted-foreground hover:text-foreground"
@@ -3481,14 +3491,15 @@ fn ChatConversationPanel(
                         }
                     }
                 >
-                    <button
-                        type="button"
-                        class="btn btn-outline btn-sm"
-                        on:click=move |_| show_attach_dialog.set(true)
-                        data-testid="chat-attach"
+                    <Button
+                        button_type=ButtonType::Button
+                        variant=ButtonVariant::Outline
+                        size=ButtonSize::Sm
+                        on_click=Callback::new(move |_| show_attach_dialog.set(true))
+                        data_testid="chat-attach".to_string()
                     >
                         "Attach data"
-                    </button>
+                    </Button>
                     <Textarea
                         value=message
                         placeholder="Type your message...".to_string()
@@ -3514,6 +3525,7 @@ fn ChatConversationPanel(
                             let disabled = !can_send.try_get().unwrap_or(false);
                             view! {
                                 <Button
+                                    button_type=ButtonType::Submit
                                     loading=is_loading.try_get().unwrap_or(false)
                                     disabled=disabled
                                     aria_label=if disabled { "Send message (disabled)".to_string() } else { "Send message".to_string() }

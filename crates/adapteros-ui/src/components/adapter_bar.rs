@@ -20,6 +20,7 @@
 //! 1. Primary: relevance/confidence score DESC
 //! 2. Secondary: stable adapter_id ASC (for tie-breaking)
 
+use crate::components::{Button, ButtonSize, ButtonType, ButtonVariant};
 use leptos::prelude::*;
 use serde::{Deserialize, Serialize};
 use std::cmp::Ordering;
@@ -731,14 +732,15 @@ pub fn ChatAdaptersRegion(
                             "Pending next message"
                         </span>
                     })}
-                    <button
-                        type="button"
-                        class="btn btn-outline btn-xs"
-                        on:click=move |_| show_manage.set(true)
-                        aria-label="Manage adapter selection"
+                    <Button
+                        button_type=ButtonType::Button
+                        variant=ButtonVariant::Outline
+                        size=ButtonSize::Xs
+                        on_click=Callback::new(move |_| show_manage.set(true))
+                        aria_label="Manage adapter selection"
                     >
                         "Manage"
-                    </button>
+                    </Button>
                 </div>
             </div>
 
@@ -1021,19 +1023,21 @@ pub fn AdapterManageDialog(
                     }}
                 </div>
                 <div class="flex justify-end gap-2 pt-2 border-t border-border">
-                    <button
-                        type="button"
-                        class="btn btn-outline btn-sm"
-                        on:click=move |_| open.set(false)
+                    <Button
+                        button_type=ButtonType::Button
+                        variant=ButtonVariant::Outline
+                        size=ButtonSize::Sm
+                        on_click=Callback::new(move |_| open.set(false))
                     >
                         "Cancel"
-                    </button>
-                    <button
-                        type="submit"
-                        class="btn btn-primary btn-sm"
+                    </Button>
+                    <Button
+                        button_type=ButtonType::Submit
+                        variant=ButtonVariant::Primary
+                        size=ButtonSize::Sm
                     >
                         "Apply"
-                    </button>
+                    </Button>
                 </div>
             </form>
         </crate::components::Dialog>

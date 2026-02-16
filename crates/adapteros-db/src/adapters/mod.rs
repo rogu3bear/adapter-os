@@ -6615,6 +6615,40 @@ impl Db {
         Ok(())
     }
 
+    /// Update adapter hash fields with tenant validation
+    pub async fn update_adapter_weight_hash_for_tenant(
+        &self,
+        tenant_id: &str,
+        adapter_id: &str,
+        hash_b3: &str,
+    ) -> Result<()> {
+        let rows_affected = sqlx::query(
+            "UPDATE adapters
+             SET hash_b3 = ?,
+                 content_hash_b3 = ?,
+                 updated_at = datetime('now')
+             WHERE adapter_id = ? AND tenant_id = ?",
+        )
+        .bind(hash_b3)
+        .bind(hash_b3)
+        .bind(adapter_id)
+        .bind(tenant_id)
+        .execute(self.pool())
+        .await
+        .map_err(|e| AosError::database(e.to_string()))?
+        .rows_affected();
+
+        if rows_affected == 0 {
+            return Err(AosError::NotFound(format!(
+                "Adapter {} not found for tenant {}",
+                adapter_id, tenant_id
+            )));
+        }
+
+        let _ = self.ensure_consistency(adapter_id).await?;
+        Ok(())
+    }
+
     /// Delete adapter with tenant validation
     pub async fn delete_adapter_for_tenant(&self, tenant_id: &str, adapter_id: &str) -> Result<()> {
         // Verify adapter belongs to tenant and delete atomically

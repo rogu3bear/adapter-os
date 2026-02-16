@@ -2,6 +2,7 @@
 
 use crate::components::form_field::use_form_field_context;
 use leptos::prelude::*;
+use uuid::Uuid;
 
 /// Input component with validation states
 #[component]
@@ -54,7 +55,9 @@ pub fn Input(
     };
 
     let field_ctx = use_form_field_context();
-    let input_id = id.or_else(|| field_ctx.as_ref().map(|ctx| ctx.field_id.clone()));
+    let input_id = id
+        .or_else(|| field_ctx.as_ref().map(|ctx| ctx.field_id.clone()))
+        .or_else(|| Some(format!("input-{}", Uuid::new_v4().simple())));
     let has_field_context = field_ctx.is_some(); // FormField provides its own label
     let described_by = field_ctx.and_then(|ctx| ctx.described_by.clone());
 
@@ -70,9 +73,12 @@ pub fn Input(
     };
 
     // Build hint ID for aria-describedby if hint is provided
-    let hint_id = hint
-        .as_ref()
-        .map(|_| format!("{}-hint", input_id.as_deref().unwrap_or("input")));
+    let hint_id = hint.as_ref().map(|_| {
+        format!(
+            "{}-hint",
+            input_id.as_deref().unwrap_or("input"),
+        )
+    });
 
     // Combine described_by with hint_id
     let full_described_by = match (&described_by, &hint_id) {
@@ -194,7 +200,9 @@ pub fn Textarea(
     let full_class = format!("{} {} {}", base_class, state_class, class);
 
     let field_ctx = use_form_field_context();
-    let input_id = id.or_else(|| field_ctx.as_ref().map(|ctx| ctx.field_id.clone()));
+    let input_id = id
+        .or_else(|| field_ctx.as_ref().map(|ctx| ctx.field_id.clone()))
+        .or_else(|| Some(format!("textarea-{}", Uuid::new_v4().simple())));
     let has_field_context = field_ctx.is_some();
     let described_by = field_ctx.and_then(|ctx| ctx.described_by.clone());
 
@@ -207,9 +215,12 @@ pub fn Textarea(
     };
 
     // Build hint ID for aria-describedby if hint is provided
-    let hint_id = hint
-        .as_ref()
-        .map(|_| format!("{}-hint", input_id.as_deref().unwrap_or("textarea")));
+    let hint_id = hint.as_ref().map(|_| {
+        format!(
+            "{}-hint",
+            input_id.as_deref().unwrap_or("textarea"),
+        )
+    });
 
     // Combine described_by with hint_id
     let full_described_by = match (&described_by, &hint_id) {

@@ -1,6 +1,6 @@
 //! 404 Not Found page
 
-use crate::components::Card;
+use crate::components::NotFoundSurface;
 use leptos::prelude::*;
 use leptos_router::hooks::use_location;
 
@@ -53,18 +53,21 @@ pub fn NotFound() -> impl IntoView {
     let suggestions = suggestions_for_path(&pathname);
 
     view! {
-        <div class="flex min-h-[60vh] flex-col items-center justify-center px-4">
-            <Card class="p-8 max-w-md w-full text-center">
-                <div class="text-6xl font-bold text-muted-foreground mb-2">"404"</div>
-                <h1 class="heading-2 mb-2">"Page not found"</h1>
-                <p class="text-muted-foreground mb-6">
-                    "The page "
-                    <code class="font-mono text-xs bg-muted px-1.5 py-0.5 rounded">{pathname}</code>
-                    " does not exist."
-                </p>
-
-                {(!suggestions.is_empty()).then(|| {
-                    let links: Vec<_> = suggestions.iter().map(|(label, href)| {
+        <NotFoundSurface
+            title="Page not found"
+            description="The requested page does not exist."
+            action_label="Go to Dashboard"
+            action_href="/"
+            class="min-h-[60vh]".to_string()
+        >
+            <div class="text-sm text-muted-foreground mb-4">
+                "Requested path: "
+                <code class="font-mono text-xs bg-muted px-1.5 py-0.5 rounded">{pathname}</code>
+            </div>
+            {(!suggestions.is_empty()).then(|| {
+                let links: Vec<_> = suggestions
+                    .iter()
+                    .map(|(label, href)| {
                         view! {
                             <a
                                 href=*href
@@ -73,27 +76,18 @@ pub fn NotFound() -> impl IntoView {
                                 {*label}" \u{2192}"
                             </a>
                         }
-                    }).collect();
+                    })
+                    .collect();
 
-                    view! {
-                        <div class="mb-6">
-                            <p class="text-sm text-muted-foreground mb-2">"Did you mean:"</p>
-                            <div class="space-y-1">
-                                {links}
-                            </div>
+                view! {
+                    <div>
+                        <p class="text-sm text-muted-foreground mb-2">"Did you mean:"</p>
+                        <div class="space-y-1">
+                            {links}
                         </div>
-                    }
-                })}
-
-                <div class="flex items-center justify-center gap-3">
-                    <a
-                        href="/"
-                        class="btn btn-primary btn-md"
-                    >
-                        "Go to Dashboard"
-                    </a>
-                </div>
-            </Card>
-        </div>
+                    </div>
+                }
+            })}
+        </NotFoundSurface>
     }
 }

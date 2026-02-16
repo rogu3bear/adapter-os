@@ -5,8 +5,8 @@ use crate::boot_log;
 use crate::components::inference_guidance::{guidance_for, primary_blocker};
 use crate::components::status_center::use_status_center;
 use crate::components::{
-    Button, ButtonVariant, Card, ChartPoint, DataSeries, EmptyState, EmptyStateVariant,
-    ErrorDisplay, IconCheckCircle, IconPlay, IconServer, LineChart, PageScaffold,
+    Button, ButtonLink, ButtonSize, ButtonVariant, Card, ChartPoint, DataSeries, EmptyState,
+    EmptyStateVariant, ErrorDisplay, IconCheckCircle, IconPlay, IconServer, LineChart, PageScaffold,
     PageScaffoldActions, SkeletonCard, SkeletonStatsGrid, SparklineMetric, Spinner, StatusColor,
     StatusIconBox, StatusIndicator, StatusVariant, TimeSeriesData, WorkerStatusBadge,
 };
@@ -470,12 +470,13 @@ fn DashboardContent(
                                 <div class="mt-2 space-y-2">
                                     <p class="text-xs text-muted-foreground">{guidance.reason}</p>
                                     <div class="flex flex-wrap items-center gap-2">
-                                        <a
+                                        <ButtonLink
                                             href=action.href
-                                            class="btn btn-outline btn-sm"
+                                            variant=ButtonVariant::Outline
+                                            size=ButtonSize::Sm
                                         >
                                             {action.label}
-                                        </a>
+                                        </ButtonLink>
                                         {status_center.map(|ctx| view! {
                                                 <button
                                                     class="text-xs text-muted-foreground hover:text-foreground"
@@ -634,20 +635,30 @@ fn DashboardContent(
                                                 let when = event.created_at.clone();
                                                 let href = activity_event_href(event.target_type.as_deref(), event.target_id.as_deref());
                                                 view! {
-                                                    <a
-                                                        href=href.clone().unwrap_or_default()
-                                                        class=if href.is_some() {
-                                                            "flex items-center justify-between rounded-md border border-input px-3 py-2 hover:bg-accent/30 transition-colors no-underline text-foreground"
-                                                        } else {
-                                                            "flex items-center justify-between rounded-md border border-input px-3 py-2"
-                                                        }
-                                                    >
-                                                        <div>
-                                                            <div class="text-sm font-medium">{event.event_type}</div>
-                                                            <div class="text-xs text-muted-foreground">{target}</div>
-                                                        </div>
-                                                        <div class="text-xs text-muted-foreground">{format_relative_time(&when)}</div>
-                                                    </a>
+                                                    {if let Some(href) = href {
+                                                        view! {
+                                                            <a
+                                                                href=href
+                                                                class="flex items-center justify-between rounded-md border border-input px-3 py-2 hover:bg-accent/30 transition-colors no-underline text-foreground"
+                                                            >
+                                                                <div>
+                                                                    <div class="text-sm font-medium">{event.event_type}</div>
+                                                                    <div class="text-xs text-muted-foreground">{target.clone()}</div>
+                                                                </div>
+                                                                <div class="text-xs text-muted-foreground">{format_relative_time(&when)}</div>
+                                                            </a>
+                                                        }.into_any()
+                                                    } else {
+                                                        view! {
+                                                            <div class="flex items-center justify-between rounded-md border border-input px-3 py-2">
+                                                                <div>
+                                                                    <div class="text-sm font-medium">{event.event_type}</div>
+                                                                    <div class="text-xs text-muted-foreground">{target}</div>
+                                                                </div>
+                                                                <div class="text-xs text-muted-foreground">{format_relative_time(&when)}</div>
+                                                            </div>
+                                                        }.into_any()
+                                                    }}
                                                 }
                                             }).collect::<Vec<_>>()}
                                         </div>

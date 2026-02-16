@@ -4,6 +4,7 @@
 //! state the impact, name the cause, offer the fix. No mechanism explanations.
 
 use crate::api::ApiClient;
+use crate::components::{Button, ButtonLink, ButtonSize, ButtonVariant};
 use crate::components::inference_guidance::{guidance_for, primary_blocker};
 use crate::hooks::{use_api_resource, LoadingState};
 use adapteros_api_types::InferenceReadyState;
@@ -50,9 +51,9 @@ pub fn InferenceBanner() -> impl IntoView {
                             </span>
                         </div>
                         <div class="inference-banner-actions">
-                            <a href=action.href class="btn btn-outline btn-sm">
+                            <ButtonLink href=action.href variant=ButtonVariant::Outline size=ButtonSize::Sm>
                                 {action.label}
-                            </a>
+                            </ButtonLink>
                             {status_center.map(|ctx| view! {
                                 <button
                                     class="inference-banner-why"
@@ -63,13 +64,13 @@ pub fn InferenceBanner() -> impl IntoView {
                                     "Details"
                                 </button>
                             })}
-                            <button
-                                class="btn btn-ghost btn-sm"
-                                on:click=move |_| retry.with_value(|f| f.run(()))
-                                type="button"
+                            <Button
+                                variant=ButtonVariant::Ghost
+                                size=ButtonSize::Sm
+                                on_click=Callback::new(move |_| retry.with_value(|f| f.run(())))
                             >
                                 "Retry"
-                            </button>
+                            </Button>
                         </div>
                     </div>
                 }.into_any()

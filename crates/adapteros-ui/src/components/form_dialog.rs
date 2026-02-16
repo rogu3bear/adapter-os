@@ -3,7 +3,7 @@
 //! A standardized dialog for forms with submit/cancel actions,
 //! loading states, and form validation integration.
 
-use crate::components::{Button, ButtonVariant, Dialog, DialogSize};
+use crate::components::{Button, ButtonType, ButtonVariant, Dialog, DialogSize};
 use leptos::prelude::*;
 
 /// Form dialog with submit/cancel actions
@@ -135,6 +135,7 @@ pub fn FormDialog(
                     </Button>
                     <Button
                         variant=variant
+                        button_type=ButtonType::Submit
                         disabled=disabled_signal
                         loading=loading_signal
                     >

@@ -25,8 +25,45 @@ use crate::signals::{
 use leptos::prelude::*;
 use leptos_router::components::Outlet;
 use leptos_router::hooks::{use_location, use_navigate};
+use std::cell::RefCell;
 use wasm_bindgen::prelude::*;
 use wasm_bindgen::JsCast;
+
+thread_local! {
+    static SHELL_KEYDOWN_LISTENER: RefCell<Option<Closure<dyn FnMut(web_sys::KeyboardEvent)>>> =
+        RefCell::new(None);
+}
+
+fn register_shell_keydown_listener(listener: Closure<dyn FnMut(web_sys::KeyboardEvent)>) {
+    SHELL_KEYDOWN_LISTENER.with(|slot| {
+        let mut slot = slot.borrow_mut();
+        if let Some(window) = web_sys::window() {
+            if let Some(existing) = slot.take() {
+                let _ = window.remove_event_listener_with_callback(
+                    "keydown",
+                    existing.as_ref().unchecked_ref(),
+                );
+            }
+            let _ =
+                window.add_event_listener_with_callback("keydown", listener.as_ref().unchecked_ref());
+            *slot = Some(listener);
+        }
+    });
+}
+
+fn clear_shell_keydown_listener() {
+    SHELL_KEYDOWN_LISTENER.with(|slot| {
+        let mut slot = slot.borrow_mut();
+        if let Some(existing) = slot.take() {
+            if let Some(window) = web_sys::window() {
+                let _ = window.remove_event_listener_with_callback(
+                    "keydown",
+                    existing.as_ref().unchecked_ref(),
+                );
+            }
+        }
+    });
+}
 
 /// Application shell with top bar, bottom taskbar, and main workspace.
 /// Uses Outlet to render the matched child route from ParentRoute.
@@ -125,16 +162,9 @@ pub fn Shell() -> impl IntoView {
     let ui_profile = use_ui_profile();
     let navigate = use_navigate();
 
-    // Global keyboard handler for Command Palette and Alt+1-8 shortcuts
-    let keyboard_handler_set = StoredValue::new(false);
+    // Global keyboard handler for Command Palette and Alt+1-8 shortcuts.
+    // Register once and remove on cleanup so remounts do not accumulate handlers.
     Effect::new(move || {
-        if keyboard_handler_set.get_value() {
-            return;
-        }
-        keyboard_handler_set.set_value(true);
-
-        // Leaked keyboard handler - uses try_ variants for signals that may be
-        // disposed when Shell is recreated during SPA navigation
         let search = search.clone();
         let navigate = navigate.clone();
         let closure = Closure::wrap(Box::new(move |event: web_sys::KeyboardEvent| {
@@ -199,11 +229,8 @@ pub fn Shell() -> impl IntoView {
             }
         }) as Box<dyn FnMut(_)>);
 
-        if let Some(window) = web_sys::window() {
-            let _ = window
-                .add_event_listener_with_callback("keydown", closure.as_ref().unchecked_ref());
-        }
-        closure.forget();
+        register_shell_keydown_listener(closure);
+        on_cleanup(clear_shell_keydown_listener);
     });
 
     let settings = use_settings();
