@@ -68,11 +68,11 @@ pub use adapter_detail_panel::{AdapterDetailPanel, AdapterSuggestionContext};
 pub use adapter_lifecycle_controls::AdapterLifecycleControls;
 pub use async_state::{
     AsyncBoundary, AsyncBoundaryWithEmpty, AsyncBoundaryWithErrorRender, DetailRow, EmptyState,
-    EmptyStateVariant, ErrorDisplay, LoadingDisplay, PageHeader, RefreshButton,
+    EmptyStateVariant, ErrorDisplay, LoadingDisplay, NotFoundSurface, PageHeader, RefreshButton,
 };
 pub use auth::{AuthProvider, ProtectedRoute};
 pub use breadcrumb_trail::{humanize_segment, BreadcrumbTrail};
-pub use button::{Button, ButtonSize, ButtonVariant};
+pub use button::{Button, ButtonLink, ButtonSize, ButtonType, ButtonVariant};
 pub use card::Card;
 pub use chat_dock::{ChatDock, ChatDockPanel, MobileChatOverlay, NarrowChatDock};
 pub use checkbox::Checkbox;

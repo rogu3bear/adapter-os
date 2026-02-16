@@ -6,8 +6,8 @@
 use crate::api::{report_error_with_toast, ApiClient};
 use crate::components::{
     Badge, BadgeVariant, Button, ButtonSize, ButtonVariant, Card, ErrorDisplay, FormField, Input,
-    LoadingDisplay, PageBreadcrumbItem, PageScaffold, PageScaffoldActions, RefreshButton, Select,
-    Textarea,
+    LoadingDisplay, NotFoundSurface, PageBreadcrumbItem, PageScaffold, PageScaffoldActions,
+    RefreshButton, Select, Textarea,
 };
 use crate::hooks::{use_api_resource, use_scope_alive, LoadingState};
 use adapteros_api_types::review::{
@@ -67,18 +67,12 @@ pub fn ReviewDetail() -> impl IntoView {
                 }
                 LoadingState::Error(e) if e.is_not_found() => {
                     view! {
-                        <div class="flex min-h-[40vh] flex-col items-center justify-center px-4">
-                            <Card class="p-8 max-w-md w-full text-center">
-                                <div class="text-4xl font-bold text-muted-foreground mb-2">"404"</div>
-                                <h2 class="heading-3 mb-2">"Review not found"</h2>
-                                <p class="text-muted-foreground mb-6">
-                                    "This paused inference may have been resumed or doesn\u{2019}t exist."
-                                </p>
-                                <a href="/reviews" class="btn btn-primary btn-md">
-                                    "View all reviews"
-                                </a>
-                            </Card>
-                        </div>
+                        <NotFoundSurface
+                            title="Review not found"
+                            description="This paused inference may have been resumed or doesn\u{2019}t exist."
+                            action_label="View all reviews"
+                            action_href="/reviews"
+                        />
                     }.into_any()
                 }
                 LoadingState::Error(e) => {

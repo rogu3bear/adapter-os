@@ -228,16 +228,16 @@ pub fn FileBrowser() -> impl IntoView {
                                                                     {if is_dir {
                                                                         let p = entry_path.clone();
                                                                         view! {
-                                                                            <a
-                                                                                href="#"
-                                                                                class="filesystem-dir-link"
-                                                                                on:click=move |e| {
-                                                                                    e.prevent_default();
+                                                                            <button
+                                                                                type="button"
+                                                                                class="link link-default filesystem-dir-link"
+                                                                                style="background: transparent; border: 0; padding: 0; cursor: pointer;"
+                                                                                on:click=move |_| {
                                                                                     nav_click(p.clone());
                                                                                 }
                                                                             >
                                                                                 {name.clone()}
-                                                                            </a>
+                                                                            </button>
                                                                         }
                                                                             .into_any()
                                                                     } else {

@@ -6,7 +6,7 @@ use crate::api::{
     report_error_with_toast, ApiClient, RepositoryDetailResponse, ScanRepositoryRequest,
 };
 use crate::components::{
-    Button, ButtonSize, ButtonVariant, Card, DetailRow, ErrorDisplay, Spinner,
+    Button, ButtonSize, ButtonVariant, Card, DetailRow, ErrorDisplay, NotFoundSurface, Spinner,
 };
 use crate::hooks::{use_api_resource, LoadingState};
 use crate::signals::use_auth;
@@ -155,18 +155,12 @@ pub fn RepositoryDetailStandalone(repo_id: String) -> impl IntoView {
                     }
                     LoadingState::Error(e) if e.is_not_found() => {
                         view! {
-                            <div class="flex min-h-[40vh] flex-col items-center justify-center px-4">
-                                <Card class="p-8 max-w-md w-full text-center">
-                                    <div class="text-4xl font-bold text-muted-foreground mb-2">"404"</div>
-                                    <h2 class="heading-3 mb-2">"Repository not found"</h2>
-                                    <p class="text-muted-foreground mb-6">
-                                        "This repository may have been deleted or doesn\u{2019}t exist."
-                                    </p>
-                                    <a href="/repositories" class="btn btn-primary btn-md">
-                                        "View all repositories"
-                                    </a>
-                                </Card>
-                            </div>
+                            <NotFoundSurface
+                                title="Repository not found"
+                                description="This repository may have been deleted or doesn\u{2019}t exist."
+                                action_label="View all repositories"
+                                action_href="/repositories"
+                            />
                         }.into_any()
                     }
                     LoadingState::Error(e) => {

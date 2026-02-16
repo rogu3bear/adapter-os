@@ -30,18 +30,18 @@
             bottom: 8px;
             right: 8px;
             padding: 4px 8px;
-            font-family: ui-monospace, monospace;
+            font-family: var(--boot-font-mono, ui-monospace, monospace);
             font-size: 10px;
-            background: #1a1a2e;
-            color: #4ade80;
+            background: var(--boot-probe-bg, #1a1a2e);
+            color: var(--boot-probe-fg, #4ade80);
             border-radius: 4px;
             z-index: 99999;
             opacity: 0.8;
         }
 
         #aos-boot-probe.error {
-            background: #7f1d1d;
-            color: #fca5a5;
+            background: var(--boot-probe-error-bg, #7f1d1d);
+            color: var(--boot-probe-error-fg, #fca5a5);
         }
 
         #aos-boot-probe.hidden {
@@ -59,7 +59,7 @@
             align-items: center;
             gap: 1.5rem;
             z-index: 99998;
-            font-family: ui-monospace, monospace;
+            font-family: var(--boot-font-mono, ui-monospace, monospace);
             min-width: 280px;
         }
 
@@ -76,8 +76,8 @@
         #aos-boot-progress .spinner {
             width: 24px;
             height: 24px;
-            border: 2px solid #1a1a2e;
-            border-top-color: #4ade80;
+            border: 2px solid var(--boot-spinner-track, #1a1a2e);
+            border-top-color: var(--boot-spinner-accent, #4ade80);
             border-radius: 50%;
             animation: aos-spin 1s linear infinite;
         }
@@ -85,7 +85,7 @@
         #aos-boot-progress .title {
             font-size: 18px;
             font-weight: 600;
-            color: #e5e7eb;
+            color: var(--boot-progress-title, #e5e7eb);
             letter-spacing: -0.025em;
         }
 
@@ -101,7 +101,7 @@
             align-items: center;
             gap: 0.5rem;
             font-size: 12px;
-            color: #6b7280;
+            color: var(--boot-stage-pending, #6b7280);
             padding: 0.25rem 0;
         }
 
@@ -117,19 +117,19 @@
 
         #aos-boot-progress .stage .detail {
             font-size: 10px;
-            color: #4b5563;
+            color: var(--boot-stage-detail, #4b5563);
         }
 
         #aos-boot-progress .stage[data-status="done"] {
-            color: #4ade80;
+            color: var(--boot-stage-done, #4ade80);
         }
 
         #aos-boot-progress .stage[data-status="done"] .icon {
-            color: #4ade80;
+            color: var(--boot-stage-done, #4ade80);
         }
 
         #aos-boot-progress .stage[data-status="active"] {
-            color: #fbbf24;
+            color: var(--boot-stage-active, #fbbf24);
         }
 
         #aos-boot-progress .stage[data-status="active"] .icon {
@@ -137,12 +137,53 @@
         }
 
         #aos-boot-progress .stage[data-status="error"] {
-            color: #f87171;
+            color: var(--boot-stage-error, #f87171);
         }
 
         #aos-boot-progress .boot-elapsed {
             font-size: 10px;
-            color: #4b5563;
+            color: var(--boot-stage-detail, #4b5563);
+        }
+
+        #aos-boot-progress .boot-error {
+            margin-top: 1rem;
+            padding: 0.75rem;
+            max-width: 300px;
+            border-radius: 8px;
+            word-break: break-word;
+            font-size: 11px;
+            background: var(--boot-overlay-panel-bg, #450a0a);
+            color: var(--boot-overlay-heading, #fca5a5);
+        }
+
+        #aos-boot-progress .boot-actions {
+            margin-top: 0.75rem;
+            display: flex;
+            gap: 0.5rem;
+        }
+
+        #aos-boot-progress .boot-action-btn {
+            padding: 0.25rem 0.5rem;
+            border-radius: 4px;
+            border: none;
+            cursor: pointer;
+            font-size: 10px;
+            background: var(--boot-overlay-button-bg, #dc2626);
+            color: var(--boot-overlay-button-fg, white);
+        }
+
+        #aos-boot-progress .boot-action-btn:hover {
+            background: var(--boot-overlay-button-bg-hover, #b91c1c);
+        }
+
+        #aos-boot-progress .boot-action-btn.secondary {
+            background: var(--boot-overlay-button-secondary-bg, #450a0a);
+            color: var(--boot-overlay-heading, #fca5a5);
+            border: 1px solid var(--boot-overlay-button-secondary-border, #dc2626);
+        }
+
+        #aos-boot-progress .boot-action-btn.secondary:hover {
+            background: var(--boot-overlay-button-secondary-bg-hover, #5c0f0f);
         }
 
         @keyframes aos-spin {
@@ -168,9 +209,9 @@
             display: none;
             position: fixed;
             inset: 0;
-            background: rgba(127, 29, 29, 0.95);
-            color: #fecaca;
-            font-family: ui-monospace, monospace;
+            background: var(--boot-overlay-bg, rgba(127, 29, 29, 0.95));
+            color: var(--boot-overlay-fg, #fecaca);
+            font-family: var(--boot-font-mono, ui-monospace, monospace);
             font-size: 14px;
             padding: 2rem;
             z-index: 100000;
@@ -182,13 +223,13 @@
         }
 
         #aos-panic-overlay h1 {
-            color: #fca5a5;
+            color: var(--boot-overlay-heading, #fca5a5);
             font-size: 1.5rem;
             margin-bottom: 1rem;
         }
 
         #aos-panic-overlay .panic-meta {
-            background: #450a0a;
+            background: var(--boot-overlay-panel-bg, #450a0a);
             padding: 0.75rem 1rem;
             border-radius: 8px;
             margin-bottom: 1rem;
@@ -207,7 +248,7 @@
         }
 
         #aos-panic-overlay pre {
-            background: #450a0a;
+            background: var(--boot-overlay-panel-bg, #450a0a);
             padding: 1rem;
             border-radius: 8px;
             overflow-x: auto;
@@ -222,7 +263,7 @@
         #aos-panic-overlay details summary {
             cursor: pointer;
             padding: 0.5rem 0;
-            color: #fca5a5;
+            color: var(--boot-overlay-heading, #fca5a5);
         }
 
         #aos-panic-overlay details summary:hover {
@@ -238,24 +279,25 @@
 
         #aos-panic-overlay button {
             padding: 0.5rem 1rem;
-            background: #dc2626;
-            color: white;
+            background: var(--boot-overlay-button-bg, #dc2626);
+            color: var(--boot-overlay-button-fg, white);
             border: none;
             border-radius: 4px;
             cursor: pointer;
         }
 
         #aos-panic-overlay button:hover {
-            background: #b91c1c;
+            background: var(--boot-overlay-button-bg-hover, #b91c1c);
         }
 
         #aos-panic-overlay button.secondary {
-            background: #450a0a;
-            border: 1px solid #dc2626;
+            background: var(--boot-overlay-button-secondary-bg, #450a0a);
+            border: 1px solid var(--boot-overlay-button-secondary-border, #dc2626);
+            color: var(--boot-overlay-heading, #fca5a5);
         }
 
         #aos-panic-overlay button.secondary:hover {
-            background: #5c0f0f;
+            background: var(--boot-overlay-button-secondary-bg-hover, #5c0f0f);
         }
     </style>
 </head>
@@ -535,7 +577,6 @@
                 if (progress && !progress.querySelector('.boot-error')) {
                     var errorDiv = document.createElement('div');
                     errorDiv.className = 'boot-error';
-                    errorDiv.style.cssText = 'margin-top: 1rem; padding: 0.75rem; background: #450a0a; border-radius: 8px; color: #fca5a5; font-size: 11px; max-width: 300px; word-break: break-word;';
 
                     var titleStrong = document.createElement('strong');
                     titleStrong.textContent = 'Boot Error:';
@@ -544,16 +585,16 @@
                     errorDiv.appendChild(document.createTextNode(message));
 
                     var actionsDiv = document.createElement('div');
-                    actionsDiv.style.cssText = 'margin-top: 0.75rem; display: flex; gap: 0.5rem;';
+                    actionsDiv.className = 'boot-actions';
 
                     var reloadBtn = document.createElement('button');
                     reloadBtn.textContent = 'Reload';
-                    reloadBtn.style.cssText = 'padding: 0.25rem 0.5rem; background: #dc2626; color: white; border: none; border-radius: 4px; cursor: pointer; font-size: 10px;';
+                    reloadBtn.className = 'boot-action-btn';
                     reloadBtn.onclick = function () { location.reload(); };
 
                     var safeBtn = document.createElement('button');
                     safeBtn.textContent = 'Safe Mode';
-                    safeBtn.style.cssText = 'padding: 0.25rem 0.5rem; background: #450a0a; color: #fca5a5; border: 1px solid #dc2626; border-radius: 4px; cursor: pointer; font-size: 10px;';
+                    safeBtn.className = 'boot-action-btn secondary';
                     safeBtn.onclick = function () { location.href = '/safe'; };
 
                     actionsDiv.appendChild(reloadBtn);

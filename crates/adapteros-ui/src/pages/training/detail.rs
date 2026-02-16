@@ -17,8 +17,8 @@
 
 use crate::api::ApiClient;
 use crate::components::{
-    Button, ButtonVariant, Card, ConfirmationDialog, ConfirmationSeverity, DetailRow, ErrorDisplay,
-    Link, Spinner, TabButton, TabPanel,
+    Button, ButtonLink, ButtonSize, ButtonVariant, Card, ConfirmationDialog,
+    ConfirmationSeverity, DetailRow, ErrorDisplay, Link, Spinner, TabButton, TabPanel,
 };
 use crate::hooks::{use_api_resource, use_conditional_polling, LoadingState};
 use crate::signals::{use_notifications, use_refetch};
@@ -185,7 +185,7 @@ pub fn TrainingJobDetail(
                 </div>
                 <div class="flex items-center gap-2">
                     {return_button.map(|(label, href)| view! {
-                        <Link href=href class="btn btn-secondary btn-sm">
+                        <ButtonLink href=href variant=ButtonVariant::Secondary size=ButtonSize::Sm>
                             <svg
                                 xmlns="http://www.w3.org/2000/svg"
                                 width="14"
@@ -201,7 +201,7 @@ pub fn TrainingJobDetail(
                                 <path d="m15 18-6-6 6-6"/>
                             </svg>
                             {label}
-                        </Link>
+                        </ButtonLink>
                     })}
                     <button
                         class="text-muted-foreground hover:text-foreground focus:outline-none focus:ring-2 focus:ring-ring focus:ring-offset-2 rounded"
@@ -248,9 +248,9 @@ pub fn TrainingJobDetail(
                             </p>
                         </div>
                     </div>
-                    <Link href=href class="btn btn-primary btn-sm">
+                    <ButtonLink href=href variant=ButtonVariant::Primary size=ButtonSize::Sm>
                         "Back to Chat"
-                    </Link>
+                    </ButtonLink>
                 </div>
             })}
 
@@ -404,12 +404,13 @@ pub fn JobDetailContent(
                                         <p class="text-sm font-medium">"Retry this training?"</p>
                                         <p class="text-xs text-muted-foreground">"Create a new job with the same dataset."</p>
                                     </div>
-                                    <a
+                                    <ButtonLink
                                         href=retry_href
-                                        class="btn btn-primary btn-sm"
+                                        variant=ButtonVariant::Primary
+                                        size=ButtonSize::Sm
                                     >
                                         "Retry with same config"
-                                    </a>
+                                    </ButtonLink>
                                 </div>
                             </div>
                         }
@@ -444,7 +445,11 @@ pub fn JobDetailContent(
                                             <p class="text-xs text-muted-foreground">"Your adapter is ready for inference."</p>
                                         </div>
                                         <div class="flex flex-wrap items-center gap-2">
-                                            <Link href=chat_href class="btn btn-primary btn-sm">
+                                            <ButtonLink
+                                                href=chat_href
+                                                variant=ButtonVariant::Primary
+                                                size=ButtonSize::Sm
+                                            >
                                                 <svg
                                                     xmlns="http://www.w3.org/2000/svg"
                                                     width="14"
@@ -460,8 +465,12 @@ pub fn JobDetailContent(
                                                     <path d="M21 15a2 2 0 0 1-2 2H7l-4 4V5a2 2 0 0 1 2-2h14a2 2 0 0 1 2 2z"/>
                                                 </svg>
                                                 "Try in Chat"
-                                            </Link>
-                                            <Link href=adapter_href class="btn btn-secondary btn-sm">
+                                            </ButtonLink>
+                                            <ButtonLink
+                                                href=adapter_href
+                                                variant=ButtonVariant::Secondary
+                                                size=ButtonSize::Sm
+                                            >
                                                 <svg
                                                     xmlns="http://www.w3.org/2000/svg"
                                                     width="14"
@@ -479,7 +488,7 @@ pub fn JobDetailContent(
                                                     <line x1="12" y1="22" x2="12" y2="12"/>
                                                 </svg>
                                                 "View Adapter"
-                                            </Link>
+                                            </ButtonLink>
                                         </div>
                                     </div>
                                 </div>
