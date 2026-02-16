@@ -3,11 +3,11 @@ use std::sync::Arc;
 
 use adapteros_server_api::boot_state::{BootState, BootStateManager};
 use adapteros_server_api::handlers::adapter_stacks::deactivate_stack;
-use adapteros_server_api::handlers::health::ready;
-use adapteros_server_api::handlers::health::ReadyzResponse;
+use adapteros_server_api::handlers::health::{ready, ReadyzQuery, ReadyzResponse};
 use adapteros_server_api::handlers::unload_adapter;
+use adapteros_server_api::ip_extraction::ClientIp;
 use axum::body::to_bytes;
-use axum::extract::{Path, State};
+use axum::extract::{Path, Query, State};
 use axum::http::StatusCode;
 use axum::response::IntoResponse;
 use axum::Json;
@@ -22,7 +22,9 @@ async fn readyz_does_not_report_stopped_during_startup() {
     let boot_state = BootStateManager::new();
     state.boot_state = Some(boot_state);
 
-    let response = ready(State(state.clone())).await.into_response();
+    let response = ready(State(state.clone()), Query(ReadyzQuery { deep: false }))
+        .await
+        .into_response();
     assert_eq!(response.status(), StatusCode::SERVICE_UNAVAILABLE);
 
     let body_bytes = to_bytes(response.into_body(), usize::MAX).await.unwrap();
@@ -97,6 +99,7 @@ async fn unload_adapter_rejects_when_in_flight_requests_exist() {
     let result = unload_adapter(
         State(state.clone()),
         axum::Extension(test_admin_claims()),
+        axum::Extension(ClientIp("127.0.0.1".to_string())),
         Path("adapter-1".to_string()),
     )
     .await;
@@ -119,7 +122,12 @@ async fn deactivate_stack_rejects_when_in_flight_requests_exist() {
     // Simulate another in-flight request in addition to this handler
     state.in_flight_requests.store(2, Ordering::SeqCst);
 
-    let result = deactivate_stack(State(state.clone()), axum::Extension(test_admin_claims())).await;
+    let result = deactivate_stack(
+        State(state.clone()),
+        axum::Extension(test_admin_claims()),
+        axum::Extension(ClientIp("127.0.0.1".to_string())),
+    )
+    .await;
 
     let (status, Json(err)) = result.expect_err("guard should block deactivation");
     assert_eq!(status, StatusCode::CONFLICT);

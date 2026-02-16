@@ -103,7 +103,11 @@ fn static_asset_path(path: &str) -> Option<PathBuf> {
         return None;
     }
 
-    Some(Path::new(env!("CARGO_MANIFEST_DIR")).join("static").join(relative))
+    Some(
+        Path::new(env!("CARGO_MANIFEST_DIR"))
+            .join("static")
+            .join(relative),
+    )
 }
 
 async fn not_found() -> impl IntoResponse {

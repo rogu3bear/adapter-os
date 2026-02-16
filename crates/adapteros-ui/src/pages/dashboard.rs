@@ -531,6 +531,9 @@ fn DashboardContent(
             <div class="lg:col-span-2 space-y-6">
                 // Workers List - with count in header
                 <Card title=worker_card_title>
+                    <p class="text-xs text-muted-foreground mb-2">
+                        "Workers run inference requests. Next: open Workers to spawn one or investigate status."
+                    </p>
                     {(terminal_workers > 0).then(|| {
                         view! {
                             <p class="text-xs text-muted-foreground mb-2">
@@ -545,7 +548,7 @@ fn DashboardContent(
                         view! {
                             <div class="py-4 text-center">
                                 <p class="text-sm text-muted-foreground">"Could not load worker status."</p>
-                                <p class="text-xs text-muted-foreground mt-1">"Check the Workers page for details."</p>
+                                <p class="text-xs text-muted-foreground mt-1">"Open Workers and refresh to investigate status."</p>
                             </div>
                         }.into_any()
                     } else if active_worker_rows.is_empty() {
@@ -555,7 +558,7 @@ fn DashboardContent(
                                     variant=EmptyStateVariant::Unavailable
                                     title="No Active Workers".to_string()
                                     description=format!(
-                                        "All {} registered workers are currently inactive (stopped/error history).",
+                                        "All {} registered workers are inactive. Next: open Workers, check status, and spawn a worker.",
                                         total_workers
                                     )
                                 />
@@ -565,7 +568,7 @@ fn DashboardContent(
                                 <EmptyState
                                     variant=EmptyStateVariant::Empty
                                     title="No Workers Registered".to_string()
-                                    description="Workers handle inference requests. Start a worker to begin processing.".to_string()
+                                    description="Workers handle inference requests. Next: open Workers and choose Spawn Worker.".to_string()
                                 />
                             }.into_any()
                         }

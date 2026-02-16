@@ -140,12 +140,13 @@ pub fn AdapterLifecycleControls(
             loading.set(true);
 
             spawn_local(async move {
-                // Call the API to transition adapter lifecycle
-                // Note: transition_adapter_lifecycle will be added in Task 11
-                match client
-                    .transition_adapter_lifecycle(&adapter_id, &target_state, &reason)
-                    .await
-                {
+                // Call the appropriate lifecycle endpoint based on target state
+                let result = if target_state == "active" {
+                    client.promote_adapter(&adapter_id, &reason).await
+                } else {
+                    client.demote_adapter(&adapter_id, &reason).await
+                };
+                match result {
                     Ok(_) => {
                         let detail_href = format!("/adapters/{}", adapter_id);
                         notifications.success_with_action(

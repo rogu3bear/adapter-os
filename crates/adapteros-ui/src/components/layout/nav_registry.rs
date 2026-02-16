@@ -2,6 +2,8 @@
 //!
 //! Workflow-first navigation groups:
 //! Infer → Data → Train → Deploy → Route → Observe → Govern → Org
+//!
+//! IA route classes used in docs: Primary, Tools, Hidden, Experimental.
 
 use adapteros_api_types::UiProfile;
 
@@ -45,7 +47,7 @@ pub struct NavItem {
     pub icon: Option<&'static str>,
     /// Search keywords for command palette
     pub keywords: &'static [&'static str],
-    /// Hidden from navigation (dev-only routes like /style-audit)
+    /// Hidden route class (kept addressable; omitted from taskbar/start menu/mobile nav)
     pub hidden: bool,
 }
 
@@ -260,7 +262,7 @@ static NAV_GROUPS_FULL: &[NavGroup] = &[
         icon: ICON_EYE,
         alt_shortcut: Some(6),
         items: &[
-            NavItem::new("runs", "Flight Recorder", "/runs").with_keywords(&[
+            NavItem::new("runs", "Runs", "/runs").with_keywords(&[
                 "flight",
                 "recorder",
                 "traces",
@@ -380,12 +382,12 @@ static NAV_GROUPS_FULL: &[NavGroup] = &[
     },
 ];
 
-/// Primary profile navigation groups (MVP: 5 focused groups)
+/// Primary profile navigation groups (focused runtime projection)
 static NAV_GROUPS_PRIMARY: &[NavGroup] = &[
     // 1. Infer (Alt+1) — Chat
     NavGroup {
         id: "infer",
-        label: "Chat",
+        label: "Infer",
         icon: ICON_ZAP,
         alt_shortcut: Some(1),
         items: &[NavItem::new("chat", "Chat", "/chat").with_keywords(&[
@@ -402,7 +404,7 @@ static NAV_GROUPS_PRIMARY: &[NavGroup] = &[
     // 2. Data (Alt+2) — Documents
     NavGroup {
         id: "data",
-        label: "Documents",
+        label: "Data",
         icon: ICON_DATABASE,
         alt_shortcut: Some(2),
         items: &[NavItem::new("documents", "Documents", "/documents")
@@ -425,10 +427,10 @@ static NAV_GROUPS_PRIMARY: &[NavGroup] = &[
         show_in_mobile: true,
         scope: NavScope::PrimaryOnly,
     },
-    // 4. Models (Alt+4) — Foundation models
+    // 4. Deploy (Alt+4) — Models
     NavGroup {
         id: "deploy",
-        label: "Models",
+        label: "Deploy",
         icon: ICON_CUBE,
         alt_shortcut: Some(4),
         items: &[NavItem::new("models", "Models", "/models").with_keywords(&[
@@ -442,10 +444,10 @@ static NAV_GROUPS_PRIMARY: &[NavGroup] = &[
         show_in_mobile: true,
         scope: NavScope::PrimaryOnly,
     },
-    // 5. Adapters (Alt+5) — Adapters
+    // 5. Route (Alt+5) — Adapters
     NavGroup {
         id: "adapters",
-        label: "Adapters",
+        label: "Route",
         icon: ICON_BRANCH,
         alt_shortcut: Some(5),
         items: &[
@@ -462,10 +464,10 @@ static NAV_GROUPS_PRIMARY: &[NavGroup] = &[
         show_in_mobile: true,
         scope: NavScope::PrimaryOnly,
     },
-    // 6. Operate (Alt+6) — Workers
+    // 6. Observe (Alt+6) — Workers
     NavGroup {
         id: "operate",
-        label: "Workers",
+        label: "Observe",
         icon: ICON_EYE,
         alt_shortcut: Some(6),
         items: &[

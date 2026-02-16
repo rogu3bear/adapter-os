@@ -72,9 +72,14 @@ Routes are organized into 6 main groups with specific middleware chains:
 | Method | Path | Handler | Auth | Purpose |
 |--------|------|---------|------|---------|
 | POST | `/v1/workers/fatal` | `receive_worker_fatal` | Worker | Worker fatal error |
+| POST | `/v1/workers/heartbeat` | `workers::worker_heartbeat` | Worker | Worker heartbeat and cache/tokenizer metadata |
 | POST | `/v1/workers/register` | `workers::register_worker` | Worker | Worker registration |
-| GET | `/v1/tenants/{tenant_id}/manifests/{hash}` | `worker_manifests::fetch_manifest_by_hash` | Worker | Fetch manifest |
+| GET | `/v1/tenants/{tenant_id}/manifests/{manifest_hash}` | `worker_manifests::fetch_manifest_by_hash` | Worker | Fetch manifest |
 | POST | `/v1/workers/status` | `workers::notify_worker_status` | Worker | Worker status update |
+
+Internal route policy:
+- Worker-to-control-plane routes are not user JWT routes; they rely on policy enforcement and optional worker UID checks (`AOS_WORKER_UID`).
+- Any internal worker endpoint change must be synchronized in `docs/API_REFERENCE.md`, this truth table, and generated route/openapi docs.
 
 ---
 

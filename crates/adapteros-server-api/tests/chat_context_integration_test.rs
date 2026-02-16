@@ -11,6 +11,7 @@ use adapteros_db::chat_sessions::{AddMessageParams, CreateChatSessionParams};
 use adapteros_db::Db;
 use adapteros_server_api::chat_context::build_chat_prompt;
 use adapteros_server_api::handlers::streaming_infer::{streaming_infer, StreamingInferRequest};
+use adapteros_server_api::ip_extraction::ClientIp;
 use adapteros_server_api::state::ChatContextConfig;
 use axum::{extract::State, Extension, Json};
 use std::sync::{Arc, Mutex};
@@ -333,6 +334,7 @@ async fn test_streaming_infer_builds_prompt_from_chat_history() {
     let _ = streaming_infer(
         State(state),
         Extension(claims),
+        Extension(ClientIp("127.0.0.1".to_string())),
         Extension(identity),
         axum::http::HeaderMap::new(),
         None,

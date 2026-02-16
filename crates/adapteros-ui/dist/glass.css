@@ -679,3 +679,19 @@ textarea,
 .compact .mb-4 { margin-bottom: 0.625rem; }
 .compact .mb-6 { margin-bottom: 1rem; }
 .compact .mt-4 { margin-top: 0.625rem; }
+
+@media (forced-colors: active) {
+  .glass-tier-1, .glass-tier-2, .glass-tier-3 {
+    background: Canvas;
+    border-color: CanvasText;
+    backdrop-filter: none;
+  }
+}
+
+@media (prefers-contrast: more) {
+  .glass-tier-1, .glass-tier-2, .glass-tier-3 {
+    backdrop-filter: none;
+    background: var(--color-background);
+    border: 1px solid var(--color-foreground);
+  }
+}

@@ -19,8 +19,16 @@ fn snapshot_settings() -> insta::Settings {
     let mut settings = insta::Settings::clone_current();
     // Keep snapshots alongside tests to make drift obvious and reviewable.
     settings.set_snapshot_path("contracts");
+    // Keep snapshot identifiers stable across compatibility test wrappers.
+    settings.set_prepend_module_to_snapshot(false);
     settings.set_sort_maps(true);
     settings
+}
+
+macro_rules! assert_contract_snapshot {
+    ($name:literal, $value:expr $(,)?) => {
+        insta::assert_json_snapshot!(concat!("contract_snapshots__", $name), $value);
+    };
 }
 
 fn header_subset(headers: &HeaderMap, keys: &[&str]) -> BTreeMap<String, String> {
@@ -307,7 +315,7 @@ async fn api_contract_snapshots() {
     let (health_status, mut health_body) = harness.get("/healthz", None).await;
     redact_pii(&mut health_body);
     settings.bind(|| {
-        insta::assert_json_snapshot!(
+        assert_contract_snapshot!(
             "healthz_contract",
             json!({ "status": health_status.as_u16(), "body": health_body })
         );
@@ -317,7 +325,7 @@ async fn api_contract_snapshots() {
     let (ready_status, mut ready_body) = harness.get("/readyz", None).await;
     redact_pii(&mut ready_body);
     settings.bind(|| {
-        insta::assert_json_snapshot!(
+        assert_contract_snapshot!(
             "readyz_contract",
             json!({ "status": ready_status.as_u16(), "body": ready_body })
         );
@@ -349,7 +357,7 @@ async fn api_contract_snapshots() {
     }
     redact_pii(&mut login_body);
     settings.bind(|| {
-        insta::assert_json_snapshot!(
+        assert_contract_snapshot!(
             "auth_login_success",
             json!({ "status": login_status.as_u16(), "body": login_body })
         );
@@ -363,7 +371,7 @@ async fn api_contract_snapshots() {
         &["content-type", "cache-control", "connection"],
     );
     settings.bind(|| {
-        insta::assert_json_snapshot!(
+        assert_contract_snapshot!(
             "notifications_stream_handshake",
             json!({ "status": stream_status.as_u16(), "headers": headers })
         );
@@ -381,7 +389,7 @@ async fn api_contract_snapshots() {
     let (auth_me_status, mut auth_me_body) = harness.get("/v1/auth/me", Some(&viewer_token)).await;
     redact_pii(&mut auth_me_body);
     settings.bind(|| {
-        insta::assert_json_snapshot!(
+        assert_contract_snapshot!(
             "auth_me_contract",
             json!({ "status": auth_me_status.as_u16(), "body": auth_me_body })
         );
@@ -391,7 +399,7 @@ async fn api_contract_snapshots() {
     let (auth_me_unauth_status, mut auth_me_unauth_body) = harness.get("/v1/auth/me", None).await;
     redact_pii(&mut auth_me_unauth_body);
     settings.bind(|| {
-        insta::assert_json_snapshot!(
+        assert_contract_snapshot!(
             "auth_me_unauthorized",
             json!({ "status": auth_me_unauth_status.as_u16(), "body": auth_me_unauth_body })
         );
@@ -402,7 +410,7 @@ async fn api_contract_snapshots() {
         harness.get("/v1/tenants", Some(&viewer_token)).await;
     redact_pii(&mut tenant_forbidden_body);
     settings.bind(|| {
-        insta::assert_json_snapshot!(
+        assert_contract_snapshot!(
             "tenants_forbidden_contract",
             json!({ "status": tenant_forbidden_status.as_u16(), "body": tenant_forbidden_body })
         );
@@ -440,7 +448,7 @@ async fn api_contract_snapshots() {
         redact_pii(event);
     }
     settings.bind(|| {
-        insta::assert_json_snapshot!(
+        assert_contract_snapshot!(
             "sse_reconnect_replay",
             json!({
                 "last_event_id": last_event_id,
@@ -493,7 +501,7 @@ async fn api_contract_snapshots() {
         serde_json::to_string(&done_chunk).expect("done chunk json")
     );
     settings.bind(|| {
-        insta::assert_json_snapshot!(
+        assert_contract_snapshot!(
             "streaming_infer_chunk_shapes",
             json!({
                 "token_chunk": serde_json::to_value(&token_chunk).expect("token chunk json"),
@@ -516,7 +524,7 @@ async fn api_contract_snapshots() {
         .await;
     redact_pii(&mut login_fail_body);
     settings.bind(|| {
-        insta::assert_json_snapshot!(
+        assert_contract_snapshot!(
             "auth_login_failure",
             json!({ "status": login_fail_status.as_u16(), "body": login_fail_body })
         );
@@ -532,7 +540,7 @@ async fn api_contract_snapshots() {
         .await;
     redact_pii(&mut infer_body);
     settings.bind(|| {
-        insta::assert_json_snapshot!(
+        assert_contract_snapshot!(
             "inference_stub_contract",
             json!({ "status": infer_status.as_u16(), "body": infer_body })
         );
@@ -543,7 +551,7 @@ async fn api_contract_snapshots() {
         harness.get("/v1/traces/trace-fixture", Some(&token)).await;
     redact_pii(&mut trace_body);
     settings.bind(|| {
-        insta::assert_json_snapshot!(
+        assert_contract_snapshot!(
             "trace_detail_contract",
             json!({ "status": trace_status.as_u16(), "body": trace_body })
         );
@@ -554,7 +562,7 @@ async fn api_contract_snapshots() {
         harness.get("/v1/evidence", Some(&token)).await;
     redact_pii(&mut evidence_list_body);
     settings.bind(|| {
-        insta::assert_json_snapshot!(
+        assert_contract_snapshot!(
             "evidence_list_contract",
             json!({ "status": evidence_list_status.as_u16(), "body": evidence_list_body })
         );
@@ -582,7 +590,7 @@ async fn api_contract_snapshots() {
     }
     redact_pii(&mut evidence_create_body);
     settings.bind(|| {
-        insta::assert_json_snapshot!(
+        assert_contract_snapshot!(
             "evidence_create_contract",
             json!({ "status": evidence_create_status.as_u16(), "body": evidence_create_body })
         );
@@ -604,7 +612,7 @@ async fn api_contract_snapshots() {
     }
     redact_pii(&mut audit_body);
     settings.bind(|| {
-        insta::assert_json_snapshot!(
+        assert_contract_snapshot!(
             "audit_log_contract",
             json!({ "status": audit_status.as_u16(), "body": audit_body })
         );

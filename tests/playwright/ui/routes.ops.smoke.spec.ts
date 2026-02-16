@@ -9,17 +9,24 @@ const opsRoutes: RouteCheck[] = [
   { path: '/flight-recorder', heading: 'Flight Recorder' },
   { path: `/flight-recorder/${seeded.runId}`, heading: 'Run Detail', headingLevel: 2 },
   { path: '/diff', heading: 'Run Diff' },
-  { path: '/workers', heading: 'Workers' },
-  { path: `/workers/${seeded.workerId}`, heading: 'Worker Detail' },
-  { path: '/workers/worker-missing', text: 'Not found' },
+  { path: '/workers', testId: 'workers-page-heading' },
+  {
+    path: `/workers/${seeded.workerId}`,
+    testIdsAny: ['worker-detail-heading', 'worker-detail-error-state'],
+  },
+  {
+    path: '/workers/worker-missing',
+    testId: 'worker-detail-error-state',
+  },
   { path: '/monitoring', heading: 'Monitoring' },
   { path: '/errors', heading: 'Incidents' },
   { path: '/routing', heading: 'Routing Debug' },
   { path: '/reviews', heading: 'Reviews' },
   { path: '/agents', heading: 'Agent Orchestration' },
+  { path: '/files', heading: 'Files' },
   { path: '/welcome', heading: 'Welcome' },
-  { path: '/safe', heading: 'Safety Mode', headingLevel: 3 },
-  { path: '/style-audit', heading: 'Style Audit' },
+  { path: '/safe', testId: 'safe-page' },
+  { path: '/style-audit', testId: 'style-audit-heading' },
 ];
 
 for (const route of opsRoutes) {

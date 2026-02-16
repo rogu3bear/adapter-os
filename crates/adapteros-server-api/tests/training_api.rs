@@ -3,6 +3,7 @@ use adapteros_db::adapter_repositories::CreateRepositoryParams;
 use adapteros_db::AdapterRegistrationBuilder;
 use adapteros_server_api::handlers::adapters::{activate_adapter, AdapterActivateRequest};
 use adapteros_server_api::handlers::workspaces::WorkspaceActiveStateResponse;
+use adapteros_server_api::ip_extraction::ClientIp;
 use adapteros_server_api::state::AppState;
 use axum::extract::Path;
 use axum::extract::State;
@@ -195,6 +196,7 @@ async fn training_job_completion_and_activation_updates_workspace_state() -> any
     let response = activate_adapter(
         State(state.clone()),
         Extension(claims.clone()),
+        Extension(ClientIp("127.0.0.1".to_string())),
         Path(adapter_id.to_string()),
         axum::Json(AdapterActivateRequest {
             workspace_id: Some(workspace_id.clone()),

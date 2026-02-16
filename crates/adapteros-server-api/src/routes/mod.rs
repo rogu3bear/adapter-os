@@ -72,6 +72,7 @@ use utoipa_swagger_ui::SwaggerUi;
         handlers::workers::register_worker,
         handlers::worker_manifests::fetch_manifest_by_hash,
         handlers::workers::notify_worker_status,
+        handlers::workers::worker_heartbeat,
         handlers::admin::list_users,
         handlers::admin_lifecycle::request_shutdown,
         handlers::admin_lifecycle::request_maintenance,
@@ -114,7 +115,9 @@ use utoipa_swagger_ui::SwaggerUi;
         handlers::workers::list_workers,
         handlers::workers::worker_spawn,
         handlers::workers::stop_worker,
+        handlers::workers::restart_worker,
         handlers::workers::drain_worker,
+        handlers::workers::decommission_worker,
         handlers::list_process_logs,
         handlers::list_process_crashes,
         handlers::start_debug_session,
@@ -160,6 +163,8 @@ use utoipa_swagger_ui::SwaggerUi;
         handlers::replay::get_replay_session,
         handlers::replay::verify_replay_session,
         handlers::replay::execute_replay_session,
+        handlers::replay::verify_trace_receipt,
+        handlers::replay::verify_bundle_receipt,
         handlers::replay_inference::check_availability,
         handlers::replay_inference::execute_replay,
         handlers::replay_inference::get_replay_history,
@@ -382,6 +387,7 @@ use utoipa_swagger_ui::SwaggerUi;
         handlers::streams::telemetry_events_stream,
         handlers::streams::adapter_state_stream,
         handlers::streams::workers_stream,
+        handlers::streams::reviews_stream,
         handlers::streaming::boot_progress_stream,
         handlers::adapter_stacks::stack_policy_stream,
         handlers::streaming::notifications_stream,
@@ -1351,6 +1357,14 @@ pub fn build(state: AppState) -> Router {
             "/v1/workers/{worker_id}/drain",
             post(handlers::workers::drain_worker),
         )
+        .route(
+            "/v1/workers/{worker_id}/restart",
+            post(handlers::workers::restart_worker),
+        )
+        .route(
+            "/v1/workers/{worker_id}",
+            delete(handlers::workers::decommission_worker),
+        )
         // Worker health & incidents (PRD-09)
         .route(
             "/v1/workers/{worker_id}/incidents",
@@ -1498,6 +1512,15 @@ pub fn build(state: AppState) -> Router {
         .route(
             "/v1/replay/sessions/{id}/execute",
             post(handlers::replay::execute_replay_session),
+        )
+        // Receipt & bundle verification routes
+        .route(
+            "/v1/replay/verify/trace",
+            post(handlers::replay::verify_trace_receipt),
+        )
+        .route(
+            "/v1/replay/verify/bundle",
+            post(handlers::replay::verify_bundle_receipt),
         )
         // Deterministic replay inference routes (PRD-02)
         .route(
@@ -1934,7 +1957,7 @@ pub fn build(state: AppState) -> Router {
             "/v1/discrepancies/{id}/resolve",
             patch(handlers::discrepancies::resolve_discrepancy),
         )
-        // Code intelligence routes
+        // Code intelligence routes (canonical repository API family)
         .route(
             "/v1/code/register-repo",
             post(handlers::code::register_repo),
@@ -2236,7 +2259,7 @@ pub fn build(state: AppState) -> Router {
         )
         // Training routes (extracted to routes/training_routes.rs)
         .merge(training_routes::training_routes())
-        // Repository routes (new /v1/repos API)
+        // Repository routes (legacy overlap; emits deprecation headers via middleware)
         .route(
             "/v1/repos",
             get(handlers::repos::list_repos).post(handlers::repos::create_repo),
@@ -2368,6 +2391,7 @@ pub fn build(state: AppState) -> Router {
             get(handlers::streams::adapter_state_stream),
         )
         .route("/v1/stream/workers", get(handlers::streams::workers_stream))
+        .route("/v1/stream/reviews", get(handlers::streams::reviews_stream))
         .route(
             "/v1/stream/boot-progress",
             get(handlers::streaming::boot_progress_stream),

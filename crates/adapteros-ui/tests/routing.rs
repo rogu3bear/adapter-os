@@ -36,7 +36,12 @@ fn test_route_paths_exist() {
 #[wasm_bindgen_test]
 fn test_nested_route_patterns() {
     // Verify nested route patterns are valid
-    let nested_routes = vec!["/adapters/:id", "/training/:job_id", "/workers/:worker_id"];
+    let nested_routes = vec![
+        "/adapters/:id",
+        "/training/:job_id",
+        "/workers/:worker_id",
+        "/reviews/:pause_id",
+    ];
 
     for route in nested_routes {
         assert!(route.contains(':'), "Nested route should have parameter");
@@ -53,6 +58,10 @@ fn test_path_building() {
     let adapter_id = "my-adapter-123";
     let path = format!("/adapters/{}", adapter_id);
     assert_eq!(path, "/adapters/my-adapter-123");
+
+    let review_pause_id = "newer";
+    let review_path = format!("/reviews/{}", review_pause_id);
+    assert_eq!(review_path, "/reviews/newer");
 }
 
 #[wasm_bindgen_test]

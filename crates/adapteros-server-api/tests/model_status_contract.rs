@@ -6,6 +6,7 @@ use adapteros_db::models::ModelRegistrationBuilder;
 use adapteros_db::sqlx;
 use adapteros_server_api::handlers::models::{load_model, unload_model};
 use adapteros_server_api::inference_core::InferenceCore;
+use adapteros_server_api::ip_extraction::ClientIp;
 use adapteros_server_api::state::AppState;
 use adapteros_server_api::types::{InferenceError, InferenceRequestInternal};
 use axum::extract::{Path as AxumPath, State};
@@ -164,6 +165,8 @@ fn minimal_request(tenant_id: &str, model_id: &str) -> InferenceRequestInternal 
         allow_fallback: true,
         abstention_threshold: None,
         citation_mode: None,
+        fim_prefix: None,
+        fim_suffix: None,
     }
 }
 
@@ -195,6 +198,7 @@ async fn load_handler_idempotent_and_metrics() -> anyhow::Result<()> {
     let Json(first) = load_model(
         axum_state.clone(),
         Extension(claims.clone()),
+        Extension(ClientIp("127.0.0.1".to_string())),
         AxumPath(model_id.clone()),
     )
     .await
@@ -212,6 +216,7 @@ async fn load_handler_idempotent_and_metrics() -> anyhow::Result<()> {
     let Json(second) = load_model(
         axum_state.clone(),
         Extension(claims.clone()),
+        Extension(ClientIp("127.0.0.1".to_string())),
         AxumPath(model_id.clone()),
     )
     .await
@@ -232,6 +237,7 @@ async fn load_handler_idempotent_and_metrics() -> anyhow::Result<()> {
     let Json(third) = load_model(
         axum_state,
         Extension(claims.clone()),
+        Extension(ClientIp("127.0.0.1".to_string())),
         AxumPath(model_id.clone()),
     )
     .await
@@ -279,6 +285,7 @@ async fn unload_is_idempotent_and_updates_gauge() -> anyhow::Result<()> {
     let Json(first) = unload_model(
         axum_state.clone(),
         Extension(claims.clone()),
+        Extension(ClientIp("127.0.0.1".to_string())),
         AxumPath(model_id.clone()),
     )
     .await
@@ -296,6 +303,7 @@ async fn unload_is_idempotent_and_updates_gauge() -> anyhow::Result<()> {
     let Json(second) = unload_model(
         axum_state,
         Extension(claims.clone()),
+        Extension(ClientIp("127.0.0.1".to_string())),
         AxumPath(model_id.clone()),
     )
     .await
@@ -395,6 +403,7 @@ async fn model_load_failure_updates_metrics() -> anyhow::Result<()> {
     let Json(response) = load_model(
         State(state.clone()),
         Extension(claims.clone()),
+        Extension(ClientIp("127.0.0.1".to_string())),
         AxumPath(model_id.clone()),
     )
     .await

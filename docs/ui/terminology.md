@@ -36,6 +36,9 @@ Detailed timeline and breakdown of a run's execution phases. Shows:
 - Token routing decisions
 - Adapter usage
 
+### Worker
+A runtime inference process managed in `/workers` and `/workers/:id`.
+
 ### Stack
 A configured combination of model, adapters, and policy. Not yet captured in Run Detail (shows as "Unknown").
 
@@ -66,9 +69,9 @@ Enforcement rules applied during inference. Not yet captured in Run Detail (show
 | Diff | Diff | Compare with another run |
 | Events | Events | Raw event stream |
 
-## Status Labels
+## Run Status Labels
 
-Use these consistently across all pages:
+Use these consistently across run views:
 
 | Status | Badge Variant | Context |
 |--------|---------------|---------|
@@ -76,6 +79,19 @@ Use these consistently across all pages:
 | completed | Success (green) | Run finished successfully |
 | failed | Destructive (red) | Run encountered error |
 | cancelled | Warning (yellow) | Run was cancelled |
+
+## Worker Status Semantics
+
+Use these status terms consistently for worker lifecycle UX:
+
+| Status | Meaning | Badge Variant | Terminal |
+|--------|---------|---------------|----------|
+| healthy | Ready and accepting inference requests. | Success (green) | No |
+| draining | Rejects new requests while in-flight work finishes. | Warning (yellow) | No |
+| stopped | Clean shutdown completed. | Destructive (red) | Yes |
+| error | Canonical terminal failure status. | Destructive (red) | Yes |
+| crashed | Legacy compatibility alias for terminal failure (treated as `error`). | Destructive (red) | Yes |
+| failed | Legacy compatibility terminal failure string (handled like `error`/`crashed`). | Destructive (red) | Yes |
 
 ## Action Labels
 

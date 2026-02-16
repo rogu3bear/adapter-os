@@ -21,6 +21,7 @@ use adapteros_server_api::handlers::get_training_logs;
 use adapteros_server_api::handlers::training::{
     cancel_training, list_training_jobs, start_training,
 };
+use adapteros_server_api::ip_extraction::ClientIp;
 use adapteros_server_api::state::AppState;
 use adapteros_types::training::{BranchClassification, TrainingConfig};
 use axum::body::Body;
@@ -120,6 +121,9 @@ fn make_request(name: &str, repo_id: String, base_model_id: &str) -> StartTraini
             force_resume: None,
             multi_module_training: None,
             lora_layer_indices: None,
+            early_stopping: None,
+            patience: None,
+            min_delta: None,
         },
         template_id: None,
         repo_id: Some(repo_id),
@@ -222,9 +226,10 @@ async fn test_training_start() {
     let claims = test_admin_claims();
     let repo_id = create_test_repo(&state, &claims.tenant_id, &claims.sub, &base_model_id).await;
 
-    let Json(job) = start_training(
+    let (_, Json(job)) = start_training(
         State(state.clone()),
         Extension(claims),
+        Extension(ClientIp("127.0.0.1".to_string())),
         Json(make_request("adapter-start", repo_id, &base_model_id)),
     )
     .await
@@ -272,9 +277,14 @@ async fn training_coreml_export_writes_artifacts_and_metadata() {
     let mut request = make_request("adapter-coreml-export", repo_id, &base_model_id);
     request.config.enable_coreml_export = Some(true);
 
-    let Json(job) = start_training(State(state.clone()), Extension(claims), Json(request))
-        .await
-        .expect("start training");
+    let (_, Json(job)) = start_training(
+        State(state.clone()),
+        Extension(claims),
+        Extension(ClientIp("127.0.0.1".to_string())),
+        Json(request),
+    )
+    .await
+    .expect("start training");
 
     let status = wait_for_terminal(&state, &job.id).await;
     assert_eq!(status, TrainingJobStatus::Completed);
@@ -377,7 +387,13 @@ async fn training_rejects_unknown_base_model_id() {
     let repo_id = create_test_repo(&state, &claims.tenant_id, &claims.sub, &base_model_id).await;
 
     let req = make_request("adapter-missing-model", repo_id, "missing-model");
-    let result = start_training(State(state.clone()), Extension(claims), Json(req)).await;
+    let result = start_training(
+        State(state.clone()),
+        Extension(claims),
+        Extension(ClientIp("127.0.0.1".to_string())),
+        Json(req),
+    )
+    .await;
     let (status, _body) = result.expect_err("missing base model should be rejected");
 
     assert_eq!(status, StatusCode::NOT_FOUND);
@@ -392,7 +408,13 @@ async fn test_training_rejects_missing_dataset_versions_when_non_synthetic() {
     let mut req = make_request("adapter-no-dataset", repo_id, &base_model_id);
     req.synthetic_mode = false;
 
-    let result = start_training(State(state.clone()), Extension(claims), Json(req)).await;
+    let result = start_training(
+        State(state.clone()),
+        Extension(claims),
+        Extension(ClientIp("127.0.0.1".to_string())),
+        Json(req),
+    )
+    .await;
     let (status, _body) = result.expect_err("missing dataset_version_ids should be rejected");
     assert_eq!(status, StatusCode::BAD_REQUEST);
 }
@@ -409,9 +431,10 @@ async fn test_training_status_completes() {
     let claims = test_admin_claims();
     let repo_id = create_test_repo(&state, &claims.tenant_id, &claims.sub, &base_model_id).await;
 
-    let Json(job) = start_training(
+    let (_, Json(job)) = start_training(
         State(state.clone()),
         Extension(claims),
+        Extension(ClientIp("127.0.0.1".to_string())),
         Json(make_request("adapter-status", repo_id, &base_model_id)),
     )
     .await
@@ -427,9 +450,10 @@ async fn test_training_list_includes_started_job() {
     let claims = test_admin_claims();
     let repo_id = create_test_repo(&state, &claims.tenant_id, &claims.sub, &base_model_id).await;
 
-    let Json(job) = start_training(
+    let (_, Json(job)) = start_training(
         State(state.clone()),
         Extension(claims.clone()),
+        Extension(ClientIp("127.0.0.1".to_string())),
         Json(make_request("adapter-list", repo_id, &base_model_id)),
     )
     .await
@@ -464,9 +488,14 @@ async fn test_training_list_exposes_required_metadata() {
     let mut req = make_request("adapter-meta", repo_id.clone(), &base_model_id);
     req.data_spec = Some(r#"{"mode":"synthetic","purpose":"metadata-test"}"#.to_string());
 
-    let Json(job) = start_training(State(state.clone()), Extension(claims.clone()), Json(req))
-        .await
-        .expect("start training");
+    let (_, Json(job)) = start_training(
+        State(state.clone()),
+        Extension(claims.clone()),
+        Extension(ClientIp("127.0.0.1".to_string())),
+        Json(req),
+    )
+    .await
+    .expect("start training");
 
     let status = wait_for_terminal(&state, &job.id).await;
     assert_eq!(status, TrainingJobStatus::Completed);
@@ -516,9 +545,10 @@ async fn test_training_logs_return_entries() {
     let claims = test_admin_claims();
     let repo_id = create_test_repo(&state, &claims.tenant_id, &claims.sub, &base_model_id).await;
 
-    let Json(job) = start_training(
+    let (_, Json(job)) = start_training(
         State(state.clone()),
         Extension(claims.clone()),
+        Extension(ClientIp("127.0.0.1".to_string())),
         Json(make_request("adapter-logs", repo_id, &base_model_id)),
     )
     .await
@@ -558,13 +588,19 @@ async fn test_training_cancel_transitions_job() {
     req.config.epochs = 25;
     req.config.gradient_accumulation_steps = Some(16);
 
-    let Json(job) = start_training(State(state.clone()), Extension(claims.clone()), Json(req))
-        .await
-        .expect("start training");
+    let (_, Json(job)) = start_training(
+        State(state.clone()),
+        Extension(claims.clone()),
+        Extension(ClientIp("127.0.0.1".to_string())),
+        Json(req),
+    )
+    .await
+    .expect("start training");
 
     let status = cancel_training(
         State(state.clone()),
         Extension(claims),
+        Extension(ClientIp("127.0.0.1".to_string())),
         axum::extract::Path(job.id.clone()),
     )
     .await
@@ -650,9 +686,14 @@ async fn ui_path_computes_data_spec_hash_when_missing() {
     }]);
     req.data_spec_hash = None;
 
-    let Json(job) = start_training(State(state.clone()), Extension(claims), Json(req))
-        .await
-        .expect("start training with dataset_version_ids");
+    let (_, Json(job)) = start_training(
+        State(state.clone()),
+        Extension(claims),
+        Extension(ClientIp("127.0.0.1".to_string())),
+        Json(req),
+    )
+    .await
+    .expect("start training with dataset_version_ids");
 
     let versions = job.dataset_version_ids.expect("dataset_version_ids");
     assert_eq!(versions[0].dataset_version_id, version_id);
@@ -689,8 +730,13 @@ async fn cli_path_rejects_data_spec_hash_mismatch() {
     }]);
     req.data_spec_hash = Some("mismatch-hash".to_string());
 
-    let Err((status, Json(err))) =
-        start_training(State(state.clone()), Extension(claims), Json(req)).await
+    let Err((status, Json(err))) = start_training(
+        State(state.clone()),
+        Extension(claims),
+        Extension(ClientIp("127.0.0.1".to_string())),
+        Json(req),
+    )
+    .await
     else {
         panic!("expected start_training to reject hash mismatch");
     };

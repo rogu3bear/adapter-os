@@ -1,4 +1,5 @@
 use adapteros_server_api::handlers::models::load_model;
+use adapteros_server_api::ip_extraction::ClientIp;
 use adapteros_server_api::state::AppState;
 use axum::{
     extract::{Extension, Path, State},
@@ -45,6 +46,7 @@ async fn load_model_returns_404_when_model_path_missing() {
     let err = match load_model(
         State(state.clone()),
         Extension(claims.clone()),
+        Extension(ClientIp("127.0.0.1".to_string())),
         Path(model_id.to_string()),
     )
     .await
@@ -122,6 +124,7 @@ async fn load_model_rejects_path_outside_allowed_root() {
     let err = match load_model(
         State(state.clone()),
         Extension(claims.clone()),
+        Extension(ClientIp("127.0.0.1".to_string())),
         Path(model_id.to_string()),
     )
     .await

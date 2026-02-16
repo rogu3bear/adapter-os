@@ -19,8 +19,8 @@ use adapteros_db::workers::{WorkerIncidentType, WorkerRegistrationParams};
 use adapteros_db::Db;
 use adapteros_server_api::auth::{AuthMode, Claims, PrincipalType};
 use adapteros_server_api::handlers::workers::{
-    get_worker_history, list_workers, notify_worker_status, register_worker, stop_worker,
-    HistoryQuery, ListWorkersQuery,
+    decommission_worker, get_worker_history, list_workers, notify_worker_status, register_worker,
+    restart_worker, stop_worker, HistoryQuery, ListWorkersQuery,
 };
 use axum::extract::{Path, Query, State};
 use axum::http::StatusCode;
@@ -497,16 +497,16 @@ async fn list_workers_by_health_status_respects_tenant_boundaries() {
         .await
         .expect("create tenant B");
 
-    // Register workers in both tenants and set to healthy
+    // Register workers in both tenants and set health metrics to healthy
     let worker_a = register_test_worker(&db, "tenant-health-a", "worker-health-a").await;
     let worker_b = register_test_worker(&db, "tenant-health-b", "worker-health-b").await;
 
-    db.transition_worker_status(&worker_a, "healthy", "test", None)
+    db.update_worker_health_metrics(&worker_a, "healthy", 10.0, 5, 0, 0)
         .await
-        .expect("transition A");
-    db.transition_worker_status(&worker_b, "healthy", "test", None)
+        .expect("health update A");
+    db.update_worker_health_metrics(&worker_b, "healthy", 11.0, 6, 0, 0)
         .await
-        .expect("transition B");
+        .expect("health update B");
 
     // List all healthy workers - should return both
     let all_healthy = db
@@ -1004,7 +1004,10 @@ async fn test_list_workers_operator_sees_only_own_tenant() {
     let result = list_workers(
         State(state.clone()),
         Extension(claims_a),
-        Query(ListWorkersQuery { tenant_id: None }),
+        Query(ListWorkersQuery {
+            tenant_id: None,
+            include_inactive: None,
+        }),
     )
     .await;
 
@@ -1055,6 +1058,7 @@ async fn test_list_workers_admin_can_query_specific_tenant() {
         Extension(claims_admin.clone()),
         Query(ListWorkersQuery {
             tenant_id: Some("tenant-admin-a".to_string()),
+            include_inactive: None,
         }),
     )
     .await;
@@ -1070,6 +1074,7 @@ async fn test_list_workers_admin_can_query_specific_tenant() {
         Extension(claims_admin),
         Query(ListWorkersQuery {
             tenant_id: Some("tenant-admin-b".to_string()),
+            include_inactive: None,
         }),
     )
     .await;
@@ -1147,6 +1152,232 @@ async fn test_stop_worker_cross_tenant_returns_404() {
         worker.unwrap().status,
         "healthy",
         "Worker status should be unchanged"
+    );
+}
+
+#[tokio::test]
+async fn test_restart_worker_cross_tenant_returns_404() {
+    std::env::set_var("AOS_SKIP_MIGRATION_SIGNATURES", "1");
+    let state = setup_state(None).await.expect("state setup");
+
+    sqlx::query("INSERT OR IGNORE INTO tenants (id, name) VALUES (?, ?)")
+        .bind("tenant-restart-a")
+        .bind("Tenant A")
+        .execute(state.db.pool())
+        .await
+        .expect("create tenant A");
+
+    sqlx::query("INSERT OR IGNORE INTO tenants (id, name) VALUES (?, ?)")
+        .bind("tenant-restart-b")
+        .bind("Tenant B")
+        .execute(state.db.pool())
+        .await
+        .expect("create tenant B");
+
+    let worker_id =
+        register_test_worker(&state.db, "tenant-restart-a", "worker-restart-cross").await;
+    state
+        .db
+        .transition_worker_status(&worker_id, "healthy", "test", None)
+        .await
+        .expect("transition to healthy");
+
+    let claims_b = create_test_claims(
+        "operator-restart-b",
+        "operator@tenant-b.com",
+        "operator",
+        "tenant-restart-b",
+        vec![],
+    );
+
+    let result = restart_worker(
+        State(state.clone()),
+        Extension(claims_b),
+        Path(worker_id.clone()),
+    )
+    .await;
+
+    assert!(result.is_err(), "Cross-tenant restart should fail");
+    match result {
+        Err(err) => {
+            assert_eq!(
+                err.status,
+                StatusCode::NOT_FOUND,
+                "Cross-tenant restart should return 404"
+            );
+        }
+        Ok(_) => panic!("Cross-tenant restart should fail"),
+    }
+
+    let worker = state.db.get_worker(&worker_id).await.expect("get worker");
+    assert!(worker.is_some());
+    assert_eq!(
+        worker.unwrap().status,
+        "healthy",
+        "Worker status should be unchanged"
+    );
+}
+
+#[tokio::test]
+async fn test_decommission_worker_non_terminal_returns_409() {
+    std::env::set_var("AOS_SKIP_MIGRATION_SIGNATURES", "1");
+    let state = setup_state(None).await.expect("state setup");
+
+    sqlx::query("INSERT OR IGNORE INTO tenants (id, name) VALUES (?, ?)")
+        .bind("tenant-decom-non-terminal")
+        .bind("Decommission Non-Terminal Tenant")
+        .execute(state.db.pool())
+        .await
+        .expect("create tenant");
+
+    let worker_id =
+        register_test_worker(&state.db, "tenant-decom-non-terminal", "worker-decom-409").await;
+    state
+        .db
+        .transition_worker_status(&worker_id, "healthy", "test", None)
+        .await
+        .expect("transition to healthy");
+
+    let claims = create_test_claims(
+        "operator-decom-409",
+        "operator@tenant.com",
+        "operator",
+        "tenant-decom-non-terminal",
+        vec![],
+    );
+
+    let result = decommission_worker(
+        State(state.clone()),
+        Extension(claims),
+        Path(worker_id.clone()),
+    )
+    .await;
+
+    assert!(result.is_err(), "Non-terminal decommission should fail");
+    match result {
+        Err(err) => {
+            assert_eq!(
+                err.status,
+                StatusCode::CONFLICT,
+                "Non-terminal decommission should return 409"
+            );
+        }
+        Ok(_) => panic!("Non-terminal decommission should fail"),
+    }
+
+    let worker = state.db.get_worker(&worker_id).await.expect("get worker");
+    assert!(worker.is_some(), "Worker should remain after 409");
+}
+
+#[tokio::test]
+async fn test_decommission_worker_terminal_succeeds() {
+    std::env::set_var("AOS_SKIP_MIGRATION_SIGNATURES", "1");
+    let state = setup_state(None).await.expect("state setup");
+
+    sqlx::query("INSERT OR IGNORE INTO tenants (id, name) VALUES (?, ?)")
+        .bind("tenant-decom-terminal")
+        .bind("Decommission Terminal Tenant")
+        .execute(state.db.pool())
+        .await
+        .expect("create tenant");
+
+    let worker_id =
+        register_test_worker(&state.db, "tenant-decom-terminal", "worker-decom-success").await;
+    state
+        .db
+        .transition_worker_status(&worker_id, "error", "simulated terminal state", None)
+        .await
+        .expect("transition to error");
+
+    let claims = create_test_claims(
+        "operator-decom-ok",
+        "operator@tenant.com",
+        "operator",
+        "tenant-decom-terminal",
+        vec![],
+    );
+
+    let result = decommission_worker(
+        State(state.clone()),
+        Extension(claims),
+        Path(worker_id.clone()),
+    )
+    .await;
+
+    assert!(result.is_ok(), "Terminal decommission should succeed");
+    let Json(response) = result.expect("decommission success");
+    assert!(response.success);
+    assert_eq!(response.worker_id, worker_id);
+    assert_eq!(response.previous_status, "error");
+
+    let worker = state
+        .db
+        .get_worker(&response.worker_id)
+        .await
+        .expect("get worker");
+    assert!(
+        worker.is_none(),
+        "Worker should be removed after successful decommission"
+    );
+}
+
+#[tokio::test]
+async fn test_decommission_worker_cross_tenant_returns_404() {
+    std::env::set_var("AOS_SKIP_MIGRATION_SIGNATURES", "1");
+    let state = setup_state(None).await.expect("state setup");
+
+    sqlx::query("INSERT OR IGNORE INTO tenants (id, name) VALUES (?, ?)")
+        .bind("tenant-decom-a")
+        .bind("Tenant A")
+        .execute(state.db.pool())
+        .await
+        .expect("create tenant A");
+
+    sqlx::query("INSERT OR IGNORE INTO tenants (id, name) VALUES (?, ?)")
+        .bind("tenant-decom-b")
+        .bind("Tenant B")
+        .execute(state.db.pool())
+        .await
+        .expect("create tenant B");
+
+    let worker_id = register_test_worker(&state.db, "tenant-decom-a", "worker-decom-cross").await;
+    state
+        .db
+        .transition_worker_status(&worker_id, "error", "simulated terminal state", None)
+        .await
+        .expect("transition to error");
+
+    let claims_b = create_test_claims(
+        "operator-decom-b",
+        "operator@tenant-b.com",
+        "operator",
+        "tenant-decom-b",
+        vec![],
+    );
+
+    let result = decommission_worker(
+        State(state.clone()),
+        Extension(claims_b),
+        Path(worker_id.clone()),
+    )
+    .await;
+
+    assert!(result.is_err(), "Cross-tenant decommission should fail");
+    match result {
+        Err(err) => {
+            assert_eq!(
+                err.status,
+                StatusCode::NOT_FOUND,
+                "Cross-tenant decommission should return 404"
+            );
+        }
+        Ok(_) => panic!("Cross-tenant decommission should fail"),
+    }
+
+    let worker = state.db.get_worker(&worker_id).await.expect("get worker");
+    assert!(
+        worker.is_some(),
+        "Cross-tenant request must not remove worker"
     );
 }
 
@@ -1348,6 +1579,17 @@ async fn test_worker_registration_api_respects_tenant_boundaries() {
         .await
         .expect("create tenant B");
 
+    // Worker registration uses node_id = "local"; ensure FK target exists.
+    sqlx::query(
+        "INSERT OR IGNORE INTO nodes (id, hostname, agent_endpoint, status) VALUES (?, ?, ?, 'active')",
+    )
+    .bind("local")
+    .bind("local")
+    .bind("http://localhost:8080")
+    .execute(state.db.pool())
+    .await
+    .expect("create local node");
+
     // Create manifest for tenant-a
     sqlx::query(
         "INSERT OR IGNORE INTO manifests (id, tenant_id, hash_b3, body_json) VALUES (?, ?, ?, ?)",
@@ -1360,13 +1602,13 @@ async fn test_worker_registration_api_respects_tenant_boundaries() {
     .await
     .expect("create manifest");
 
-    // Create plan for tenant-a
+    // Create plan for tenant-a; register_worker looks up by plan_id_b3.
     sqlx::query(
         "INSERT OR IGNORE INTO plans (id, tenant_id, plan_id_b3, manifest_hash_b3, kernel_hashes_json, layout_hash_b3) VALUES (?, ?, ?, ?, ?, ?)",
     )
     .bind("plan-reg-a")
     .bind("tenant-reg-a")
-    .bind("plan-b3:reg-a")
+    .bind("plan-reg-a")
     .bind("hash-reg-a")
     .bind("[]")
     .bind("layout-b3:reg-a")

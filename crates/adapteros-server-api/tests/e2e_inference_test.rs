@@ -26,6 +26,7 @@ use adapteros_db::policy_audit::PolicyDecisionFilters;
 use adapteros_db::routing_decisions::RoutingDecision;
 use adapteros_db::workers::WorkerRegistrationParams;
 use adapteros_server_api::handlers::inference::infer;
+use adapteros_server_api::ip_extraction::ClientIp;
 use adapteros_server_api::middleware::request_id::RequestId;
 use adapteros_server_api::types::{
     InferResponse, RouterSummary, TokenUsage, WorkerInferResponse, WorkerTrace,
@@ -383,6 +384,7 @@ async fn test_e2e_inference_with_audit_trail() {
     let response = infer(
         State(state.clone()),
         Extension(claims.clone()),
+        Extension(ClientIp("127.0.0.1".to_string())),
         Extension(identity),
         Some(Extension(RequestId(request_id.to_string()))),
         None,
@@ -962,6 +964,7 @@ async fn test_training_job_adapter_infer_wiring() {
     let response = infer(
         State(state.clone()),
         Extension(claims.clone()),
+        Extension(ClientIp("127.0.0.1".to_string())),
         Extension(identity),
         Some(Extension(RequestId(request_id.to_string()))),
         None,
@@ -1001,6 +1004,7 @@ async fn test_training_job_adapter_infer_wiring() {
     let cross_result = infer(
         State(state),
         Extension(claims.clone()),
+        Extension(ClientIp("127.0.0.1".to_string())),
         Extension(IdentityEnvelope::new(
             "tenant-1".to_string(),
             "api".to_string(),
@@ -1083,6 +1087,7 @@ async fn test_e2e_inference_fails_when_model_not_ready() {
     let result = infer(
         State(state),
         Extension(claims),
+        Extension(ClientIp("127.0.0.1".to_string())),
         Extension(identity),
         Some(Extension(RequestId("not-ready-test".to_string()))),
         None,
@@ -1187,6 +1192,7 @@ async fn test_e2e_inference_tenant_isolation() {
     let result = infer(
         State(state),
         Extension(claims),
+        Extension(ClientIp("127.0.0.1".to_string())),
         Extension(identity),
         Some(Extension(RequestId("isolation-test".to_string()))),
         None,
@@ -1316,6 +1322,7 @@ async fn test_e2e_inference_rejects_adapter_base_model_mismatch() {
     let result = infer(
         State(state),
         Extension(claims),
+        Extension(ClientIp("127.0.0.1".to_string())),
         Extension(identity),
         Some(Extension(RequestId("base-model-mismatch".to_string()))),
         None,

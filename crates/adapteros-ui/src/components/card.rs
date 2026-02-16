@@ -8,6 +8,7 @@ pub fn Card(
     #[prop(optional, into)] class: String,
     #[prop(optional, into)] title: Option<String>,
     #[prop(optional, into)] description: Option<String>,
+    #[prop(optional, into)] data_testid: Option<String>,
     children: Children,
 ) -> impl IntoView {
     let full_class = format!("card {}", class);
@@ -17,9 +18,10 @@ pub fn Card(
     } else {
         "card-content card-content--full"
     };
+    let data_testid = data_testid.filter(|value| !value.is_empty());
 
     view! {
-        <div class=full_class>
+        <div class=full_class data-testid=move || data_testid.clone()>
             {move || {
                 if has_header {
                     view! {

@@ -1,10 +1,8 @@
 import { test, expect } from '@playwright/test';
-import { ensureLoggedIn, seeded, waitForAppReady } from './utils';
+import { gotoAndBootstrap, seeded } from './utils';
 
 test('training list shows seeded job', { tag: ['@smoke'] }, async ({ page }) => {
-  await page.goto('/training', { waitUntil: 'domcontentloaded' });
-  await waitForAppReady(page);
-  await ensureLoggedIn(page);
+  await gotoAndBootstrap(page, '/training', { mode: 'ui-only' });
   await expect(
     page.getByRole('heading', { name: 'Training Jobs', level: 1, exact: true })
   ).toBeVisible();
@@ -12,9 +10,7 @@ test('training list shows seeded job', { tag: ['@smoke'] }, async ({ page }) => 
 });
 
 test('training detail shows job details and metrics', { tag: ['@smoke', '@detail'] }, async ({ page }) => {
-  await page.goto('/training', { waitUntil: 'domcontentloaded' });
-  await waitForAppReady(page);
-  await ensureLoggedIn(page);
+  await gotoAndBootstrap(page, '/training', { mode: 'ui-only' });
   await page
     .getByRole('row', { name: new RegExp(seeded.adapterName) })
     .click();

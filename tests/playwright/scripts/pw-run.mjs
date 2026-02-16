@@ -1,9 +1,69 @@
 import { spawn } from 'node:child_process';
+import { createHash, randomBytes } from 'node:crypto';
 import fs from 'node:fs';
+import net from 'node:net';
 import path from 'node:path';
 
 function nowMs() {
   return Date.now();
+}
+
+function sanitizeRunId(value) {
+  const cleaned = String(value ?? '')
+    .trim()
+    .replace(/[^A-Za-z0-9._-]/g, '_');
+  return cleaned || 'default';
+}
+
+function generateRunId() {
+  const ts = new Date().toISOString().replace(/[-:.TZ]/g, '');
+  const rand = randomBytes(3).toString('hex');
+  return `run-${ts}-${process.pid}-${rand}`;
+}
+
+function resolveRunId() {
+  const configured = (process.env.PW_RUN_ID ?? '').trim();
+  if (configured) return sanitizeRunId(configured);
+  return generateRunId();
+}
+
+function parseExplicitPort(value) {
+  const raw = (value ?? '').trim();
+  if (!raw) return null;
+  const parsed = Number.parseInt(raw, 10);
+  if (!Number.isFinite(parsed) || parsed < 1 || parsed > 65535) {
+    return null;
+  }
+  return parsed;
+}
+
+async function canListenOnPort(port) {
+  return await new Promise((resolve) => {
+    const server = net.createServer();
+    server.unref();
+    server.once('error', () => resolve(false));
+    server.listen(port, '127.0.0.1', () => {
+      server.close(() => resolve(true));
+    });
+  });
+}
+
+async function resolveServerPort(runId, explicitPort) {
+  if (Number.isFinite(explicitPort)) return explicitPort;
+
+  const minPort = 18080;
+  const span = 10_000;
+  const hash = createHash('sha256').update(runId).digest();
+  const baseOffset = hash.readUInt16BE(0) % span;
+
+  for (let i = 0; i < span; i += 1) {
+    const candidate = minPort + ((baseOffset + i) % span);
+    // Best effort: avoid a known-in-use port before launching Playwright webServer.
+    // A race can still exist, but this dramatically reduces collisions in concurrent runs.
+    if (await canListenOnPort(candidate)) return candidate;
+  }
+
+  return 8080;
 }
 
 function parseArgs(argv) {
@@ -80,13 +140,19 @@ async function main() {
   }
 
   const repoRoot = path.resolve(process.cwd(), '..', '..');
-  const heartbeatPath = path.resolve(repoRoot, 'var/playwright/heartbeat.json');
-  const serverPidPath = path.resolve(repoRoot, 'var/playwright/run/aos-server.pid');
+  const runId = resolveRunId();
+  const explicitPort = parseExplicitPort(process.env.PW_SERVER_PORT);
+  const serverPort = await resolveServerPort(runId, explicitPort);
+  const runRoot = path.resolve(repoRoot, 'var/playwright/runs', runId);
+  const heartbeatPath = path.resolve(runRoot, 'heartbeat.json');
+  const serverPidPath = path.resolve(runRoot, 'run/aos-server.pid');
 
   const hardTimeoutMs = Number.isFinite(hardMs) ? hardMs : 15 * 60_000;
   // Default idle timeout is intentionally generous: initial Rust+WASM builds can be quiet for
   // several minutes on a cold cache, and we don't want spurious watchdog kills.
   const idleTimeoutMs = Number.isFinite(idleMs) ? idleMs : 10 * 60_000;
+
+  fs.mkdirSync(path.dirname(serverPidPath), { recursive: true });
 
   // Clean heartbeat from prior runs to make stall detection deterministic.
   try {
@@ -109,11 +175,13 @@ async function main() {
     PW_REUSE_EXISTING_SERVER: '0',
     // Enable progress + heartbeat reporters.
     PW_WATCHDOG: '1',
+    PW_RUN_ID: runId,
+    PW_SERVER_PORT: String(serverPort),
   };
 
   const startedAt = nowMs();
   let lastActivityAt = startedAt;
-  let lastHeartbeatAt = safeReadStatMs(heartbeatPath) ?? startedAt;
+  let lastHeartbeatAt = safeReadStatMs(heartbeatPath) ?? 0;
 
   const child = spawn(playwrightBin, args, {
     env,
@@ -210,8 +278,8 @@ async function main() {
       return;
     }
 
-    // Use heartbeat if present; fall back to stdout activity.
-    const last = hb ? lastHeartbeatAt : lastActivityAt;
+    // Prefer whichever signal is freshest so log output still counts as activity.
+    const last = Math.max(lastActivityAt, lastHeartbeatAt);
     if (t - last > idleTimeoutMs) {
       void killTree(`idle timeout ${idleTimeoutMs}ms exceeded`);
       clearInterval(watchdog);

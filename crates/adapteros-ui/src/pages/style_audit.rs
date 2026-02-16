@@ -138,7 +138,7 @@ pub fn StyleAudit() -> impl IntoView {
             <div class="max-w-6xl mx-auto">
                 <div class="flex items-center justify-between mb-8 pb-4 border-b">
                     <div>
-                        <h1 class="heading-1">"Style Audit"</h1>
+                        <h1 class="heading-1" data-testid="style-audit-heading">"Style Audit"</h1>
                         <p class="text-muted-foreground mt-1">"PRD-UI-003: Visual Component Gallery"</p>
                     </div>
                     <div class="flex items-center gap-4">

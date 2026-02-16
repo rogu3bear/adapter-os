@@ -16,6 +16,7 @@ use adapteros_core::{derive_seed, B3Hash};
 use adapteros_db::chat_sessions::CreateChatSessionParams;
 use adapteros_db::traits::CreateStackRequest;
 use adapteros_server_api::handlers::streaming_infer::{streaming_infer, StreamingInferRequest};
+use adapteros_server_api::ip_extraction::ClientIp;
 use axum::body::to_bytes;
 use axum::response::IntoResponse;
 use axum::{extract::State, Extension, Json};
@@ -318,6 +319,7 @@ async fn streaming_infer_emits_structured_error_on_unavailable_resource() {
     let sse = streaming_infer(
         State(state),
         Extension(claims),
+        Extension(ClientIp("127.0.0.1".to_string())),
         Extension(identity),
         axum::http::HeaderMap::new(),
         None,
@@ -476,6 +478,7 @@ async fn streaming_infer_resolves_effective_adapters_from_session_stack() {
     let sse = streaming_infer(
         State(state),
         Extension(claims),
+        Extension(ClientIp("127.0.0.1".to_string())),
         Extension(identity),
         axum::http::HeaderMap::new(),
         None,
