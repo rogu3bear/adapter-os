@@ -79,6 +79,18 @@ use std::collections::HashMap;
 use tracing::warn;
 use tracing::{debug, info, warn};
 
+#[derive(Debug, Clone, Copy, PartialEq, Eq)]
+pub enum AttestationKind {
+    Hardware,
+    Synthetic,
+}
+
+#[derive(Debug, Clone)]
+pub struct KeyAttestation {
+    pub kind: AttestationKind,
+    pub data: Vec<u8>,
+}
+
 // Hardware integration constants and architectural patterns
 /// Hardware-backed Secure Enclave connection
 #[cfg_attr(target_os = "macos", derive(Debug))]
@@ -156,6 +168,11 @@ impl SecureEnclaveConnection {
     /// Attempts to use real SEP attestation via SecKeyCopyAttestation when available,
     /// falls back to synthetic attestation for compatibility.
     pub fn get_key_attestation(&mut self, alias: &str) -> Result<Vec<u8>> {
+        Ok(self.get_key_attestation_with_kind(alias)?.data)
+    }
+
+    /// Get key attestation and explicit attestation kind metadata.
+    pub fn get_key_attestation_with_kind(&mut self, alias: &str) -> Result<KeyAttestation> {
         let sec_key = self.ensure_signing_key(alias)?;
 
         info!("Requesting hardware attestation for key: {}", alias);
@@ -168,15 +185,27 @@ impl SecureEnclaveConnection {
                     attestation_len = real_attestation.len(),
                     "Generated real SEP attestation data from Secure Enclave"
                 );
-                Ok(real_attestation)
+                Ok(KeyAttestation {
+                    kind: AttestationKind::Hardware,
+                    data: real_attestation,
+                })
             }
             Err(e) => {
+                if require_hardware_attestation() {
+                    return Err(AosError::Crypto(format!(
+                        "hardware attestation required but unavailable for '{}': {}",
+                        alias, e
+                    )));
+                }
                 warn!(
                     alias,
                     error = %e,
                     "Real SEP attestation not available, falling back to synthetic attestation"
                 );
-                self.get_synthetic_attestation(&sec_key, alias)
+                Ok(KeyAttestation {
+                    kind: AttestationKind::Synthetic,
+                    data: self.get_synthetic_attestation(&sec_key, alias)?,
+                })
             }
         }
     }
@@ -497,6 +526,12 @@ impl SecureEnclaveConnection {
             "Secure Enclave not available on this platform".to_string(),
         ))
     }
+
+    pub fn get_key_attestation_with_kind(&mut self, _alias: &str) -> Result<KeyAttestation> {
+        Err(adapteros_core::AosError::Config(
+            "Secure Enclave not available on this platform".to_string(),
+        ))
+    }
 }
 
 #[cfg(not(target_os = "macos"))]
@@ -505,5 +540,15 @@ impl std::fmt::Debug for SecureEnclaveConnection {
         f.debug_struct("SecureEnclaveConnection")
             .field("platform", &"non-macOS")
             .finish()
+    }
+}
+
+fn require_hardware_attestation() -> bool {
+    match std::env::var("AOS_REQUIRE_HARDWARE_ATTESTATION") {
+        Ok(raw) => matches!(
+            raw.trim().to_ascii_lowercase().as_str(),
+            "1" | "true" | "yes" | "on"
+        ),
+        Err(_) => false,
     }
 }

@@ -1,7 +1,9 @@
 use adapteros_core::{B3Hash, SeedMode};
 use adapteros_db::replay_metadata::CreateReplayMetadataParams;
 use adapteros_db::{SqlTraceSink, TraceFinalization, TraceSink, TraceStart, TraceTokenInput};
+use adapteros_server_api::boot_state::BootStateManager;
 use adapteros_server_api::handlers::run_evidence::{download_run_evidence, EvidenceExportParams};
+use adapteros_server_api::state::AppState;
 use adapteros_server_api::types::SamplingParams;
 use axum::body::to_bytes;
 use axum::{
@@ -15,10 +17,68 @@ use zip::ZipArchive;
 mod common;
 use common::{setup_state, test_admin_claims, TestkitEnvGuard};
 
+async fn seed_replay_metadata_for_run(
+    state: &AppState,
+    tenant_id: &str,
+    run_id: &str,
+    determinism_mode: Option<&str>,
+) -> anyhow::Result<String> {
+    let manifest_body = r#"{"name":"test-manifest","version":"1"}"#;
+    let manifest_hash = B3Hash::hash(manifest_body.as_bytes()).to_hex();
+    state
+        .db
+        .create_manifest(tenant_id, &manifest_hash, manifest_body)
+        .await?;
+
+    let sampling_params_json = serde_json::to_string(&SamplingParams::default()).unwrap();
+    let replay_params = CreateReplayMetadataParams {
+        inference_id: run_id.to_string(),
+        tenant_id: tenant_id.to_string(),
+        manifest_hash: manifest_hash.clone(),
+        base_model_id: Some("base-model".to_string()),
+        router_seed: Some("seed-123".to_string()),
+        sampling_params_json,
+        backend: "metal".to_string(),
+        backend_version: Some("v1.0.0".to_string()),
+        coreml_package_hash: None,
+        coreml_expected_package_hash: None,
+        coreml_hash_mismatch: None,
+        sampling_algorithm_version: Some("v1".to_string()),
+        rag_snapshot_hash: None,
+        dataset_version_id: None,
+        adapter_ids: Some(vec!["adapter-a".to_string()]),
+        base_only: None,
+        prompt_text: "hello world".to_string(),
+        prompt_truncated: false,
+        response_text: Some("hi there".to_string()),
+        response_truncated: false,
+        rag_doc_ids: None,
+        chat_context_hash: None,
+        replay_status: Some("available".to_string()),
+        latency_ms: Some(12),
+        tokens_generated: Some(2),
+        determinism_mode: determinism_mode.map(ToString::to_string),
+        fallback_triggered: false,
+        coreml_compute_preference: None,
+        coreml_compute_units: None,
+        coreml_gpu_used: None,
+        fallback_backend: None,
+        replay_guarantee: Some("exact".to_string()),
+        execution_policy_id: None,
+        execution_policy_version: None,
+        stop_policy_json: None,
+        policy_mask_digest_b3: Some("abcd1234".to_string()),
+        utf8_healing: None,
+    };
+    state.db.create_replay_metadata(replay_params).await?;
+    Ok(manifest_hash)
+}
+
 #[tokio::test]
 async fn evidence_bundle_contains_required_files() -> anyhow::Result<()> {
     let _env = TestkitEnvGuard::disabled().await;
-    let state = setup_state(None).await?;
+    let mut state = setup_state(None).await?;
+    state.boot_state = Some(BootStateManager::new());
     let claims = test_admin_claims();
     let tenant_id = claims.tenant_id.clone();
     let run_id = "run-evidence-001".to_string();
@@ -203,6 +263,51 @@ async fn evidence_bundle_contains_required_files() -> anyhow::Result<()> {
         "replay metadata should include manifest hash"
     );
 
+    Ok(())
+}
+
+#[tokio::test]
+async fn evidence_bundle_fails_closed_when_boot_state_missing() -> anyhow::Result<()> {
+    let _env = TestkitEnvGuard::disabled().await;
+    let state = setup_state(None).await?;
+    let claims = test_admin_claims();
+    let tenant_id = claims.tenant_id.clone();
+    let run_id = "run-evidence-missing-boot-state".to_string();
+
+    seed_replay_metadata_for_run(&state, &tenant_id, &run_id, None).await?;
+
+    let result = download_run_evidence(
+        State(state),
+        Extension(claims),
+        Path(run_id),
+        Query(EvidenceExportParams::default()),
+    )
+    .await;
+
+    assert!(matches!(result, Err((StatusCode::FORBIDDEN, _))));
+    Ok(())
+}
+
+#[tokio::test]
+async fn evidence_bundle_fails_closed_when_run_envelope_missing() -> anyhow::Result<()> {
+    let _env = TestkitEnvGuard::disabled().await;
+    let mut state = setup_state(None).await?;
+    state.boot_state = Some(BootStateManager::new());
+    let claims = test_admin_claims();
+    let tenant_id = claims.tenant_id.clone();
+    let run_id = "run-evidence-missing-envelope".to_string();
+
+    seed_replay_metadata_for_run(&state, &tenant_id, &run_id, None).await?;
+
+    let result = download_run_evidence(
+        State(state),
+        Extension(claims),
+        Path(run_id),
+        Query(EvidenceExportParams::default()),
+    )
+    .await;
+
+    assert!(matches!(result, Err((StatusCode::FORBIDDEN, _))));
     Ok(())
 }
 

@@ -206,6 +206,8 @@ pub struct AttestationMetadata {
     pub pubkey: Vec<u8>,
     /// Attestation data (hardware-signed)
     pub attestation_data: Vec<u8>,
+    /// Attestation mode: hardware-backed or synthetic fallback
+    pub attestation_kind: String,
     /// Timestamp (microseconds)
     pub timestamp_us: u64,
     /// Hardware model identifier
@@ -404,6 +406,12 @@ impl HostIdentityManager {
 
         let pubkey = self.get_host_public_key()?;
         let attestation_data = self.connection.attest_key(&self.key_alias)?;
+        let attestation_kind = infer_attestation_kind(&attestation_data);
+        if require_hardware_attestation() && attestation_kind != "hardware" {
+            return Err(AosError::Crypto(
+                "hardware attestation required but synthetic attestation was produced".to_string(),
+            ));
+        }
 
         let timestamp_us = std::time::SystemTime::now()
             .duration_since(std::time::UNIX_EPOCH)
@@ -413,6 +421,7 @@ impl HostIdentityManager {
         let attestation_metadata = AttestationMetadata {
             pubkey: pubkey.to_bytes().to_vec(),
             attestation_data,
+            attestation_kind,
             timestamp_us,
             hardware_model: detect_hardware_model(),
             secure_enclave_version: detect_secure_enclave_version(),
@@ -458,6 +467,12 @@ impl HostIdentity {
         use adapteros_core::AosError;
 
         let attestation_data = self.connection.attest_key(&self.key_alias)?;
+        let attestation_kind = infer_attestation_kind(&attestation_data);
+        if require_hardware_attestation() && attestation_kind != "hardware" {
+            return Err(AosError::Crypto(
+                "hardware attestation required but synthetic attestation was produced".to_string(),
+            ));
+        }
 
         let timestamp_us = std::time::SystemTime::now()
             .duration_since(std::time::UNIX_EPOCH)
@@ -467,6 +482,7 @@ impl HostIdentity {
         let attestation_metadata = AttestationMetadata {
             pubkey: self.pubkey.to_bytes().to_vec(),
             attestation_data,
+            attestation_kind,
             timestamp_us,
             hardware_model: detect_hardware_model(),
             secure_enclave_version: detect_secure_enclave_version(),
@@ -477,6 +493,24 @@ impl HostIdentity {
             attestation_metadata,
             timestamp_us,
         })
+    }
+}
+
+fn infer_attestation_kind(attestation_data: &[u8]) -> String {
+    if attestation_data.iter().any(|byte| *byte != 0) {
+        "hardware".to_string()
+    } else {
+        "synthetic".to_string()
+    }
+}
+
+fn require_hardware_attestation() -> bool {
+    match std::env::var("AOS_REQUIRE_HARDWARE_ATTESTATION") {
+        Ok(raw) => matches!(
+            raw.trim().to_ascii_lowercase().as_str(),
+            "1" | "true" | "yes" | "on"
+        ),
+        Err(_) => false,
     }
 }
 

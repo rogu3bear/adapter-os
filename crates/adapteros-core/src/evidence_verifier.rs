@@ -266,28 +266,8 @@ pub fn validate_for_ingestion(
     if require_signature {
         if envelope.signature.is_empty() {
             errors.push(IngestionError::SignatureMissing);
-        } else {
-            // Signature verification requires ed25519 library
-            // For now, just verify signature is valid hex of correct length
-            match hex::decode(&envelope.signature) {
-                Ok(sig_bytes) if sig_bytes.len() != 64 => {
-                    errors.push(IngestionError::SignatureInvalid {
-                        reason: format!("Signature must be 64 bytes, got {}", sig_bytes.len()),
-                    });
-                }
-                Err(e) => {
-                    errors.push(IngestionError::SignatureInvalid {
-                        reason: format!("Invalid hex encoding: {}", e),
-                    });
-                }
-                _ => {
-                    // Valid format; cryptographic verification would go here
-                    // For now, emit warning that crypto verification is not yet implemented
-                    warnings.push(
-                        "Signature format valid; cryptographic verification pending".to_string(),
-                    );
-                }
-            }
+        } else if let Err(err) = verify_ingestion_signature(envelope) {
+            errors.push(err);
         }
     }
 
@@ -360,6 +340,67 @@ fn compute_key_id_from_pubkey_hex(pubkey_hex: &str) -> String {
     } else {
         String::new()
     }
+}
+
+/// Verify envelope signature for ingestion.
+fn verify_ingestion_signature(
+    envelope: &EvidenceEnvelope,
+) -> std::result::Result<(), IngestionError> {
+    use ed25519_dalek::{Signature, Verifier, VerifyingKey};
+
+    if envelope.public_key.is_empty() {
+        return Err(IngestionError::SignatureInvalid {
+            reason: "Public key required for signature verification".to_string(),
+        });
+    }
+
+    if envelope.key_id.is_empty() {
+        return Err(IngestionError::SignatureInvalid {
+            reason: "Key ID required for signature verification".to_string(),
+        });
+    }
+
+    let pubkey_bytes =
+        hex::decode(&envelope.public_key).map_err(|e| IngestionError::SignatureInvalid {
+            reason: format!("Invalid public key hex: {}", e),
+        })?;
+
+    if pubkey_bytes.len() != 32 {
+        return Err(IngestionError::SignatureInvalid {
+            reason: format!("Public key must be 32 bytes, got {}", pubkey_bytes.len()),
+        });
+    }
+
+    let mut pubkey_array = [0u8; 32];
+    pubkey_array.copy_from_slice(&pubkey_bytes);
+    let verifying_key =
+        VerifyingKey::from_bytes(&pubkey_array).map_err(|e| IngestionError::SignatureInvalid {
+            reason: format!("Invalid public key: {}", e),
+        })?;
+
+    let sig_bytes =
+        hex::decode(&envelope.signature).map_err(|e| IngestionError::SignatureInvalid {
+            reason: format!("Invalid signature hex: {}", e),
+        })?;
+
+    if sig_bytes.len() != 64 {
+        return Err(IngestionError::SignatureInvalid {
+            reason: format!("Signature must be 64 bytes, got {}", sig_bytes.len()),
+        });
+    }
+
+    let mut sig_array = [0u8; 64];
+    sig_array.copy_from_slice(&sig_bytes);
+    let signature = Signature::from_bytes(&sig_array);
+
+    let canonical_bytes = envelope.to_canonical_bytes();
+    verifying_key
+        .verify(&canonical_bytes, &signature)
+        .map_err(|e| IngestionError::SignatureInvalid {
+            reason: format!("Cryptographic signature verification failed: {}", e),
+        })?;
+
+    Ok(())
 }
 
 /// Validate chain linkage against known chain tail (PR-005).
@@ -832,7 +873,10 @@ pub fn sign_envelope(envelope: &mut EvidenceEnvelope, signing_key_hex: &str) -> 
 #[cfg(test)]
 mod tests {
     use super::*;
-    use crate::evidence_envelope::{BundleMetadataRef, InferenceReceiptRef, PolicyAuditRef};
+    use crate::evidence_envelope::{
+        compute_key_id, BundleMetadataRef, InferenceReceiptRef, PolicyAuditRef,
+    };
+    use ed25519_dalek::{Signer, SigningKey};
 
     fn sample_bundle_ref() -> BundleMetadataRef {
         BundleMetadataRef {
@@ -875,6 +919,16 @@ mod tests {
             backend_attestation_b3: Some(B3Hash::hash(b"metal-attestation")),
             ..Default::default()
         }
+    }
+
+    fn sign_test_envelope(envelope: &mut EvidenceEnvelope, signing_seed: [u8; 32]) {
+        let signing_key = SigningKey::from_bytes(&signing_seed);
+        let verifying_key = signing_key.verifying_key();
+
+        envelope.public_key = hex::encode(verifying_key.as_bytes());
+        envelope.key_id = compute_key_id(verifying_key.as_bytes());
+        envelope.signature =
+            hex::encode(signing_key.sign(&envelope.to_canonical_bytes()).to_bytes());
     }
 
     #[test]
@@ -1185,6 +1239,59 @@ mod tests {
             .errors
             .iter()
             .any(|e| matches!(e, IngestionError::SignatureMissing)));
+    }
+
+    #[test]
+    fn test_ingestion_signature_required_valid_signature_passes() {
+        let mut envelope =
+            EvidenceEnvelope::new_telemetry("tenant-1".to_string(), sample_bundle_ref(), None);
+        sign_test_envelope(&mut envelope, [7u8; 32]);
+
+        let result = validate_for_ingestion(&envelope, true, 300);
+        assert!(
+            result.is_valid,
+            "Valid signature should pass ingestion validation: {:?}",
+            result.errors
+        );
+    }
+
+    #[test]
+    fn test_ingestion_signature_required_tampered_payload_fails() {
+        let mut envelope =
+            EvidenceEnvelope::new_telemetry("tenant-1".to_string(), sample_bundle_ref(), None);
+        sign_test_envelope(&mut envelope, [7u8; 32]);
+
+        envelope
+            .bundle_metadata_ref
+            .as_mut()
+            .expect("bundle ref must exist")
+            .event_count += 1;
+
+        let result = validate_for_ingestion(&envelope, true, 300);
+        assert!(!result.is_valid);
+        assert!(result
+            .errors
+            .iter()
+            .any(|e| matches!(e, IngestionError::SignatureInvalid { .. })));
+    }
+
+    #[test]
+    fn test_ingestion_signature_required_wrong_key_fails() {
+        let mut envelope =
+            EvidenceEnvelope::new_telemetry("tenant-1".to_string(), sample_bundle_ref(), None);
+        sign_test_envelope(&mut envelope, [7u8; 32]);
+
+        let wrong_signing_key = SigningKey::from_bytes(&[9u8; 32]);
+        let wrong_verifying_key = wrong_signing_key.verifying_key();
+        envelope.public_key = hex::encode(wrong_verifying_key.as_bytes());
+        envelope.key_id = compute_key_id(wrong_verifying_key.as_bytes());
+
+        let result = validate_for_ingestion(&envelope, true, 300);
+        assert!(!result.is_valid);
+        assert!(result
+            .errors
+            .iter()
+            .any(|e| matches!(e, IngestionError::SignatureInvalid { .. })));
     }
 
     #[test]
