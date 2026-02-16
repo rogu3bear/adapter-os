@@ -186,9 +186,9 @@ The Run Detail Overview tab shows execution configuration:
 
 | Field | Description | Source |
 |-------|-------------|--------|
-| Stack | Adapter stack used | Diagnostic events (planned) |
-| Model | Base model ID | Diagnostic events (planned) |
-| Policy | Policy pack applied | Diagnostic events (planned) |
+| Stack | Adapter stack used | Inference trace detail and run metadata |
+| Model | Base model ID | Inference trace detail and run metadata |
+| Policy | Policy pack applied | Policy digest / inference trace metadata |
 | Backend | Execution backend (mlx, coreml, metal) | InferenceTraceDetail.backend_id |
 | Thinking Mode | Whether reasoning was enabled | Diagnostic event payload |
 
@@ -207,6 +207,17 @@ The Run Detail Overview tab shows execution configuration:
 | Enabled | Request had `reasoning_mode: true` |
 | Disabled | Request had `reasoning_mode: false` |
 | Unknown | Reasoning mode not captured in events |
+
+## Signal Stream Verification (`X-Signal-Stream`)
+
+Worker signal streaming can be verified over UDS by requesting signal streaming and checking SSE event framing:
+
+1. Send an inference request with header `X-Signal-Stream: true`.
+2. Confirm worker emits `event: signal` frames for lifecycle transitions.
+3. Confirm stream still emits a terminal completion event with the normal inference response payload.
+4. Confirm client callback receives parsed signal payloads in order.
+
+Expected outcome: lifecycle signals and final inference response are both delivered in one stream without breaking normal completion semantics.
 
 ## Troubleshooting
 

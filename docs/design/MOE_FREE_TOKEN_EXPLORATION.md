@@ -11,7 +11,7 @@
 | Phase 1: Expert Heat Map Collection | ✅ Complete | `moe_prefix_cache.rs` with `ExpertHeatMap` |
 | Phase 2: Expert Pre-Warming | ✅ Complete | Bridge protocol v3 with routing collection |
 | Phase 3: Free Token Infrastructure | ✅ Complete | `FreeToken`, `PrecomputedTokens`, manifest support |
-| Phase 4: Runtime Learning | 🔲 Future | `ContinuationLearner` not yet implemented |
+| Phase 4: Runtime Learning | 🔲 Future | `ContinuationLearner` deferred (optional optimization; current runtime path does not require it) |
 
 ### Files Implemented
 

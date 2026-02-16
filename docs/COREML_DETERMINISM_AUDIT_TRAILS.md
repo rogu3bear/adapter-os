@@ -1,7 +1,7 @@
 # CoreML Backend Determinism for Production Audit Trails
 
 **Status:** Reference Documentation  
-**Last Updated:** 2026-01-02  
+**Last Updated:** 2026-02-16  
 **Author:** Engineering  
 **Related PRDs:** PRD 7 (Deterministic Adapter Loading), PRD 8 (Plugin Isolation)
 
@@ -28,7 +28,8 @@ CoreML on Apple Silicon provides a unique opportunity: the Apple Neural Engine (
 - CoreML backend exists with ANE/GPU/CPU compute unit selection
 - HKDF-SHA256 seed derivation implemented in adapteros-core
 - Q15 gate quantization in router (denominator = 32767.0)
-- Production mode flag exists but enforcement is incomplete
+- Production safety paths are fail-closed when hardware attestation is required
+- Worker determinism guard initialization and violation accounting are active
 - macOS 15+ MLTensor API available; macOS 26+ enhanced scheduling
 
 ### Gap
