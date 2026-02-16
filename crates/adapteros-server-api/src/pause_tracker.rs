@@ -14,11 +14,13 @@
 
 use std::collections::HashMap;
 use std::path::PathBuf;
+use std::sync::atomic::{AtomicU64, Ordering};
 use std::sync::Arc;
 use std::time::Instant;
 
 use chrono::{DateTime, Utc};
 use parking_lot::RwLock;
+use tokio::sync::watch;
 use tracing::{info, warn};
 
 use crate::uds_client::{UdsClient, WorkerStreamPaused};
@@ -96,6 +98,10 @@ fn entry_to_info(entry: &PausedEntry) -> PausedInferenceInfo {
 pub struct ServerPauseTracker {
     /// Map of pause_id -> paused entry
     paused: RwLock<HashMap<String, PausedEntry>>,
+    /// Monotonic revision used to notify pause list changes
+    change_revision: AtomicU64,
+    /// Change notification channel for pause list updates
+    change_tx: watch::Sender<u64>,
     /// UDS client for forwarding reviews
     uds_client: Option<Arc<UdsClient>>,
     /// Optional diagnostics service for emitting pause/resume events
@@ -111,8 +117,11 @@ impl Default for ServerPauseTracker {
 impl ServerPauseTracker {
     /// Create a new tracker
     pub fn new() -> Self {
+        let (change_tx, _) = watch::channel(0);
         Self {
             paused: RwLock::new(HashMap::new()),
+            change_revision: AtomicU64::new(0),
+            change_tx,
             uds_client: None,
             diagnostics: None,
         }
@@ -120,8 +129,11 @@ impl ServerPauseTracker {
 
     /// Create with a UDS client for forwarding reviews
     pub fn with_uds_client(client: Arc<UdsClient>) -> Self {
+        let (change_tx, _) = watch::channel(0);
         Self {
             paused: RwLock::new(HashMap::new()),
+            change_revision: AtomicU64::new(0),
+            change_tx,
             uds_client: Some(client),
             diagnostics: None,
         }
@@ -131,6 +143,16 @@ impl ServerPauseTracker {
     pub fn with_diagnostics(mut self, service: Arc<DiagnosticsService>) -> Self {
         self.diagnostics = Some(service);
         self
+    }
+
+    fn notify_changed(&self) {
+        let revision = self.change_revision.fetch_add(1, Ordering::Relaxed) + 1;
+        let _ = self.change_tx.send(revision);
+    }
+
+    /// Subscribe to pause tracker change revisions.
+    pub fn subscribe_changes(&self) -> watch::Receiver<u64> {
+        self.change_tx.subscribe()
     }
 
     /// Register a paused inference received from a worker
@@ -188,6 +210,7 @@ impl ServerPauseTracker {
         };
 
         self.paused.write().insert(event.pause_id, entry);
+        self.notify_changed();
     }
 
     /// List all paused inferences
@@ -310,6 +333,7 @@ impl ServerPauseTracker {
                     // Worker confirmed resume - safe to remove from tracking
                     let pause_duration_us = entry.paused_at.elapsed().as_micros() as u64;
                     self.paused.write().remove(&request.pause_id);
+                    self.notify_changed();
                     info!(pause_id = %request.pause_id, "Review forwarded, inference resumed");
 
                     // Emit diagnostic event for resume
@@ -444,11 +468,13 @@ impl ServerPauseTracker {
         };
 
         self.paused.write().insert(pause_id, entry);
+        self.notify_changed();
     }
 
     /// Remove a pause entry (e.g., if inference completes or errors)
     pub fn remove(&self, pause_id: &str) {
         self.paused.write().remove(pause_id);
+        self.notify_changed();
     }
 
     /// Get count of paused inferences
@@ -475,6 +501,7 @@ fn parse_trigger_kind(kind: &str) -> PauseKind {
 #[cfg(test)]
 mod tests {
     use super::*;
+    use std::time::Duration;
 
     #[test]
     fn test_register_and_list() {
@@ -540,5 +567,68 @@ mod tests {
         assert_eq!(parse_trigger_kind("resource"), PauseKind::ResourceWait);
         assert_eq!(parse_trigger_kind("manual"), PauseKind::UserRequested);
         assert_eq!(parse_trigger_kind("unknown"), PauseKind::ReviewNeeded);
+    }
+
+    #[tokio::test]
+    async fn test_register_pause_notifies_subscribers() {
+        let tracker = ServerPauseTracker::new();
+        let mut rx = tracker.subscribe_changes();
+        assert_eq!(*rx.borrow(), 0);
+
+        tracker.register_pause(
+            "tenant-1".to_string(),
+            WorkerStreamPaused {
+                pause_id: "pause-notify-1".to_string(),
+                inference_id: "infer-notify-1".to_string(),
+                trigger_kind: "review".to_string(),
+                context: Some("check".to_string()),
+                text_so_far: None,
+                token_count: 1,
+            },
+            PathBuf::from("/var/run/worker.sock"),
+        );
+
+        tokio::time::timeout(Duration::from_secs(1), rx.changed())
+            .await
+            .expect("change notification timeout")
+            .expect("change channel closed");
+        assert_eq!(*rx.borrow(), 1);
+    }
+
+    #[tokio::test]
+    async fn test_server_pause_and_remove_notify_subscribers() {
+        let tracker = ServerPauseTracker::new();
+        let mut rx = tracker.subscribe_changes();
+        assert_eq!(*rx.borrow(), 0);
+
+        tracker.register_server_pause(
+            "tenant-1".to_string(),
+            "pause-notify-2".to_string(),
+            "resource-1".to_string(),
+            "policy",
+            Some("requires approval".to_string()),
+            None,
+        );
+        tokio::time::timeout(Duration::from_secs(1), rx.changed())
+            .await
+            .expect("server pause change notification timeout")
+            .expect("change channel closed");
+        let after_server_pause = *rx.borrow();
+        assert!(after_server_pause >= 1);
+
+        tracker.remove("pause-notify-2");
+        tokio::time::timeout(Duration::from_secs(1), rx.changed())
+            .await
+            .expect("remove change notification timeout")
+            .expect("change channel closed");
+        let after_remove = *rx.borrow();
+        assert!(after_remove > after_server_pause);
+
+        tracker.remove("unknown-pause");
+        tokio::time::timeout(Duration::from_secs(1), rx.changed())
+            .await
+            .expect("unknown remove change notification timeout")
+            .expect("change channel closed");
+        assert!(*rx.borrow() > after_remove);
     }
 }

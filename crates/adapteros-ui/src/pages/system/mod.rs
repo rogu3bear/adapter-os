@@ -6,6 +6,8 @@
 //! Uses SSE for real-time worker status updates via `/v1/stream/workers`.
 
 mod components;
+pub(crate) mod lifecycle;
+pub(crate) mod services;
 mod utils;
 
 use crate::api::{

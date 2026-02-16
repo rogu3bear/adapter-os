@@ -1,10 +1,8 @@
 import { test, expect } from '@playwright/test';
-import { ensureLoggedIn, waitForAppReady, firstDocumentId } from './utils';
+import { firstDocumentId, gotoAndBootstrap } from './utils';
 
 test('documents ingest surface (local)', { tag: ['@local', '@smoke'] }, async ({ page }) => {
-  await page.goto('/documents', { waitUntil: 'domcontentloaded' });
-  await waitForAppReady(page);
-  await ensureLoggedIn(page);
+  await gotoAndBootstrap(page, '/documents', { mode: 'ui-only' });
 
   await expect(page.getByRole('heading', { name: 'Documents', level: 1, exact: true })).toBeVisible();
 
@@ -21,9 +19,7 @@ test('documents ingest surface (local)', { tag: ['@local', '@smoke'] }, async ({
   // If there is at least one document, verify detail page loads.
   const docId = await firstDocumentId(page);
   if (docId) {
-    await page.goto(`/documents/${docId}`, { waitUntil: 'domcontentloaded' });
-    await waitForAppReady(page);
-    await ensureLoggedIn(page);
+    await gotoAndBootstrap(page, `/documents/${docId}`, { mode: 'ui-only' });
     await expect(
       page.getByRole('heading', { name: 'Document Details', level: 1, exact: true })
     ).toBeVisible();

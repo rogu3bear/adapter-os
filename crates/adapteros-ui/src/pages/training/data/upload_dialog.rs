@@ -7,7 +7,7 @@
 //! - Validation results (row count, token estimate, safety scan)
 
 use crate::components::spinner::SpinnerSize;
-use crate::components::{Badge, BadgeVariant, Button, ButtonVariant, Card, Spinner};
+use crate::components::{Badge, BadgeVariant, Button, ButtonVariant, Card, Dialog, DialogSize, Spinner};
 use leptos::prelude::*;
 use std::sync::{
     atomic::{AtomicBool, Ordering},
@@ -311,12 +311,6 @@ pub fn DocumentUploadDialog(
         }
     });
 
-    let close_dialog = move |_: web_sys::MouseEvent| {
-        if !uploading.get() {
-            open.set(false);
-        }
-    };
-
     let close_dialog_unit = move |_: ()| {
         if !uploading.get() {
             open.set(false);
@@ -340,207 +334,201 @@ pub fn DocumentUploadDialog(
     };
 
     view! {
-        <Show when=move || open.try_get().unwrap_or(false)>
-            <div class="dialog-overlay" on:click=close_dialog>
-                <div class="dialog-content upload-dialog" on:click=|ev| ev.stop_propagation()>
-                    <div class="dialog-header">
-                        <h2 class="dialog-title">"Upload Document"</h2>
-                        <button
-                            type="button"
-                            class="dialog-close"
-                            on:click=close_dialog
-                            disabled=uploading.get()
-                            aria-label="Close dialog"
-                        >
-                            "×"
-                        </button>
-                    </div>
-
-                    <div class="dialog-body">
-                        // Drag and drop zone
-                        <div
-                            class=move || {
-                                let mut classes = "upload-dropzone".to_string();
-                                if is_dragging.try_get().unwrap_or(false) {
-                                    classes.push_str(" upload-dropzone-active");
-                                }
-                                if selected_file.try_get().flatten().is_some() {
-                                    classes.push_str(" upload-dropzone-has-file");
-                                }
-                                if uploading.try_get().unwrap_or(false) {
-                                    classes.push_str(" upload-dropzone-uploading");
-                                }
-                                classes
+        <Dialog
+            open=open
+            title="Upload Document"
+            size=DialogSize::Lg
+        >
+            <div class="dialog-body">
+                // Drag and drop zone
+                <div
+                    class=move || {
+                        let mut classes = "upload-dropzone".to_string();
+                        if is_dragging.try_get().unwrap_or(false) {
+                            classes.push_str(" upload-dropzone-active");
+                        }
+                        if selected_file.try_get().flatten().is_some() {
+                            classes.push_str(" upload-dropzone-has-file");
+                        }
+                        if uploading.try_get().unwrap_or(false) {
+                            classes.push_str(" upload-dropzone-uploading");
+                        }
+                        classes
+                    }
+                    on:dragenter=handle_drag_enter
+                    on:dragover=handle_drag_over
+                    on:dragleave=handle_drag_leave
+                    on:drop=handle_drop
+                >
+                    <div class="upload-dropzone-content">
+                        <Show
+                            when=move || selected_file.try_get().flatten().is_some()
+                            fallback=move || view! {
+                                <div class="upload-dropzone-prompt">
+                                    <span class="upload-dropzone-icon-large">"📁"</span>
+                                    <p class="upload-dropzone-text">
+                                        "Drag and drop a file here, or click to browse"
+                                    </p>
+                                    <p class="upload-dropzone-hint">
+                                        "Supported: PDF, TXT, Markdown"
+                                    </p>
+                                    <p class="upload-dropzone-hint">
+                                        {format!("Maximum size: {} MB", MAX_FILE_SIZE / 1024 / 1024)}
+                                    </p>
+                                </div>
                             }
-                            on:dragenter=handle_drag_enter
-                            on:dragover=handle_drag_over
-                            on:dragleave=handle_drag_leave
-                            on:drop=handle_drop
                         >
-                            <div class="upload-dropzone-content">
-                                <Show
-                                    when=move || selected_file.try_get().flatten().is_some()
-                                    fallback=move || view! {
-                                        <div class="upload-dropzone-prompt">
-                                            <span class="upload-dropzone-icon-large">"📁"</span>
-                                            <p class="upload-dropzone-text">
-                                                "Drag and drop a file here, or click to browse"
-                                            </p>
-                                            <p class="upload-dropzone-hint">
-                                                "Supported: PDF, TXT, Markdown"
-                                            </p>
-                                            <p class="upload-dropzone-hint">
-                                                {format!("Maximum size: {} MB", MAX_FILE_SIZE / 1024 / 1024)}
-                                            </p>
-                                        </div>
+                            <div class="upload-dropzone-file">
+                                <span class="upload-dropzone-icon">"📄"</span>
+                                <span class="upload-dropzone-filename">
+                                    {move || selected_file.try_get().flatten().unwrap_or_default()}
+                                </span>
+                                {move || selected_file_size.try_get().flatten().map(|size| {
+                                    view! {
+                                        <span class="upload-dropzone-filesize">
+                                            {format_bytes(size)}
+                                        </span>
                                     }
-                                >
-                                    <div class="upload-dropzone-file">
-                                        <span class="upload-dropzone-icon">"📄"</span>
-                                        <span class="upload-dropzone-filename">
-                                            {move || selected_file.try_get().flatten().unwrap_or_default()}
-                                        </span>
-                                        {move || selected_file_size.try_get().flatten().map(|size| {
-                                            view! {
-                                                <span class="upload-dropzone-filesize">
-                                                    {format_bytes(size)}
-                                                </span>
-                                            }
-                                        })}
-                                    </div>
-                                </Show>
-
-                                <input
-                                    type="file"
-                                    accept=".pdf,.txt,.md,.markdown"
-                                    on:change=handle_file_change
-                                    disabled=uploading.get()
-                                    class="upload-dropzone-input"
-                                />
+                                })}
                             </div>
-                        </div>
+                        </Show>
 
-                        // Progress bar (shown during upload)
-                        {move || {
-                            let progress = upload_progress.try_get().unwrap_or(0);
-                            if uploading.try_get().unwrap_or(false) || progress > 0 {
-                                Some(view! {
-                                    <div class="upload-progress">
-                                        <div class="upload-progress-bar">
-                                            <div
-                                                class="upload-progress-fill"
-                                                style=format!("width: {}%", progress)
-                                            />
-                                        </div>
-                                        <span class="upload-progress-text">
-                                            {if progress == 100 {
-                                                "Complete!".to_string()
-                                            } else {
-                                                format!("{}%", progress)
-                                            }}
-                                        </span>
-                                    </div>
-                                })
-                            } else {
-                                None
-                            }
-                        }}
-
-                        // Upload result with validation details
-                        {move || upload_result.try_get().flatten().map(|result| {
-                            view! {
-                                <Card title="Upload Results">
-                                    <dl class="upload-result-list">
-                                        // Checksum
-                                        {result.checksum.as_ref().map(|checksum| {
-                                            view! {
-                                                <div class="upload-result-item">
-                                                    <dt class="upload-result-label">"Checksum (BLAKE3)"</dt>
-                                                    <dd class="upload-result-value font-mono text-sm">
-                                                        {adapteros_id::format_hash_short(checksum)}
-                                                    </dd>
-                                                </div>
-                                            }
-                                        })}
-
-                                        // Row/Chunk count
-                                        {result.row_count.map(|count| {
-                                            view! {
-                                                <div class="upload-result-item">
-                                                    <dt class="upload-result-label">"Chunks"</dt>
-                                                    <dd class="upload-result-value">{count.to_string()}</dd>
-                                                </div>
-                                            }
-                                        })}
-
-                                        // Token estimate
-                                        {result.token_estimate.map(|tokens| {
-                                            view! {
-                                                <div class="upload-result-item">
-                                                    <dt class="upload-result-label">"Token Estimate"</dt>
-                                                    <dd class="upload-result-value">{tokens.to_string()}</dd>
-                                                </div>
-                                            }
-                                        })}
-
-                                        // Safety scan status
-                                        <div class="upload-result-item">
-                                            <dt class="upload-result-label">"Safety Scan"</dt>
-                                            <dd class="upload-result-value">
-                                                <Badge variant={
-                                                    match result.safety_status {
-                                                        SafetyScanStatus::Passed => BadgeVariant::Success,
-                                                        SafetyScanStatus::Warning => BadgeVariant::Warning,
-                                                        SafetyScanStatus::Failed => BadgeVariant::Destructive,
-                                                        SafetyScanStatus::Pending => BadgeVariant::Default,
-                                                    }
-                                                }>
-                                                    {result.safety_status.label()}
-                                                </Badge>
-                                            </dd>
-                                        </div>
-                                    </dl>
-                                </Card>
-                            }
-                        })}
-
-                        // Error message
-                        {move || error_msg.try_get().flatten().map(|err| {
-                            view! {
-                                <div class="upload-error">
-                                    {err}
-                                </div>
-                            }
-                        })}
-                    </div>
-
-                    <div class="dialog-footer">
-                        <Button
-                            variant=ButtonVariant::Ghost
-                            disabled=uploading
-                            on_click=Callback::new(close_dialog_unit)
-                        >
-                            "Cancel"
-                        </Button>
-                        <Button
-                            variant=ButtonVariant::Primary
-                            disabled=upload_disabled
-                            on_click=handle_upload
-                        >
-                            <Show
-                                when=move || uploading.try_get().unwrap_or(false)
-                                fallback=move || view! { "Upload" }
-                            >
-                                <div class="button-loading">
-                                    <Spinner size=SpinnerSize::Sm />
-                                    " Uploading..."
-                                </div>
-                            </Show>
-                        </Button>
+                        <input
+                            type="file"
+                            accept=".pdf,.txt,.md,.markdown"
+                            on:change=handle_file_change
+                            disabled=uploading.get()
+                            class="upload-dropzone-input"
+                        />
                     </div>
                 </div>
+
+                // Upload progress and status (aria-live region for screen readers)
+                <div aria-live="polite" aria-atomic="true">
+                    // Progress bar (shown during upload)
+                    {move || {
+                        let progress = upload_progress.try_get().unwrap_or(0);
+                        if uploading.try_get().unwrap_or(false) || progress > 0 {
+                            Some(view! {
+                                <div class="upload-progress" role="progressbar"
+                                    aria-valuenow=progress
+                                    aria-valuemin=0
+                                    aria-valuemax=100
+                                >
+                                    <div class="upload-progress-bar">
+                                        <div
+                                            class="upload-progress-fill"
+                                            style=format!("width: {}%", progress)
+                                        />
+                                    </div>
+                                    <span class="upload-progress-text">
+                                        {if progress == 100 {
+                                            "Complete!".to_string()
+                                        } else {
+                                            format!("{}%", progress)
+                                        }}
+                                    </span>
+                                </div>
+                            })
+                        } else {
+                            None
+                        }
+                    }}
+
+                    // Upload result with validation details
+                    {move || upload_result.try_get().flatten().map(|result| {
+                        view! {
+                            <Card title="Upload Results">
+                                <dl class="upload-result-list">
+                                    // Checksum
+                                    {result.checksum.as_ref().map(|checksum| {
+                                        view! {
+                                            <div class="upload-result-item">
+                                                <dt class="upload-result-label">"Checksum (BLAKE3)"</dt>
+                                                <dd class="upload-result-value font-mono text-sm">
+                                                    {adapteros_id::format_hash_short(checksum)}
+                                                </dd>
+                                            </div>
+                                        }
+                                    })}
+
+                                    // Row/Chunk count
+                                    {result.row_count.map(|count| {
+                                        view! {
+                                            <div class="upload-result-item">
+                                                <dt class="upload-result-label">"Chunks"</dt>
+                                                <dd class="upload-result-value">{count.to_string()}</dd>
+                                            </div>
+                                        }
+                                    })}
+
+                                    // Token estimate
+                                    {result.token_estimate.map(|tokens| {
+                                        view! {
+                                            <div class="upload-result-item">
+                                                <dt class="upload-result-label">"Token Estimate"</dt>
+                                                <dd class="upload-result-value">{tokens.to_string()}</dd>
+                                            </div>
+                                        }
+                                    })}
+
+                                    // Safety scan status
+                                    <div class="upload-result-item">
+                                        <dt class="upload-result-label">"Safety Scan"</dt>
+                                        <dd class="upload-result-value">
+                                            <Badge variant={
+                                                match result.safety_status {
+                                                    SafetyScanStatus::Passed => BadgeVariant::Success,
+                                                    SafetyScanStatus::Warning => BadgeVariant::Warning,
+                                                    SafetyScanStatus::Failed => BadgeVariant::Destructive,
+                                                    SafetyScanStatus::Pending => BadgeVariant::Default,
+                                                }
+                                            }>
+                                                {result.safety_status.label()}
+                                            </Badge>
+                                        </dd>
+                                    </div>
+                                </dl>
+                            </Card>
+                        }
+                    })}
+
+                    // Error message
+                    {move || error_msg.try_get().flatten().map(|err| {
+                        view! {
+                            <div class="upload-error" role="alert">
+                                {err}
+                            </div>
+                        }
+                    })}
+                </div>
             </div>
-        </Show>
+
+            <div class="dialog-footer">
+                <Button
+                    variant=ButtonVariant::Ghost
+                    disabled=uploading
+                    on_click=Callback::new(close_dialog_unit)
+                >
+                    "Cancel"
+                </Button>
+                <Button
+                    variant=ButtonVariant::Primary
+                    disabled=upload_disabled
+                    on_click=handle_upload
+                >
+                    <Show
+                        when=move || uploading.try_get().unwrap_or(false)
+                        fallback=move || view! { "Upload" }
+                    >
+                        <div class="button-loading">
+                            <Spinner size=SpinnerSize::Sm />
+                            " Uploading..."
+                        </div>
+                    </Show>
+                </Button>
+            </div>
+        </Dialog>
     }
 }
 

@@ -5,6 +5,7 @@ use adapteros_server_api::handlers::workspaces::{
     get_workspace_active_state, reconcile_active_models, set_workspace_active_state,
     WorkspaceActiveStateRequest,
 };
+use adapteros_server_api::ip_extraction::ClientIp;
 use adapteros_server_api::state::AppState;
 use axum::extract::State;
 use axum::{Extension, Json};
@@ -116,6 +117,7 @@ async fn unload_clears_active_state() {
     let _ = unload_model(
         State(state.clone()),
         Extension(claims.clone()),
+        Extension(ClientIp("127.0.0.1".to_string())),
         axum::extract::Path(model_id.clone()),
     )
     .await

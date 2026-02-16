@@ -214,8 +214,23 @@ fn TraceListItem(
         .clone()
         .unwrap_or_else(|| "unknown".to_string());
 
+    let on_click = std::rc::Rc::new(on_click);
+    let on_click_key = on_click.clone();
+
     view! {
-        <div class=item_class on:click=move |_| on_click()>
+        <div
+            class=item_class
+            role="button"
+            tabindex="0"
+            on:click=move |_| on_click()
+            on:keydown=move |ev: web_sys::KeyboardEvent| {
+                let key = ev.key_code();
+                if key == 13 || key == 32 {
+                    ev.prevent_default();
+                    on_click_key();
+                }
+            }
+        >
             <div class="flex items-center gap-3">
                 <div class="flex flex-col">
                     <span class="font-mono text-xs text-muted-foreground">

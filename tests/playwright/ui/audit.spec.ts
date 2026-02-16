@@ -1,10 +1,8 @@
 import { test, expect } from '@playwright/test';
-import { ensureLoggedIn, expectErrorState, waitForAppReady } from './utils';
+import { expectErrorState, gotoAndBootstrap } from './utils';
 
 test('audit tabs render', { tag: ['@smoke'] }, async ({ page }) => {
-  await page.goto('/audit', { waitUntil: 'domcontentloaded' });
-  await waitForAppReady(page);
-  await ensureLoggedIn(page);
+  await gotoAndBootstrap(page, '/audit', { mode: 'ui-only' });
   await expect(
     page.getByRole('heading', { name: 'Audit Log', level: 1, exact: true })
   ).toBeVisible();

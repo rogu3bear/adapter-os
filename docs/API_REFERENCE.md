@@ -43,7 +43,7 @@ This document provides the complete API reference for adapterOS, consolidating e
    - [Storage & KV Isolation](#storage--kv-isolation)
    - [Git Integration](#git-integration)
    - [Repository Management](#repository-management)
-   - [Repositories API (New)](#repositories-api-new)
+   - [Repositories API (Deprecated Compatibility)](#repositories-api-deprecated-compatibility)
    - [Golden Runs & Promotion](#golden-runs--promotion)
    - [Runtime & System State](#runtime--system-state)
    - [Notifications & Tutorials](#notifications--tutorials)
@@ -1763,17 +1763,53 @@ Authorization: Bearer <token>
 Content-Type: application/json
 
 {
-  "model_id": "qwen2.5-7b",
-  "backend": "mlx"
+  "tenant_id": "tenant-abc",
+  "node_id": "node-123",
+  "plan_id": "plan-456",
+  "uds_path": "/var/run/aos/tenant-abc/worker.sock"
 }
 ```
 
-**Worker Operations:**
+**Spawn Worker Request Fields (all required):**
+- `tenant_id` - Tenant that owns the worker
+- `node_id` - Node to spawn on
+- `plan_id` - Plan binding used for manifest/compat checks
+- `uds_path` - Worker UDS path
+
+**Worker Lifecycle Operations (current contract):**
+- `POST /v1/workers/{worker_id}/drain` - Transition to `draining` without SIGTERM; in-flight work finishes.
+- `POST /v1/workers/{worker_id}/stop` - Gracefully stop by updating lifecycle status and, when applicable, terminating the process.
+- `POST /v1/workers/{worker_id}/restart` - Transition to `draining` and send SIGTERM; supervisor should replace the process.
+- `DELETE /v1/workers/{worker_id}` - Remove (decommission) the worker record only from terminal states (`stopped`, `error`, `crashed`, `failed`).
+
+**Worker Docs Sync Note (authored vs generated):**
+- This section is authored guidance; generated API contract source of truth is `docs/api/openapi.json`.
+- Keep these fields/endpoints aligned with `SpawnWorkerRequest` in `crates/adapteros-api-types/src/workers.rs` and worker routes in `crates/adapteros-server-api/src/routes/mod.rs`.
+- Run `./scripts/ci/check_openapi_drift.sh` (use `--fix` when needed) and `./scripts/ci/check_worker_contract_drift.sh` to catch worker contract drift in CI.
+
+**Internal Worker Control-Plane Endpoints (Policy):**
+- The following routes are worker-to-control-plane internals, not user-facing tenant APIs: `/v1/workers/register`, `/v1/workers/status`, `/v1/workers/heartbeat`, `/v1/workers/fatal`, `/v1/tenants/{tenant_id}/manifests/{manifest_hash}`.
+- These routes run on the internal router in `crates/adapteros-server-api/src/routes/mod.rs` and intentionally do not use user JWT auth, CSRF, or tenant guard.
+- Security model for these routes is defense-in-depth: policy enforcement middleware is always on, and worker UID checks can be enforced via `AOS_WORKER_UID` (see `docs/SECURITY.md`).
+- Contract policy: when adding or changing an internal worker route, update this section, `docs/ENDPOINTS_TRUTH_TABLE.md`, and regenerate `docs/api/ROUTE_MAP.md` and `docs/api/openapi.json`.
+
+| Method | Path | Primary Handler | Caller | Contract Summary |
+|--------|------|-----------------|--------|------------------|
+| POST | `/v1/workers/register` | `workers::register_worker` | Worker process | Registers worker identity and validates plan/manifest/schema compatibility. |
+| POST | `/v1/workers/status` | `workers::notify_worker_status` | Worker process | Applies validated lifecycle transitions and emits lifecycle health events. |
+| POST | `/v1/workers/heartbeat` | `workers::worker_heartbeat` | Worker process | Lightweight liveness update with tokenizer/cache metadata and next heartbeat cadence. |
+| POST | `/v1/workers/fatal` | `receive_worker_fatal` | Worker process | Records fatal incidents for worker crash/failure diagnostics. |
+| GET | `/v1/tenants/{tenant_id}/manifests/{manifest_hash}` | `worker_manifests::fetch_manifest_by_hash` | Worker process | Tenant-scoped, hash-validated manifest fetch for worker bootstrap. |
+
+**Worker Diagnostics/Operations:**
 - `GET /v1/workers/{worker_id}/logs` - Worker logs
 - `GET /v1/workers/{worker_id}/crashes` - Crash reports
+- `GET /v1/workers/{worker_id}/incidents` - Worker incidents
 - `POST /v1/workers/{worker_id}/debug` - Debug session
 - `POST /v1/workers/{worker_id}/troubleshoot` - Troubleshoot
-- `POST /v1/workers/{worker_id}/stop` - Stop worker
+- `GET /v1/workers/{worker_id}/history` - Worker lifecycle history
+- `GET /v1/workers/{worker_id}/detail` - Worker detail
+- `GET /v1/workers/health/summary` - Worker health summary
 
 **Node Operations:**
 - `GET /v1/nodes` - List nodes
@@ -2969,13 +3005,13 @@ Authorization: Bearer <token>
 
 **KV Isolation Health:**
 ```http
-GET /v1/kv-isolation/health
+GET /v1/storage/kv-isolation/health
 Authorization: Bearer <token>
 ```
 
 **Trigger KV Isolation Scan:**
 ```http
-POST /v1/kv-isolation/scan
+POST /v1/storage/kv-isolation/scan
 Authorization: Bearer <token>
 ```
 
@@ -3078,6 +3114,8 @@ data: {"path": "src/new.rs", "change_type": "created"}
 
 ### Repository Management
 
+`/v1/code/repositories` is the canonical repository listing/detail surface.
+
 **List Repositories (Code Intelligence):**
 ```http
 GET /v1/code/repositories
@@ -3146,7 +3184,9 @@ Content-Type: application/json
 }
 ```
 
-### Repositories API (New)
+### Repositories API (Deprecated Compatibility)
+
+The `/v1/repos` family remains available for compatibility but is deprecated. Responses include `X-API-Deprecation` and `Sunset` headers with migration guidance to `/v1/code/repositories`.
 
 **List Repos:**
 ```http
@@ -3175,7 +3215,7 @@ Content-Type: application/json
 
 **Update Repo:**
 ```http
-PUT /v1/repos/{repo_id}
+PATCH /v1/repos/{repo_id}
 Authorization: Bearer <token>
 Content-Type: application/json
 
@@ -3479,6 +3519,9 @@ All streaming endpoints use Server-Sent Events (SSE) and require authentication.
 | `/v1/stream/metrics` | System metrics stream |
 | `/v1/stream/telemetry` | Telemetry events |
 | `/v1/stream/adapters` | Adapter state changes |
+| `/v1/stream/workers` | Worker state updates |
+| `/v1/stream/reviews` | Review queue/status updates |
+| `/v1/stream/client-errors` | Client-side error events |
 | `/v1/stream/boot-progress` | Boot progress updates |
 | `/v1/stream/stack-policies/{id}` | Stack policy compliance updates |
 | `/v1/stream/notifications` | User notifications |

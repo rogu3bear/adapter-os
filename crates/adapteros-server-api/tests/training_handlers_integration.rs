@@ -5,6 +5,7 @@
 
 use adapteros_core::Result;
 use adapteros_server_api::handlers::{cancel_training, get_training_job, list_training_jobs};
+use adapteros_server_api::ip_extraction::ClientIp;
 use adapteros_server_api::types::TrainingListParams;
 use axum::extract::{Path, Query, State};
 use axum::http::StatusCode;
@@ -202,6 +203,7 @@ async fn cancel_training_job_succeeds() -> Result<()> {
     let result = cancel_training(
         State(state.clone()),
         Extension(claims.clone()),
+        Extension(ClientIp("127.0.0.1".to_string())),
         Path("job-to-cancel".to_string()),
     )
     .await;
@@ -253,6 +255,7 @@ async fn cancel_training_job_cross_tenant_returns_404() -> Result<()> {
     let result = cancel_training(
         State(state.clone()),
         Extension(other_claims),
+        Extension(ClientIp("127.0.0.1".to_string())),
         Path("job-protected".to_string()),
     )
     .await;
@@ -456,6 +459,7 @@ async fn viewer_can_list_but_not_cancel() -> Result<()> {
     let cancel_result = cancel_training(
         State(state.clone()),
         Extension(viewer_claims),
+        Extension(ClientIp("127.0.0.1".to_string())),
         Path("job-viewer-test".to_string()),
     )
     .await;

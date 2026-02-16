@@ -160,7 +160,14 @@ fn test_api_error_structured_has_code() {
         error: "Test error".to_string(),
         code: "TEST_ERROR".to_string(),
         failure_code: None,
+        hint: None,
         details: None,
+        request_id: None,
+        error_id: None,
+        fingerprint: None,
+        session_id: None,
+        diag_trace_id: None,
+        otel_trace_id: None,
     };
     assert_eq!(error.code(), Some("TEST_ERROR"));
 }

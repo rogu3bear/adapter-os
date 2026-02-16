@@ -18,8 +18,11 @@
 //!
 //! Enable `show_telemetry_overlay` in settings for perf timing.
 
+use crate::api::types::{
+    AssignTagsRequest, CreateChatTagRequest, ForkSessionRequest, ShareSessionRequest,
+};
 use crate::api::{api_base_url, report_error_with_toast, ApiClient};
-use crate::components::inference_guidance::guidance_for;
+use crate::components::inference_guidance::{guidance_for, primary_blocker};
 use crate::components::status_center::use_status_center;
 use crate::components::{
     use_is_tablet_or_smaller, AdapterHeat, AdapterMagnet, Badge, BadgeVariant, Button, ButtonSize,
@@ -66,34 +69,58 @@ enum AttachMode {
 pub fn Chat() -> impl IntoView {
     let navigate = use_navigate();
     let sessions = ChatSessionsManager::load_sessions();
+    let recent_session_id = sessions.first().map(|session| session.id.clone());
+    let has_recent_session = recent_session_id.is_some();
+    let (system_status, refetch_status) =
+        use_api_resource(|client: Arc<ApiClient>| async move { client.system_status().await });
+    let refetch_status_signal = StoredValue::new(refetch_status);
+    let redirected_to_recent = RwSignal::new(false);
+    let retry_status = Callback::new(move |_: ()| {
+        let _ = refetch_status_signal.try_with_value(|f| f.run(()));
+    });
 
-    // Redirect to the most recent session so the URL always reflects what's shown.
-    if let Some(recent) = sessions.first() {
-        // Preserve query params (?prompt=, ?adapter=) across the redirect.
-        let search = web_sys::window()
-            .and_then(|w| w.location().search().ok())
-            .unwrap_or_default();
-        let path = format!("/chat/{}{}", recent.id, search);
-        // Defer navigate to avoid RefCell re-entrancy: component creation runs
-        // inside the wasm-bindgen-futures task queue, and navigate() internally
-        // uses spawn_local, causing a double-borrow panic.
-        gloo_timers::callback::Timeout::new(0, move || {
-            navigate(
-                &path,
-                leptos_router::NavigateOptions {
-                    replace: true,
-                    ..Default::default()
-                },
-            );
-        })
-        .forget();
-        // Return empty view during redirect to avoid creating signals/effects
-        // that would panic when this component is disposed by the route change.
-        return view! { <div class="chat-redirect" /> }.into_any();
+    // Redirect to the most recent session only when inference is ready.
+    {
+        let navigate = navigate.clone();
+        let recent_session_id = recent_session_id.clone();
+        Effect::new(move |_| {
+            if redirected_to_recent.try_get().unwrap_or(false) {
+                return;
+            }
+            let status = system_status.try_get().unwrap_or(LoadingState::Idle);
+            let ready = matches!(status, LoadingState::Loaded(ref s) if matches!(s.inference_ready, InferenceReadyState::True));
+            if !ready {
+                return;
+            }
+            let Some(recent_id) = recent_session_id.clone() else {
+                return;
+            };
+
+            // Preserve query params (?prompt=, ?adapter=) across the redirect.
+            let search = web_sys::window()
+                .and_then(|w| w.location().search().ok())
+                .unwrap_or_default();
+            let path = format!("/chat/{}{}", recent_id, search);
+            let navigate_now = navigate.clone();
+
+            redirected_to_recent.set(true);
+            // Defer navigate to avoid RefCell re-entrancy: component creation runs
+            // inside the wasm-bindgen-futures task queue, and navigate() internally
+            // uses spawn_local, causing a double-borrow panic.
+            gloo_timers::callback::Timeout::new(0, move || {
+                navigate_now(
+                    &path,
+                    leptos_router::NavigateOptions {
+                        replace: true,
+                        ..Default::default()
+                    },
+                );
+            })
+            .forget();
+        });
     }
 
-    // No sessions exist — render empty-state workspace.
-    // Also defer mounting to avoid the same wasm-bindgen-futures re-entrancy.
+    // Defer mounting to avoid wasm-bindgen-futures re-entrancy.
     let selected_signal = Signal::derive(|| None);
     let mounted = RwSignal::new(false);
     gloo_timers::callback::Timeout::new(0, move || {
@@ -104,12 +131,57 @@ pub fn Chat() -> impl IntoView {
     view! {
         <>
             <h1 class="sr-only">"Chat"</h1>
-            <Show when=move || mounted.try_get().unwrap_or(false) fallback=|| view! {
-                <div class="chat-loading-placeholder flex items-center justify-center h-full opacity-50">
+            <Show when=move || mounted.try_get().unwrap_or(false) fallback=move || view! {
+                <div
+                    class="chat-loading-placeholder flex items-center justify-center h-full opacity-50"
+                    data-testid="chat-loading-state"
+                >
                     <Spinner />
                 </div>
             }>
-                <ChatWorkspace selected_session_id=selected_signal />
+                {move || {
+                    match system_status.try_get().unwrap_or(LoadingState::Idle) {
+                        LoadingState::Loaded(status) => {
+                            if matches!(status.inference_ready, InferenceReadyState::True) {
+                                if has_recent_session {
+                                    // During redirect to /chat/:session_id, keep view lightweight.
+                                    view! { <div class="chat-redirect" /> }.into_any()
+                                } else {
+                                    view! { <ChatWorkspace selected_session_id=selected_signal /> }.into_any()
+                                }
+                            } else {
+                                let guidance =
+                                    guidance_for(status.inference_ready, primary_blocker(&status.inference_blockers));
+                                view! {
+                                    <ChatUnavailableEntry
+                                        reason=guidance.reason.to_string()
+                                        action_label=guidance.action.label.to_string()
+                                        action_href=guidance.action.href.to_string()
+                                        on_retry=retry_status.clone()
+                                    />
+                                }.into_any()
+                            }
+                        }
+                        LoadingState::Error(_) => {
+                            view! {
+                                <ChatUnavailableEntry
+                                    reason="System status unavailable".to_string()
+                                    action_label="View system status".to_string()
+                                    action_href="/system".to_string()
+                                    on_retry=retry_status.clone()
+                                />
+                            }.into_any()
+                        }
+                        LoadingState::Idle | LoadingState::Loading => view! {
+                            <div
+                                class="chat-loading-placeholder flex items-center justify-center h-full opacity-50"
+                                data-testid="chat-loading-state"
+                            >
+                                <Spinner />
+                            </div>
+                        }.into_any(),
+                    }
+                }}
             </Show>
         </>
     }
@@ -150,8 +222,11 @@ pub fn ChatSession() -> impl IntoView {
     view! {
         <>
             <h1 class="sr-only">"Chat Session"</h1>
-            <Show when=move || mounted.try_get().unwrap_or(false) fallback=|| view! {
-                <div class="chat-loading-placeholder flex items-center justify-center h-full opacity-50">
+            <Show when=move || mounted.try_get().unwrap_or(false) fallback=move || view! {
+                <div
+                    class="chat-loading-placeholder flex items-center justify-center h-full opacity-50"
+                    data-testid="chat-loading-state"
+                >
                     <Spinner />
                 </div>
             }>
@@ -406,7 +481,7 @@ fn ChatWorkspace(
                 <div class="flex-1 min-h-0">
                     <Show
                         when=move || has_selection.try_get().unwrap_or(false)
-                        fallback=|| view! { <ChatEmptyWorkspace/> }
+                        fallback=move || view! { <ChatEmptyWorkspace/> }
                     >
                         <ChatConversationPanel
                             session_id_signal=session_id_for_panel
@@ -531,7 +606,7 @@ fn ChatEmptyWorkspace() -> impl IntoView {
     };
 
     view! {
-        <div class="flex h-full items-center justify-center p-6">
+        <div class="flex h-full items-center justify-center p-6" data-testid="chat-empty-state">
             <div class="text-center space-y-4 max-w-md">
                 <div class="mx-auto w-14 h-14 rounded-2xl bg-gradient-to-br from-primary/20 to-primary/5 flex items-center justify-center shadow-sm">
                     <svg xmlns="http://www.w3.org/2000/svg" class="h-7 w-7 text-primary" fill="none" viewBox="0 0 24 24" stroke="currentColor" stroke-width="1.5">
@@ -543,10 +618,14 @@ fn ChatEmptyWorkspace() -> impl IntoView {
                     "Create a new chat session to begin reasoning over your data with adaptive routing."
                 </p>
                 <div class="flex items-center justify-center gap-3">
-                    <Button on_click=create_session>
+                    <Button on_click=create_session data_testid="chat-empty-new-chat".to_string()>
                         "New Chat"
                     </Button>
-                    <Button variant=ButtonVariant::Secondary on_click=go_to_training>
+                    <Button
+                        variant=ButtonVariant::Secondary
+                        on_click=go_to_training
+                        data_testid="chat-empty-create-adapter".to_string()
+                    >
                         "Create Adapter"
                     </Button>
                 </div>
@@ -555,6 +634,7 @@ fn ChatEmptyWorkspace() -> impl IntoView {
                     <a
                         href="/adapters"
                         class="underline hover:text-foreground transition-colors"
+                        data-testid="chat-empty-browse-adapters"
                         on:click=move |e: web_sys::MouseEvent| {
                             e.prevent_default();
                             go_to_adapters.run(());
@@ -563,6 +643,50 @@ fn ChatEmptyWorkspace() -> impl IntoView {
                         "browse existing adapters"
                     </a>
                 </p>
+            </div>
+        </div>
+    }
+}
+
+#[component]
+fn ChatUnavailableEntry(
+    reason: String,
+    action_label: String,
+    action_href: String,
+    on_retry: Callback<()>,
+) -> impl IntoView {
+    let status_center = use_status_center();
+
+    view! {
+        <div class="flex h-full items-center justify-center p-6" data-testid="chat-unavailable-state">
+            <div class="w-full max-w-2xl rounded-lg border border-warning/40 bg-warning/10 p-6">
+                <div class="space-y-2">
+                    <h2 class="heading-3">"Chat unavailable"</h2>
+                    <p class="text-sm text-muted-foreground" data-testid="chat-unavailable-reason">
+                        {reason}"."
+                    </p>
+                </div>
+                <div class="mt-5 flex flex-wrap items-center gap-2">
+                    <a href=action_href class="btn btn-outline btn-sm" data-testid="chat-unavailable-action">
+                        {action_label}
+                    </a>
+                    <Button
+                        variant=ButtonVariant::Secondary
+                        size=ButtonSize::Sm
+                        on_click=on_retry
+                        data_testid="chat-unavailable-retry".to_string()
+                    >
+                        "Retry status"
+                    </Button>
+                    {status_center.map(|ctx| view! {
+                        <button
+                            class="text-xs text-muted-foreground hover:text-foreground"
+                            on:click=move |_| ctx.open()
+                        >
+                            "Why?"
+                        </button>
+                    })}
+                </div>
             </div>
         </div>
     }
@@ -595,6 +719,38 @@ fn SessionListPanel(
     let navigate = use_navigate();
     let search_query = RwSignal::new(String::new());
     let (chat_state, chat_action) = use_chat();
+
+    // Shared tab state
+    let show_shared = RwSignal::new(false);
+    let shared_sessions = RwSignal::new(Vec::<crate::api::types::SharedSessionInfo>::new());
+    let shared_loading = RwSignal::new(false);
+
+    // Fetch shared sessions when the shared tab becomes active
+    {
+        Effect::new(move |_| {
+            if !show_shared.try_get().unwrap_or(false) {
+                return;
+            }
+            shared_loading.set(true);
+            wasm_bindgen_futures::spawn_local(async move {
+                let client = ApiClient::with_base_url(api_base_url());
+                match client.get_shared_with_me().await {
+                    Ok(resp) => {
+                        shared_sessions.set(resp.sessions);
+                    }
+                    Err(e) => {
+                        report_error_with_toast(
+                            &e,
+                            "Failed to load shared sessions",
+                            Some("/chat"),
+                            false,
+                        );
+                    }
+                }
+                shared_loading.set(false);
+            });
+        });
+    }
 
     // Filtered sessions based on search
     let filtered_sessions = Memo::new(move |_| {
@@ -909,6 +1065,7 @@ fn SessionListPanel(
                         on:click=move |_| create_session.run(())
                         title="New chat session"
                         aria-label="New Session"
+                        data-testid="chat-sidebar-new-session"
                     >
                         <svg xmlns="http://www.w3.org/2000/svg" class="h-3 w-3" fill="none" viewBox="0 0 24 24" stroke="currentColor" stroke-width="2">
                             <path stroke-linecap="round" stroke-linejoin="round" d="M12 4v16m8-8H4"/>
@@ -916,18 +1073,19 @@ fn SessionListPanel(
                         "New Session"
                     </button>
                 </div>
-                <div class="grid grid-cols-2 gap-1 rounded-lg bg-muted/40 p-1">
+                <div class="grid grid-cols-3 gap-1 rounded-lg bg-muted/40 p-1">
                     <button
                         class=move || format!(
                             "px-2 py-1 text-xs font-medium rounded-md transition-colors {}",
-                            if !show_archived.try_get().unwrap_or(false) {
+                            if !show_archived.try_get().unwrap_or(false) && !show_shared.try_get().unwrap_or(false) {
                                 "bg-background text-foreground shadow-sm"
                             } else {
                                 "text-muted-foreground hover:text-foreground"
                             }
                         )
-                        on:click=move |_| show_archived.set(false)
+                        on:click=move |_| { show_archived.set(false); show_shared.set(false); }
                         aria-label="Show active sessions"
+                        data-testid="chat-sidebar-toggle-active"
                     >
                         {move || format!("Active ({})", active_count.try_get().unwrap_or(0))}
                     </button>
@@ -940,10 +1098,26 @@ fn SessionListPanel(
                                 "text-muted-foreground hover:text-foreground"
                             }
                         )
-                        on:click=move |_| show_archived.set(true)
+                        on:click=move |_| { show_archived.set(true); show_shared.set(false); }
                         aria-label="Show archived sessions"
+                        data-testid="chat-sidebar-toggle-archived"
                     >
                         {move || format!("Archived ({})", archived_count.try_get().unwrap_or(0))}
+                    </button>
+                    <button
+                        class=move || format!(
+                            "px-2 py-1 text-xs font-medium rounded-md transition-colors {}",
+                            if show_shared.try_get().unwrap_or(false) {
+                                "bg-background text-foreground shadow-sm"
+                            } else {
+                                "text-muted-foreground hover:text-foreground"
+                            }
+                        )
+                        on:click=move |_| { show_shared.set(true); show_archived.set(false); }
+                        aria-label="Show shared sessions"
+                        data-testid="chat-sidebar-toggle-shared"
+                    >
+                        "Shared"
                     </button>
                 </div>
                 <div class="space-y-1.5">
@@ -965,6 +1139,7 @@ fn SessionListPanel(
                         on:click=move |_| learn_and_generate_adapter.run(())
                         title="Create training data from selected chats and open training"
                         aria-label="Learn and Generate Adapter"
+                        data-testid="chat-sidebar-learn"
                     >
                         <svg xmlns="http://www.w3.org/2000/svg" class="h-3.5 w-3.5" fill="none" viewBox="0 0 24 24" stroke="currentColor" stroke-width="2">
                             <path stroke-linecap="round" stroke-linejoin="round" d="M12 3v4m0 10v4M3 12h4m10 0h4M5.6 5.6l2.8 2.8m7.2 7.2 2.8 2.8m0-12.8-2.8 2.8m-7.2 7.2-2.8 2.8"/>
@@ -988,6 +1163,7 @@ fn SessionListPanel(
                             class="underline decoration-dotted hover:text-foreground disabled:no-underline disabled:cursor-not-allowed"
                             disabled=move || selected_training_count.try_get().unwrap_or(0) == 0
                             on:click=move |_| clear_training_selection.run(())
+                            data-testid="chat-sidebar-learn-clear"
                         >
                             "Clear"
                         </button>
@@ -1003,10 +1179,12 @@ fn SessionListPanel(
                             })
                     }}
                 </div>
-                <Input
-                    value=search_query
-                    placeholder="Search sessions...".to_string()
-                />
+                <div data-testid="chat-sidebar-search">
+                    <Input
+                        value=search_query
+                        placeholder="Search sessions...".to_string()
+                    />
+                </div>
             </div>
 
             // Continue from dock banner
@@ -1024,6 +1202,7 @@ fn SessionListPanel(
                                 <button
                                     class="shrink-0 px-2 py-1 text-xs font-medium rounded border border-primary/30 text-primary hover:bg-primary/10 transition-colors"
                                     on:click=move |_| save_dock_and_navigate.run(())
+                                    data-testid="chat-sidebar-continue"
                                 >
                                     "Save & Open"
                                 </button>
@@ -1038,6 +1217,43 @@ fn SessionListPanel(
             // Session list (scrollable)
             <div class="flex-1 overflow-y-auto">
                 {move || {
+                    // Shared sessions tab
+                    if show_shared.try_get().unwrap_or(false) {
+                        let is_loading = shared_loading.try_get().unwrap_or(false);
+                        let items = shared_sessions.try_get().unwrap_or_default();
+                        if is_loading {
+                            return view! {
+                                <div class="p-6 flex items-center justify-center">
+                                    <Spinner />
+                                </div>
+                            }.into_any();
+                        }
+                        if items.is_empty() {
+                            return view! {
+                                <div class="p-6 text-center">
+                                    <p class="text-xs text-muted-foreground">"No sessions shared with you"</p>
+                                </div>
+                            }.into_any();
+                        }
+                        return view! {
+                            <div class="divide-y divide-border">
+                                {items.into_iter().map(|shared| {
+                                    let href = format!("/chat/{}", shared.session_id);
+                                    view! {
+                                        <a href=href class="block px-3 py-2 hover:bg-muted/50 transition-colors">
+                                            <h3 class="text-sm font-medium truncate">{shared.name}</h3>
+                                            <div class="flex items-center gap-2 mt-0.5 text-2xs text-muted-foreground">
+                                                <span>{format!("from {}", shared.shared_by)}</span>
+                                                <span>"·"</span>
+                                                <Badge variant=BadgeVariant::Outline>{shared.permission.clone()}</Badge>
+                                            </div>
+                                        </a>
+                                    }
+                                }).collect::<Vec<_>>()}
+                            </div>
+                        }.into_any();
+                    }
+
                     let showing_archived = show_archived.try_get().unwrap_or(false);
                     let list = filtered_sessions.try_get().unwrap_or_default();
                     if list.is_empty() {
@@ -1109,6 +1325,7 @@ fn SessionListPanel(
                                             on_delete=Callback::new(move |_: ()| {
                                                 delete_handler.run(delete_id.clone());
                                             })
+                                            is_archived=showing_archived
                                         />
                                     }
                                 }).collect::<Vec<_>>()}
@@ -1157,6 +1374,9 @@ fn SessionListItem(
     on_archive: Option<Callback<()>>,
     on_unarchive: Option<Callback<()>>,
     on_delete: Callback<()>,
+    /// Whether this item is in the archived list (controls overflow menu options)
+    #[prop(default = false)]
+    is_archived: bool,
 ) -> impl IntoView {
     let settings = use_settings();
     let id = session.id.clone();
@@ -1169,19 +1389,36 @@ fn SessionListItem(
     let archive_action = on_archive.clone();
     let unarchive_action = on_unarchive.clone();
 
+    // Overflow menu state
+    let show_overflow = RwSignal::new(false);
+    let show_share_dialog = RwSignal::new(false);
+    let show_tags_dialog = RwSignal::new(false);
+    let show_fork_dialog = RwSignal::new(false);
+    let show_provenance_panel = RwSignal::new(false);
+    let show_permanent_delete_confirm = RwSignal::new(false);
+    let share_session_id = id.clone();
+    let tags_session_id = id.clone();
+    let fork_session_id = id.clone();
+    let provenance_session_id = id.clone();
+    let hard_delete_session_id = id.clone();
+
+    let navigate = use_navigate();
+
     view! {
         <div
             class=move || format!(
-                "group flex items-start gap-2 py-2 px-3 transition-colors {}",
+                "group relative flex items-start gap-2 py-2 px-3 transition-colors {}",
                 if selected.try_get().unwrap_or(false) {
                     "bg-primary/10 border-l-2 border-l-primary"
                 } else {
                     "hover:bg-muted/50 border-l-2 border-l-transparent"
                 }
             )
+            data-testid="chat-session-row"
         >
             <div
                 class="pt-0.5 shrink-0"
+                data-testid="chat-session-training-checkbox"
                 on:click=move |ev: web_sys::MouseEvent| {
                     ev.prevent_default();
                     ev.stop_propagation();
@@ -1246,6 +1483,7 @@ fn SessionListItem(
                         }
                         title="Archive session"
                         aria-label="Archive session"
+                        data-testid="chat-session-archive"
                     >
                         <svg xmlns="http://www.w3.org/2000/svg" class="h-3.5 w-3.5" fill="none" viewBox="0 0 24 24" stroke="currentColor" stroke-width="2">
                             <path stroke-linecap="round" stroke-linejoin="round" d="M3 7h18M5 7v10a2 2 0 002 2h10a2 2 0 002-2V7M9 11h6"/>
@@ -1262,6 +1500,7 @@ fn SessionListItem(
                         }
                         title="Restore session"
                         aria-label="Restore session"
+                        data-testid="chat-session-unarchive"
                     >
                         <svg xmlns="http://www.w3.org/2000/svg" class="h-3.5 w-3.5" fill="none" viewBox="0 0 24 24" stroke="currentColor" stroke-width="2">
                             <path stroke-linecap="round" stroke-linejoin="round" d="M4 12a8 8 0 118 8M4 12V8m0 4h4"/>
@@ -1277,12 +1516,187 @@ fn SessionListItem(
                     }
                     title="Delete session"
                     aria-label="Delete session"
+                    data-testid="chat-session-delete"
                 >
                     <svg xmlns="http://www.w3.org/2000/svg" class="h-3.5 w-3.5" fill="none" viewBox="0 0 24 24" stroke="currentColor" stroke-width="2">
                         <path stroke-linecap="round" stroke-linejoin="round" d="M19 7l-.867 12.142A2 2 0 0116.138 21H7.862a2 2 0 01-1.995-1.858L5 7m5 4v6m4-6v6m1-10V4a1 1 0 00-1-1h-4a1 1 0 00-1 1v3M4 7h16"/>
                     </svg>
                 </button>
+
+                // Overflow menu (kebab)
+                <div class="relative">
+                    <button
+                        class="p-1 rounded hover:bg-muted/50 text-muted-foreground hover:text-foreground transition-colors"
+                        on:click=move |ev: web_sys::MouseEvent| {
+                            ev.prevent_default();
+                            ev.stop_propagation();
+                            show_overflow.update(|v| *v = !*v);
+                        }
+                        title="More actions"
+                        aria-label="More actions"
+                        aria-haspopup="menu"
+                        attr:aria-expanded=move || show_overflow.try_get().unwrap_or(false).to_string()
+                        data-testid="chat-session-overflow"
+                    >
+                        <svg xmlns="http://www.w3.org/2000/svg" class="h-3.5 w-3.5" fill="currentColor" viewBox="0 0 20 20">
+                            <circle cx="10" cy="4" r="1.5"/>
+                            <circle cx="10" cy="10" r="1.5"/>
+                            <circle cx="10" cy="16" r="1.5"/>
+                        </svg>
+                    </button>
+                    {move || {
+                        if !show_overflow.try_get().unwrap_or(false) {
+                            return view! {}.into_any();
+                        }
+                        view! {
+                            <div
+                                class="fixed inset-0 z-40"
+                                on:click=move |_| show_overflow.set(false)
+                            />
+                            <div
+                                class="absolute right-0 top-full z-50 mt-1 w-40 rounded-md border border-border bg-background shadow-lg py-1"
+                                role="menu"
+                            >
+                                <button
+                                    class="w-full text-left px-3 py-1.5 text-xs hover:bg-muted/50 transition-colors"
+                                    role="menuitem"
+                                    on:click=move |ev: web_sys::MouseEvent| {
+                                        ev.stop_propagation();
+                                        show_overflow.set(false);
+                                        show_share_dialog.set(true);
+                                    }
+                                >
+                                    "Share"
+                                </button>
+                                <button
+                                    class="w-full text-left px-3 py-1.5 text-xs hover:bg-muted/50 transition-colors"
+                                    role="menuitem"
+                                    on:click=move |ev: web_sys::MouseEvent| {
+                                        ev.stop_propagation();
+                                        show_overflow.set(false);
+                                        show_tags_dialog.set(true);
+                                    }
+                                >
+                                    "Tags"
+                                </button>
+                                <button
+                                    class="w-full text-left px-3 py-1.5 text-xs hover:bg-muted/50 transition-colors"
+                                    role="menuitem"
+                                    on:click=move |ev: web_sys::MouseEvent| {
+                                        ev.stop_propagation();
+                                        show_overflow.set(false);
+                                        show_fork_dialog.set(true);
+                                    }
+                                >
+                                    "Fork"
+                                </button>
+                                <button
+                                    class="w-full text-left px-3 py-1.5 text-xs hover:bg-muted/50 transition-colors"
+                                    role="menuitem"
+                                    on:click=move |ev: web_sys::MouseEvent| {
+                                        ev.stop_propagation();
+                                        show_overflow.set(false);
+                                        show_provenance_panel.set(true);
+                                    }
+                                >
+                                    "Provenance"
+                                </button>
+                                {is_archived.then(|| view! {
+                                    <div class="border-t border-border my-1" role="separator" />
+                                    <button
+                                        class="w-full text-left px-3 py-1.5 text-xs text-destructive hover:bg-destructive/10 transition-colors"
+                                        role="menuitem"
+                                        on:click=move |ev: web_sys::MouseEvent| {
+                                            ev.stop_propagation();
+                                            show_overflow.set(false);
+                                            show_permanent_delete_confirm.set(true);
+                                        }
+                                    >
+                                        "Permanent Delete"
+                                    </button>
+                                })}
+                            </div>
+                        }.into_any()
+                    }}
+                </div>
             </div>
+
+            // Collaboration dialogs (rendered inside the item for correct session context)
+            {move || {
+                if show_share_dialog.try_get().unwrap_or(false) {
+                    Some(view! {
+                        <ShareSessionDialog
+                            session_id=share_session_id.clone()
+                            on_close=Callback::new(move |_| show_share_dialog.set(false))
+                        />
+                    })
+                } else { None }
+            }}
+            {move || {
+                if show_tags_dialog.try_get().unwrap_or(false) {
+                    Some(view! {
+                        <TagsDialog
+                            session_id=tags_session_id.clone()
+                            on_close=Callback::new(move |_| show_tags_dialog.set(false))
+                        />
+                    })
+                } else { None }
+            }}
+            {move || {
+                if show_fork_dialog.try_get().unwrap_or(false) {
+                    let navigate = navigate.clone();
+                    Some(view! {
+                        <ForkSessionDialog
+                            session_id=fork_session_id.clone()
+                            on_close=Callback::new(move |_| show_fork_dialog.set(false))
+                            on_forked=Callback::new(move |new_id: String| {
+                                show_fork_dialog.set(false);
+                                let path = format!("/chat/{}", new_id);
+                                navigate(&path, Default::default());
+                            })
+                        />
+                    })
+                } else { None }
+            }}
+            {move || {
+                if show_provenance_panel.try_get().unwrap_or(false) {
+                    Some(view! {
+                        <ProvenancePanel
+                            session_id=provenance_session_id.clone()
+                            on_close=Callback::new(move |_| show_provenance_panel.set(false))
+                        />
+                    })
+                } else { None }
+            }}
+            {move || {
+                if show_permanent_delete_confirm.try_get().unwrap_or(false) {
+                    let delete_id = hard_delete_session_id.clone();
+                    Some(view! {
+                        <ConfirmationDialog
+                            open=show_permanent_delete_confirm
+                            title="Permanently Delete Session"
+                            description="This will permanently remove the session and all its data. This cannot be undone."
+                            severity=ConfirmationSeverity::Destructive
+                            confirm_text="Permanently Delete"
+                            on_confirm=Callback::new(move |_| {
+                                let id = delete_id.clone();
+                                let on_delete = on_delete.clone();
+                                show_permanent_delete_confirm.set(false);
+                                wasm_bindgen_futures::spawn_local(async move {
+                                    let client = ApiClient::with_base_url(api_base_url());
+                                    match client.hard_delete_session(&id).await {
+                                        Ok(_) => on_delete.run(()),
+                                        Err(e) => {
+                                            report_error_with_toast(&e, "Failed to permanently delete session", Some("/chat"), false);
+                                        }
+                                    }
+                                });
+                            })
+                            on_cancel=Callback::new(move |_| show_permanent_delete_confirm.set(false))
+                        />
+                    })
+                } else { None }
+            }}
         </div>
     }
 }
@@ -1453,13 +1867,13 @@ fn ChatConversationPanel(
                     });
                 }
             } else {
-                // Session not found — create an empty placeholder so the URL is stable
-                // and the session list can show it immediately.
+                // Session not found locally; create a local draft but do not persist it yet.
+                // This keeps URL navigation stable without creating phantom sessions.
                 let placeholder = ChatSessionsManager::create_placeholder_session(&id);
-                ChatSessionsManager::save_session(&placeholder);
-                refresh_sessions.run(());
                 action.restore_session(placeholder);
-                session_error.set(None);
+                session_error.set(Some(
+                    "Local draft session (not confirmed by server yet).".to_string(),
+                ));
             }
 
             // Check for ?prompt= and ?adapter= query parameters once per session ID.
@@ -1580,6 +1994,7 @@ fn ChatConversationPanel(
                         || (was_streaming && !is_streaming)
                         || verified_mode != prev_verified
                     {
+                        session_error.set(None);
                         let session = ChatSessionsManager::session_from_state(&id, &state);
                         ChatSessionsManager::save_session(&session);
                         refresh_sessions.run(());
@@ -2213,15 +2628,48 @@ fn ChatConversationPanel(
         })
     };
 
+    // Collaboration UI state
+    let show_header_share = RwSignal::new(false);
+    let show_header_tags = RwSignal::new(false);
+    let show_header_fork = RwSignal::new(false);
+    let show_header_provenance = RwSignal::new(false);
+
+    // Tags loaded for badge display in header
+    let session_tags = RwSignal::new(Vec::<crate::api::types::ChatTagResponse>::new());
+    {
+        Effect::new(move |_| {
+            let id = session_id();
+            if id.is_empty() {
+                return;
+            }
+            let id = id.clone();
+            wasm_bindgen_futures::spawn_local(async move {
+                let client = ApiClient::with_base_url(api_base_url());
+                match client.get_session_tags(&id).await {
+                    Ok(resp) => session_tags.set(resp.tags),
+                    Err(_) => session_tags.set(Vec::new()),
+                }
+            });
+        });
+    }
+
     view! {
         <div class="p-6 flex h-full min-h-0 flex-col gap-4">
             // Header
-            <div class="flex flex-wrap items-start justify-between gap-3 border-b border-border pb-4">
+            <div
+                class="flex flex-wrap items-start justify-between gap-3 border-b border-border pb-4"
+                data-testid="chat-header"
+            >
                 <div class="space-y-1">
                     <h2 class="heading-3">"Chat Session"</h2>
                     <div class="flex items-center gap-2 text-xs text-muted-foreground">
                         <span class="uppercase tracking-wider text-2xs font-medium">"Session"</span>
-                        <span class="font-mono bg-muted/30 px-1.5 py-0.5 rounded text-2xs">{session_label}</span>
+                        <span
+                            class="font-mono bg-muted/30 px-1.5 py-0.5 rounded text-2xs"
+                            data-testid="chat-session-id-label"
+                        >
+                            {session_label}
+                        </span>
                     </div>
                 </div>
                 <div class="flex items-center gap-3">
@@ -2269,39 +2717,163 @@ fn ChatConversationPanel(
                         }
                     </div>
                     // Status badge
-                    {move || {
-                        let err = error.try_get().flatten();
-                        if err.is_some() {
-                            view! {
-                                <Badge variant=BadgeVariant::Destructive>"Error"</Badge>
-                            }.into_any()
-                        } else if is_loading.try_get().unwrap_or(false) {
-                            // Waiting for first token
-                            view! {
-                                <Badge variant=BadgeVariant::Warning>"Connecting"</Badge>
-                            }.into_any()
-                        } else if is_streaming.try_get().unwrap_or(false) {
-                            // Actively receiving tokens
-                            view! {
-                                <Badge variant=BadgeVariant::Success>"Streaming"</Badge>
-                            }.into_any()
-                        } else if chat_state
-                            .try_get()
-                            .unwrap_or_default()
-                            .paused_inference
-                            .is_some()
-                        {
-                            view! {
-                                <Badge variant=BadgeVariant::Warning>"Paused"</Badge>
-                            }.into_any()
-                        } else {
-                            view! {
-                                <Badge variant=BadgeVariant::Secondary>"Ready"</Badge>
-                            }.into_any()
-                        }
-                    }}
+                    <div data-testid="chat-status-badge">
+                        {move || {
+                            let err = error.try_get().flatten();
+                            if err.is_some() {
+                                view! {
+                                    <Badge variant=BadgeVariant::Destructive>"Error"</Badge>
+                                }.into_any()
+                            } else if is_loading.try_get().unwrap_or(false) {
+                                // Waiting for first token
+                                view! {
+                                    <Badge variant=BadgeVariant::Warning>"Connecting"</Badge>
+                                }.into_any()
+                            } else if is_streaming.try_get().unwrap_or(false) {
+                                // Actively receiving tokens
+                                view! {
+                                    <Badge variant=BadgeVariant::Success>"Streaming"</Badge>
+                                }.into_any()
+                            } else if chat_state
+                                .try_get()
+                                .unwrap_or_default()
+                                .paused_inference
+                                .is_some()
+                            {
+                                view! {
+                                    <Badge variant=BadgeVariant::Warning>"Paused"</Badge>
+                                }.into_any()
+                            } else {
+                                view! {
+                                    <Badge variant=BadgeVariant::Secondary>"Ready"</Badge>
+                                }.into_any()
+                            }
+                        }}
+                    </div>
+                    // Collaboration actions
+                    <div class="flex items-center gap-1">
+                        <button
+                            class="px-2 py-1 text-xs rounded-md border border-border hover:bg-muted/50 transition-colors"
+                            on:click=move |_| show_header_share.set(true)
+                            title="Share session"
+                            data-testid="chat-header-share"
+                        >
+                            "Share"
+                        </button>
+                        <button
+                            class="px-2 py-1 text-xs rounded-md border border-border hover:bg-muted/50 transition-colors"
+                            on:click=move |_| show_header_fork.set(true)
+                            title="Fork session"
+                            data-testid="chat-header-fork"
+                        >
+                            "Fork"
+                        </button>
+                        <button
+                            class="px-2 py-1 text-xs rounded-md border border-border hover:bg-muted/50 transition-colors"
+                            on:click=move |_| show_header_provenance.set(true)
+                            title="View provenance"
+                            data-testid="chat-header-provenance"
+                        >
+                            "Provenance"
+                        </button>
+                    </div>
                 </div>
             </div>
+
+            // Tags badge row
+            <div class="flex items-center gap-2 flex-wrap" data-testid="chat-header-tags">
+                {move || {
+                    let tags = session_tags.try_get().unwrap_or_default();
+                    if tags.is_empty() {
+                        None
+                    } else {
+                        Some(view! {
+                            <>
+                                {tags.into_iter().map(|tag| {
+                                    let style = tag.color.as_deref()
+                                        .map(|c| format!("border-color: {}; color: {}", c, c))
+                                        .unwrap_or_default();
+                                    view! {
+                                        <span
+                                            class="inline-flex items-center px-2 py-0.5 text-2xs font-medium rounded-full border border-border"
+                                            style=style
+                                        >
+                                            {tag.name}
+                                        </span>
+                                    }
+                                }).collect::<Vec<_>>()}
+                            </>
+                        })
+                    }
+                }}
+                <button
+                    class="inline-flex items-center px-1.5 py-0.5 text-2xs text-muted-foreground hover:text-foreground rounded border border-dashed border-border hover:border-foreground/30 transition-colors"
+                    on:click=move |_| show_header_tags.set(true)
+                    data-testid="chat-header-edit-tags"
+                >
+                    "+ Tag"
+                </button>
+            </div>
+
+            // Collaboration dialogs (header-level)
+            {move || {
+                if show_header_share.try_get().unwrap_or(false) {
+                    Some(view! {
+                        <ShareSessionDialog
+                            session_id=session_id()
+                            on_close=Callback::new(move |_| show_header_share.set(false))
+                        />
+                    })
+                } else { None }
+            }}
+            {move || {
+                if show_header_tags.try_get().unwrap_or(false) {
+                    let refresh_tags = Callback::new(move |_: ()| {
+                        let id = session_id();
+                        wasm_bindgen_futures::spawn_local(async move {
+                            let client = ApiClient::with_base_url(api_base_url());
+                            if let Ok(resp) = client.get_session_tags(&id).await {
+                                session_tags.set(resp.tags);
+                            }
+                        });
+                    });
+                    Some(view! {
+                        <TagsDialog
+                            session_id=session_id()
+                            on_close=Callback::new(move |_| {
+                                show_header_tags.set(false);
+                                refresh_tags.run(());
+                            })
+                        />
+                    })
+                } else { None }
+            }}
+            {move || {
+                if show_header_fork.try_get().unwrap_or(false) {
+                    let navigate = use_navigate();
+                    Some(view! {
+                        <ForkSessionDialog
+                            session_id=session_id()
+                            on_close=Callback::new(move |_| show_header_fork.set(false))
+                            on_forked=Callback::new(move |new_id: String| {
+                                show_header_fork.set(false);
+                                let path = format!("/chat/{}", new_id);
+                                navigate(&path, Default::default());
+                            })
+                        />
+                    })
+                } else { None }
+            }}
+            {move || {
+                if show_header_provenance.try_get().unwrap_or(false) {
+                    Some(view! {
+                        <ProvenancePanel
+                            session_id=session_id()
+                            on_close=Callback::new(move |_| show_header_provenance.set(false))
+                        />
+                    })
+                } else { None }
+            }}
 
             // Stream status notice (progressive latency + TTFT feedback)
             // Error-tone notices with state.error are shown in the error banner below.
@@ -2427,7 +2999,10 @@ fn ChatConversationPanel(
                         let msgs = chat_state.try_get().unwrap_or_default().messages;
                         if msgs.is_empty() {
                             view! {
-                                <div class="flex h-full min-h-[200px] items-center justify-center py-12">
+                                <div
+                                    class="flex h-full min-h-[200px] items-center justify-center py-12"
+                                    data-testid="chat-conversation-empty"
+                                >
                                     <div class="text-center space-y-4 max-w-md px-4">
                                         // Conversation icon with gradient background
                                         <div class="mx-auto w-14 h-14 rounded-2xl bg-gradient-to-br from-primary/20 to-primary/5 flex items-center justify-center shadow-sm">
@@ -2460,6 +3035,7 @@ fn ChatConversationPanel(
                                                     <button
                                                         type="button"
                                                         class="text-xs px-3 py-1.5 rounded-full bg-muted text-muted-foreground hover:bg-primary/10 hover:text-primary transition-colors cursor-pointer"
+                                                        data-testid="chat-conversation-suggestion"
                                                         on:click=move |_| {
                                                             message.set(prompt_text.clone());
                                                         }
@@ -2739,12 +3315,13 @@ fn ChatConversationPanel(
             // Session error display (stale/missing session)
             {move || {
                 session_error.try_get().flatten().map(|e| view! {
-                    <div class="rounded-md bg-warning/10 border border-warning p-3 mb-4">
+                    <div class="rounded-md bg-warning/10 border border-warning p-3 mb-4" data-testid="chat-session-error">
                         <div class="flex items-center justify-between gap-2">
                             <p class="text-sm text-warning-foreground">{e}</p>
                             <a
                                 href="/chat"
                                 class="text-sm font-medium text-primary hover:underline"
+                                data-testid="chat-session-error-link"
                             >
                                 "Start New Session"
                             </a>
@@ -2826,6 +3403,7 @@ fn ChatConversationPanel(
                                                     size=ButtonSize::Sm
                                                     disabled=retry_disabled
                                                     on_click=do_retry
+                                                    data_testid="chat-error-retry".to_string()
                                                 >
                                                     "Retry"
                                                 </Button>
@@ -2837,6 +3415,7 @@ fn ChatConversationPanel(
                                             class="text-sm font-medium text-muted-foreground hover:text-foreground px-2 py-1 rounded hover:bg-muted transition-colors"
                                             on:click=move |_| action.clear_error()
                                             aria-label="Dismiss error"
+                                            data-testid="chat-error-dismiss"
                                         >
                                             "Dismiss"
                                         </button>
@@ -2906,6 +3485,7 @@ fn ChatConversationPanel(
                         type="button"
                         class="btn btn-outline btn-sm"
                         on:click=move |_| show_attach_dialog.set(true)
+                        data-testid="chat-attach"
                     >
                         "Attach data"
                     </button>
@@ -2925,6 +3505,7 @@ fn ChatConversationPanel(
                                     on_click=do_cancel
                                     class="bg-destructive hover:bg-destructive/90".to_string()
                                     aria_label="Stop streaming".to_string()
+                                    data_testid="chat-stop".to_string()
                                 >
                                     "Stop"
                                 </Button>
@@ -3055,13 +3636,22 @@ fn ChatConversationPanel(
                             let selected_count = Memo::new(move |_| selected_msg_indices.try_get().unwrap_or_default().len());
 
                             // Quick select: last N messages
-                            let select_last_n = move |n: usize| {
-                                let msgs = chat_state.try_get().unwrap_or_default().messages;
+                            let chat_state_for_quick_select = chat_state;
+                            let selected_msg_indices_for_quick_select = selected_msg_indices;
+                            let select_last_n = Callback::new(move |n: usize| {
+                                let msgs = chat_state_for_quick_select
+                                    .try_get()
+                                    .unwrap_or_default()
+                                    .messages;
                                 let total = msgs.len();
                                 let start = total.saturating_sub(n);
-                                let indices: std::collections::HashSet<usize> = (start..total).collect();
-                                selected_msg_indices.set(indices);
-                            };
+                                let indices: std::collections::HashSet<usize> =
+                                    (start..total).collect();
+                                selected_msg_indices_for_quick_select.set(indices);
+                            });
+                            let select_last_5 = select_last_n.clone();
+                            let select_last_10 = select_last_n.clone();
+                            let select_last_20 = select_last_n.clone();
 
                             // Toggle all
                             let toggle_all = move |_| {
@@ -3099,21 +3689,21 @@ fn ChatConversationPanel(
                                         <button
                                             type="button"
                                             class="px-2 py-1 text-xs rounded border border-border hover:bg-muted/50"
-                                            on:click=move |_| select_last_n(5)
+                                            on:click=move |_| select_last_5.run(5)
                                         >
                                             "Last 5"
                                         </button>
                                         <button
                                             type="button"
                                             class="px-2 py-1 text-xs rounded border border-border hover:bg-muted/50"
-                                            on:click=move |_| select_last_n(10)
+                                            on:click=move |_| select_last_10.run(10)
                                         >
                                             "Last 10"
                                         </button>
                                         <button
                                             type="button"
                                             class="px-2 py-1 text-xs rounded border border-border hover:bg-muted/50"
-                                            on:click=move |_| select_last_n(20)
+                                            on:click=move |_| select_last_20.run(20)
                                         >
                                             "Last 20"
                                         </button>
@@ -3568,6 +4158,710 @@ where
         >
             {label}
         </button>
+    }
+}
+
+// ---------------------------------------------------------------------------
+// Collaboration Dialogs (PASS 2)
+// ---------------------------------------------------------------------------
+
+/// Dialog for sharing a chat session with other users
+#[component]
+fn ShareSessionDialog(session_id: String, #[prop(into)] on_close: Callback<()>) -> impl IntoView {
+    let user_ids_input = RwSignal::new(String::new());
+    let permission = RwSignal::new("read".to_string());
+    let sharing = RwSignal::new(false);
+    let share_error = RwSignal::new(Option::<String>::None);
+    let share_success = RwSignal::new(false);
+
+    // Load existing shares
+    let existing_shares = RwSignal::new(Vec::<crate::api::types::SessionShareInfo>::new());
+    {
+        let sid = session_id.clone();
+        wasm_bindgen_futures::spawn_local(async move {
+            let client = ApiClient::with_base_url(api_base_url());
+            match client.get_session_shares(&sid).await {
+                Ok(resp) => existing_shares.set(resp.shares),
+                Err(e) => {
+                    report_error_with_toast(
+                        &e,
+                        "Failed to load session shares",
+                        Some("/chat"),
+                        false,
+                    );
+                }
+            }
+        });
+    }
+
+    let do_share = {
+        let sid = session_id.clone();
+        Callback::new(move |_: ()| {
+            let raw = user_ids_input.try_get().unwrap_or_default();
+            let ids: Vec<String> = raw
+                .split(',')
+                .map(|s| s.trim().to_string())
+                .filter(|s| !s.is_empty())
+                .collect();
+            if ids.is_empty() {
+                share_error.set(Some("Enter at least one user ID.".to_string()));
+                return;
+            }
+            sharing.set(true);
+            share_error.set(None);
+            let perm = permission.try_get().unwrap_or_else(|| "read".to_string());
+            let sid = sid.clone();
+            wasm_bindgen_futures::spawn_local(async move {
+                let client = ApiClient::with_base_url(api_base_url());
+                let req = ShareSessionRequest {
+                    user_ids: Some(ids),
+                    workspace_id: None,
+                    permission: perm,
+                    expires_at: None,
+                };
+                match client.share_session(&sid, &req).await {
+                    Ok(resp) => {
+                        existing_shares.set(resp.shares);
+                        share_success.set(true);
+                        user_ids_input.set(String::new());
+                    }
+                    Err(e) => {
+                        share_error.set(Some(e.user_message()));
+                        report_error_with_toast(
+                            &e,
+                            "Failed to share session",
+                            Some("/chat"),
+                            false,
+                        );
+                    }
+                }
+                sharing.set(false);
+            });
+        })
+    };
+
+    let do_revoke = {
+        let sid = session_id.clone();
+        Callback::new(move |share_id: String| {
+            let sid = sid.clone();
+            wasm_bindgen_futures::spawn_local(async move {
+                let client = ApiClient::with_base_url(api_base_url());
+                match client.revoke_session_share(&sid, &share_id).await {
+                    Ok(()) => {
+                        existing_shares.update(|shares| shares.retain(|s| s.share_id != share_id));
+                    }
+                    Err(e) => {
+                        report_error_with_toast(&e, "Failed to revoke share", Some("/chat"), false);
+                    }
+                }
+            });
+        })
+    };
+
+    let open = RwSignal::new(true);
+    let close_cb = on_close.clone();
+    Effect::new(move |_| {
+        if !open.try_get().unwrap_or(true) {
+            close_cb.run(());
+        }
+    });
+
+    view! {
+        <Dialog open=open title="Share Session">
+            <div class="space-y-4">
+                <div class="space-y-2">
+                    <label class="text-xs font-medium">"User IDs (comma-separated)"</label>
+                    <Input
+                        value=user_ids_input
+                        placeholder="user-1, user-2".to_string()
+                    />
+                </div>
+                <div class="space-y-2">
+                    <label class="text-xs font-medium">"Permission"</label>
+                    <div class="flex items-center gap-2">
+                        <button
+                            class=move || format!(
+                                "px-3 py-1 text-xs rounded-md border transition-colors {}",
+                                if permission.try_get().unwrap_or_default() == "read" {
+                                    "border-primary bg-primary/10 text-primary"
+                                } else {
+                                    "border-border text-muted-foreground hover:text-foreground"
+                                }
+                            )
+                            on:click=move |_| permission.set("read".to_string())
+                        >
+                            "Read"
+                        </button>
+                        <button
+                            class=move || format!(
+                                "px-3 py-1 text-xs rounded-md border transition-colors {}",
+                                if permission.try_get().unwrap_or_default() == "write" {
+                                    "border-primary bg-primary/10 text-primary"
+                                } else {
+                                    "border-border text-muted-foreground hover:text-foreground"
+                                }
+                            )
+                            on:click=move |_| permission.set("write".to_string())
+                        >
+                            "Write"
+                        </button>
+                    </div>
+                </div>
+                {move || share_error.try_get().flatten().map(|err| view! {
+                    <p class="text-xs text-destructive">{err}</p>
+                })}
+                {move || share_success.try_get().unwrap_or(false).then(|| view! {
+                    <p class="text-xs text-success">"Session shared."</p>
+                })}
+                <div class="flex items-center justify-end gap-2">
+                    <Button variant=ButtonVariant::Secondary size=ButtonSize::Sm on_click=Callback::new(move |_| open.set(false))>
+                        "Close"
+                    </Button>
+                    <Button
+                        size=ButtonSize::Sm
+                        on_click=do_share
+                        disabled=Signal::derive(move || sharing.try_get().unwrap_or(false))
+                    >
+                        {move || if sharing.try_get().unwrap_or(false) { "Sharing..." } else { "Share" }}
+                    </Button>
+                </div>
+
+                // Existing shares
+                {move || {
+                    let shares = existing_shares.try_get().unwrap_or_default();
+                    if shares.is_empty() {
+                        None
+                    } else {
+                        Some(view! {
+                            <div class="border-t border-border pt-3 space-y-2">
+                                <h4 class="text-xs font-medium">"Current Shares"</h4>
+                                {shares.into_iter().map(|share| {
+                                    let revoke = do_revoke.clone();
+                                    let sid = share.share_id.clone();
+                                    view! {
+                                        <div class="flex items-center justify-between text-xs">
+                                            <div>
+                                                <span class="font-mono">{share.user_id}</span>
+                                                <span class="text-muted-foreground ml-2">{format!("({})", share.permission)}</span>
+                                            </div>
+                                            <button
+                                                class="text-destructive hover:underline text-2xs"
+                                                on:click=move |_| revoke.run(sid.clone())
+                                            >
+                                                "Revoke"
+                                            </button>
+                                        </div>
+                                    }
+                                }).collect::<Vec<_>>()}
+                            </div>
+                        })
+                    }
+                }}
+            </div>
+        </Dialog>
+    }
+}
+
+/// Dialog for managing tags on a chat session
+#[component]
+fn TagsDialog(session_id: String, #[prop(into)] on_close: Callback<()>) -> impl IntoView {
+    let session_tags = RwSignal::new(Vec::<crate::api::types::ChatTagResponse>::new());
+    let all_tags = RwSignal::new(Vec::<crate::api::types::ChatTagResponse>::new());
+    let loading = RwSignal::new(true);
+    let new_tag_name = RwSignal::new(String::new());
+    let new_tag_color = RwSignal::new(String::new());
+
+    // Load session tags and all available tags
+    {
+        let sid = session_id.clone();
+        wasm_bindgen_futures::spawn_local(async move {
+            let client = ApiClient::with_base_url(api_base_url());
+            let (session_result, all_result) = (
+                client.get_session_tags(&sid).await,
+                client.list_chat_tags().await,
+            );
+            match session_result {
+                Ok(resp) => session_tags.set(resp.tags),
+                Err(e) => {
+                    report_error_with_toast(
+                        &e,
+                        "Failed to load session tags",
+                        Some("/chat"),
+                        false,
+                    );
+                }
+            }
+            match all_result {
+                Ok(tags) => all_tags.set(tags),
+                Err(e) => {
+                    report_error_with_toast(&e, "Failed to load tags", Some("/chat"), false);
+                }
+            }
+            loading.set(false);
+        });
+    }
+
+    let assign_tag = {
+        let sid = session_id.clone();
+        Callback::new(move |tag_id: String| {
+            let sid = sid.clone();
+            wasm_bindgen_futures::spawn_local(async move {
+                let client = ApiClient::with_base_url(api_base_url());
+                let mut current_ids: Vec<String> = session_tags
+                    .try_get()
+                    .unwrap_or_default()
+                    .iter()
+                    .map(|t| t.id.clone())
+                    .collect();
+                if !current_ids.contains(&tag_id) {
+                    current_ids.push(tag_id);
+                }
+                let req = AssignTagsRequest {
+                    tag_ids: current_ids,
+                };
+                match client.assign_tags(&sid, &req).await {
+                    Ok(()) => {
+                        if let Ok(resp) = client.get_session_tags(&sid).await {
+                            session_tags.set(resp.tags);
+                        }
+                    }
+                    Err(e) => {
+                        report_error_with_toast(&e, "Failed to assign tag", Some("/chat"), false);
+                    }
+                }
+            });
+        })
+    };
+
+    let remove_tag = {
+        let sid = session_id.clone();
+        Callback::new(move |tag_id: String| {
+            let sid = sid.clone();
+            wasm_bindgen_futures::spawn_local(async move {
+                let client = ApiClient::with_base_url(api_base_url());
+                match client.remove_tag(&sid, &tag_id).await {
+                    Ok(()) => {
+                        session_tags.update(|tags| tags.retain(|t| t.id != tag_id));
+                    }
+                    Err(e) => {
+                        report_error_with_toast(&e, "Failed to remove tag", Some("/chat"), false);
+                    }
+                }
+            });
+        })
+    };
+
+    let create_tag = Callback::new(move |_: ()| {
+        let name = new_tag_name.try_get().unwrap_or_default();
+        if name.trim().is_empty() {
+            return;
+        }
+        let color_raw = new_tag_color.try_get().unwrap_or_default();
+        let color = if color_raw.trim().is_empty() {
+            None
+        } else {
+            Some(color_raw)
+        };
+        wasm_bindgen_futures::spawn_local(async move {
+            let client = ApiClient::with_base_url(api_base_url());
+            let req = CreateChatTagRequest { name, color };
+            match client.create_chat_tag(&req).await {
+                Ok(tag) => {
+                    all_tags.update(|tags| tags.push(tag));
+                    new_tag_name.set(String::new());
+                    new_tag_color.set(String::new());
+                }
+                Err(e) => {
+                    report_error_with_toast(&e, "Failed to create tag", Some("/chat"), false);
+                }
+            }
+        });
+    });
+
+    let open = RwSignal::new(true);
+    let close_cb = on_close.clone();
+    Effect::new(move |_| {
+        if !open.try_get().unwrap_or(true) {
+            close_cb.run(());
+        }
+    });
+
+    view! {
+        <Dialog open=open title="Manage Tags">
+            <div class="space-y-4">
+                {move || {
+                    if loading.try_get().unwrap_or(true) {
+                        return view! { <Spinner /> }.into_any();
+                    }
+
+                    let current = session_tags.try_get().unwrap_or_default();
+                    let available = all_tags.try_get().unwrap_or_default();
+                    let current_ids: Vec<String> = current.iter().map(|t| t.id.clone()).collect();
+
+                    view! {
+                        <div class="space-y-3">
+                            // Current tags
+                            <div>
+                                <h4 class="text-xs font-medium mb-1">"Assigned Tags"</h4>
+                                {if current.is_empty() {
+                                    view! { <p class="text-2xs text-muted-foreground">"No tags assigned"</p> }.into_any()
+                                } else {
+                                    view! {
+                                        <div class="flex flex-wrap gap-1">
+                                            {current.into_iter().map(|tag| {
+                                                let remove = remove_tag.clone();
+                                                let tid = tag.id.clone();
+                                                let style = tag.color.as_deref()
+                                                    .map(|c| format!("border-color: {}; color: {}", c, c))
+                                                    .unwrap_or_default();
+                                                view! {
+                                                    <span
+                                                        class="inline-flex items-center gap-1 px-2 py-0.5 text-2xs rounded-full border border-border"
+                                                        style=style
+                                                    >
+                                                        {tag.name}
+                                                        <button
+                                                            class="hover:text-destructive"
+                                                            on:click=move |_| remove.run(tid.clone())
+                                                            title="Remove tag"
+                                                        >
+                                                            "x"
+                                                        </button>
+                                                    </span>
+                                                }
+                                            }).collect::<Vec<_>>()}
+                                        </div>
+                                    }.into_any()
+                                }}
+                            </div>
+
+                            // Available tags to assign
+                            <div>
+                                <h4 class="text-xs font-medium mb-1">"Available Tags"</h4>
+                                {
+                                    let unassigned: Vec<_> = available.into_iter()
+                                        .filter(|t| !current_ids.contains(&t.id))
+                                        .collect();
+                                    if unassigned.is_empty() {
+                                        view! { <p class="text-2xs text-muted-foreground">"All tags assigned"</p> }.into_any()
+                                    } else {
+                                        view! {
+                                            <div class="flex flex-wrap gap-1">
+                                                {unassigned.into_iter().map(|tag| {
+                                                    let assign = assign_tag.clone();
+                                                    let tid = tag.id.clone();
+                                                    let style = tag.color.as_deref()
+                                                        .map(|c| format!("border-color: {}; color: {}", c, c))
+                                                        .unwrap_or_default();
+                                                    view! {
+                                                        <button
+                                                            class="inline-flex items-center px-2 py-0.5 text-2xs rounded-full border border-dashed border-border hover:border-primary transition-colors"
+                                                            style=style
+                                                            on:click=move |_| assign.run(tid.clone())
+                                                            title="Assign tag"
+                                                        >
+                                                            {"+ "}{tag.name}
+                                                        </button>
+                                                    }
+                                                }).collect::<Vec<_>>()}
+                                            </div>
+                                        }.into_any()
+                                    }
+                                }
+                            </div>
+
+                            // Create new tag
+                            <div class="border-t border-border pt-3">
+                                <h4 class="text-xs font-medium mb-2">"Create New Tag"</h4>
+                                <div class="flex items-end gap-2">
+                                    <div class="flex-1">
+                                        <Input
+                                            value=new_tag_name
+                                            placeholder="Tag name".to_string()
+                                        />
+                                    </div>
+                                    <div class="w-24">
+                                        <Input
+                                            value=new_tag_color
+                                            placeholder="#color".to_string()
+                                        />
+                                    </div>
+                                    <Button size=ButtonSize::Sm on_click=create_tag>
+                                        "Create"
+                                    </Button>
+                                </div>
+                            </div>
+                        </div>
+                    }.into_any()
+                }}
+
+                <div class="flex justify-end">
+                    <Button variant=ButtonVariant::Secondary size=ButtonSize::Sm on_click=Callback::new(move |_| open.set(false))>
+                        "Close"
+                    </Button>
+                </div>
+            </div>
+        </Dialog>
+    }
+}
+
+/// Dialog for forking a chat session
+#[component]
+fn ForkSessionDialog(
+    session_id: String,
+    #[prop(into)] on_close: Callback<()>,
+    #[prop(into)] on_forked: Callback<String>,
+) -> impl IntoView {
+    let fork_name = RwSignal::new(String::new());
+    let include_messages = RwSignal::new(true);
+    let forking = RwSignal::new(false);
+    let fork_error = RwSignal::new(Option::<String>::None);
+
+    let do_fork = {
+        let sid = session_id.clone();
+        let on_forked = on_forked.clone();
+        Callback::new(move |_: ()| {
+            forking.set(true);
+            fork_error.set(None);
+            let name_val = fork_name.try_get().unwrap_or_default();
+            let name = if name_val.trim().is_empty() {
+                None
+            } else {
+                Some(name_val)
+            };
+            let msgs = include_messages.try_get().unwrap_or(true);
+            let sid = sid.clone();
+            let on_forked = on_forked.clone();
+            wasm_bindgen_futures::spawn_local(async move {
+                let client = ApiClient::with_base_url(api_base_url());
+                let req = ForkSessionRequest {
+                    name,
+                    include_messages: msgs,
+                };
+                match client.fork_session(&sid, &req).await {
+                    Ok(resp) => {
+                        on_forked.run(resp.session_id);
+                    }
+                    Err(e) => {
+                        fork_error.set(Some(e.user_message()));
+                        report_error_with_toast(&e, "Failed to fork session", Some("/chat"), false);
+                    }
+                }
+                forking.set(false);
+            });
+        })
+    };
+
+    let open = RwSignal::new(true);
+    let close_cb = on_close.clone();
+    Effect::new(move |_| {
+        if !open.try_get().unwrap_or(true) {
+            close_cb.run(());
+        }
+    });
+
+    view! {
+        <Dialog open=open title="Fork Session">
+            <div class="space-y-4">
+                <div class="space-y-2">
+                    <label class="text-xs font-medium">"New session name (optional)"</label>
+                    <Input
+                        value=fork_name
+                        placeholder="Forked session name".to_string()
+                    />
+                </div>
+                <div class="flex items-center gap-2">
+                    <Checkbox
+                        checked=Signal::derive(move || include_messages.try_get().unwrap_or(true))
+                        on_change=Callback::new(move |v| include_messages.set(v))
+                        aria_label="Include messages in fork"
+                    />
+                    <span class="text-xs">"Include existing messages"</span>
+                </div>
+                {move || fork_error.try_get().flatten().map(|err| view! {
+                    <p class="text-xs text-destructive">{err}</p>
+                })}
+                <div class="flex items-center justify-end gap-2">
+                    <Button variant=ButtonVariant::Secondary size=ButtonSize::Sm on_click=Callback::new(move |_| open.set(false))>
+                        "Cancel"
+                    </Button>
+                    <Button
+                        size=ButtonSize::Sm
+                        on_click=do_fork
+                        disabled=Signal::derive(move || forking.try_get().unwrap_or(false))
+                    >
+                        {move || if forking.try_get().unwrap_or(false) { "Forking..." } else { "Fork" }}
+                    </Button>
+                </div>
+            </div>
+        </Dialog>
+    }
+}
+
+/// Panel showing provenance chain for a chat session
+#[component]
+fn ProvenancePanel(session_id: String, #[prop(into)] on_close: Callback<()>) -> impl IntoView {
+    let provenance =
+        RwSignal::new(Option::<adapteros_api_types::provenance::ChatProvenanceResponse>::None);
+    let loading = RwSignal::new(true);
+    let load_error = RwSignal::new(Option::<String>::None);
+
+    {
+        let sid = session_id.clone();
+        wasm_bindgen_futures::spawn_local(async move {
+            let client = ApiClient::with_base_url(api_base_url());
+            match client.get_chat_provenance(&sid).await {
+                Ok(resp) => provenance.set(Some(resp)),
+                Err(e) => {
+                    report_error_with_toast(&e, "Failed to load provenance", Some("/chat"), false);
+                    load_error.set(Some(e.user_message()));
+                }
+            }
+            loading.set(false);
+        });
+    }
+
+    let open = RwSignal::new(true);
+    let close_cb = on_close.clone();
+    Effect::new(move |_| {
+        if !open.try_get().unwrap_or(true) {
+            close_cb.run(());
+        }
+    });
+
+    view! {
+        <Dialog open=open title="Session Provenance">
+            <div class="space-y-4 max-h-96 overflow-y-auto">
+                {move || {
+                    if loading.try_get().unwrap_or(true) {
+                        return view! { <Spinner /> }.into_any();
+                    }
+                    if let Some(err) = load_error.try_get().flatten() {
+                        return view! {
+                            <p class="text-xs text-destructive">{err}</p>
+                        }.into_any();
+                    }
+                    let Some(prov) = provenance.try_get().flatten() else {
+                        return view! {
+                            <p class="text-xs text-muted-foreground">"No provenance data available."</p>
+                        }.into_any();
+                    };
+
+                    view! {
+                        <div class="space-y-4">
+                            // Session info
+                            <div class="space-y-1">
+                                <h4 class="text-xs font-semibold">"Session"</h4>
+                                <div class="text-2xs text-muted-foreground space-y-0.5">
+                                    <p>{format!("Name: {}", prov.session.name)}</p>
+                                    <p>{format!("ID: {}", prov.session.id)}</p>
+                                    <p>{format!("Messages: {}", prov.session.message_count)}</p>
+                                    <p>{format!("Created: {}", prov.session.created_at)}</p>
+                                </div>
+                            </div>
+
+                            // Stack info
+                            {prov.stack.map(|stack| view! {
+                                <div class="space-y-1">
+                                    <h4 class="text-xs font-semibold">"Stack"</h4>
+                                    <div class="text-2xs text-muted-foreground space-y-0.5">
+                                        <p>{format!("Name: {}", stack.name)}</p>
+                                        <p>{format!("ID: {}", stack.id)}</p>
+                                        {stack.description.map(|d| view! { <p>{format!("Description: {}", d)}</p> })}
+                                        <p>{format!("Adapters: {}", stack.adapter_ids.join(", "))}</p>
+                                    </div>
+                                </div>
+                            })}
+
+                            // Base model
+                            {prov.base_model.map(|model| view! {
+                                <div class="space-y-1">
+                                    <h4 class="text-xs font-semibold">"Base Model"</h4>
+                                    <div class="text-2xs text-muted-foreground space-y-0.5">
+                                        <p>{format!("{} ({})", model.name, model.id)}</p>
+                                        <p class="font-mono">{format!("Hash: {}", model.hash_b3)}</p>
+                                    </div>
+                                </div>
+                            })}
+
+                            // Adapters
+                            {if prov.adapters.is_empty() {
+                                None
+                            } else {
+                                Some(view! {
+                                    <div class="space-y-2">
+                                        <h4 class="text-xs font-semibold">"Adapters"</h4>
+                                        {prov.adapters.into_iter().map(|adapter| {
+                                            view! {
+                                                <div class="rounded border border-border p-2 space-y-1">
+                                                    <p class="text-xs font-medium">{adapter.name.clone()}</p>
+                                                    <div class="text-2xs text-muted-foreground space-y-0.5">
+                                                        <p>{format!("ID: {}", adapter.id)}</p>
+                                                        <p>{format!("Tier: {}", adapter.tier)}</p>
+                                                        <p class="font-mono">{format!("Hash: {}", adapter.hash_b3)}</p>
+                                                        {adapter.training_job.map(|job| view! {
+                                                            <div class="mt-1 pl-2 border-l-2 border-primary/30 space-y-0.5">
+                                                                <p class="font-medium">"Training Job"</p>
+                                                                <p>{format!("Status: {}", job.status)}</p>
+                                                                <p>{format!("Started: {}", job.started_at)}</p>
+                                                                {job.completed_at.map(|c| view! { <p>{format!("Completed: {}", c)}</p> })}
+                                                                {job.dataset.map(|ds| view! {
+                                                                    <div class="mt-0.5">
+                                                                        <p class="font-medium">"Dataset"</p>
+                                                                        <p>{format!("{} ({})", ds.name, ds.format)}</p>
+                                                                        <p>{format!("Files: {}, Size: {} bytes", ds.file_count, ds.total_size_bytes)}</p>
+                                                                    </div>
+                                                                })}
+                                                            </div>
+                                                        })}
+                                                    </div>
+                                                </div>
+                                            }
+                                        }).collect::<Vec<_>>()}
+                                    </div>
+                                })
+                            }}
+
+                            // Timeline
+                            {prov.timeline.map(|events| {
+                                if events.is_empty() {
+                                    return view! {}.into_any();
+                                }
+                                view! {
+                                    <div class="space-y-2">
+                                        <h4 class="text-xs font-semibold">"Timeline"</h4>
+                                        <div class="space-y-1">
+                                            {events.into_iter().map(|event| view! {
+                                                <div class="flex items-start gap-2 text-2xs">
+                                                    <span class="text-muted-foreground shrink-0 w-32 font-mono">{event.timestamp.clone()}</span>
+                                                    <span>{event.description}</span>
+                                                </div>
+                                            }).collect::<Vec<_>>()}
+                                        </div>
+                                    </div>
+                                }.into_any()
+                            })}
+
+                            // Provenance hash
+                            <div class="border-t border-border pt-2">
+                                <p class="text-2xs text-muted-foreground font-mono">
+                                    {format!("Provenance hash: {}", prov.provenance_hash)}
+                                </p>
+                                <p class="text-2xs text-muted-foreground">
+                                    {format!("Computed: {}", prov.computed_at)}
+                                </p>
+                            </div>
+                        </div>
+                    }.into_any()
+                }}
+
+                <div class="flex justify-end pt-2">
+                    <Button variant=ButtonVariant::Secondary size=ButtonSize::Sm on_click=Callback::new(move |_| open.set(false))>
+                        "Close"
+                    </Button>
+                </div>
+            </div>
+        </Dialog>
     }
 }
 

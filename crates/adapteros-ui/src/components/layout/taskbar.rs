@@ -1,7 +1,8 @@
 //! Taskbar - Bottom navigation bar
 //!
 //! Module-level bottom taskbar with start button, module shortcuts, and system tray.
-//! Navigation follows the 6-module structure: Operate, Build, Configure, Data, Verify, Org
+//! Navigation follows runtime IA taxonomy from the shared registry:
+//! Infer, Data, Train, Deploy, Route, Observe, Govern, Org.
 //!
 //! Personal settings (User, Settings) are accessed via the user menu in the topbar,
 //! not the taskbar, to separate personal preferences from system/org navigation.

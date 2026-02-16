@@ -19,7 +19,7 @@ mod breadcrumb_tests {
 
     #[wasm_bindgen_test]
     fn test_breadcrumb_item_link() {
-        let item = BreadcrumbItem::link("Adapters", "/adapters");
+        let item = BreadcrumbItem::new("Adapters", "/adapters");
         assert_eq!(item.label, "Adapters");
         assert_eq!(item.href, Some("/adapters".to_string()));
     }

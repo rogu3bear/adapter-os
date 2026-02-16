@@ -117,6 +117,23 @@ pub fn CommandPalette() -> impl IntoView {
                 aria-modal="true"
                 aria-label="Command palette"
             >
+                // Focus trap: start sentinel
+                <div
+                    tabindex="0"
+                    style="position:absolute;width:1px;height:1px;overflow:hidden;clip:rect(0,0,0,0)"
+                    aria-hidden="true"
+                    on:focus={
+                        let input_ref = input_ref;
+                        move |_| {
+                            // Shift+Tab from first element wraps to footer (last focusable)
+                            // Since the search input auto-focuses, wrap to the last
+                            // focusable area. The end sentinel handles the forward case.
+                            if let Some(input) = input_ref.get() {
+                                let _ = input.focus();
+                            }
+                        }
+                    }
+                />
                 <div
                     class="mx-4 rounded-lg border bg-popover text-popover-foreground shadow-2xl overflow-hidden"
                     on:click=|e| e.stop_propagation()
@@ -189,8 +206,8 @@ pub fn CommandPalette() -> impl IntoView {
                             node_ref=input_ref
                             type="text"
                             class="flex-1 bg-transparent text-base outline-none placeholder:text-muted-foreground"
-                            placeholder="Search pages, adapters, actions..."
-                            aria-label="Search pages, adapters, and actions"
+                            placeholder="Search runs, pages, adapters, actions..."
+                            aria-label="Search runs, pages, adapters, and actions"
                             prop:value={
                                 let search = search_for_value.clone();
                                 move || search.query.get()
@@ -284,6 +301,30 @@ pub fn CommandPalette() -> impl IntoView {
                         }
                     }
 
+                    // Screen-reader result count announcement
+                    {
+                        let search_for_sr = search.clone();
+                        view! {
+                            <div
+                                class="sr-only"
+                                aria-live="polite"
+                                aria-atomic="true"
+                            >
+                                {move || {
+                                    let q = search_for_sr.query.get();
+                                    let count = search_for_sr.results.get().len();
+                                    if q.is_empty() {
+                                        String::new()
+                                    } else if count == 0 {
+                                        "No results found".to_string()
+                                    } else {
+                                        format!("{count} result{}", if count == 1 { "" } else { "s" })
+                                    }
+                                }}
+                            </div>
+                        }
+                    }
+
                     // Footer with keyboard hints
                     <div class="flex items-center justify-between border-t px-4 py-2 text-xs text-muted-foreground">
                         <div class="flex items-center gap-4">
@@ -305,6 +346,21 @@ pub fn CommandPalette() -> impl IntoView {
                         </span>
                     </div>
                 </div>
+                // Focus trap: end sentinel
+                <div
+                    tabindex="0"
+                    style="position:absolute;width:1px;height:1px;overflow:hidden;clip:rect(0,0,0,0)"
+                    aria-hidden="true"
+                    on:focus={
+                        let input_ref = input_ref;
+                        move |_| {
+                            // Tab past last element wraps back to search input
+                            if let Some(input) = input_ref.get() {
+                                let _ = input.focus();
+                            }
+                        }
+                    }
+                />
             </div>
         </Show>
     }

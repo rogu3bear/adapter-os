@@ -12,6 +12,8 @@ use adapteros_api_types::{
     ServiceHealthStatus, StatusIndicator as ApiStatusIndicator,
 };
 use leptos::prelude::*;
+use std::{cell::RefCell, rc::Rc};
+use wasm_bindgen::JsCast;
 
 /// Status Center Panel component
 ///
@@ -34,6 +36,43 @@ pub fn StatusCenterPanel(
     // Fetch status data when panel opens
     let (status_state, refetch) = use_status_data();
 
+    // Refs for focus trap
+    let panel_ref = NodeRef::<leptos::html::Div>::new();
+    let sentinel_start_ref = NodeRef::<leptos::html::Div>::new();
+    let sentinel_end_ref = NodeRef::<leptos::html::Div>::new();
+
+    // Focus restoration: store the element that had focus when panel opened
+    let trigger_element: Rc<RefCell<Option<web_sys::Element>>> = Rc::new(RefCell::new(None));
+    let trigger_element_for_effect = Rc::clone(&trigger_element);
+
+    // When panel opens, capture trigger and focus the panel; on close, restore focus
+    Effect::new(move || {
+        let is_open = open.try_get().unwrap_or(false);
+        if is_open {
+            // Capture the currently focused element for later restoration
+            if let Some(doc) = web_sys::window().and_then(|w| w.document()) {
+                *trigger_element_for_effect.borrow_mut() = doc.active_element();
+            }
+            // Focus the panel container after DOM settles
+            let panel = panel_ref;
+            set_timeout_simple(
+                move || {
+                    if let Some(el) = panel.get() {
+                        let _ = el.focus();
+                    }
+                },
+                50,
+            );
+        } else {
+            // Restore focus to the element that opened the panel
+            if let Some(el) = trigger_element_for_effect.borrow_mut().take() {
+                if let Some(html_el) = el.dyn_ref::<web_sys::HtmlElement>() {
+                    let _ = html_el.focus();
+                }
+            }
+        }
+    });
+
     // Refetch when panel opens
     let refetch_clone = refetch.clone();
     Effect::new(move || {
@@ -44,6 +83,59 @@ pub fn StatusCenterPanel(
 
     let close = move |_| open.set(false);
     let refetch_for_button = refetch.clone();
+
+    // Focus trap: redirect focus from sentinels back into the panel
+    let on_sentinel_start_focus = move |_| {
+        // When start sentinel gets focus (shift-tab from first element), wrap to end
+        if let Some(el) = panel_ref.get() {
+            if let Ok(focusables) = el.query_selector_all(
+                "button:not([disabled]), [href], input:not([disabled]), select:not([disabled]), textarea:not([disabled]), [tabindex]:not([tabindex=\"-1\"])",
+            ) {
+                // Find the last real focusable (skip sentinels)
+                for i in (0..focusables.length()).rev() {
+                    if let Some(node) = focusables.item(i) {
+                        if let Some(html_el) = node.dyn_ref::<web_sys::HtmlElement>() {
+                            if html_el.class_list().contains("sr-only") {
+                                continue;
+                            }
+                            let _ = html_el.focus();
+                            return;
+                        }
+                    }
+                }
+            }
+        }
+    };
+
+    let on_sentinel_end_focus = move |_| {
+        // When end sentinel gets focus (tab from last element), wrap to start
+        if let Some(el) = panel_ref.get() {
+            if let Ok(focusables) = el.query_selector_all(
+                "button:not([disabled]), [href], input:not([disabled]), select:not([disabled]), textarea:not([disabled]), [tabindex]:not([tabindex=\"-1\"])",
+            ) {
+                // Find the first real focusable (skip sentinels)
+                for i in 0..focusables.length() {
+                    if let Some(node) = focusables.item(i) {
+                        if let Some(html_el) = node.dyn_ref::<web_sys::HtmlElement>() {
+                            if html_el.class_list().contains("sr-only") {
+                                continue;
+                            }
+                            let _ = html_el.focus();
+                            return;
+                        }
+                    }
+                }
+            }
+        }
+    };
+
+    // Escape keydown on panel container (defense in depth alongside global hook)
+    let on_panel_keydown = move |ev: leptos::ev::KeyboardEvent| {
+        if ev.key() == "Escape" {
+            ev.prevent_default();
+            open.set(false);
+        }
+    };
 
     view! {
         // Backdrop
@@ -60,6 +152,7 @@ pub fn StatusCenterPanel(
 
         // Panel
         <div
+            node_ref=panel_ref
             class=move || {
                 if open.try_get().unwrap_or(false) {
                     "status-center-panel status-center-panel-open"
@@ -70,7 +163,18 @@ pub fn StatusCenterPanel(
             role="dialog"
             aria-modal="true"
             aria-labelledby="status-center-title"
+            tabindex="-1"
+            on:keydown=on_panel_keydown
         >
+            // Focus trap: start sentinel
+            <div
+                node_ref=sentinel_start_ref
+                class="sr-only"
+                tabindex="0"
+                on:focus=on_sentinel_start_focus
+                aria-hidden="true"
+            />
+
             // Header
             <div class="status-center-header">
                 <h2 id="status-center-title" class="status-center-title">
@@ -82,6 +186,7 @@ pub fn StatusCenterPanel(
                         class="status-center-refresh-btn"
                         on:click=move |_| refetch_for_button()
                         title="Refresh status"
+                        aria-label="Refresh status"
                         disabled=move || status_state.try_get().map(|s| s.is_loading()).unwrap_or(false)
                     >
                         <svg
@@ -106,6 +211,7 @@ pub fn StatusCenterPanel(
                         class="status-center-close-btn"
                         on:click=close
                         title="Close (Escape)"
+                        aria-label="Close"
                     >
                         <svg class="status-center-close-icon" fill="none" stroke="currentColor" viewBox="0 0 24 24">
                             <path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M6 18L18 6M6 6l12 12"/>
@@ -120,53 +226,56 @@ pub fn StatusCenterPanel(
                 <NotificationsSection />
                 <StatusDivider />
 
-                {move || {
-                    match status_state.try_get().unwrap_or(StatusLoadingState::Loading) {
-                        StatusLoadingState::Idle | StatusLoadingState::Loading => {
-                            view! {
-                                <div class="status-center-loading">
-                                    <Spinner />
-                                    <p class="status-center-loading-text">"Loading status..."</p>
-                                </div>
-                            }.into_any()
-                        }
-                        StatusLoadingState::Error(ref e) => {
-                            let error_msg = e.to_string();
-                            view! {
-                                <div class="status-center-error">
-                                    <svg class="status-center-error-icon" fill="none" stroke="currentColor" viewBox="0 0 24 24">
-                                        <path stroke-linecap="round" stroke-linejoin="round" stroke-width="2"
-                                            d="M12 9v2m0 4h.01m-6.938 4h13.856c1.54 0 2.502-1.667 1.732-3L13.732 4c-.77-1.333-2.694-1.333-3.464 0L3.34 16c-.77 1.333.192 3 1.732 3z"/>
-                                    </svg>
-                                    <p class="status-center-error-text">"Failed to load status"</p>
-                                    <p class="status-center-error-detail">{error_msg}</p>
-                                </div>
-                            }.into_any()
-                        }
-                        StatusLoadingState::LoadedWithError(ref data, ref e) => {
-                            let status = data.status.clone();
-                            let state = data.state.clone();
-                            let error_msg = e.to_string();
+                // Wrap dynamic status sections with aria-live for screen reader updates
+                <div aria-live="polite">
+                    {move || {
+                        match status_state.try_get().unwrap_or(StatusLoadingState::Loading) {
+                            StatusLoadingState::Idle | StatusLoadingState::Loading => {
+                                view! {
+                                    <div class="status-center-loading">
+                                        <Spinner />
+                                        <p class="status-center-loading-text">"Loading status..."</p>
+                                    </div>
+                                }.into_any()
+                            }
+                            StatusLoadingState::Error(ref e) => {
+                                let error_msg = e.to_string();
+                                view! {
+                                    <div class="status-center-error">
+                                        <svg class="status-center-error-icon" fill="none" stroke="currentColor" viewBox="0 0 24 24">
+                                            <path stroke-linecap="round" stroke-linejoin="round" stroke-width="2"
+                                                d="M12 9v2m0 4h.01m-6.938 4h13.856c1.54 0 2.502-1.667 1.732-3L13.732 4c-.77-1.333-2.694-1.333-3.464 0L3.34 16c-.77 1.333.192 3 1.732 3z"/>
+                                        </svg>
+                                        <p class="status-center-error-text">"Failed to load status"</p>
+                                        <p class="status-center-error-detail">{error_msg}</p>
+                                    </div>
+                                }.into_any()
+                            }
+                            StatusLoadingState::LoadedWithError(ref data, ref e) => {
+                                let status = data.status.clone();
+                                let state = data.state.clone();
+                                let error_msg = e.to_string();
 
-                            view! {
-                                <div class="status-center-warning">
-                                    <p class="status-center-error-text">"Using cached status. Refreshing..."</p>
-                                    <p class="status-center-error-detail">{error_msg}</p>
-                                    <div class="status-center-divider status-center-divider--spaced"></div>
-                                </div>
-                                <StatusCenterSections status=status state=state />
-                            }.into_any()
-                        }
-                        StatusLoadingState::Loaded(ref data) => {
-                            let status = data.status.clone();
-                            let state = data.state.clone();
+                                view! {
+                                    <div class="status-center-warning">
+                                        <p class="status-center-error-text">"Using cached status. Refreshing..."</p>
+                                        <p class="status-center-error-detail">{error_msg}</p>
+                                        <div class="status-center-divider status-center-divider--spaced"></div>
+                                    </div>
+                                    <StatusCenterSections status=status state=state />
+                                }.into_any()
+                            }
+                            StatusLoadingState::Loaded(ref data) => {
+                                let status = data.status.clone();
+                                let state = data.state.clone();
 
-                            view! {
-                                <StatusCenterSections status=status state=state />
-                            }.into_any()
+                                view! {
+                                    <StatusCenterSections status=status state=state />
+                                }.into_any()
+                            }
                         }
-                    }
-                }}
+                    }}
+                </div>
             </div>
 
             // Footer with keyboard shortcut hint
@@ -180,6 +289,15 @@ pub fn StatusCenterPanel(
                     " to toggle"
                 </span>
             </div>
+
+            // Focus trap: end sentinel
+            <div
+                node_ref=sentinel_end_ref
+                class="sr-only"
+                tabindex="0"
+                on:focus=on_sentinel_end_focus
+                aria-hidden="true"
+            />
         </div>
     }
 }
@@ -535,6 +653,18 @@ fn NotificationsSection() -> impl IntoView {
             .unwrap_or(0)
     };
 
+    // Derive announcement text for notification count changes
+    let notification_announcement = move || {
+        let count = unread_count();
+        if count == 0 {
+            "No unread notifications".to_string()
+        } else if count == 1 {
+            "1 unread notification".to_string()
+        } else {
+            format!("{} unread notifications", count)
+        }
+    };
+
     let has_notifications = move || {
         state
             .try_get()
@@ -586,6 +716,7 @@ fn NotificationsSection() -> impl IntoView {
                             class="status-notifications-action-btn"
                             on:click=move |_| mark_action.mark_all_read()
                             title="Mark all read"
+                            aria-label="Mark all read"
                         >
                             <svg fill="none" stroke="currentColor" viewBox="0 0 24 24" stroke-width="2">
                                 <path stroke-linecap="round" stroke-linejoin="round" d="M5 13l4 4L19 7"/>
@@ -595,6 +726,7 @@ fn NotificationsSection() -> impl IntoView {
                             class="status-notifications-action-btn"
                             on:click=move |_| clear_action.clear_notifications()
                             title="Clear all"
+                            aria-label="Clear all"
                         >
                             <svg fill="none" stroke="currentColor" viewBox="0 0 24 24" stroke-width="2">
                                 <path stroke-linecap="round" stroke-linejoin="round" d="M19 7l-.867 12.142A2 2 0 0116.138 21H7.862a2 2 0 01-1.995-1.858L5 7m5 4v6m4-6v6m1-10V4a1 1 0 00-1-1h-4a1 1 0 00-1 1v3M4 7h16"/>
@@ -629,6 +761,11 @@ fn NotificationsSection() -> impl IntoView {
                     }.into_any()
                 }
             }}
+
+            // Hidden announcement for notification count changes
+            <span class="sr-only" aria-live="polite">
+                {notification_announcement}
+            </span>
         </StatusSection>
     }
 }
@@ -847,3 +984,20 @@ fn drift_level_to_severity(level: &adapteros_api_types::DriftLevel) -> StatusIte
         adapteros_api_types::DriftLevel::Critical => StatusItemSeverity::Error,
     }
 }
+
+#[cfg(target_arch = "wasm32")]
+fn set_timeout_simple<F: FnOnce() + 'static>(f: F, ms: i32) {
+    use wasm_bindgen::prelude::*;
+    use wasm_bindgen::JsCast;
+
+    let closure = Closure::once_into_js(f);
+    let Some(window) = web_sys::window() else {
+        tracing::error!("set_timeout_simple: no window object available");
+        return;
+    };
+    let _ =
+        window.set_timeout_with_callback_and_timeout_and_arguments_0(closure.unchecked_ref(), ms);
+}
+
+#[cfg(not(target_arch = "wasm32"))]
+fn set_timeout_simple<F: FnOnce() + 'static>(_f: F, _ms: i32) {}

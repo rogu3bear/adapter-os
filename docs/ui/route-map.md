@@ -1,74 +1,81 @@
 # AdapterOS UI Route Map
 
-This document inventories all routes and maps each to the 6-module control-plane navigation (plus Tools/Hidden). It also records redirects and hidden entries for compatibility.
+This inventory maps every live route declared in
+`crates/adapteros-ui/src/lib.rs` to the canonical IA taxonomy:
 
-## Modules (Target)
+`Infer`, `Data`, `Train`, `Deploy`, `Route`, `Observe`, `Govern`, `Org`.
 
-- **Run**: run inference and inspect runs (canonical object)
-- **Prove**: audit/provenance verification
-- **Configure**: adapters, stacks, policies, models
-- **Data**: datasets + documents (core data surfaces)
-- **Operate**: health ladder (dashboard → infrastructure → workers → metrics → incidents)
-- **Govern**: admin, human review, settings
-- **Tools**: debug/experimental utilities
-- **Hidden**: public or system-only entry points not shown in primary nav
+Route class canon (exactly one per route): `Primary`, `Tools`, `Hidden`, `Experimental`.
 
-## Complete Route Mapping
+Naming canon:
+- User-facing label is `Runs` (not `Flight Recorder`).
+- Legacy aliases remain documented as redirects for backward compatibility.
 
-| Old Route | New Canonical Route | Module | Status | Reason |
+## Canonical Module Ownership
+
+- **Infer**: inference interaction surfaces (`/chat` and session deep links).
+- **Data**: datasets, documents, collections, repositories.
+- **Train**: training flows and deep-link entry points.
+- **Deploy**: models, adapters, stacks.
+- **Route**: routing policy/decision inspection.
+- **Observe**: dashboard, runs, workers, monitoring, errors, diff tooling.
+- **Govern**: policies, audit, human review, safety fallback.
+- **Org**: admin, settings/account, system/workspace utilities.
+
+## Live Route Inventory
+
+| Route | Module | Class | Maturity | Behavior / Notes |
 |---|---|---|---|---|
-| `/login` | `/login` | Hidden | Keep | Auth entry (not in nav) |
-| `/` | `/` | Operate | Keep | Dashboard summary |
-| `/dashboard` | `/` | Operate | Redirect | Single dashboard entry |
-| `/adapters` | `/adapters` | Configure | Keep | Adapter management |
-| `/adapters/:id` | `/adapters/:id` | Configure | Keep | Adapter detail |
-| `/chat` | `/chat` | Run | Keep | Primary inference surface |
-| `/chat/:session_id` | `/chat/:session_id` | Run | Keep | Session detail |
-| `/system` | `/system` | Operate | Keep | Infrastructure topology/services |
-| `/settings` | `/settings` | Govern | Keep | Preferences & system info |
-| `/models` | `/models` | Configure | Keep | Model registry |
-| `/policies` | `/policies` | Configure | Keep | Policy packs |
-| `/training` | `/training` | Operate | Hide | Advanced surface (via search/deep link) |
-| `/stacks` | `/stacks` | Configure | Keep | Runtime stacks |
-| `/stacks/:id` | `/stacks/:id` | Configure | Keep | Stack detail |
-| `/collections` | `/collections` | Data | Hide | Secondary data surface |
-| `/collections/:id` | `/collections/:id` | Data | Hide | Secondary data surface |
-| `/documents` | `/documents` | Data | Keep | Document store |
-| `/documents/:id` | `/documents/:id` | Data | Keep | Document detail |
-| `/datasets` | `/datasets` | Data | Keep | Dataset management |
-| `/datasets/:id` | `/datasets/:id` | Data | Keep | Dataset detail |
-| `/repositories` | `/repositories` | Data | Hide | Secondary data surface |
-| `/repositories/:id` | `/repositories/:id` | Data | Hide | Secondary data surface |
-| `/admin` | `/admin` | Govern | Keep | Administration |
-| `/audit` | `/audit` | Prove | Keep | Audit log |
-| `/runs` | `/runs` | Run | Keep | Runs list |
-| `/runs/:id` | `/runs/:id` | Run | Keep | Run Detail hub (tabs) |
-| `/flight-recorder` | `/runs` | Run | Redirect | Legacy name |
-| `/flight-recorder/:id` | `/runs/:id` | Run | Redirect | Legacy name |
-| `/diff` | `/runs/:id?tab=diff` | Tools | Redirect | Diff moves under Run Detail (launcher kept) |
-| `/workers` | `/workers` | Operate | Keep | Worker pool management |
-| `/workers/:id` | `/workers/:id` | Operate | Keep | Worker detail |
-| `/monitoring` | `/monitoring` | Operate | Keep | Metrics (renamed) |
-| `/errors` | `/errors` | Operate | Keep | Incidents (renamed) |
-| `/routing` | `/routing` | Tools | Keep | Routing Debug |
-| `/reviews` | `/reviews` | Govern | Keep | Human Review |
-| `/agents` | `/agents` | Tools | Hide | Experimental surface |
-| `/safe` | `/safe` | Hidden | Hide | Safety mode (public fallback) |
-| `/style-audit` | `/style-audit` | Tools | Keep | Style audit |
+| `/login` | Org | Hidden | Stable | Public auth entry. |
+| `/safe` | Govern | Hidden | Stable | Public safe-mode fallback (no auth/API calls). |
+| `/style-audit` | Org | Tools | Stable | Style-system audit page (dev utility). |
+| `/dashboard` | Observe | Hidden | Stable | Redirect alias to `/`. |
+| `/flight-recorder` | Observe | Hidden | Stable | Legacy redirect alias to `/runs`. |
+| `/flight-recorder/:id` | Observe | Hidden | Stable | Legacy redirect alias to `/runs/:id` (preserves query string). |
+| `/` | Observe | Primary | Stable | Dashboard landing page. |
+| `/adapters` | Deploy | Primary | Stable | Adapter inventory. |
+| `/adapters/:id` | Deploy | Primary | Stable | Adapter detail. |
+| `/chat` | Infer | Primary | Stable | Inference chat entry point. |
+| `/chat/:session_id` | Infer | Primary | Stable | Chat session deep link. |
+| `/system` | Org | Primary | Stable | System status/topology surface. |
+| `/settings` | Org | Primary | Stable | User preferences and system info. |
+| `/user` | Org | Hidden | Stable | Backward-compat redirect alias to `/settings`. |
+| `/models` | Deploy | Primary | Stable | Model registry/list. |
+| `/models/:id` | Deploy | Primary | Stable | Model detail. |
+| `/policies` | Govern | Primary | Stable | Policy management. |
+| `/training` | Train | Primary | Stable | Training jobs and orchestration. |
+| `/training/:id` | Train | Hidden | Stable | Redirect alias to `/training?job_id=:id`. |
+| `/stacks` | Deploy | Primary | Stable | Runtime stack list. |
+| `/stacks/:id` | Deploy | Primary | Stable | Runtime stack detail. |
+| `/collections` | Data | Primary | Stable | Collection list. |
+| `/collections/:id` | Data | Primary | Stable | Collection detail. |
+| `/documents` | Data | Primary | Stable | Document list/ingestion surface. |
+| `/documents/:id` | Data | Primary | Stable | Document detail. |
+| `/datasets` | Data | Primary | Stable | Dataset list. |
+| `/datasets/:id` | Data | Primary | Stable | Dataset detail. |
+| `/admin` | Org | Primary | Stable | Tenant/org administration. |
+| `/audit` | Govern | Primary | Stable | Audit and compliance trail. |
+| `/runs` | Observe | Primary | Stable | Canonical runs history list. |
+| `/runs/:id` | Observe | Primary | Stable | Canonical run detail hub. |
+| `/diff` | Observe | Tools | Stable | Run-diff launcher page; if run IDs are present in query params, redirects to `/runs/:id?tab=diff...`. |
+| `/workers` | Observe | Primary | Stable | Worker list and lifecycle controls. |
+| `/workers/:id` | Observe | Primary | Stable | Worker detail. |
+| `/monitoring` | Observe | Primary | Stable | Monitoring and alerts. |
+| `/errors` | Observe | Primary | Stable | Error/incidents surface. |
+| `/routing` | Route | Primary | Stable | Routing rules and decision inspection. |
+| `/repositories` | Data | Primary | Stable | Repository list/sync controls. |
+| `/repositories/:id` | Data | Primary | Stable | Repository detail. |
+| `/reviews/:pause_id` | Govern | Primary | Stable | Review detail/deep link for paused items. |
+| `/reviews` | Govern | Primary | Stable | Review queue. |
+| `/welcome` | Org | Hidden | Stable | First-run onboarding/checklist surface. |
+| `/agents` | Org | Experimental | Experimental + Incomplete | Agent orchestration UI; session creation action is intentionally disabled in UI. |
+| `/files` | Org | Primary | Stable | Filesystem browser. |
 
-## Run Detail Tabs (Canonical)
+## Redirect And Legacy Alias Notes
 
-`/runs/:id` is the single provenance front door. Tabs:
-- **Overview**
-- **Trace**
-- **Receipt**
-- **Routing**
-- **Tokens**
-- **Diff** (optional)
-
-## Redirect Notes
-
-- `/dashboard` → `/`
-- `/flight-recorder` → `/runs`
-- `/flight-recorder/:id` → `/runs/:id`
-- `/diff` → Run Detail Diff launcher (select a run, then open `/runs/:id?tab=diff`)
+- `/dashboard` -> `/`
+- `/flight-recorder` -> `/runs`
+- `/flight-recorder/:id` -> `/runs/:id` (query params preserved)
+- `/training/:id` -> `/training?job_id=:id`
+- `/user` -> `/settings`
+- `/diff` conditionally redirects only when query includes run IDs; otherwise it remains a standalone diff page.

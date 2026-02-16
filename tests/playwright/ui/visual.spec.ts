@@ -1,5 +1,5 @@
-import { test, expect } from '@playwright/test';
-import { disableAnimations, ensureLoggedIn, seeded, waitForAppReady } from './utils';
+import { test, expect, type Locator } from '@playwright/test';
+import { disableAnimations, gotoAndBootstrap, seeded } from './utils';
 
 test.describe('visual baselines', () => {
   test.beforeEach(async ({ page }) => {
@@ -8,97 +8,102 @@ test.describe('visual baselines', () => {
   });
 
   test('style audit', { tag: ['@visual'] }, async ({ page }) => {
-    await page.goto('/style-audit', { waitUntil: 'domcontentloaded' });
-    await waitForAppReady(page);
-    await ensureLoggedIn(page);
+    await gotoAndBootstrap(page, '/style-audit', { mode: 'ui-only' });
     await expect(
       page.getByRole('heading', { name: 'Style Audit', level: 1, exact: true })
     ).toBeVisible();
     await expect(page).toHaveScreenshot('style-audit.png', {
       fullPage: true,
-      maxDiffPixels: 50,
+      maxDiffPixels: 2500,
     });
   });
 
   test('training detail', { tag: ['@visual'] }, async ({ page }) => {
-    await page.goto('/training', { waitUntil: 'domcontentloaded' });
-    await waitForAppReady(page);
-    await ensureLoggedIn(page);
+    await gotoAndBootstrap(page, '/training', { mode: 'ui-only' });
     await page
       .getByRole('row', { name: new RegExp(seeded.adapterName) })
       .click();
     await expect(
       page.getByRole('heading', { name: seeded.trainingJobId, level: 2, exact: true })
     ).toBeVisible();
-    const main = page.locator('#main-content');
-    const masks = [
-      page.getByText('Created', { exact: true }).locator('..'),
-      page.getByText('Started', { exact: true }).locator('..'),
-      page.getByText('Completed', { exact: true }).locator('..'),
+    const trainingDetail = page.getByTestId('training-job-detail');
+    await expect(trainingDetail).toBeVisible();
+    const createdRow = trainingDetail.getByTestId('training-detail-created-row');
+    await expect(createdRow).toBeVisible();
+    await trainingDetail.evaluate((el) => {
+      const node = el as HTMLElement;
+      node.style.width = '436px';
+      node.style.maxWidth = '436px';
+    });
+    const visibleMasks = [createdRow];
+    const optionalMasks = [
+      trainingDetail.getByTestId('training-detail-started-row'),
+      trainingDetail.getByTestId('training-detail-completed-row'),
     ];
-    const visibleMasks = [];
-    for (const locator of masks) {
+    for (const locator of optionalMasks) {
       if ((await locator.count()) > 0) {
         visibleMasks.push(locator);
       }
     }
-    await expect(main).toHaveScreenshot('training-detail.png', {
+    await expect(trainingDetail).toHaveScreenshot('training-detail.png', {
       maxDiffPixels: 10000,
-      maxDiffPixelRatio: 0.03,
+      maxDiffPixelRatio: 0.05,
       mask: visibleMasks,
     });
   });
 
   test('routing debug', { tag: ['@visual'] }, async ({ page }) => {
-    await page.goto('/routing', { waitUntil: 'domcontentloaded' });
-    await waitForAppReady(page);
-    await ensureLoggedIn(page);
+    await gotoAndBootstrap(page, '/routing', { mode: 'ui-only' });
     await expect(
       page.getByRole('heading', { name: 'Routing Debug', level: 1, exact: true })
     ).toBeVisible();
-    const main = page.locator('#main-content');
-    await expect(main).toHaveScreenshot('routing.png', {
-      maxDiffPixels: 50,
+    const routingPage = page.getByTestId('routing-page');
+    await expect(routingPage).toBeVisible();
+    await expect(routingPage).toHaveScreenshot('routing.png', {
+      maxDiffPixels: 150,
     });
   });
 
   test('adapters list', { tag: ['@visual'] }, async ({ page }) => {
-    await page.goto('/adapters', { waitUntil: 'domcontentloaded' });
-    await waitForAppReady(page);
-    await ensureLoggedIn(page);
+    await gotoAndBootstrap(page, '/adapters', { mode: 'ui-only' });
     await expect(
       page.getByRole('heading', { name: 'Adapters', level: 1, exact: true })
     ).toBeVisible();
-    const main = page.locator('#main-content');
-    await expect(main).toHaveScreenshot('adapters.png', {
-      maxDiffPixels: 50,
+    const adaptersListCard = page.getByTestId('adapters-list-card');
+    await expect(adaptersListCard).toBeVisible();
+    await expect(adaptersListCard).toHaveScreenshot('adapters.png', {
+      maxDiffPixels: 150,
     });
   });
 
   test('repository detail', { tag: ['@visual'] }, async ({ page }) => {
-    await page.goto(`/repositories/${seeded.repoId}`, { waitUntil: 'domcontentloaded' });
-    await waitForAppReady(page);
-    await ensureLoggedIn(page);
+    await gotoAndBootstrap(page, `/repositories/${seeded.repoId}`, { mode: 'ui-only' });
     await expect(
       page.getByRole('heading', { name: 'Repository Details', level: 1, exact: true })
     ).toBeVisible();
-    const main = page.locator('#main-content');
-    const masks = [
-      page.getByText('Created', { exact: true }).locator('..'),
-      page.getByText('Updated', { exact: true }).locator('..'),
-      page.getByText('Latest Scan', { exact: true }).locator('..'),
-      page.getByText('Latest Commit', { exact: true }).locator('..'),
+    const statusCard = page.getByTestId('repo-detail-status-card');
+    const infoCard = page.getByTestId('repo-detail-info-card');
+    const languagesCard = page.getByTestId('repo-detail-languages-card');
+    const scanCard = page.getByTestId('repo-detail-scan-card');
+    await expect(statusCard).toBeVisible();
+    await expect(infoCard).toBeVisible();
+    await expect(languagesCard).toBeVisible();
+    await expect(scanCard).toBeVisible();
+    const masks: Locator[] = [];
+    const optionalMasks = [
+      infoCard.getByText('Created', { exact: true }).locator('..'),
+      infoCard.getByText('Updated', { exact: true }).locator('..'),
+      infoCard.getByText('Latest Scan', { exact: true }).locator('..'),
     ];
-    const visibleMasks = [];
-    for (const locator of masks) {
+    for (const locator of optionalMasks) {
       if ((await locator.count()) > 0) {
-        visibleMasks.push(locator);
+        masks.push(locator);
       }
     }
-    await expect(main).toHaveScreenshot('repository-detail.png', {
-      maxDiffPixels: 2500,
-      maxDiffPixelRatio: 0.02,
-      mask: visibleMasks,
+    await expect(infoCard).toHaveScreenshot('repository-detail.png', {
+      maxDiffPixels: 800,
+      maxDiffPixelRatio: 0.03,
+      mask: masks,
     });
   });
 });

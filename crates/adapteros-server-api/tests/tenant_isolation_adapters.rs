@@ -21,6 +21,7 @@ use adapteros_server_api::handlers::adapters::{
 use adapteros_server_api::handlers::adapters_read::{get_adapter_repository, list_adapters};
 use adapteros_server_api::handlers::{delete_adapter, get_adapter, get_adapter_activations};
 use adapteros_server_api::inference_core::InferenceCore;
+use adapteros_server_api::ip_extraction::ClientIp;
 use adapteros_server_api::types::{InferenceError, InferenceRequestInternal, ListAdaptersQuery};
 use axum::extract::{Path, Query, State};
 use axum::http::StatusCode;
@@ -189,6 +190,7 @@ async fn cross_tenant_delete_adapter_returns_404() -> Result<()> {
     let result = delete_adapter(
         State(state),
         Extension(claims_other_tenant),
+        Extension(ClientIp("127.0.0.1".to_string())),
         Path("tenant-1-adapter".to_string()),
     )
     .await;
@@ -633,6 +635,7 @@ async fn test_promote_adapter_lifecycle_blocks_cross_tenant() -> Result<()> {
     let result = promote_adapter_lifecycle(
         State(state.clone()),
         Extension(claims_b),
+        Extension(ClientIp("127.0.0.1".to_string())),
         Path("adapter-a-1".to_string()),
         Json(LifecycleTransitionRequest {
             reason: "Cross-tenant promotion attempt".to_string(),
@@ -681,6 +684,7 @@ async fn test_demote_adapter_lifecycle_blocks_cross_tenant() -> Result<()> {
     let result = demote_adapter_lifecycle(
         State(state.clone()),
         Extension(claims_b),
+        Extension(ClientIp("127.0.0.1".to_string())),
         Path("adapter-a-1".to_string()),
         Json(LifecycleTransitionRequest {
             reason: "Cross-tenant demotion attempt".to_string(),
@@ -1033,6 +1037,7 @@ async fn test_same_tenant_adapter_operations_allowed() -> Result<()> {
     let promote_result = promote_adapter_lifecycle(
         State(state.clone()),
         Extension(claims_a.clone()),
+        Extension(ClientIp("127.0.0.1".to_string())),
         Path("adapter-a-1".to_string()),
         Json(LifecycleTransitionRequest {
             reason: "Same-tenant promotion".to_string(),

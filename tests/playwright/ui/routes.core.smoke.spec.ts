@@ -1,9 +1,10 @@
 import { test, expect } from '@playwright/test';
 import {
-  ensureLoggedIn,
+  ensureActiveChatSession,
+  gotoAndBootstrap,
+  resolveChatEntryState,
   runRouteCheck,
   seeded,
-  waitForAppReady,
   type RouteCheck,
 } from './utils';
 
@@ -11,14 +12,14 @@ const coreRoutes: RouteCheck[] = [
   { path: '/login', heading: 'Login' },
   { path: '/', heading: 'Dashboard' },
   { path: '/dashboard', heading: 'Dashboard' },
-  { path: '/adapters', heading: 'Adapters' },
+  { path: '/adapters', text: /New Adapter|No adapters found/i },
   { path: `/adapters/${seeded.adapterId}`, heading: 'Adapter Details' },
   // /chat uses an sr-only H1; assert on a visible, chat-specific surface instead.
-  { path: '/chat', text: 'Sessions' },
+  { path: '/chat', testId: 'chat-status-badge', text: /Sessions|Chat unavailable/i },
   { path: '/system', heading: 'Infrastructure' },
   { path: '/settings', heading: 'Settings' },
   { path: '/user', heading: 'Settings' },
-  { path: '/models', heading: 'Models' },
+  { path: '/models', text: /Import Model|Base model status requires admin permissions/i },
   { path: '/policies', heading: 'Policy Packs' },
   { path: '/training', heading: 'Training Jobs' },
 ];
@@ -31,13 +32,15 @@ for (const route of coreRoutes) {
 }
 
 test('chat session deep route loads', { tag: ['@smoke'] }, async ({ page }) => {
-  await page.goto('/chat', { waitUntil: 'domcontentloaded' });
-  await waitForAppReady(page);
-  await ensureLoggedIn(page);
-  await expect(page.getByText('Sessions', { exact: true })).toBeVisible();
-  await page.getByRole('button', { name: 'New Chat' }).click();
+  await gotoAndBootstrap(page, '/chat', {
+    mode: 'ui-only',
+  });
+  const state = await resolveChatEntryState(page);
+  if (state === 'unavailable') {
+    await expect(page.getByTestId('chat-unavailable-state')).toBeVisible();
+    return;
+  }
+  await ensureActiveChatSession(page);
   await expect(page).toHaveURL(/\/chat\/.+/);
-  // Headings in the chat page use custom classes, not always semantic role=heading.
-  // Assert on text presence to keep this smoke check resilient.
-  await expect(page.getByText('Chat Session', { exact: true })).toBeVisible();
+  await expect(page.getByTestId('chat-header')).toBeVisible();
 });

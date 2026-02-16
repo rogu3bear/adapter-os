@@ -2,6 +2,7 @@ use adapteros_api_types::InferRequest;
 use adapteros_core::identity::IdentityEnvelope;
 use adapteros_lora_worker::memory::MemoryPressureLevel;
 use adapteros_server_api::handlers::inference::infer;
+use adapteros_server_api::ip_extraction::ClientIp;
 use adapteros_server_api::middleware::request_id::RequestId;
 use axum::{extract::State, http::StatusCode, Extension, Json};
 
@@ -31,6 +32,7 @@ async fn uma_backpressure_short_circuits_inference() {
     let err = infer(
         State(state.clone()),
         Extension(claims),
+        Extension(ClientIp("127.0.0.1".to_string())),
         Extension(identity),
         Some(Extension(RequestId("backpressure".to_string()))),
         None,

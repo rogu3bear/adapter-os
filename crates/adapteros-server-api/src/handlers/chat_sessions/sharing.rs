@@ -15,8 +15,40 @@ use axum::{
     http::StatusCode,
     Extension, Json,
 };
+use serde::Serialize;
 
 use super::types::{ListArchivedQuery, ShareSessionRequest};
+
+/// Single share entry matching the UI's `SessionShareInfo` shape.
+#[derive(Debug, Clone, Serialize)]
+pub struct SessionShareInfo {
+    pub share_id: String,
+    pub user_id: String,
+    pub permission: String,
+    pub shared_at: String,
+}
+
+/// Wrapped response matching the UI's `SessionSharesResponse` shape.
+#[derive(Debug, Clone, Serialize)]
+pub struct SessionSharesResponse {
+    pub shares: Vec<SessionShareInfo>,
+}
+
+/// Single shared-session entry matching the UI's `SharedSessionInfo` shape.
+#[derive(Debug, Clone, Serialize)]
+pub struct SharedSessionInfo {
+    pub session_id: String,
+    pub name: String,
+    pub shared_by: String,
+    pub permission: String,
+    pub shared_at: String,
+}
+
+/// Wrapped response matching the UI's `SharedWithMeResponse` shape.
+#[derive(Debug, Clone, Serialize)]
+pub struct SharedWithMeResponse {
+    pub sessions: Vec<SharedSessionInfo>,
+}
 
 /// Share a session
 ///
@@ -40,7 +72,7 @@ pub async fn share_session(
     Extension(claims): Extension<Claims>,
     Path(session_id): Path<String>,
     Json(req): Json<ShareSessionRequest>,
-) -> Result<(StatusCode, Json<serde_json::Value>), (StatusCode, Json<ErrorResponse>)> {
+) -> Result<(StatusCode, Json<SessionSharesResponse>), (StatusCode, Json<ErrorResponse>)> {
     require_permission(&claims, Permission::WorkspaceResourceManage).map_err(|_| {
         (
             StatusCode::FORBIDDEN,
@@ -79,7 +111,8 @@ pub async fn share_session(
     // Tenant isolation check
     validate_tenant_isolation(&claims, &session.tenant_id)?;
 
-    let mut share_ids = Vec::new();
+    let shared_at = chrono::Utc::now().to_rfc3339();
+    let mut shares = Vec::new();
 
     // Share with workspace
     if let Some(workspace_id) = &req.workspace_id {
@@ -103,7 +136,12 @@ pub async fn share_session(
                     ),
                 )
             })?;
-        share_ids.push(serde_json::json!({"type": "workspace", "id": id}));
+        shares.push(SessionShareInfo {
+            share_id: id,
+            user_id: workspace_id.clone(),
+            permission: req.permission.clone(),
+            shared_at: shared_at.clone(),
+        });
     }
 
     // Share with users
@@ -130,14 +168,16 @@ pub async fn share_session(
                         ),
                     )
                 })?;
-            share_ids.push(serde_json::json!({"type": "user", "id": id, "user_id": user_id}));
+            shares.push(SessionShareInfo {
+                share_id: id,
+                user_id: user_id.clone(),
+                permission: req.permission.clone(),
+                shared_at: shared_at.clone(),
+            });
         }
     }
 
-    Ok((
-        StatusCode::CREATED,
-        Json(serde_json::json!({"shares": share_ids})),
-    ))
+    Ok((StatusCode::CREATED, Json(SessionSharesResponse { shares })))
 }
 
 /// Get shares for a session
@@ -160,7 +200,7 @@ pub async fn get_session_shares(
     State(state): State<AppState>,
     Extension(claims): Extension<Claims>,
     Path(session_id): Path<String>,
-) -> Result<Json<Vec<SessionShare>>, (StatusCode, Json<ErrorResponse>)> {
+) -> Result<Json<SessionSharesResponse>, (StatusCode, Json<ErrorResponse>)> {
     require_permission(&claims, Permission::InferenceExecute).map_err(|_| {
         (
             StatusCode::FORBIDDEN,
@@ -196,7 +236,7 @@ pub async fn get_session_shares(
     // Tenant isolation check
     validate_tenant_isolation(&claims, &session.tenant_id)?;
 
-    let shares = state
+    let db_shares = state
         .db
         .get_session_shares(&session_id)
         .await
@@ -211,7 +251,17 @@ pub async fn get_session_shares(
             )
         })?;
 
-    Ok(Json(shares))
+    let shares = db_shares
+        .into_iter()
+        .map(|s| SessionShareInfo {
+            share_id: s.id,
+            user_id: s.shared_with_user_id.unwrap_or_default(),
+            permission: s.permission,
+            shared_at: s.shared_at,
+        })
+        .collect();
+
+    Ok(Json(SessionSharesResponse { shares }))
 }
 
 /// Revoke a session share
@@ -317,7 +367,7 @@ pub async fn get_sessions_shared_with_me(
     State(state): State<AppState>,
     Extension(claims): Extension<Claims>,
     Query(query): Query<ListArchivedQuery>,
-) -> Result<Json<Vec<ChatSessionWithStatus>>, (StatusCode, Json<ErrorResponse>)> {
+) -> Result<Json<SharedWithMeResponse>, (StatusCode, Json<ErrorResponse>)> {
     require_permission(&claims, Permission::InferenceExecute).map_err(|_| {
         (
             StatusCode::FORBIDDEN,
@@ -328,7 +378,7 @@ pub async fn get_sessions_shared_with_me(
     // Tenant isolation check
     validate_tenant_isolation(&claims, &claims.tenant_id)?;
 
-    let sessions = state
+    let db_sessions = state
         .db
         .get_sessions_shared_with_user(&claims.sub, &claims.tenant_id, query.limit)
         .await
@@ -343,5 +393,16 @@ pub async fn get_sessions_shared_with_me(
             )
         })?;
 
-    Ok(Json(sessions))
+    let sessions = db_sessions
+        .into_iter()
+        .map(|s| SharedSessionInfo {
+            session_id: s.id,
+            name: s.name,
+            shared_by: s.user_id.unwrap_or_default(),
+            permission: "read".to_owned(),
+            shared_at: s.created_at,
+        })
+        .collect();
+
+    Ok(Json(SharedWithMeResponse { sessions }))
 }

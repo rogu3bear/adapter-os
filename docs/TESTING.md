@@ -551,6 +551,7 @@ ls -lh models/
 ## UI Testing
 
 Playwright suites live in `tests/playwright`.
+Leptos UI configs isolate each run under `var/playwright/runs/<run-id>/`.
 
 ### Setup
 
@@ -560,7 +561,15 @@ npm install
 npx playwright install
 export PLAYWRIGHT_BROWSERS_PATH=var/playwright/browsers
 export PW_TEST_TMPDIR=var/playwright/tmp
+# Optional run overrides
+export PW_RUN_ID=local-ui
+export PW_SERVER_PORT=4180
+export PW_CLEAN_DEBUG=0
 ```
+
+- `PW_RUN_ID`: run scope key; if unset, `scripts/pw-run.mjs` generates a unique run ID.
+- `PW_SERVER_PORT`: backend/UI port for the run; if unset, `scripts/pw-run.mjs` picks an available port.
+- `PW_CLEAN_DEBUG`: optional teardown cleanup toggle; set to `1` to remove `<run-id>/debug`, otherwise debug artifacts are preserved.
 
 ### Run
 
@@ -568,10 +577,19 @@ export PW_TEST_TMPDIR=var/playwright/tmp
 npm run test:ui
 npm run test:codegraph
 npm run test:minimal
+npm run test:ci:concurrency
 ```
 
-Artifacts are stored under `var/playwright/`.
-Leptos UI runs the backend with a clean Playwright DB under `var/playwright/` and `E2E_MODE=1`.
+`npm run test:ci:concurrency` runs two slices in parallel (`chromium` + `webkit`) with fixed CI run IDs/ports (`ci-concurrency-a:4190`, `ci-concurrency-b:4191`) and exits non-zero if either slice fails.
+
+Leptos UI run artifacts are stored under `var/playwright/runs/<run-id>/`:
+- `test-results/`, `report/`, `tmp/`
+- backend state: `aos-cp.sqlite3`, `aos-kv.redb`, `aos-kv-index/`
+- diagnostics: `heartbeat.json`, `debug/global-setup.ndjson` (and `debug/global-setup-dashboard.png` on setup failure)
+
+In CI, the concurrency smoke is advisory/non-blocking (`playwright-concurrency-smoke` uses `continue-on-error: true`) and uploads:
+- `var/playwright/runs/ci-concurrency-a/`
+- `var/playwright/runs/ci-concurrency-b/`
 
 ---
 

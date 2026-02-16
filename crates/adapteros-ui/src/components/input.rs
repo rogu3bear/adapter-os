@@ -33,6 +33,7 @@ pub fn Input(
     /// Accessible label for inputs without visible label (layout constraints)
     #[prop(optional, into)]
     aria_label: Option<String>,
+    #[prop(optional, into)] data_testid: Option<String>,
 ) -> impl IntoView {
     let base_class = "input";
 
@@ -81,6 +82,8 @@ pub fn Input(
         (None, None) => None,
     };
 
+    let data_testid = data_testid.filter(|value| !value.is_empty());
+
     view! {
         <div class="grid w-full gap-1.5">
             {label.map(|l| view! {
@@ -104,6 +107,7 @@ pub fn Input(
                     aria-invalid=error.is_some().to_string()
                     aria-describedby=full_described_by
                     aria-label=effective_aria_label
+                    data-testid=move || data_testid.clone()
                     prop:value=move || value.try_get().unwrap_or_default()
                     on:input=move |ev| {
                         value.set(event_target_value(&ev));

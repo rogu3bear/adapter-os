@@ -35,7 +35,7 @@
     /* Status colors (semantic feedback colors) */
     --color-status-info: hsl(221 83% 53%);
     --color-status-success: hsl(142 76% 36%);
-    --color-status-warning: hsl(38 92% 50%);
+    --color-status-warning: hsl(38 92% 38%);
     --color-status-error: hsl(0 84% 60%);
 
     /* Chart palette colors (for charts, graphs, and data visualization) */
@@ -315,4 +315,8 @@ p, h1, h2, h3, h4, h5, h6 {
     /* Focus ring - ensure 3:1 contrast against adjacent colors */
     --focus-ring-width: 2px;
     --focus-ring-offset: 2px;
+}
+
+@media (forced-colors: active) {
+  :focus-visible { outline-color: Highlight; }
 }

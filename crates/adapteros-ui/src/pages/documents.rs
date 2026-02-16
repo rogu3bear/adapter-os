@@ -18,7 +18,6 @@ use crate::signals::{try_use_route_context, SelectedEntity};
 use crate::utils::{format_bytes, format_datetime, format_relative_time};
 use leptos::prelude::*;
 use leptos_router::hooks::{use_navigate, use_params_map};
-use serde::Deserialize;
 use std::sync::Arc;
 
 #[cfg(target_arch = "wasm32")]
@@ -79,10 +78,8 @@ fn document_processing_state(status: &str) -> (Option<String>, Vec<String>, Vec<
     (current, completed, vec![])
 }
 
-fn slugify_id(raw: &str) -> String {
-    raw.chars()
-        .map(|c| if c.is_ascii_alphanumeric() { c } else { '-' })
-        .collect()
+fn training_route_for_document(doc_id: &str) -> String {
+    format!("/training?source=document&document_id={}", doc_id)
 }
 
 #[derive(Clone, Debug, Default)]
@@ -650,6 +647,19 @@ fn DocumentsList(
     .into_any()
 }
 
+#[cfg(test)]
+mod tests {
+    use super::*;
+
+    #[test]
+    fn training_route_points_to_production_flow() {
+        let route = training_route_for_document("doc_123");
+        assert_eq!(route, "/training?source=document&document_id=doc_123");
+        let forbidden = format!("/testkit/{}_{}", "create_training_job", "stub");
+        assert!(!route.contains(&forbidden));
+    }
+}
+
 /// Document upload dialog with validation and progress.
 #[component]
 fn DocumentUploadDialog(open: RwSignal<bool>, on_success: Callback<String>) -> impl IntoView {
@@ -934,10 +944,7 @@ pub fn DocumentDetail() -> impl IntoView {
                         // either re-upload or a dedicated backend endpoint. We route the user
                         // into the training flow with the document preselected.
                         let doc_id = document_id.try_get().unwrap_or_default();
-                        navigate(
-                            &format!("/training?source=document&document_id={}", doc_id),
-                            Default::default(),
-                        );
+                        navigate(&training_route_for_document(&doc_id), Default::default());
                     })
                 >
                     "Create synthesized dataset"
@@ -1123,11 +1130,6 @@ fn DocumentDetailContent(
         }
     };
 
-    #[derive(Debug, Deserialize)]
-    struct TrainingJobStubResponse {
-        job_id: String,
-    }
-
     view! {
         <div class="grid gap-6 md:grid-cols-2">
             // Basic Info
@@ -1191,62 +1193,15 @@ fn DocumentDetailContent(
                     {is_indexed.then(|| {
                         let doc_id_for_train = doc_id.clone();
                         let navigate = navigate.clone();
-                        let client = Arc::clone(&client);
                         view! {
                             <div id="train-adapter-cta" class="pt-2">
                                 <Button
                                     variant=ButtonVariant::Secondary
                                     size=ButtonSize::Sm
                                     on_click=Callback::new(move |_| {
-                                        let client = Arc::clone(&client);
                                         let doc_id = doc_id_for_train.clone();
                                         let navigate = navigate.clone();
-
-                                        // Demo flow: if testkit is enabled server-side, create a deterministic
-                                        // completed training job stub so we can immediately show job detail
-                                        // progress + adapter/chat handoff. If testkit isn't enabled, fall back
-                                        // to the normal document->training wizard flow.
-                                        wasm_bindgen_futures::spawn_local(async move {
-                                            let job_id = format!("job-doc-{}", slugify_id(&doc_id));
-                                            let adapter_id =
-                                                format!("adapter-doc-{}", slugify_id(&doc_id));
-
-                                            let body = serde_json::json!({
-                                                "job_id": job_id,
-                                                "repo_id": "repo-doc-demo",
-                                                "status": "completed",
-                                                // Dev no-auth currently uses tenant_id="default".
-                                                "tenant_id": "default",
-                                                "adapter_id": adapter_id,
-                                                "adapter_name": format!("Adapter from {}", doc_id),
-                                                "base_model_id": "model-doc-demo",
-                                                "stack_id": "stack-doc-demo"
-                                            });
-
-                                            match client
-                                                .post::<_, TrainingJobStubResponse>(
-                                                    "/testkit/create_training_job_stub",
-                                                    &body,
-                                                )
-                                                .await
-                                            {
-                                                Ok(resp) => {
-                                                    navigate(
-                                                        &format!("/training?job_id={}", resp.job_id),
-                                                        Default::default(),
-                                                    );
-                                                }
-                                                Err(_) => {
-                                                    navigate(
-                                                        &format!(
-                                                            "/training?source=document&document_id={}",
-                                                            doc_id
-                                                        ),
-                                                        Default::default(),
-                                                    );
-                                                }
-                                            }
-                                        });
+                                        navigate(&training_route_for_document(&doc_id), Default::default());
                                     })
                                 >
                                     "Train Adapter"

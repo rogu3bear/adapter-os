@@ -15,7 +15,8 @@ npx playwright test -c playwright.fast.config.ts ui/routes.best_practices.audit.
 ```
 
 Artifacts:
-- Screenshots/traces/reports: `var/playwright/`
+- Screenshots/traces/reports: `var/playwright/runs/<run-id>/`
+- Global setup diagnostics: `var/playwright/runs/<run-id>/debug/global-setup.ndjson`
 
 ### Manual Screenshot Capture (Recommended)
 
@@ -86,4 +87,3 @@ For each route below, attach:
 - `/reviews/:pause_id` (manual-only unless a pause fixture is added)
 - `/welcome`
 - `/agents`
-

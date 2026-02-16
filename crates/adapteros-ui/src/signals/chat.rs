@@ -3298,6 +3298,78 @@ mod tests {
     }
 
     #[test]
+    fn create_placeholder_session_marks_local_draft_state() {
+        let session = ChatSessionsManager::create_placeholder_session("ses_draft_123");
+        assert_eq!(session.id, "ses_draft_123");
+        assert!(session.placeholder);
+        assert!(session.messages.is_empty());
+        assert!(!session.archived);
+    }
+
+    #[test]
+    fn prune_stale_placeholders_removes_only_expired_empty_placeholders() {
+        let old = (crate::utils::now_utc() - chrono::Duration::hours(30)).to_rfc3339();
+        let fresh = (crate::utils::now_utc() - chrono::Duration::hours(2)).to_rfc3339();
+
+        let mut sessions = vec![
+            StoredChatSession {
+                id: "ses_old_placeholder".to_string(),
+                title: "Old".to_string(),
+                target: "Default".to_string(),
+                messages: Vec::new(),
+                archived: false,
+                verified_mode: false,
+                placeholder: true,
+                created_at: old.clone(),
+                updated_at: old,
+            },
+            StoredChatSession {
+                id: "ses_fresh_placeholder".to_string(),
+                title: "Fresh".to_string(),
+                target: "Default".to_string(),
+                messages: Vec::new(),
+                archived: false,
+                verified_mode: false,
+                placeholder: true,
+                created_at: fresh.clone(),
+                updated_at: fresh,
+            },
+            StoredChatSession {
+                id: "ses_old_real".to_string(),
+                title: "Real".to_string(),
+                target: "Default".to_string(),
+                messages: vec![StoredMessage {
+                    id: "m1".to_string(),
+                    role: "user".to_string(),
+                    content: "hi".to_string(),
+                    timestamp: crate::utils::now_utc().to_rfc3339(),
+                    trace_id: None,
+                    latency_ms: None,
+                    token_count: None,
+                    prompt_tokens: None,
+                    completion_tokens: None,
+                    backend_used: None,
+                }],
+                archived: false,
+                verified_mode: false,
+                placeholder: true,
+                created_at: crate::utils::now_utc().to_rfc3339(),
+                updated_at: crate::utils::now_utc().to_rfc3339(),
+            },
+        ];
+
+        ChatSessionsManager::prune_stale_placeholders_in_memory(
+            &mut sessions,
+            chrono::Duration::hours(24),
+        );
+
+        assert_eq!(sessions.len(), 2);
+        assert!(sessions.iter().any(|s| s.id == "ses_fresh_placeholder"));
+        assert!(sessions.iter().any(|s| s.id == "ses_old_real"));
+        assert!(!sessions.iter().any(|s| s.id == "ses_old_placeholder"));
+    }
+
+    #[test]
     fn validates_session_id_format() {
         // Current formats (ses_ / ses- prefix)
         assert!(ChatSessionsManager::is_valid_session_id("ses_abc123"));

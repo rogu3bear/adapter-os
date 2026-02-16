@@ -3,9 +3,11 @@
 //! Provides UI for managing training datasets - listing, viewing,
 //! and deleting datasets used for adapter training.
 
+#[cfg(target_arch = "wasm32")]
+use crate::api::report_error_with_toast;
 use crate::api::{
-    report_error_with_toast, ApiClient, DatasetListResponse, DatasetPreviewResponse,
-    DatasetSafetyCheckResult, DatasetStatisticsResponse, DatasetVersionsResponse,
+    ApiClient, DatasetListResponse, DatasetPreviewResponse, DatasetSafetyCheckResult,
+    DatasetStatisticsResponse, DatasetVersionsResponse,
 };
 use crate::components::{
     Badge, BadgeVariant, BreadcrumbTrail, Button, ButtonVariant, Card, Checkbox, Combobox,

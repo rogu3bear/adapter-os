@@ -17,6 +17,7 @@ use adapteros_server_api::handlers::models::{
     get_model_status, import_model, list_models_with_stats, load_model, unload_model,
     validate_model, ImportModelRequest,
 };
+use adapteros_server_api::ip_extraction::ClientIp;
 use adapteros_server_api::state::AppState;
 use axum::extract::{Extension, Path, State};
 use axum::http::StatusCode;
@@ -298,6 +299,7 @@ async fn test_load_model_denies_cross_tenant_access() -> Result<()> {
     let result = load_model(
         State(state.clone()),
         Extension(claims_b),
+        Extension(ClientIp("127.0.0.1".to_string())),
         Path(model_a_id.clone()),
     )
     .await;
@@ -333,6 +335,7 @@ async fn test_unload_model_denies_cross_tenant_access() -> Result<()> {
     let result = unload_model(
         State(state.clone()),
         Extension(claims_b),
+        Extension(ClientIp("127.0.0.1".to_string())),
         Path(model_a_id.clone()),
     )
     .await;
@@ -450,6 +453,7 @@ async fn test_import_model_scoped_to_tenant() -> Result<()> {
     let result = import_model(
         State(state.clone()),
         Extension(claims_a.clone()),
+        Extension(ClientIp("127.0.0.1".to_string())),
         Json(ImportModelRequest {
             model_name: "test-model".to_string(),
             model_path: test_model_dir.to_string_lossy().to_string(),
@@ -800,7 +804,13 @@ async fn test_viewer_cannot_load_model() -> Result<()> {
     // Viewer tries to load model
     let claims = create_test_claims("viewer", "viewer@tenant-a.com", "viewer", "tenant-a");
 
-    let result = load_model(State(state.clone()), Extension(claims), Path(model_id)).await;
+    let result = load_model(
+        State(state.clone()),
+        Extension(claims),
+        Extension(ClientIp("127.0.0.1".to_string())),
+        Path(model_id),
+    )
+    .await;
 
     // Should return 403 FORBIDDEN (no permission)
     match result {
@@ -832,6 +842,7 @@ async fn test_viewer_cannot_import_model() -> Result<()> {
     let result = import_model(
         State(state.clone()),
         Extension(claims),
+        Extension(ClientIp("127.0.0.1".to_string())),
         Json(ImportModelRequest {
             model_name: "test".to_string(),
             model_path: temp_dir.to_string_lossy().to_string(),

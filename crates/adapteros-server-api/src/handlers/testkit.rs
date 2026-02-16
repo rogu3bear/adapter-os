@@ -180,6 +180,10 @@ pub async fn reset(State(state): State<AppState>) -> ApiResult<TestkitResetRespo
         .await
         .map_err(map_err)?;
 
+    // Release reset transaction connection before migrations, which may need to
+    // acquire from the same pool.
+    drop(conn);
+
     // Re-run migrations to ensure schema consistency (idempotent)
     state.db.migrate().await.map_err(map_err)?;
 

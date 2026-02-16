@@ -9,6 +9,7 @@
 mod api_config;
 mod preferences;
 mod profile;
+mod security;
 mod system_info;
 
 use crate::components::{PageBreadcrumbItem, PageScaffold, PageScaffoldActions, TabNav, TabPanel};
@@ -48,6 +49,7 @@ pub fn Settings() -> impl IntoView {
                     ("profile", "Profile"),
                     ("preferences", "Preferences"),
                     ("api", "API"),
+                    ("security", "Security"),
                     ("system", "System"),
                 ]
                 active=active_tab
@@ -63,6 +65,10 @@ pub fn Settings() -> impl IntoView {
 
             <TabPanel tab="api" active=active_tab>
                 <ApiConfigSection/>
+            </TabPanel>
+
+            <TabPanel tab="security" active=active_tab>
+                <security::SecuritySection/>
             </TabPanel>
 
             <TabPanel tab="system" active=active_tab>

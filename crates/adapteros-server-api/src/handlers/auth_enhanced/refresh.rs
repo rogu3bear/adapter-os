@@ -181,6 +181,7 @@ pub async fn refresh_token_handler(
     let admin_tenants = adapteros_db::get_user_tenant_access(&state.db, &user.id)
         .await
         .unwrap_or_default();
+    let mfa_level = user.mfa_enabled.then_some("totp");
 
     // We reuse the existing session_id
     let access_params = AccessTokenParams {
@@ -192,7 +193,7 @@ pub async fn refresh_token_handler(
         admin_tenants: &admin_tenants,
         device_id: claims.device_id.as_deref(),
         session_id,
-        mfa_level: None,
+        mfa_level,
     };
     let new_access_token = issue_access_token(&state, &access_params, Some(token_ttl_seconds))
         .map_err(|e| {
@@ -289,7 +290,7 @@ pub async fn refresh_token_handler(
             role: user.role,
             expires_in: token_ttl_seconds,
             tenants: None, // Or Some(vec![])
-            mfa_level: None,
+            mfa_level: mfa_level.map(str::to_string),
         }),
     ))
 }

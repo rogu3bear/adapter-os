@@ -10,6 +10,7 @@ use adapteros_server_api::handlers::inference::infer;
 use adapteros_server_api::handlers::routing_decisions::{
     get_routing_decisions, get_session_router_view, RoutingDecisionsQuery,
 };
+use adapteros_server_api::ip_extraction::ClientIp;
 use adapteros_server_api::middleware::request_id::RequestId;
 use adapteros_server_api::types::{
     InferResponse, RouterSummary, TokenUsage, WorkerInferResponse, WorkerTrace,
@@ -262,6 +263,7 @@ async fn ready_model_happy_path_inference_and_routing() {
     let response = infer(
         State(state.clone()),
         Extension(claims.clone()),
+        Extension(ClientIp("127.0.0.1".to_string())),
         Extension(identity),
         Some(Extension(RequestId(request_id.to_string()))),
         None,
@@ -403,6 +405,7 @@ async fn not_ready_model_fails_fast_with_model_not_ready_code() {
     let err = infer(
         State(state),
         Extension(claims),
+        Extension(ClientIp("127.0.0.1".to_string())),
         Extension(identity),
         Some(Extension(RequestId("not-ready-request".to_string()))),
         None,

@@ -233,6 +233,7 @@ pub fn DataList(
                     type="search"
                     class="data-list-search-input"
                     placeholder="Search by name..."
+                    aria-label="Search datasets"
                     prop:value=move || search_query.get()
                     on:input=move |ev| search_query.set(event_target_value(&ev))
                 />
@@ -242,6 +243,7 @@ pub fn DataList(
                         view! {
                             <select
                                 class="data-list-status-filter"
+                                aria-label="Filter by status"
                                 on:change=move |ev| {
                                     let value = event_target_value(&ev);
                                     if value.is_empty() {

@@ -19,6 +19,8 @@ pub enum SseStreamType {
     AdapterState,
     /// Worker status updates
     Workers,
+    /// Paused review queue updates
+    Reviews,
     /// Training progress and signals
     Training,
     /// System alerts and notifications
@@ -54,6 +56,7 @@ impl SseStreamType {
             Self::Telemetry => 1500, // High volume telemetry
             Self::Training => 500,   // Less frequent training events
             Self::Workers => 500,    // Moderate frequency worker updates
+            Self::Reviews => 500,    // Moderate frequency review queue snapshots
             Self::Alerts => 200,     // Alerts should be rare
             Self::Anomalies => 200,  // Anomalies should be rare
             _ => 1000,               // Default for most streams
@@ -67,6 +70,7 @@ impl SseStreamType {
             Self::Telemetry => "telemetry",
             Self::AdapterState => "adapters",
             Self::Workers => "workers",
+            Self::Reviews => "reviews",
             Self::Training => "training",
             Self::Alerts => "alerts",
             Self::Anomalies => "anomalies",
@@ -281,6 +285,7 @@ mod tests {
         assert_eq!(SseStreamType::Alerts.default_capacity(), 200);
         assert_eq!(SseStreamType::SystemMetrics.default_capacity(), 1000);
         assert_eq!(SseStreamType::Workers.default_capacity(), 500);
+        assert_eq!(SseStreamType::Reviews.default_capacity(), 500);
     }
 
     #[test]
@@ -289,6 +294,7 @@ mod tests {
         assert_eq!(SseStreamType::Telemetry.event_name(), "telemetry");
         assert_eq!(SseStreamType::Training.event_name(), "training");
         assert_eq!(SseStreamType::Workers.event_name(), "workers");
+        assert_eq!(SseStreamType::Reviews.event_name(), "reviews");
     }
 
     #[test]

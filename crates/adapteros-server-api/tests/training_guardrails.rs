@@ -10,6 +10,7 @@ use adapteros_db::adapter_repositories::CreateRepositoryParams;
 use adapteros_db::models::ModelRegistrationBuilder;
 use adapteros_db::training_datasets::CreateDatasetParams;
 use adapteros_server_api::handlers::training::start_training;
+use adapteros_server_api::ip_extraction::ClientIp;
 use adapteros_server_api::state::AppState;
 use adapteros_types::training::BranchClassification;
 use axum::extract::State;
@@ -109,6 +110,9 @@ async fn start_training_rejects_base_model_mismatch() {
             force_resume: None,
             multi_module_training: None,
             lora_layer_indices: None,
+            early_stopping: None,
+            patience: None,
+            min_delta: None,
         },
         template_id: None,
         repo_id: Some(repo_id.clone()),
@@ -142,7 +146,13 @@ async fn start_training_rejects_base_model_mismatch() {
     };
 
     let claims = test_admin_claims();
-    let result = start_training(State(state.clone()), Extension(claims), Json(req)).await;
+    let result = start_training(
+        State(state.clone()),
+        Extension(claims),
+        Extension(ClientIp("127.0.0.1".to_string())),
+        Json(req),
+    )
+    .await;
     let err = result.expect_err("should reject base model mismatch");
     assert_eq!(err.0, axum::http::StatusCode::BAD_REQUEST);
     let body = err.1 .0;
@@ -260,6 +270,9 @@ async fn start_training_rejects_empty_dataset() {
             force_resume: None,
             multi_module_training: None,
             lora_layer_indices: None,
+            early_stopping: None,
+            patience: None,
+            min_delta: None,
         },
         template_id: None,
         repo_id: Some(repo_id),
@@ -296,7 +309,13 @@ async fn start_training_rejects_empty_dataset() {
     };
 
     let claims = test_admin_claims();
-    let result = start_training(State(state.clone()), Extension(claims), Json(req)).await;
+    let result = start_training(
+        State(state.clone()),
+        Extension(claims),
+        Extension(ClientIp("127.0.0.1".to_string())),
+        Json(req),
+    )
+    .await;
     let err = result.expect_err("should reject empty dataset");
     assert_eq!(err.0, axum::http::StatusCode::BAD_REQUEST);
     let body = err.1 .0;

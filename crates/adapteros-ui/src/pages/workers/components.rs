@@ -15,10 +15,10 @@ use leptos::prelude::*;
 use std::sync::Arc;
 
 use super::utils::{
-    format_timestamp, format_uptime, health_badge_variant, status_badge_variant,
-    WorkerHealthRecord, WorkerHealthSummary, WORKERS_PAGE_SIZE,
+    format_timestamp, format_uptime, health_badge_variant, is_terminal_worker_status,
+    status_badge_variant, WorkerHealthRecord, WorkerHealthSummary, WORKERS_PAGE_SIZE,
 };
-use crate::components::{IconPause, IconRefresh, IconStop, IconX};
+use crate::components::{IconPause, IconRefresh, IconStop, IconTrash, IconX};
 
 // ============================================================================
 // Summary Cards
@@ -137,6 +137,74 @@ pub fn WorkersSummary(
 // Workers List
 // ============================================================================
 
+#[derive(Clone, Copy)]
+struct WorkerLifecycleActions {
+    can_drain: bool,
+    can_stop: bool,
+    can_restart: bool,
+    can_remove: bool,
+}
+
+fn worker_lifecycle_actions(status: &str) -> WorkerLifecycleActions {
+    let can_drain =
+        status.eq_ignore_ascii_case("healthy") || status.eq_ignore_ascii_case("serving");
+    let can_stop = can_drain || status.eq_ignore_ascii_case("draining");
+    let is_terminal = is_terminal_worker_status(status);
+
+    WorkerLifecycleActions {
+        can_drain,
+        can_stop,
+        can_restart: can_stop,
+        can_remove: is_terminal,
+    }
+}
+
+fn worker_no_action_reason(status: &str) -> String {
+    if status.eq_ignore_ascii_case("pending")
+        || status.eq_ignore_ascii_case("created")
+        || status.eq_ignore_ascii_case("registered")
+    {
+        "Worker is still starting. Lifecycle actions appear when it is healthy.".to_string()
+    } else {
+        format!(
+            "No lifecycle actions available while status is '{}'.",
+            status
+        )
+    }
+}
+
+fn restart_remove_reason(status: &str) -> Option<String> {
+    if is_terminal_worker_status(status) {
+        return None;
+    }
+
+    if status.eq_ignore_ascii_case("pending")
+        || status.eq_ignore_ascii_case("created")
+        || status.eq_ignore_ascii_case("registered")
+    {
+        return Some(worker_no_action_reason(status));
+    }
+
+    if status.eq_ignore_ascii_case("draining") {
+        return Some(
+            "Worker is draining. Restart is available now; Remove becomes available after stopped/error."
+                .to_string(),
+        );
+    }
+
+    if status.eq_ignore_ascii_case("healthy") || status.eq_ignore_ascii_case("serving") {
+        return Some(
+            "Restart is available now. Remove becomes available after stopped/error.".to_string(),
+        );
+    }
+
+    Some("Remove is available once status is stopped/error/crashed/failed.".to_string())
+}
+
+const WORKER_STATUS_GLOSSARY: &str = "healthy=ready and accepting requests; draining=rejecting new requests while finishing in-flight; stopped=clean shutdown complete; error=terminal failure; crashed/failed=legacy terminal failure labels.";
+const DRAIN_STOP_GUIDANCE: &str =
+    "Decision: choose Drain for graceful maintenance; choose Stop only for urgent termination.";
+
 #[component]
 pub fn WorkersList(
     workers: Vec<WorkerResponse>,
@@ -144,6 +212,8 @@ pub fn WorkersList(
     health_map: std::collections::HashMap<String, WorkerHealthRecord>,
     on_drain: Callback<String>,
     on_stop: Callback<String>,
+    on_restart: Callback<String>,
+    on_remove: Callback<String>,
     on_spawn: Callback<()>,
 ) -> impl IntoView {
     let total = workers.len();
@@ -162,16 +232,24 @@ pub fn WorkersList(
         >
             {if workers.is_empty() {
                 view! {
-                    <EmptyState
-                        variant=EmptyStateVariant::Empty
-                        title="No workers yet"
-                        description="Spawn a worker to start processing inference requests."
-                        action_label="Spawn Worker"
-                        on_action=on_spawn
-                    />
+                    <div data-testid="workers-empty-state">
+                        <EmptyState
+                            variant=EmptyStateVariant::Empty
+                            title="No workers yet"
+                            description="Workers serve inference requests. Next: choose Spawn Worker and wait for status to become healthy."
+                            action_label="Spawn Worker"
+                            on_action=on_spawn
+                        />
+                    </div>
                 }.into_any()
             } else {
                 view! {
+                    <div class="mb-3 space-y-1">
+                        <p class="text-xs text-muted-foreground">
+                            {"Status guide: "}{WORKER_STATUS_GLOSSARY}
+                        </p>
+                        <p class="text-xs text-muted-foreground">{DRAIN_STOP_GUIDANCE}</p>
+                    </div>
                     <Table>
                         <TableHeader>
                             <TableRow>
@@ -182,7 +260,7 @@ pub fn WorkersList(
                                 <TableHead>"Cache"</TableHead>
                                 <TableHead>"Errors"</TableHead>
                                 <TableHead>"Last Seen"</TableHead>
-                                <TableHead class="text-right min-w-[150px]">"Actions"</TableHead>
+                                <TableHead class="text-right min-w-[260px]">"Actions"</TableHead>
                             </TableRow>
                         </TableHeader>
                         <TableBody>
@@ -193,8 +271,18 @@ pub fn WorkersList(
                                     let worker_id = worker.id.clone();
                                     let worker_id_drain = worker.id.clone();
                                     let worker_id_stop = worker.id.clone();
-                                    let is_healthy = worker.status == "healthy";
-                                    let is_draining = worker.status == "draining";
+                                    let worker_id_restart = worker.id.clone();
+                                    let worker_id_remove = worker.id.clone();
+                                    let lifecycle_actions = worker_lifecycle_actions(&worker.status);
+                                    let action_reason = if lifecycle_actions.can_drain
+                                        || lifecycle_actions.can_stop
+                                        || lifecycle_actions.can_restart
+                                        || lifecycle_actions.can_remove
+                                    {
+                                        None
+                                    } else {
+                                        Some(worker_no_action_reason(&worker.status))
+                                    };
                                     let health = health_map.get(&worker.id).cloned();
 
                                     view! {
@@ -210,8 +298,17 @@ pub fn WorkersList(
                                             on_stop=Callback::new(move |_| {
                                                 on_stop.run(worker_id_stop.clone());
                                             })
-                                            show_drain=is_healthy
-                                            show_stop=is_healthy || is_draining
+                                            on_restart=Callback::new(move |_| {
+                                                on_restart.run(worker_id_restart.clone());
+                                            })
+                                            on_remove=Callback::new(move |_| {
+                                                on_remove.run(worker_id_remove.clone());
+                                            })
+                                            show_drain=lifecycle_actions.can_drain
+                                            show_stop=lifecycle_actions.can_stop
+                                            show_restart=lifecycle_actions.can_restart
+                                            show_remove=lifecycle_actions.can_remove
+                                            action_reason=action_reason
                                         />
                                     }
                                 }).collect::<Vec<_>>()
@@ -251,8 +348,13 @@ pub fn WorkerRow(
     on_select: Callback<()>,
     on_drain: Callback<()>,
     on_stop: Callback<()>,
+    on_restart: Callback<()>,
+    on_remove: Callback<()>,
     show_drain: bool,
     show_stop: bool,
+    show_restart: bool,
+    show_remove: bool,
+    action_reason: Option<String>,
 ) -> impl IntoView {
     let health_status = health
         .as_ref()
@@ -301,6 +403,9 @@ pub fn WorkerRow(
         .last_seen_at
         .clone()
         .unwrap_or_else(|| "-".to_string());
+    let has_actions = show_drain || show_stop || show_restart || show_remove;
+    let action_reason = action_reason
+        .unwrap_or_else(|| "No lifecycle actions available for this status.".to_string());
 
     view! {
         <tr
@@ -320,6 +425,7 @@ pub fn WorkerRow(
                     href=format!("/workers/{}", worker.id)
                     class="font-mono text-sm text-primary hover:underline"
                     title=worker.id.clone()
+                    data-testid="workers-seeded-link"
                     on:click=move |e: web_sys::MouseEvent| e.stop_propagation()
                 >
                     {short_worker_id.clone()}
@@ -412,6 +518,29 @@ pub fn WorkerRow(
                             "Stop"
                         </Button>
                     })}
+                    {show_restart.then(|| view! {
+                        <Button
+                            variant=ButtonVariant::Secondary
+                            size=ButtonSize::Sm
+                            on_click=Callback::new(move |_| on_restart.run(()))
+                        >
+                            <IconRefresh/>
+                            "Restart"
+                        </Button>
+                    })}
+                    {show_remove.then(|| view! {
+                        <Button
+                            variant=ButtonVariant::Destructive
+                            size=ButtonSize::Sm
+                            on_click=Callback::new(move |_| on_remove.run(()))
+                        >
+                            <IconTrash/>
+                            "Remove"
+                        </Button>
+                    })}
+                    {(!has_actions).then(|| view! {
+                        <span class="text-xs text-muted-foreground">{action_reason.clone()}</span>
+                    })}
                 </div>
             </TableCell>
         </tr>
@@ -462,7 +591,7 @@ pub fn WorkerDetailPanel(
         <Card title="Worker Details".to_string()>
             <div class="space-y-6">
                 // Header
-                <div class="flex items-center justify-between">
+                <div class="flex items-center justify-between" data-testid="worker-panel-header">
                     <div class="flex items-center gap-3">
                         <span class="font-mono text-lg">{adapteros_id::short_id(&worker.id)}</span>
                         <Badge variant=status_badge_variant(&worker.status)>
@@ -473,6 +602,7 @@ pub fn WorkerDetailPanel(
                         <Button
                             variant=ButtonVariant::Secondary
                             size=ButtonSize::Sm
+                            data_testid="worker-panel-view-full".to_string()
                             on_click=Callback::new({
                                 let worker_id = worker_id.clone();
                                 move |_| navigate(&format!("/workers/{}", worker_id))
@@ -484,6 +614,7 @@ pub fn WorkerDetailPanel(
                             variant=ButtonVariant::Ghost
                             size=ButtonSize::IconSm
                             aria_label="Close details".to_string()
+                            data_testid="worker-panel-close".to_string()
                             on_click=Callback::new(move |_| on_close.run(()))
                         >
                             <IconX/>
@@ -492,7 +623,7 @@ pub fn WorkerDetailPanel(
                 </div>
 
                 // Info grid
-                <div class="grid grid-cols-2 gap-4">
+                <div class="grid grid-cols-2 gap-4" data-testid="worker-panel-info-grid">
                     <DetailItem label="Worker ID" value=worker.id.clone()/>
                     <DetailItem label="Node ID" value=worker.node_id.clone()/>
                     <DetailItem label="Tenant ID" value=worker.tenant_id.clone()/>
@@ -520,7 +651,7 @@ pub fn WorkerDetailPanel(
                             }
                         }).collect();
                         view! {
-                            <div>
+                            <div data-testid="worker-panel-capabilities">
                                 <h4 class="text-sm font-medium mb-2">"Capabilities"</h4>
                                 <div class="flex flex-wrap gap-2">
                                     {cap_views}
@@ -531,7 +662,7 @@ pub fn WorkerDetailPanel(
                 }
 
                 // Cache info
-                <div>
+                <div data-testid="worker-panel-cache-card">
                     <h4 class="text-sm font-medium mb-2">"Cache"</h4>
                     <div class="grid grid-cols-2 gap-4">
                         <DetailItem
@@ -557,10 +688,15 @@ pub fn WorkerDetailPanel(
                 {move || {
                     match metrics.get() {
                         LoadingState::Loaded(m) => view! {
-                            <WorkerMetricsPanel metrics=m/>
+                            <div data-testid="worker-panel-metrics-loaded">
+                                <WorkerMetricsPanel metrics=m/>
+                            </div>
                         }.into_any(),
                         LoadingState::Loading => view! {
-                            <div class="flex items-center gap-2 text-muted-foreground">
+                            <div
+                                class="flex items-center gap-2 text-muted-foreground"
+                                data-testid="worker-panel-metrics-loading"
+                            >
                                 <Spinner/>
                                 <span>"Loading metrics..."</span>
                             </div>
@@ -570,11 +706,14 @@ pub fn WorkerDetailPanel(
                 }}
 
                 // Recent errors
-                <div>
+                <div data-testid="worker-panel-errors-card">
                     <h4 class="text-sm font-medium mb-2">"Recent Errors"</h4>
                     {match error_logs.get() {
                         LoadingState::Idle | LoadingState::Loading => view! {
-                            <div class="flex items-center gap-2 text-muted-foreground">
+                            <div
+                                class="flex items-center gap-2 text-muted-foreground"
+                                data-testid="worker-panel-errors-loading"
+                            >
                                 <Spinner/>
                                 <span>"Loading errors..."</span>
                             </div>
@@ -582,7 +721,12 @@ pub fn WorkerDetailPanel(
                         LoadingState::Loaded(logs) => {
                             if logs.is_empty() {
                                 view! {
-                                    <p class="text-sm text-muted-foreground">"No recent errors"</p>
+                                    <p
+                                        class="text-sm text-muted-foreground"
+                                        data-testid="worker-panel-errors-empty"
+                                    >
+                                        "No recent errors"
+                                    </p>
                                 }.into_any()
                             } else {
                                 view! {
@@ -600,13 +744,19 @@ pub fn WorkerDetailPanel(
                         LoadingState::Error(e) => {
                             if matches!(&e, ApiError::Forbidden(_)) {
                                 view! {
-                                    <p class="text-sm text-muted-foreground">
+                                    <p
+                                        class="text-sm text-muted-foreground"
+                                        data-testid="worker-panel-errors-error"
+                                    >
                                         "Recent errors require Operator or Admin permissions."
                                     </p>
                                 }.into_any()
                             } else {
                                 view! {
-                                    <p class="text-sm text-destructive">
+                                    <p
+                                        class="text-sm text-destructive"
+                                        data-testid="worker-panel-errors-error"
+                                    >
                                         {format!("Failed to load errors: {}", e)}
                                     </p>
                                 }.into_any()
@@ -651,9 +801,10 @@ pub fn WorkerDetailView(
     let action_error = RwSignal::new(Option::<String>::None);
     let show_stop_confirm = RwSignal::new(false);
     let show_drain_confirm = RwSignal::new(false);
-
-    let is_healthy = worker.status == "healthy";
-    let is_draining = worker.status == "draining";
+    let show_restart_confirm = RwSignal::new(false);
+    let show_remove_confirm = RwSignal::new(false);
+    let lifecycle_actions = worker_lifecycle_actions(&worker.status);
+    let restart_remove_hint = restart_remove_reason(&worker.status);
     let worker_id_for_health = worker.id.clone();
 
     // Fetch worker health summary for health status + incidents
@@ -677,50 +828,97 @@ pub fn WorkerDetailView(
             // Header
             <div class="flex items-center justify-between">
                 <div class="flex items-center gap-4">
-                    <h2 class="heading-2 font-mono">{adapteros_id::short_id(&worker.id)}</h2>
-                    <Badge variant=status_badge_variant(&worker.status)>
-                        {worker.status.clone()}
-                    </Badge>
+                    <h2 class="heading-2 font-mono" data-testid="worker-detail-heading">
+                        {adapteros_id::short_id(&worker.id)}
+                    </h2>
+                    <span data-testid="worker-detail-status-badge">
+                        <Badge variant=status_badge_variant(&worker.status)>
+                            {worker.status.clone()}
+                        </Badge>
+                    </span>
                 </div>
-                <div class="flex items-center gap-2">
-                    <Button
-                        variant=ButtonVariant::Secondary
-                        on_click=Callback::new(move |_| {
-                            on_refresh.run(());
-                            refetch_health.run(());
-                            refetch_error_logs.run(());
-                        })
-                    >
-                        <IconRefresh/>
-                        "Refresh"
-                    </Button>
-                    {is_healthy.then(|| {
-                        view! {
-                            <Button
-                                variant=ButtonVariant::Secondary
-                                disabled=Signal::from(action_loading)
-                                on_click=Callback::new(move |_| {
-                                    show_drain_confirm.set(true);
-                                })
-                            >
-                                <IconPause/>
-                                "Drain"
-                            </Button>
-                        }
+                <div class="flex flex-col items-end gap-2">
+                    <div class="flex items-center gap-2">
+                        <Button
+                            variant=ButtonVariant::Secondary
+                            data_testid="worker-detail-refresh".to_string()
+                            on_click=Callback::new(move |_| {
+                                on_refresh.run(());
+                                refetch_health.run(());
+                                refetch_error_logs.run(());
+                            })
+                        >
+                            <IconRefresh/>
+                            "Refresh"
+                        </Button>
+                        {lifecycle_actions.can_drain.then(|| {
+                            view! {
+                                <Button
+                                    variant=ButtonVariant::Secondary
+                                    disabled=Signal::from(action_loading)
+                                    data_testid="worker-detail-drain".to_string()
+                                    on_click=Callback::new(move |_| {
+                                        show_drain_confirm.set(true);
+                                    })
+                                >
+                                    <IconPause/>
+                                    "Drain"
+                                </Button>
+                            }
+                        })}
+                        {lifecycle_actions.can_stop.then(|| {
+                            view! {
+                                <Button
+                                    variant=ButtonVariant::Destructive
+                                    disabled=Signal::from(action_loading)
+                                    data_testid="worker-detail-stop".to_string()
+                                    on_click=Callback::new(move |_| {
+                                        show_stop_confirm.set(true);
+                                    })
+                                >
+                                    <IconStop/>
+                                    "Stop"
+                                </Button>
+                            }
+                        })}
+                        {lifecycle_actions.can_restart.then(|| {
+                            view! {
+                                <Button
+                                    variant=ButtonVariant::Secondary
+                                    disabled=Signal::from(action_loading)
+                                    data_testid="worker-detail-restart".to_string()
+                                    on_click=Callback::new(move |_| {
+                                        show_restart_confirm.set(true);
+                                    })
+                                >
+                                    <IconRefresh/>
+                                    "Restart"
+                                </Button>
+                            }
+                        })}
+                        {lifecycle_actions.can_remove.then(|| {
+                            view! {
+                                <Button
+                                    variant=ButtonVariant::Destructive
+                                    disabled=Signal::from(action_loading)
+                                    data_testid="worker-detail-remove".to_string()
+                                    on_click=Callback::new(move |_| {
+                                        show_remove_confirm.set(true);
+                                    })
+                                >
+                                    <IconTrash/>
+                                    "Remove"
+                                </Button>
+                            }
+                        })}
+                    </div>
+                    {(lifecycle_actions.can_drain || lifecycle_actions.can_stop).then(|| view! {
+                        <p class="text-xs text-muted-foreground text-right max-w-[420px]">
+                            {DRAIN_STOP_GUIDANCE}
+                        </p>
                     })}
-                    {(is_healthy || is_draining).then(|| {
-                        view! {
-                            <Button
-                                variant=ButtonVariant::Destructive
-                                disabled=Signal::from(action_loading)
-                                on_click=Callback::new(move |_| {
-                                    show_stop_confirm.set(true);
-                                })
-                            >
-                                <IconStop/>
-                                "Stop"
-                            </Button>
-                        }
+                    {restart_remove_hint.clone().map(|reason| view! {
+                        <p class="text-xs text-muted-foreground text-right max-w-[420px]">{reason}</p>
                     })}
                 </div>
             </div>
@@ -729,50 +927,52 @@ pub fn WorkerDetailView(
             {
                 let worker_id = worker.id.clone();
                 let drain_desc = format!(
-                    "Drain worker '{}'? New requests will be rejected while existing ones complete.",
+                    "Drain worker '{}'? Use drain for graceful maintenance: reject new requests while active requests complete.",
                     adapteros_id::short_id(&worker.id),
                 );
                 view! {
-                    <ConfirmationDialog
-                        open=show_drain_confirm
-                        title="Drain Worker"
-                        description=drain_desc
-                        severity=ConfirmationSeverity::Warning
-                        confirm_text="Drain"
-                        on_confirm=Callback::new({
-                            let alive = alive.clone();
-                            let api_client = api_client.clone();
-                            let notifications = notifications.clone();
-                            move |_| {
-                                show_drain_confirm.set(false);
-                                action_loading.set(true);
-                                let client = api_client.clone();
-                                let worker_id = worker_id.clone();
+                    <div data-testid="worker-detail-confirm-drain">
+                        <ConfirmationDialog
+                            open=show_drain_confirm
+                            title="Drain Worker"
+                            description=drain_desc
+                            severity=ConfirmationSeverity::Warning
+                            confirm_text="Drain"
+                            on_confirm=Callback::new({
                                 let alive = alive.clone();
+                                let api_client = api_client.clone();
                                 let notifications = notifications.clone();
-                                wasm_bindgen_futures::spawn_local(async move {
-                                    match client.drain_worker(&worker_id).await {
-                                        Ok(_) => {
-                                            action_error.set(None);
-                                            notifications.success("Worker draining", "Worker is draining and will stop accepting new requests.");
-                                            if alive.load(std::sync::atomic::Ordering::SeqCst) {
-                                                on_refresh.run(());
+                                move |_| {
+                                    show_drain_confirm.set(false);
+                                    action_loading.set(true);
+                                    let client = api_client.clone();
+                                    let worker_id = worker_id.clone();
+                                    let alive = alive.clone();
+                                    let notifications = notifications.clone();
+                                    wasm_bindgen_futures::spawn_local(async move {
+                                        match client.drain_worker(&worker_id).await {
+                                            Ok(_) => {
+                                                action_error.set(None);
+                                                notifications.success("Worker draining", "Worker is draining and will stop accepting new requests.");
+                                                if alive.load(std::sync::atomic::Ordering::SeqCst) {
+                                                    on_refresh.run(());
+                                                }
+                                            }
+                                            Err(e) => {
+                                                action_error.set(Some(e.user_message()));
+                                                report_error_with_toast(&e, "Failed to drain worker", Some("/workers"), true);
                                             }
                                         }
-                                        Err(e) => {
-                                            action_error.set(Some(e.user_message()));
-                                            report_error_with_toast(&e, "Failed to drain worker", Some("/workers"), true);
-                                        }
-                                    }
-                                    action_loading.set(false);
-                                });
-                            }
-                        })
-                        on_cancel=Callback::new(move |_| {
-                            show_drain_confirm.set(false);
-                        })
-                        loading=Signal::from(action_loading)
-                    />
+                                        action_loading.set(false);
+                                    });
+                                }
+                            })
+                            on_cancel=Callback::new(move |_| {
+                                show_drain_confirm.set(false);
+                            })
+                            loading=Signal::from(action_loading)
+                        />
+                    </div>
                 }
             }
 
@@ -780,227 +980,368 @@ pub fn WorkerDetailView(
             {
                 let worker_id = worker.id.clone();
                 let stop_desc = format!(
-                    "Stop worker '{}'? Active inference requests will be terminated.",
+                    "Stop worker '{}'? Use stop for urgent shutdown: active inference requests terminate immediately.",
                     adapteros_id::short_id(&worker.id),
                 );
                 view! {
-                    <ConfirmationDialog
-                        open=show_stop_confirm
-                        title="Stop Worker"
-                        description=stop_desc
-                        severity=ConfirmationSeverity::Warning
-                        confirm_text="Stop"
-                        on_confirm=Callback::new({
-                            let api_client = api_client.clone();
-                            let notifications = notifications.clone();
-                            let navigate = navigate.clone();
-                            move |_| {
-                                show_stop_confirm.set(false);
-                                action_loading.set(true);
-                                let client = api_client.clone();
-                                let worker_id = worker_id.clone();
+                    <div data-testid="worker-detail-confirm-stop">
+                        <ConfirmationDialog
+                            open=show_stop_confirm
+                            title="Stop Worker"
+                            description=stop_desc
+                            severity=ConfirmationSeverity::Warning
+                            confirm_text="Stop"
+                            on_confirm=Callback::new({
+                                let api_client = api_client.clone();
                                 let notifications = notifications.clone();
                                 let navigate = navigate.clone();
-                                wasm_bindgen_futures::spawn_local(async move {
-                                    match client.stop_worker(&worker_id).await {
-                                        Ok(_) => {
-                                            action_error.set(None);
-                                            let short = &worker_id[..8.min(worker_id.len())];
-                                            notifications.success("Worker stopped", &format!("Worker {} has been stopped.", short));
-                                            navigate("/workers", Default::default());
+                                move |_| {
+                                    show_stop_confirm.set(false);
+                                    action_loading.set(true);
+                                    let client = api_client.clone();
+                                    let worker_id = worker_id.clone();
+                                    let notifications = notifications.clone();
+                                    let navigate = navigate.clone();
+                                    wasm_bindgen_futures::spawn_local(async move {
+                                        match client.stop_worker(&worker_id).await {
+                                            Ok(_) => {
+                                                action_error.set(None);
+                                                let short = &worker_id[..8.min(worker_id.len())];
+                                                notifications.success("Worker stopped", &format!("Worker {} has been stopped.", short));
+                                                navigate("/workers", Default::default());
+                                            }
+                                            Err(e) => {
+                                                action_error.set(Some(e.user_message()));
+                                                report_error_with_toast(&e, "Failed to stop worker", Some("/workers"), true);
+                                            }
                                         }
-                                        Err(e) => {
-                                            action_error.set(Some(e.user_message()));
-                                            report_error_with_toast(&e, "Failed to stop worker", Some("/workers"), true);
+                                        action_loading.set(false);
+                                    });
+                                }
+                            })
+                            on_cancel=Callback::new(move |_| {
+                                show_stop_confirm.set(false);
+                            })
+                            loading=Signal::from(action_loading)
+                        />
+                    </div>
+                }
+            }
+
+            // Restart confirmation dialog
+            {
+                let worker_id = worker.id.clone();
+                let restart_desc = format!(
+                    "Restart worker '{}'? The process will be relaunched and in-flight requests may fail.",
+                    adapteros_id::short_id(&worker.id),
+                );
+                view! {
+                    <div data-testid="worker-detail-confirm-restart">
+                        <ConfirmationDialog
+                            open=show_restart_confirm
+                            title="Restart Worker"
+                            description=restart_desc
+                            severity=ConfirmationSeverity::Warning
+                            confirm_text="Restart"
+                            on_confirm=Callback::new({
+                                let alive = alive.clone();
+                                let api_client = api_client.clone();
+                                let notifications = notifications.clone();
+                                move |_| {
+                                    show_restart_confirm.set(false);
+                                    action_loading.set(true);
+                                    let client = api_client.clone();
+                                    let worker_id = worker_id.clone();
+                                    let alive = alive.clone();
+                                    let notifications = notifications.clone();
+                                    wasm_bindgen_futures::spawn_local(async move {
+                                        match client.restart_worker(&worker_id).await {
+                                            Ok(_) => {
+                                                action_error.set(None);
+                                                notifications.success(
+                                                    "Worker restart requested",
+                                                    "Worker restart has been initiated.",
+                                                );
+                                                if alive.load(std::sync::atomic::Ordering::SeqCst) {
+                                                    on_refresh.run(());
+                                                }
+                                            }
+                                            Err(e) => {
+                                                action_error.set(Some(e.user_message()));
+                                                report_error_with_toast(
+                                                    &e,
+                                                    "Failed to restart worker",
+                                                    Some("/workers"),
+                                                    true,
+                                                );
+                                            }
                                         }
-                                    }
-                                    action_loading.set(false);
-                                });
-                            }
-                        })
-                        on_cancel=Callback::new(move |_| {
-                            show_stop_confirm.set(false);
-                        })
-                        loading=Signal::from(action_loading)
-                    />
+                                        action_loading.set(false);
+                                    });
+                                }
+                            })
+                            on_cancel=Callback::new(move |_| {
+                                show_restart_confirm.set(false);
+                            })
+                            loading=Signal::from(action_loading)
+                        />
+                    </div>
+                }
+            }
+
+            // Remove confirmation dialog
+            {
+                let worker_id = worker.id.clone();
+                let remove_desc = format!(
+                    "Remove worker '{}'? This decommissions the worker record and cannot be undone.",
+                    adapteros_id::short_id(&worker.id),
+                );
+                view! {
+                    <div data-testid="worker-detail-confirm-remove">
+                        <ConfirmationDialog
+                            open=show_remove_confirm
+                            title="Remove Worker"
+                            description=remove_desc
+                            severity=ConfirmationSeverity::Destructive
+                            confirm_text="Remove"
+                            on_confirm=Callback::new({
+                                let api_client = api_client.clone();
+                                let notifications = notifications.clone();
+                                let navigate = navigate.clone();
+                                move |_| {
+                                    show_remove_confirm.set(false);
+                                    action_loading.set(true);
+                                    let client = api_client.clone();
+                                    let worker_id = worker_id.clone();
+                                    let notifications = notifications.clone();
+                                    let navigate = navigate.clone();
+                                    wasm_bindgen_futures::spawn_local(async move {
+                                        match client.remove_worker(&worker_id).await {
+                                            Ok(_) => {
+                                                action_error.set(None);
+                                                notifications.success(
+                                                    "Worker removed",
+                                                    "Worker has been decommissioned and removed.",
+                                                );
+                                                navigate("/workers", Default::default());
+                                            }
+                                            Err(e) => {
+                                                action_error.set(Some(e.user_message()));
+                                                report_error_with_toast(
+                                                    &e,
+                                                    "Failed to remove worker",
+                                                    Some("/workers"),
+                                                    true,
+                                                );
+                                            }
+                                        }
+                                        action_loading.set(false);
+                                    });
+                                }
+                            })
+                            on_cancel=Callback::new(move |_| {
+                                show_remove_confirm.set(false);
+                            })
+                            loading=Signal::from(action_loading)
+                        />
+                    </div>
                 }
             }
 
             // Error banner
             {move || action_error.get().map(|e| view! {
-                <div class="rounded-lg border border-destructive bg-destructive/10 p-4">
+                <div
+                    class="rounded-lg border border-destructive bg-destructive/10 p-4"
+                    data-testid="worker-detail-action-error"
+                >
                     <p class="text-destructive">{e}</p>
                 </div>
             })}
 
             // Basic info card
-            <Card title="Worker Information".to_string()>
-                <div class="grid grid-cols-2 md:grid-cols-4 gap-6">
-                    <DetailItem label="Worker ID" value=worker.id.clone()/>
-                    <DetailItem label="Node ID" value=worker.node_id.clone()/>
-                    <DetailItem label="Tenant ID" value=worker.tenant_id.clone()/>
-                    <DetailItem label="Plan ID" value=worker.plan_id.clone()/>
-                    {move || {
-                        let (health_status, incidents) = match health_summary.get() {
-                            LoadingState::Loaded(ref summary) => {
-                                let record = summary
-                                    .workers
-                                    .iter()
-                                    .find(|r| r.worker_id == worker_id_for_health)
-                                    .cloned();
-                                let status = record
-                                    .as_ref()
-                                    .map(|r| r.health_status.clone())
-                                    .filter(|s| !s.is_empty())
-                                    .unwrap_or_else(|| "unknown".to_string());
-                                let incidents = record
-                                    .as_ref()
-                                    .map(|r| r.recent_incidents_24h.to_string())
-                                    .unwrap_or_else(|| "-".to_string());
-                                (status, incidents)
-                            }
-                            _ => ("unknown".to_string(), "-".to_string()),
-                        };
-                        view! {
-                            <DetailItem label="Health" value=health_status/>
-                            <DetailItem label="Incidents (24h)" value=incidents/>
-                        }
-                    }}
-                    <DetailItem label="Backend" value=worker.backend.clone().filter(|b| !b.is_empty()).unwrap_or_else(|| "Unknown".to_string())/>
-                    <DetailItem label="Model ID" value=worker.model_id.clone().filter(|m| !m.is_empty()).unwrap_or_else(|| "Not assigned".to_string())/>
-                    <DetailItem label="Model Hash" value=worker.model_hash.clone().map(|h| adapteros_id::format_hash_short(&h)).unwrap_or("-".to_string())/>
-                    <DetailItem label="Model Loaded" value=if worker.model_loaded { "Yes".to_string() } else { "No".to_string() }/>
-                    <DetailItem label="PID" value=worker.pid.map(|p| p.to_string()).unwrap_or("-".to_string())/>
-                    <DetailItem label="UDS Path" value=worker.uds_path.clone()/>
-                    <DetailItem label="Started At" value=format_timestamp(&worker.started_at)/>
-                    <DetailItem label="Last Seen" value=worker.last_seen_at.clone().map(|t| format_timestamp(&t)).unwrap_or("-".to_string())/>
-                </div>
-
-                // Capabilities
-                {
-                    let caps = worker.capabilities.clone();
-                    (!caps.is_empty()).then(move || {
-                        let cap_views: Vec<_> = caps.iter().map(|cap| {
-                            let cap_text = cap.clone();
+            <div data-testid="worker-detail-info-card">
+                <Card title="Worker Information".to_string()>
+                    <div class="grid grid-cols-2 md:grid-cols-4 gap-6">
+                        <DetailItem label="Worker ID" value=worker.id.clone()/>
+                        <DetailItem label="Node ID" value=worker.node_id.clone()/>
+                        <DetailItem label="Tenant ID" value=worker.tenant_id.clone()/>
+                        <DetailItem label="Plan ID" value=worker.plan_id.clone()/>
+                        {move || {
+                            let (health_status, incidents) = match health_summary.get() {
+                                LoadingState::Loaded(ref summary) => {
+                                    let record = summary
+                                        .workers
+                                        .iter()
+                                        .find(|r| r.worker_id == worker_id_for_health)
+                                        .cloned();
+                                    let status = record
+                                        .as_ref()
+                                        .map(|r| r.health_status.clone())
+                                        .filter(|s| !s.is_empty())
+                                        .unwrap_or_else(|| "unknown".to_string());
+                                    let incidents = record
+                                        .as_ref()
+                                        .map(|r| r.recent_incidents_24h.to_string())
+                                        .unwrap_or_else(|| "-".to_string());
+                                    (status, incidents)
+                                }
+                                _ => ("unknown".to_string(), "-".to_string()),
+                            };
                             view! {
-                                <Badge variant=BadgeVariant::Secondary>
-                                    {cap_text}
-                                </Badge>
+                                <DetailItem label="Health" value=health_status/>
+                                <DetailItem label="Incidents (24h)" value=incidents/>
                             }
-                        }).collect();
+                        }}
+                        <DetailItem label="Backend" value=worker.backend.clone().filter(|b| !b.is_empty()).unwrap_or_else(|| "Unknown".to_string())/>
+                        <DetailItem label="Model ID" value=worker.model_id.clone().filter(|m| !m.is_empty()).unwrap_or_else(|| "Not assigned".to_string())/>
+                        <DetailItem label="Model Hash" value=worker.model_hash.clone().map(|h| adapteros_id::format_hash_short(&h)).unwrap_or("-".to_string())/>
+                        <DetailItem label="Model Loaded" value=if worker.model_loaded { "Yes".to_string() } else { "No".to_string() }/>
+                        <DetailItem label="PID" value=worker.pid.map(|p| p.to_string()).unwrap_or("-".to_string())/>
+                        <DetailItem label="UDS Path" value=worker.uds_path.clone()/>
+                        <DetailItem label="Started At" value=format_timestamp(&worker.started_at)/>
+                        <DetailItem label="Last Seen" value=worker.last_seen_at.clone().map(|t| format_timestamp(&t)).unwrap_or("-".to_string())/>
+                    </div>
+
+                    // Capabilities
+                    {
+                        let caps = worker.capabilities.clone();
+                        (!caps.is_empty()).then(move || {
+                            let cap_views: Vec<_> = caps.iter().map(|cap| {
+                                let cap_text = cap.clone();
+                                view! {
+                                    <Badge variant=BadgeVariant::Secondary>
+                                        {cap_text}
+                                    </Badge>
+                                }
+                            }).collect();
+                            view! {
+                                <div class="mt-6 pt-6 border-t" data-testid="worker-detail-capabilities">
+                                    <h4 class="text-sm font-medium mb-3">"Capabilities"</h4>
+                                    <div class="flex flex-wrap gap-2">
+                                        {cap_views}
+                                    </div>
+                                </div>
+                            }
+                        })
+                    }
+                </Card>
+            </div>
+
+            // Cache card
+            <div data-testid="worker-detail-cache-card">
+                <Card title="Cache Status".to_string()>
+                    <div class="grid grid-cols-2 md:grid-cols-4 gap-6">
+                        <div>
+                            <p class="text-xs text-muted-foreground mb-1">"Memory Used"</p>
+                            <p class="text-2xl font-bold">
+                                {worker.cache_used_mb.map(|m| format!("{} MB", m)).unwrap_or("-".to_string())}
+                            </p>
+                        </div>
+                        <div>
+                            <p class="text-xs text-muted-foreground mb-1">"Memory Max"</p>
+                            <p class="text-2xl font-bold">
+                                {worker.cache_max_mb.map(|m| format!("{} MB", m)).unwrap_or("-".to_string())}
+                            </p>
+                        </div>
+                        <div>
+                            <p class="text-xs text-muted-foreground mb-1">"Pinned Entries"</p>
+                            <p class="text-2xl font-bold">
+                                {worker.cache_pinned_entries.map(|e| e.to_string()).unwrap_or("-".to_string())}
+                            </p>
+                        </div>
+                        <div>
+                            <p class="text-xs text-muted-foreground mb-1">"Active Entries"</p>
+                            <p class="text-2xl font-bold">
+                                {worker.cache_active_entries.map(|e| e.to_string()).unwrap_or("-".to_string())}
+                            </p>
+                        </div>
+                    </div>
+
+                    // Cache usage bar
+                    {worker.cache_used_mb.zip(worker.cache_max_mb).map(|(used, max)| {
+                        let pct = if max > 0 { (used as f64 / max as f64) * 100.0 } else { 0.0 };
+                        let color = if pct > 90.0 { "bg-destructive" }
+                            else if pct > 70.0 { "bg-status-warning" }
+                            else { "bg-primary" };
                         view! {
-                            <div class="mt-6 pt-6 border-t">
-                                <h4 class="text-sm font-medium mb-3">"Capabilities"</h4>
-                                <div class="flex flex-wrap gap-2">
-                                    {cap_views}
+                            <div class="mt-6">
+                                <div class="flex items-center justify-between mb-2">
+                                    <span class="text-sm text-muted-foreground">"Usage"</span>
+                                    <span class="text-sm font-medium">{format!("{:.1}%", pct)}</span>
+                                </div>
+                                <div class="h-2 bg-muted rounded-full overflow-hidden">
+                                    <div
+                                        class=format!("h-full {} transition-all duration-300", color)
+                                        style=format!("width: {}%", pct.min(100.0))
+                                    />
                                 </div>
                             </div>
                         }
-                    })
-                }
-            </Card>
-
-            // Cache card
-            <Card title="Cache Status".to_string()>
-                <div class="grid grid-cols-2 md:grid-cols-4 gap-6">
-                    <div>
-                        <p class="text-xs text-muted-foreground mb-1">"Memory Used"</p>
-                        <p class="text-2xl font-bold">
-                            {worker.cache_used_mb.map(|m| format!("{} MB", m)).unwrap_or("-".to_string())}
-                        </p>
-                    </div>
-                    <div>
-                        <p class="text-xs text-muted-foreground mb-1">"Memory Max"</p>
-                        <p class="text-2xl font-bold">
-                            {worker.cache_max_mb.map(|m| format!("{} MB", m)).unwrap_or("-".to_string())}
-                        </p>
-                    </div>
-                    <div>
-                        <p class="text-xs text-muted-foreground mb-1">"Pinned Entries"</p>
-                        <p class="text-2xl font-bold">
-                            {worker.cache_pinned_entries.map(|e| e.to_string()).unwrap_or("-".to_string())}
-                        </p>
-                    </div>
-                    <div>
-                        <p class="text-xs text-muted-foreground mb-1">"Active Entries"</p>
-                        <p class="text-2xl font-bold">
-                            {worker.cache_active_entries.map(|e| e.to_string()).unwrap_or("-".to_string())}
-                        </p>
-                    </div>
-                </div>
-
-                // Cache usage bar
-                {worker.cache_used_mb.zip(worker.cache_max_mb).map(|(used, max)| {
-                    let pct = if max > 0 { (used as f64 / max as f64) * 100.0 } else { 0.0 };
-                    let color = if pct > 90.0 { "bg-destructive" }
-                        else if pct > 70.0 { "bg-status-warning" }
-                        else { "bg-primary" };
-                    view! {
-                        <div class="mt-6">
-                            <div class="flex items-center justify-between mb-2">
-                                <span class="text-sm text-muted-foreground">"Usage"</span>
-                                <span class="text-sm font-medium">{format!("{:.1}%", pct)}</span>
-                            </div>
-                            <div class="h-2 bg-muted rounded-full overflow-hidden">
-                                <div
-                                    class=format!("h-full {} transition-all duration-300", color)
-                                    style=format!("width: {}%", pct.min(100.0))
-                                />
-                            </div>
-                        </div>
-                    }
-                })}
-            </Card>
+                    })}
+                </Card>
+            </div>
 
             // Metrics card
             {metrics.map(|m| view! {
-                <WorkerMetricsCard metrics=m/>
+                <div data-testid="worker-detail-metrics-card">
+                    <WorkerMetricsCard metrics=m/>
+                </div>
             })}
 
             // Recent errors card
-            <Card title="Recent Errors".to_string()>
-                {match error_logs.get() {
-                    LoadingState::Idle | LoadingState::Loading => view! {
-                        <div class="flex items-center gap-2 text-muted-foreground">
-                            <Spinner/>
-                            <span>"Loading errors..."</span>
-                        </div>
-                    }.into_any(),
-                    LoadingState::Loaded(logs) => {
-                        if logs.is_empty() {
-                            view! {
-                                <p class="text-sm text-muted-foreground">"No recent errors"</p>
-                            }.into_any()
-                        } else {
-                            view! {
-                                <div class="space-y-3">
-                                    {logs.into_iter().map(|log| view! {
-                                        <div class="rounded-md border p-3">
-                                            <p class="text-xs text-muted-foreground">{format_timestamp(&log.timestamp)}</p>
-                                            <p class="text-sm">{log.message}</p>
-                                        </div>
-                                    }).collect::<Vec<_>>()}
-                                </div>
-                            }.into_any()
+            <div data-testid="worker-detail-errors-card">
+                <Card title="Recent Errors".to_string()>
+                    {match error_logs.get() {
+                        LoadingState::Idle | LoadingState::Loading => view! {
+                            <div
+                                class="flex items-center gap-2 text-muted-foreground"
+                                data-testid="worker-detail-errors-loading"
+                            >
+                                <Spinner/>
+                                <span>"Loading errors..."</span>
+                            </div>
+                        }.into_any(),
+                        LoadingState::Loaded(logs) => {
+                            if logs.is_empty() {
+                                view! {
+                                    <p class="text-sm text-muted-foreground" data-testid="worker-detail-errors-empty">
+                                        "No recent errors"
+                                    </p>
+                                }.into_any()
+                            } else {
+                                view! {
+                                    <div class="space-y-3">
+                                        {logs.into_iter().map(|log| view! {
+                                            <div class="rounded-md border p-3">
+                                                <p class="text-xs text-muted-foreground">{format_timestamp(&log.timestamp)}</p>
+                                                <p class="text-sm">{log.message}</p>
+                                            </div>
+                                        }).collect::<Vec<_>>()}
+                                    </div>
+                                }.into_any()
+                            }
                         }
-                    }
-                    LoadingState::Error(e) => {
-                        if matches!(&e, ApiError::Forbidden(_)) {
-                            view! {
-                                <p class="text-sm text-muted-foreground">
-                                    "Recent errors require Operator or Admin permissions."
-                                </p>
-                            }.into_any()
-                        } else {
-                            view! {
-                                <p class="text-sm text-destructive">
-                                    {format!("Failed to load errors: {}", e)}
-                                </p>
-                            }.into_any()
+                        LoadingState::Error(e) => {
+                            if matches!(&e, ApiError::Forbidden(_)) {
+                                view! {
+                                    <p
+                                        class="text-sm text-muted-foreground"
+                                        data-testid="worker-detail-errors-error"
+                                    >
+                                        "Recent errors require Operator or Admin permissions."
+                                    </p>
+                                }.into_any()
+                            } else {
+                                view! {
+                                    <p class="text-sm text-destructive" data-testid="worker-detail-errors-error">
+                                        {format!("Failed to load errors: {}", e)}
+                                    </p>
+                                }.into_any()
+                            }
                         }
-                    }
-                }}
-            </Card>
+                    }}
+                </Card>
+            </div>
         </div>
     }
 }

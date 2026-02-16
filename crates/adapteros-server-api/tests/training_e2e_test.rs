@@ -260,6 +260,9 @@ async fn test_e2e_training_workflow() -> Result<()> {
         force_resume: None,
         multi_module_training: None,
         lora_layer_indices: None,
+        early_stopping: None,
+        patience: None,
+        min_delta: None,
     };
     let training_config_json =
         serde_json::to_string(&training_config).expect("training config should serialize");

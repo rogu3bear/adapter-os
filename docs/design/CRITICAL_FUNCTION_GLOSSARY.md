@@ -6,7 +6,7 @@
 
 | Entity | Purpose | Location (Verified) |
 |--------|---------|---------------------|
-| **Worker** | Inference/training execution | `lora-worker/src/lib.rs:1109` |
+| **Worker** | Inference worker runtime execution | `lora-worker/src/lib.rs:1109` |
 | **Tenant** | Multi-tenancy isolation | `core/src/tenant.rs:65` |
 | **Adapter** | LoRA adapter lifecycle | `types/src/adapters/metadata.rs:53` |
 | **Model** | Base model management | `db/src/models.rs` |
@@ -38,7 +38,9 @@ pub struct Worker<K: FusedKernels + StrictnessControl + Send + Sync> {
 
 ```mermaid
 stateDiagram-v2
-    [*] --> Created: Process launched
+    [*] --> Pending: Process launched (pre-registered)
+    Pending --> Created: Socket bound
+    Pending --> Error: Startup failure
     Created --> Registered: CP accepts registration
     Created --> Error: Config/init failure
     Registered --> Healthy: UDS listening
@@ -53,6 +55,7 @@ stateDiagram-v2
 
 **Valid Transitions (from source):**
 ```rust
+WorkerStatus::Pending    => [Created, Error]
 WorkerStatus::Created    => [Registered, Error]
 WorkerStatus::Registered => [Healthy, Error]
 WorkerStatus::Healthy    => [Draining, Error]
@@ -60,6 +63,8 @@ WorkerStatus::Draining   => [Stopped, Error]
 WorkerStatus::Stopped    => []  // terminal
 WorkerStatus::Error      => []  // terminal
 ```
+
+UI/DB compatibility note: legacy status strings `crashed` and `failed` are treated as terminal in worker history/removal flows; canonical enum states remain `pending|created|registered|healthy|draining|stopped|error`.
 
 ### Worker Communication Flow
 

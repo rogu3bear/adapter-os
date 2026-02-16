@@ -3,15 +3,16 @@
 //! UI components for the system overview page including status cards,
 //! workers/nodes tables, system state, health details, metrics, and boot status.
 
+use crate::api::types::{StorageModeResponse, StorageStatsResponse, TenantStorageUsageResponse};
 use crate::api::{
-    ApiError, ComponentStatus, ReadyzCheck, ReadyzChecks, ReadyzResponse, SseState,
+    ApiClient, ApiError, ComponentStatus, ReadyzCheck, ReadyzChecks, ReadyzResponse, SseState,
     SystemHealthResponse, SystemReadyResponse,
 };
 use crate::components::{
     loaded_signal, Badge, BadgeVariant, Card, Column, DataTable, Spinner, StatusColor,
     StatusIndicator, StatusVariant, Table, TableBody, TableCell, TableHead, TableHeader, TableRow,
 };
-use crate::hooks::LoadingState;
+use crate::hooks::{use_api_resource, LoadingState};
 use adapteros_api_types::{
     AdapterMemorySummary, AllModelsStatusResponse, BaseModelStatusResponse, ComponentCheck,
     DriftLevel, HealthResponse, InferenceBlocker, InferenceReadyState, MemoryPressureLevel,
@@ -21,6 +22,7 @@ use adapteros_api_types::{
 };
 use leptos::prelude::*;
 use std::collections::HashMap;
+use std::sync::Arc;
 
 use super::utils::{format_timestamp, format_uptime, NODES_PAGE_SIZE, TENANTS_PAGE_SIZE};
 use crate::components::{IconCheckCircle, IconWarning};
@@ -199,7 +201,14 @@ pub fn SystemContent(
         <NodesSection nodes=nodes/>
 
         // Section 4: System State
-        <SystemStateSection state=state/>
+        // Clone state before consuming it — the service control section needs node.services
+        {
+            let state_for_svc = state.clone();
+            view! {
+                <SystemStateSection state=state/>
+                <ServiceControlSection state=state_for_svc/>
+            }
+        }
 
         // Section 5: Model Runtime
         <ModelRuntimeSection models_status=models_status/>
@@ -225,6 +234,12 @@ pub fn SystemContent(
         {status.boot.map(|boot| view! {
             <BootStatusSection boot=boot/>
         })}
+
+        // Section 11: Admin Lifecycle (shutdown/maintenance/restart)
+        <super::lifecycle::AdminLifecyclePanel/>
+
+        // Section 12: Storage Visibility (admin-only, hides on 403)
+        <StorageVisibilityPanel/>
     }
 }
 
@@ -320,6 +335,9 @@ fn WorkersSection(workers: Vec<WorkerResponse>) -> impl IntoView {
     let error = workers.iter().filter(|w| w.status == "error").count();
     let stopped = workers.iter().filter(|w| w.status == "stopped").count();
     let other = total - healthy - draining - error - stopped;
+    let status_glossary = "healthy=ready and accepting requests; draining=rejecting new requests while finishing in-flight; stopped=clean shutdown complete; error=terminal failure; crashed/failed=legacy terminal failure labels.";
+    let action_guidance =
+        "Decision: choose Drain for graceful maintenance; choose Stop only for urgent termination.";
 
     view! {
         <Card title="Workers".to_string() description="Worker process overview".to_string()>
@@ -327,7 +345,7 @@ fn WorkersSection(workers: Vec<WorkerResponse>) -> impl IntoView {
                 view! {
                     <div class="text-center py-6">
                         <p class="text-muted-foreground">"No workers registered"</p>
-                        <p class="text-sm text-muted-foreground mt-1">"Workers will appear here once they connect"</p>
+                        <p class="text-sm text-muted-foreground mt-1">"Workers serve inference requests. Next: open Manage Workers and choose Spawn Worker."</p>
                     </div>
                 }.into_any()
             } else {
@@ -365,6 +383,11 @@ fn WorkersSection(workers: Vec<WorkerResponse>) -> impl IntoView {
                     </div>
                 }.into_any()
             }}
+
+            <div class="mt-3 text-xs text-muted-foreground space-y-1">
+                <p>{"Status guide: "}{status_glossary}</p>
+                <p>{action_guidance}</p>
+            </div>
 
             <div class="mt-4 pt-4 border-t">
                 <a
@@ -710,6 +733,18 @@ fn NodeServicesSection(services: Vec<ServiceState>) -> impl IntoView {
                 card=false
             />
         </Card>
+    }
+}
+
+/// Wrapper that extracts node services from system state for the ServiceControlPanel
+#[component]
+fn ServiceControlSection(state: LoadingState<SystemStateResponse>) -> impl IntoView {
+    match state {
+        LoadingState::Loaded(state) => view! {
+            <super::services::ServiceControlPanel services=state.node.services/>
+        }
+        .into_any(),
+        _ => view! {}.into_any(),
     }
 }
 
@@ -1610,5 +1645,328 @@ pub fn BootStatusSection(boot: adapteros_api_types::BootStatus) -> impl IntoView
                 </Card>
             }.into_any()
         }}
+    }
+}
+
+// ============================================================================
+// Storage Visibility (PASS 6)
+// ============================================================================
+
+fn format_bytes(bytes: u64) -> String {
+    crate::utils::format_bytes(bytes as i64)
+}
+
+/// Storage visibility panel for system page.
+///
+/// Fetches storage mode, stats, and tenant usage independently.
+/// Silently hides if all endpoints return errors (e.g. 403 for non-admins).
+#[component]
+pub fn StorageVisibilityPanel() -> impl IntoView {
+    let (mode_data, _) =
+        use_api_resource(|client: Arc<ApiClient>| async move { client.get_storage_mode().await });
+    let (stats_data, _) =
+        use_api_resource(|client: Arc<ApiClient>| async move { client.get_storage_stats().await });
+    let (usage_data, _) = use_api_resource(|client: Arc<ApiClient>| async move {
+        client.get_tenant_storage_usage().await
+    });
+
+    view! {
+        {move || {
+            let mode = mode_data.try_get().unwrap_or(LoadingState::Loading);
+            let stats = stats_data.try_get().unwrap_or(LoadingState::Loading);
+            let usage = usage_data.try_get().unwrap_or(LoadingState::Loading);
+
+            // If all three failed, hide the entire panel
+            let all_failed = matches!(&mode, LoadingState::Error(_))
+                && matches!(&stats, LoadingState::Error(_))
+                && matches!(&usage, LoadingState::Error(_));
+            if all_failed {
+                return view! {}.into_any();
+            }
+
+            // If all idle/loading, show spinner
+            let all_loading = matches!(&mode, LoadingState::Idle | LoadingState::Loading)
+                && matches!(&stats, LoadingState::Idle | LoadingState::Loading)
+                && matches!(&usage, LoadingState::Idle | LoadingState::Loading);
+            if all_loading {
+                return view! {
+                    <Card title="Storage".to_string() description="Storage backend visibility".to_string()>
+                        <div class="flex items-center justify-center gap-2 py-6 text-muted-foreground">
+                            <Spinner/>
+                            <span class="text-sm">"Loading storage data..."</span>
+                        </div>
+                    </Card>
+                }.into_any();
+            }
+
+            view! {
+                <div class="space-y-4">
+                    // Storage Mode card
+                    {match mode {
+                        LoadingState::Loaded(data) => view! {
+                            <StorageModeCard data=data/>
+                        }.into_any(),
+                        _ => view! {}.into_any(),
+                    }}
+
+                    // Storage Stats card
+                    {match stats {
+                        LoadingState::Loaded(data) => view! {
+                            <StorageStatsCard data=data/>
+                        }.into_any(),
+                        _ => view! {}.into_any(),
+                    }}
+
+                    // Tenant Usage card
+                    {match usage {
+                        LoadingState::Loaded(data) => view! {
+                            <TenantUsageCard data=data/>
+                        }.into_any(),
+                        _ => view! {}.into_any(),
+                    }}
+                </div>
+            }.into_any()
+        }}
+    }
+}
+
+#[component]
+fn StorageModeCard(data: StorageModeResponse) -> impl IntoView {
+    let mode_variant = match data.mode.as_str() {
+        "dual" => BadgeVariant::Success,
+        "kv" => BadgeVariant::Secondary,
+        _ => BadgeVariant::Default,
+    };
+
+    view! {
+        <Card title="Storage Mode".to_string() description="Current storage backend configuration".to_string()>
+            <div class="space-y-3">
+                <div class="flex items-center gap-3">
+                    <span class="text-sm font-medium">"Mode:"</span>
+                    <Badge variant=mode_variant>{data.mode.clone()}</Badge>
+                </div>
+                <p class="text-sm text-muted-foreground">{data.description.clone()}</p>
+                <div class="grid gap-2 md:grid-cols-2">
+                    <div class="flex items-center gap-2">
+                        {if data.kv_available {
+                            view! { <IconCheckCircle/> }.into_any()
+                        } else {
+                            view! { <IconWarning/> }.into_any()
+                        }}
+                        <span class="text-sm">
+                            {if data.kv_available { "KV store available" } else { "KV store unavailable" }}
+                        </span>
+                    </div>
+                    <div class="flex items-center gap-2">
+                        {if data.dual_write_active {
+                            view! { <IconCheckCircle/> }.into_any()
+                        } else {
+                            view! { <IconWarning/> }.into_any()
+                        }}
+                        <span class="text-sm">
+                            {if data.dual_write_active { "Dual-write active" } else { "Dual-write inactive" }}
+                        </span>
+                    </div>
+                </div>
+            </div>
+        </Card>
+    }
+}
+
+#[component]
+fn StorageStatsCard(data: StorageStatsResponse) -> impl IntoView {
+    let sql_entries = json_object_to_entries(&data.sql_counts);
+    let kv_entries = json_object_to_entries(&data.kv_counts);
+    let collected = format_timestamp(&data.collected_at);
+
+    view! {
+        <Card title="Storage Statistics".to_string() description="Row and key counts by backend".to_string()>
+            <div class="space-y-4">
+                <div class="flex items-center gap-3">
+                    <span class="text-sm font-medium">"Mode:"</span>
+                    <Badge variant=BadgeVariant::Secondary>{data.mode.clone()}</Badge>
+                </div>
+
+                <div class="grid gap-4 md:grid-cols-2">
+                    // SQL counts
+                    <div>
+                        <h4 class="text-sm font-medium mb-2">"SQL Counts"</h4>
+                        {if sql_entries.is_empty() {
+                            view! {
+                                <p class="text-sm text-muted-foreground">"No SQL data"</p>
+                            }.into_any()
+                        } else {
+                            view! {
+                                <Table>
+                                    <TableHeader>
+                                        <TableRow>
+                                            <TableHead>"Table"</TableHead>
+                                            <TableHead>"Count"</TableHead>
+                                        </TableRow>
+                                    </TableHeader>
+                                    <TableBody>
+                                        {sql_entries.into_iter().map(|(key, value)| view! {
+                                            <TableRow>
+                                                <TableCell>
+                                                    <span class="text-sm font-mono">{key}</span>
+                                                </TableCell>
+                                                <TableCell>
+                                                    <span class="text-sm">{value}</span>
+                                                </TableCell>
+                                            </TableRow>
+                                        }).collect::<Vec<_>>()}
+                                    </TableBody>
+                                </Table>
+                            }.into_any()
+                        }}
+                    </div>
+
+                    // KV counts
+                    <div>
+                        <h4 class="text-sm font-medium mb-2">"KV Counts"</h4>
+                        {if kv_entries.is_empty() {
+                            view! {
+                                <p class="text-sm text-muted-foreground">"No KV data"</p>
+                            }.into_any()
+                        } else {
+                            view! {
+                                <Table>
+                                    <TableHeader>
+                                        <TableRow>
+                                            <TableHead>"Key"</TableHead>
+                                            <TableHead>"Count"</TableHead>
+                                        </TableRow>
+                                    </TableHeader>
+                                    <TableBody>
+                                        {kv_entries.into_iter().map(|(key, value)| view! {
+                                            <TableRow>
+                                                <TableCell>
+                                                    <span class="text-sm font-mono">{key}</span>
+                                                </TableCell>
+                                                <TableCell>
+                                                    <span class="text-sm">{value}</span>
+                                                </TableCell>
+                                            </TableRow>
+                                        }).collect::<Vec<_>>()}
+                                    </TableBody>
+                                </Table>
+                            }.into_any()
+                        }}
+                    </div>
+                </div>
+
+                <p class="text-xs text-muted-foreground">
+                    "Collected: " {collected}
+                </p>
+            </div>
+        </Card>
+    }
+}
+
+/// Extract key-value pairs from a serde_json::Value object
+fn json_object_to_entries(value: &serde_json::Value) -> Vec<(String, String)> {
+    match value.as_object() {
+        Some(map) => map
+            .iter()
+            .map(|(k, v)| {
+                let display = match v {
+                    serde_json::Value::Number(n) => n.to_string(),
+                    serde_json::Value::String(s) => s.clone(),
+                    other => other.to_string(),
+                };
+                (k.clone(), display)
+            })
+            .collect(),
+        None => Vec::new(),
+    }
+}
+
+#[component]
+fn TenantUsageCard(data: TenantStorageUsageResponse) -> impl IntoView {
+    let short_tenant = adapteros_id::short_id(&data.tenant_id);
+    let full_tenant = data.tenant_id.clone();
+
+    let dataset_label = format_bytes(data.dataset_bytes);
+    let artifact_label = format_bytes(data.artifact_bytes);
+    let total_bytes = data.dataset_bytes + data.artifact_bytes;
+    let total_label = format_bytes(total_bytes);
+
+    let soft_limit_label = format_bytes(data.soft_limit_bytes);
+    let hard_limit_label = format_bytes(data.hard_limit_bytes);
+
+    // Calculate usage percentages for progress display
+    let soft_pct = if data.soft_limit_bytes > 0 {
+        ((total_bytes as f64 / data.soft_limit_bytes as f64) * 100.0).min(100.0)
+    } else {
+        0.0
+    };
+    let hard_pct = if data.hard_limit_bytes > 0 {
+        ((total_bytes as f64 / data.hard_limit_bytes as f64) * 100.0).min(100.0)
+    } else {
+        0.0
+    };
+
+    view! {
+        <Card title="Tenant Storage Usage".to_string() description="Storage consumption and limits".to_string()>
+            <div class="space-y-4">
+                <div class="flex items-center gap-2">
+                    <span class="text-sm font-medium">"Tenant:"</span>
+                    <span class="text-sm font-mono" title=full_tenant>{short_tenant}</span>
+                </div>
+
+                <div class="grid gap-4 md:grid-cols-3">
+                    <div class="rounded-lg border p-4">
+                        <p class="text-xs text-muted-foreground mb-1">"Datasets"</p>
+                        <p class="text-2xl font-bold">{dataset_label}</p>
+                    </div>
+                    <div class="rounded-lg border p-4">
+                        <p class="text-xs text-muted-foreground mb-1">"Artifacts"</p>
+                        <p class="text-2xl font-bold">{artifact_label}</p>
+                    </div>
+                    <div class="rounded-lg border p-4">
+                        <p class="text-xs text-muted-foreground mb-1">"Total"</p>
+                        <p class="text-2xl font-bold">{total_label}</p>
+                    </div>
+                </div>
+
+                // Soft limit bar
+                <div class="space-y-1">
+                    <div class="flex items-center justify-between text-sm">
+                        <span>"Soft limit"</span>
+                        <div class="flex items-center gap-2">
+                            <span class="text-muted-foreground">{soft_limit_label}</span>
+                            {data.soft_exceeded.then(|| view! {
+                                <Badge variant=BadgeVariant::Warning>"exceeded"</Badge>
+                            })}
+                        </div>
+                    </div>
+                    <div class="w-full h-2 rounded-full bg-muted overflow-hidden">
+                        <div
+                            class=if data.soft_exceeded { "h-full rounded-full bg-status-warning" } else { "h-full rounded-full bg-status-success" }
+                            style=format!("width: {}%", soft_pct)
+                        />
+                    </div>
+                </div>
+
+                // Hard limit bar
+                <div class="space-y-1">
+                    <div class="flex items-center justify-between text-sm">
+                        <span>"Hard limit"</span>
+                        <div class="flex items-center gap-2">
+                            <span class="text-muted-foreground">{hard_limit_label}</span>
+                            {data.hard_exceeded.then(|| view! {
+                                <Badge variant=BadgeVariant::Destructive>"exceeded"</Badge>
+                            })}
+                        </div>
+                    </div>
+                    <div class="w-full h-2 rounded-full bg-muted overflow-hidden">
+                        <div
+                            class=if data.hard_exceeded { "h-full rounded-full bg-status-error" } else { "h-full rounded-full bg-status-success" }
+                            style=format!("width: {}%", hard_pct)
+                        />
+                    </div>
+                </div>
+            </div>
+        </Card>
     }
 }
