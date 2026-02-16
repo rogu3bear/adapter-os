@@ -102,9 +102,13 @@ pub fn DataDetailPanel(
                             DataSource::Preprocessed => {
                                 let status = preprocess_status.map(|s| s.get()).unwrap_or_default();
                                 let entry = preprocessed_entry.and_then(|e| e.get());
+                                let dataset_id = entry
+                                    .as_ref()
+                                    .map(|item| item.dataset_id.clone())
+                                    .unwrap_or_else(|| id.clone());
                                 view! {
                                     <PreprocessDetail
-                                        dataset_id=id.clone()
+                                        dataset_id=dataset_id
                                         entry=entry
                                         status=status
                                         on_close=on_close

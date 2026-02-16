@@ -708,6 +708,15 @@ impl ApiClient {
         self.get("/v1/training/preprocessed-cache").await
     }
 
+    /// Remove preprocessed cache entries for a dataset.
+    pub async fn invalidate_preprocessed_cache(&self, dataset_id: &str) -> ApiResult<()> {
+        self.delete(&format!(
+            "/v1/training/preprocessed-cache/{}",
+            encode(dataset_id)
+        ))
+        .await
+    }
+
     // --- Models ---
 
     /// List all models with stats
