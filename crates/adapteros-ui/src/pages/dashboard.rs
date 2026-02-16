@@ -634,20 +634,30 @@ fn DashboardContent(
                                                 let when = event.created_at.clone();
                                                 let href = activity_event_href(event.target_type.as_deref(), event.target_id.as_deref());
                                                 view! {
-                                                    <a
-                                                        href=href.clone().unwrap_or_default()
-                                                        class=if href.is_some() {
-                                                            "flex items-center justify-between rounded-md border border-input px-3 py-2 hover:bg-accent/30 transition-colors no-underline text-foreground"
-                                                        } else {
-                                                            "flex items-center justify-between rounded-md border border-input px-3 py-2"
-                                                        }
-                                                    >
-                                                        <div>
-                                                            <div class="text-sm font-medium">{event.event_type}</div>
-                                                            <div class="text-xs text-muted-foreground">{target}</div>
-                                                        </div>
-                                                        <div class="text-xs text-muted-foreground">{format_relative_time(&when)}</div>
-                                                    </a>
+                                                    {if let Some(href) = href {
+                                                        view! {
+                                                            <a
+                                                                href=href
+                                                                class="flex items-center justify-between rounded-md border border-input px-3 py-2 hover:bg-accent/30 transition-colors no-underline text-foreground"
+                                                            >
+                                                                <div>
+                                                                    <div class="text-sm font-medium">{event.event_type}</div>
+                                                                    <div class="text-xs text-muted-foreground">{target.clone()}</div>
+                                                                </div>
+                                                                <div class="text-xs text-muted-foreground">{format_relative_time(&when)}</div>
+                                                            </a>
+                                                        }.into_any()
+                                                    } else {
+                                                        view! {
+                                                            <div class="flex items-center justify-between rounded-md border border-input px-3 py-2">
+                                                                <div>
+                                                                    <div class="text-sm font-medium">{event.event_type}</div>
+                                                                    <div class="text-xs text-muted-foreground">{target}</div>
+                                                                </div>
+                                                                <div class="text-xs text-muted-foreground">{format_relative_time(&when)}</div>
+                                                            </div>
+                                                        }.into_any()
+                                                    }}
                                                 }
                                             }).collect::<Vec<_>>()}
                                         </div>
