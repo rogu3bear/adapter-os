@@ -3,8 +3,8 @@
 use crate::api::report_error_with_toast;
 use crate::components::{
     Badge, BadgeVariant, Button, ButtonSize, ButtonVariant, Card, EmptyState, EmptyStateVariant,
-    ErrorDisplay, LoadingDisplay, PageScaffold, Table, TableBody, TableCell, TableHead,
-    TableHeader, TableRow,
+    ErrorDisplay, LoadingDisplay, PageBreadcrumbItem, PageScaffold, Table, TableBody, TableCell,
+    TableHead, TableHeader, TableRow,
 };
 use crate::hooks::{use_api, LoadingState};
 use crate::utils::format_bytes;
@@ -16,6 +16,7 @@ use std::sync::Arc;
 pub fn FileBrowser() -> impl IntoView {
     let api = use_api();
     let (current_path, set_current_path) = signal(String::new());
+    let (last_requested_path, set_last_requested_path) = signal(String::new());
     let (show_hidden, set_show_hidden) = signal(false);
     let (browse_state, set_browse_state) =
         signal::<LoadingState<FileBrowseResponse>>(LoadingState::Loading);
@@ -26,7 +27,9 @@ pub fn FileBrowser() -> impl IntoView {
             let api = Arc::clone(&api);
             let set_state = set_browse_state;
             let set_path = set_current_path;
+            let set_last_path = set_last_requested_path;
             let hidden = show_hidden.get_untracked();
+            set_last_path.set(path.clone());
             set_state.set(LoadingState::Loading);
             wasm_bindgen_futures::spawn_local(async move {
                 match api.browse_filesystem(&path, hidden).await {
@@ -83,14 +86,30 @@ pub fn FileBrowser() -> impl IntoView {
     };
 
     view! {
-        <PageScaffold title="Files">
+        <PageScaffold
+            title="Files"
+            breadcrumbs=vec![
+                PageBreadcrumbItem::label("Org"),
+                PageBreadcrumbItem::current("Files"),
+            ]
+        >
             <div class="filesystem-browser">
-                {move || match browse_state.get() {
+                {move || {
+                    let retry_browse = do_browse.clone();
+                    let retry_path = last_requested_path;
+                    match browse_state.get() {
                     LoadingState::Loading => {
                         view! { <LoadingDisplay message="Loading directory..."/> }.into_any()
                     }
                     LoadingState::Error(e) => {
-                        view! { <ErrorDisplay error=e/> }.into_any()
+                        view! {
+                            <ErrorDisplay
+                                error=e
+                                on_retry=Callback::new(move |_| {
+                                    retry_browse(retry_path.get_untracked())
+                                })
+                            />
+                        }.into_any()
                     }
                     LoadingState::Loaded(resp) => {
                         let resp_for_nav = resp.clone();
@@ -271,8 +290,8 @@ pub fn FileBrowser() -> impl IntoView {
                         }
                             .into_any()
                     }
-                    _ => view! {}.into_any(),
-                }}
+                    _ => view! { <LoadingDisplay message="Loading directory..."/> }.into_any(),
+                }}}
             </div>
         </PageScaffold>
     }

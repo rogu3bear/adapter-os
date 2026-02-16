@@ -18,9 +18,9 @@ pub(crate) use utils::is_terminal_worker_status;
 
 use crate::api::{report_error_with_toast, ApiClient};
 use crate::components::{
-    Button, ButtonVariant, ConfirmationDialog, ConfirmationSeverity, ErrorDisplay, LoadingDisplay,
-    PageBreadcrumbItem, PageScaffold, PageScaffoldActions, RefreshButton, SkeletonCard,
-    SkeletonTable, SplitPanel, SplitRatio,
+    Button, ButtonLink, ButtonSize, ButtonVariant, ConfirmationDialog, ConfirmationSeverity,
+    ErrorDisplay, LoadingDisplay, PageBreadcrumbItem, PageScaffold, PageScaffoldActions,
+    RefreshButton, SkeletonCard, SkeletonTable, SplitPanel, SplitRatio,
 };
 use crate::hooks::{use_api, use_api_resource, use_polling, LoadingState};
 use crate::signals::use_notifications;
@@ -792,7 +792,31 @@ pub fn WorkerDetail() -> impl IntoView {
                             />
                         }.into_any()
                     }
+                    LoadingState::Error(e) if e.is_not_found() => {
+                        view! {
+                            <div data-testid="worker-detail-error-state">
+                                <div class="flex min-h-[40vh] flex-col items-center justify-center px-4">
+                                    <div class="w-full max-w-md rounded-lg border bg-card p-8 text-center shadow-sm">
+                                        <div class="text-4xl font-bold text-muted-foreground mb-2">"404"</div>
+                                        <h2 class="heading-3 mb-2">"Worker not found"</h2>
+                                        <p class="text-muted-foreground mb-6">
+                                            "This worker may have been removed or doesn't exist."
+                                        </p>
+                                        <ButtonLink
+                                            href="/workers"
+                                            variant=ButtonVariant::Primary
+                                            size=ButtonSize::Md
+                                        >
+                                            "View all workers"
+                                        </ButtonLink>
+                                    </div>
+                                </div>
+                            </div>
+                        }
+                            .into_any()
+                    }
                     LoadingState::Error(e) => {
+                        let show_backend_hint = matches!(e.code(), Some("INTERNAL_SERVER_ERROR"));
                         view! {
                             <div data-testid="worker-detail-error-state">
                                 <ErrorDisplay
@@ -802,8 +826,19 @@ pub fn WorkerDetail() -> impl IntoView {
                                         refetch_metrics.run(());
                                     })
                                 />
+                                {show_backend_hint.then(|| view! {
+                                    <div class="mt-3 rounded-md border border-border bg-muted/30 p-3 text-sm text-muted-foreground">
+                                        "Worker details are temporarily unavailable from the backend. You can refresh, return to the workers list, or retry once backend migrations are healthy."
+                                    </div>
+                                })}
+                                <div class="mt-3">
+                                    <a href="/workers" class="text-sm text-primary hover:underline">
+                                        "Back to Workers"
+                                    </a>
+                                </div>
                             </div>
-                        }.into_any()
+                        }
+                            .into_any()
                     }
                 }
             }}
