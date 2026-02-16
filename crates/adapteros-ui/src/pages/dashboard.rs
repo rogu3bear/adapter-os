@@ -607,9 +607,13 @@ fn DashboardContent(
                     {move || {
                         if !can_view_activity.try_get().unwrap_or(false) {
                             return view! {
-                                <div class="text-sm text-muted-foreground">
-                                    "Activity requires permission."
-                                </div>
+                                <EmptyState
+                                    variant=EmptyStateVariant::NoPermission
+                                    title="Activity feed requires permission"
+                                    description="Ask an admin for ActivityView access to view recent events."
+                                    secondary_label="Open settings"
+                                    secondary_href="/settings".to_string()
+                                />
                             }.into_any();
                         }
                         match activity.try_get().unwrap_or(LoadingState::Loading) {

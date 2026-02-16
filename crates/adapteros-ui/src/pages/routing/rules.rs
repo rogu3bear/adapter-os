@@ -32,6 +32,16 @@ pub fn RoutingRules() -> impl IntoView {
             }
         }
     });
+    let select_first_identity_set = {
+        let selected_dataset_id = selected_dataset_id;
+        Callback::new(move |_| {
+            if let LoadingState::Loaded(data) = identity_datasets.get_untracked() {
+                if let Some(first) = data.datasets.first() {
+                    selected_dataset_id.set(Some(first.id.clone()));
+                }
+            }
+        })
+    };
 
     view! {
         <div class="space-y-6">
@@ -51,7 +61,14 @@ pub fn RoutingRules() -> impl IntoView {
                     {move || match identity_datasets.get() {
                         LoadingState::Loaded(data) => {
                             if data.datasets.is_empty() {
-                                view! { <p class="text-xs text-muted-foreground">"No Identity Sets found. Mark a dataset as 'Identity' first."</p> }.into_any()
+                                view! {
+                                    <EmptyState
+                                        title="No identity sets found"
+                                        description="Routing rules require a dataset marked as Identity."
+                                        secondary_label="Open datasets"
+                                        secondary_href="/datasets".to_string()
+                                    />
+                                }.into_any()
                             } else {
                                 view! {
                                     <div class="space-y-2">
@@ -89,6 +106,10 @@ pub fn RoutingRules() -> impl IntoView {
                                 <EmptyState
                                     title="No identity set selected"
                                     description="Select an identity set from the left to manage its routing rules."
+                                    action_label="Select first identity set"
+                                    on_action=select_first_identity_set.clone()
+                                    secondary_label="Manage identity sets"
+                                    secondary_href="/datasets".to_string()
                                 />
                             </Card>
                         }.into_any(),
