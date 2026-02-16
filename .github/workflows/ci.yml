@@ -112,6 +112,77 @@ jobs:
       - name: Verify all benchmark targets compile
         run: bash scripts/ci/bench_compile_smoke.sh
 
+  crate-version-patch-roll:
+    name: "Tier 1: Crate Version Patch Roll"
+    runs-on: ubuntu-latest
+    permissions:
+      contents: write
+    steps:
+      - uses: actions/checkout@v4
+        with:
+          fetch-depth: 0
+          ref: ${{ github.head_ref || github.ref_name }}
+      - name: Resolve diff base ref
+        id: base_ref
+        run: |
+          set -euo pipefail
+
+          if [ "${{ github.event_name }}" = "pull_request" ]; then
+            BASE_REF="origin/${{ github.base_ref }}"
+            git fetch origin "${{ github.base_ref }}" --depth=1
+          else
+            BASE_REF="origin/main"
+            git fetch origin main --depth=1
+          fi
+
+          if ! git rev-parse --verify "$BASE_REF" >/dev/null 2>&1; then
+            echo "::error::Unable to resolve base ref: $BASE_REF"
+            exit 1
+          fi
+
+          echo "base_ref=$BASE_REF" >> "$GITHUB_OUTPUT"
+      - name: Select gate mode
+        id: gate_mode
+        run: |
+          set -euo pipefail
+
+          if [ "${{ github.event_name }}" = "pull_request" ] && \
+             [ "${{ github.repository }}" = "${{ github.event.pull_request.head.repo.full_name }}" ]; then
+            echo "mode=autobump" >> "$GITHUB_OUTPUT"
+            echo "can_push=true" >> "$GITHUB_OUTPUT"
+            echo "Using autobump mode for same-repo PR."
+          else
+            echo "mode=check" >> "$GITHUB_OUTPUT"
+            echo "can_push=false" >> "$GITHUB_OUTPUT"
+            echo "Using check-only mode (fork PR or non-PR context)."
+          fi
+      - name: Run crate version patch roll gate
+        run: |
+          bash scripts/ci/check_crate_patch_roll.sh \
+            --mode "${{ steps.gate_mode.outputs.mode }}" \
+            --base-ref "${{ steps.base_ref.outputs.base_ref }}"
+      - name: Commit and push auto-bumps
+        if: steps.gate_mode.outputs.can_push == 'true'
+        run: |
+          set -euo pipefail
+
+          if git diff --quiet -- crates/*/Cargo.toml; then
+            echo "No crate version changes to commit."
+            exit 0
+          fi
+
+          git config user.name "github-actions[bot]"
+          git config user.email "41898282+github-actions[bot]@users.noreply.github.com"
+          git add crates/*/Cargo.toml
+
+          if git diff --cached --quiet; then
+            echo "No staged crate version changes."
+            exit 0
+          fi
+
+          git commit -m "ci: auto-roll crate versions"
+          git push origin "HEAD:${{ github.head_ref }}"
+
   # ==========================================================================
   # Tier 1 Gate: All fast checks must pass before Tier 2 proceeds
   # ==========================================================================
@@ -128,6 +199,7 @@ jobs:
       - rectification-contracts
       - test-artifact-hygiene
       - bench-compile-smoke
+      - crate-version-patch-roll
     if: always()
     steps:
       - name: Check Tier 1 results
