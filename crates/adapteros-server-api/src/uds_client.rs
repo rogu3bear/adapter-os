@@ -1405,6 +1405,18 @@ impl UdsClient {
     /// Signals are received as Server-Sent Events (SSE) and passed to the callback.
     ///
     /// Citation: docs/llm-interface-specification.md §5.1
+    fn parse_sse_error_message(event_data: &str) -> String {
+        serde_json::from_str::<serde_json::Value>(event_data)
+            .ok()
+            .and_then(|value| {
+                value
+                    .get("error")
+                    .and_then(|v| v.as_str())
+                    .map(|v| v.to_string())
+            })
+            .unwrap_or_else(|| event_data.to_string())
+    }
+
     pub async fn infer_with_signals<F>(
         &self,
         uds_path: &Path,
@@ -1443,6 +1455,8 @@ impl UdsClient {
             "POST /inference HTTP/1.1\r\n\
              Host: worker\r\n\
              Content-Type: application/json\r\n\
+             Accept: text/event-stream\r\n\
+             X-Stream: true\r\n\
              Content-Length: {}\r\n\
              X-Signal-Stream: true\r\n\
              \r\n\
@@ -1466,14 +1480,36 @@ impl UdsClient {
         let sse_timeout = Duration::from_secs(300);
         let per_line_timeout = Duration::from_secs(60);
 
+        // Parse HTTP status line with timeout
+        line.clear();
+        let status_line =
+            match tokio::time::timeout(per_line_timeout, reader.read_line(&mut line)).await {
+                Ok(Ok(0)) => {
+                    return Err(UdsClientError::RequestFailed("Empty response".to_string()));
+                }
+                Ok(Ok(_)) => line.clone(),
+                Ok(Err(e)) => return Err(UdsClientError::RequestFailed(e.to_string())),
+                Err(_) => {
+                    return Err(UdsClientError::Timeout(
+                        "SSE status line read timeout".to_string(),
+                    ))
+                }
+            };
+
+        if !status_line.contains("200 OK") {
+            return Err(UdsClientError::RequestFailed(format!(
+                "Worker returned error: {}",
+                status_line.trim()
+            )));
+        }
+
         // Parse SSE headers with timeout
-        let mut in_body = false;
-        while !in_body {
+        loop {
             line.clear();
             match tokio::time::timeout(per_line_timeout, reader.read_line(&mut line)).await {
                 Ok(Ok(_)) => {
                     if line.trim().is_empty() {
-                        in_body = true;
+                        break;
                     }
                 }
                 Ok(Err(e)) => return Err(UdsClientError::RequestFailed(e.to_string())),
@@ -1489,6 +1525,29 @@ impl UdsClient {
         let mut event_type = String::new();
         let mut event_data = String::new();
 
+        let mut process_event = |event_type: &str,
+                                 event_data: &str|
+         -> Result<bool, UdsClientError> {
+            match event_type {
+                "signal" => {
+                    let signal: Signal = serde_json::from_str(event_data)
+                        .map_err(|e| UdsClientError::SerializationError(e.to_string()))?;
+                    signal_callback(signal);
+                    Ok(false)
+                }
+                "complete" => {
+                    let resp: crate::types::WorkerInferResponse = serde_json::from_str(event_data)
+                        .map_err(|e| UdsClientError::SerializationError(e.to_string()))?;
+                    response = Some(resp);
+                    Ok(true)
+                }
+                "error" => Err(UdsClientError::RequestFailed(
+                    Self::parse_sse_error_message(event_data),
+                )),
+                _ => Ok(false),
+            }
+        };
+
         let sse_result = tokio::time::timeout(sse_timeout, async {
             loop {
                 line.clear();
@@ -1503,6 +1562,9 @@ impl UdsClient {
                 };
 
                 if n == 0 {
+                    if !event_type.is_empty() && !event_data.is_empty() {
+                        process_event(&event_type, &event_data)?;
+                    }
                     break; // End of stream
                 }
 
@@ -1511,24 +1573,8 @@ impl UdsClient {
                 if line_trimmed.is_empty() {
                     // Event boundary - process accumulated event
                     if !event_type.is_empty() && !event_data.is_empty() {
-                        match event_type.as_str() {
-                            "signal" => {
-                                // Parse and emit signal
-                                if let Ok(signal) = serde_json::from_str::<Signal>(&event_data) {
-                                    signal_callback(signal);
-                                }
-                            }
-                            "complete" => {
-                                // Inference complete - response should be in final data
-                                if let Ok(resp) = serde_json::from_str::<
-                                    crate::types::WorkerInferResponse,
-                                >(&event_data)
-                                {
-                                    response = Some(resp);
-                                }
-                                break;
-                            }
-                            _ => {}
+                        if process_event(&event_type, &event_data)? {
+                            break;
                         }
                     }
 

@@ -247,11 +247,13 @@ async fn main() -> Result<()> {
         let _recovery_report = run_startup_recovery(&db_ctx.db)
             .await
             .map_err(|e| {
-                // Log but don't fail boot - recovery is best-effort
-                warn!(error = %e, "Startup recovery encountered errors (non-fatal)");
+                boot_state.finish_phase_err(
+                    "startup_recovery",
+                    failure_codes::STARTUP_RECOVERY_FAILED,
+                    Some(e.to_string()),
+                );
                 e
-            })
-            .ok(); // Convert to Option - don't propagate error
+            })?;
         boot_state.finish_phase_ok("startup_recovery");
 
         // =====================================================================

@@ -109,17 +109,25 @@ pub fn validate_policy(
 // Phase 1 Implementations
 
 fn validate_secrets(archive: &GoldenRunArchive) -> AosResult<PolicyValidationResult> {
-    // Check metadata for potential secrets
-    // This is a heuristic check
     let metadata_str = serde_json::to_string(&archive.metadata).unwrap_or_default();
-    if metadata_str.contains("key-")
-        || metadata_str.contains("secret")
-        || metadata_str.contains("password")
+    let metadata_lower = metadata_str.to_ascii_lowercase();
+    let secret_markers = [
+        "api_key",
+        "apikey",
+        "secret_key",
+        "private_key",
+        "access_token",
+        "password",
+        "-----begin",
+    ];
+    if let Some(marker) = secret_markers
+        .iter()
+        .find(|marker| metadata_lower.contains(*marker))
     {
-        // This is a naive check, but serves as a placeholder for more robust scanning
-        // In a real implementation, we'd use regex for specific patterns
-        // For now, we'll be lenient to avoid false positives on "secret" word usage
-        // unless it looks like a key
+        return Ok(PolicyValidationResult::fail(format!(
+            "Potential secret-like metadata detected (marker: {})",
+            marker
+        )));
     }
 
     // Secrets policy requires signature for authenticity
@@ -150,10 +158,9 @@ fn validate_build_release(archive: &GoldenRunArchive) -> AosResult<PolicyValidat
     // Check for "Unknown" or zero hash kernel
     let zero_hash = "0000000000000000000000000000000000000000000000000000000000000000";
     if toolchain.kernel_hash.to_hex() == zero_hash {
-        // In development this might happen, but for BuildRelease policy it's a failure
-        // We'll allow it for now if it's a test run, but flag it
-        // For strict policy:
-        // return Ok(PolicyValidationResult::fail("Invalid/placeholder kernel hash".to_string()));
+        return Ok(PolicyValidationResult::fail(
+            "Invalid/placeholder kernel hash".to_string(),
+        ));
     }
 
     Ok(PolicyValidationResult::pass(Some(serde_json::json!({
@@ -463,6 +470,18 @@ mod tests {
     }
 
     #[test]
+    fn test_validate_secrets_fails_on_secret_like_metadata() {
+        let mut bad_archive = create_mock_archive();
+        bad_archive.metadata.plan_id = "api_key=test-secret".to_string();
+        let result = validate_secrets(&bad_archive).unwrap();
+        assert!(!result.passed);
+        assert!(result
+            .failure_reason
+            .unwrap_or_default()
+            .contains("Potential secret-like metadata detected"));
+    }
+
+    #[test]
     fn test_validate_build_release() {
         let archive = create_mock_archive();
         let result = validate_build_release(&archive).unwrap();
@@ -472,6 +491,20 @@ mod tests {
         bad_archive.metadata.toolchain.rustc_version = "".to_string();
         let result = validate_build_release(&bad_archive).unwrap();
         assert!(!result.passed);
+    }
+
+    #[test]
+    fn test_validate_build_release_fails_on_placeholder_kernel_hash() {
+        let mut bad_archive = create_mock_archive();
+        bad_archive.metadata.toolchain.kernel_hash =
+            B3Hash::from_hex("0000000000000000000000000000000000000000000000000000000000000000")
+                .unwrap();
+        let result = validate_build_release(&bad_archive).unwrap();
+        assert!(!result.passed);
+        assert_eq!(
+            result.failure_reason,
+            Some("Invalid/placeholder kernel hash".to_string())
+        );
     }
 
     #[test]

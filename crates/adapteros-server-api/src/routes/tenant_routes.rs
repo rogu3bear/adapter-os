@@ -38,7 +38,7 @@ pub fn tenant_routes() -> Router<AppState> {
         )
         .route(
             "/v1/tenants/{tenant_id}/usage",
-            get(handlers::get_tenant_usage),
+            get(handlers::tenants::get_tenant_usage),
         )
         // Dedicated tenant resource metrics endpoint
         .route(

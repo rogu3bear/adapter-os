@@ -171,8 +171,8 @@ fn test_mlx_determinism_attestation() {
         // Stub mode assertions
         assert_eq!(
             attestation.floating_point_mode,
-            FloatingPointMode::Unknown,
-            "Stub mode has unknown FP mode"
+            FloatingPointMode::Deterministic,
+            "MLX reports deterministic IEEE-754 FP mode even when unseeded"
         );
         assert_eq!(
             attestation.determinism_level,

@@ -672,7 +672,7 @@ pub async fn assign_tenant_adapters(
 ///
 /// NOTE: This is a legacy stub. The real implementation is in `handlers::tenants::get_tenant_usage`.
 /// This stub remains for backwards compatibility but should be removed in favor of the real implementation.
-pub async fn get_tenant_usage(
+pub(crate) async fn get_tenant_usage(
     State(_state): State<AppState>,
     Extension(_claims): Extension<Claims>,
     Path(tenant_id): Path<String>,

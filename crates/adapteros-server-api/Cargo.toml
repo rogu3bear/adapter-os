@@ -127,7 +127,7 @@ unused = "warn"
 result_large_err = "warn"
 # Other clippy lints can be added here as needed
 [features]
-default = []
+default = ["embeddings"]
 # MLX backend support - enables MLX capability detection and reporting
 mlx-ffi-backend = ["adapteros-lora-mlx-ffi", "adapteros-system-metrics/mlx", "adapteros-lora-worker/multi-backend"]
 # Standalone MLX flag for capability gating

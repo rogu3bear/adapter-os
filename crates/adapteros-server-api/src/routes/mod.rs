@@ -570,7 +570,7 @@ use utoipa_swagger_ui::SwaggerUi;
         handlers::archive_tenant,
         handlers::assign_tenant_policies,
         handlers::assign_tenant_adapters,
-        handlers::get_tenant_usage,
+        handlers::tenants::get_tenant_usage,
         handlers::tenants::get_tenant_metrics,
         handlers::get_default_stack,
         handlers::set_default_stack,
