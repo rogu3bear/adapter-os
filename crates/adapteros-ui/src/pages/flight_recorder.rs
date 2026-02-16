@@ -74,11 +74,11 @@ pub fn FlightRecorder() -> impl IntoView {
 
     view! {
         <PageScaffold
-            title="Flight Recorder"
+            title="Runs"
             subtitle="Inference run history and diagnostics"
             breadcrumbs=vec![
                 PageBreadcrumbItem::new("Observe", "/runs"),
-                PageBreadcrumbItem::current("Flight Recorder"),
+                PageBreadcrumbItem::current("Runs"),
             ]
         >
             <PageScaffoldActions slot>
@@ -151,7 +151,7 @@ pub fn FlightRecorderDetail() -> impl IntoView {
             title="Run Detail"
             breadcrumbs=vec![
                 PageBreadcrumbItem::new("Observe", "/runs"),
-                PageBreadcrumbItem::new("Flight Recorder", "/runs"),
+                PageBreadcrumbItem::new("Runs", "/runs"),
                 PageBreadcrumbItem::current(run_id()),
             ]
         >
@@ -655,7 +655,7 @@ fn RunDetailHub(run_id: String, on_close: Callback<()>) -> impl IntoView {
                                     {fallback_message}
                                 </div>
                                 <a href="/runs" class="inline-flex text-sm text-primary hover:underline">
-                                    "Back to Flight Recorder"
+                                    "Back to Runs"
                                 </a>
                                 <crate::components::trace_viewer::TraceViewer trace_id=run_id.clone() compact=false/>
                             </div>
@@ -2010,14 +2010,14 @@ fn RoutingTab(
                 }
             />
 
-            // Link to full routing debug
+            // Link to full routing workspace
             {move || {
                 if ui_profile.try_get().unwrap_or(UiProfile::Full) == UiProfile::Full {
                     Some(view! {
                         <Card>
                             <div class="text-center py-4">
                                 <Link href="/routing" class="text-sm">
-                                    "Open Routing Debug Tool →"
+                                    "Open Routing Workspace →"
                                 </Link>
                             </div>
                         </Card>

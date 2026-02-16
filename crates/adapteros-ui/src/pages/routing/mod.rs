@@ -1,4 +1,4 @@
-//! Routing debug pages for inspecting adapter routing behavior.
+//! Routing pages for inspecting adapter routing behavior.
 //!
 //! Provides two views:
 //! - **Rules (Management)**: View and manage routing rules that determine
@@ -21,7 +21,7 @@ pub fn Routing() -> impl IntoView {
     view! {
         <div data-testid="routing-page">
             <PageScaffold
-                title="Routing Debug"
+                title="Routing"
                 subtitle="Inspect and manage how requests are routed across adapters."
                 breadcrumbs=vec![
                     PageBreadcrumbItem::label("Route"),
@@ -30,7 +30,7 @@ pub fn Routing() -> impl IntoView {
             >
                 <TabNav
                     tabs=vec![
-                        ("rules", "Management"),
+                        ("rules", "Rules"),
                         ("decisions", "Decisions"),
                     ]
                     active=active_tab
