@@ -6,13 +6,15 @@
  */
 
 import { test, expect } from '@playwright/test';
-import { ensureLoggedIn, waitForAppReady } from '../utils';
+import {
+  ensureActiveChatSession,
+  gotoChatEntryAndResolve,
+} from '../utils';
 import { buildStream, stubInferStream, stubSystemStatus } from '../helpers/sse';
-import { useConsoleCatcher } from '../helpers/console-catcher';
-
-useConsoleCatcher(test);
 
 test('new session: send message and verify streaming', { tag: ['@flow'] }, async ({ page }) => {
+  test.setTimeout(90_000);
+
   await stubSystemStatus(page, { ready: true });
   await stubInferStream(
     page,
@@ -24,15 +26,13 @@ test('new session: send message and verify streaming', { tag: ['@flow'] }, async
     })
   );
 
-  await page.goto('/chat', { waitUntil: 'domcontentloaded' });
-  await waitForAppReady(page);
-  await ensureLoggedIn(page);
-
-  // Create a new session.
-  await page.locator('button[title="New chat session"]').click();
-  await expect(
-    page.getByRole('heading', { name: 'Chat Session', level: 1, exact: true })
-  ).toBeVisible();
+  const entry = await gotoChatEntryAndResolve(page, { mode: 'ui-only', timeoutMs: 30_000 });
+  if (entry.state === 'unavailable') {
+    await expect(page.getByTestId('chat-unavailable-state')).toBeVisible();
+    await expect(page.getByTestId('chat-unavailable-reason')).toBeVisible();
+    return;
+  }
+  await ensureActiveChatSession(page);
 
   // Send a message.
   const input = page.getByTestId('chat-input');

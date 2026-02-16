@@ -1157,9 +1157,9 @@ async fn test_validate_tenant_isolation_cross_tenant_denied() -> Result<()> {
     assert!(result.is_err(), "Cross-tenant access should be denied");
 
     // Verify it returns 403 Forbidden
-    if let Err((status_code, _)) = result {
+    if let Err(err) = result {
         assert_eq!(
-            status_code,
+            err.status,
             axum::http::StatusCode::FORBIDDEN,
             "Should return 403 Forbidden for cross-tenant access"
         );

@@ -716,6 +716,314 @@ pub async fn drain_worker(
     }))
 }
 
+/// Restart a worker process
+///
+/// Initiates a restart by transitioning the worker to `draining` and sending
+/// SIGTERM to allow graceful shutdown. The worker supervisor is expected to
+/// start a replacement process.
+#[utoipa::path(
+    post,
+    path = "/v1/workers/{worker_id}/restart",
+    params(
+        ("worker_id" = String, Path, description = "Worker ID")
+    ),
+    responses(
+        (status = 200, description = "Worker restart initiated", body = crate::types::WorkerStopResponse),
+        (status = 404, description = "Worker not found", body = ErrorResponse),
+        (status = 409, description = "Invalid state transition", body = ErrorResponse),
+        (status = 500, description = "Failed to restart worker", body = ErrorResponse)
+    ),
+    tag = "workers"
+)]
+pub async fn restart_worker(
+    State(state): State<AppState>,
+    Extension(claims): Extension<Claims>,
+    Path(worker_id): Path<String>,
+) -> ApiResult<crate::types::WorkerStopResponse> {
+    crate::permissions::require_permission(&claims, crate::permissions::Permission::WorkerManage)?;
+
+    let worker_id = crate::id_resolver::resolve_any_id(&state.db, &worker_id).await?;
+
+    // PRD-RECT-002: Admins with admin_tenants grants can access workers across tenants.
+    // Returns 404 for both missing and cross-tenant workers (for non-admins).
+    let is_admin = claims.roles.iter().any(|r| r.to_lowercase() == "admin");
+    let worker = if is_admin {
+        let w = state
+            .db
+            .get_worker(&worker_id)
+            .await
+            .map_err(ApiError::db_error)?
+            .ok_or_else(|| {
+                ApiError::not_found("worker").with_details(format!("Worker ID: {}", worker_id))
+            })?;
+        crate::security::validate_tenant_isolation(&claims, &w.tenant_id)?;
+        w
+    } else {
+        state
+            .db
+            .get_worker_for_tenant(&claims.tenant_id, &worker_id)
+            .await
+            .map_err(ApiError::db_error)?
+            .ok_or_else(|| {
+                ApiError::not_found("worker").with_details(format!("Worker ID: {}", worker_id))
+            })?
+    };
+
+    let previous_status = worker.status.clone();
+    let mut transitioned_to_draining = false;
+
+    // Restart follows stop semantics: worker must be healthy/serving or already draining.
+    if previous_status.eq_ignore_ascii_case("draining") {
+        info!(
+            event = "worker.restart.already_draining",
+            worker_id = %worker_id,
+            actor = %claims.sub,
+            "Worker already draining; restart signal will be re-sent"
+        );
+    } else if previous_status.eq_ignore_ascii_case("healthy")
+        || previous_status.eq_ignore_ascii_case("serving")
+    {
+        match state
+            .db
+            .transition_worker_status(
+                &worker_id,
+                "draining",
+                "operator restart request",
+                Some(&claims.sub),
+            )
+            .await
+        {
+            Ok(_) => {
+                transitioned_to_draining = true;
+                info!(
+                    event = "worker.restart.draining",
+                    worker_id = %worker_id,
+                    actor = %claims.sub,
+                    "Worker transitioned to draining for restart"
+                );
+            }
+            Err(e) => {
+                let err_str = e.to_string();
+                if err_str.contains("Lifecycle") || err_str.contains("Invalid") {
+                    warn!(
+                        event = "worker.restart.invalid_transition",
+                        worker_id = %worker_id,
+                        previous_status = %previous_status,
+                        error = %e,
+                        "Invalid state transition attempted"
+                    );
+                    return Err(
+                        ApiError::conflict("invalid state transition").with_details(format!(
+                            "Cannot restart worker in '{}' state. Valid source states: healthy, serving, draining",
+                            previous_status
+                        )),
+                    );
+                }
+                return Err(ApiError::internal("failed to transition worker status")
+                    .with_details(e.to_string()));
+            }
+        }
+    } else {
+        return Err(
+            ApiError::conflict("invalid state transition").with_details(format!(
+            "Cannot restart worker in '{}' state. Valid source states: healthy, serving, draining",
+            previous_status
+        )),
+        );
+    }
+
+    if let Some(pid) = worker.pid {
+        info!(
+            event = "worker.restart.signal",
+            worker_id = %worker_id,
+            pid = %pid,
+            "Signaling worker process for restart (SIGTERM)"
+        );
+
+        #[cfg(unix)]
+        {
+            let _ = nix::sys::signal::kill(
+                nix::unistd::Pid::from_raw(pid),
+                nix::sys::signal::Signal::SIGTERM,
+            );
+        }
+    }
+
+    let restarted_at = chrono::Utc::now().to_rfc3339();
+
+    if transitioned_to_draining {
+        state
+            .sse_manager
+            .emit_lifecycle(
+                SseStreamType::Alerts,
+                &SystemHealthEvent::DrainStarted {
+                    worker_id: worker_id.clone(),
+                    previous_status: previous_status.clone(),
+                },
+            )
+            .await;
+    }
+
+    info!(
+        event = "worker.restart.initiated",
+        worker_id = %worker_id,
+        previous_status = %previous_status,
+        actor = %claims.sub,
+        "Worker restart initiated"
+    );
+
+    if let Err(e) = crate::audit_helper::log_success(
+        &state.db,
+        &claims,
+        "worker.restart",
+        crate::audit_helper::resources::WORKER,
+        Some(&worker_id),
+        None,
+    )
+    .await
+    {
+        warn!(error = %e, "Audit log failed");
+    }
+
+    Ok(Json(crate::types::WorkerStopResponse {
+        worker_id,
+        success: true,
+        message: if transitioned_to_draining {
+            "Worker restart initiated. Worker is draining and will be restarted by supervisor."
+                .to_string()
+        } else {
+            "Worker is already draining. Restart signal has been re-sent.".to_string()
+        },
+        previous_status,
+        stopped_at: restarted_at,
+    }))
+}
+
+/// Decommission (remove) a worker record.
+///
+/// Guardrail: decommission is only allowed when the worker is already in a
+/// terminal lifecycle state (`stopped`, `error`, `crashed`, or `failed`).
+#[utoipa::path(
+    delete,
+    path = "/v1/workers/{worker_id}",
+    params(
+        ("worker_id" = String, Path, description = "Worker ID")
+    ),
+    responses(
+        (status = 200, description = "Worker decommissioned", body = crate::types::WorkerStopResponse),
+        (status = 404, description = "Worker not found", body = ErrorResponse),
+        (status = 409, description = "Worker must be terminal before decommission", body = ErrorResponse),
+        (status = 500, description = "Failed to decommission worker", body = ErrorResponse)
+    ),
+    tag = "workers"
+)]
+pub async fn decommission_worker(
+    State(state): State<AppState>,
+    Extension(claims): Extension<Claims>,
+    Path(worker_id): Path<String>,
+) -> ApiResult<crate::types::WorkerStopResponse> {
+    crate::permissions::require_permission(&claims, crate::permissions::Permission::WorkerManage)?;
+
+    let worker_id = crate::id_resolver::resolve_any_id(&state.db, &worker_id).await?;
+
+    // PRD-RECT-002: Admins with admin_tenants grants can access workers across tenants.
+    // Returns 404 for both missing and cross-tenant workers (for non-admins).
+    let is_admin = claims.roles.iter().any(|r| r.to_lowercase() == "admin");
+    let worker = if is_admin {
+        let w = state
+            .db
+            .get_worker(&worker_id)
+            .await
+            .map_err(ApiError::db_error)?
+            .ok_or_else(|| {
+                ApiError::not_found("worker").with_details(format!("Worker ID: {}", worker_id))
+            })?;
+        crate::security::validate_tenant_isolation(&claims, &w.tenant_id)?;
+        w
+    } else {
+        state
+            .db
+            .get_worker_for_tenant(&claims.tenant_id, &worker_id)
+            .await
+            .map_err(ApiError::db_error)?
+            .ok_or_else(|| {
+                ApiError::not_found("worker").with_details(format!("Worker ID: {}", worker_id))
+            })?
+    };
+
+    let previous_status = worker.status.clone();
+    if let Err(err) = state.db.remove_worker_if_terminal(&worker_id).await {
+        let error_message = err.to_string();
+        match err {
+            AosError::Lifecycle(_) => {
+                warn!(
+                    event = "worker.decommission.rejected_non_terminal",
+                    worker_id = %worker_id,
+                    status = %previous_status,
+                    actor = %claims.sub,
+                    "Worker decommission rejected because worker is non-terminal"
+                );
+                if let Err(e) = crate::audit_helper::log_failure(
+                    &state.db,
+                    &claims,
+                    "worker.decommission",
+                    crate::audit_helper::resources::WORKER,
+                    Some(&worker_id),
+                    &error_message,
+                    None,
+                )
+                .await
+                {
+                    warn!(error = %e, "Audit log failed");
+                }
+                return Err(ApiError::conflict("worker is not in terminal state")
+                    .with_details(error_message));
+            }
+            AosError::NotFound(_) => {
+                return Err(
+                    ApiError::not_found("worker").with_details(format!("Worker ID: {}", worker_id))
+                );
+            }
+            _ => {
+                return Err(
+                    ApiError::internal("failed to decommission worker").with_details(error_message)
+                );
+            }
+        }
+    }
+
+    let decommissioned_at = chrono::Utc::now().to_rfc3339();
+
+    info!(
+        event = "worker.decommissioned",
+        worker_id = %worker_id,
+        previous_status = %previous_status,
+        actor = %claims.sub,
+        "Worker decommissioned"
+    );
+
+    if let Err(e) = crate::audit_helper::log_success(
+        &state.db,
+        &claims,
+        "worker.decommission",
+        crate::audit_helper::resources::WORKER,
+        Some(&worker_id),
+        None,
+    )
+    .await
+    {
+        warn!(error = %e, "Audit log failed");
+    }
+
+    Ok(Json(crate::types::WorkerStopResponse {
+        worker_id,
+        success: true,
+        message: "Worker decommissioned and removed from control plane.".to_string(),
+        previous_status,
+        stopped_at: decommissioned_at,
+    }))
+}
+
 // =========================================================================
 // Worker Registration & Lifecycle
 // =========================================================================

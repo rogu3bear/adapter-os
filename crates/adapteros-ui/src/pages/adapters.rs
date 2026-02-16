@@ -232,7 +232,7 @@ fn AdaptersListInteractive(
     let nav_stored = StoredValue::new(navigate.clone());
 
     view! {
-        <Card>
+        <Card data_testid="adapters-list-card".to_string()>
             <Table>
                 <TableHeader>
                     <TableRow>

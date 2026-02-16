@@ -80,6 +80,20 @@ Steps:
 6. [ ] Use back navigation or menu to return to Dashboard
 7. [ ] Verify Dashboard state is preserved
 
+### 4. Workers Spawn: Quick (Default) and Advanced
+
+Steps:
+1. [ ] Navigate to `/workers`
+2. [ ] With at least one node and deployment config present, click "Spawn Worker"
+3. [ ] Verify quick spawn runs without opening advanced fields and shows success notification
+4. [ ] Verify workers list refreshes and new worker appears
+5. [ ] Click "Advanced Spawn" to open the dialog
+6. [ ] Verify mode defaults to "Quick" and shows a concise "Quick will choose" summary
+7. [ ] Switch mode to "Advanced" and verify Node, Deployment Config, and Socket Path fields are visible
+8. [ ] Verify submit is blocked when required Advanced fields are empty/invalid
+9. [ ] Set a custom Socket Path, then change Node; verify custom path is preserved
+10. [ ] Submit and verify dialog closes, success notification appears, and workers list refreshes
+
 ## Error States
 
 ### Backend Unavailable

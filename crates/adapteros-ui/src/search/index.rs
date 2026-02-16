@@ -8,6 +8,34 @@ use super::types::SearchResult;
 use crate::components::layout::nav_registry::{all_nav_items, NavItem};
 use adapteros_api_types::UiProfile;
 
+const RUNS_PAGE_NAME: &str = "Runs";
+const RUNS_SEARCH_KEYWORDS: &[&str] = &[
+    "runs",
+    "run",
+    "flight recorder",
+    "flight",
+    "recorder",
+    "traces",
+    "provenance",
+    "receipts",
+];
+
+fn page_name_for_item(item: &'static NavItem) -> &'static str {
+    if item.route == "/runs" {
+        RUNS_PAGE_NAME
+    } else {
+        item.label
+    }
+}
+
+fn page_keywords_for_item(item: &'static NavItem) -> &'static [&'static str] {
+    if item.route == "/runs" {
+        RUNS_SEARCH_KEYWORDS
+    } else {
+        item.keywords
+    }
+}
+
 /// Definition of a searchable page
 #[derive(Debug, Clone)]
 pub struct PageDefinition {
@@ -28,12 +56,12 @@ impl PageDefinition {
     fn from_nav_item(item: &'static NavItem) -> Self {
         Self {
             id: item.id,
-            name: item.label,
+            name: page_name_for_item(item),
             // ASSUMPTION: Description is derived from label for now
             // since NavItem doesn't have a description field
-            description: item.label,
+            description: page_name_for_item(item),
             path: item.route,
-            keywords: item.keywords,
+            keywords: page_keywords_for_item(item),
         }
     }
 }
@@ -297,5 +325,27 @@ mod tests {
         let results = index.search_pages("");
         // Returns all non-hidden pages from nav_registry
         assert!(!results.is_empty());
+    }
+
+    #[test]
+    fn test_runs_uses_canonical_name() {
+        let index = SearchIndex::new();
+        let results = index.search_pages("runs");
+        let runs_result = results
+            .iter()
+            .find(|r| r.path() == Some("/runs"))
+            .expect("Expected /runs result");
+        assert_eq!(runs_result.title, "Runs");
+    }
+
+    #[test]
+    fn test_flight_recorder_alias_matches_runs() {
+        let index = SearchIndex::new();
+        let results = index.search_pages("flight recorder");
+        assert!(
+            results.iter().any(|r| r.path() == Some("/runs")),
+            "Expected /runs alias match for 'flight recorder', got: {:?}",
+            results.iter().map(|r| &r.title).collect::<Vec<_>>()
+        );
     }
 }

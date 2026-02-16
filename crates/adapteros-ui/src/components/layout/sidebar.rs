@@ -217,6 +217,7 @@ fn SidebarGroup(group: &'static NavGroup, is_expanded: Signal<bool>) -> impl Int
                                     )
                                     on:click=move |_| set_group_open.update(|v| *v = !*v)
                                     title=move || label.to_string()
+                                    aria-expanded=move || group_open.try_get().unwrap_or(true).to_string()
                                 >
                                     <svg class="sidebar-icon" width="18" height="18" viewBox="0 0 24 24"
                                         fill="none" stroke="currentColor" stroke-width="2"

@@ -29,7 +29,7 @@ Once logged in, every protected route is rendered inside the **Shell**:
 - **Top bar (TopBar)**  
   - Left: Hamburger (mobile), “adapterOS” branding, DEV/PROD badge.  
   - Center/right: Command palette trigger (e.g. “⌘K”), **user menu** (profile, preferences, logout).  
-  - Mobile: hamburger opens a menu with Operate, Build, Configure, Data, Verify, Org.
+  - Mobile: hamburger opens a menu with Infer, Data, Train, Deploy, Route, Observe, Govern, Org.
 
 - **Main content**  
   - Single main area: `#main-content` (skip link target). The current route’s page is rendered here.
@@ -39,7 +39,7 @@ Once logged in, every protected route is rendered inside the **Shell**:
 
 - **Bottom: Taskbar**  
   - **Start** button → opens **Start menu** (module-based nav).  
-  - **Module buttons**: Operate, Build, Configure, Data, Verify, Org.  
+  - **Module buttons**: Infer, Data, Train, Deploy, Route, Observe, Govern, Org.  
   - System tray (e.g. status, notifications).
 
 - **Overlays**  
@@ -56,89 +56,110 @@ Once logged in, every protected route is rendered inside the **Shell**:
 
 ---
 
-## 3. Route map and modules
+## 3. Route map and canonical modules
 
-Routes are grouped by the **taskbar modules** and **Start menu** structure.
+Routes are grouped by the canonical IA taxonomy:
+`Infer`, `Data`, `Train`, `Deploy`, `Route`, `Observe`, `Govern`, `Org`.
 
-### Operate (Dashboard, system, workers, monitoring, errors)
+Class tags used below:
+- `Primary`
+- `Tools`
+- `Hidden`
+- `Experimental`
 
-| Route         | Description              |
-|---------------|--------------------------|
-| `/`           | **Dashboard** — system status, metrics, workers, readiness, guidance. |
-| `/dashboard`  | Redirects to `/`.        |
-| `/system`     | Infrastructure / system overview. |
-| `/workers`    | Worker list.             |
-| `/workers/:id`| Worker detail.           |
-| `/monitoring` | Metrics / monitoring.    |
-| `/errors`     | Incidents / errors.      |
+Maturity tags:
+- `Stable`
+- `Experimental`
+- `Incomplete`
 
-### Build (Training, agents)
+### Infer
 
-| Route          | Description        |
-|----------------|--------------------|
-| `/training`    | Training runs and configuration. |
-| `/training` (detail) | Training run detail (e.g. `/training/:id` if present). |
-| `/agents`      | Agents.            |
+| Route | Class | Maturity | Description |
+|---|---|---|---|
+| `/chat` | Primary | Stable | Interactive inference UI. |
+| `/chat/:session_id` | Primary | Stable | Session deep link. |
 
-### Configure (Adapters, stacks, policies, models)
+### Data
 
-| Route           | Description          |
-|-----------------|----------------------|
-| `/adapters`     | Adapter list.        |
-| `/adapters/:id` | Adapter detail.     |
-| `/stacks`       | Runtime stacks.     |
-| `/stacks/:id`   | Stack detail.       |
-| `/policies`     | Policies.           |
-| `/models`       | Models.             |
+| Route | Class | Maturity | Description |
+|---|---|---|---|
+| `/documents` | Primary | Stable | Document list/ingest. |
+| `/documents/:id` | Primary | Stable | Document detail. |
+| `/collections` | Primary | Stable | Collection list. |
+| `/collections/:id` | Primary | Stable | Collection detail. |
+| `/datasets` | Primary | Stable | Dataset list. |
+| `/datasets/:id` | Primary | Stable | Dataset detail. |
+| `/repositories` | Primary | Stable | Repository list. |
+| `/repositories/:id` | Primary | Stable | Repository detail. |
 
-### Data (Datasets, documents, collections, repositories)
+### Train
 
-| Route                | Description           |
-|----------------------|-----------------------|
-| `/datasets`          | Datasets.             |
-| `/datasets/:id`      | Dataset detail.       |
-| `/documents`         | Documents.            |
-| `/documents/:id`     | Document detail.      |
-| `/collections`       | Collections.          |
-| `/collections/:id`   | Collection detail.    |
-| `/repositories`      | Repositories.         |
-| `/repositories/:id`  | Repository detail.    |
+| Route | Class | Maturity | Description |
+|---|---|---|---|
+| `/training` | Primary | Stable | Training jobs and configuration. |
+| `/training/:id` | Hidden | Stable | Redirect alias to `/training?job_id=:id`. |
 
-### Verify (Audit, runs, reviews)
+### Deploy
 
-| Route       | Description        |
-|-------------|--------------------|
-| `/audit`    | Audit.             |
-| `/runs`     | Flight recorder / runs list. |
-| `/runs/:id` | Run detail.        |
-| `/reviews`  | Reviews.           |
+| Route | Class | Maturity | Description |
+|---|---|---|---|
+| `/adapters` | Primary | Stable | Adapter list. |
+| `/adapters/:id` | Primary | Stable | Adapter detail. |
+| `/stacks` | Primary | Stable | Runtime stack list. |
+| `/stacks/:id` | Primary | Stable | Stack detail. |
+| `/models` | Primary | Stable | Model list. |
+| `/models/:id` | Primary | Stable | Model detail. |
 
-Legacy paths:
+### Route
 
-- `/flight-recorder` → redirect to `/runs`.
-- `/flight-recorder/:id` → redirect to `/runs/:id`.
+| Route | Class | Maturity | Description |
+|---|---|---|---|
+| `/routing` | Primary | Stable | Routing rules and decisions. |
 
-### Org (Admin)
+### Observe
 
-| Route    | Description                      |
-|----------|----------------------------------|
-| `/admin` | Users, roles, API keys, org. Tabs: main, roles, keys, org. |
+| Route | Class | Maturity | Description |
+|---|---|---|---|
+| `/` | Primary | Stable | Dashboard landing page. |
+| `/dashboard` | Hidden | Stable | Redirect alias to `/`. |
+| `/runs` | Primary | Stable | Canonical runs list. |
+| `/runs/:id` | Primary | Stable | Runs detail hub. |
+| `/diff` | Tools | Stable | Standalone run diff; may redirect to `/runs/:id?tab=diff...` with query IDs. |
+| `/workers` | Primary | Stable | Worker list. |
+| `/workers/:id` | Primary | Stable | Worker detail. |
+| `/monitoring` | Primary | Stable | Monitoring/alerts surface. |
+| `/errors` | Primary | Stable | Error/incidents surface. |
 
-### Tools (Start menu: Chat, Routing, Diff)
+### Govern
 
-| Route       | Description          |
-|-------------|----------------------|
-| `/chat`     | Chat.                |
-| `/chat/:session_id` | Chat session. |
-| `/routing`  | Routing debug.      |
-| `/diff`     | Run diff.            |
+| Route | Class | Maturity | Description |
+|---|---|---|---|
+| `/policies` | Primary | Stable | Policy management. |
+| `/audit` | Primary | Stable | Audit trail/compliance surface. |
+| `/reviews` | Primary | Stable | Human review queue. |
+| `/reviews/:pause_id` | Primary | Stable | Review detail deep link. |
+| `/safe` | Hidden | Stable | Public safe-mode fallback route. |
 
-### Account (user menu in top bar)
+### Org
 
-| Route      | Description        |
-|------------|--------------------|
-| `/user`    | User profile.      |
-| `/settings`| Preferences (e.g. API config, profile, system info). |
+| Route | Class | Maturity | Description |
+|---|---|---|---|
+| `/admin` | Primary | Stable | Tenant/org administration. |
+| `/settings` | Primary | Stable | Preferences, profile, system info. |
+| `/user` | Hidden | Stable | Backward-compat redirect alias to `/settings`. |
+| `/system` | Primary | Stable | System topology and status. |
+| `/welcome` | Hidden | Stable | First-run onboarding checklist. |
+| `/files` | Primary | Stable | Filesystem browser. |
+| `/agents` | Experimental | Experimental + Incomplete | Orchestration surface; session creation is intentionally disabled in UI. |
+| `/login` | Hidden | Stable | Public auth entry route. |
+
+### Tools and legacy aliases
+
+| Route | Class | Maturity | Description |
+|---|---|---|---|
+| `/style-audit` | Tools | Stable | Style-system audit page (public dev tool). |
+| `/flight-recorder` | Hidden | Stable | Legacy alias redirect to `/runs`. |
+| `/flight-recorder/:id` | Hidden | Stable | Legacy alias redirect to `/runs/:id` (query preserved). |
 
 ---
 
@@ -147,17 +168,18 @@ Legacy paths:
 1. **Start**: `./start` or `AOS_DEV_NO_AUTH=1 ./start`, open app in browser.
 2. **Login** (or skip if using dev no-auth): go to `/login`, sign in.
 3. **Dashboard**: land on `/` — system status, metrics, workers, inference guidance.
-4. **Navigation**: use **taskbar** (Operate, Build, Configure, Data, Verify, Org) and **Start** menu for full list of pages.
+4. **Navigation**: use **taskbar** (Infer, Data, Train, Deploy, Route, Observe, Govern, Org) and **Start** menu for full list of pages.
 5. **Command palette**: ⌘K (or Ctrl+K) — search/navigate without using taskbar.
-6. **Operate**: open **System** (`/system`), **Workers** (`/workers`), **Monitoring** (`/monitoring`), **Errors** (`/errors`).
-7. **Build**: **Training** (`/training`), **Agents** (`/agents`).
-8. **Configure**: **Adapters** (`/adapters`), **Stacks** (`/stacks`), **Policies** (`/policies`), **Models** (`/models`).
-9. **Data**: **Datasets**, **Documents**, **Collections**, **Repositories** (list + detail where applicable).
-10. **Verify**: **Audit** (`/audit`), **Runs** (`/runs`), **Reviews** (`/reviews`).
-11. **Org**: **Admin** (`/admin`) — users, roles, API keys, organization.
-12. **Tools**: **Chat** (`/chat`), **Routing** (`/routing`), **Run Diff** (`/diff`).
-13. **Account**: user menu (top right) → Profile (`/user`), Preferences (`/settings`).
-14. **Fallback**: unknown path → **NotFound** (router fallback).
+6. **Infer**: open **Chat** (`/chat`) and an existing session (`/chat/:session_id`).
+7. **Data**: open **Datasets**, **Documents**, **Collections**, **Repositories** (list + detail where applicable).
+8. **Train**: open **Training** (`/training`) and test deep-link alias (`/training/:id`).
+9. **Deploy**: open **Adapters** (`/adapters`), **Stacks** (`/stacks`), **Models** (`/models`).
+10. **Route**: open **Routing** (`/routing`).
+11. **Observe**: open **Runs** (`/runs`), **Run Detail** (`/runs/:id`), **Diff** (`/diff`), **Workers** (`/workers`), **Monitoring** (`/monitoring`), **Errors** (`/errors`).
+12. **Govern**: open **Policies** (`/policies`), **Audit** (`/audit`), **Reviews** (`/reviews` and `/reviews/:pause_id`), and **Safe** (`/safe`).
+13. **Org**: open **Admin** (`/admin`), **System** (`/system`), **Files** (`/files`), **Settings** (`/settings`), **Welcome** (`/welcome`), and **Agents** (`/agents`, experimental/incomplete).
+14. **Legacy aliases**: confirm `/dashboard`, `/flight-recorder`, `/flight-recorder/:id`, and `/user` redirect correctly.
+15. **Fallback**: unknown path -> **NotFound** (router fallback).
 
 ---
 
@@ -186,35 +208,42 @@ For each area, **function** = what it does; **use case** = when you’d use it.
 
 ---
 
-### Operate (run and observe)
+### Observe (runtime health and diagnostics)
 
 | Feature | Function | Use case |
 |--------|----------|----------|
 | **Dashboard** (`/`) | Single pane: system status, metrics (CPU/memory/GPU, RPS, latency), worker summary, inference readiness, guidance. | First stop after login; health at a glance; “is inference ready?” |
-| **System** (`/system`) | System overview: status, workers, nodes, health, metrics summary, recent events; SSE for live worker updates. | Deeper infra check; see workers/nodes and live status. |
-| **Workers** (`/workers`, `/workers/:id`) | List workers and per-worker detail (status, metrics, config); spawn worker dialog. | See who’s running; debug a worker; add capacity. |
+| **Workers** (`/workers`, `/workers/:id`) | List workers and per-worker detail (status, metrics, config) with lifecycle controls: spawn, drain, stop, restart, remove. Spawn supports a quick default path plus optional advanced socket-path override; drain rejects new requests while in-flight work completes; stop initiates drain + process stop signal; remove is guarded to terminal states (`stopped`, `error`, `crashed`, `failed`). | See who’s running; control lifecycle safely; add or retire capacity. |
 | **Monitoring** (`/monitoring`) | Process monitoring: alerts, anomalies, health metrics (tabs). | Investigate alerts; spot anomalies; check health over time. |
 | **Errors** (`/errors`) | Incidents: live error feed (SSE), history, analytics, alert rules, crash dumps. | Triage production errors; tune alerts; inspect crashes. |
 
+#### Worker Spawn Modes (`/workers`)
+
+- **Quick Spawn (default path):** click **Spawn Worker** in the page actions for one-click spawn using safe defaults: active node first (else first node), ready/active deployment config first (else first config), and auto-generated socket path.
+- **Advanced mode:** click **Advanced Spawn** (or switch mode in the dialog) to manually set node, deployment config, and socket path.
+- **Prerequisites:** Quick mode explains what is missing when defaults are unavailable, with next actions in-line (for example: register a node or create a deployment config). Advanced submit is disabled until node, deployment config, and socket path are valid.
+- **Expected behavior:** successful submit closes the dialog, shows a "Worker spawned" success notification, and refreshes the workers list.
+- **Status terminology:** canonical worker status semantics are defined in `docs/ui/terminology.md` (see **Worker Status Semantics**).
+
 ---
 
-### Build (training and agents)
+### Train and experimental Org surfaces
 
 | Feature | Function | Use case |
 |--------|----------|----------|
-| **Training** (`/training`, job detail) | List training jobs (filters, CoreML state); create job wizard; job detail (logs, metrics, config). | Run LoRA/adapter training; monitor jobs; debug failures. |
-| **Agents** (`/agents`) | Agent orchestration: sessions, worker executors, orchestration config. | Manage multi-agent sessions and orchestration rules. |
+| **Training** (`/training`, `/training/:id`) | List training jobs (filters, CoreML state); create job wizard; job detail (logs, metrics, config). `/training/:id` redirects to `/training?job_id=:id`. | Run LoRA/adapter training; monitor jobs; debug failures. |
+| **Agents** (`/agents`) | Agent orchestration: sessions, worker executors, orchestration config. `Experimental + Incomplete`: session creation is intentionally disabled in the UI. | Manage multi-agent sessions and orchestration rules using currently available controls. |
 
 ---
 
-### Configure (adapters, stacks, policies, models)
+### Deploy and Govern (adapters, stacks, models, policies)
 
 | Feature | Function | Use case |
 |--------|----------|----------|
 | **Adapters** (`/adapters`, `/adapters/:id`) | List registered adapters; split-panel detail (metadata, readiness). Refetches when training completes. | See what adapters exist; inspect one; confirm post-training registration. |
 | **Stacks** (`/stacks`, `/stacks/:id`) | List runtime stacks (adapter compositions); create/edit stack; stack detail. Refetches when training completes. | Group adapters for inference; attach stacks to workflows. |
 | **Policies** (`/policies`) | List policy packs; detail panel; create/validate policy. | Attach policy packs to stacks; audit or tune policy content. |
-| **Models** (`/models`) | List base models and load status; model detail panel. | See which base models are loaded; plan capacity. |
+| **Models** (`/models`, `/models/:id`) | List base models and load status; model detail panel. | See which base models are loaded; plan capacity. |
 
 ---
 
@@ -229,35 +258,38 @@ For each area, **function** = what it does; **use case** = when you’d use it.
 
 ---
 
-### Verify (audit, runs, reviews)
+### Govern and Observe (audit, runs, reviews)
 
 | Feature | Function | Use case |
 |--------|----------|----------|
 | **Audit** (`/audit`) | Immutable audit log: timeline, hash chain, Merkle tree, compliance, embeddings tabs. | Prove integrity; verify chain; compliance evidence. |
 | **Runs** (`/runs`, `/runs/:id`) | List diagnostic runs; run detail: overview, trace, receipt, routing, tokens, diff. | Inspect a request’s full provenance; compare two runs (determinism). |
-| **Reviews** (`/reviews`) | Human-in-the-loop queue: paused inferences awaiting assessment; submit approve/reject. | Clear review queue; approve or reject paused items. |
+| **Reviews** (`/reviews`, `/reviews/:pause_id`) | Human-in-the-loop queue and review-detail deep links for paused inferences. | Clear review queue; inspect a specific paused item; approve or reject. |
 
 ---
 
-### Org (admin)
+### Org (admin, system, files, onboarding)
 
 | Feature | Function | Use case |
 |--------|----------|----------|
 | **Admin** (`/admin`) | Tabs: **Users** (list, roles); **Roles**; **API Keys** (create/revoke); **Organization**. Tenant-scoped. | Manage org users, roles, API keys, and org settings. |
+| **System** (`/system`) | System overview: status, workers, nodes, health, metrics summary, recent events; SSE for live worker updates. | Deeper infra check; inspect node and worker status. |
+| **Files** (`/files`) | Filesystem browser scoped to allowed roots. | Inspect server-side workspace files and directories. |
+| **Welcome** (`/welcome`) | First-run setup checklist and readiness guidance. | Bootstrap a new environment before first inference run. |
 
 ---
 
-### Tools (Chat, Routing, Diff)
+### Infer, Route, and Observe tooling
 
 | Feature | Function | Use case |
 |--------|----------|----------|
 | **Chat** (`/chat`, `/chat/:session_id`) | Chat UI with SSE streaming; sessions list; adapter bar; suggested adapters; trace panel. | Interactive inference; try prompts; see which adapters were used. |
 | **Routing** (`/routing`) | Tabs: **Management** (routing rules), **Decisions** (inspect how requests are routed). | Debug K-sparse routing; add/tune rules; see decision history. |
-| **Run Diff** (`/diff`) | Compare two diagnostic runs (anchor + first divergence). Redirects to `/runs/:id?tab=diff&compare=:id`. | Compare two runs for determinism; find first divergence. |
+| **Run Diff** (`/diff`) | Compare two diagnostic runs (anchor + first divergence). Remains a standalone page; when run IDs are provided in query params it redirects to `/runs/:id?tab=diff&compare=:id`. | Compare two runs for determinism; find first divergence. |
 
 ---
 
-### Account (user menu)
+### Org account surfaces
 
 | Feature | Function | Use case |
 |--------|----------|----------|
@@ -274,8 +306,8 @@ For each area, **function** = what it does; **use case** = when you’d use it.
 | **Chat dock** | Optional right panel: same chat as `/chat` but in-shell. | Chat while on another page. |
 | **Offline banner** | Shown when API is unreachable; “Retry” and cached-data message. | Know when backend is down; retry when it’s back. |
 | **Telemetry overlay** (Ctrl+Shift+T) | Toggle overlay for telemetry/debug. | Inspect client-side telemetry. |
-| **Start menu** | Full module nav: Operate, Build, Configure, Data, Verify, Org, Tools, Account. | Discover all pages; jump to a section. |
-| **Taskbar** | Module shortcuts (Operate–Org) + Start + system tray. | Switch module without opening Start. |
+| **Start menu** | Full module nav: Infer, Data, Train, Deploy, Route, Observe, Govern, Org. | Discover all pages; jump to a section. |
+| **Taskbar** | Module shortcuts (Infer-Org) + Start + system tray. | Switch module without opening Start. |
 
 ---
 

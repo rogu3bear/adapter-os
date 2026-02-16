@@ -5,7 +5,16 @@ import { fileURLToPath } from 'node:url';
 const __filename = fileURLToPath(import.meta.url);
 const __dirname = path.dirname(__filename);
 const repoRoot = path.resolve(__dirname, '..', '..', '..');
-const heartbeatPath = path.resolve(repoRoot, 'var/playwright/heartbeat.json');
+
+function sanitizeRunId(value) {
+  const cleaned = String(value ?? '')
+    .trim()
+    .replace(/[^A-Za-z0-9._-]/g, '_');
+  return cleaned || 'default';
+}
+
+const runId = sanitizeRunId(process.env.PW_RUN_ID ?? 'default');
+const heartbeatPath = path.resolve(repoRoot, 'var/playwright/runs', runId, 'heartbeat.json');
 
 function writeHeartbeat(payload) {
   fs.mkdirSync(path.dirname(heartbeatPath), { recursive: true });

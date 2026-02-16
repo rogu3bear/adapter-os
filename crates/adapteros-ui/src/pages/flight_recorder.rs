@@ -8,13 +8,14 @@
 //! - Tokens (token accounting and cache stats)
 //! - Diff (compare with another run)
 
+use crate::api::types::{ExecuteReplayRequest, ExecuteReplayResponse, ReceiptVerificationResult};
 use crate::api::{ApiClient, UiInferenceTraceDetailResponse};
 use crate::components::{
     ActionCard, ActionCardVariant, AsyncBoundary, Badge, BadgeVariant, Button, ButtonVariant, Card,
-    CopyableId, DiffResults, EmptyState, EmptyStateVariant, Link, PageBreadcrumbItem, PageScaffold,
-    PageScaffoldActions, Select, SkeletonDetailSection, Spinner, SplitPanel, SplitRatio, Table,
-    TableBody, TableCell, TableHead, TableHeader, TableRow, TokenDecisionsPaged,
-    TraceViewerWithData,
+    Checkbox, CopyableId, Dialog, DiffResults, EmptyState, EmptyStateVariant, Link,
+    PageBreadcrumbItem, PageScaffold, PageScaffoldActions, Select, SkeletonDetailSection, Spinner,
+    SplitPanel, SplitRatio, Table, TableBody, TableCell, TableHead, TableHeader, TableRow,
+    TokenDecisionsPaged, TraceViewerWithData,
 };
 use crate::components::{ButtonSize, Input};
 use crate::constants::pagination::TOKEN_DECISIONS_PAGE_SIZE;
@@ -379,6 +380,7 @@ pub enum RunDetailTab {
     Tokens,
     Diff,
     Events,
+    Replay,
 }
 
 impl RunDetailTab {
@@ -391,6 +393,7 @@ impl RunDetailTab {
             "tokens" => Self::Tokens,
             "diff" => Self::Diff,
             "events" => Self::Events,
+            "replay" => Self::Replay,
             _ => Self::Overview,
         }
     }
@@ -541,6 +544,7 @@ fn RunDetailHub(run_id: String, on_close: Callback<()>) -> impl IntoView {
                                 <RunDetailTabButton tab=RunDetailTab::Tokens active=active_tab label="Tokens"/>
                                 <RunDetailTabButton tab=RunDetailTab::Diff active=active_tab label="Diff"/>
                                 <RunDetailTabButton tab=RunDetailTab::Events active=active_tab label="Events"/>
+                                <RunDetailTabButton tab=RunDetailTab::Replay active=active_tab label="Replay"/>
                             })
                         } else {
                             None
@@ -710,6 +714,9 @@ fn TabContent(
                 }
                 RunDetailTab::Events => {
                     view! { <EventsTab export=export/> }.into_any()
+                }
+                RunDetailTab::Replay => {
+                    view! { <ReplayTab trace_id=export.run.trace_id.clone()/> }.into_any()
                 }
             }
         }}
@@ -2568,6 +2575,370 @@ fn EventRow(event: DiagEventResponse) -> impl IntoView {
             </div>
             <pre class="text-xs text-muted-foreground mt-1 overflow-x-auto">{payload_truncated}</pre>
         </div>
+    }
+}
+
+// ============================================================================
+// Replay Tab - Execute Replay & Bundle Verify
+// ============================================================================
+
+/// Replay tab - execute replay and verify bundles
+#[component]
+fn ReplayTab(trace_id: String) -> impl IntoView {
+    let show_replay_dialog = RwSignal::new(false);
+
+    view! {
+        <div class="space-y-4">
+            <p class="text-sm text-muted-foreground">
+                "Re-execute a replay session against this trace or verify a bundle receipt file."
+            </p>
+
+            // Execute Replay section
+            <Card title="Execute Replay".to_string()>
+                <div class="space-y-3">
+                    <p class="text-sm text-muted-foreground">
+                        "Re-run inference with the same inputs to verify determinism. Optionally override the prompt or include original RAG documents."
+                    </p>
+                    <Button
+                        variant=ButtonVariant::Primary
+                        on_click=Callback::new(move |_| show_replay_dialog.set(true))
+                    >
+                        "Execute Replay"
+                    </Button>
+                </div>
+            </Card>
+
+            // Bundle Verify section
+            <BundleVerifySection/>
+
+            // Replay dialog
+            <ExecuteReplayDialog
+                session_id=trace_id
+                open=show_replay_dialog
+            />
+        </div>
+    }
+}
+
+/// Dialog for executing a replay session
+#[component]
+fn ExecuteReplayDialog(session_id: String, open: RwSignal<bool>) -> impl IntoView {
+    let use_original_rag = RwSignal::new(false);
+    let prompt_override = RwSignal::new(String::new());
+    let max_tokens = RwSignal::new(512u32);
+    let executing = RwSignal::new(false);
+    let result = RwSignal::new(None::<ExecuteReplayResponse>);
+    let error = RwSignal::new(None::<String>);
+    let notifications = use_notifications();
+
+    // Reset form state when dialog opens
+    Effect::new(move || {
+        if open.try_get().unwrap_or(false) {
+            use_original_rag.set(false);
+            prompt_override.set(String::new());
+            max_tokens.set(512);
+            result.set(None);
+            error.set(None);
+        }
+    });
+
+    let on_submit = {
+        let session_id = session_id.clone();
+        move |_| {
+            if executing.get_untracked() {
+                return;
+            }
+            let _ = executing.try_set(true);
+            let _ = error.try_set(None);
+            let _ = result.try_set(None);
+
+            let session_id = session_id.clone();
+            let prompt_val = prompt_override.get_untracked();
+            let prompt = if prompt_val.trim().is_empty() {
+                None
+            } else {
+                Some(prompt_val)
+            };
+            let request = ExecuteReplayRequest {
+                use_original_rag_docs: use_original_rag.get_untracked(),
+                prompt,
+                max_tokens: max_tokens.get_untracked(),
+            };
+            let notifications = notifications.clone();
+            spawn_local(async move {
+                let client = ApiClient::new();
+                match client.execute_replay_session(&session_id, &request).await {
+                    Ok(resp) => {
+                        let _ = result.try_set(Some(resp));
+                        notifications
+                            .success("Replay complete", "Replay session executed successfully.");
+                    }
+                    Err(e) => {
+                        let msg = e.user_message();
+                        let _ = error.try_set(Some(msg.clone()));
+                        notifications.error("Replay failed", &msg);
+                    }
+                }
+                let _ = executing.try_set(false);
+            });
+        }
+    };
+
+    view! {
+        <Dialog open=open title="Execute Replay".to_string()>
+            <div class="space-y-4">
+                // Configuration
+                <div class="space-y-3">
+                    <Checkbox
+                        checked=Signal::derive(move || use_original_rag.try_get().unwrap_or(false))
+                        on_change=Callback::new(move |v: bool| use_original_rag.set(v))
+                        label="Use original RAG documents".to_string()
+                    />
+
+                    <div>
+                        <label class="text-sm text-muted-foreground block mb-1">"Prompt override (optional)"</label>
+                        <textarea
+                            class="flex w-full rounded-md border border-input bg-background px-3 py-2 text-sm min-h-[80px] resize-y"
+                            placeholder="Leave empty to use original prompt..."
+                            prop:value=move || prompt_override.try_get().unwrap_or_default()
+                            on:input=move |ev| prompt_override.set(event_target_value(&ev))
+                        />
+                    </div>
+
+                    <div>
+                        <label class="text-sm text-muted-foreground block mb-1">"Max tokens"</label>
+                        <input
+                            type="number"
+                            class="flex h-10 w-32 rounded-md border border-input bg-background px-3 py-2 text-sm"
+                            prop:value=move || max_tokens.try_get().unwrap_or(512).to_string()
+                            on:input=move |ev| {
+                                if let Ok(v) = event_target_value(&ev).parse::<u32>() {
+                                    max_tokens.set(v);
+                                }
+                            }
+                            min="1"
+                            max="8192"
+                        />
+                    </div>
+                </div>
+
+                // Actions
+                <div class="flex items-center gap-2 pt-2 border-t border-border">
+                    <Button
+                        variant=ButtonVariant::Primary
+                        disabled=Signal::derive(move || executing.try_get().unwrap_or(false))
+                        on_click=Callback::new(on_submit.clone())
+                    >
+                        <Show when=move || executing.try_get().unwrap_or(false) fallback=move || view! { <span>"Execute"</span> }>
+                            <span class="inline-flex items-center gap-2">
+                                <Spinner/>
+                                <span>"Executing..."</span>
+                            </span>
+                        </Show>
+                    </Button>
+                    <Button
+                        variant=ButtonVariant::Outline
+                        on_click=Callback::new(move |_| open.set(false))
+                    >
+                        "Cancel"
+                    </Button>
+                </div>
+
+                // Error display
+                {move || error.try_get().flatten().map(|e| view! {
+                    <div class="bg-destructive/10 border border-destructive/20 rounded-lg p-3">
+                        <p class="text-sm text-destructive">{e}</p>
+                    </div>
+                })}
+
+                // Result display
+                {move || result.try_get().flatten().map(|resp| {
+                    view! {
+                        <Card title="Replay Result".to_string()>
+                            <div class="space-y-3">
+                                <div class="flex items-center gap-2">
+                                    {if resp.degraded {
+                                        view! { <Badge variant=BadgeVariant::Warning>"Degraded"</Badge> }.into_any()
+                                    } else {
+                                        view! { <Badge variant=BadgeVariant::Success>"OK"</Badge> }.into_any()
+                                    }}
+                                    <span class="text-sm text-muted-foreground font-mono">
+                                        {format!("{}ms", resp.latency_ms)}
+                                    </span>
+                                </div>
+                                <div>
+                                    <p class="text-xs text-muted-foreground mb-1">"Output"</p>
+                                    <pre class="text-sm bg-muted/30 rounded-lg p-3 overflow-x-auto whitespace-pre-wrap max-h-64 overflow-y-auto">
+                                        {resp.output.clone()}
+                                    </pre>
+                                </div>
+                                <CopyableId
+                                    id=resp.session_id.clone()
+                                    label="Session ID".to_string()
+                                    truncate=28
+                                />
+                            </div>
+                        </Card>
+                    }
+                })}
+            </div>
+        </Dialog>
+    }
+}
+
+/// Bundle verification section with file upload
+#[component]
+fn BundleVerifySection() -> impl IntoView {
+    let file_ref = NodeRef::<leptos::html::Input>::new();
+    let verifying = RwSignal::new(false);
+    let result = RwSignal::new(None::<ReceiptVerificationResult>);
+    let error = RwSignal::new(None::<String>);
+    let notifications = use_notifications();
+
+    let on_file_change = move |_ev: web_sys::Event| {
+        let Some(input) = file_ref.get() else {
+            return;
+        };
+        let input_el: &web_sys::HtmlInputElement = &input;
+        let Some(files) = input_el.files() else {
+            return;
+        };
+        let Some(file) = files.get(0) else {
+            return;
+        };
+
+        if verifying.get_untracked() {
+            return;
+        }
+        let _ = verifying.try_set(true);
+        let _ = error.try_set(None);
+        let _ = result.try_set(None);
+
+        let notifications = notifications.clone();
+        #[cfg(target_arch = "wasm32")]
+        spawn_local(async move {
+            let client = ApiClient::new();
+            match client.verify_bundle_receipt(&file).await {
+                Ok(verification) => {
+                    if verification.pass {
+                        notifications.success("Bundle verified", "Receipt verification passed.");
+                    } else {
+                        notifications.warning(
+                            "Bundle verification failed",
+                            "Receipt verification did not pass.",
+                        );
+                    }
+                    let _ = result.try_set(Some(verification));
+                }
+                Err(e) => {
+                    let msg = e.user_message();
+                    let _ = error.try_set(Some(msg.clone()));
+                    notifications.error("Verification failed", &msg);
+                }
+            }
+            let _ = verifying.try_set(false);
+        });
+        #[cfg(not(target_arch = "wasm32"))]
+        {
+            let _ = (file, notifications);
+            let _ = verifying.try_set(false);
+        }
+    };
+
+    view! {
+        <Card title="Verify Bundle".to_string()>
+            <div class="space-y-3">
+                <p class="text-sm text-muted-foreground">
+                    "Upload a bundle file to verify its cryptographic receipt. The server will check all digests and signatures."
+                </p>
+
+                <div class="flex items-center gap-3">
+                    <input
+                        type="file"
+                        node_ref=file_ref
+                        accept=".bundle,.json,.tar.gz"
+                        class="flex h-10 w-full max-w-sm text-sm file:mr-4 file:py-2 file:px-4 file:rounded-md file:border file:border-input file:bg-background file:text-sm file:font-medium hover:file:bg-muted"
+                        on:change=on_file_change
+                    />
+                    <Show when=move || verifying.try_get().unwrap_or(false) fallback=|| view! {}>
+                        <span class="inline-flex items-center gap-2 text-sm text-muted-foreground">
+                            <Spinner/>
+                            <span>"Verifying..."</span>
+                        </span>
+                    </Show>
+                </div>
+
+                // Error display
+                {move || error.try_get().flatten().map(|e| view! {
+                    <div class="bg-destructive/10 border border-destructive/20 rounded-lg p-3">
+                        <p class="text-sm text-destructive">{e}</p>
+                    </div>
+                })}
+
+                // Verification result
+                {move || result.try_get().flatten().map(|res| {
+                    let pass_variant = if res.pass {
+                        BadgeVariant::Success
+                    } else {
+                        BadgeVariant::Destructive
+                    };
+                    let pass_label = if res.pass { "PASS" } else { "FAIL" };
+
+                    view! {
+                        <div class="space-y-3 border-t border-border pt-3">
+                            <div class="flex items-center gap-3">
+                                <Badge variant=pass_variant>{pass_label}</Badge>
+                                {if res.signature_checked {
+                                    if res.signature_valid {
+                                        view! { <Badge variant=BadgeVariant::Success>"Signature Valid"</Badge> }.into_any()
+                                    } else {
+                                        view! { <Badge variant=BadgeVariant::Destructive>"Signature Invalid"</Badge> }.into_any()
+                                    }
+                                } else {
+                                    view! { <Badge variant=BadgeVariant::Secondary>"Signature Not Checked"</Badge> }.into_any()
+                                }}
+                            </div>
+
+                            // Reasons (if any)
+                            {if !res.reasons.is_empty() {
+                                let reasons = res.reasons.clone();
+                                Some(view! {
+                                    <div>
+                                        <p class="text-xs text-muted-foreground mb-1">"Reasons"</p>
+                                        <ul class="list-disc list-inside space-y-1">
+                                            {reasons.into_iter().map(|reason| {
+                                                view! { <li class="text-sm">{reason}</li> }
+                                            }).collect::<Vec<_>>()}
+                                        </ul>
+                                    </div>
+                                })
+                            } else {
+                                None
+                            }}
+
+                            // Digests
+                            <div class="grid grid-cols-1 md:grid-cols-2 gap-3">
+                                {res.context_digest.clone().map(|d| view! {
+                                    <CopyableId id=d label="Context digest".to_string() truncate=24/>
+                                })}
+                                {res.run_head_hash.clone().map(|d| view! {
+                                    <CopyableId id=d label="Run head hash".to_string() truncate=24/>
+                                })}
+                                {res.output_digest.clone().map(|d| view! {
+                                    <CopyableId id=d label="Output digest".to_string() truncate=24/>
+                                })}
+                                {res.receipt_digest.clone().map(|d| view! {
+                                    <CopyableId id=d label="Receipt digest".to_string() truncate=24/>
+                                })}
+                                {res.trace_id.clone().map(|d| view! {
+                                    <CopyableId id=d label="Trace ID".to_string() truncate=24/>
+                                })}
+                            </div>
+                        </div>
+                    }
+                })}
+            </div>
+        </Card>
     }
 }
 

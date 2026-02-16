@@ -25,6 +25,10 @@ pub use adapteros_api_types::admin::{ListUsersResponse, UserResponse};
 pub use adapteros_api_types::api_keys::{
     ApiKeyInfo, ApiKeyListResponse, CreateApiKeyRequest, CreateApiKeyResponse, RevokeApiKeyResponse,
 };
+pub use adapteros_api_types::auth::{
+    MfaDisableRequest, MfaEnrollStartResponse, MfaEnrollVerifyRequest, MfaEnrollVerifyResponse,
+    MfaStatusResponse, SessionInfo,
+};
 pub use adapteros_api_types::auth::{TenantListResponse, TenantSummary};
 pub use adapteros_api_types::embeddings::{
     EmbeddingBenchmarkReport, EmbeddingBenchmarksQuery, EmbeddingBenchmarksResponse,
@@ -34,6 +38,7 @@ pub use adapteros_api_types::models::{
     AllModelsStatusResponse, AneMemoryStatus, BaseModelStatusResponse, ModelStatusResponse,
     SeedModelRequest, SeedModelResponse,
 };
+pub use adapteros_api_types::provenance::ChatProvenanceResponse;
 pub use adapteros_api_types::routing::{
     CreateRoutingRuleRequest, RoutingRuleResponse, RoutingRulesResponse,
 };
@@ -291,6 +296,19 @@ impl ApiClient {
         }
     }
 
+    /// Perform a POST request without body and without response body.
+    pub async fn post_no_body_no_response(&self, path: &str) -> ApiResult<()> {
+        let response = self.request("POST", path).send().await?;
+
+        if response.ok() {
+            Ok(())
+        } else {
+            let status = response.status();
+            let text = response.text().await.unwrap_or_default();
+            Err(ApiError::from_response(status, &text, None))
+        }
+    }
+
     /// Perform a POST request without body, returning a response
     pub async fn post_empty<T: DeserializeOwned>(&self, path: &str) -> ApiResult<T> {
         let response = self.request("POST", path).send().await?;
@@ -304,6 +322,16 @@ impl ApiClient {
         body: &B,
     ) -> ApiResult<T> {
         let response = self.request("PUT", path).json(body)?.send().await?;
+        self.handle_response(response).await
+    }
+
+    /// Perform a PATCH request with JSON body
+    pub async fn patch<B: Serialize, T: DeserializeOwned>(
+        &self,
+        path: &str,
+        body: &B,
+    ) -> ApiResult<T> {
+        let response = self.request("PATCH", path).json(body)?.send().await?;
         self.handle_response(response).await
     }
 
@@ -455,24 +483,30 @@ impl ApiClient {
         self.get("/v1/adapters/in-flight").await
     }
 
-    /// Transition adapter lifecycle state
-    ///
-    /// Changes an adapter's lifecycle state (e.g., draft -> active, active -> deprecated).
+    /// Promote an adapter's lifecycle state (e.g., draft -> active, deprecated -> active).
     /// Requires a reason for audit trail purposes.
-    pub async fn transition_adapter_lifecycle(
+    pub async fn promote_adapter(
         &self,
         adapter_id: &str,
-        new_state: &str,
         reason: &str,
-    ) -> ApiResult<adapteros_api_types::AdapterResponse> {
-        #[derive(serde::Serialize)]
-        struct TransitionRequest<'a> {
-            new_state: &'a str,
-            reason: &'a str,
-        }
+    ) -> ApiResult<serde_json::Value> {
         self.post(
-            &format!("/v1/adapters/{}/lifecycle", adapter_id),
-            &TransitionRequest { new_state, reason },
+            &format!("/v1/adapters/{}/lifecycle/promote", adapter_id),
+            &serde_json::json!({"reason": reason}),
+        )
+        .await
+    }
+
+    /// Demote an adapter's lifecycle state (e.g., active -> deprecated, deprecated -> retired).
+    /// Requires a reason for audit trail purposes.
+    pub async fn demote_adapter(
+        &self,
+        adapter_id: &str,
+        reason: &str,
+    ) -> ApiResult<serde_json::Value> {
+        self.post(
+            &format!("/v1/adapters/{}/lifecycle/demote", adapter_id),
+            &serde_json::json!({"reason": reason}),
         )
         .await
     }
@@ -518,27 +552,37 @@ impl ApiClient {
 
     /// Drain a worker (gracefully stop accepting new requests)
     pub async fn drain_worker(&self, id: &str) -> ApiResult<()> {
-        self.post_no_response(&format!("/v1/workers/{}/drain", id), &serde_json::json!({}))
+        self.post_no_body_no_response(&format!("/v1/workers/{}/drain", id))
             .await
     }
 
     /// Stop a worker
     pub async fn stop_worker(&self, id: &str) -> ApiResult<()> {
-        self.post_no_response(&format!("/v1/workers/{}/stop", id), &serde_json::json!({}))
+        self.post_no_body_no_response(&format!("/v1/workers/{}/stop", id))
             .await
     }
 
-    /// Get worker metrics
-    ///
-    /// TODO: Backend has no `/v1/workers/{id}/metrics` route. This will 404.
-    /// Callers (WorkerDetailPanel, WorkerDetailView) gracefully degrade to
-    /// None when the fetch errors, so no visible breakage occurs. When a
-    /// dedicated metrics endpoint is added on the backend, update this path.
-    /// The worker detail endpoint (`/v1/workers/{id}/detail`) returns a
-    /// `WorkerDetailResponse` with `resource_usage` that could be used as a
-    /// fallback data source.
+    /// Restart a worker
+    pub async fn restart_worker(&self, id: &str) -> ApiResult<()> {
+        self.post_no_body_no_response(&format!("/v1/workers/{}/restart", id))
+            .await
+    }
+
+    /// Decommission a worker
+    pub async fn decommission_worker(&self, id: &str) -> ApiResult<()> {
+        self.delete(&format!("/v1/workers/{}", id)).await
+    }
+
+    /// Remove a worker from lifecycle management.
+    pub async fn remove_worker(&self, id: &str) -> ApiResult<()> {
+        self.decommission_worker(id).await
+    }
+
+    /// Get worker metrics from the worker detail contract.
     pub async fn get_worker_metrics(&self, id: &str) -> ApiResult<WorkerMetricsResponse> {
-        self.get(&format!("/v1/workers/{}/metrics", id)).await
+        let detail: WorkerDetailMetricsSourceResponse =
+            self.get(&format!("/v1/workers/{}/detail", id)).await?;
+        Ok(worker_metrics_from_detail(detail))
     }
 
     // --- Nodes ---
@@ -698,8 +742,7 @@ impl ApiClient {
 
     /// Validate a model (check files, tokenizer, etc.)
     pub async fn validate_model(&self, id: &str) -> ApiResult<serde_json::Value> {
-        self.post_empty(&format!("/v1/models/{}/validate", id))
-            .await
+        self.get(&format!("/v1/models/{}/validate", id)).await
     }
 
     // --- Stacks ---
@@ -2304,7 +2347,7 @@ impl ApiClient {
             #[serde(skip_serializing_if = "Option::is_none")]
             notes: Option<&'a str>,
         }
-        self.post(
+        self.patch(
             &format!("/v1/discrepancies/{}/resolve", id),
             &ResolveRequest {
                 resolution_status: resolution,
@@ -2356,6 +2399,107 @@ impl ApiClient {
     ) -> ApiResult<ReplayVerificationResponse> {
         self.post_empty(&format!("/v1/replay/sessions/{}/verify", session_id))
             .await
+    }
+}
+
+#[derive(Debug, Clone, serde::Deserialize)]
+struct WorkerDetailMetricsSourceResponse {
+    id: String,
+    uptime_seconds: u64,
+    resource_usage: WorkerDetailMetricsSourceUsage,
+}
+
+#[derive(Debug, Clone, serde::Deserialize)]
+struct WorkerDetailMetricsSourceUsage {
+    cpu_usage_percent: f32,
+    memory_usage_mb: f32,
+    memory_limit_mb: Option<f32>,
+    thread_count: i32,
+    requests_processed: i64,
+    avg_latency_ms: f32,
+}
+
+fn worker_metrics_from_detail(detail: WorkerDetailMetricsSourceResponse) -> WorkerMetricsResponse {
+    let usage = detail.resource_usage;
+    let has_process_metrics =
+        usage.thread_count > 0 || usage.memory_usage_mb > 0.0 || usage.cpu_usage_percent > 0.0;
+    let requests_processed = usage.requests_processed.max(0) as u64;
+    let requests_per_second = if detail.uptime_seconds > 0 {
+        requests_processed as f64 / detail.uptime_seconds as f64
+    } else {
+        0.0
+    };
+
+    WorkerMetricsResponse {
+        worker_id: detail.id,
+        memory_used_mb: has_process_metrics
+            .then_some(usage.memory_usage_mb.max(0.0).round() as u64)
+            .filter(|v| *v > 0),
+        memory_limit_mb: usage
+            .memory_limit_mb
+            .map(|v| v.max(0.0).round() as u64)
+            .filter(|v| *v > 0),
+        gpu_memory_used_mb: None,
+        gpu_memory_total_mb: None,
+        gpu_utilization_pct: None,
+        cpu_utilization_pct: has_process_metrics.then_some(usage.cpu_usage_percent as f64),
+        requests_processed,
+        requests_per_second,
+        avg_latency_ms: (usage.avg_latency_ms > 0.0).then_some(usage.avg_latency_ms as f64),
+        p99_latency_ms: None,
+        uptime_seconds: detail.uptime_seconds,
+        cache_entries: None,
+        cache_hit_rate: None,
+    }
+}
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+
+    fn detail_fixture(
+        thread_count: i32,
+        cpu_usage_percent: f32,
+        memory_usage_mb: f32,
+        requests_processed: i64,
+        avg_latency_ms: f32,
+    ) -> WorkerDetailMetricsSourceResponse {
+        WorkerDetailMetricsSourceResponse {
+            id: "worker-1".to_string(),
+            uptime_seconds: 20,
+            resource_usage: WorkerDetailMetricsSourceUsage {
+                cpu_usage_percent,
+                memory_usage_mb,
+                memory_limit_mb: Some(4096.0),
+                thread_count,
+                requests_processed,
+                avg_latency_ms,
+            },
+        }
+    }
+
+    #[test]
+    fn maps_worker_detail_to_metrics() {
+        let metrics = worker_metrics_from_detail(detail_fixture(8, 37.2, 1024.0, 40, 12.5));
+        assert_eq!(metrics.worker_id, "worker-1");
+        assert_eq!(metrics.memory_used_mb, Some(1024));
+        assert_eq!(metrics.memory_limit_mb, Some(4096));
+        let cpu = metrics
+            .cpu_utilization_pct
+            .expect("cpu utilization present");
+        assert!((cpu - 37.2).abs() < 0.001);
+        assert_eq!(metrics.requests_processed, 40);
+        assert_eq!(metrics.requests_per_second, 2.0);
+        assert_eq!(metrics.avg_latency_ms, Some(12.5));
+    }
+
+    #[test]
+    fn marks_process_metrics_unavailable_when_detail_has_no_usage_signal() {
+        let metrics = worker_metrics_from_detail(detail_fixture(0, 0.0, 0.0, 0, 0.0));
+        assert_eq!(metrics.memory_used_mb, None);
+        assert_eq!(metrics.cpu_utilization_pct, None);
+        assert_eq!(metrics.requests_processed, 0);
+        assert_eq!(metrics.avg_latency_ms, None);
     }
 }
 
@@ -2452,5 +2596,437 @@ impl ApiClient {
     pub async fn get_receipt_json(&self, digest: &str) -> ApiResult<String> {
         self.get_text(&format!("/v1/adapteros/receipts/{}", digest))
             .await
+    }
+
+    // ========================================================================
+    // Service Control (requires NodeManage permission)
+    // ========================================================================
+
+    /// Start a service by ID
+    pub async fn start_service(&self, service_id: &str) -> ApiResult<ServiceControlResponse> {
+        self.post_empty(&format!("/v1/services/{}/start", encode(service_id)))
+            .await
+    }
+
+    /// Stop a service by ID
+    pub async fn stop_service(&self, service_id: &str) -> ApiResult<ServiceControlResponse> {
+        self.post_empty(&format!("/v1/services/{}/stop", encode(service_id)))
+            .await
+    }
+
+    /// Restart a service by ID
+    pub async fn restart_service(&self, service_id: &str) -> ApiResult<ServiceControlResponse> {
+        self.post_empty(&format!("/v1/services/{}/restart", encode(service_id)))
+            .await
+    }
+
+    /// Start all essential services
+    pub async fn start_essential_services(&self) -> ApiResult<ServiceControlResponse> {
+        self.post_empty("/v1/services/essential/start").await
+    }
+
+    /// Stop all essential services
+    pub async fn stop_essential_services(&self) -> ApiResult<ServiceControlResponse> {
+        self.post_empty("/v1/services/essential/stop").await
+    }
+
+    /// Get service logs
+    pub async fn get_service_logs(
+        &self,
+        service_id: &str,
+        lines: Option<u32>,
+    ) -> ApiResult<Vec<String>> {
+        let lines_param = lines.unwrap_or(100);
+        self.get(&format!(
+            "/v1/services/{}/logs?lines={}",
+            encode(service_id),
+            lines_param
+        ))
+        .await
+    }
+
+    // ========================================================================
+    // Admin Lifecycle (requires Admin role)
+    // ========================================================================
+
+    /// Request shutdown (drain or immediate)
+    pub async fn request_shutdown(&self, reason: &str, mode: &str) -> ApiResult<serde_json::Value> {
+        self.post(
+            "/admin/lifecycle/request-shutdown",
+            &serde_json::json!({ "reason": reason, "mode": mode }),
+        )
+        .await
+    }
+
+    /// Request maintenance mode
+    pub async fn request_maintenance(
+        &self,
+        reason: &str,
+        scope: &str,
+    ) -> ApiResult<serde_json::Value> {
+        self.post(
+            "/admin/lifecycle/request-maintenance",
+            &serde_json::json!({ "reason": reason, "scope": scope }),
+        )
+        .await
+    }
+
+    /// Trigger safe restart (drain + exit for supervisor to restart)
+    pub async fn safe_restart(&self) -> ApiResult<serde_json::Value> {
+        self.post_empty("/admin/lifecycle/safe-restart").await
+    }
+}
+
+/// Response from service control operations
+#[derive(Debug, Clone, serde::Deserialize)]
+pub struct ServiceControlResponse {
+    pub success: bool,
+    pub message: String,
+}
+
+// ============================================================================
+// Chat Collaboration (PASS 2)
+// ============================================================================
+
+impl ApiClient {
+    /// Share a chat session with users
+    pub async fn share_session(
+        &self,
+        session_id: &str,
+        request: &ShareSessionRequest,
+    ) -> ApiResult<SessionSharesResponse> {
+        self.post(&format!("/v1/chat/sessions/{}/shares", session_id), request)
+            .await
+    }
+
+    /// Get shares for a chat session
+    pub async fn get_session_shares(&self, session_id: &str) -> ApiResult<SessionSharesResponse> {
+        self.get(&format!("/v1/chat/sessions/{}/shares", session_id))
+            .await
+    }
+
+    /// Revoke a session share
+    pub async fn revoke_session_share(&self, session_id: &str, share_id: &str) -> ApiResult<()> {
+        self.delete(&format!(
+            "/v1/chat/sessions/{}/shares/{}",
+            session_id, share_id
+        ))
+        .await
+    }
+
+    /// Get sessions shared with the current user
+    pub async fn get_shared_with_me(&self) -> ApiResult<SharedWithMeResponse> {
+        self.get("/v1/chat/sessions/shared-with-me").await
+    }
+
+    /// List all chat tags
+    pub async fn list_chat_tags(&self) -> ApiResult<Vec<ChatTagResponse>> {
+        self.get("/v1/chat/tags").await
+    }
+
+    /// Create a chat tag
+    pub async fn create_chat_tag(
+        &self,
+        request: &CreateChatTagRequest,
+    ) -> ApiResult<ChatTagResponse> {
+        self.post("/v1/chat/tags", request).await
+    }
+
+    /// Delete a chat tag
+    pub async fn delete_chat_tag(&self, tag_id: &str) -> ApiResult<()> {
+        self.delete(&format!("/v1/chat/tags/{}", tag_id)).await
+    }
+
+    /// Get tags assigned to a session
+    pub async fn get_session_tags(&self, session_id: &str) -> ApiResult<SessionTagsResponse> {
+        self.get(&format!("/v1/chat/sessions/{}/tags", session_id))
+            .await
+    }
+
+    /// Assign tags to a session
+    pub async fn assign_tags(
+        &self,
+        session_id: &str,
+        request: &AssignTagsRequest,
+    ) -> ApiResult<()> {
+        self.post_no_response(&format!("/v1/chat/sessions/{}/tags", session_id), request)
+            .await
+    }
+
+    /// Remove a tag from a session
+    pub async fn remove_tag(&self, session_id: &str, tag_id: &str) -> ApiResult<()> {
+        self.delete(&format!("/v1/chat/sessions/{}/tags/{}", session_id, tag_id))
+            .await
+    }
+
+    /// Fork a chat session
+    pub async fn fork_session(
+        &self,
+        session_id: &str,
+        request: &ForkSessionRequest,
+    ) -> ApiResult<ForkSessionResponse> {
+        self.post(&format!("/v1/chat/sessions/{}/fork", session_id), request)
+            .await
+    }
+
+    /// Get provenance for a chat session
+    pub async fn get_chat_provenance(
+        &self,
+        session_id: &str,
+    ) -> ApiResult<adapteros_api_types::provenance::ChatProvenanceResponse> {
+        self.get(&format!("/v1/chat/sessions/{}/provenance", session_id))
+            .await
+    }
+
+    /// Permanently delete a chat session
+    pub async fn hard_delete_session(&self, session_id: &str) -> ApiResult<()> {
+        self.delete(&format!("/v1/chat/sessions/{}/permanent", session_id))
+            .await
+    }
+
+    /// List archived chat sessions
+    pub async fn list_archived_sessions(&self) -> ApiResult<Vec<ChatSessionListItem>> {
+        self.get("/v1/chat/sessions/archived").await
+    }
+
+    /// List deleted/trashed chat sessions
+    pub async fn list_deleted_sessions(&self) -> ApiResult<Vec<ChatSessionListItem>> {
+        self.get("/v1/chat/sessions/trash").await
+    }
+}
+
+// ============================================================================
+// Replay Execution (PASS 3)
+// ============================================================================
+
+impl ApiClient {
+    /// Execute a replay session
+    pub async fn execute_replay_session(
+        &self,
+        session_id: &str,
+        request: &ExecuteReplayRequest,
+    ) -> ApiResult<ExecuteReplayResponse> {
+        self.post(
+            &format!("/v1/replay/sessions/{}/execute", session_id),
+            request,
+        )
+        .await
+    }
+
+    /// Verify a bundle receipt via multipart upload
+    #[cfg(target_arch = "wasm32")]
+    pub async fn verify_bundle_receipt(
+        &self,
+        file: &web_sys::File,
+    ) -> ApiResult<ReceiptVerificationResult> {
+        use wasm_bindgen::JsCast;
+        use wasm_bindgen_futures::JsFuture;
+
+        let url = format!("{}/v1/replay/verify/bundle", self.base_url);
+
+        let form_data = web_sys::FormData::new()
+            .map_err(|_| ApiError::Network("Failed to create FormData".into()))?;
+        form_data
+            .append_with_blob_and_filename("bundle", file, &file.name())
+            .map_err(|_| ApiError::Network("Failed to append bundle to FormData".into()))?;
+
+        let opts = web_sys::RequestInit::new();
+        opts.set_method("POST");
+        opts.set_body(&form_data);
+        opts.set_credentials(web_sys::RequestCredentials::Include);
+
+        let headers = web_sys::Headers::new()
+            .map_err(|_| ApiError::Network("Failed to create Headers".into()))?;
+        if let Some(token) = self.bearer_token() {
+            headers
+                .set("Authorization", &format!("Bearer {}", token))
+                .map_err(|_| ApiError::Network("Failed to set Authorization header".into()))?;
+        }
+        if let Some(csrf_token) = csrf_token_from_cookie() {
+            headers
+                .set("X-CSRF-Token", &csrf_token)
+                .map_err(|_| ApiError::Network("Failed to set X-CSRF-Token header".into()))?;
+        }
+        opts.set_headers(&headers);
+
+        let window = web_sys::window().ok_or_else(|| ApiError::Network("No window".into()))?;
+        let request = web_sys::Request::new_with_str_and_init(&url, &opts)
+            .map_err(|_| ApiError::Network("Failed to create Request".into()))?;
+
+        let resp_value = JsFuture::from(window.fetch_with_request(&request))
+            .await
+            .map_err(|_| ApiError::Network("Bundle verify request failed".into()))?;
+        let resp: web_sys::Response = resp_value
+            .dyn_into()
+            .map_err(|_| ApiError::Network("Failed to cast Response".into()))?;
+
+        if !resp.ok() {
+            let status = resp.status();
+            let text = match resp.text() {
+                Ok(promise) => JsFuture::from(promise)
+                    .await
+                    .ok()
+                    .and_then(|v| v.as_string())
+                    .unwrap_or_default(),
+                Err(_) => String::new(),
+            };
+            return Err(ApiError::from_response(status, &text, None));
+        }
+
+        let json = JsFuture::from(
+            resp.json()
+                .map_err(|_| ApiError::Network("Failed to read response body".into()))?,
+        )
+        .await
+        .map_err(|_| ApiError::Network("Failed to parse response JSON".into()))?;
+
+        let result: ReceiptVerificationResult = serde_wasm_bindgen::from_value(json)
+            .map_err(|e| ApiError::Serialization(e.to_string()))?;
+
+        Ok(result)
+    }
+}
+
+// ============================================================================
+// Policy Governance (PASS 4)
+// ============================================================================
+
+impl ApiClient {
+    /// Sign a policy pack
+    pub async fn sign_policy(&self, cpid: &str) -> ApiResult<SignPolicyResponse> {
+        self.post_empty(&format!("/v1/policies/{}/sign", cpid))
+            .await
+    }
+
+    /// Verify a policy signature
+    pub async fn verify_policy_signature(&self, cpid: &str) -> ApiResult<VerifyPolicyResponse> {
+        self.get(&format!("/v1/policies/{}/verify", cpid)).await
+    }
+
+    /// Compare two policy versions
+    pub async fn compare_policies(
+        &self,
+        request: &PolicyComparisonRequest,
+    ) -> ApiResult<PolicyComparisonResponse> {
+        self.post("/v1/policies/compare", request).await
+    }
+
+    /// Export a policy pack as JSON
+    pub async fn export_policy(&self, cpid: &str) -> ApiResult<ExportPolicyResponse> {
+        self.get(&format!("/v1/policies/{}/export", cpid)).await
+    }
+
+    /// List policy assignments
+    pub async fn list_policy_assignments(
+        &self,
+        target_type: Option<&str>,
+        target_id: Option<&str>,
+    ) -> ApiResult<Vec<PolicyAssignmentResponse>> {
+        let mut params = Vec::new();
+        if let Some(tt) = target_type {
+            params.push(format!("target_type={}", encode(tt)));
+        }
+        if let Some(ti) = target_id {
+            params.push(format!("target_id={}", encode(ti)));
+        }
+        let path = if params.is_empty() {
+            "/v1/policies/assignments".to_string()
+        } else {
+            format!("/v1/policies/assignments?{}", params.join("&"))
+        };
+        self.get(&path).await
+    }
+
+    /// List policy violations
+    pub async fn list_violations(
+        &self,
+        tenant_id: Option<&str>,
+        severity: Option<&str>,
+        resolved: Option<bool>,
+        limit: Option<u32>,
+    ) -> ApiResult<Vec<PolicyViolationResponse>> {
+        let mut params = Vec::new();
+        if let Some(t) = tenant_id {
+            params.push(format!("tenant_id={}", encode(t)));
+        }
+        if let Some(s) = severity {
+            params.push(format!("severity={}", encode(s)));
+        }
+        if let Some(r) = resolved {
+            params.push(format!("resolved={}", r));
+        }
+        if let Some(l) = limit {
+            params.push(format!("limit={}", l));
+        }
+        let path = if params.is_empty() {
+            "/v1/policies/violations".to_string()
+        } else {
+            format!("/v1/policies/violations?{}", params.join("&"))
+        };
+        self.get(&path).await
+    }
+}
+
+// ============================================================================
+// Session Security (PASS 5)
+// ============================================================================
+
+impl ApiClient {
+    /// List active auth sessions
+    pub async fn list_auth_sessions(&self) -> ApiResult<SessionsResponse> {
+        self.get("/v1/auth/sessions").await
+    }
+
+    /// Revoke an auth session
+    pub async fn revoke_auth_session(&self, session_id: &str) -> ApiResult<()> {
+        self.delete(&format!("/v1/auth/sessions/{}", session_id))
+            .await
+    }
+
+    /// Get MFA status
+    pub async fn mfa_status(&self) -> ApiResult<adapteros_api_types::auth::MfaStatusResponse> {
+        self.get("/v1/auth/mfa/status").await
+    }
+
+    /// Start MFA enrollment
+    pub async fn mfa_start(&self) -> ApiResult<adapteros_api_types::auth::MfaEnrollStartResponse> {
+        self.post_empty("/v1/auth/mfa/start").await
+    }
+
+    /// Verify MFA enrollment with TOTP code
+    pub async fn mfa_verify(
+        &self,
+        request: &adapteros_api_types::auth::MfaEnrollVerifyRequest,
+    ) -> ApiResult<adapteros_api_types::auth::MfaEnrollVerifyResponse> {
+        self.post("/v1/auth/mfa/verify", request).await
+    }
+
+    /// Disable MFA
+    pub async fn mfa_disable(
+        &self,
+        request: &adapteros_api_types::auth::MfaDisableRequest,
+    ) -> ApiResult<adapteros_api_types::auth::MfaStatusResponse> {
+        self.post("/v1/auth/mfa/disable", request).await
+    }
+}
+
+// ============================================================================
+// Storage Visibility (PASS 6)
+// ============================================================================
+
+impl ApiClient {
+    /// Get storage mode
+    pub async fn get_storage_mode(&self) -> ApiResult<StorageModeResponse> {
+        self.get("/v1/storage/mode").await
+    }
+
+    /// Get storage statistics
+    pub async fn get_storage_stats(&self) -> ApiResult<StorageStatsResponse> {
+        self.get("/v1/storage/stats").await
+    }
+
+    /// Get tenant storage usage
+    pub async fn get_tenant_storage_usage(&self) -> ApiResult<TenantStorageUsageResponse> {
+        self.get("/v1/storage/tenant-usage").await
     }
 }

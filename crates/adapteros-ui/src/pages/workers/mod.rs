@@ -47,8 +47,12 @@ pub fn Workers() -> impl IntoView {
     let action_error = RwSignal::new(Option::<String>::None);
     let pending_drain_worker = RwSignal::new(Option::<String>::None);
     let pending_stop_worker = RwSignal::new(Option::<String>::None);
+    let pending_restart_worker = RwSignal::new(Option::<String>::None);
+    let pending_remove_worker = RwSignal::new(Option::<String>::None);
     let show_drain_confirm = RwSignal::new(false);
     let show_stop_confirm = RwSignal::new(false);
+    let show_restart_confirm = RwSignal::new(false);
+    let show_remove_confirm = RwSignal::new(false);
     let notifications = use_notifications();
 
     // Fetch workers list (terminal entries hidden unless history is explicitly enabled)
@@ -107,11 +111,100 @@ pub fn Workers() -> impl IntoView {
 
     let api_client = use_api();
     let notifications_for_spawn = notifications.clone();
+    let spawn_worker_request = Callback::new({
+        let notifications = notifications_for_spawn.clone();
+        let api_client = api_client.clone();
+        move |request: SpawnWorkerRequest| {
+            action_loading.set(true);
+            show_spawn_dialog.set(false);
+            let client = api_client.clone();
+            let notifications = notifications.clone();
+            wasm_bindgen_futures::spawn_local(async move {
+                match client.spawn_worker(&request).await {
+                    Ok(_) => {
+                        action_error.set(None);
+                        notifications.success_with_action(
+                            "Worker spawned",
+                            "New worker is starting up.",
+                            "View Workers",
+                            "/workers",
+                        );
+                        refetch_workers.run(());
+                    }
+                    Err(e) => {
+                        action_error.set(Some(e.user_message()));
+                        report_error_with_toast(
+                            &e,
+                            "Failed to spawn worker",
+                            Some("/workers"),
+                            true,
+                        );
+                    }
+                }
+                action_loading.set(false);
+            });
+        }
+    });
+    let quick_spawn_from_defaults = Callback::new({
+        let spawn_worker_request = spawn_worker_request.clone();
+        move |_| {
+            if action_loading.get_untracked() {
+                return;
+            }
+
+            let default_node = match nodes.get_untracked() {
+                LoadingState::Loaded(nodes) => nodes
+                    .iter()
+                    .find(|node| node.node.status.eq_ignore_ascii_case("active"))
+                    .cloned()
+                    .or_else(|| nodes.first().cloned()),
+                _ => None,
+            };
+            let default_plan = match plans.get_untracked() {
+                LoadingState::Loaded(plans) => plans
+                    .iter()
+                    .find(|plan| {
+                        plan.status.eq_ignore_ascii_case("ready")
+                            || plan.status.eq_ignore_ascii_case("active")
+                            || plan.status.eq_ignore_ascii_case("built")
+                    })
+                    .cloned()
+                    .or_else(|| plans.first().cloned()),
+                _ => None,
+            };
+
+            let Some(node) = default_node else {
+                show_spawn_dialog.set(true);
+                return;
+            };
+            let Some(plan) = default_plan else {
+                show_spawn_dialog.set(true);
+                return;
+            };
+            if node.node.id.is_empty() || plan.id.is_empty() || plan.tenant_id.trim().is_empty() {
+                show_spawn_dialog.set(true);
+                return;
+            }
+
+            let timestamp = js_sys::Date::now() as u64;
+            spawn_worker_request.run(SpawnWorkerRequest {
+                tenant_id: plan.tenant_id,
+                node_id: node.node.id.clone(),
+                plan_id: plan.id,
+                uds_path: format!(
+                    "var/run/aos-worker-{}-{}.sock",
+                    adapteros_id::short_id(&node.node.id),
+                    timestamp
+                ),
+            });
+        }
+    });
+    let open_advanced_spawn = Callback::new(move |_| show_spawn_dialog.set(true));
 
     view! {
         <PageScaffold
             title="Workers"
-            subtitle="Manage inference workers, monitor health, and control lifecycle".to_string()
+            subtitle="Workers run inference requests. Spawn one, monitor health, and control lifecycle.".to_string()
             breadcrumbs=vec![
                 PageBreadcrumbItem::new("Observe", "/workers"),
                 PageBreadcrumbItem::current("Workers"),
@@ -180,12 +273,32 @@ pub fn Workers() -> impl IntoView {
                 </Button>
                 <Button
                     variant=ButtonVariant::Primary
-                    on_click=Callback::new(move |_| show_spawn_dialog.set(true))
+                    loading=Signal::from(action_loading)
+                    on_click=quick_spawn_from_defaults
                 >
                     <IconPlus/>
                     "Spawn Worker"
                 </Button>
+                <Button
+                    variant=ButtonVariant::Secondary
+                    disabled=Signal::from(action_loading)
+                    on_click=open_advanced_spawn
+                >
+                    "Advanced Spawn"
+                </Button>
             </PageScaffoldActions>
+
+            <h2 class="sr-only" data-testid="workers-page-heading">"Workers"</h2>
+
+            <div class="rounded-lg border border-border/60 bg-muted/20 p-3">
+                <p class="text-sm font-medium">"What is a worker?"</p>
+                <p class="text-xs text-muted-foreground mt-1">
+                    "A worker is a runtime process that serves inference requests for a model."
+                </p>
+                <p class="text-xs text-muted-foreground mt-1">
+                    "Use Spawn to add capacity, Drain for graceful maintenance, and Stop for immediate shutdown."
+                </p>
+            </div>
 
             // Error banner
             {move || action_error.get().map(|e| view! {
@@ -279,16 +392,29 @@ pub fn Workers() -> impl IntoView {
 
                             <div class="text-xs text-muted-foreground mt-2">
                                 {move || {
-                                    if show_history.get() {
-                                        format!("Showing all {} workers (including stopped/error).", total_all)
+                                    if total_all == 0 {
+                                        "No workers registered. A worker runs inference requests. Next: use Spawn Worker.".to_string()
+                                    } else if !show_history.get() && active_workers.is_empty() && hidden_count > 0 {
+                                        format!(
+                                            "No active workers right now. {} inactive in history. Next: show inactive history to inspect status, then spawn a worker.",
+                                            hidden_count
+                                        )
+                                    } else if show_history.get() {
+                                        format!(
+                                            "Workers run inference requests. Showing all {} workers, including inactive history.",
+                                            total_all
+                                        )
                                     } else if hidden_count > 0 {
                                         format!(
-                                            "Showing {} active workers (recent) ({} hidden).",
+                                            "Workers run inference requests. Showing {} active workers ({} inactive hidden).",
                                             active_workers.len(),
                                             hidden_count
                                         )
                                     } else {
-                                        format!("Showing {} active workers (recent).", active_workers.len())
+                                        format!(
+                                            "Workers run inference requests. Showing {} active workers.",
+                                            active_workers.len()
+                                        )
                                     }
                                 }}
                             </div>
@@ -319,7 +445,19 @@ pub fn Workers() -> impl IntoView {
                                                     show_stop_confirm.set(true);
                                                 }
                                             })
-                                            on_spawn=Callback::new(move |_| show_spawn_dialog.set(true))
+                                            on_restart=Callback::new({
+                                                move |worker_id: String| {
+                                                    pending_restart_worker.set(Some(worker_id));
+                                                    show_restart_confirm.set(true);
+                                                }
+                                            })
+                                            on_remove=Callback::new({
+                                                move |worker_id: String| {
+                                                    pending_remove_worker.set(Some(worker_id));
+                                                    show_remove_confirm.set(true);
+                                                }
+                                            })
+                                            on_spawn=quick_spawn_from_defaults
                                         />
                                     }
                                 }
@@ -348,35 +486,7 @@ pub fn Workers() -> impl IntoView {
                                 nodes=nodes_list
                                 plans=plans_list
                                 loading=Signal::from(action_loading)
-                                on_spawn=Callback::new({
-                                    let notifications = notifications.clone();
-                                    let api_client = api_client.clone();
-                                    move |request: SpawnWorkerRequest| {
-                                        action_loading.set(true);
-                                        show_spawn_dialog.set(false);
-                                        let client = api_client.clone();
-                                        let notifications = notifications.clone();
-                                        wasm_bindgen_futures::spawn_local(async move {
-                                            match client.spawn_worker(&request).await {
-                                                Ok(_) => {
-                                                    action_error.set(None);
-                                                    notifications.success_with_action(
-                                                        "Worker spawned",
-                                                        "New worker is starting up.",
-                                                        "View Workers",
-                                                        "/workers",
-                                                    );
-                                                    refetch_workers.run(());
-                                                }
-                                                Err(e) => {
-                                                    action_error.set(Some(e.user_message()));
-                                                    report_error_with_toast(&e, "Failed to spawn worker", Some("/workers"), true);
-                                                }
-                                            }
-                                            action_loading.set(false);
-                                        });
-                                    }
-                                })
+                                on_spawn=spawn_worker_request
                             />
 
                             // Drain confirmation dialog
@@ -478,6 +588,106 @@ pub fn Workers() -> impl IntoView {
                                     />
                                 }
                             }
+
+                            // Restart confirmation dialog
+                            {
+                                let restart_desc = {
+                                    let wid = pending_restart_worker.get().unwrap_or_default();
+                                    let short = adapteros_id::short_id(&wid);
+                                    format!("Restart worker '{}'? The process will be relaunched and in-flight requests may fail.", short)
+                                };
+                                view! {
+                                    <ConfirmationDialog
+                                        open=show_restart_confirm
+                                        title="Restart Worker"
+                                        description=restart_desc
+                                        severity=ConfirmationSeverity::Warning
+                                        confirm_text="Restart"
+                                        on_confirm=Callback::new({
+                                            let api_client = api_client.clone();
+                                            let notifications = notifications.clone();
+                                            move |_| {
+                                                show_restart_confirm.set(false);
+                                                if let Some(worker_id) = pending_restart_worker.get_untracked() {
+                                                    action_loading.set(true);
+                                                    let client = api_client.clone();
+                                                    let notifications = notifications.clone();
+                                                    wasm_bindgen_futures::spawn_local(async move {
+                                                        match client.restart_worker(&worker_id).await {
+                                                            Ok(_) => {
+                                                                action_error.set(None);
+                                                                notifications.success("Worker restart requested", "Worker restart has been initiated.");
+                                                                refetch_workers.run(());
+                                                            }
+                                                            Err(e) => {
+                                                                action_error.set(Some(e.user_message()));
+                                                                report_error_with_toast(&e, "Failed to restart worker", Some("/workers"), true);
+                                                            }
+                                                        }
+                                                        action_loading.set(false);
+                                                    });
+                                                }
+                                                pending_restart_worker.set(None);
+                                            }
+                                        })
+                                        on_cancel=Callback::new(move |_| {
+                                            show_restart_confirm.set(false);
+                                            pending_restart_worker.set(None);
+                                        })
+                                        loading=Signal::from(action_loading)
+                                    />
+                                }
+                            }
+
+                            // Remove confirmation dialog
+                            {
+                                let remove_desc = {
+                                    let wid = pending_remove_worker.get().unwrap_or_default();
+                                    let short = adapteros_id::short_id(&wid);
+                                    format!("Remove worker '{}'? This decommissions the worker record and cannot be undone.", short)
+                                };
+                                view! {
+                                    <ConfirmationDialog
+                                        open=show_remove_confirm
+                                        title="Remove Worker"
+                                        description=remove_desc
+                                        severity=ConfirmationSeverity::Destructive
+                                        confirm_text="Remove"
+                                        on_confirm=Callback::new({
+                                            let api_client = api_client.clone();
+                                            let notifications = notifications.clone();
+                                            move |_| {
+                                                show_remove_confirm.set(false);
+                                                if let Some(worker_id) = pending_remove_worker.get_untracked() {
+                                                    action_loading.set(true);
+                                                    let client = api_client.clone();
+                                                    let notifications = notifications.clone();
+                                                    wasm_bindgen_futures::spawn_local(async move {
+                                                        match client.remove_worker(&worker_id).await {
+                                                            Ok(_) => {
+                                                                action_error.set(None);
+                                                                notifications.success("Worker removed", "Worker has been decommissioned and removed.");
+                                                                refetch_workers.run(());
+                                                            }
+                                                            Err(e) => {
+                                                                action_error.set(Some(e.user_message()));
+                                                                report_error_with_toast(&e, "Failed to remove worker", Some("/workers"), true);
+                                                            }
+                                                        }
+                                                        action_loading.set(false);
+                                                    });
+                                                }
+                                                pending_remove_worker.set(None);
+                                            }
+                                        })
+                                        on_cancel=Callback::new(move |_| {
+                                            show_remove_confirm.set(false);
+                                            pending_remove_worker.set(None);
+                                        })
+                                        loading=Signal::from(action_loading)
+                                    />
+                                }
+                            }
                         }.into_any()
                     }
                     LoadingState::Error(e) => {
@@ -546,10 +756,12 @@ pub fn WorkerDetail() -> impl IntoView {
             ]
         >
             <PageScaffoldActions slot>
-                <RefreshButton on_click=Callback::new(move |_| {
-                    refetch_worker.run(());
-                    refetch_metrics.run(());
-                })/>
+                <div data-testid="worker-detail-refresh-page">
+                    <RefreshButton on_click=Callback::new(move |_| {
+                        refetch_worker.run(());
+                        refetch_metrics.run(());
+                    })/>
+                </div>
             </PageScaffoldActions>
 
             {move || {
@@ -559,7 +771,9 @@ pub fn WorkerDetail() -> impl IntoView {
                 match worker_state {
                     LoadingState::Idle | LoadingState::Loading => {
                         view! {
-                            <LoadingDisplay message="Loading worker details..."/>
+                            <div data-testid="worker-detail-loading-state">
+                                <LoadingDisplay message="Loading worker details..."/>
+                            </div>
                         }.into_any()
                     }
                     LoadingState::Loaded(w) => {
@@ -580,13 +794,15 @@ pub fn WorkerDetail() -> impl IntoView {
                     }
                     LoadingState::Error(e) => {
                         view! {
-                            <ErrorDisplay
-                                error=e
-                                on_retry=Callback::new(move |_| {
-                                    refetch_worker.run(());
-                                    refetch_metrics.run(());
-                                })
-                            />
+                            <div data-testid="worker-detail-error-state">
+                                <ErrorDisplay
+                                    error=e
+                                    on_retry=Callback::new(move |_| {
+                                        refetch_worker.run(());
+                                        refetch_metrics.run(());
+                                    })
+                                />
+                            </div>
                         }.into_any()
                     }
                 }

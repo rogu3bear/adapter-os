@@ -2,13 +2,13 @@
 //!
 //! Human-in-the-loop review queue management.
 
-use crate::api::ApiClient;
+use crate::api::{use_sse_json_events, ApiClient, SseState};
 use crate::components::{
     Badge, BadgeVariant, Card, Column, CopyableId, DataTable, Input, PageBreadcrumbItem,
     PageScaffold, PageScaffoldActions, RefreshButton, Select,
 };
 use crate::hooks::{use_api_resource, use_navigate, use_polling, LoadingState};
-use adapteros_api_types::review::{PauseKind, PausedInferenceInfo};
+use adapteros_api_types::review::{ListPausedResponse, PauseKind, PausedInferenceInfo};
 use leptos::prelude::*;
 use std::sync::Arc;
 
@@ -20,10 +20,22 @@ pub fn Reviews() -> impl IntoView {
         let resp = client.list_paused_reviews().await?;
         Ok(resp.paused)
     });
+    let stream_queue = RwSignal::new(Option::<Vec<PausedInferenceInfo>>::None);
 
-    // Polling fallback: until a dedicated reviews SSE stream exists, polling keeps the queue fresh.
+    // Prefer live freshness from SSE review events.
+    let (sse_status, _reconnect_reviews) = use_sse_json_events::<ListPausedResponse, _>(
+        "/v1/stream/reviews",
+        &["reviews"],
+        move |event| {
+            stream_queue.set(Some(event.paused));
+        },
+    );
+
+    // Polling fallback: only refetch when SSE is not healthy/connected.
     let _cancel_polling = use_polling(10_000, move || async move {
-        refetch.run(());
+        if is_polling_fallback_active(sse_status.get_untracked()) {
+            refetch.run(());
+        }
     });
 
     // Client-side filters.
@@ -34,7 +46,14 @@ pub fn Reviews() -> impl IntoView {
     let (table_state, set_table_state) =
         signal::<LoadingState<Vec<PausedInferenceInfo>>>(LoadingState::Idle);
     Effect::new(move || {
-        let Some(raw) = queue.try_get() else { return };
+        let Some(rest_state) = queue.try_get() else {
+            return;
+        };
+        let raw = effective_queue_state(
+            rest_state,
+            stream_queue.try_get().flatten(),
+            sse_status.try_get().unwrap_or(SseState::Disconnected),
+        );
         let Some(kind) = kind_filter.try_get() else {
             return;
         };
@@ -82,12 +101,17 @@ pub fn Reviews() -> impl IntoView {
     });
 
     // Counts (total from raw, filtered from table_state).
-    let total = Signal::derive(
-        move || match queue.try_get().unwrap_or(LoadingState::Idle) {
+    let total = Signal::derive(move || {
+        let raw = effective_queue_state(
+            queue.try_get().unwrap_or(LoadingState::Idle),
+            stream_queue.try_get().flatten(),
+            sse_status.try_get().unwrap_or(SseState::Disconnected),
+        );
+        match raw {
             LoadingState::Loaded(items) => items.len(),
             _ => 0,
-        },
-    );
+        }
+    });
     let filtered =
         Signal::derive(
             move || match table_state.try_get().unwrap_or(LoadingState::Idle) {
@@ -189,6 +213,16 @@ pub fn Reviews() -> impl IntoView {
                         <Badge variant=BadgeVariant::Secondary>
                             {move || format!("{} shown", filtered.get())}
                         </Badge>
+                        {move || {
+                            let state = sse_status.try_get().unwrap_or(SseState::Disconnected);
+                            let (variant, label) = if is_polling_fallback_active(state) {
+                                (BadgeVariant::Warning, "Polling fallback")
+                            } else {
+                                (BadgeVariant::Success, "Live stream")
+                            };
+
+                            view! { <Badge variant=variant>{label}</Badge> }
+                        }}
                     </div>
 
                     <div class="grid gap-3 md:grid-cols-2 md:items-end">
@@ -221,6 +255,26 @@ pub fn Reviews() -> impl IntoView {
             </Card>
         </PageScaffold>
     }
+}
+
+fn is_polling_fallback_active(state: SseState) -> bool {
+    matches!(
+        state,
+        SseState::Disconnected | SseState::Connecting | SseState::Error | SseState::CircuitOpen
+    )
+}
+
+fn effective_queue_state(
+    rest_state: LoadingState<Vec<PausedInferenceInfo>>,
+    stream_items: Option<Vec<PausedInferenceInfo>>,
+    sse_state: SseState,
+) -> LoadingState<Vec<PausedInferenceInfo>> {
+    if !is_polling_fallback_active(sse_state) {
+        if let Some(items) = stream_items {
+            return LoadingState::Loaded(items);
+        }
+    }
+    rest_state
 }
 
 fn parse_kind(kind: &str) -> Option<PauseKind> {
@@ -262,6 +316,76 @@ fn format_duration(secs: u64) -> String {
             format!("{}h", hours)
         } else {
             format!("{}h {}m", hours, remaining_mins)
+        }
+    }
+}
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+
+    #[test]
+    fn polling_fallback_active_for_non_connected_states() {
+        assert!(is_polling_fallback_active(SseState::Disconnected));
+        assert!(is_polling_fallback_active(SseState::Connecting));
+        assert!(is_polling_fallback_active(SseState::Error));
+        assert!(is_polling_fallback_active(SseState::CircuitOpen));
+    }
+
+    #[test]
+    fn polling_fallback_inactive_when_connected() {
+        assert!(!is_polling_fallback_active(SseState::Connected));
+    }
+
+    #[test]
+    fn effective_queue_prefers_stream_payload_when_live() {
+        let rest = LoadingState::Loaded(vec![PausedInferenceInfo {
+            inference_id: "inf-rest".to_string(),
+            pause_id: "pause-rest".to_string(),
+            kind: PauseKind::ReviewNeeded,
+            paused_at: "2025-01-01T00:00:00Z".to_string(),
+            duration_secs: 10,
+            context_preview: None,
+        }]);
+        let stream_items = Some(vec![PausedInferenceInfo {
+            inference_id: "inf-stream".to_string(),
+            pause_id: "pause-stream".to_string(),
+            kind: PauseKind::PolicyApproval,
+            paused_at: "2025-01-01T00:00:00Z".to_string(),
+            duration_secs: 20,
+            context_preview: Some("stream".to_string()),
+        }]);
+
+        let effective = effective_queue_state(rest, stream_items, SseState::Connected);
+        match effective {
+            LoadingState::Loaded(items) => assert_eq!(items[0].pause_id, "pause-stream"),
+            _ => panic!("expected loaded stream payload"),
+        }
+    }
+
+    #[test]
+    fn effective_queue_uses_rest_payload_when_fallback_active() {
+        let rest = LoadingState::Loaded(vec![PausedInferenceInfo {
+            inference_id: "inf-rest".to_string(),
+            pause_id: "pause-rest".to_string(),
+            kind: PauseKind::ReviewNeeded,
+            paused_at: "2025-01-01T00:00:00Z".to_string(),
+            duration_secs: 10,
+            context_preview: None,
+        }]);
+        let stream_items = Some(vec![PausedInferenceInfo {
+            inference_id: "inf-stream".to_string(),
+            pause_id: "pause-stream".to_string(),
+            kind: PauseKind::PolicyApproval,
+            paused_at: "2025-01-01T00:00:00Z".to_string(),
+            duration_secs: 20,
+            context_preview: Some("stream".to_string()),
+        }]);
+
+        let effective = effective_queue_state(rest, stream_items, SseState::Disconnected);
+        match effective {
+            LoadingState::Loaded(items) => assert_eq!(items[0].pause_id, "pause-rest"),
+            _ => panic!("expected loaded rest payload"),
         }
     }
 }

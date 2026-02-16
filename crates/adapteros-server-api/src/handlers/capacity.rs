@@ -61,20 +61,34 @@ pub struct CapacityUsage {
 /// GPU memory report response
 #[derive(Debug, Serialize, ToSchema)]
 pub struct MemoryReportResponse {
+    /// Whether GPU memory telemetry is currently available.
+    pub availability: GpuMemoryAvailability,
     /// Total GPU memory in bytes
-    pub total_gpu_memory_bytes: u64,
+    #[serde(skip_serializing_if = "Option::is_none")]
+    pub total_gpu_memory_bytes: Option<u64>,
     /// Used GPU memory in bytes
-    pub used_gpu_memory_bytes: u64,
+    #[serde(skip_serializing_if = "Option::is_none")]
+    pub used_gpu_memory_bytes: Option<u64>,
     /// Available GPU memory in bytes
-    pub available_gpu_memory_bytes: u64,
+    #[serde(skip_serializing_if = "Option::is_none")]
+    pub available_gpu_memory_bytes: Option<u64>,
     /// GPU memory headroom percentage
-    pub gpu_headroom_pct: f32,
+    #[serde(skip_serializing_if = "Option::is_none")]
+    pub gpu_headroom_pct: Option<f32>,
     /// Per-adapter memory usage
     pub per_adapter_usage: Vec<AdapterMemoryUsage>,
 }
 
+/// Availability state for GPU memory telemetry.
+#[derive(Debug, Clone, Copy, Serialize, Deserialize, ToSchema, PartialEq, Eq)]
+#[serde(rename_all = "snake_case")]
+pub enum GpuMemoryAvailability {
+    Available,
+    Unavailable,
+}
+
 /// Per-adapter memory usage
-#[derive(Debug, Serialize, ToSchema)]
+#[derive(Debug, Clone, Serialize, ToSchema)]
 pub struct AdapterMemoryUsage {
     /// Adapter ID
     pub adapter_id: String,
@@ -107,12 +121,15 @@ pub async fn get_capacity(
     let ram_used_bytes = uma_stats.used_mb * 1024 * 1024;
     let ram_headroom_pct = uma_stats.headroom_pct;
 
-    // Get VRAM info (GPU memory) - integrate with worker if available
-    let (total_vram_bytes, vram_used_bytes) = get_vram_info(&state).await;
-    let vram_headroom_pct = if total_vram_bytes > 0 {
-        ((total_vram_bytes - vram_used_bytes) as f32 / total_vram_bytes as f32) * 100.0
-    } else {
-        100.0
+    // Get VRAM info (GPU memory) from telemetry when available.
+    let gpu_snapshot = get_gpu_memory_snapshot(&state).await;
+    let total_vram_bytes = gpu_snapshot.total_gpu_bytes.unwrap_or(0);
+    let vram_used_bytes = gpu_snapshot.used_gpu_bytes.unwrap_or(0);
+    let vram_headroom_pct = match (gpu_snapshot.total_gpu_bytes, gpu_snapshot.used_gpu_bytes) {
+        (Some(total), Some(used)) if total > 0 => {
+            ((total.saturating_sub(used)) as f32 / total as f32) * 100.0
+        }
+        _ => 0.0,
     };
 
     // Get configured limits from config (PRD G3: Read from ApiConfig)
@@ -183,12 +200,18 @@ pub async fn get_capacity(
     }))
 }
 
-/// Get VRAM information from worker if available
+#[derive(Debug, Clone)]
+struct GpuMemorySnapshot {
+    total_gpu_bytes: Option<u64>,
+    used_gpu_bytes: Option<u64>,
+    per_adapter_usage: Vec<AdapterMemoryUsage>,
+}
+
+/// Get GPU memory information from worker telemetry when available.
 ///
-/// Queries the Worker's kernel backend for real GPU memory metrics.
-/// Falls back to defaults if worker is unavailable or doesn't support memory reporting.
-async fn get_vram_info(state: &AppState) -> (u64, u64) {
-    // Check if worker is available
+/// Returns `None` values when worker telemetry is unavailable instead of
+/// fabricating synthetic VRAM defaults.
+async fn get_gpu_memory_snapshot(state: &AppState) -> GpuMemorySnapshot {
     if let Some(ref worker_handle) = state.worker {
         let worker = worker_handle.lock().await;
         if let Some(report) = worker.memory_report().await {
@@ -198,13 +221,46 @@ async fn get_vram_info(state: &AppState) -> (u64, u64) {
                 adapter_count = report.adapter_count,
                 "Retrieved GPU memory report from worker"
             );
-            return (report.total_gpu_bytes, report.used_gpu_bytes);
+            return GpuMemorySnapshot {
+                total_gpu_bytes: Some(report.total_gpu_bytes),
+                used_gpu_bytes: Some(report.used_gpu_bytes),
+                per_adapter_usage: report
+                    .adapter_allocations
+                    .into_iter()
+                    .map(|(adapter_id, memory_bytes)| AdapterMemoryUsage {
+                        adapter_id: adapter_id.to_string(),
+                        memory_bytes,
+                    })
+                    .collect(),
+            };
         }
-        debug!("Worker available but memory_report() returned None - using defaults");
-        (8 * 1024 * 1024 * 1024, 0) // 8GB total, 0 used (fallback)
+        debug!("Worker available but memory_report() returned None");
     } else {
-        debug!("Worker not available - using VRAM defaults");
-        (8 * 1024 * 1024 * 1024, 0) // 8GB total, 0 used
+        debug!("Worker not available for GPU memory telemetry");
+    }
+
+    GpuMemorySnapshot {
+        total_gpu_bytes: None,
+        used_gpu_bytes: None,
+        per_adapter_usage: Vec::new(),
+    }
+}
+
+fn compute_gpu_report(
+    total_gpu_bytes: Option<u64>,
+    used_gpu_bytes: Option<u64>,
+) -> (GpuMemoryAvailability, Option<u64>, Option<f32>) {
+    match (total_gpu_bytes, used_gpu_bytes) {
+        (Some(total), Some(used)) if total > 0 => {
+            let available = total.saturating_sub(used);
+            let headroom_pct = (available as f32 / total as f32) * 100.0;
+            (
+                GpuMemoryAvailability::Available,
+                Some(available),
+                Some(headroom_pct),
+            )
+        }
+        _ => (GpuMemoryAvailability::Unavailable, None, None),
     }
 }
 
@@ -227,41 +283,39 @@ pub async fn get_memory_report(
 
     debug!("Querying GPU memory report");
 
-    // Get VRAM info from worker
-    let (total_vram, used_vram) = get_vram_info(&state).await;
-    let available_vram = total_vram.saturating_sub(used_vram);
-    let gpu_headroom_pct = if total_vram > 0 {
-        (available_vram as f32 / total_vram as f32) * 100.0
-    } else {
-        100.0
-    };
-
-    // Get per-adapter memory usage from worker's memory report
-    let per_adapter_usage: Vec<AdapterMemoryUsage> = if let Some(ref worker_handle) = state.worker {
-        let worker = worker_handle.lock().await;
-        if let Some(report) = worker.memory_report().await {
-            report
-                .adapter_allocations
-                .into_iter()
-                .map(|(adapter_id, memory_bytes)| AdapterMemoryUsage {
-                    adapter_id: adapter_id.to_string(),
-                    memory_bytes,
-                })
-                .collect()
-        } else {
-            debug!("Worker available but memory_report() returned None - no per-adapter usage");
-            vec![]
-        }
-    } else {
-        debug!("Worker not available - no per-adapter usage available");
-        vec![]
-    };
+    // Get GPU memory snapshot from worker telemetry.
+    let gpu_snapshot = get_gpu_memory_snapshot(&state).await;
+    let (availability, available_vram, gpu_headroom_pct) =
+        compute_gpu_report(gpu_snapshot.total_gpu_bytes, gpu_snapshot.used_gpu_bytes);
 
     Ok(Json(MemoryReportResponse {
-        total_gpu_memory_bytes: total_vram,
-        used_gpu_memory_bytes: used_vram,
+        availability,
+        total_gpu_memory_bytes: gpu_snapshot.total_gpu_bytes,
+        used_gpu_memory_bytes: gpu_snapshot.used_gpu_bytes,
         available_gpu_memory_bytes: available_vram,
         gpu_headroom_pct,
-        per_adapter_usage,
+        per_adapter_usage: gpu_snapshot.per_adapter_usage,
     }))
+}
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+
+    #[test]
+    fn compute_gpu_report_marks_unavailable_without_metrics() {
+        let (availability, available, headroom_pct) = compute_gpu_report(None, None);
+        assert_eq!(availability, GpuMemoryAvailability::Unavailable);
+        assert_eq!(available, None);
+        assert_eq!(headroom_pct, None);
+    }
+
+    #[test]
+    fn compute_gpu_report_uses_actual_totals() {
+        let (availability, available, headroom_pct) = compute_gpu_report(Some(10_000), Some(2_500));
+        assert_eq!(availability, GpuMemoryAvailability::Available);
+        assert_eq!(available, Some(7_500));
+        let headroom_pct = headroom_pct.expect("headroom expected");
+        assert!((headroom_pct - 75.0).abs() < 0.001);
+    }
 }

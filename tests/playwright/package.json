@@ -12,6 +12,7 @@
     "test:ci:shard1": "node scripts/pw-run.mjs -c playwright.ui.config.ts -- --shard=1/3",
     "test:ci:shard2": "node scripts/pw-run.mjs -c playwright.ui.config.ts -- --shard=2/3",
     "test:ci:shard3": "node scripts/pw-run.mjs -c playwright.ui.config.ts -- --shard=3/3",
+    "test:ci:concurrency": "node scripts/pw-concurrency-smoke.mjs",
     "test:smoke": "node scripts/pw-run.mjs -c playwright.ui.config.ts -- --project=chromium --grep @smoke",
     "test:smoke:core": "node scripts/pw-run.mjs -c playwright.ui.config.ts -- --project=chromium routes.core.smoke",
     "test:smoke:data": "node scripts/pw-run.mjs -c playwright.ui.config.ts -- --project=chromium routes.data.smoke",

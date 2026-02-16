@@ -1,7 +1,7 @@
 //! Authentication handlers.
 //!
-//! Full auth flows are enabled, with dev-bypass-only endpoints available in debug builds.
-//! Some endpoints (bootstrap, MFA) remain stubbed until implemented.
+//! Full auth flows are enabled, including bootstrap + MFA lifecycle.
+//! Dev-bypass-only endpoints remain debug-gated.
 
 pub mod audit;
 mod config;
@@ -45,7 +45,7 @@ pub use stubs::{
 // Tenant switch handler (fully implemented)
 pub use tenant_switch::{__path_switch_tenant_handler, switch_tenant_handler};
 
-// Stub handlers (return "use dev bypass" errors)
+// Bootstrap + MFA handlers
 pub use stubs::{
     __path_bootstrap_admin_handler, __path_mfa_disable_handler, __path_mfa_start_handler,
     __path_mfa_status_handler, __path_mfa_verify_handler,

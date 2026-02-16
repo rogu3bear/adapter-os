@@ -35,10 +35,10 @@
 
 .btn:disabled {
   pointer-events: none;
-  background: var(--glass-bg-1);
-  color: var(--color-muted-foreground);
+  background-color: var(--color-disabled);
+  color: var(--color-disabled-foreground);
   border-color: transparent;
-  opacity: 0.5;
+  cursor: not-allowed;
   backdrop-filter: blur(calc(var(--glass-blur) * 0.33)) saturate(0.8);
   -webkit-backdrop-filter: blur(calc(var(--glass-blur) * 0.33)) saturate(0.8);
 }
@@ -188,6 +188,8 @@
   text-underline-offset: 4px;
 }
 
+.link:focus-visible { outline: 2px solid var(--color-ring); outline-offset: 2px; border-radius: 2px; }
+
 /* ===== ActionCard Component ===== */
 .action-card {
   display: block;
@@ -254,7 +256,7 @@
 
 .checkbox:disabled {
   cursor: not-allowed;
-  opacity: 0.5;
+  color: var(--color-disabled-foreground);
 }
 
 .checkbox-text {
@@ -650,6 +652,8 @@
   pointer-events: none;
   opacity: 0.5;
 }
+
+.dialog-close:focus-visible { outline: 2px solid var(--color-ring); outline-offset: 2px; }
 
 /* Scrollable dialog variant with max-height constraint */
 .dialog-scrollable {
@@ -1375,6 +1379,9 @@
   height: 0.5rem;
   width: 0.5rem;
   border-radius: 9999px;
+  display: flex;
+  align-items: center;
+  justify-content: center;
 }
 
 .status-green {
@@ -1396,6 +1403,10 @@
 .status-gray {
   background-color: var(--color-muted-foreground);
 }
+
+.status-green::after { content: "\2713"; font-size: 0.4rem; color: white; line-height: 1; }
+.status-red::after { content: "\2715"; font-size: 0.4rem; color: white; line-height: 1; }
+.status-yellow::after { content: "!"; font-size: 0.4rem; color: white; line-height: 1; font-weight: bold; }
 
 /* ===== Layout Utilities ===== */
 .flex {
@@ -3043,6 +3054,8 @@
   background: var(--color-muted);
   color: var(--color-foreground);
 }
+
+.sidebar-toggle:focus-visible { outline: 2px solid var(--color-ring); outline-offset: 2px; }
 
 .sidebar-toggle-icon {
   transition: transform 200ms ease;
@@ -4704,6 +4717,12 @@
   height: 0.875rem;
 }
 
+.status-notifications-action-btn:focus-visible,
+.status-center-refresh-btn:focus-visible,
+.status-center-close-btn:focus-visible,
+.toast-close:focus-visible,
+.toast-expand-btn:focus-visible { outline: 2px solid var(--color-ring); outline-offset: 2px; }
+
 /* Status Center Header Actions */
 .status-center-header-actions {
   display: flex;
@@ -5431,7 +5450,7 @@
 }
 
 .sort-icon-none {
-  opacity: 0.3;
+  opacity: 0.5;
 }
 
 /* Active sort indicator styling */
@@ -5670,7 +5689,7 @@
   border-radius: 9999px;
   font-size: 0.625rem;
   font-weight: 500;
-  color: white;
+  color: hsl(0, 0%, 10%);
   border: none;
   cursor: pointer;
   /* State-change transitions only (200-300ms per spec) */
@@ -5703,6 +5722,7 @@
 
 .adapter-chip-low {
   background-color: hsl(215.4 16.3% 46.9% / 0.85);
+  color: white;
 }
 
 .adapter-chip-low:hover:not(:disabled) {
@@ -6668,6 +6688,12 @@
     min-width: 44px;
     min-height: 44px;
   }
+
+  .btn-sm, .btn-icon-sm { min-height: 44px; min-width: 44px; }
+  .checkbox { min-height: 44px; min-width: 44px; }
+  .help-tooltip { min-height: 44px; min-width: 44px; }
+  .sidebar-toggle { min-height: 44px; min-width: 44px; }
+  .status-notifications-action-btn { min-height: 44px; min-width: 44px; }
 }
 
 /* Explicit touch target class for any interactive element */

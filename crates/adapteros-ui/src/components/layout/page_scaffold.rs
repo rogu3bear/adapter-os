@@ -178,9 +178,9 @@ pub fn PageScaffold(
                 }
             }>
                 // Main content
-                <main class="page-scaffold-main">
+                <section class="page-scaffold-main">
                     {children()}
-                </main>
+                </section>
 
                 // Inspector panel (if provided)
                 {page_scaffold_inspector.map(|inspector| view! {

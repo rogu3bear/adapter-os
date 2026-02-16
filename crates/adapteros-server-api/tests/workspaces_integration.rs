@@ -8,6 +8,7 @@ use adapteros_server_api::auth::Claims;
 use adapteros_server_api::handlers::workspaces::{
     create_workspace, get_workspace, list_workspaces, CreateWorkspaceRequest, WorkspaceResponse,
 };
+use adapteros_server_api::ip_extraction::ClientIp;
 use adapteros_server_api::state::AppState;
 use axum::{
     extract::{Path, Query, State},
@@ -27,6 +28,7 @@ async fn create_workspace_for(
     let Json(created) = create_workspace(
         State(state.clone()),
         Extension(claims.clone()),
+        Extension(ClientIp("127.0.0.1".to_string())),
         Json(CreateWorkspaceRequest {
             name: name.to_string(),
             description: description.map(|d| d.to_string()),

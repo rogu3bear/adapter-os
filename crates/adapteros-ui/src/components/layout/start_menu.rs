@@ -1,7 +1,7 @@
 //! StartMenu - Workflow-based navigation
 //!
 //! Navigation structure follows the workflow spine:
-//! Dashboard (pinned) → Data → Train → Deploy → Route → Infer → Observe → Govern → Org
+//! Dashboard (pinned) → Infer → Data → Train → Deploy → Route → Observe → Govern → Org
 //!
 //! Each group shows Alt+N shortcut hint and can be expanded/collapsed.
 
@@ -31,7 +31,7 @@ pub fn StartMenu(on_close: impl Fn() + Clone + Send + Sync + 'static) -> impl In
         }
     });
 
-    // Track which modules are expanded (Tools starts collapsed)
+    // Track which modules are expanded from nav registry defaults
     let expanded_modules = RwSignal::new(Vec::new());
     Effect::new(move || {
         let Some(mods) = modules.try_get() else {
@@ -72,6 +72,21 @@ pub fn StartMenu(on_close: impl Fn() + Clone + Send + Sync + 'static) -> impl In
                 tabindex="0"
                 on:keydown=on_escape
             >
+                // Focus trap: start sentinel
+                <div
+                    tabindex="0"
+                    style="position:absolute;width:1px;height:1px;overflow:hidden;clip:rect(0,0,0,0)"
+                    aria-hidden="true"
+                    on:focus={
+                        let menu = menu_ref;
+                        move |_| {
+                            // Shift+Tab from first element wraps to menu container
+                            if let Some(el) = menu.get() {
+                                let _ = el.focus();
+                            }
+                        }
+                    }
+                />
                 // Header
                 <div class="p-4 border-b border-border">
                     <h2 class="heading-4">"adapterOS"</h2>
@@ -137,6 +152,21 @@ pub fn StartMenu(on_close: impl Fn() + Clone + Send + Sync + 'static) -> impl In
                             .collect::<Vec<_>>()
                     }}
                 </div>
+                // Focus trap: end sentinel
+                <div
+                    tabindex="0"
+                    style="position:absolute;width:1px;height:1px;overflow:hidden;clip:rect(0,0,0,0)"
+                    aria-hidden="true"
+                    on:focus={
+                        let menu = menu_ref;
+                        move |_| {
+                            // Tab past last element wraps to menu container
+                            if let Some(el) = menu.get() {
+                                let _ = el.focus();
+                            }
+                        }
+                    }
+                />
             </div>
         </div>
     }
@@ -176,6 +206,7 @@ fn ModuleSection(
             <button
                 class="w-full flex items-center gap-2 px-3 py-2 rounded-md hover:bg-muted/50 transition-colors"
                 on:click=toggle
+                attr:aria-expanded=move || if is_expanded() { "true" } else { "false" }
             >
                 <svg
                     class="w-4 h-4 text-primary shrink-0"

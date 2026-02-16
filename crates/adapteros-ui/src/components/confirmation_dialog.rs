@@ -297,6 +297,7 @@ pub fn ConfirmationDialog(
                                     </label>
                                     <input
                                         type="text"
+                                        id="confirm-dialog-input"
                                         class="input"
                                         placeholder=format!("Type {} to confirm", confirm_phrase)
                                         prop:value=move || typed_input.try_get().unwrap_or_default()

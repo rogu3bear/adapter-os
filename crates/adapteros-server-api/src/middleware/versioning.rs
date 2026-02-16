@@ -381,10 +381,12 @@ impl DeprecationInfo {
 
 /// Check if endpoint is deprecated based on path and version
 pub fn check_deprecation(path: &str, _version: ApiVersion) -> Option<DeprecationInfo> {
-    // Example: /v1/repositories is deprecated, use /v1/code/repositories instead
-    if path == "/v1/repositories" {
+    // Repository surface consolidation:
+    // /v1/code/repositories is canonical.
+    // /v1/repositories and /v1/repos* emit migration guidance.
+    if path == "/v1/repositories" || path.starts_with("/v1/repos") {
         return Some(
-            DeprecationInfo::new("2025-01-01T00:00:00Z", Some("2025-07-01T00:00:00Z"))
+            DeprecationInfo::new("2025-01-01T00:00:00Z", Some("2026-12-31T00:00:00Z"))
                 .with_replacement("/v1/code/repositories")
                 .with_migration_url("https://docs.adapteros.com/api/migrations/repositories"),
         );
@@ -589,6 +591,12 @@ mod tests {
         let info = deprecation.unwrap();
         assert_eq!(info.replacement.as_deref(), Some("/v1/code/repositories"));
 
+        // Deprecated family
+        let deprecation = check_deprecation("/v1/repos/repo-123", ApiVersion::V1);
+        assert!(deprecation.is_some());
+        let info = deprecation.unwrap();
+        assert_eq!(info.replacement.as_deref(), Some("/v1/code/repositories"));
+
         // Non-deprecated endpoint
         assert!(check_deprecation("/v1/adapters", ApiVersion::V1).is_none());
     }
@@ -686,6 +694,44 @@ mod tests {
                 .get("X-API-Version")
                 .map(|v| v.to_str().unwrap()),
             Some("v1")
+        );
+    }
+
+    #[tokio::test]
+    async fn deprecated_repo_family_emits_migration_headers() {
+        use axum::{body::Body, http::Request, response::Response, routing::get, Router};
+        use tower::ServiceExt;
+
+        let app = Router::new()
+            .route(
+                "/v1/repos/{repo_id}",
+                get(|| async { Response::new(Body::empty()) }),
+            )
+            .layer(axum::middleware::from_fn(versioning_middleware));
+
+        let resp = app
+            .oneshot(
+                Request::builder()
+                    .uri("/v1/repos/repo-123")
+                    .body(Body::empty())
+                    .unwrap(),
+            )
+            .await
+            .unwrap();
+
+        let deprecation_header = resp
+            .headers()
+            .get("X-API-Deprecation")
+            .and_then(|v| v.to_str().ok())
+            .unwrap_or_default()
+            .to_string();
+        assert!(
+            deprecation_header.contains("replacement=\"/v1/code/repositories\""),
+            "deprecation header missing replacement: {deprecation_header}"
+        );
+        assert!(
+            resp.headers().get("Sunset").is_some(),
+            "expected Sunset header for deprecated /v1/repos family"
         );
     }
 

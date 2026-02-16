@@ -145,6 +145,56 @@ jobs:
   # Tier 2: Integration & Determinism (after Tier 1 passes)
   # ==========================================================================
 
+  playwright-concurrency-smoke:
+    name: "Tier 2: Playwright Concurrency Smoke (Advisory)"
+    needs: tier-1-gate
+    runs-on: ubuntu-latest
+    continue-on-error: true
+    timeout-minutes: 45
+    env:
+      PLAYWRIGHT_BROWSERS_PATH: ${{ github.workspace }}/var/playwright/browsers
+      PW_TEST_TMPDIR: ${{ github.workspace }}/var/playwright/tmp
+    steps:
+      - uses: actions/checkout@v4
+      - uses: dtolnay/rust-toolchain@stable
+      - uses: actions/setup-node@v4
+        with:
+          node-version: '20'
+      - name: Install Playwright dependencies
+        run: |
+          cd tests/playwright
+          npm ci
+      - name: Install Playwright browsers
+        run: |
+          cd tests/playwright
+          npx playwright install --with-deps chromium webkit
+      - name: Run advisory concurrency smoke
+        id: concurrency
+        run: |
+          cd tests/playwright
+          npm run test:ci:concurrency
+      - name: Summarize advisory result
+        if: always()
+        run: |
+          echo "## Playwright Concurrency Smoke (Advisory)" >> $GITHUB_STEP_SUMMARY
+          echo "" >> $GITHUB_STEP_SUMMARY
+          echo "- Step outcome: \`${{ steps.concurrency.outcome }}\`" >> $GITHUB_STEP_SUMMARY
+          echo "- This check is advisory and non-blocking." >> $GITHUB_STEP_SUMMARY
+      - name: Upload concurrency-a artifacts
+        if: always()
+        uses: actions/upload-artifact@v4
+        with:
+          name: playwright-concurrency-a
+          path: var/playwright/runs/ci-concurrency-a/
+          if-no-files-found: ignore
+      - name: Upload concurrency-b artifacts
+        if: always()
+        uses: actions/upload-artifact@v4
+        with:
+          name: playwright-concurrency-b
+          path: var/playwright/runs/ci-concurrency-b/
+          if-no-files-found: ignore
+
   extended-tenant-isolation-tests:
     name: "Tier 2: Extended Tenant Isolation Tests"
     needs: tier-1-gate
@@ -676,6 +726,8 @@ jobs:
       - uses: dtolnay/rust-toolchain@stable
       - name: Check OpenAPI spec drift (utoipa version + spec content)
         run: ./scripts/ci/check_openapi_drift.sh
+      - name: Check worker contract drift
+        run: ./scripts/ci/check_worker_contract_drift.sh
       - name: Verify OpenAPI spec quality
         run: |
           if ! jq -e '.paths | length > 0' docs/api/openapi.json > /dev/null; then
