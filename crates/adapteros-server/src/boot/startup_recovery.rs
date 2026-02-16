@@ -58,28 +58,30 @@ pub async fn run_startup_recovery(db: &Db) -> Result<StartupRecoveryReport> {
     };
 
     // Recovery Task 1: Orphaned Training Jobs
-    match recover_orphaned_training_jobs(db).await {
-        Ok(job_report) => {
-            if job_report.recovered_count > 0 {
-                report.had_recoveries = true;
-                // AUDIT: Log recovered jobs with structured fields for observability
-                warn!(
-                    target: "boot",
-                    recovered_count = job_report.recovered_count,
-                    job_ids = ?job_report.recovered_job_ids,
-                    threshold_secs = DEFAULT_ORPHANED_JOB_THRESHOLD.as_secs(),
-                    "Recovered orphaned training jobs - transitioned to interrupted state"
-                );
-            } else {
-                info!(target: "boot", "No orphaned training jobs found");
-            }
-            report.training_jobs = Some(job_report);
-        }
-        Err(e) => {
-            // Log but don't fail boot - recovery is best-effort
-            error!(target: "boot", error = %e, "Failed to recover orphaned training jobs");
-        }
+    let job_report = recover_orphaned_training_jobs(db).await.map_err(|e| {
+        error!(
+            target: "boot",
+            error = %e,
+            duration_ms = start.elapsed().as_millis() as u64,
+            "Failed to recover orphaned training jobs; mandatory startup recovery phase failed"
+        );
+        e
+    })?;
+
+    if job_report.recovered_count > 0 {
+        report.had_recoveries = true;
+        // AUDIT: Log recovered jobs with structured fields for observability
+        warn!(
+            target: "boot",
+            recovered_count = job_report.recovered_count,
+            job_ids = ?job_report.recovered_job_ids,
+            threshold_secs = DEFAULT_ORPHANED_JOB_THRESHOLD.as_secs(),
+            "Recovered orphaned training jobs - transitioned to interrupted state"
+        );
+    } else {
+        info!(target: "boot", "No orphaned training jobs found");
     }
+    report.training_jobs = Some(job_report);
 
     report.duration_ms = start.elapsed().as_millis() as u64;
 

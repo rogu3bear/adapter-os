@@ -5,6 +5,7 @@ use crate::boot_state::BootState;
 use crate::middleware::require_any_role;
 use crate::runtime_mode::RuntimeMode;
 use crate::state::AppState;
+use crate::supervisor_client::SupervisorClient;
 use crate::uds_client::UdsClient;
 use adapteros_api_types::ErrorResponse;
 use adapteros_db::users::Role;
@@ -202,6 +203,8 @@ pub async fn safe_restart(
         ));
     };
 
+    enforce_safe_restart_supervisor_guard()?;
+
     // Mark maintenance and begin drain for restart
     boot_state.maintenance("safe-restart").await;
     boot_state.drain().await;
@@ -218,6 +221,36 @@ pub async fn safe_restart(
         "message": "Drain initiated; process will exit when safe; external supervisor should restart",
         "lifecycle": map_boot_state(&boot_state.current_state())
     })))
+}
+
+fn enforce_safe_restart_supervisor_guard() -> Result<(), (StatusCode, Json<ErrorResponse>)> {
+    let supervisor_configured = SupervisorClient::from_env().is_ok();
+    let allow_unsupervised = std::env::var("AOS_ALLOW_UNSUPERVISED_SAFE_RESTART")
+        .map(|v| matches!(v.to_ascii_lowercase().as_str(), "1" | "true" | "yes"))
+        .unwrap_or(false);
+
+    enforce_safe_restart_supervisor_guard_with_flags(supervisor_configured, allow_unsupervised)
+}
+
+fn enforce_safe_restart_supervisor_guard_with_flags(
+    supervisor_configured: bool,
+    allow_unsupervised: bool,
+) -> Result<(), (StatusCode, Json<ErrorResponse>)> {
+    if supervisor_configured || allow_unsupervised {
+        return Ok(());
+    }
+
+    Err((
+        StatusCode::SERVICE_UNAVAILABLE,
+        Json(
+            ErrorResponse::new("Supervisor not configured for safe restart".to_string())
+                .with_code("SUPERVISOR_NOT_CONFIGURED")
+                .with_hint(
+                    "Set SUPERVISOR_API_URL or AOS_PANEL_PORT, or set \
+AOS_ALLOW_UNSUPERVISED_SAFE_RESTART=1 for manual restart workflows.",
+                ),
+        ),
+    ))
 }
 
 fn map_boot_state(state: &BootState) -> String {
@@ -386,6 +419,24 @@ mod tests {
         assert_eq!(map_boot_state(&BootState::Draining), "draining");
         assert_eq!(map_boot_state(&BootState::Ready), "ready");
         assert_eq!(map_boot_state(&BootState::Stopped), "stopped");
+    }
+
+    #[test]
+    fn safe_restart_guard_rejects_when_supervisor_missing_and_no_override() {
+        let err = enforce_safe_restart_supervisor_guard_with_flags(false, false)
+            .expect_err("should require supervisor or explicit override");
+        assert_eq!(err.0, StatusCode::SERVICE_UNAVAILABLE);
+        assert_eq!(err.1 .0.code, "SUPERVISOR_NOT_CONFIGURED");
+    }
+
+    #[test]
+    fn safe_restart_guard_allows_when_supervisor_is_configured() {
+        assert!(enforce_safe_restart_supervisor_guard_with_flags(true, false).is_ok());
+    }
+
+    #[test]
+    fn safe_restart_guard_allows_override_without_supervisor() {
+        assert!(enforce_safe_restart_supervisor_guard_with_flags(false, true).is_ok());
     }
 
     #[test]

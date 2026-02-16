@@ -1187,9 +1187,8 @@ async fn validate_policy_gate(_state: &AppState, run_id: &str) -> AosResult<serd
         }
     }
 
-    // Return honest results
     let policies_checked = passed + failed_policies.len();
-    Ok(serde_json::json!({
+    let summary = serde_json::json!({
         "policies_checked": policies_checked,
         "policies_passed": passed,
         "policies_failed": failed_policies.len(),
@@ -1200,7 +1199,31 @@ async fn validate_policy_gate(_state: &AppState, run_id: &str) -> AosResult<serd
         } else {
             "Policy validation passed (some checks deferred to runtime)"
         }
-    }))
+    });
+
+    if summary
+        .get("policies_failed")
+        .and_then(|v| v.as_u64())
+        .unwrap_or(0)
+        > 0
+    {
+        return Err(AosError::Validation(format!(
+            "Policy validation failed: {}",
+            summary
+                .get("failed_details")
+                .and_then(|v| v.as_array())
+                .map(|items| {
+                    items
+                        .iter()
+                        .filter_map(|v| v.as_str())
+                        .collect::<Vec<_>>()
+                        .join("; ")
+                })
+                .unwrap_or_else(|| "unknown failures".to_string())
+        )));
+    }
+
+    Ok(summary)
 }
 
 /// Validate determinism gate

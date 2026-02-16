@@ -9,38 +9,29 @@
 #![allow(clippy::cloned_ref_to_slice_refs)]
 
 use adapteros_core::Result;
+use std::sync::atomic::{AtomicBool, Ordering};
 use tracing::info;
+
+static DETERMINISM_GUARDS_ENABLED: AtomicBool = AtomicBool::new(false);
 
 /// Initialize determinism guards for the worker
 pub fn init_determinism_guards() -> Result<()> {
-    // Initialize strict mode from environment variables
-    // strict_mode::init_strict_mode();  // Temporarily disabled due to dependency issues
-
-    // Initialize runtime guards
-    // let guard_config = runtime_guards::GuardConfig {
-    //     enabled: true,
-    //     strict_mode: strict_mode::is_strict_mode(),
-    //     max_violations: if strict_mode::is_strict_mode() { 1 } else { 10 },
-    //     log_violations: true,
-    // };
-
-    // runtime_guards::init_guards(guard_config);
-
-    info!("Determinism guards initialization temporarily disabled due to dependency issues");
+    // Guard hooks are active by default. Strict-mode enforcement lives in request/router
+    // validation paths and violation counts are tracked by adapteros_core telemetry.
+    DETERMINISM_GUARDS_ENABLED.store(true, Ordering::Release);
+    info!("Determinism guards initialized");
 
     Ok(())
 }
 
 /// Check if determinism guards are enabled
 pub fn determinism_guards_enabled() -> bool {
-    // runtime_guards::guards_enabled()  // Temporarily disabled due to dependency issues
-    false
+    DETERMINISM_GUARDS_ENABLED.load(Ordering::Acquire)
 }
 
 /// Get current violation count
 pub fn determinism_violation_count() -> u64 {
-    // runtime_guards::violation_count()  // Temporarily disabled due to dependency issues
-    0
+    adapteros_core::telemetry::determinism_violation_count()
 }
 
 #[cfg(test)]

@@ -1,5 +1,6 @@
 #![cfg(feature = "worker-gate")]
 
+use adapteros_core::tokenizer_config::SpecialTokenMap;
 use serde::Serialize;
 use serde_json::{json, Map, Value};
 use std::fs::{self, File};
@@ -251,7 +252,6 @@ fn run_worker_gate() -> Result<WorkerGateRun, String> {
     let report_dir = root.join("target/worker-gate");
     let telemetry_dir = report_dir.join("telemetry");
     let worker_log_path = report_dir.join("worker.log");
-    let cp_log_path = report_dir.join("cp_stub.log");
     let socket_path = root.join("var/run/worker.sock");
 
     fs::create_dir_all(&report_dir).map_err(|e| e.to_string())?;
@@ -264,8 +264,8 @@ fn run_worker_gate() -> Result<WorkerGateRun, String> {
     }
     let _ = fs::remove_file(&socket_path);
 
-    let manifest_path = resolve_manifest_path(&report_dir)?;
     let (model_path, tokenizer_path) = resolve_model_paths(&report_dir)?;
+    let manifest_path = resolve_manifest_path(&report_dir, &tokenizer_path)?;
 
     if !manifest_path.exists() {
         return Err(format!(
@@ -288,7 +288,6 @@ fn run_worker_gate() -> Result<WorkerGateRun, String> {
 
     build_binaries(&root)?;
 
-    let mut cp_stub = spawn_cp_stub(&root, &cp_log_path)?;
     let mut worker = match spawn_worker(
         &root,
         &worker_log_path,
@@ -299,10 +298,7 @@ fn run_worker_gate() -> Result<WorkerGateRun, String> {
         &telemetry_dir,
     ) {
         Ok(worker) => worker,
-        Err(err) => {
-            let _ = stop_process(&mut cp_stub);
-            return Err(err);
-        }
+        Err(err) => return Err(err),
     };
 
     let mut startup_error: Option<String> = None;
@@ -331,8 +327,6 @@ fn run_worker_gate() -> Result<WorkerGateRun, String> {
             shutdown_error = Some(err);
         }
     }
-
-    let _ = stop_process(&mut cp_stub);
 
     let telemetry_bytes = dir_size(&telemetry_dir)?;
     let panic_detected = scan_for_panic(&worker_log_path)?;
@@ -388,6 +382,8 @@ fn write_report(report: &GateReport) -> Result<PathBuf, String> {
 fn build_binaries(root: &Path) -> Result<(), String> {
     let status = Command::new("cargo")
         .current_dir(root)
+        .env("CARGO_TERM_PROGRESS_WHEN", "never")
+        .env("CARGO_TERM_PROGRESS_WIDTH", "80")
         .arg("build")
         .arg("-p")
         .arg("adapteros-cli")
@@ -399,18 +395,6 @@ fn build_binaries(root: &Path) -> Result<(), String> {
         return Err(format!("cargo build failed with status {}", status));
     }
     Ok(())
-}
-
-fn spawn_cp_stub(root: &Path, log_path: &Path) -> Result<Child, String> {
-    let log = File::create(log_path).map_err(|e| e.to_string())?;
-    let log_err = log.try_clone().map_err(|e| e.to_string())?;
-    Command::new("python3")
-        .current_dir(root)
-        .arg(root.join("var/cp_stub.py"))
-        .stdout(Stdio::from(log))
-        .stderr(Stdio::from(log_err))
-        .spawn()
-        .map_err(|e| format!("failed to start CP stub: {}", e))
 }
 
 fn spawn_worker(
@@ -439,6 +423,7 @@ fn spawn_worker(
         .arg("--backend")
         .arg("mock")
         .env("AOS_CP_URL", "http://127.0.0.1:9090")
+        .env("AOS_WORKER_DISABLE_CP_REGISTRATION", "1")
         .env("AOS_MODEL_PATH", model_path)
         .env("AOS_TOKENIZER_PATH", tokenizer_path)
         .env("AOS_MODEL_CACHE_MAX_MB", "512")
@@ -513,21 +498,6 @@ fn shutdown_worker(worker: &mut Child) -> Result<ExitStatus, String> {
 
     send_sigint(worker.id())?;
     wait_for_exit(worker, SHUTDOWN_TIMEOUT)
-}
-
-fn stop_process(child: &mut Child) -> Result<(), String> {
-    if child
-        .try_wait()
-        .map_err(|e| format!("process wait failed: {}", e))?
-        .is_some()
-    {
-        return Ok(());
-    }
-
-    child
-        .kill()
-        .map_err(|e| format!("failed to kill process: {}", e))?;
-    Ok(())
 }
 
 fn send_sigint(pid: u32) -> Result<(), String> {
@@ -647,13 +617,22 @@ fn find_telemetry_event(telemetry_dir: &Path, event_type: &str) -> Result<Option
     Ok(None)
 }
 
-fn resolve_manifest_path(report_dir: &Path) -> Result<PathBuf, String> {
+fn resolve_manifest_path(report_dir: &Path, tokenizer_path: &Path) -> Result<PathBuf, String> {
     if let Ok(value) = std::env::var("AOS_WORKER_GATE_MANIFEST") {
         return Ok(PathBuf::from(value));
     }
 
+    let tokenizer_meta =
+        SpecialTokenMap::validate_tokenizer(tokenizer_path, Some(DEFAULT_VOCAB_SIZE)).map_err(
+            |e| {
+                format!(
+                    "failed to validate tokenizer for worker gate manifest: {}",
+                    e
+                )
+            },
+        )?;
     let path = report_dir.join("manifest.json");
-    write_json(&path, &gate_manifest_json())?;
+    write_json(&path, &gate_manifest_json(&tokenizer_meta.hash.to_hex()))?;
     Ok(path)
 }
 
@@ -681,7 +660,7 @@ fn resolve_model_paths(report_dir: &Path) -> Result<(PathBuf, PathBuf), String> 
     Ok((model_dir, tokenizer_path))
 }
 
-fn gate_manifest_json() -> Value {
+fn gate_manifest_json(tokenizer_hash_hex: &str) -> Value {
     json!({
         "schema": "adapteros.manifest.v3",
         "base": {
@@ -693,7 +672,7 @@ fn gate_manifest_json() -> Value {
             "n_layers": DEFAULT_NUM_LAYERS,
             "n_heads": DEFAULT_NUM_HEADS,
             "config_hash": "0000000000000000000000000000000000000000000000000000000000000000",
-            "tokenizer_hash": "0000000000000000000000000000000000000000000000000000000000000000",
+            "tokenizer_hash": tokenizer_hash_hex,
             "tokenizer_cfg_hash": "0000000000000000000000000000000000000000000000000000000000000000",
             "license_hash": null,
             "rope_scaling_override": null
@@ -788,9 +767,9 @@ fn gate_manifest_json() -> Value {
                 "cas_only": false
             },
             "drift": {
-                "os_build_tolerance": 999,
-                "gpu_driver_tolerance": 999,
-                "env_hash_tolerance": 999,
+                "os_build_tolerance": 255,
+                "gpu_driver_tolerance": 255,
+                "env_hash_tolerance": 255,
                 "allow_warnings": true,
                 "block_on_critical": false
             }
@@ -824,7 +803,9 @@ fn gate_tokenizer_json(vocab_size: usize) -> Result<Value, String> {
 
     let mut vocab = Map::new();
     vocab.insert("<unk>".to_string(), json!(0));
-    for idx in 1..vocab_size {
+    // Include a canonical EOS token expected by worker startup validation.
+    vocab.insert("</s>".to_string(), json!(1));
+    for idx in 2..vocab_size {
         vocab.insert(format!("tok{}", idx), json!(idx));
     }
 

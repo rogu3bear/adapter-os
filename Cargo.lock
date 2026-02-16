@@ -1861,6 +1861,7 @@ name = "adapteros-server-api-inference"
 version = "0.2.0"
 dependencies = [
  "adapteros-api-types",
+ "adapteros-server-api",
  "adapteros-types",
  "axum 0.8.8",
  "chrono",

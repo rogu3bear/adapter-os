@@ -23,12 +23,15 @@ use tracing::{debug, warn};
 use adapteros_metrics_exporter::MetricsCollector;
 
 #[cfg(feature = "redis")]
-use redis::{AsyncCommands, Client as RedisClient};
+use redis::{AsyncCommands, Client as RedisClient, Script};
+#[cfg(feature = "redis")]
+use serde::{Deserialize, Serialize};
 
 type OperationMap = Arc<RwLock<HashMap<(String, String), OngoingOperation>>>;
 
 /// Type of model operation
 #[derive(Debug, Clone, Copy, PartialEq, Eq, Hash)]
+#[cfg_attr(feature = "redis", derive(Serialize, Deserialize))]
 pub enum ModelOperationType {
     Load,
     Unload,
@@ -36,6 +39,7 @@ pub enum ModelOperationType {
 
 /// Type of adapter operation
 #[derive(Debug, Clone, Copy, PartialEq, Eq, Hash)]
+#[cfg_attr(feature = "redis", derive(Serialize, Deserialize))]
 pub enum AdapterOperationType {
     Load,
     Unload,
@@ -54,9 +58,20 @@ pub struct OngoingOperation {
 
 /// Type of operation (model or adapter)
 #[derive(Debug, Clone, Copy, PartialEq, Eq, Hash)]
+#[cfg_attr(feature = "redis", derive(Serialize, Deserialize))]
 pub enum OperationType {
     Model(ModelOperationType),
     Adapter(AdapterOperationType),
+}
+
+#[cfg(feature = "redis")]
+#[derive(Debug, Clone, Serialize, Deserialize)]
+struct RedisOperationRecord {
+    operation_type: OperationType,
+    tenant_id: String,
+    progress_pct: f64,
+    started_at_ms: i64,
+    last_progress_update_ms: i64,
 }
 
 /// Storage backend for operation tracking
@@ -77,6 +92,7 @@ pub enum OperationStorage {
 #[derive(Debug)]
 pub struct OperationTracker {
     storage: OperationStorage,
+    local_operations: OperationMap,
     default_timeout: Duration,
     #[cfg(feature = "metrics")]
     metrics: Option<Arc<MetricsCollector>>,
@@ -87,8 +103,10 @@ pub struct OperationTracker {
 impl OperationTracker {
     /// Create a new in-memory operation tracker
     pub fn new(default_timeout: Duration) -> Self {
+        let operations = Arc::new(RwLock::new(HashMap::new()));
         Self {
-            storage: OperationStorage::InMemory(Arc::new(RwLock::new(HashMap::new()))),
+            storage: OperationStorage::InMemory(operations.clone()),
+            local_operations: operations,
             default_timeout,
             #[cfg(feature = "metrics")]
             metrics: None,
@@ -101,8 +119,10 @@ impl OperationTracker {
         default_timeout: Duration,
         progress_tx: broadcast::Sender<OperationProgressEvent>,
     ) -> Self {
+        let operations = Arc::new(RwLock::new(HashMap::new()));
         Self {
-            storage: OperationStorage::InMemory(Arc::new(RwLock::new(HashMap::new()))),
+            storage: OperationStorage::InMemory(operations.clone()),
+            local_operations: operations,
             default_timeout,
             #[cfg(feature = "metrics")]
             metrics: None,
@@ -113,10 +133,13 @@ impl OperationTracker {
     /// Create a new in-memory operation tracker with metrics
     #[cfg(feature = "metrics")]
     pub fn new_with_metrics(default_timeout: Duration, metrics: Arc<MetricsCollector>) -> Self {
+        let operations = Arc::new(RwLock::new(HashMap::new()));
         Self {
-            storage: OperationStorage::InMemory(Arc::new(RwLock::new(HashMap::new()))),
+            storage: OperationStorage::InMemory(operations.clone()),
+            local_operations: operations,
             default_timeout,
             metrics: Some(metrics),
+            progress_tx: None,
         }
     }
 
@@ -133,38 +156,275 @@ impl OperationTracker {
         default_timeout: Duration,
     ) -> Result<Self, redis::RedisError> {
         let client = RedisClient::open(redis_url)?;
+        let local_operations = Arc::new(RwLock::new(HashMap::new()));
         Ok(Self {
             storage: OperationStorage::Redis {
                 client,
                 key_prefix: key_prefix.to_string(),
                 fallback_to_memory: false,
             },
+            local_operations,
             default_timeout,
+            #[cfg(feature = "metrics")]
+            metrics: None,
+            progress_tx: None,
         })
     }
 
     /// Get a reference to the in-memory operations HashMap for read access
     fn get_operations_read(&self) -> Result<OperationMap, AosError> {
-        match &self.storage {
-            OperationStorage::InMemory(ops) => Ok(ops.clone()),
-            #[cfg(feature = "redis")]
-            OperationStorage::Redis { .. } => {
-                // Redis implementation not yet complete
-                Err(AosError::Config("Redis storage not yet implemented".into()))
-            }
-        }
+        Ok(self.local_operations.clone())
     }
 
     /// Get a reference to the in-memory operations HashMap for write access
     fn get_operations_write(&self) -> Result<OperationMap, AosError> {
+        Ok(self.local_operations.clone())
+    }
+
+    #[cfg(feature = "redis")]
+    fn redis_ttl_secs(&self) -> u64 {
+        self.default_timeout.as_secs().max(1)
+    }
+
+    #[cfg(feature = "redis")]
+    fn elapsed_ms_from_epoch(started_at_ms: i64) -> u64 {
+        let now_ms = Utc::now().timestamp_millis();
+        now_ms.saturating_sub(started_at_ms).max(0) as u64
+    }
+
+    #[cfg(feature = "redis")]
+    fn redis_record_to_ongoing(record: RedisOperationRecord) -> OngoingOperation {
+        let now_instant = Instant::now();
+        let started_at = now_instant
+            .checked_sub(Duration::from_millis(Self::elapsed_ms_from_epoch(
+                record.started_at_ms,
+            )))
+            .unwrap_or(now_instant);
+        let last_progress_update = now_instant
+            .checked_sub(Duration::from_millis(Self::elapsed_ms_from_epoch(
+                record.last_progress_update_ms,
+            )))
+            .unwrap_or(now_instant);
+
+        OngoingOperation {
+            operation_type: record.operation_type,
+            started_at,
+            tenant_id: record.tenant_id,
+            progress_pct: record.progress_pct.clamp(0.0, 100.0),
+            last_progress_update,
+            cancellation_token: Arc::new(CancellationToken::new()),
+        }
+    }
+
+    #[cfg(feature = "redis")]
+    fn redis_operation_key(&self, resource_id: &str, tenant_id: &str) -> Result<String, AosError> {
         match &self.storage {
-            OperationStorage::InMemory(ops) => Ok(ops.clone()),
-            #[cfg(feature = "redis")]
-            OperationStorage::Redis { .. } => {
-                // Redis implementation not yet complete
-                Err(AosError::Config("Redis storage not yet implemented".into()))
+            OperationStorage::Redis { key_prefix, .. } => Ok(format!(
+                "{}:operations:{}:{}",
+                key_prefix, tenant_id, resource_id
+            )),
+            _ => Err(AosError::Config(
+                "Redis operation tracking is not configured".to_string(),
+            )),
+        }
+    }
+
+    #[cfg(feature = "redis")]
+    fn redis_operation_scan_pattern(&self) -> Result<String, AosError> {
+        match &self.storage {
+            OperationStorage::Redis { key_prefix, .. } => {
+                Ok(format!("{}:operations:*", key_prefix))
+            }
+            _ => Err(AosError::Config(
+                "Redis operation tracking is not configured".to_string(),
+            )),
+        }
+    }
+
+    #[cfg(feature = "redis")]
+    fn map_redis_error(error: redis::RedisError) -> AosError {
+        AosError::Network(format!("Operation tracker Redis error: {error}"))
+    }
+
+    #[cfg(feature = "redis")]
+    async fn redis_connection(&self) -> Result<redis::aio::MultiplexedConnection, AosError> {
+        match &self.storage {
+            OperationStorage::Redis { client, .. } => client
+                .get_multiplexed_async_connection()
+                .await
+                .map_err(Self::map_redis_error),
+            _ => Err(AosError::Config(
+                "Redis operation tracking is not configured".to_string(),
+            )),
+        }
+    }
+
+    #[cfg(feature = "redis")]
+    fn parse_redis_record(raw: &str) -> Result<RedisOperationRecord, AosError> {
+        serde_json::from_str(raw).map_err(Into::into)
+    }
+
+    #[cfg(feature = "redis")]
+    async fn start_operation_redis(
+        &self,
+        resource_id: &str,
+        tenant_id: &str,
+        operation_type: OperationType,
+    ) -> Result<(), AosError> {
+        let key = self.redis_operation_key(resource_id, tenant_id)?;
+        let now_ms = Utc::now().timestamp_millis();
+        let record = RedisOperationRecord {
+            operation_type,
+            tenant_id: tenant_id.to_string(),
+            progress_pct: 0.0,
+            started_at_ms: now_ms,
+            last_progress_update_ms: now_ms,
+        };
+        let payload = serde_json::to_string(&record)?;
+        let mut conn = self.redis_connection().await?;
+
+        let set_result: Option<String> = redis::cmd("SET")
+            .arg(&key)
+            .arg(payload)
+            .arg("NX")
+            .arg("EX")
+            .arg(self.redis_ttl_secs())
+            .query_async(&mut conn)
+            .await
+            .map_err(Self::map_redis_error)?;
+
+        if set_result.is_some() {
+            return Ok(());
+        }
+
+        let existing_record = match conn.get::<_, Option<String>>(&key).await {
+            Ok(Some(raw)) => Self::parse_redis_record(&raw).ok(),
+            Ok(None) => None,
+            Err(_) => None,
+        };
+        let remaining_ttl_secs = conn.ttl::<_, i64>(&key).await.unwrap_or_default().max(0) as u64;
+        let conflicting_operation = existing_record
+            .as_ref()
+            .map(|record| record.operation_type)
+            .unwrap_or(operation_type);
+        warn!(
+            resource_id = %resource_id,
+            tenant_id = %tenant_id,
+            conflicting_operation = ?conflicting_operation,
+            remaining_time_secs = %remaining_ttl_secs,
+            "Operation conflict detected"
+        );
+        Err(AosError::Validation(format!(
+            "Operation conflict: existing {:?} for resource {}, tenant {}",
+            conflicting_operation, resource_id, tenant_id
+        )))
+    }
+
+    #[cfg(feature = "redis")]
+    async fn update_progress_redis(
+        &self,
+        resource_id: &str,
+        tenant_id: &str,
+        progress_pct: f64,
+    ) -> Result<Option<RedisOperationRecord>, AosError> {
+        let key = self.redis_operation_key(resource_id, tenant_id)?;
+        let mut conn = self.redis_connection().await?;
+        let now_ms = Utc::now().timestamp_millis();
+        let script = Script::new(
+            r#"
+            local key = KEYS[1]
+            local payload = redis.call('GET', key)
+            if not payload then
+                return nil
+            end
+            local record = cjson.decode(payload)
+            record.progress_pct = tonumber(ARGV[1])
+            record.last_progress_update_ms = tonumber(ARGV[2])
+            local encoded = cjson.encode(record)
+            redis.call('SET', key, encoded, 'XX', 'KEEPTTL')
+            return encoded
+            "#,
+        );
+
+        let updated: Option<String> = script
+            .key(&key)
+            .arg(progress_pct.clamp(0.0, 100.0))
+            .arg(now_ms)
+            .invoke_async(&mut conn)
+            .await
+            .map_err(Self::map_redis_error)?;
+
+        match updated {
+            Some(raw) => Ok(Some(Self::parse_redis_record(&raw)?)),
+            None => Ok(None),
+        }
+    }
+
+    #[cfg(feature = "redis")]
+    async fn complete_operation_redis(
+        &self,
+        resource_id: &str,
+        tenant_id: &str,
+    ) -> Result<Option<RedisOperationRecord>, AosError> {
+        let key = self.redis_operation_key(resource_id, tenant_id)?;
+        let mut conn = self.redis_connection().await?;
+        let script = Script::new(
+            r#"
+            local key = KEYS[1]
+            local payload = redis.call('GET', key)
+            if payload then
+                redis.call('DEL', key)
+            end
+            return payload
+            "#,
+        );
+        let removed: Option<String> = script
+            .key(&key)
+            .invoke_async(&mut conn)
+            .await
+            .map_err(Self::map_redis_error)?;
+
+        match removed {
+            Some(raw) => Ok(Some(Self::parse_redis_record(&raw)?)),
+            None => Ok(None),
+        }
+    }
+
+    #[cfg(feature = "redis")]
+    async fn get_operation_status_redis(
+        &self,
+        resource_id: &str,
+        tenant_id: &str,
+    ) -> Result<Option<RedisOperationRecord>, AosError> {
+        let key = self.redis_operation_key(resource_id, tenant_id)?;
+        let mut conn = self.redis_connection().await?;
+        let payload: Option<String> = conn.get(&key).await.map_err(Self::map_redis_error)?;
+        match payload {
+            Some(raw) => Ok(Some(Self::parse_redis_record(&raw)?)),
+            None => Ok(None),
+        }
+    }
+
+    #[cfg(feature = "redis")]
+    async fn force_cleanup_redis(&self) -> Result<usize, AosError> {
+        let mut conn = self.redis_connection().await?;
+        let pattern = self.redis_operation_scan_pattern()?;
+        let mut keys = Vec::new();
+        {
+            let mut iter: redis::AsyncIter<String> = conn
+                .scan_match(pattern)
+                .await
+                .map_err(Self::map_redis_error)?;
+            while let Some(key) = iter.next_item().await {
+                keys.push(key);
             }
         }
+
+        if keys.is_empty() {
+            return Ok(0);
+        }
+
+        conn.del(keys).await.map_err(Self::map_redis_error)
     }
 
     /// Attempt to start a model operation, returns true if started successfully
@@ -201,28 +461,6 @@ impl OperationTracker {
         operation_type: OperationType,
     ) -> Result<(), AosError> {
         let key = (resource_id.to_string(), tenant_id.to_string());
-        let operations_lock = self.get_operations_write()?;
-        let mut operations = operations_lock.write().await;
-
-        // Clean up expired operations first
-        self.cleanup_expired(&mut operations);
-
-        // Check if operation already exists
-        if let Some(existing) = operations.get(&key) {
-            warn!(
-                resource_id = %resource_id,
-                tenant_id = %tenant_id,
-                conflicting_operation = ?existing.operation_type,
-                remaining_time_secs = %self.default_timeout.saturating_sub(existing.started_at.elapsed()).as_secs(),
-                "Operation conflict detected"
-            );
-            return Err(AosError::Validation(format!(
-                "Operation conflict: existing {:?} for resource {}, tenant {}",
-                existing.operation_type, resource_id, tenant_id
-            )));
-        }
-
-        // Start new operation
         let now = Instant::now();
         let operation = OngoingOperation {
             operation_type,
@@ -233,7 +471,41 @@ impl OperationTracker {
             cancellation_token: Arc::new(CancellationToken::new()),
         };
 
-        operations.insert(key.clone(), operation.clone());
+        match &self.storage {
+            OperationStorage::InMemory(_) => {
+                let operations_lock = self.get_operations_write()?;
+                let mut operations = operations_lock.write().await;
+
+                // Clean up expired operations first
+                self.cleanup_expired(&mut operations);
+
+                // Check if operation already exists
+                if let Some(existing) = operations.get(&key) {
+                    warn!(
+                        resource_id = %resource_id,
+                        tenant_id = %tenant_id,
+                        conflicting_operation = ?existing.operation_type,
+                        remaining_time_secs = %self.default_timeout.saturating_sub(existing.started_at.elapsed()).as_secs(),
+                        "Operation conflict detected"
+                    );
+                    return Err(AosError::Validation(format!(
+                        "Operation conflict: existing {:?} for resource {}, tenant {}",
+                        existing.operation_type, resource_id, tenant_id
+                    )));
+                }
+
+                operations.insert(key.clone(), operation.clone());
+            }
+            #[cfg(feature = "redis")]
+            OperationStorage::Redis { .. } => {
+                self.start_operation_redis(resource_id, tenant_id, operation_type)
+                    .await?;
+                let operations_lock = self.get_operations_write()?;
+                let mut operations = operations_lock.write().await;
+                self.cleanup_expired(&mut operations);
+                operations.insert(key.clone(), operation.clone());
+            }
+        }
 
         // Emit initial progress event
         if let Some(ref tx) = self.progress_tx {
@@ -311,39 +583,91 @@ impl OperationTracker {
         _message: Option<String>,
     ) {
         let key = (resource_id.to_string(), tenant_id.to_string());
-        let operations_lock = match self.get_operations_write() {
-            Ok(lock) => lock,
-            Err(e) => {
-                warn!(error = %e, "Failed to get operations lock for progress update");
-                return;
+        let clamped_progress = progress_pct.clamp(0.0, 100.0);
+        match &self.storage {
+            OperationStorage::InMemory(_) => {
+                let operations_lock = match self.get_operations_write() {
+                    Ok(lock) => lock,
+                    Err(e) => {
+                        warn!(error = %e, "Failed to get operations lock for progress update");
+                        return;
+                    }
+                };
+                let mut operations = operations_lock.write().await;
+
+                if let Some(op) = operations.get_mut(&key) {
+                    op.progress_pct = clamped_progress;
+                    op.last_progress_update = Instant::now();
+
+                    // Emit progress event
+                    if let Some(ref tx) = self.progress_tx {
+                        let elapsed = op.started_at.elapsed().as_secs_f64();
+                        let operation_type_str = match op.operation_type {
+                            OperationType::Model(ModelOperationType::Load) => "load",
+                            OperationType::Model(ModelOperationType::Unload) => "unload",
+                            OperationType::Adapter(AdapterOperationType::Load) => "load",
+                            OperationType::Adapter(AdapterOperationType::Unload) => "unload",
+                        };
+
+                        let _ = tx.send(OperationProgressEvent {
+                            operation_id: format!("{}:{}", resource_id, tenant_id),
+                            model_id: resource_id.to_string(),
+                            operation: operation_type_str.to_string(),
+                            status: "in_progress".to_string(),
+                            progress_percent: Some(op.progress_pct as u8),
+                            duration_ms: Some(elapsed as u64 * 1000),
+                            error_message: None,
+                            created_at: Utc::now(),
+                        });
+                    }
+                }
             }
-        };
-        let mut operations = operations_lock.write().await;
-
-        if let Some(op) = operations.get_mut(&key) {
-            op.progress_pct = progress_pct.clamp(0.0, 100.0);
-            op.last_progress_update = Instant::now();
-
-            // Emit progress event
-            if let Some(ref tx) = self.progress_tx {
-                let elapsed = op.started_at.elapsed().as_secs_f64();
-                let operation_type_str = match op.operation_type {
-                    OperationType::Model(ModelOperationType::Load) => "load",
-                    OperationType::Model(ModelOperationType::Unload) => "unload",
-                    OperationType::Adapter(AdapterOperationType::Load) => "load",
-                    OperationType::Adapter(AdapterOperationType::Unload) => "unload",
+            #[cfg(feature = "redis")]
+            OperationStorage::Redis { .. } => {
+                let redis_record = match self
+                    .update_progress_redis(resource_id, tenant_id, clamped_progress)
+                    .await
+                {
+                    Ok(record) => record,
+                    Err(e) => {
+                        warn!(error = %e, "Failed to update Redis operation progress");
+                        None
+                    }
                 };
 
-                let _ = tx.send(OperationProgressEvent {
-                    operation_id: format!("{}:{}", resource_id, tenant_id),
-                    model_id: resource_id.to_string(),
-                    operation: operation_type_str.to_string(),
-                    status: "in_progress".to_string(),
-                    progress_percent: Some(op.progress_pct as u8),
-                    duration_ms: Some(elapsed as u64 * 1000),
-                    error_message: None,
-                    created_at: Utc::now(),
-                });
+                let operations_lock = match self.get_operations_write() {
+                    Ok(lock) => lock,
+                    Err(e) => {
+                        warn!(error = %e, "Failed to get operations lock for progress update");
+                        return;
+                    }
+                };
+                let mut operations = operations_lock.write().await;
+                if let Some(op) = operations.get_mut(&key) {
+                    op.progress_pct = clamped_progress;
+                    op.last_progress_update = Instant::now();
+                }
+
+                if let (Some(tx), Some(record)) = (&self.progress_tx, redis_record) {
+                    let elapsed_ms = Self::elapsed_ms_from_epoch(record.started_at_ms);
+                    let operation_type_str = match record.operation_type {
+                        OperationType::Model(ModelOperationType::Load) => "load",
+                        OperationType::Model(ModelOperationType::Unload) => "unload",
+                        OperationType::Adapter(AdapterOperationType::Load) => "load",
+                        OperationType::Adapter(AdapterOperationType::Unload) => "unload",
+                    };
+
+                    let _ = tx.send(OperationProgressEvent {
+                        operation_id: format!("{}:{}", resource_id, tenant_id),
+                        model_id: resource_id.to_string(),
+                        operation: operation_type_str.to_string(),
+                        status: "in_progress".to_string(),
+                        progress_percent: Some(record.progress_pct.clamp(0.0, 100.0) as u8),
+                        duration_ms: Some(elapsed_ms),
+                        error_message: None,
+                        created_at: Utc::now(),
+                    });
+                }
             }
         }
     }
@@ -397,14 +721,50 @@ impl OperationTracker {
                 return;
             }
         };
-        let mut operations = operations_lock.write().await;
+        #[cfg(feature = "redis")]
+        let redis_completion: Option<(u64, OperationType)> = match &self.storage {
+            OperationStorage::InMemory(_) => None,
+            OperationStorage::Redis { .. } => {
+                match self.complete_operation_redis(resource_id, tenant_id).await {
+                    Ok(Some(record)) => Some((
+                        Self::elapsed_ms_from_epoch(record.started_at_ms),
+                        record.operation_type,
+                    )),
+                    Ok(None) => None,
+                    Err(e) => {
+                        warn!(error = %e, "Failed to complete operation in Redis");
+                        None
+                    }
+                }
+            }
+        };
+        #[cfg(not(feature = "redis"))]
+        let redis_completion: Option<(u64, OperationType)> = None;
 
-        if let Some(op) = operations.remove(&key) {
-            let duration_ms = op.started_at.elapsed().as_millis() as f64;
+        let mut operations = operations_lock.write().await;
+        let local_op = operations.remove(&key);
+        drop(operations);
+
+        if local_op.is_some() || redis_completion.is_some() {
+            let duration_ms = local_op
+                .as_ref()
+                .map(|op| op.started_at.elapsed().as_millis() as f64)
+                .unwrap_or_else(|| {
+                    redis_completion
+                        .map(|(elapsed_ms, _)| elapsed_ms as f64)
+                        .unwrap_or(0.0)
+                });
 
             // Emit completion event
             if let Some(ref tx) = self.progress_tx {
-                let elapsed = op.started_at.elapsed().as_secs_f64();
+                let elapsed_ms = local_op
+                    .as_ref()
+                    .map(|op| op.started_at.elapsed().as_millis() as u64)
+                    .unwrap_or_else(|| {
+                        redis_completion
+                            .map(|(elapsed_ms, _)| elapsed_ms)
+                            .unwrap_or(0)
+                    });
                 let (operation_type_str, resource_type) = match operation_type {
                     OperationType::Model(ModelOperationType::Load) => ("load", "model"),
                     OperationType::Model(ModelOperationType::Unload) => ("unload", "model"),
@@ -422,7 +782,7 @@ impl OperationTracker {
                         "failed".to_string()
                     },
                     progress_percent: Some(100),
-                    duration_ms: Some(elapsed as u64 * 1000),
+                    duration_ms: Some(elapsed_ms),
                     error_message: if success {
                         None
                     } else {
@@ -580,11 +940,31 @@ impl OperationTracker {
         resource_id: &str,
         tenant_id: &str,
     ) -> Option<OngoingOperation> {
+        let key = (resource_id.to_string(), tenant_id.to_string());
         let operations_lock = self.get_operations_read().ok()?;
         let operations = operations_lock.read().await;
-        let key = (resource_id.to_string(), tenant_id.to_string());
+        if let Some(operation) = operations.get(&key) {
+            return Some(operation.clone());
+        }
+        drop(operations);
 
-        operations.get(&key).cloned()
+        match &self.storage {
+            OperationStorage::InMemory(_) => None,
+            #[cfg(feature = "redis")]
+            OperationStorage::Redis { .. } => {
+                match self
+                    .get_operation_status_redis(resource_id, tenant_id)
+                    .await
+                {
+                    Ok(Some(record)) => Some(Self::redis_record_to_ongoing(record)),
+                    Ok(None) => None,
+                    Err(e) => {
+                        warn!(error = %e, "Failed to query Redis operation status");
+                        None
+                    }
+                }
+            }
+        }
     }
 
     /// Get all ongoing operations (for monitoring/debugging)
@@ -621,6 +1001,18 @@ impl OperationTracker {
 
     /// Force cleanup of all operations (for testing/emergency use)
     pub async fn force_cleanup(&self) {
+        #[cfg(feature = "redis")]
+        let mut redis_count = 0usize;
+        #[cfg(feature = "redis")]
+        if matches!(self.storage, OperationStorage::Redis { .. }) {
+            match self.force_cleanup_redis().await {
+                Ok(count) => redis_count = count,
+                Err(e) => {
+                    warn!(error = %e, "Failed to force cleanup Redis operations");
+                }
+            }
+        }
+
         let operations_lock = match self.get_operations_write() {
             Ok(lock) => lock,
             Err(e) => {
@@ -631,6 +1023,12 @@ impl OperationTracker {
         let mut operations = operations_lock.write().await;
         let count = operations.len();
         operations.clear();
+        #[cfg(feature = "redis")]
+        warn!(
+            "Force cleaned up {} local operations and {} Redis operations",
+            count, redis_count
+        );
+        #[cfg(not(feature = "redis"))]
         warn!("Force cleaned up {} operations", count);
     }
 
@@ -691,7 +1089,7 @@ impl OperationTracker {
         let operations = operations_lock.read().await;
         let key = (resource_id.to_string(), tenant_id.to_string());
 
-        operations.get(&key).map(|op| {
+        if let Some(op) = operations.get(&key) {
             let elapsed = op.started_at.elapsed().as_secs_f64();
             let operation_type_str = match op.operation_type {
                 OperationType::Model(ModelOperationType::Load) => "load",
@@ -700,7 +1098,7 @@ impl OperationTracker {
                 OperationType::Adapter(AdapterOperationType::Unload) => "unload",
             };
 
-            OperationProgressEvent {
+            return Some(OperationProgressEvent {
                 operation_id: format!("{}:{}", resource_id, tenant_id),
                 model_id: resource_id.to_string(),
                 operation: operation_type_str.to_string(),
@@ -709,8 +1107,44 @@ impl OperationTracker {
                 duration_ms: Some(elapsed as u64 * 1000),
                 error_message: None,
                 created_at: Utc::now(),
-            }
-        })
+            });
+        }
+        drop(operations);
+
+        match &self.storage {
+            OperationStorage::InMemory(_) => None,
+            #[cfg(feature = "redis")]
+            OperationStorage::Redis { .. } => match self
+                .get_operation_status_redis(resource_id, tenant_id)
+                .await
+            {
+                Ok(Some(record)) => {
+                    let elapsed_ms = Self::elapsed_ms_from_epoch(record.started_at_ms);
+                    let operation_type_str = match record.operation_type {
+                        OperationType::Model(ModelOperationType::Load) => "load",
+                        OperationType::Model(ModelOperationType::Unload) => "unload",
+                        OperationType::Adapter(AdapterOperationType::Load) => "load",
+                        OperationType::Adapter(AdapterOperationType::Unload) => "unload",
+                    };
+
+                    Some(OperationProgressEvent {
+                        operation_id: format!("{}:{}", resource_id, tenant_id),
+                        model_id: resource_id.to_string(),
+                        operation: operation_type_str.to_string(),
+                        status: "in_progress".to_string(),
+                        progress_percent: Some(record.progress_pct.clamp(0.0, 100.0) as u8),
+                        duration_ms: Some(elapsed_ms),
+                        error_message: None,
+                        created_at: Utc::now(),
+                    })
+                }
+                Ok(None) => None,
+                Err(e) => {
+                    warn!(error = %e, "Failed to query Redis operation status");
+                    None
+                }
+            },
+        }
     }
 }
 

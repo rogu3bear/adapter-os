@@ -1318,7 +1318,7 @@ async fn embed_with_backoff(
         ("id" = String, Path, description = "Document ID to process")
     ),
     responses(
-        (status = 501, description = "Embeddings feature not enabled")
+        (status = 400, description = "Embeddings feature not enabled")
     ),
     tag = "documents"
 )]
@@ -1328,7 +1328,9 @@ pub async fn process_document(
     Path(_id): Path<String>,
 ) -> Result<impl IntoResponse, (StatusCode, Json<ErrorResponse>)> {
     Err::<(), _>(
-        ApiError::not_implemented(
+        ApiError::new(
+            StatusCode::BAD_REQUEST,
+            adapteros_core::error_codes::FEATURE_DISABLED,
             "Document processing requires the 'embeddings' feature to be enabled",
         )
         .into(),

@@ -229,6 +229,12 @@ pub async fn safe_restart<S: AdminAppState>(
         ));
     };
 
+    let supervisor_configured = state.supervisor_client().is_some();
+    let allow_unsupervised = std::env::var("AOS_ALLOW_UNSUPERVISED_SAFE_RESTART")
+        .map(|v| matches!(v.to_ascii_lowercase().as_str(), "1" | "true" | "yes"))
+        .unwrap_or(false);
+    enforce_safe_restart_supervisor_guard_with_flags(supervisor_configured, allow_unsupervised)?;
+
     // Mark maintenance and begin drain for restart
     boot_state.maintenance("safe-restart").await;
     boot_state.drain().await;
@@ -305,6 +311,27 @@ fn enforce_prod_wildcard_gate(
         ));
     }
     Ok(())
+}
+
+fn enforce_safe_restart_supervisor_guard_with_flags(
+    supervisor_configured: bool,
+    allow_unsupervised: bool,
+) -> Result<(), (StatusCode, Json<AdminErrorResponse>)> {
+    if supervisor_configured || allow_unsupervised {
+        return Ok(());
+    }
+
+    Err((
+        StatusCode::SERVICE_UNAVAILABLE,
+        Json(
+            AdminErrorResponse::new("Supervisor not configured for safe restart".to_string())
+                .with_code("SUPERVISOR_NOT_CONFIGURED")
+                .with_hint(
+                    "Set SUPERVISOR_API_URL or AOS_PANEL_PORT, or set \
+AOS_ALLOW_UNSUPERVISED_SAFE_RESTART=1 for manual restart workflows.",
+                ),
+        ),
+    ))
 }
 
 fn json_error(msg: &str) -> AdminErrorResponse {
@@ -405,6 +432,24 @@ mod tests {
         assert_eq!(map_boot_state(&BootState::Draining), "draining");
         assert_eq!(map_boot_state(&BootState::Ready), "ready");
         assert_eq!(map_boot_state(&BootState::Stopped), "stopped");
+    }
+
+    #[test]
+    fn safe_restart_guard_rejects_when_supervisor_missing_and_no_override() {
+        let err = enforce_safe_restart_supervisor_guard_with_flags(false, false)
+            .expect_err("should require supervisor or explicit override");
+        assert_eq!(err.0, StatusCode::SERVICE_UNAVAILABLE);
+        assert_eq!(err.1 .0.code, "SUPERVISOR_NOT_CONFIGURED");
+    }
+
+    #[test]
+    fn safe_restart_guard_allows_when_supervisor_is_configured() {
+        assert!(enforce_safe_restart_supervisor_guard_with_flags(true, false).is_ok());
+    }
+
+    #[test]
+    fn safe_restart_guard_allows_override_without_supervisor() {
+        assert!(enforce_safe_restart_supervisor_guard_with_flags(false, true).is_ok());
     }
 
     #[test]

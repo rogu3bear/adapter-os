@@ -25,6 +25,7 @@ thiserror = "2.0"
 # AdapterOS internal crates
 adapteros-api-types = { path = "../adapteros-api-types", features = ["server"] }
 adapteros-types = { path = "../adapteros-types" }
+adapteros-server-api = { path = "../adapteros-server-api" }
 
 # OpenAPI documentation
 utoipa = { workspace = true }

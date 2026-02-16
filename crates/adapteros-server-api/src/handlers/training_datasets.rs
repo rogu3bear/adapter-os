@@ -395,7 +395,7 @@ pub async fn create_training_dataset_from_upload_async(
     post,
     path = "/v1/training/datasets/from-upload",
     responses(
-        (status = 501, description = "Embeddings feature disabled", body = ErrorResponse)
+        (status = 400, description = "Embeddings feature disabled", body = ErrorResponse)
     ),
     tag = "datasets"
 )]
@@ -404,7 +404,9 @@ pub async fn create_training_dataset_from_upload(
     Extension(_claims): Extension<Claims>,
     _multipart: Multipart,
 ) -> Result<Json<ErrorResponse>, ApiError> {
-    Err(ApiError::not_implemented(
+    Err(ApiError::new(
+        StatusCode::BAD_REQUEST,
+        adapteros_core::error_codes::FEATURE_DISABLED,
         "Training dataset upload requires the 'embeddings' feature to be enabled",
     ))
 }
@@ -415,7 +417,7 @@ pub async fn create_training_dataset_from_upload(
     post,
     path = "/v1/training/datasets/from-upload/async",
     responses(
-        (status = 501, description = "Embeddings feature disabled", body = ErrorResponse)
+        (status = 400, description = "Embeddings feature disabled", body = ErrorResponse)
     ),
     tag = "datasets"
 )]
@@ -424,7 +426,9 @@ pub async fn create_training_dataset_from_upload_async(
     Extension(_claims): Extension<Claims>,
     _multipart: Multipart,
 ) -> Result<Json<ErrorResponse>, ApiError> {
-    Err(ApiError::not_implemented(
+    Err(ApiError::new(
+        StatusCode::BAD_REQUEST,
+        adapteros_core::error_codes::FEATURE_DISABLED,
         "Training dataset upload requires the 'embeddings' feature to be enabled",
     ))
 }

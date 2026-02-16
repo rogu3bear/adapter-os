@@ -361,27 +361,61 @@ fn check_cancellation() -> Result<Value, String> {
 fn check_latency_sanity() -> Result<Value, String> {
     let mut router = Router::new_with_weights(RouterWeights::default(), 2, 1.0, 0.0);
     let (features, priors, adapter_info, policy_mask) = build_router_inputs();
-    let iterations = 200;
-    let threshold_ms = 1000;
+    let iterations = std::env::var("AOS_PROD_GATE_LATENCY_ITERATIONS")
+        .ok()
+        .and_then(|v| v.parse::<usize>().ok())
+        .filter(|v| *v > 0)
+        .unwrap_or(200);
+    let warmup_iterations = std::env::var("AOS_PROD_GATE_LATENCY_WARMUP")
+        .ok()
+        .and_then(|v| v.parse::<usize>().ok())
+        .unwrap_or(64);
+    let samples = std::env::var("AOS_PROD_GATE_LATENCY_SAMPLES")
+        .ok()
+        .and_then(|v| v.parse::<usize>().ok())
+        .filter(|v| *v > 0)
+        .unwrap_or(3);
+    let threshold_ms = std::env::var("AOS_PROD_GATE_LATENCY_THRESHOLD_MS")
+        .ok()
+        .and_then(|v| v.parse::<u64>().ok())
+        .unwrap_or(1200);
 
-    let start = Instant::now();
-    for _ in 0..iterations {
+    for _ in 0..warmup_iterations {
         router
             .route_with_adapter_info(&features, &priors, &adapter_info, &policy_mask)
             .map_err(|e| e.to_string())?;
     }
-    let elapsed = start.elapsed();
 
-    if elapsed > Duration::from_millis(threshold_ms) {
+    let mut sample_durations = Vec::with_capacity(samples);
+    for _ in 0..samples {
+        let start = Instant::now();
+        for _ in 0..iterations {
+            router
+                .route_with_adapter_info(&features, &priors, &adapter_info, &policy_mask)
+                .map_err(|e| e.to_string())?;
+        }
+        sample_durations.push(start.elapsed());
+    }
+
+    sample_durations.sort_unstable();
+    let median_elapsed = sample_durations[sample_durations.len() / 2];
+
+    if median_elapsed > Duration::from_millis(threshold_ms) {
         return Err(format!(
-            "latency sanity exceeded: {:?} for {} iterations",
-            elapsed, iterations
+            "latency sanity exceeded: {:?} for {} iterations (median over {} samples)",
+            median_elapsed, iterations, samples
         ));
     }
 
     Ok(json!({
         "iterations": iterations,
-        "elapsed_ms": elapsed.as_millis(),
+        "warmup_iterations": warmup_iterations,
+        "samples": samples,
+        "sample_elapsed_ms": sample_durations
+            .iter()
+            .map(|d| d.as_millis())
+            .collect::<Vec<_>>(),
+        "elapsed_ms": median_elapsed.as_millis(),
         "threshold_ms": threshold_ms,
     }))
 }

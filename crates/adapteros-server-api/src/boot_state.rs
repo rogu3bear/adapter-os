@@ -207,6 +207,8 @@ pub mod failure_codes {
     pub const INVARIANTS_FAILED: &str = "INVARIANTS_FAILED";
     /// Model Server readiness check failed
     pub const MODEL_SERVER_FAILED: &str = "MODEL_SERVER_FAILED";
+    /// Startup recovery failed
+    pub const STARTUP_RECOVERY_FAILED: &str = "STARTUP_RECOVERY_FAILED";
 }
 
 /// Degraded state reason for non-critical dependency failures

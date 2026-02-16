@@ -602,10 +602,8 @@ impl<K: adapteros_lora_kernel_api::FusedKernels + StrictnessControl + 'static> U
         };
 
         // Check if client wants signal streaming
-        let wants_signals = request
-            .headers
-            .get("X-Signal-Stream")
-            .map(|v| v == "true")
+        let wants_signals = Self::header_value(&request.headers, "X-Signal-Stream")
+            .map(|v| v.eq_ignore_ascii_case("true"))
             .unwrap_or(false);
 
         let wants_stream = Self::header_value(&request.headers, "Accept")
@@ -654,13 +652,14 @@ impl<K: adapteros_lora_kernel_api::FusedKernels + StrictnessControl + 'static> U
                     return Ok(());
                 }
 
-                // Standard inference (signal streaming not yet implemented)
-                if wants_signals {
-                    warn!("Signal streaming requested but not yet implemented, using standard inference");
-                }
-
-                if wants_stream {
-                    Self::stream_response(&mut stream, worker.clone(), inference_req).await?;
+                if wants_stream || wants_signals {
+                    Self::stream_response(
+                        &mut stream,
+                        worker.clone(),
+                        inference_req,
+                        wants_signals,
+                    )
+                    .await?;
                 } else {
                     let mut worker_guard = worker.lock().await;
                     let response = worker_guard
@@ -1495,6 +1494,7 @@ impl<K: adapteros_lora_kernel_api::FusedKernels + StrictnessControl + 'static> U
         stream: &mut UnixStream,
         worker: Arc<Mutex<Worker<K>>>,
         inference_req: InferenceRequest,
+        emit_lifecycle_signals: bool,
     ) -> Result<()> {
         let http_response = "HTTP/1.1 200 OK\r\n\
              Content-Type: text/event-stream\r\n\
@@ -1506,6 +1506,23 @@ impl<K: adapteros_lora_kernel_api::FusedKernels + StrictnessControl + 'static> U
             .write_all(http_response.as_bytes())
             .await
             .map_err(|e| AosError::Worker(format!("Failed to send SSE headers: {}", e)))?;
+
+        let cpid = inference_req.cpid.clone();
+        let request_id = inference_req.request_id.clone();
+
+        if emit_lifecycle_signals {
+            Self::send_signal_event(
+                stream,
+                "lifecycle.start",
+                "normal",
+                serde_json::json!({
+                    "cpid": &cpid,
+                    "request_id": &request_id,
+                }),
+            )
+            .await?;
+            let _ = stream.flush().await;
+        }
 
         let (tx, mut rx) = mpsc::channel::<WorkerStreamEvent>(64);
         let worker_clone = worker.clone();
@@ -1532,6 +1549,42 @@ impl<K: adapteros_lora_kernel_api::FusedKernels + StrictnessControl + 'static> U
         let _abort_guard = AbortOnDrop(Some(inference_handle));
 
         while let Some(event) = rx.recv().await {
+            if emit_lifecycle_signals {
+                let signal_result = match &event {
+                    WorkerStreamEvent::Complete(response) => {
+                        Self::send_signal_event(
+                            stream,
+                            "lifecycle.complete",
+                            "normal",
+                            serde_json::json!({
+                                "cpid": &cpid,
+                                "request_id": &request_id,
+                                "status": &response.status,
+                            }),
+                        )
+                        .await
+                    }
+                    WorkerStreamEvent::Error(message) => {
+                        Self::send_signal_event(
+                            stream,
+                            "lifecycle.error",
+                            "critical",
+                            serde_json::json!({
+                                "cpid": &cpid,
+                                "request_id": &request_id,
+                                "error": message,
+                            }),
+                        )
+                        .await
+                    }
+                    _ => Ok(()),
+                };
+
+                if signal_result.is_err() {
+                    break;
+                }
+            }
+
             let payload = match &event {
                 WorkerStreamEvent::Token(token) => {
                     let data = serde_json::json!({
@@ -1587,6 +1640,30 @@ impl<K: adapteros_lora_kernel_api::FusedKernels + StrictnessControl + 'static> U
         }
 
         Ok(())
+    }
+
+    async fn send_signal_event(
+        stream: &mut UnixStream,
+        signal_type: &str,
+        priority: &str,
+        payload: serde_json::Value,
+    ) -> Result<()> {
+        let timestamp = std::time::SystemTime::now()
+            .duration_since(std::time::UNIX_EPOCH)
+            .map(|d| d.as_nanos())
+            .unwrap_or(0);
+        let signal = serde_json::json!({
+            "type": signal_type,
+            "timestamp": timestamp,
+            "payload": payload,
+            "priority": priority,
+        });
+        let frame = format!("event: signal\ndata: {}\n\n", signal);
+
+        stream
+            .write_all(frame.as_bytes())
+            .await
+            .map_err(|e| AosError::Worker(format!("Failed to send signal event: {}", e)))
     }
 
     /// Send JSON response

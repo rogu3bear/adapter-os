@@ -165,9 +165,9 @@ pub use telemetry_bundles::{
 pub use tenant_management::{
     __path_assign_tenant_adapters, __path_get_tenant_index_hashes, __path_get_uma_memory,
     __path_hydrate_tenant_from_bundle, archive_tenant, assign_tenant_adapters,
-    get_tenant_index_hashes, get_tenant_usage, get_uma_memory, hydrate_tenant_from_bundle,
-    pause_tenant, update_tenant, HydrateTenantRequest, IndexHashesResponse,
-    TenantHydrationResponse, UmaMemoryResponse,
+    get_tenant_index_hashes, get_uma_memory, hydrate_tenant_from_bundle, pause_tenant,
+    update_tenant, HydrateTenantRequest, IndexHashesResponse, TenantHydrationResponse,
+    UmaMemoryResponse,
 };
 
 // Re-export specialized adapter repository and validation handlers/types.
