@@ -73,12 +73,9 @@ pub fn Input(
     };
 
     // Build hint ID for aria-describedby if hint is provided
-    let hint_id = hint.as_ref().map(|_| {
-        format!(
-            "{}-hint",
-            input_id.as_deref().unwrap_or("input"),
-        )
-    });
+    let hint_id = hint
+        .as_ref()
+        .map(|_| format!("{}-hint", input_id.as_deref().unwrap_or("input"),));
 
     // Combine described_by with hint_id
     let full_described_by = match (&described_by, &hint_id) {
@@ -215,12 +212,9 @@ pub fn Textarea(
     };
 
     // Build hint ID for aria-describedby if hint is provided
-    let hint_id = hint.as_ref().map(|_| {
-        format!(
-            "{}-hint",
-            input_id.as_deref().unwrap_or("textarea"),
-        )
-    });
+    let hint_id = hint
+        .as_ref()
+        .map(|_| format!("{}-hint", input_id.as_deref().unwrap_or("textarea"),));
 
     // Combine described_by with hint_id
     let full_described_by = match (&described_by, &hint_id) {

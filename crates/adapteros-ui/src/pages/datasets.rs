@@ -10,11 +10,11 @@ use crate::api::{
     DatasetStatisticsResponse, DatasetVersionsResponse,
 };
 use crate::components::{
-    Badge, BadgeVariant, BreadcrumbTrail, Button, ButtonVariant, Card, Checkbox, Combobox,
-    ComboboxOption, ConfirmationDialog, ConfirmationSeverity, CopyableId, EmptyState, ErrorDisplay,
-    Input, PageBreadcrumbItem, PageHeader, PageScaffold, PageScaffoldActions, RefreshButton,
-    Select, SkeletonCard, SkeletonDetailSection, SkeletonTable, TabNav, TabPanel, Table, TableBody,
-    TableCell, TableHead, TableHeader, TableRow, Toggle,
+    Badge, BadgeVariant, BreadcrumbTrail, Button, ButtonLink, ButtonSize, ButtonVariant, Card,
+    Checkbox, Combobox, ComboboxOption, ConfirmationDialog, ConfirmationSeverity, CopyableId,
+    EmptyState, ErrorDisplay, Input, PageBreadcrumbItem, PageHeader, PageScaffold,
+    PageScaffoldActions, RefreshButton, Select, SkeletonCard, SkeletonDetailSection, SkeletonTable,
+    TabNav, TabPanel, Table, TableBody, TableCell, TableHead, TableHeader, TableRow, Toggle,
 };
 use crate::hooks::{
     use_api, use_api_resource, use_delete_dialog, DeleteDialogState, LoadingState, Refetch,
@@ -729,7 +729,7 @@ fn DatasetsList(
                         // Readiness strip
                         <div class="grid gap-3 sm:grid-cols-2 lg:grid-cols-4">
                             <button
-                                class="text-left"
+                                class="text-left rounded-md focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-ring focus-visible:ring-offset-2"
                                 on:click={
                                     let cb = on_quick_trainable;
                                     move |_| cb.run(())
@@ -750,7 +750,7 @@ fn DatasetsList(
                                 </Card>
                             </button>
                             <button
-                                class="text-left"
+                                class="text-left rounded-md focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-ring focus-visible:ring-offset-2"
                                 on:click={
                                     let cb = on_quick_needs_validation;
                                     move |_| cb.run(())
@@ -771,7 +771,7 @@ fn DatasetsList(
                                 </Card>
                             </button>
                             <button
-                                class="text-left"
+                                class="text-left rounded-md focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-ring focus-visible:ring-offset-2"
                                 on:click={
                                     let cb = on_quick_needs_trust;
                                     move |_| cb.run(())
@@ -792,7 +792,7 @@ fn DatasetsList(
                                 </Card>
                             </button>
                             <button
-                                class="text-left"
+                                class="text-left rounded-md focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-ring focus-visible:ring-offset-2"
                                 on:click={
                                     let cb = on_quick_processing_failed;
                                     move |_| cb.run(())
@@ -833,9 +833,9 @@ fn DatasetsList(
                                             type="button"
                                             class=move || {
                                                 if view_mode.try_get().unwrap_or(DatasetViewMode::Table) == DatasetViewMode::Table {
-                                                    "px-3 py-1.5 text-xs bg-muted"
+                                                    "px-3 py-1.5 text-xs bg-muted focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-ring focus-visible:ring-offset-2"
                                                 } else {
-                                                    "px-3 py-1.5 text-xs hover:bg-muted/60"
+                                                    "px-3 py-1.5 text-xs hover:bg-muted/60 focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-ring focus-visible:ring-offset-2"
                                                 }
                                             }
                                             on:click={
@@ -849,9 +849,9 @@ fn DatasetsList(
                                             type="button"
                                             class=move || {
                                                 if view_mode.try_get().unwrap_or(DatasetViewMode::Table) == DatasetViewMode::Cards {
-                                                    "px-3 py-1.5 text-xs bg-muted"
+                                                    "px-3 py-1.5 text-xs bg-muted focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-ring focus-visible:ring-offset-2"
                                                 } else {
-                                                    "px-3 py-1.5 text-xs hover:bg-muted/60"
+                                                    "px-3 py-1.5 text-xs hover:bg-muted/60 focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-ring focus-visible:ring-offset-2"
                                                 }
                                             }
                                             on:click={
@@ -1078,7 +1078,7 @@ fn DatasetsTable(
                             <TableRow>
                                 <TableCell>
                                     <button
-                                        class="font-medium text-primary hover:underline text-left truncate"
+                                        class="font-medium text-primary hover:underline text-left truncate focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-ring focus-visible:ring-offset-2 rounded-sm"
                                         title=name_for_title
                                         aria-label=format!("View dataset {}", name_for_view_aria.as_str())
                                         on:click=move |_| {
@@ -1239,7 +1239,7 @@ fn DatasetsCardGrid(
                             <div class="flex items-start justify-between gap-3">
                                 <div class="min-w-0">
                                     <button
-                                        class="font-medium text-primary hover:underline text-left truncate w-full"
+                                        class="font-medium text-primary hover:underline text-left truncate w-full focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-ring focus-visible:ring-offset-2 rounded-sm"
                                         on:click=move |_| nav_to_detail(&format!("/datasets/{}", id_for_nav), Default::default())
                                         title=name.clone()
                                     >
@@ -2142,13 +2142,35 @@ pub fn DatasetDetail() -> impl IntoView {
                                 </div>
                             }.into_any()
                         }
+                        LoadingState::Error(e) if e.is_not_found() => {
+                            view! {
+                                <div class="flex min-h-[40vh] flex-col items-center justify-center px-4">
+                                    <Card class="p-8 max-w-md w-full text-center">
+                                        <div class="text-4xl font-bold text-muted-foreground mb-2">"404"</div>
+                                        <h2 class="heading-3 mb-2">"Dataset not found"</h2>
+                                        <p class="text-muted-foreground mb-6">
+                                            "This dataset may have been deleted or doesn't exist."
+                                        </p>
+                                        <ButtonLink
+                                            href="/datasets"
+                                            variant=ButtonVariant::Primary
+                                            size=ButtonSize::Md
+                                        >
+                                            "View all datasets"
+                                        </ButtonLink>
+                                    </Card>
+                                </div>
+                            }
+                                .into_any()
+                        }
                         LoadingState::Error(e) => {
                             view! {
                                 <ErrorDisplay
                                     error=e
                                     on_retry=Callback::new(move |_| trigger_refresh())
                                 />
-                            }.into_any()
+                            }
+                                .into_any()
                         }
                     }
                 }
@@ -2912,9 +2934,9 @@ fn DatasetDraftView(
                             <div class="flex items-center rounded-full border border-border bg-muted/30 p-0.5 text-xs">
                                 <button
                                     class=move || if adapter_type.try_get().unwrap_or_default() == "identify" {
-                                        "rounded-full px-2 py-1 text-foreground bg-background shadow-sm"
+                                        "rounded-full px-2 py-1 text-foreground bg-background shadow-sm focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-ring focus-visible:ring-offset-2"
                                     } else {
-                                        "rounded-full px-2 py-1 text-muted-foreground"
+                                        "rounded-full px-2 py-1 text-muted-foreground focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-ring focus-visible:ring-offset-2"
                                     }
                                     on:click=move |_| adapter_type.set("identify".to_string())
                                 >
@@ -2922,9 +2944,9 @@ fn DatasetDraftView(
                                 </button>
                                 <button
                                     class=move || if adapter_type.try_get().unwrap_or_default() == "behavior" {
-                                        "rounded-full px-2 py-1 text-foreground bg-background shadow-sm"
+                                        "rounded-full px-2 py-1 text-foreground bg-background shadow-sm focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-ring focus-visible:ring-offset-2"
                                     } else {
-                                        "rounded-full px-2 py-1 text-muted-foreground"
+                                        "rounded-full px-2 py-1 text-muted-foreground focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-ring focus-visible:ring-offset-2"
                                     }
                                     on:click=move |_| adapter_type.set("behavior".to_string())
                                 >

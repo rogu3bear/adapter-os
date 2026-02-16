@@ -864,6 +864,15 @@
   background-color: color-mix(in srgb, var(--color-muted) 60%, transparent);
 }
 
+.table-row-interactive:focus-visible {
+  outline: 2px solid var(--color-ring);
+  outline-offset: -2px;
+}
+
+.table-row-interactive:focus-visible .table-cell {
+  background-color: color-mix(in srgb, var(--color-muted) 45%, transparent);
+}
+
 /* Selected state via data attribute */
 .table-row[data-state="selected"] {
   background-color: var(--color-muted);
@@ -874,6 +883,19 @@
   vertical-align: middle;
   word-break: break-word;
   overflow-wrap: anywhere;
+}
+
+@media (max-width: 639px) {
+  .table {
+    min-width: max-content;
+  }
+
+  .table-header-cell,
+  .table-cell {
+    white-space: nowrap;
+    word-break: normal;
+    overflow-wrap: normal;
+  }
 }
 
 /* ===== Badge Component ===== */
@@ -3740,7 +3762,7 @@
 /* Toast Container */
 .toast-container {
   position: fixed;
-  bottom: 1rem;
+  bottom: calc(1rem + 3rem);
   right: 1rem;
   z-index: 9990;
   display: flex;
@@ -4533,6 +4555,7 @@
   }
 
   .toast-container {
+    bottom: calc(4.5rem + env(safe-area-inset-bottom));
     left: 1rem;
     right: 1rem;
     max-width: none;
@@ -6832,6 +6855,12 @@
 /* Taskbar padding aligns with page content on desktop/tablet */
 .taskbar {
   padding: 0 var(--shell-page-padding);
+}
+
+.taskbar-btn:focus-visible,
+.module-btn:focus-visible {
+  outline: 2px solid var(--color-ring);
+  outline-offset: 2px;
 }
 
 @media (max-width: 639px) {

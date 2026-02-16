@@ -64,7 +64,7 @@ pub fn RoutingRules() -> impl IntoView {
                                             view! {
                                                 <button
                                                     class=move || format!(
-                                                        "w-full text-left px-3 py-2 rounded-md text-sm transition-colors {}",
+                                                        "w-full text-left px-3 py-2 rounded-md text-sm transition-colors focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-ring focus-visible:ring-offset-2 {}",
                                                         if is_selected.get() { "bg-primary text-primary-foreground" } else { "hover:bg-muted text-foreground" }
                                                     )
                                                     on:click=move |_| selected_dataset_id.set(Some(ds_id.clone()))
@@ -136,20 +136,51 @@ fn CreateRuleForm(
     let saving = RwSignal::new(false);
     let error = RwSignal::new(Option::<String>::None);
 
-    // Build adapter options
-    let adapter_options = match &adapters {
-        LoadingState::Loaded(list) => {
+    // Build adapter options and actionable state hints.
+    let (adapter_options, adapter_hint, adapter_hint_is_error, adapters_ready) = match &adapters {
+        LoadingState::Loaded(list) if !list.is_empty() => {
             let mut opts = vec![("".to_string(), "Select Adapter".to_string())];
             opts.extend(list.iter().map(|a| (a.adapter_id.clone(), a.name.clone())));
-            opts
+            (opts, None, false, true)
         }
-        _ => vec![("".to_string(), "Select Adapter".to_string())],
+        LoadingState::Loaded(_) => (
+            vec![("".to_string(), "No adapters available".to_string())],
+            Some("No active adapters are available. Create or load an adapter first.".to_string()),
+            false,
+            false,
+        ),
+        LoadingState::Loading | LoadingState::Idle => (
+            vec![("".to_string(), "Loading adapters...".to_string())],
+            Some("Adapters are loading. You can fill the form while this completes.".to_string()),
+            false,
+            false,
+        ),
+        LoadingState::Error(e) => (
+            vec![("".to_string(), "Adapters unavailable".to_string())],
+            Some(format!("Could not load adapters: {}", e.user_message())),
+            true,
+            false,
+        ),
     };
 
+    let can_submit = Memo::new(move |_| {
+        adapters_ready
+            && !saving.get()
+            && !condition.get().trim().is_empty()
+            && !target_adapter_id.get().trim().is_empty()
+    });
+
     let handle_submit = move |_| {
+        if !adapters_ready {
+            error.set(Some(
+                "Target adapters are unavailable. Wait for adapters to load first.".to_string(),
+            ));
+            return;
+        }
+
         let cond = condition.get();
         let target = target_adapter_id.get();
-        if cond.is_empty() || target.is_empty() {
+        if cond.trim().is_empty() || target.trim().is_empty() {
             error.set(Some("Condition and target adapter are required".into()));
             return;
         }
@@ -207,6 +238,7 @@ fn CreateRuleForm(
                     value=target_adapter_id
                     label="Target Adapter".to_string()
                     options=adapter_options
+                    disabled=Signal::derive(move || !adapters_ready)
                 />
                 <Input
                     value=priority
@@ -215,12 +247,21 @@ fn CreateRuleForm(
                 />
                 <Button
                     variant=ButtonVariant::Primary
+                    disabled=Signal::derive(move || !can_submit.get())
                     loading=saving
                     on_click=Callback::new(handle_submit)
                 >
                     "Add Rule"
                 </Button>
             </div>
+            {adapter_hint.clone().map(|hint| {
+                let class_name = if adapter_hint_is_error {
+                    "mt-2 text-xs text-destructive"
+                } else {
+                    "mt-2 text-xs text-muted-foreground"
+                };
+                view! { <p class=class_name>{hint}</p> }
+            })}
             {move || error.get().map(|e| view! { <p class="mt-2 text-xs text-destructive">{e}</p> })}
         </Card>
     }

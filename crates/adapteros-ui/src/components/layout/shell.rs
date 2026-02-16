@@ -44,8 +44,8 @@ fn register_shell_keydown_listener(listener: Closure<dyn FnMut(web_sys::Keyboard
                     existing.as_ref().unchecked_ref(),
                 );
             }
-            let _ =
-                window.add_event_listener_with_callback("keydown", listener.as_ref().unchecked_ref());
+            let _ = window
+                .add_event_listener_with_callback("keydown", listener.as_ref().unchecked_ref());
             *slot = Some(listener);
         }
     });

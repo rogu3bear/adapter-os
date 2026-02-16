@@ -17,8 +17,8 @@
 
 use crate::api::ApiClient;
 use crate::components::{
-    Button, ButtonLink, ButtonSize, ButtonVariant, Card, ConfirmationDialog,
-    ConfirmationSeverity, DetailRow, ErrorDisplay, Link, Spinner, TabButton, TabPanel,
+    Button, ButtonLink, ButtonSize, ButtonVariant, Card, ConfirmationDialog, ConfirmationSeverity,
+    DetailRow, ErrorDisplay, Link, Spinner, TabButton, TabPanel,
 };
 use crate::hooks::{use_api_resource, use_conditional_polling, LoadingState};
 use crate::signals::{use_notifications, use_refetch};

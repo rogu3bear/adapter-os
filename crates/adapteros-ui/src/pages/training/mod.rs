@@ -27,8 +27,8 @@ mod wizard;
 
 use crate::api::ApiClient;
 use crate::components::{
-    AsyncBoundary, Button, ButtonLink, ButtonSize, ButtonVariant, PageBreadcrumbItem,
-    PageScaffold, PageScaffoldActions, SplitPanel,
+    AsyncBoundary, Button, ButtonLink, ButtonSize, ButtonVariant, PageBreadcrumbItem, PageScaffold,
+    PageScaffoldActions, SplitPanel,
 };
 use crate::hooks::{use_api_resource, use_conditional_polling, LoadingState};
 use crate::signals::{try_use_route_context, SelectedEntity};
