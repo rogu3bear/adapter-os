@@ -28,7 +28,7 @@ use data_list::{DataList, DataListItem};
 use detail_panel::DataDetailPanel;
 use leptos::prelude::*;
 use source_nav::DataSourceNav;
-use state::DataSource;
+use state::{DataSource, PreprocessStatus};
 use std::sync::Arc;
 use upload_dialog::DocumentUploadDialog;
 
@@ -48,7 +48,7 @@ pub fn TrainingData() -> impl IntoView {
     });
 
     // Fetch preprocessed cache list
-    let (preprocessed_cache, _refetch_preprocessed) = use_api_resource(
+    let (preprocessed_cache, refetch_preprocessed) = use_api_resource(
         move |client: Arc<ApiClient>| async move { client.list_preprocessed_cache().await },
     );
 
@@ -59,6 +59,7 @@ pub fn TrainingData() -> impl IntoView {
 
     let refetch_datasets_signal = StoredValue::new(refetch_datasets);
     let refetch_documents_signal = StoredValue::new(refetch_documents);
+    let refetch_preprocessed_signal = StoredValue::new(refetch_preprocessed);
 
     // Derive counts for source nav
     let doc_count = Signal::derive(move || match documents.get() {
@@ -71,9 +72,10 @@ pub fn TrainingData() -> impl IntoView {
         _ => 0,
     });
 
-    let (cache_count, _refetch_cache_count) = use_api_resource(
+    let (cache_count, refetch_cache_count) = use_api_resource(
         move |client: Arc<ApiClient>| async move { client.get_preprocessed_cache_count().await },
     );
+    let refetch_cache_count_signal = StoredValue::new(refetch_cache_count);
 
     let cached_count = Signal::derive(move || match cache_count.get() {
         LoadingState::Loaded(data) => data.count as usize,
@@ -141,6 +143,14 @@ pub fn TrainingData() -> impl IntoView {
         }
     });
 
+    let selected_preprocess_status = Signal::derive(move || {
+        if selected_preprocessed.get().is_some() {
+            PreprocessStatus::Cached
+        } else {
+            PreprocessStatus::None
+        }
+    });
+
     // Selected document (for detail panel)
     let selected_document = Signal::derive(move || {
         let id = selected_id.get()?;
@@ -152,6 +162,7 @@ pub fn TrainingData() -> impl IntoView {
 
     // Upload dialog state
     let show_doc_upload = RwSignal::new(false);
+    let navigate = use_navigate();
 
     // Callbacks
     let on_select = Callback::new(move |id: String| {
@@ -162,21 +173,22 @@ pub fn TrainingData() -> impl IntoView {
         selected_id.set(None);
     };
 
-    let on_upload = Callback::new(move |source: DataSource| {
-        match source {
-            DataSource::Documents => {
-                show_doc_upload.set(true);
+    let on_upload = {
+        let navigate = navigate.clone();
+        Callback::new(move |source: DataSource| {
+            match source {
+                DataSource::Documents => {
+                    show_doc_upload.set(true);
+                }
+                DataSource::Datasets => {
+                    navigate("/training?open_wizard=1");
+                }
+                DataSource::Preprocessed => {
+                    // Preprocessed cannot be uploaded directly
+                }
             }
-            DataSource::Datasets => {
-                // Dataset upload will navigate to the dataset wizard
-                // For now, just log - the wizard exists elsewhere
-                tracing::info!("Dataset upload requested - use dataset wizard");
-            }
-            DataSource::Preprocessed => {
-                // Preprocessed cannot be uploaded directly
-            }
-        }
-    });
+        })
+    };
 
     let on_doc_upload_success = {
         Callback::new(move |_document_id: String| {
@@ -231,10 +243,50 @@ pub fn TrainingData() -> impl IntoView {
         })
     };
 
-    let navigate = use_navigate();
-    let on_start_training = Callback::new(move |dataset_id: String| {
-        navigate(&format!("/training?dataset_id={}&open_wizard=1", dataset_id));
-    });
+    let on_start_training = {
+        let navigate = navigate.clone();
+        Callback::new(move |dataset_id: String| {
+            navigate(&format!("/training?dataset_id={}&open_wizard=1", dataset_id));
+        })
+    };
+
+    let on_invalidate_cache = {
+        Callback::new(move |dataset_id: String| {
+            #[cfg(target_arch = "wasm32")]
+            {
+                use crate::api::{api_base_url, ApiClient};
+
+                wasm_bindgen_futures::spawn_local(async move {
+                    let client = ApiClient::with_base_url(&api_base_url());
+                    match client.invalidate_preprocessed_cache(&dataset_id).await {
+                        Ok(()) => {
+                            refetch_preprocessed_signal.with_value(|f| f());
+                            refetch_cache_count_signal.with_value(|f| f());
+                            selected_id.set(None);
+                            active_source.set(DataSource::Preprocessed);
+                            tracing::info!(
+                                dataset_id = %dataset_id,
+                                "Invalidated preprocessed cache"
+                            );
+                        }
+                        Err(e) => {
+                            report_error_with_toast(
+                                &e,
+                                "Failed to invalidate preprocessed cache",
+                                Some("/training"),
+                                true,
+                            );
+                            tracing::error!(
+                                dataset_id = %dataset_id,
+                                error = %e,
+                                "Failed to invalidate preprocessed cache"
+                            );
+                        }
+                    }
+                });
+            }
+        })
+    };
 
     // Derive whether detail panel should be shown
     let has_selection = Signal::derive(move || selected_id.get().is_some());
@@ -319,10 +371,12 @@ pub fn TrainingData() -> impl IntoView {
                                 document=selected_document
                                 dataset=selected_dataset
                                 preprocessed_entry=selected_preprocessed
+                                preprocess_status=selected_preprocess_status
                                 loading=is_loading
                                 on_close=Callback::new(move |_| on_close_detail())
                                 on_create_dataset=on_create_dataset
                                 on_start_training=on_start_training
+                                on_invalidate_cache=on_invalidate_cache
                             />
                         }
                     }

@@ -8,7 +8,7 @@
 use crate::handlers;
 use crate::state::AppState;
 use axum::{
-    routing::{get, patch, post},
+    routing::{delete, get, patch, post},
     Router,
 };
 
@@ -40,6 +40,10 @@ pub fn training_routes() -> Router<AppState> {
         .route(
             "/v1/training/preprocessed-cache",
             get(handlers::training::list_preprocessed_cache),
+        )
+        .route(
+            "/v1/training/preprocessed-cache/{dataset_id}",
+            delete(handlers::training::invalidate_preprocessed_cache),
         )
         .route(
             "/v1/training/jobs/{job_id}",
