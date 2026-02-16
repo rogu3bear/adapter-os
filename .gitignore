@@ -353,6 +353,7 @@ src/bin/test_*.rs
 adapters_backup.rs
 fix_kms.py
 run_inference  # AdapterOS demo binary (479KB)
+/test
 
 build/
 .mcp.json
