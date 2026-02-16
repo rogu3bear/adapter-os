@@ -139,7 +139,7 @@ fn test_auth_redirect_target() {
 
 #[wasm_bindgen_test]
 fn test_after_login_redirect() {
-    // After login, should redirect to intended page or dashboard
-    let default_redirect = "/dashboard";
-    assert_eq!(default_redirect, "/dashboard");
+    // After login, should redirect to intended page or home
+    let default_redirect = "/";
+    assert_eq!(default_redirect, "/");
 }
