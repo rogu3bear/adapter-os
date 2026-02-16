@@ -1,6 +1,6 @@
 //! Login page
 
-use crate::components::{Button, Card, Checkbox, FormField, Input, OfflineBanner};
+use crate::components::{Button, ButtonType, Card, Checkbox, FormField, Input, OfflineBanner};
 use crate::signals::settings::UserSettings;
 use crate::signals::use_auth;
 use crate::validation::{use_form_errors, validate_field, ValidationRule};
@@ -206,11 +206,8 @@ pub fn Login() -> impl IntoView {
 
                     <Button
                         class="w-full".to_string()
+                        button_type=ButtonType::Submit
                         loading=loading
-                        on_click=Callback::new({
-                            let do_login = do_login.clone();
-                            move |_| do_login()
-                        })
                     >
                         "Log in"
                     </Button>

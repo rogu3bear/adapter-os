@@ -39,7 +39,7 @@
 //! ```
 
 use crate::components::icons::{IconInfo, IconTrash, IconWarning};
-use crate::components::{Button, ButtonVariant, Dialog, DialogSize};
+use crate::components::{Button, ButtonType, ButtonVariant, Dialog, DialogSize};
 use leptos::prelude::*;
 
 /// Severity level for confirmation dialogs
@@ -323,9 +323,9 @@ pub fn ConfirmationDialog(
                     </Button>
                     <Button
                         variant=severity.button_variant()
+                        button_type=ButtonType::Submit
                         disabled=disabled
                         loading=loading
-                        on_click=Callback::new(handle_confirm)
                     >
                         {confirm_btn_text.clone()}
                     </Button>

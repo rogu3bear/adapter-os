@@ -38,7 +38,7 @@ mod breadcrumb_tests {
 
 mod button_tests {
     use super::*;
-    use adapteros_ui::components::{ButtonSize, ButtonVariant};
+    use adapteros_ui::components::{ButtonSize, ButtonType, ButtonVariant};
 
     #[wasm_bindgen_test]
     fn test_button_variant_default() {
@@ -56,6 +56,13 @@ mod button_tests {
         let _sm = ButtonSize::Sm;
         let _md = ButtonSize::Md;
         let _lg = ButtonSize::Lg;
+    }
+
+    #[wasm_bindgen_test]
+    fn test_button_type_variants() {
+        let _button = ButtonType::Button;
+        let _submit = ButtonType::Submit;
+        let _reset = ButtonType::Reset;
     }
 }
 
