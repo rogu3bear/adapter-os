@@ -6,7 +6,7 @@ use crate::api::{
     report_error_with_toast, ApiClient, RepositoryDetailResponse, ScanRepositoryRequest,
 };
 use crate::components::{
-    Button, ButtonSize, ButtonVariant, Card, DetailRow, ErrorDisplay, Spinner,
+    Button, ButtonLink, ButtonSize, ButtonVariant, Card, DetailRow, ErrorDisplay, Spinner,
 };
 use crate::hooks::{use_api_resource, LoadingState};
 use crate::signals::use_auth;
@@ -162,9 +162,13 @@ pub fn RepositoryDetailStandalone(repo_id: String) -> impl IntoView {
                                     <p class="text-muted-foreground mb-6">
                                         "This repository may have been deleted or doesn\u{2019}t exist."
                                     </p>
-                                    <a href="/repositories" class="btn btn-primary btn-md">
+                                    <ButtonLink
+                                        href="/repositories"
+                                        variant=ButtonVariant::Primary
+                                        size=ButtonSize::Md
+                                    >
                                         "View all repositories"
-                                    </a>
+                                    </ButtonLink>
                                 </Card>
                             </div>
                         }.into_any()

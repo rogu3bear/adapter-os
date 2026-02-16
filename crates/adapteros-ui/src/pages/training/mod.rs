@@ -27,8 +27,8 @@ mod wizard;
 
 use crate::api::ApiClient;
 use crate::components::{
-    AsyncBoundary, Button, ButtonVariant, Link, PageBreadcrumbItem, PageScaffold,
-    PageScaffoldActions, SplitPanel,
+    AsyncBoundary, Button, ButtonLink, ButtonSize, ButtonVariant, PageBreadcrumbItem,
+    PageScaffold, PageScaffoldActions, SplitPanel,
 };
 use crate::hooks::{use_api_resource, use_conditional_polling, LoadingState};
 use crate::signals::{try_use_route_context, SelectedEntity};
@@ -263,9 +263,9 @@ pub fn Training() -> impl IntoView {
             ]
         >
             <PageScaffoldActions slot>
-                <Link href="/datasets" class="btn btn-secondary btn-sm">
+                <ButtonLink href="/datasets" variant=ButtonVariant::Secondary size=ButtonSize::Sm>
                     "Datasets"
-                </Link>
+                </ButtonLink>
                 <StatusFilter filter=status_filter/>
                 <CoremlFilters filter=coreml_filter/>
                 <Button

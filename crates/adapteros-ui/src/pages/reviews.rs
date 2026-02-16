@@ -4,8 +4,8 @@
 
 use crate::api::{use_sse_json_events, ApiClient, SseState};
 use crate::components::{
-    Badge, BadgeVariant, Card, Column, CopyableId, DataTable, Input, PageBreadcrumbItem,
-    PageScaffold, PageScaffoldActions, RefreshButton, Select,
+    Badge, BadgeVariant, ButtonLink, ButtonSize, ButtonVariant, Card, Column, CopyableId,
+    DataTable, Input, PageBreadcrumbItem, PageScaffold, PageScaffoldActions, RefreshButton, Select,
 };
 use crate::hooks::{use_api_resource, use_navigate, use_polling, LoadingState};
 use adapteros_api_types::review::{ListPausedResponse, PauseKind, PausedInferenceInfo};
@@ -172,13 +172,14 @@ pub fn Reviews() -> impl IntoView {
             let href = format!("/reviews/{}", row.pause_id);
             view! {
                 <div class="flex justify-end">
-                    <a
+                    <ButtonLink
                         href=href
-                        class="btn btn-secondary btn-sm"
-                        on:click=move |ev: web_sys::MouseEvent| ev.stop_propagation()
+                        variant=ButtonVariant::Secondary
+                        size=ButtonSize::Sm
+                        on_click=Callback::new(move |ev: web_sys::MouseEvent| ev.stop_propagation())
                     >
                         "Open"
-                    </a>
+                    </ButtonLink>
                 </div>
             }
         })

@@ -5,9 +5,9 @@
 
 use crate::api::{report_error_with_toast, ApiClient};
 use crate::components::{
-    Badge, BadgeVariant, Button, ButtonSize, ButtonVariant, Card, ErrorDisplay, FormField, Input,
-    LoadingDisplay, PageBreadcrumbItem, PageScaffold, PageScaffoldActions, RefreshButton, Select,
-    Textarea,
+    Badge, BadgeVariant, Button, ButtonLink, ButtonSize, ButtonVariant, Card, ErrorDisplay,
+    FormField, Input, LoadingDisplay, PageBreadcrumbItem, PageScaffold, PageScaffoldActions,
+    RefreshButton, Select, Textarea,
 };
 use crate::hooks::{use_api_resource, use_scope_alive, LoadingState};
 use adapteros_api_types::review::{
@@ -74,9 +74,13 @@ pub fn ReviewDetail() -> impl IntoView {
                                 <p class="text-muted-foreground mb-6">
                                     "This paused inference may have been resumed or doesn\u{2019}t exist."
                                 </p>
-                                <a href="/reviews" class="btn btn-primary btn-md">
+                                <ButtonLink
+                                    href="/reviews"
+                                    variant=ButtonVariant::Primary
+                                    size=ButtonSize::Md
+                                >
                                     "View all reviews"
-                                </a>
+                                </ButtonLink>
                             </Card>
                         </div>
                     }.into_any()

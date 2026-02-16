@@ -6,8 +6,9 @@ use super::dialogs::EditStackDialog;
 use super::helpers::{lifecycle_badge_variant, workflow_type_label};
 use crate::api::{ApiClient, StackResponse};
 use crate::components::{
-    Badge, BadgeVariant, Button, ButtonSize, ButtonVariant, Card, CopyableId, ErrorDisplay,
-    LoadingDisplay, PageBreadcrumbItem, PageScaffold, PageScaffoldActions, RefreshButton,
+    Badge, BadgeVariant, Button, ButtonLink, ButtonSize, ButtonVariant, Card, CopyableId,
+    ErrorDisplay, LoadingDisplay, PageBreadcrumbItem, PageScaffold, PageScaffoldActions,
+    RefreshButton,
 };
 use crate::contexts::use_in_flight;
 use crate::hooks::{use_api, use_api_resource, LoadingState, Refetch};
@@ -100,9 +101,13 @@ pub fn StackDetail() -> impl IntoView {
                                     <p class="text-muted-foreground mb-6">
                                         "This stack may have been deleted or doesn\u{2019}t exist."
                                     </p>
-                                    <a href="/stacks" class="btn btn-primary btn-md">
+                                    <ButtonLink
+                                        href="/stacks"
+                                        variant=ButtonVariant::Primary
+                                        size=ButtonSize::Md
+                                    >
                                         "View all stacks"
-                                    </a>
+                                    </ButtonLink>
                                 </Card>
                             </div>
                         }.into_any()
