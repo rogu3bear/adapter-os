@@ -242,18 +242,15 @@ async fn main() -> Result<()> {
         // Phase 7: Startup Recovery
         // =====================================================================
         // Recover orphaned resources from previous server crashes/restarts
-        // ANCHOR: This phase is mandatory and runs before accepting requests
+        // ANCHOR: This phase is best-effort and runs before accepting requests
         boot_state.start_phase("startup_recovery");
-        let _recovery_report = run_startup_recovery(&db_ctx.db)
-            .await
-            .map_err(|e| {
-                boot_state.finish_phase_err(
-                    "startup_recovery",
-                    failure_codes::STARTUP_RECOVERY_FAILED,
-                    Some(e.to_string()),
-                );
-                e
-            })?;
+        if let Err(error) = run_startup_recovery(&db_ctx.db).await {
+            warn!(error = %error, "Startup recovery encountered errors (non-fatal)");
+            boot_state.record_boot_warning(
+                "startup_recovery",
+                format!("Startup recovery cleanup failed: {}", error),
+            );
+        }
         boot_state.finish_phase_ok("startup_recovery");
 
         // =====================================================================
