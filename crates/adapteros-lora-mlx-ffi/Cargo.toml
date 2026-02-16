@@ -33,7 +33,7 @@ tokio.workspace = true
 futures-util.workspace = true
 uuid.workspace = true
 [build-dependencies]
-bindgen = "0.69"
+bindgen = "0.72"
 cc = "1.0"
 blake3 = { workspace = true }
 [dev-dependencies]
