@@ -13,23 +13,29 @@ use super::state::{CoremlFilterState, CoremlState};
 use super::utils::{format_backend, format_backend_or, format_date};
 
 /// Status filter dropdown
+fn training_status_filter_options() -> Vec<(String, String)> {
+    vec![
+        ("".to_string(), "All Status".to_string()),
+        ("pending".to_string(), "Pending".to_string()),
+        ("running".to_string(), "Running".to_string()),
+        ("completed".to_string(), "Completed".to_string()),
+        ("failed".to_string(), "Failed".to_string()),
+        ("cancelled".to_string(), "Cancelled".to_string()),
+    ]
+}
+
 #[component]
-pub fn StatusFilter(filter: RwSignal<String>) -> impl IntoView {
+pub fn TrainingStatusFilter(filter: RwSignal<String>) -> impl IntoView {
     view! {
         <Select
             value=filter
-            options=vec![
-                ("".to_string(), "All Status".to_string()),
-                ("pending".to_string(), "Pending".to_string()),
-                ("running".to_string(), "Running".to_string()),
-                ("completed".to_string(), "Completed".to_string()),
-                ("failed".to_string(), "Failed".to_string()),
-                ("cancelled".to_string(), "Cancelled".to_string()),
-            ]
+            options=training_status_filter_options()
             class="w-40".to_string()
         />
     }
 }
+
+pub use TrainingStatusFilter as StatusFilter;
 
 /// CoreML filter checkboxes
 #[component]

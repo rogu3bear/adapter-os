@@ -9,6 +9,13 @@ const RECENT_ITEMS_KEY: &str = "adapteros_recent_items";
 #[allow(dead_code)]
 const MAX_RECENT_ITEMS: usize = 20;
 
+fn canonicalize_recent_path(path: &str) -> String {
+    match path {
+        "/dashboard" => "/".to_string(),
+        _ => path.to_string(),
+    }
+}
+
 /// Type of recent item
 #[derive(Debug, Clone, Copy, PartialEq, Eq, Serialize, Deserialize)]
 pub enum RecentItemType {
@@ -62,11 +69,12 @@ impl RecentItem {
         label: impl Into<String>,
         path: impl Into<String>,
     ) -> Self {
+        let path = canonicalize_recent_path(&path.into());
         Self {
             item_type,
             id: id.into(),
             label: label.into(),
-            path: path.into(),
+            path,
             timestamp: current_timestamp(),
             subtitle: None,
         }
@@ -138,8 +146,13 @@ impl RecentItemsManager {
 
     /// Add an item to recents (or move to front if exists)
     pub fn add(&mut self, item: RecentItem) {
+        let mut item = item;
+        item.path = canonicalize_recent_path(&item.path);
+        let canonical_path = item.path.clone();
+
         // Remove existing entry with same path
-        self.items.retain(|i| i.path != item.path);
+        self.items
+            .retain(|i| canonicalize_recent_path(&i.path) != canonical_path);
 
         // Add to front
         self.items.insert(0, item);
@@ -153,7 +166,9 @@ impl RecentItemsManager {
 
     /// Remove an item by path
     pub fn remove(&mut self, path: &str) {
-        self.items.retain(|i| i.path != path);
+        let canonical_path = canonicalize_recent_path(path);
+        self.items
+            .retain(|i| canonicalize_recent_path(&i.path) != canonical_path);
         self.save_to_storage();
     }
 
@@ -170,7 +185,13 @@ impl RecentItemsManager {
             web_sys::window()
                 .and_then(|w| w.local_storage().ok().flatten())
                 .and_then(|s| s.get_item(RECENT_ITEMS_KEY).ok().flatten())
-                .and_then(|json| serde_json::from_str(&json).ok())
+                .and_then(|json| serde_json::from_str::<Vec<RecentItem>>(&json).ok())
+                .map(|mut items| {
+                    for item in &mut items {
+                        item.path = canonicalize_recent_path(&item.path);
+                    }
+                    items
+                })
                 .unwrap_or_default()
         }
         #[cfg(not(target_arch = "wasm32"))]
@@ -215,10 +236,11 @@ mod tests {
 
         manager.add(RecentItem::page("dashboard", "Dashboard", "/dashboard"));
         manager.add(RecentItem::page("adapters", "Adapters", "/adapters"));
-        manager.add(RecentItem::page("dashboard", "Dashboard", "/dashboard")); // Duplicate
+        manager.add(RecentItem::page("dashboard", "Dashboard", "/")); // Duplicate
 
         assert_eq!(manager.items.len(), 2);
         assert_eq!(manager.items[0].id, "dashboard"); // Should be first (most recent)
+        assert_eq!(manager.items[0].path, "/");
     }
 
     #[test]

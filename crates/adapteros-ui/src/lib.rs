@@ -162,11 +162,9 @@ pub fn App() -> impl IntoView {
     view! {
         <>
             <AuthProvider>
-                <NotificationsProvider>
+                <AppProviders>
                     <SearchProvider>
-                        <ChatProvider>
-                            <RefetchProvider>
-                                <InFlightProvider>
+                        <InFlightProvider>
                                 <RouteErrorBoundary>
                                 <Router>
                             // Toast container for app-wide notifications
@@ -231,11 +229,9 @@ pub fn App() -> impl IntoView {
                             <CommandPalette/>
                                 </Router>
                                 </RouteErrorBoundary>
-                                </InFlightProvider>
-                            </RefetchProvider>
-                        </ChatProvider>
+                        </InFlightProvider>
                     </SearchProvider>
-                </NotificationsProvider>
+                </AppProviders>
             </AuthProvider>
         </>
     }
@@ -268,14 +264,10 @@ fn BaseUrlError(reason: String) -> impl IntoView {
 }
 
 #[component]
-fn ChatProvider(children: Children) -> impl IntoView {
-    provide_chat_context();
-    children()
-}
-
-#[component]
-fn NotificationsProvider(children: Children) -> impl IntoView {
+fn AppProviders(children: Children) -> impl IntoView {
     provide_notifications_context();
+    provide_chat_context();
+    provide_refetch_context();
     children()
 }
 
@@ -283,12 +275,6 @@ fn NotificationsProvider(children: Children) -> impl IntoView {
 fn SearchProvider(children: Children) -> impl IntoView {
     let client = Arc::new(ApiClient::new());
     provide_search_context(client);
-    children()
-}
-
-#[component]
-fn RefetchProvider(children: Children) -> impl IntoView {
-    provide_refetch_context();
     children()
 }
 

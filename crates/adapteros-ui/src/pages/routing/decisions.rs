@@ -729,6 +729,20 @@ fn DebugResult(response: RoutingDebugResponse) -> impl IntoView {
         .map(|s| view! { <AdapterScoreRow score=s.clone()/> })
         .collect();
     let explanation = response.explanation.clone();
+    let entropy_hint = if response.entropy > 2.0 {
+        "High uncertainty. Consider tightening routing rules or adding higher-signal adapters."
+    } else if response.entropy > 1.5 {
+        "Moderate uncertainty. Review features and top scores before promoting this behavior."
+    } else {
+        "Low uncertainty. Routing confidence is relatively strong for this prompt."
+    };
+    let k_hint = if response.k_value <= 1 {
+        "K-value is narrow (1): router is selecting a single adapter path."
+    } else if response.k_value >= 5 {
+        "K-value is broad (5+): router is exploring several adapter candidates."
+    } else {
+        "K-value is balanced: router is mixing a small set of adapters."
+    };
 
     view! {
         <div class="space-y-4 border-t border-border pt-4">
@@ -742,6 +756,10 @@ fn DebugResult(response: RoutingDebugResponse) -> impl IntoView {
                     <span class="text-sm text-muted-foreground">"K-Value:"</span>
                     <Badge variant=BadgeVariant::Secondary>{k_value_str}</Badge>
                 </div>
+            </div>
+            <div class="space-y-1 text-xs text-muted-foreground">
+                <p>{entropy_hint}</p>
+                <p>{k_hint}</p>
             </div>
 
             // Detected features

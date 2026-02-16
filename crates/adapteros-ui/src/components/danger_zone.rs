@@ -41,22 +41,6 @@ pub fn AlertBanner(
     }
 }
 
-/// Warning banner with amber styling (Legacy wrapper).
-#[component]
-pub fn WarningBanner(#[prop(into)] title: String, #[prop(into)] message: String) -> impl IntoView {
-    view! {
-        <AlertBanner title=title message=message variant=BannerVariant::Warning />
-    }
-}
-
-/// Info banner with blue styling (Legacy wrapper).
-#[component]
-pub fn InfoBanner(#[prop(into)] title: String, #[prop(into)] message: String) -> impl IntoView {
-    view! {
-        <AlertBanner title=title message=message variant=BannerVariant::Info />
-    }
-}
-
 /// Container for destructive actions.
 #[component]
 pub fn DangerZone(children: Children) -> impl IntoView {

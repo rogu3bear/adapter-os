@@ -50,26 +50,6 @@ pub fn WorkspaceColumn(
     }
 }
 
-/// Workspace header block.
-#[component]
-pub fn WorkspaceHeader(#[prop(optional, into)] class: String, children: Children) -> impl IntoView {
-    view! {
-        <div class=format!("workspace-header {}", class)>
-            {children()}
-        </div>
-    }
-}
-
-/// Workspace panel block.
-#[component]
-pub fn WorkspacePanel(#[prop(optional, into)] class: String, children: Children) -> impl IntoView {
-    view! {
-        <div class=format!("workspace-panel {}", class)>
-            {children()}
-        </div>
-    }
-}
-
 /// Two-column workspace layout.
 #[component]
 pub fn WorkspaceTwoColumn(
@@ -80,19 +60,6 @@ pub fn WorkspaceTwoColumn(
     let ratio_class = ratio.unwrap_or(TwoColumnRatio::OneTwo).class();
     view! {
         <div class=format!("workspace-two-col {} {}", ratio_class, class)>
-            {children()}
-        </div>
-    }
-}
-
-/// Three-column workspace layout.
-#[component]
-pub fn WorkspaceThreeColumn(
-    #[prop(optional, into)] class: String,
-    children: Children,
-) -> impl IntoView {
-    view! {
-        <div class=format!("workspace-three-col {}", class)>
             {children()}
         </div>
     }

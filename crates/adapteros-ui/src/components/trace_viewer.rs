@@ -130,11 +130,11 @@ pub fn TraceViewer(
                 }.into_any(),
 
                 TraceViewState::Detail(detail) => view! {
-                    <TraceDetail
+                    <TraceDetailView
                         trace=(*detail).clone()
                         expanded_tokens=expanded_tokens
                         set_expanded_tokens=set_expanded_tokens
-                        on_back=move || set_selected_trace_id.set(None)
+                        on_back=Some(Callback::new(move |_| set_selected_trace_id.set(None)))
                         compact=compact
                     />
                 }.into_any(),
@@ -254,28 +254,37 @@ fn TraceListItem(
 
 /// Detailed trace view with timeline
 #[component]
-fn TraceDetail(
+fn TraceDetailView(
     trace: UiInferenceTraceDetailResponse,
     expanded_tokens: ReadSignal<bool>,
     set_expanded_tokens: WriteSignal<bool>,
-    on_back: impl Fn() + 'static,
+    #[prop(default = None)] on_back: Option<Callback<()>>,
     #[prop(optional)] compact: bool,
 ) -> impl IntoView {
     let heading_class = if compact { "heading-4" } else { "heading-3" };
+    let left_header_class = if on_back.is_some() {
+        "flex items-center gap-3"
+    } else {
+        ""
+    };
 
     view! {
         <div class="space-y-4">
-            // Header with back button
+            // Header
             <div class="flex items-center justify-between">
-                <div class="flex items-center gap-3">
-                    <button
-                        class="p-1 rounded hover:bg-accent transition-colors"
-                        on:click=move |_| on_back()
-                    >
-                        <svg class="w-5 h-5" fill="none" stroke="currentColor" viewBox="0 0 24 24">
-                            <path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M15 19l-7-7 7-7"/>
-                        </svg>
-                    </button>
+                <div class=left_header_class>
+                    {on_back.clone().map(|back| {
+                        view! {
+                            <button
+                                class="p-1 rounded hover:bg-accent transition-colors"
+                                on:click=move |_| back.run(())
+                            >
+                                <svg class="w-5 h-5" fill="none" stroke="currentColor" viewBox="0 0 24 24">
+                                    <path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M15 19l-7-7 7-7"/>
+                                </svg>
+                            </button>
+                        }
+                    })}
                     <div>
                         <h3 class=heading_class>"Trace Details"</h3>
                         <span class="font-mono text-xs text-muted-foreground">{trace.trace_id.clone()}</span>
@@ -904,7 +913,7 @@ fn TraceViewerInner(trace_id: String, #[prop(optional)] compact: bool) -> impl I
                 }.into_any(),
 
                 TraceViewState::Detail(detail) => view! {
-                    <TraceDetailStandalone
+                    <TraceDetailView
                         trace=(*detail).clone()
                         expanded_tokens=expanded_tokens
                         set_expanded_tokens=set_expanded_tokens
@@ -936,52 +945,13 @@ pub fn TraceDetailStandalone(
     set_expanded_tokens: WriteSignal<bool>,
     #[prop(optional)] compact: bool,
 ) -> impl IntoView {
-    let heading_class = if compact { "heading-4" } else { "heading-3" };
-
     view! {
-        <div class="space-y-4">
-            // Header
-            <div class="flex items-center justify-between">
-                <div>
-                    <h3 class=heading_class>"Trace Details"</h3>
-                    <span class="font-mono text-xs text-muted-foreground">{trace.trace_id.clone()}</span>
-                </div>
-                <div class="text-right text-sm text-muted-foreground">
-                    {trace.created_at.clone()}
-                </div>
-            </div>
-
-            // Latency metrics
-            <LatencyMetrics breakdown=trace.timing_breakdown.clone() compact=compact/>
-
-            // Timeline visualization
-            <TimelineVisualization breakdown=trace.timing_breakdown.clone() compact=compact/>
-
-            // Adapters used
-            <AdaptersList adapters=trace.adapters_used.clone() compact=compact/>
-
-            // Token decisions (expandable, paged)
-            {if !trace.token_decisions.is_empty() {
-                Some(view! {
-                    <TokenDecisionsPaged
-                        trace_id=trace.trace_id.clone()
-                        initial_decisions=trace.token_decisions.clone()
-                        initial_next_cursor=trace.token_decisions_next_cursor
-                        initial_has_more=trace.token_decisions_has_more
-                        expanded=expanded_tokens
-                        set_expanded=set_expanded_tokens
-                        compact=compact
-                    />
-                })
-            } else {
-                None
-            }}
-
-            // Receipt verification
-            {trace.receipt.clone().map(|r| view! {
-                <ReceiptVerification receipt=r compact=compact/>
-            })}
-        </div>
+        <TraceDetailView
+            trace=trace
+            expanded_tokens=expanded_tokens
+            set_expanded_tokens=set_expanded_tokens
+            compact=compact
+        />
     }
 }
 
@@ -1012,7 +982,7 @@ pub fn TraceViewerWithData(
                     </div>
                 }.into_any(),
                 LoadingState::Loaded(detail) => view! {
-                    <TraceDetailStandalone
+                    <TraceDetailView
                         trace=detail.clone()
                         expanded_tokens=expanded_tokens
                         set_expanded_tokens=set_expanded_tokens

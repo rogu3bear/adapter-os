@@ -80,7 +80,7 @@ impl DefaultPage {
 
     pub fn path(&self) -> &'static str {
         match self {
-            DefaultPage::Dashboard => "/dashboard",
+            DefaultPage::Dashboard => "/",
             DefaultPage::Adapters => "/adapters",
             DefaultPage::Chat => "/chat",
             DefaultPage::Training => "/training",

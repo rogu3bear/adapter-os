@@ -126,7 +126,7 @@ pub fn Diff() -> impl IntoView {
                             <RunSelector
                                 runs=runs
                                 selected=run_a_id
-                                exclude=run_b_id
+                                exclude=Signal::derive(move || run_b_id.try_get().unwrap_or_default())
                             />
                         </div>
                         // Run B selector
@@ -135,7 +135,7 @@ pub fn Diff() -> impl IntoView {
                             <RunSelector
                                 runs=runs
                                 selected=run_b_id
-                                exclude=run_a_id
+                                exclude=Signal::derive(move || run_a_id.try_get().unwrap_or_default())
                             />
                         </div>
                     </div>
@@ -197,10 +197,10 @@ pub fn Diff() -> impl IntoView {
 }
 
 #[component]
-fn RunSelector(
+pub(crate) fn RunSelector(
     runs: ReadSignal<LoadingState<ListDiagRunsResponse>>,
     selected: RwSignal<String>,
-    exclude: RwSignal<String>,
+    exclude: Signal<String>,
 ) -> impl IntoView {
     view! {
         <select

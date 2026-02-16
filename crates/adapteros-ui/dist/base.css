@@ -99,6 +99,14 @@
     --tracking-normal: 0;
     --tracking-wide: 0.025em;
     --tracking-wider: 0.05em;
+    --line-height-body: 1.58;
+    --line-height-heading: 1.22;
+    --line-height-compact: 1.4;
+    --surface-border-muted: hsl(214 32% 88% / 0.9);
+    --surface-shadow-sm: 0 1px 2px hsl(222 47% 11% / 0.06),
+        0 6px 16px hsl(222 47% 11% / 0.04);
+    --surface-shadow-md: 0 2px 4px hsl(222 47% 11% / 0.08),
+        0 12px 28px hsl(222 47% 11% / 0.08);
 }
 
 /* Dark mode */
@@ -179,6 +187,11 @@
     /* Disabled state colors (WCAG AA compliant - maintains ~4:1 contrast) */
     --color-disabled: hsl(217 20% 24%);
     --color-disabled-foreground: hsl(215 12% 50%);
+    --surface-border-muted: hsl(217 22% 28% / 0.95);
+    --surface-shadow-sm: 0 1px 2px hsl(220 62% 2% / 0.45),
+        0 10px 22px hsl(220 62% 2% / 0.32);
+    --surface-shadow-md: 0 2px 4px hsl(220 62% 2% / 0.55),
+        0 14px 32px hsl(220 62% 2% / 0.44);
 }
 
 /* ===== CSS Reset ===== */
@@ -194,15 +207,18 @@
 
 html {
     font-family: var(--font-sans);
-    line-height: 1.5;
+    line-height: var(--line-height-body);
     -webkit-font-smoothing: antialiased;
     -moz-osx-font-smoothing: grayscale;
+    text-size-adjust: 100%;
 }
 
 body {
     background-color: var(--color-background);
     color: var(--color-foreground);
     min-height: 100vh;
+    line-height: var(--line-height-body);
+    letter-spacing: 0.002em;
 }
 
 img, picture, video, canvas, svg {
@@ -212,6 +228,15 @@ img, picture, video, canvas, svg {
 
 input, button, textarea, select {
     font: inherit;
+}
+
+p {
+    line-height: var(--line-height-body);
+}
+
+h1, h2, h3, h4, h5, h6 {
+    line-height: var(--line-height-heading);
+    text-wrap: balance;
 }
 
 p, h1, h2, h3, h4, h5, h6 {
