@@ -1235,9 +1235,29 @@ fn SessionListPanel(
                             }.into_any();
                         }
                         if items.is_empty() {
+                            let create_session_shared = create_session.clone();
                             return view! {
-                                <div class="p-6 text-center">
-                                    <p class="text-xs text-muted-foreground">"No sessions shared with you"</p>
+                                <div class="p-6 text-center space-y-2">
+                                    <p class="text-xs text-muted-foreground">"No sessions shared with you yet"</p>
+                                    <div class="flex items-center justify-center gap-2">
+                                        <Button
+                                            variant=ButtonVariant::Ghost
+                                            size=ButtonSize::Sm
+                                            on_click=Callback::new(move |_| {
+                                                show_shared.set(false);
+                                                show_archived.set(false);
+                                            })
+                                        >
+                                            "View active sessions"
+                                        </Button>
+                                        <Button
+                                            variant=ButtonVariant::Secondary
+                                            size=ButtonSize::Sm
+                                            on_click=Callback::new(move |_| create_session_shared.run(()))
+                                        >
+                                            "New session"
+                                        </Button>
+                                    </div>
                                 </div>
                             }.into_any();
                         }
@@ -1263,19 +1283,52 @@ fn SessionListPanel(
                     let showing_archived = show_archived.try_get().unwrap_or(false);
                     let list = filtered_sessions.try_get().unwrap_or_default();
                     if list.is_empty() {
+                        let create_session_empty = create_session.clone();
+                        let has_search = !search_query.try_get().unwrap_or_default().is_empty();
+                        let message = if has_search {
+                            "No matching sessions"
+                        } else if showing_archived {
+                            "No archived sessions"
+                        } else {
+                            "No sessions yet"
+                        };
                         view! {
-                            <div class="p-6 text-center">
-                                <p class="text-xs text-muted-foreground">
-                                    {move || if search_query.try_get().unwrap_or_default().is_empty() {
-                                        if show_archived.try_get().unwrap_or(false) {
-                                            "No archived sessions"
-                                        } else {
-                                            "No sessions yet"
-                                        }
-                                    } else {
-                                        "No matching sessions"
-                                    }}
-                                </p>
+                            <div class="p-6 text-center space-y-2">
+                                <p class="text-xs text-muted-foreground">{message}</p>
+                                {if has_search {
+                                    view! {
+                                        <Button
+                                            variant=ButtonVariant::Ghost
+                                            size=ButtonSize::Sm
+                                            on_click=Callback::new(move |_| search_query.set(String::new()))
+                                        >
+                                            "Clear search"
+                                        </Button>
+                                    }.into_any()
+                                } else if showing_archived {
+                                    view! {
+                                        <Button
+                                            variant=ButtonVariant::Ghost
+                                            size=ButtonSize::Sm
+                                            on_click=Callback::new(move |_| {
+                                                show_archived.set(false);
+                                                show_shared.set(false);
+                                            })
+                                        >
+                                            "View active sessions"
+                                        </Button>
+                                    }.into_any()
+                                } else {
+                                    view! {
+                                        <Button
+                                            variant=ButtonVariant::Secondary
+                                            size=ButtonSize::Sm
+                                            on_click=Callback::new(move |_| create_session_empty.run(()))
+                                        >
+                                            "New session"
+                                        </Button>
+                                    }.into_any()
+                                }}
                             </div>
                         }.into_any()
                     } else {
