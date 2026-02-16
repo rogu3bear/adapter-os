@@ -1,6 +1,6 @@
 //! Routing Decisions page
 //!
-//! View and debug K-sparse routing decisions with filtering and chain visualization.
+//! View and inspect K-sparse routing decisions with filtering and chain visualization.
 
 use crate::api::{
     AdapterScoreResponse, ApiClient, RoutingCandidateResponse, RoutingDebugRequest,
@@ -74,7 +74,7 @@ pub fn RoutingDecisions() -> impl IntoView {
                                 <div>
                                     <h2 class="heading-2">"Routing Decisions"</h2>
                                     <p class="text-muted-foreground mt-1">
-                                        "K-sparse adapter routing decisions and debugging"
+                                        "Review recent routing outcomes and inspect advanced diagnostics"
                                     </p>
                                 </div>
                                 <div class="flex items-center gap-2">
@@ -82,7 +82,7 @@ pub fn RoutingDecisions() -> impl IntoView {
                                         variant=ButtonVariant::Outline
                                         on_click=Callback::new(move |_| show_debug_panel.update(|v| *v = !*v))
                                     >
-                                        {move || if show_debug_panel.try_get().unwrap_or(false) { "Hide Debug" } else { "Debug Router" }}
+                                        {move || if show_debug_panel.try_get().unwrap_or(false) { "Hide Lab" } else { "Routing Lab" }}
                                     </Button>
                                     <Button
                                         variant=ButtonVariant::Outline
@@ -638,8 +638,11 @@ fn DebugPanel() -> impl IntoView {
     };
 
     view! {
-        <Card title="Debug Router".to_string()>
+        <Card title="Routing Lab (Advanced)".to_string()>
             <div class="space-y-4">
+                <p class="text-xs text-muted-foreground">
+                    "Use this tool to probe adapter selection for a prompt. Entropy above 1.5 suggests higher routing uncertainty."
+                </p>
                 // Prompt input
                 <Textarea
                     value=prompt
@@ -666,7 +669,7 @@ fn DebugPanel() -> impl IntoView {
                             disabled=is_disabled
                             on_click=Callback::new(on_debug)
                         >
-                            "Debug Routing"
+                            "Run Routing Probe"
                         </Button>
                     }
                 }}
