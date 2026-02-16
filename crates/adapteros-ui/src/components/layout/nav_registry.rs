@@ -343,7 +343,7 @@ static NAV_GROUPS_FULL: &[NavGroup] = &[
         icon: ICON_BUILDING,
         alt_shortcut: Some(8),
         items: &[
-            NavItem::new("agents", "Agents", "/agents").with_keywords(&[
+            NavItem::new("agents", "Agents (Beta)", "/agents").with_keywords(&[
                 "orchestration",
                 "multi-agent",
                 "executor",
@@ -477,6 +477,12 @@ static NAV_GROUPS_PRIMARY: &[NavGroup] = &[
                 "compute",
                 "nodes",
                 "process",
+            ]),
+            NavItem::new("system", "System", "/system").with_keywords(&[
+                "health",
+                "status",
+                "diagnostics",
+                "infrastructure",
             ]),
         ],
         collapsed_by_default: false,

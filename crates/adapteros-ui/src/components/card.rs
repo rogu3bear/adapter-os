@@ -44,36 +44,3 @@ pub fn Card(
         </div>
     }
 }
-
-/// Card header component
-#[component]
-pub fn CardHeader(#[prop(optional, into)] class: String, children: Children) -> impl IntoView {
-    let full_class = format!("card-header {}", class);
-    view! {
-        <div class=full_class>
-            {children()}
-        </div>
-    }
-}
-
-/// Card content component
-#[component]
-pub fn CardContent(#[prop(optional, into)] class: String, children: Children) -> impl IntoView {
-    let full_class = format!("card-content {}", class);
-    view! {
-        <div class=full_class>
-            {children()}
-        </div>
-    }
-}
-
-/// Card footer component
-#[component]
-pub fn CardFooter(#[prop(optional, into)] class: String, children: Children) -> impl IntoView {
-    let full_class = format!("card-footer {}", class);
-    view! {
-        <div class=full_class>
-            {children()}
-        </div>
-    }
-}

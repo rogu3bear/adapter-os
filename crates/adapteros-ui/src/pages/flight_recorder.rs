@@ -20,6 +20,7 @@ use crate::components::{
 use crate::components::{ButtonSize, Input};
 use crate::constants::pagination::TOKEN_DECISIONS_PAGE_SIZE;
 use crate::hooks::{use_api_resource, use_list_controls, use_polling, LoadingState};
+use crate::pages::diff::RunSelector;
 use crate::signals::{perf_logging_enabled, use_notifications, use_ui_profile, NotificationAction};
 use adapteros_api_types::diagnostics::{
     DiagDiffRequest, DiagDiffResponse, DiagEventResponse, DiagExportResponse, DiagRunResponse,
@@ -82,7 +83,17 @@ pub fn FlightRecorder() -> impl IntoView {
             ]
         >
             <PageScaffoldActions slot>
-                <StatusFilter filter=status_filter/>
+                <Select
+                    value=status_filter
+                    options=vec![
+                        ("".to_string(), "All Statuses".to_string()),
+                        ("running".to_string(), "Running".to_string()),
+                        ("completed".to_string(), "Completed".to_string()),
+                        ("failed".to_string(), "Failed".to_string()),
+                        ("cancelled".to_string(), "Cancelled".to_string()),
+                    ]
+                    class="w-40".to_string()
+                />
             </PageScaffoldActions>
 
             <SplitPanel
@@ -186,24 +197,6 @@ pub fn FlightRecorderDetail() -> impl IntoView {
                 }
             }}
         </PageScaffold>
-    }
-}
-
-/// Status filter dropdown
-#[component]
-fn StatusFilter(filter: RwSignal<String>) -> impl IntoView {
-    view! {
-        <Select
-            value=filter
-            options=vec![
-                ("".to_string(), "All Statuses".to_string()),
-                ("running".to_string(), "Running".to_string()),
-                ("completed".to_string(), "Completed".to_string()),
-                ("failed".to_string(), "Failed".to_string()),
-                ("cancelled".to_string(), "Cancelled".to_string()),
-            ]
-            class="w-40".to_string()
-        />
     }
 }
 
@@ -2255,10 +2248,13 @@ fn DiffTab(export: DiagExportResponse, compare_trace: Option<String>) -> impl In
                         </div>
                         <div>
                             <p class="text-xs text-muted-foreground uppercase tracking-wide mb-1">"Run B (comparison)"</p>
-                            <RunCompareSelector
+                            <RunSelector
                                 runs=runs
                                 selected=run_b_trace_id
-                                exclude=run_a_trace_id.clone()
+                                exclude=Signal::derive({
+                                    let run_a_trace_id = run_a_trace_id.clone();
+                                    move || run_a_trace_id.clone()
+                                })
                             />
                         </div>
                     </div>
@@ -2314,45 +2310,6 @@ fn DiffTab(export: DiagExportResponse, compare_trace: Option<String>) -> impl In
                 }
             }}
         </div>
-    }
-}
-
-#[component]
-fn RunCompareSelector(
-    runs: ReadSignal<LoadingState<ListDiagRunsResponse>>,
-    selected: RwSignal<String>,
-    exclude: String,
-) -> impl IntoView {
-    view! {
-        <select
-            class="flex h-10 w-full rounded-md border border-input bg-background px-3 py-2 text-sm"
-            on:change=move |ev| selected.set(event_target_value(&ev))
-            prop:value=move || selected.try_get().unwrap_or_default()
-        >
-            <option value="">"-- Select a run --"</option>
-            {move || {
-                match runs.try_get().unwrap_or_default() {
-                    LoadingState::Loaded(data) => {
-                        data.runs
-                            .into_iter()
-                            .filter(|r| r.trace_id != exclude)
-                            .map(|run| {
-                                let trace_id = run.trace_id.clone();
-                                let label = format!(
-                                    "{} - {} ({})",
-                                    run.trace_id.chars().take(12).collect::<String>(),
-                                    run.status,
-                                    run.created_at
-                                );
-                                view! { <option value=trace_id.clone()>{label}</option> }.into_any()
-                            })
-                            .collect::<Vec<_>>()
-                    }
-                    LoadingState::Loading => vec![view! { <option value="">"Loading..."</option> }.into_any()],
-                    _ => vec![view! { <option value="">"No runs available"</option> }.into_any()],
-                }
-            }}
-        </select>
     }
 }
 

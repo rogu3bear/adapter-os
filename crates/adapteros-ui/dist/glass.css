@@ -112,6 +112,10 @@
     --action-destructive-border: color-mix(in srgb, var(--color-destructive) 32%, var(--glass-border));
     --action-destructive-glow: 0 0 20px color-mix(in srgb, var(--color-destructive) 26%, transparent);
     --action-outline-border: var(--glass-border);
+    --glass-field-bg: color-mix(in srgb, var(--glass-bg-1) 88%, var(--color-background));
+    --glass-field-border: color-mix(in srgb, var(--glass-border) 92%, var(--color-border));
+    --glass-table-bg: color-mix(in srgb, var(--glass-bg-2) 86%, var(--color-card));
+    --glass-table-header-bg: color-mix(in srgb, var(--glass-bg-1) 82%, var(--color-muted));
 }
 
 /* ===== Feature Detection with Fallback ===== */
@@ -119,6 +123,7 @@
     .theme-glass header,
     .theme-glass nav,
     .theme-glass .input,
+    .theme-glass .select,
     .theme-glass textarea {
         backdrop-filter: blur(var(--glass-blur-1)) saturate(var(--glass-saturation));
         -webkit-backdrop-filter: blur(var(--glass-blur-1)) saturate(var(--glass-saturation));
@@ -126,6 +131,9 @@
     .theme-glass .card,
     .theme-glass aside,
     .theme-glass .btn-ghost,
+    .theme-glass .table-wrapper,
+    .theme-glass .workspace-panel,
+    .theme-glass .workspace-header,
     .theme-glass .table-row:hover {
         backdrop-filter: blur(var(--glass-blur)) saturate(var(--glass-saturation));
         -webkit-backdrop-filter: blur(var(--glass-blur)) saturate(var(--glass-saturation));
@@ -142,7 +150,10 @@
     .theme-glass .dialog-content,
     .theme-glass header,
     .theme-glass nav,
-    .theme-glass aside {
+    .theme-glass aside,
+    .theme-glass .table-wrapper,
+    .theme-glass .workspace-panel,
+    .theme-glass .workspace-header {
         background-color: var(--color-background);
         opacity: 0.98;
     }
@@ -152,7 +163,7 @@
 
 /* Card Component */
 .theme-glass .card {
-    background: var(--glass-bg-2);
+    background: color-mix(in srgb, var(--glass-bg-2) 88%, var(--color-card));
     border: 1px solid var(--glass-border);
     box-shadow: var(--glass-shadow-md);
     position: relative;
@@ -295,14 +306,16 @@
 
 /* Input and Textarea */
 .theme-glass .input,
+.theme-glass .select,
 .theme-glass textarea {
-    background: var(--glass-bg-1);
-    border: 1px solid var(--glass-border);
+    background: var(--glass-field-bg);
+    border: 1px solid var(--glass-field-border);
     box-shadow: inset 0 1px 2px hsla(220, 60%, 50%, 0.05);
     transition: all 200ms ease;
 }
 
 .theme-glass .input:focus,
+.theme-glass .select:focus,
 .theme-glass textarea:focus {
     border-color: hsla(220, 80%, 60%, 0.5);
     box-shadow: inset 0 1px 2px hsla(220, 60%, 50%, 0.05),
@@ -311,9 +324,27 @@
 
 /* Ghost Button - styles defined in components.css, glass blur applied via @supports above */
 
+/* Table surface */
+.theme-glass .table-wrapper {
+    background: var(--glass-table-bg);
+    border-color: var(--glass-border);
+}
+
+.theme-glass .table-header tr {
+    background: var(--glass-table-header-bg);
+    border-bottom-color: color-mix(in srgb, var(--glass-border) 86%, var(--color-border));
+}
+
 /* Table Row Hover */
 .theme-glass .table-row:hover {
-    background: var(--glass-bg-1);
+    background: color-mix(in srgb, var(--glass-bg-1) 90%, transparent);
+}
+
+/* Workspace surfaces */
+.theme-glass .workspace-panel,
+.theme-glass .workspace-header {
+    background: color-mix(in srgb, var(--glass-bg-2) 84%, var(--color-card));
+    border-color: color-mix(in srgb, var(--glass-border) 88%, var(--color-border));
 }
 
 /* ===== Elevation System ===== */
@@ -540,15 +571,15 @@ textarea,
 .theme-glass {
     /* Light mode: Darker text for better contrast on light glass */
     --glass-text-primary: hsl(222.2 84% 4.9%);           /* #0a0e1a - 15.8:1 on white */
-    --glass-text-secondary: hsl(215.4 25% 27%);          /* #363f4f - 8.5:1 on white */
-    --glass-text-muted: hsl(215.4 16.3% 38%);            /* #4d5766 - 5.7:1 on white */
+    --glass-text-secondary: hsl(218 22% 24%);            /* stronger secondary contrast */
+    --glass-text-muted: hsl(216 15% 32%);                /* stronger muted contrast */
 }
 
 .dark.theme-glass {
     /* Dark mode: Lighter text for better contrast on dark glass */
     --glass-text-primary: hsl(210 40% 98%);              /* #f5f7fa - 16.2:1 on dark bg */
-    --glass-text-secondary: hsl(215 20.2% 75%);          /* #b5bcc7 - 8.1:1 on dark bg */
-    --glass-text-muted: hsl(215 20.2% 65.1%);            /* #8f99a8 - 5.3:1 on dark bg */
+    --glass-text-secondary: hsl(215 20% 82%);            /* stronger secondary contrast */
+    --glass-text-muted: hsl(215 19% 74%);                /* stronger muted contrast */
 }
 
 /* Apply high-contrast colors to text on glass elements */
@@ -556,7 +587,10 @@ textarea,
 .theme-glass .dialog-content,
 .theme-glass header,
 .theme-glass nav,
-.theme-glass aside {
+.theme-glass aside,
+.theme-glass .table-wrapper,
+.theme-glass .workspace-panel,
+.theme-glass .workspace-header {
     color: var(--glass-text-primary);
 }
 
@@ -573,14 +607,14 @@ textarea,
 .theme-glass h1,
 .theme-glass h2,
 .theme-glass h3 {
-    text-shadow: 0 0 1px var(--color-background);
+    text-shadow: 0 1px 0 color-mix(in srgb, var(--color-background) 65%, transparent);
     color: var(--glass-text-primary);
 }
 
 /* Small text gets a more opaque background to ensure readability */
 .theme-glass .text-xs,
 .theme-glass .text-sm {
-    text-shadow: 0 0 2px var(--color-background);
+    text-shadow: none;
 }
 
 /* Ensure status badges remain readable on glass */
@@ -592,7 +626,7 @@ textarea,
 /* Form labels need extra contrast on glass backgrounds */
 .theme-glass .label,
 .theme-glass label {
-    text-shadow: 0 0 1px var(--color-background);
+    text-shadow: none;
     color: var(--glass-text-primary);
 }
 
@@ -604,12 +638,13 @@ textarea,
 
 /* Table cells with important data should have subtle backing */
 .theme-glass .table-cell {
-    text-shadow: 0 0 1px var(--color-background);
+    text-shadow: none;
 }
 
 /* Table header cells need good contrast */
 .theme-glass .table-header-cell {
     color: var(--glass-text-secondary);
+    font-weight: 600;
 }
 
 /* Muted foreground text needs higher opacity on glass for readability */
@@ -622,7 +657,7 @@ textarea,
 .theme-glass .text-status-warning,
 .theme-glass .text-status-success,
 .theme-glass .text-status-info {
-    text-shadow: 0 0 2px var(--color-background);
+    text-shadow: 0 1px 0 color-mix(in srgb, var(--color-background) 55%, transparent);
     font-weight: 500; /* Slightly heavier for better readability */
 }
 

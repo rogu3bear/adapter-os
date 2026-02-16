@@ -74,7 +74,17 @@ pub fn Repositories() -> impl IntoView {
             ]
         >
             <PageScaffoldActions slot>
-                <StatusFilter filter=status_filter/>
+                <Select
+                    value=status_filter
+                    options=vec![
+                        ("".to_string(), "All Status".to_string()),
+                        ("active".to_string(), "Active".to_string()),
+                        ("scanning".to_string(), "Scanning".to_string()),
+                        ("pending".to_string(), "Pending".to_string()),
+                        ("error".to_string(), "Error".to_string()),
+                    ]
+                    class="w-40".to_string()
+                />
                 <Button
                     variant=ButtonVariant::Primary
                     on_click=Callback::new(move |_| register_dialog_open.set(true))
@@ -188,23 +198,5 @@ pub fn RepositoryDetail() -> impl IntoView {
                 }
             }}
         </PageScaffold>
-    }
-}
-
-/// Status filter dropdown
-#[component]
-fn StatusFilter(filter: RwSignal<String>) -> impl IntoView {
-    view! {
-        <Select
-            value=filter
-            options=vec![
-                ("".to_string(), "All Status".to_string()),
-                ("active".to_string(), "Active".to_string()),
-                ("scanning".to_string(), "Scanning".to_string()),
-                ("pending".to_string(), "Pending".to_string()),
-                ("error".to_string(), "Error".to_string()),
-            ]
-            class="w-40".to_string()
-        />
     }
 }

@@ -10,10 +10,10 @@ use crate::components::charts::{
 };
 use crate::components::trace_viewer::TraceDetailStandalone;
 use crate::components::{
-    Badge, BadgeVariant, Button, ButtonSize, ButtonVariant, Card, ConfirmationDialog,
-    ConfirmationSeverity, DangerZone, DangerZoneItem, Dialog, ErrorDisplay, FormField, InfoBanner,
-    Input, Spinner, StatusColor, StatusIndicator, Table, TableBody, TableCell, TableHead,
-    TableHeader, TableRow, Textarea, Toggle, WarningBanner,
+    AlertBanner, Badge, BadgeVariant, BannerVariant, Button, ButtonSize, ButtonVariant, Card,
+    ConfirmationDialog, ConfirmationSeverity, DangerZone, DangerZoneItem, Dialog, ErrorDisplay,
+    FormField, Input, Spinner, StatusColor, StatusIndicator, Table, TableBody, TableCell,
+    TableHead, TableHeader, TableRow, Textarea, Toggle,
 };
 use crate::constants::pagination::TOKEN_DECISIONS_PAGE_SIZE;
 use crate::hooks::{use_api_resource, LoadingState};
@@ -27,8 +27,11 @@ use std::sync::Arc;
 #[component]
 pub fn StyleAudit() -> impl IntoView {
     let (auth_state, _) = use_auth();
-    let is_authenticated =
-        Signal::derive(move || auth_state.try_get().is_some_and(|state| state.is_authenticated()));
+    let is_authenticated = Signal::derive(move || {
+        auth_state
+            .try_get()
+            .is_some_and(|state| state.is_authenticated())
+    });
 
     // Theme state for toggling
     let is_dark = RwSignal::new(false);
@@ -61,10 +64,18 @@ pub fn StyleAudit() -> impl IntoView {
     let toggle_checked = RwSignal::new(false);
 
     // Fetch health metrics for live charts
-    let (health_metrics, _refetch_health) =
-        use_api_resource(move |client: Arc<ApiClient>| async move {
-            client.get_process_health_metrics(None).await
-        });
+    let (health_metrics, refetch_health) = use_api_resource({
+        move |client: Arc<ApiClient>| {
+            let authed = is_authenticated.try_get().unwrap_or(false);
+            async move {
+                if authed {
+                    client.get_process_health_metrics(None).await
+                } else {
+                    Ok(Vec::new())
+                }
+            }
+        }
+    });
 
     let chart_payload =
         Memo::new(
@@ -92,17 +103,26 @@ pub fn StyleAudit() -> impl IntoView {
     let requested_trace_id = RwSignal::new(String::new());
 
     // Fetch recent traces on mount, auto-load the first one
-    let (recent_traces, _refetch_traces) =
-        use_api_resource(move |client: Arc<ApiClient>| async move {
-            client.list_inference_traces(None, Some(5)).await
-        });
+    let (recent_traces, refetch_traces) = use_api_resource({
+        move |client: Arc<ApiClient>| {
+            let authed = is_authenticated.try_get().unwrap_or(false);
+            async move {
+                if authed {
+                    client.list_inference_traces(None, Some(5)).await
+                } else {
+                    Ok(Vec::new())
+                }
+            }
+        }
+    });
 
     let (trace_detail, refetch_trace) = use_api_resource({
         move |client: Arc<ApiClient>| {
             let trace_id = requested_trace_id.get_untracked();
+            let authed = is_authenticated.try_get().unwrap_or(false);
             async move {
                 let trace_id = trace_id.trim().to_string();
-                if trace_id.is_empty() {
+                if trace_id.is_empty() || !authed {
                     Ok(None)
                 } else {
                     client
@@ -115,6 +135,29 @@ pub fn StyleAudit() -> impl IntoView {
                         .map(Some)
                 }
             }
+        }
+    });
+    let live_data_bootstrapped = RwSignal::new(false);
+
+    // When auth becomes available after mount, refetch live-backed sections once.
+    Effect::new(move || {
+        let authed = is_authenticated.try_get().unwrap_or(false);
+        if authed {
+            if !live_data_bootstrapped.try_get().unwrap_or(false) {
+                live_data_bootstrapped.set(true);
+                refetch_health.run(());
+                refetch_traces.run(());
+                if !requested_trace_id
+                    .try_get()
+                    .unwrap_or_default()
+                    .trim()
+                    .is_empty()
+                {
+                    refetch_trace.run(());
+                }
+            }
+        } else {
+            live_data_bootstrapped.set(false);
         }
     });
 
@@ -167,9 +210,10 @@ pub fn StyleAudit() -> impl IntoView {
                     } else {
                         Some(view! {
                             <div class="mb-8">
-                                <InfoBanner
+                                <AlertBanner
                                     title="Public page".to_string()
                                     message="Static component previews work without sign-in. Live API-backed examples require an authenticated session."
+                                    variant=BannerVariant::Info
                                 />
                             </div>
                         })
@@ -269,6 +313,16 @@ pub fn StyleAudit() -> impl IntoView {
                                         // No traces available
                                         if let LoadingState::Loaded(traces) = recent_traces.try_get().unwrap_or(LoadingState::Idle) {
                                             if traces.is_empty() && requested_trace_id.try_get().unwrap_or_default().is_empty() {
+                                                if !is_authenticated.try_get().unwrap_or(false) {
+                                                    return view! {
+                                                        <AlertBanner
+                                                            title="Sign in required".to_string()
+                                                            message="Live trace samples are only available in authenticated sessions."
+                                                            variant=BannerVariant::Info
+                                                        />
+                                                    }
+                                                    .into_any();
+                                                }
                                                 return view! {
                                                     <div class="text-sm text-muted-foreground">
                                                         "No inference traces available. Run an inference to generate traces."
@@ -283,9 +337,10 @@ pub fn StyleAudit() -> impl IntoView {
                                             if requested_trace_id.try_get().unwrap_or_default().is_empty() {
                                                 if err.requires_auth() {
                                                     return view! {
-                                                        <InfoBanner
+                                                        <AlertBanner
                                                             title="Sign in required".to_string()
                                                             message="Live trace samples are only available in authenticated sessions."
+                                                            variant=BannerVariant::Info
                                                         />
                                                     }
                                                     .into_any();
@@ -324,19 +379,21 @@ pub fn StyleAudit() -> impl IntoView {
                                                 }
                                                 .into_any(),
                                                 LoadingState::Loaded(None) => view! {
-                                                    <WarningBanner
+                                                    <AlertBanner
                                                         title="No trace data".to_string()
                                                         message="No trace returned for that ID."
                                                             .to_string()
+                                                        variant=BannerVariant::Warning
                                                     />
                                                 }
                                                 .into_any(),
                                                 LoadingState::Error(err) => view! {
                                                     {if err.requires_auth() {
                                                         view! {
-                                                            <InfoBanner
+                                                            <AlertBanner
                                                                 title="Sign in required".to_string()
                                                                 message="Live trace detail is only available in authenticated sessions."
+                                                                variant=BannerVariant::Info
                                                             />
                                                         }.into_any()
                                                     } else {
@@ -539,13 +596,25 @@ pub fn StyleAudit() -> impl IntoView {
                     // ===== BANNERS =====
                     <ComponentSection title="Banners">
                         <div class="space-y-4 max-w-2xl">
-                            <InfoBanner
+                            <AlertBanner
                                 title="Information".to_string()
                                 message="This is an informational message for the user."
+                                variant=BannerVariant::Info
                             />
-                            <WarningBanner
+                            <AlertBanner
                                 title="Warning".to_string()
                                 message="This action may have unintended consequences."
+                                variant=BannerVariant::Warning
+                            />
+                            <AlertBanner
+                                title="Success".to_string()
+                                message="Configuration was saved and propagated to workers."
+                                variant=BannerVariant::Success
+                            />
+                            <AlertBanner
+                                title="Error".to_string()
+                                message="Unable to complete the operation. Retry or inspect logs."
+                                variant=BannerVariant::Error
                             />
                         </div>
                     </ComponentSection>

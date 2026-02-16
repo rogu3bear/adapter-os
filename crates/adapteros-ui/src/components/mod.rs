@@ -82,9 +82,7 @@ pub use confirmation_dialog::{
     ConfirmationDialog, ConfirmationSeverity, ImpactItem, SimpleConfirmDialog,
 };
 pub use copyable_id::CopyableId;
-pub use danger_zone::{
-    AlertBanner, BannerVariant, DangerZone, DangerZoneItem, InfoBanner, WarningBanner,
-};
+pub use danger_zone::{AlertBanner, BannerVariant, DangerZone, DangerZoneItem};
 pub use data_table::{loaded_signal, Column, DataTable};
 pub use diag_diff::DiffResults;
 pub use dialog::{Dialog, DialogSize};
@@ -136,8 +134,7 @@ pub use trace_viewer::{
     TraceViewer, TraceViewerWithData,
 };
 pub use workspace::{
-    TwoColumnRatio, Workspace, WorkspaceColumn, WorkspaceGrid, WorkspaceHeader, WorkspacePanel,
-    WorkspaceThreeColumn, WorkspaceTwoColumn,
+    TwoColumnRatio, Workspace, WorkspaceColumn, WorkspaceGrid, WorkspaceTwoColumn,
 };
 
 // Virtual list components for efficient large list rendering
@@ -155,7 +152,7 @@ pub use toast::{ToastContainer, ToastItem};
 
 // Status Center components (Ctrl+Shift+S panel)
 pub use status_center::{
-    CombinedStatus, StatusCenter, StatusCenterPanel, StatusDivider, StatusItem,
+    CombinedStatus, StatusCenterPanel, StatusCenterProvider, StatusDivider, StatusItem,
     StatusItemAvailability, StatusItemMemory, StatusItemSeverity, StatusLoadingState,
     StatusSection, StatusSectionBadgeVariant, StatusSectionLabel,
 };

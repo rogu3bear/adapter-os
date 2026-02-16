@@ -59,7 +59,7 @@ pub fn ChatDockPanel() -> impl IntoView {
             </div>
 
             // Target selector
-            <TargetSelector/>
+            <ChatTargetSelector/>
 
             // Messages area
             <MessageList/>
@@ -202,7 +202,7 @@ struct TargetOptions {
 
 /// Target selector dropdown with dynamic data from API
 #[component]
-fn TargetSelector() -> impl IntoView {
+pub fn ChatTargetSelector(#[prop(optional)] inline: bool) -> impl IntoView {
     let (chat_state, chat_action) = use_chat();
     let show_dropdown = RwSignal::new(false);
     let options = RwSignal::new(TargetOptions::default());
@@ -349,19 +349,51 @@ fn TargetSelector() -> impl IntoView {
         }
     });
 
+    let container_class = if inline {
+        "relative"
+    } else {
+        "relative border-b px-4 py-2"
+    };
+    let button_class = if inline {
+        "flex items-center gap-2 rounded-md border border-border bg-background px-3 py-1.5 text-sm hover:bg-muted transition-colors"
+    } else {
+        "flex w-full items-center justify-between rounded-md border bg-background px-3 py-2 text-sm hover:bg-muted transition-colors"
+    };
+    let dropdown_class = if inline {
+        "absolute left-0 top-full z-50 mt-1 min-w-[200px] rounded-md border border-border bg-popover shadow-lg max-h-80 overflow-y-auto"
+    } else {
+        "absolute left-4 right-4 top-full z-50 mt-1 rounded-md border bg-popover shadow-lg max-h-80 overflow-y-auto"
+    };
+
     view! {
-        <div class="relative border-b px-4 py-2">
+        <div class=container_class>
             <button
-                class="flex w-full items-center justify-between rounded-md border bg-background px-3 py-2 text-sm hover:bg-muted transition-colors"
+                class=button_class
                 on:click=toggle_dropdown
+                data-testid=move || if inline { Some("chat-target-selector".to_string()) } else { None }
             >
-                <span class="truncate">{move || {
+                {move || {
                     let model = active_model_name.try_get().flatten();
-                    chat_state.get().target.display_name_with_model(model.as_deref())
-                }}</span>
+                    let label = chat_state.get().target.display_name_with_model(model.as_deref());
+                    if inline {
+                        view! {
+                            <>
+                                <span class="text-muted-foreground text-xs">"Target:"</span>
+                                <span class="font-medium truncate max-w-[150px]">{label}</span>
+                            </>
+                        }
+                        .into_any()
+                    } else {
+                        view! { <span class="truncate">{label}</span> }.into_any()
+                    }
+                }}
                 <svg
                     xmlns="http://www.w3.org/2000/svg"
-                    class="h-4 w-4 text-muted-foreground"
+                    class=if inline {
+                        "h-4 w-4 text-muted-foreground flex-shrink-0"
+                    } else {
+                        "h-4 w-4 text-muted-foreground"
+                    }
                     fill="none"
                     viewBox="0 0 24 24"
                     stroke="currentColor"
@@ -371,6 +403,20 @@ fn TargetSelector() -> impl IntoView {
                 </svg>
             </button>
 
+            // Backdrop to close dropdown on outside click in inline mode
+            {move || {
+                if inline && show_dropdown.get() {
+                    Some(view! {
+                        <div
+                            class="fixed inset-0 z-40"
+                            on:click=move |_| show_dropdown.set(false)
+                        />
+                    })
+                } else {
+                    None
+                }
+            }}
+
             // Dropdown menu
             {move || {
                 if show_dropdown.get() {
@@ -378,7 +424,10 @@ fn TargetSelector() -> impl IntoView {
                     let opts = options.get();
 
                     view! {
-                        <div class="absolute left-4 right-4 top-full z-50 mt-1 rounded-md border bg-popover shadow-lg max-h-80 overflow-y-auto">
+                        <div
+                            class=dropdown_class
+                            data-testid=move || if inline { Some("chat-target-dropdown".to_string()) } else { None }
+                        >
                             <div class="p-1">
                                 <DynamicTargetOption
                                     target=ChatTarget::Default
@@ -1213,7 +1262,7 @@ pub fn MobileChatOverlay() -> impl IntoView {
                             </div>
 
                             // Target selector
-                            <TargetSelector/>
+                            <ChatTargetSelector/>
 
                             // Messages
                             <MessageList/>

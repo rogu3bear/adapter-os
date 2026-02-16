@@ -714,6 +714,70 @@ fn DatasetsList(
             || sort.try_get().unwrap_or_default().trim() != "created_desc"
             || trainable_only.try_get().unwrap_or(false)
     });
+    let active_filter_labels = Signal::derive(move || {
+        let mut labels = Vec::new();
+
+        let search_value = search.try_get().unwrap_or_default().trim().to_string();
+        if !search_value.is_empty() {
+            let preview = if search_value.chars().count() > 24 {
+                format!("{}...", search_value.chars().take(24).collect::<String>())
+            } else {
+                search_value
+            };
+            labels.push(format!("search: {}", preview));
+        }
+
+        let status_value = status_filter
+            .try_get()
+            .unwrap_or_default()
+            .trim()
+            .to_string();
+        if !status_value.is_empty() {
+            labels.push(format!("status: {}", status_value.replace('_', " ")));
+        }
+
+        let validation_value = validation_filter
+            .try_get()
+            .unwrap_or_default()
+            .trim()
+            .to_string();
+        if !validation_value.is_empty() {
+            labels.push(format!(
+                "validation: {}",
+                validation_value.replace('_', " ")
+            ));
+        }
+
+        let trust_value = trust_filter
+            .try_get()
+            .unwrap_or_default()
+            .trim()
+            .to_string();
+        if !trust_value.is_empty() {
+            labels.push(format!("trust: {}", trust_value.replace('_', " ")));
+        }
+
+        let type_value = type_filter.try_get().unwrap_or_default().trim().to_string();
+        if !type_value.is_empty() {
+            labels.push(format!("type: {}", type_value.replace('_', " ")));
+        }
+
+        let sort_value = sort.try_get().unwrap_or_default();
+        if sort_value != "created_desc" {
+            let sort_label = match sort_value.as_str() {
+                "created_asc" => "oldest first",
+                "name_asc" => "name A-Z",
+                _ => sort_value.as_str(),
+            };
+            labels.push(format!("sort: {}", sort_label));
+        }
+
+        if trainable_only.try_get().unwrap_or(false) {
+            labels.push("trainable only".to_string());
+        }
+
+        labels
+    });
 
     let dataset_count_total = datasets.total;
     let show_empty = Signal::derive(move || all_datasets.get_value().is_empty());
@@ -950,6 +1014,23 @@ fn DatasetsList(
                                         "Clear filters"
                                     </Button>
                                 </div>
+                                {move || {
+                                    let labels = active_filter_labels.try_get().unwrap_or_default();
+                                    if labels.is_empty() {
+                                        None
+                                    } else {
+                                        Some(view! {
+                                            <div class="flex flex-wrap items-center gap-2">
+                                                <span class="text-xs text-muted-foreground">"Active filters:"</span>
+                                                {labels.into_iter().map(|label| {
+                                                    view! {
+                                                        <Badge variant=BadgeVariant::Outline>{label}</Badge>
+                                                    }
+                                                }).collect::<Vec<_>>()}
+                                            </div>
+                                        })
+                                    }
+                                }}
                             </div>
                         </Card>
 

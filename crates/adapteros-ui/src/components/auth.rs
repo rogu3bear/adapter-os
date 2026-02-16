@@ -183,7 +183,7 @@ pub fn AuthProvider(children: Children) -> impl IntoView {
     // Provide auth context at the app level
     provide_auth_context();
 
-    // Note: Chat context is provided by ChatProvider in lib.rs
+    // Note: Chat context is provided by AppProviders in lib.rs
     // Do NOT call provide_chat_context() here - that would create duplicate contexts
 
     children()

@@ -68,7 +68,7 @@ Naming canon:
 | `/reviews/:pause_id` | Govern | Primary | Stable | Review detail/deep link for paused items. |
 | `/reviews` | Govern | Primary | Stable | Review queue. |
 | `/welcome` | Org | Hidden | Stable | First-run onboarding/checklist surface. |
-| `/agents` | Org | Experimental | Experimental + Incomplete | Agent orchestration UI; session creation action is intentionally disabled in UI. |
+| `/agents` | Org | Experimental | Experimental + Incomplete | Agent orchestration UI (`Agents (Beta)` in nav); session creation action is intentionally disabled in UI. |
 | `/files` | Org | Primary | Stable | Filesystem browser. |
 
 ## Redirect And Legacy Alias Notes

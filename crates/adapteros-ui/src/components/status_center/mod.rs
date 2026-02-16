@@ -7,14 +7,14 @@
 //!
 //! ```rust
 //! use leptos::prelude::*;
-//! use adapteros_ui::components::status_center::StatusCenter;
+//! use adapteros_ui::components::status_center::StatusCenterProvider;
 //!
 //! #[component]
 //! fn App() -> impl IntoView {
 //!     view! {
-//!         // Add StatusCenter to your app root
-//!         <StatusCenter />
-//!         // ... rest of your app
+//!         <StatusCenterProvider>
+//!             // ... rest of your app
+//!         </StatusCenterProvider>
 //!     }
 //! }
 //! ```
@@ -36,33 +36,7 @@ pub use sections::{StatusDivider, StatusSection, StatusSectionBadgeVariant, Stat
 
 use leptos::prelude::*;
 
-/// Main Status Center component
-///
-/// This component should be placed at the app root level.
-/// It listens for Ctrl+Shift+S keyboard shortcut to toggle the panel.
-#[component]
-pub fn StatusCenter() -> impl IntoView {
-    let open = RwSignal::new(false);
-
-    // Listen for keyboard shortcut
-    let shortcut_count = use_status_center_shortcut();
-
-    // Toggle on shortcut
-    Effect::new(move || {
-        let Some(count) = shortcut_count.try_get() else {
-            return;
-        };
-        if count > 0 {
-            let _ = open.try_update(|o| *o = !*o);
-        }
-    });
-
-    view! {
-        <StatusCenterPanel open=open />
-    }
-}
-
-/// Provider for Status Center context
+/// Canonical Status Center surface and context provider.
 ///
 /// Allows child components to programmatically control the Status Center.
 #[component]
