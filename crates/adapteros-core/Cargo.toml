@@ -30,7 +30,7 @@ zip = "1.1"
 regex = { workspace = true }
 once_cell = { workspace = true }
 chrono = { version = "0.4", features = ["serde"] }
-ed25519-dalek = { workspace = true, optional = true }
+ed25519-dalek = { workspace = true }
 async-trait = "0.1"
 tokio = { version = "1.0", features = ["sync", "time", "macros", "rt-multi-thread"] }
 fastrand = "2.0"
@@ -64,8 +64,8 @@ utoipa = ["dep:utoipa", "adapteros-infra-common/utoipa"]
 async = []
 coreml-backend = []
 multi-backend = []  # MLX primary with CoreML fallback
-evidence-signing = ["ed25519-dalek"]
-cache-attestation = ["ed25519-dalek", "rand"]
+evidence-signing = []
+cache-attestation = ["rand"]
 # Workspace feature passthroughs for build_info.rs
 # These are defined at workspace level and enabled via workspace dependencies
 deterministic-only = []

@@ -89,11 +89,37 @@ pub struct SepAttestation {
     pub timestamp: u64,
 }
 
+impl SepAttestation {
+    /// Returns true when attestation includes a certificate chain proving hardware issuance.
+    pub fn is_hardware_backed(&self) -> bool {
+        !self.certificate_chain.is_empty()
+    }
+
+    /// Human-readable attestation kind.
+    pub fn attestation_kind(&self) -> &'static str {
+        if self.is_hardware_backed() {
+            "hardware"
+        } else {
+            "synthetic"
+        }
+    }
+}
+
 /// Default path for the Apple Root CA bundle
 pub const DEFAULT_ROOT_CA_PATH: &str = "/etc/adapteros/certs/apple-root-ca.pem";
 
 /// Environment variable for configuring Root CA path
 pub const ROOT_CA_PATH_ENV: &str = "AOS_SEP_ROOT_CA_PATH";
+
+fn require_hardware_attestation() -> bool {
+    match std::env::var("AOS_REQUIRE_HARDWARE_ATTESTATION") {
+        Ok(raw) => matches!(
+            raw.trim().to_ascii_lowercase().as_str(),
+            "1" | "true" | "yes" | "on"
+        ),
+        Err(_) => false,
+    }
+}
 
 /// Configuration for SEP Root CA verification
 #[derive(Clone, Debug, Serialize, Deserialize)]
@@ -278,6 +304,14 @@ pub async fn generate_sep_key_with_attestation(
     let availability = check_sep_availability();
 
     if !availability.available {
+        if require_hardware_attestation() {
+            return Err(AosError::Crypto(format!(
+                "hardware attestation required but SEP unavailable: {}",
+                availability
+                    .reason
+                    .unwrap_or_else(|| "no additional reason".to_string())
+            )));
+        }
         warn!(
             chip = %availability.chip_generation,
             reason = ?availability.reason,
@@ -343,6 +377,13 @@ fn get_sep_attestation_internal(
 ) -> Result<SepAttestation> {
     // Note: SecKeyCopyAttestationKey is only available on macOS 12+
     // The security-framework crate doesn't expose this API yet
+
+    if require_hardware_attestation() {
+        return Err(AosError::Crypto(
+            "hardware attestation required but Security.framework attestation API is unavailable"
+                .to_string(),
+        ));
+    }
 
     warn!("SEP attestation API not exposed in security-framework crate, using fallback");
 

@@ -369,17 +369,18 @@ pub async fn download_run_evidence(
             phases,
         }
     });
-    if boot_snapshot.is_none() {
-        warnings.push(
-            "boot state manager not initialized; boot_state.json is a placeholder".to_string(),
-        );
-    }
     let boot_state_json = boot_snapshot
         .as_ref()
         .map(|snapshot| {
             serde_json::to_vec_pretty(snapshot).map_err(|e| ApiError::internal(e.to_string()))
         })
-        .transpose()?;
+        .transpose()?
+        .ok_or_else(|| {
+            ApiError::from(AosError::DeterminismViolation(
+                "EP-5: Evidence export requires boot_state.json from an initialized boot state manager"
+                    .to_string(),
+            ))
+        })?;
 
     // Model status snapshot (tenant scoped)
     // DETERMINISM: We intentionally exclude live runtime metrics (ane_usage, uma_pressure_level)
@@ -475,6 +476,16 @@ pub async fn download_run_evidence(
     } else {
         envelope_warnings.push("no inference trace found for run_id; envelope omitted".to_string());
     }
+    let run_envelope_bytes = run_envelope_bytes.ok_or_else(|| {
+        let detail = if envelope_warnings.is_empty() {
+            "inference trace receipt unavailable".to_string()
+        } else {
+            envelope_warnings.join("; ")
+        };
+        ApiError::from(AosError::DeterminismViolation(format!(
+            "EP-5: Evidence export requires run_envelope.json: {detail}"
+        )))
+    })?;
     warnings.extend(envelope_warnings.clone());
 
     // Pinned degradation evidence (evidence-only; not receipt-bound).
@@ -520,7 +531,7 @@ pub async fn download_run_evidence(
         "README.txt".to_string(),
     ];
     let mut status = metadata.replay_status.clone();
-    if run_envelope_bytes.is_none() || manifest_entry.manifest_json.is_none() {
+    if manifest_entry.manifest_json.is_none() {
         status = format!("{} (incomplete)", status);
     }
     let readme = BundleReadme {
@@ -551,36 +562,9 @@ pub async fn download_run_evidence(
         "pinned_degradation_evidence.json".to_string(),
         pinned_degradation_evidence_json,
     ));
-    files.push((
-        "boot_state.json".to_string(),
-        boot_state_json.unwrap_or_else(|| {
-            serde_json::to_vec_pretty(&serde_json::json!({
-                "missing": true,
-                "warning": "boot state manager not initialized"
-            }))
-            .unwrap_or_else(|e| {
-                tracing::warn!(error = %e, "Failed to serialize boot state placeholder");
-                b"{\"missing\":true}".to_vec()
-            })
-        }),
-    ));
-    let run_id_for_placeholder = run_id.clone();
-    let envelope_warnings_clone = envelope_warnings.clone();
-    let has_envelope = run_envelope_bytes.is_some();
-    files.push((
-        "run_envelope.json".to_string(),
-        run_envelope_bytes.unwrap_or_else(|| {
-            serde_json::to_vec_pretty(&serde_json::json!({
-                "run_id": run_id_for_placeholder,
-                "missing": true,
-                "warnings": envelope_warnings_clone
-            }))
-            .unwrap_or_else(|e| {
-                tracing::warn!(error = %e, "Failed to serialize envelope placeholder");
-                b"{\"missing\":true}".to_vec()
-            })
-        }),
-    ));
+    files.push(("boot_state.json".to_string(), boot_state_json));
+    let has_envelope = true;
+    files.push(("run_envelope.json".to_string(), run_envelope_bytes));
     files.push(("README.txt".to_string(), readme_bytes));
     files.sort_by(|a, b| a.0.cmp(&b.0));
 

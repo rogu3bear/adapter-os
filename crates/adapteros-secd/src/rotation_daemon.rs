@@ -3,62 +3,14 @@
 //! This daemon runs continuously and rotates cryptographic keys at configured intervals,
 //! writing signed rotation receipts to var/audit/keys/ for crash-safe audit trails.
 //!
-//! ## Stub Implementation: KMS Provider Mode
+//! ## Supported Provider Modes
 //!
-//! The [`RotationDaemon::new`] constructor contains a stub for KMS provider integration.
-//! When `KeyProviderMode::Kms` is configured, the daemon returns an error because
-//! external KMS providers are not yet implemented.
-//!
-//! ### Why This Is a Stub
-//!
-//! Production deployments often require integration with external Key Management Systems
-//! for centralized key management, compliance, and audit requirements. Common KMS
-//! providers include:
-//!
-//! - **AWS KMS**: Hardware Security Module (HSM)-backed keys in AWS
-//! - **HashiCorp Vault**: Secret management with multiple backends
-//! - **Azure Key Vault**: Microsoft's cloud-based key management
-//! - **Google Cloud KMS**: Google's managed key service
-//!
-//! Each provider requires:
-//! - Provider-specific SDK dependencies
-//! - Authentication configuration (IAM roles, service accounts, tokens)
-//! - Network connectivity (not suitable for air-gapped deployments)
-//!
-//! ### What Would Be Needed for Full Implementation
-//!
-//! 1. **Provider SDK integration**:
-//!    ```rust,ignore
-//!    // Example for AWS KMS
-//!    use aws_sdk_kms::Client as KmsClient;
-//!    ```
-//!
-//! 2. **KmsProvider trait implementation** in `adapteros-crypto`:
-//!    - `rotate()` - Generate new key version in KMS
-//!    - `sign()` - Sign data using KMS key
-//!    - `verify()` - Verify signatures
-//!
-//! 3. **Configuration** for provider selection and credentials:
-//!    ```toml
-//!    [key_provider]
-//!    mode = "kms"
-//!    kms_provider = "aws"  # or "vault", "azure", "gcp"
-//!    kms_key_id = "arn:aws:kms:..."
-//!    ```
-//!
-//! ### Current Stub Behavior
-//!
-//! When `KeyProviderMode::Kms` is selected:
-//! - Returns `Err(AosError::Crypto("KMS provider not yet implemented..."))`
-//! - Logs indicate the unsupported configuration
-//! - The daemon does not start
-//!
-//! ### Supported Modes
-//!
-//! Currently only `KeyProviderMode::Keychain` is fully supported, which uses the
-//! macOS Keychain for key storage with optional Secure Enclave backing.
+//! - `KeyProviderMode::Keychain`: macOS keychain-backed keys.
+//! - `KeyProviderMode::Kms`: external KMS/HSM backends via `adapteros_crypto::providers::kms`.
+//! - `KeyProviderMode::File`: rejected for production daemon usage.
 
 use adapteros_core::{AosError, Result};
+use adapteros_crypto::providers::kms::KmsManager;
 use adapteros_crypto::{KeyProvider, KeyProviderConfig, KeychainProvider, RotationReceipt};
 use serde::{Deserialize, Serialize};
 use std::collections::HashMap;
@@ -117,22 +69,12 @@ impl RotationDaemon {
     /// | Mode | Status | Description |
     /// |------|--------|-------------|
     /// | `Keychain` | **Supported** | macOS Keychain with optional Secure Enclave |
-    /// | `Kms` | **Stub** | External KMS integration (not yet implemented) |
+    /// | `Kms` | **Supported** | External KMS provider integration |
     /// | `File` | **Blocked** | File-based keys disallowed in production daemon |
-    ///
-    /// ## KMS Mode (Stub)
-    ///
-    /// The `Kms` mode is a stub that returns an error. Full implementation would
-    /// require integration with external KMS providers (AWS KMS, HashiCorp Vault,
-    /// Azure Key Vault, etc.) which need provider-specific SDKs and authentication.
-    ///
-    /// See the [module-level documentation](self) for details on what would be
-    /// needed to implement KMS support.
     ///
     /// # Errors
     ///
     /// Returns an error if:
-    /// - `KeyProviderMode::Kms` is configured (stub - not implemented)
     /// - `KeyProviderMode::File` is configured (blocked for security)
     /// - The Keychain provider fails to initialize
     pub async fn new(config: RotationDaemonConfig) -> Result<Self> {
@@ -142,14 +84,7 @@ impl RotationDaemon {
                 Arc::new(KeychainProvider::new(config.key_provider.clone())?)
             }
             adapteros_crypto::KeyProviderMode::Kms => {
-                // STUB: KMS provider integration is not yet implemented.
-                // Full implementation would require:
-                // - Provider-specific SDK (aws-sdk-kms, hashicorp-vault, etc.)
-                // - Authentication configuration
-                // - Network connectivity (incompatible with air-gapped deployments)
-                return Err(AosError::Crypto(
-                    "KMS provider not yet implemented for rotation daemon".to_string(),
-                ));
+                Arc::new(KmsManager::new(config.key_provider.clone())?)
             }
             adapteros_crypto::KeyProviderMode::File => {
                 // File-based key storage is explicitly disallowed in the production
