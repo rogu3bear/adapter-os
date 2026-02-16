@@ -397,6 +397,106 @@ pub async fn list_preprocessed_cache(
     ))
 }
 
+/// Remove preprocessed cache artifacts for a dataset.
+#[utoipa::path(
+    delete,
+    path = "/v1/training/preprocessed-cache/{dataset_id}",
+    params(
+        ("dataset_id" = String, Path, description = "Dataset identifier")
+    ),
+    responses(
+        (status = 204, description = "Cache invalidated"),
+        (status = 400, description = "Invalid dataset ID", body = ErrorResponse),
+        (status = 403, description = "Tenant isolation violation", body = ErrorResponse),
+        (status = 404, description = "Dataset not found", body = ErrorResponse),
+        (status = 500, description = "Internal server error", body = ErrorResponse)
+    ),
+    tag = "training"
+)]
+pub async fn invalidate_preprocessed_cache(
+    State(state): State<AppState>,
+    Extension(claims): Extension<Claims>,
+    Path(dataset_id): Path<String>,
+) -> Result<StatusCode, ApiError> {
+    require_permission(&claims, Permission::TrainingStart)?;
+
+    let dataset_id = crate::id_resolver::resolve_any_id(&state.db, &dataset_id)
+        .await
+        .map_err(|e| ApiError::bad_request(format!("invalid dataset_id: {}", e)))?;
+
+    let dataset = state
+        .db
+        .get_training_dataset(&dataset_id)
+        .await
+        .map_err(|e| ApiError::db_error(format!("failed to look up dataset: {}", e)))?
+        .ok_or_else(|| ApiError::not_found("dataset not found"))?;
+
+    let dataset_tenant = dataset
+        .tenant_id
+        .as_deref()
+        .unwrap_or(&claims.tenant_id)
+        .to_string();
+    validate_tenant_isolation(&claims, &dataset_tenant)?;
+
+    let datasets_root = {
+        let cfg = state
+            .config
+            .read()
+            .map_err(|_| ApiError::internal("config lock poisoned"))?;
+        PathBuf::from(cfg.paths.datasets_root.clone())
+    };
+
+    if datasets_root.as_os_str().is_empty() {
+        return Ok(StatusCode::NO_CONTENT);
+    }
+
+    let dataset_root = datasets_root.join(&dataset_tenant).join(&dataset_id);
+    let canonical_dataset_root = match canonicalize_strict_in_allowed_roots(
+        &dataset_root,
+        std::slice::from_ref(&datasets_root),
+    ) {
+        Ok(path) => path,
+        Err(AosError::NotFound(_)) => return Ok(StatusCode::NO_CONTENT),
+        Err(err) => {
+            return Err(ApiError::forbidden(format!(
+                "Dataset root rejected: {}",
+                err
+            )))
+        }
+    };
+
+    let preprocessed_root = canonical_dataset_root.join("preprocessed");
+    match tokio::fs::metadata(&preprocessed_root).await {
+        Ok(metadata) if metadata.is_dir() => {
+            tokio::fs::remove_dir_all(&preprocessed_root)
+                .await
+                .map_err(|e| {
+                    ApiError::internal(format!("failed to remove preprocessed cache: {}", e))
+                })?;
+        }
+        Ok(_) => {
+            return Err(ApiError::internal(
+                "preprocessed cache path exists but is not a directory",
+            ))
+        }
+        Err(err) if err.kind() == ErrorKind::NotFound => return Ok(StatusCode::NO_CONTENT),
+        Err(err) => {
+            return Err(ApiError::internal(format!(
+                "failed to inspect preprocessed cache: {}",
+                err
+            )))
+        }
+    }
+
+    info!(
+        tenant_id = %dataset_tenant,
+        dataset_id = %dataset_id,
+        "Invalidated preprocessed cache"
+    );
+
+    Ok(StatusCode::NO_CONTENT)
+}
+
 fn parse_lora_tier(value: Option<&str>) -> Option<LoraTier> {
     match value {
         Some("micro") => Some(LoraTier::Micro),
