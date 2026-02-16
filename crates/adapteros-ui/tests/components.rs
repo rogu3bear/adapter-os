@@ -15,7 +15,7 @@ wasm_bindgen_test_configure!(run_in_browser);
 
 mod breadcrumb_tests {
     use super::*;
-    use adapteros_ui::components::BreadcrumbItem;
+    use adapteros_ui::components::layout::BreadcrumbItem;
 
     #[wasm_bindgen_test]
     fn test_breadcrumb_item_link() {
@@ -38,7 +38,7 @@ mod breadcrumb_tests {
 
 mod button_tests {
     use super::*;
-    use adapteros_ui::components::{ButtonSize, ButtonType, ButtonVariant};
+    use adapteros_ui::components::button::{ButtonSize, ButtonType, ButtonVariant};
 
     #[wasm_bindgen_test]
     fn test_button_variant_default() {
@@ -72,7 +72,7 @@ mod button_tests {
 
 mod badge_tests {
     use super::*;
-    use adapteros_ui::components::BadgeVariant;
+    use adapteros_ui::components::status::BadgeVariant;
 
     #[wasm_bindgen_test]
     fn test_badge_variants() {
@@ -91,7 +91,7 @@ mod badge_tests {
 
 mod status_tests {
     use super::*;
-    use adapteros_ui::components::StatusColor;
+    use adapteros_ui::components::status::StatusColor;
 
     #[wasm_bindgen_test]
     fn test_status_colors() {
@@ -109,7 +109,7 @@ mod status_tests {
 
 mod empty_state_tests {
     use super::*;
-    use adapteros_ui::components::EmptyStateVariant;
+    use adapteros_ui::components::async_state::EmptyStateVariant;
 
     #[wasm_bindgen_test]
     fn test_empty_state_variants() {
@@ -126,7 +126,7 @@ mod empty_state_tests {
 
 mod dialog_tests {
     use super::*;
-    use adapteros_ui::components::DialogSize;
+    use adapteros_ui::components::dialog::DialogSize;
 
     #[wasm_bindgen_test]
     fn test_dialog_sizes() {
@@ -143,7 +143,7 @@ mod dialog_tests {
 
 mod workspace_tests {
     use super::*;
-    use adapteros_ui::components::TwoColumnRatio;
+    use adapteros_ui::components::workspace::TwoColumnRatio;
 
     #[wasm_bindgen_test]
     fn test_two_column_ratios() {
@@ -159,7 +159,7 @@ mod workspace_tests {
 
 mod split_panel_tests {
     use super::*;
-    use adapteros_ui::components::{SplitMode, SplitRatio};
+    use adapteros_ui::components::split_panel::{SplitMode, SplitRatio};
 
     #[wasm_bindgen_test]
     fn test_split_modes() {

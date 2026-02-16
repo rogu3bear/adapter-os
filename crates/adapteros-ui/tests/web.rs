@@ -194,19 +194,33 @@ fn mount_component<V: IntoView + 'static>(id: &str, view_fn: impl FnOnce() -> V 
 }
 
 #[wasm_bindgen_test]
-fn mount_smoke_datasets_training_chat() {
+fn mount_smoke_datasets_training_chat_diff_runs_repositories() {
     // Datasets list should mount without panic
-    mount_component(
-        "datasets-smoke",
-        || view! { <adapteros_ui::pages::Datasets/> },
-    );
+    mount_component("datasets-smoke", || {
+        view! { <adapteros_ui::pages::datasets::Datasets/> }
+    });
     // Training page (list/detail shell) should mount without panic
-    mount_component(
-        "training-smoke",
-        || view! { <adapteros_ui::pages::Training/> },
-    );
+    mount_component("training-smoke", || {
+        view! { <adapteros_ui::pages::training::Training/> }
+    });
     // Chat page should mount without panic (no network required)
-    mount_component("chat-smoke", || view! { <adapteros_ui::pages::Chat/> });
+    mount_component(
+        "chat-smoke",
+        || view! { <adapteros_ui::pages::chat::Chat/> },
+    );
+    // Diff page should mount without panic
+    mount_component(
+        "diff-smoke",
+        || view! { <adapteros_ui::pages::diff::Diff/> },
+    );
+    // Runs list should mount without panic
+    mount_component("runs-smoke", || {
+        view! { <adapteros_ui::pages::flight_recorder::FlightRecorder/> }
+    });
+    // Repositories list should mount without panic
+    mount_component("repositories-smoke", || {
+        view! { <adapteros_ui::pages::repositories::Repositories/> }
+    });
 }
 
 // ============================================================================
