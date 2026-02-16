@@ -62,6 +62,28 @@ impl ButtonSize {
     }
 }
 
+/// Native button `type` attribute semantics.
+#[derive(Debug, Clone, Copy, Default, PartialEq)]
+pub enum ButtonType {
+    /// Default safe action inside or outside forms.
+    #[default]
+    Button,
+    /// Triggers parent form submission.
+    Submit,
+    /// Triggers parent form reset.
+    Reset,
+}
+
+impl ButtonType {
+    fn attr(&self) -> &'static str {
+        match self {
+            Self::Button => "button",
+            Self::Submit => "submit",
+            Self::Reset => "reset",
+        }
+    }
+}
+
 /// Button component
 ///
 /// Supports both static and reactive `disabled` and `loading` props via `Signal<bool>`.
@@ -73,6 +95,7 @@ pub fn Button(
     #[prop(optional, into)] disabled: Signal<bool>,
     #[prop(optional, into)] loading: Signal<bool>,
     #[prop(optional, into)] class: String,
+    #[prop(optional)] button_type: ButtonType,
     #[prop(optional, into)] aria_label: String,
     #[prop(optional, into)] data_testid: Option<String>,
     #[prop(optional)] on_click: Option<Callback<()>>,
@@ -93,6 +116,7 @@ pub fn Button(
     view! {
         <button
             class=full_class
+            type=button_type.attr()
             disabled=move || disabled.try_get().unwrap_or(false) || loading.try_get().unwrap_or(false)
             aria-label=move || (!aria_label.is_empty()).then(|| aria_label.clone())
             data-testid=move || data_testid.clone()

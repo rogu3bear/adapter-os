@@ -72,7 +72,7 @@ pub use async_state::{
 };
 pub use auth::{AuthProvider, ProtectedRoute};
 pub use breadcrumb_trail::{humanize_segment, BreadcrumbTrail};
-pub use button::{Button, ButtonSize, ButtonVariant};
+pub use button::{Button, ButtonSize, ButtonType, ButtonVariant};
 pub use card::Card;
 pub use chat_dock::{ChatDock, ChatDockPanel, MobileChatOverlay, NarrowChatDock};
 pub use checkbox::Checkbox;

@@ -26,8 +26,9 @@ use crate::components::inference_guidance::{guidance_for, primary_blocker};
 use crate::components::status_center::use_status_center;
 use crate::components::{
     use_is_tablet_or_smaller, AdapterHeat, AdapterMagnet, Badge, BadgeVariant, Button, ButtonSize,
-    ButtonVariant, ChatAdaptersRegion, Checkbox, ConfirmationDialog, ConfirmationSeverity, Dialog,
-    Input, Markdown, Spinner, SuggestedAdapterView, Textarea, TraceButton, TracePanel,
+    ButtonType, ButtonVariant, ChatAdaptersRegion, Checkbox, ConfirmationDialog,
+    ConfirmationSeverity, Dialog, Input, Markdown, Spinner, SuggestedAdapterView, Textarea,
+    TraceButton, TracePanel,
 };
 use crate::hooks::{use_api_resource, LoadingState};
 use crate::signals::{
@@ -3514,6 +3515,7 @@ fn ChatConversationPanel(
                             let disabled = !can_send.try_get().unwrap_or(false);
                             view! {
                                 <Button
+                                    button_type=ButtonType::Submit
                                     loading=is_loading.try_get().unwrap_or(false)
                                     disabled=disabled
                                     aria_label=if disabled { "Send message (disabled)".to_string() } else { "Send message".to_string() }
