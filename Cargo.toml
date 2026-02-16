@@ -252,7 +252,7 @@ safetensors = "0.4"
 # Metal (macOS)
 metal = "0.30"
 objc = "0.2"
-cocoa = "0.25"
+cocoa = "0.26"
 core-foundation = "0.10"
 security-framework = "2.9"
 
