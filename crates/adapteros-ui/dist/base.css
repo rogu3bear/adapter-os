@@ -45,6 +45,31 @@
     --action-destructive-glow: 0 0 20px hsl(0 72% 51% / 0.20);
     --action-outline-border: var(--glass-border, hsl(214.3 31.8% 91.4% / 0.8));
 
+    /* Boot diagnostics tokens (pre-hydration overlay/probe surfaces) */
+    --boot-font-mono: var(--font-mono, ui-monospace, monospace);
+    --boot-probe-bg: hsl(235 26% 14% / 0.92);
+    --boot-probe-fg: var(--color-status-success, hsl(142 76% 36%));
+    --boot-probe-error-bg: hsl(0 63% 31% / 0.95);
+    --boot-probe-error-fg: hsl(0 93% 82%);
+    --boot-spinner-track: hsl(235 26% 14%);
+    --boot-spinner-accent: var(--color-status-success, hsl(142 76% 36%));
+    --boot-progress-title: hsl(220 13% 91%);
+    --boot-stage-pending: hsl(220 9% 46%);
+    --boot-stage-detail: hsl(217 19% 27%);
+    --boot-stage-done: var(--color-status-success, hsl(142 76% 36%));
+    --boot-stage-active: var(--color-status-warning, hsl(38 92% 38%));
+    --boot-stage-error: var(--color-status-error, hsl(0 84% 60%));
+    --boot-overlay-bg: hsl(0 63% 31% / 0.95);
+    --boot-overlay-fg: hsl(0 93% 89%);
+    --boot-overlay-heading: hsl(0 93% 82%);
+    --boot-overlay-panel-bg: hsl(0 75% 16%);
+    --boot-overlay-button-bg: var(--color-status-error, hsl(0 84% 60%));
+    --boot-overlay-button-bg-hover: hsl(0 74% 42%);
+    --boot-overlay-button-fg: var(--color-destructive-foreground, hsl(210 40% 98%));
+    --boot-overlay-button-secondary-bg: hsl(0 75% 16%);
+    --boot-overlay-button-secondary-bg-hover: hsl(0 72% 21%);
+    --boot-overlay-button-secondary-border: var(--color-status-error, hsl(0 84% 60%));
+
     /* Status colors (semantic feedback colors) */
     --color-status-info: hsl(221 83% 53%);
     --color-status-success: hsl(142 76% 36%);
@@ -110,6 +135,30 @@
     --action-destructive-border: hsl(0 62% 55% / 0.25);
     --action-destructive-glow: 0 0 24px hsl(0 62% 50% / 0.25);
     --action-outline-border: hsl(215 30% 50% / 0.35);
+
+    /* Boot diagnostics tokens (dark mode) */
+    --boot-probe-bg: hsl(224 37% 12% / 0.94);
+    --boot-probe-fg: var(--color-status-success, hsl(142 76% 46%));
+    --boot-probe-error-bg: hsl(0 57% 22% / 0.96);
+    --boot-probe-error-fg: hsl(0 88% 90%);
+    --boot-spinner-track: hsl(217 30% 22%);
+    --boot-spinner-accent: var(--color-status-success, hsl(142 76% 46%));
+    --boot-progress-title: var(--color-foreground, hsl(210 40% 98%));
+    --boot-stage-pending: var(--color-muted-foreground, hsl(215 16% 67%));
+    --boot-stage-detail: hsl(215 20% 72%);
+    --boot-stage-done: var(--color-status-success, hsl(142 76% 46%));
+    --boot-stage-active: var(--color-status-warning, hsl(38 92% 55%));
+    --boot-stage-error: var(--color-status-error, hsl(0 84% 65%));
+    --boot-overlay-bg: hsl(0 57% 22% / 0.96);
+    --boot-overlay-fg: hsl(0 88% 90%);
+    --boot-overlay-heading: hsl(0 93% 82%);
+    --boot-overlay-panel-bg: hsl(0 65% 14%);
+    --boot-overlay-button-bg: var(--color-status-error, hsl(0 84% 65%));
+    --boot-overlay-button-bg-hover: hsl(0 74% 46%);
+    --boot-overlay-button-fg: var(--color-destructive-foreground, hsl(210 40% 98%));
+    --boot-overlay-button-secondary-bg: hsl(0 65% 14%);
+    --boot-overlay-button-secondary-bg-hover: hsl(0 65% 20%);
+    --boot-overlay-button-secondary-border: var(--color-status-error, hsl(0 84% 65%));
 
     /* Status colors (brighter for dark backgrounds) */
     --color-status-info: hsl(221 83% 63%);
