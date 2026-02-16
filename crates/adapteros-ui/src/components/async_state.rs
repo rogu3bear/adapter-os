@@ -685,15 +685,17 @@ pub fn DetailRow(
     /// Optional mono font for value
     #[prop(optional)]
     mono: bool,
+    #[prop(optional, into)] data_testid: Option<String>,
 ) -> impl IntoView {
     let value_class = if mono {
         "font-medium font-mono text-sm"
     } else {
         "font-medium"
     };
+    let data_testid = data_testid.filter(|value| !value.is_empty());
 
     view! {
-        <div class="flex items-start justify-between gap-3 min-w-0 py-1">
+        <div class="flex items-start justify-between gap-3 min-w-0 py-1" data-testid=move || data_testid.clone()>
             <span class="text-muted-foreground shrink-0">{label}</span>
             <span class=format!("{} min-w-0 text-right break-all", value_class)>{value}</span>
         </div>

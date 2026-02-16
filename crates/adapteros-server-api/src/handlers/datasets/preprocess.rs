@@ -18,6 +18,8 @@ use axum::{
     response::IntoResponse,
     Extension, Json,
 };
+use once_cell::sync::Lazy;
+use regex::Regex;
 use serde::{Deserialize, Serialize};
 use std::collections::HashSet;
 use std::sync::Arc;
@@ -756,6 +758,62 @@ async fn run_preprocess_job(
     Ok(())
 }
 
+static EMAIL_PATTERN: Lazy<Regex> = Lazy::new(|| {
+    Regex::new(r"(?i)\b[a-z0-9._%+\-]+@[a-z0-9.\-]+\.[a-z]{2,}\b")
+        .expect("email regex should compile")
+});
+
+static PHONE_PATTERN: Lazy<Regex> = Lazy::new(|| {
+    Regex::new(r"\b(?:\+?1[\s.\-]?)?(?:\(?\d{3}\)?[\s.\-]?)\d{3}[\s.\-]?\d{4}\b")
+        .expect("phone regex should compile")
+});
+
+static SSN_PATTERN: Lazy<Regex> =
+    Lazy::new(|| Regex::new(r"\b\d{3}-\d{2}-\d{4}\b").expect("ssn regex should compile"));
+
+fn scrub_pii_text(value: &str) -> String {
+    let with_email_redacted = EMAIL_PATTERN.replace_all(value, "[REDACTED_EMAIL]");
+    let with_phone_redacted = PHONE_PATTERN.replace_all(&with_email_redacted, "[REDACTED_PHONE]");
+    SSN_PATTERN
+        .replace_all(&with_phone_redacted, "[REDACTED_SSN]")
+        .into_owned()
+}
+
+fn scrub_pii_json_value(value: &mut serde_json::Value) {
+    match value {
+        serde_json::Value::String(text) => {
+            let scrubbed = scrub_pii_text(text);
+            if scrubbed != *text {
+                *text = scrubbed;
+            }
+        }
+        serde_json::Value::Array(items) => {
+            for item in items {
+                scrub_pii_json_value(item);
+            }
+        }
+        serde_json::Value::Object(map) => {
+            for (_, entry) in map.iter_mut() {
+                scrub_pii_json_value(entry);
+            }
+        }
+        _ => {}
+    }
+}
+
+fn scrub_jsonl_line(line: &str) -> Result<String, adapteros_core::AosError> {
+    let mut value: serde_json::Value = serde_json::from_str(line).map_err(|e| {
+        adapteros_core::AosError::Validation(format!("line is not valid JSON for PII scrub: {}", e))
+    })?;
+    scrub_pii_json_value(&mut value);
+    serde_json::to_string(&value).map_err(|e| {
+        adapteros_core::AosError::Internal(format!(
+            "failed to serialize scrubbed JSONL line: {}",
+            e
+        ))
+    })
+}
+
 /// Preprocess a single JSONL file
 async fn preprocess_jsonl_file(
     job_id: &str,
@@ -804,21 +862,23 @@ async fn preprocess_jsonl_file(
             seen_hashes.insert(line_hash);
         }
 
-        // PII scrub (stub implementation - logs that scrubbing was requested)
+        // PII scrub - deterministic recursive string redaction for common PII.
         let processed_line = if pii_scrub {
-            // In a real implementation, this would:
-            // 1. Parse the JSON
-            // 2. Scan text fields for PII patterns (emails, phone numbers, SSNs, etc.)
-            // 3. Redact or remove PII
-            // For now, we just pass through and log
             if lines_processed == 1 {
                 info!(
                     job_id = %job_id,
                     file = %file_path.display(),
-                    "PII scrub requested - stub implementation (no actual scrubbing performed)"
+                    "PII scrub requested - applying deterministic redaction"
                 );
             }
-            line
+            scrub_jsonl_line(&line).map_err(|e| {
+                AosError::Validation(format!(
+                    "PII scrub failed for line {} in {}: {}",
+                    lines_processed,
+                    file_path.display(),
+                    e
+                ))
+            })?
         } else {
             line
         };
@@ -954,5 +1014,31 @@ mod tests {
         assert_eq!(parsed.status, PreprocessStatus::Running);
         assert!(parsed.pii_scrub);
         assert!(!parsed.dedupe);
+    }
+
+    #[test]
+    fn scrub_jsonl_line_redacts_email_phone_and_ssn() {
+        let input = r#"{"prompt":"email me at test.user@example.com or call 415-555-1212","response":"ssn is 123-45-6789"}"#;
+        let scrubbed = scrub_jsonl_line(input).expect("line should scrub");
+
+        assert!(!scrubbed.contains("test.user@example.com"));
+        assert!(!scrubbed.contains("415-555-1212"));
+        assert!(!scrubbed.contains("123-45-6789"));
+        assert!(scrubbed.contains("[REDACTED_EMAIL]"));
+        assert!(scrubbed.contains("[REDACTED_PHONE]"));
+        assert!(scrubbed.contains("[REDACTED_SSN]"));
+    }
+
+    #[test]
+    fn scrub_jsonl_line_redacts_nested_structures() {
+        let input = r#"{"messages":[{"role":"user","content":"Contact me: jane@corp.io"},{"role":"assistant","content":"backup 212.555.7788"}],"metadata":{"owner":"123-45-6789"}}"#;
+        let scrubbed = scrub_jsonl_line(input).expect("line should scrub");
+
+        assert!(!scrubbed.contains("jane@corp.io"));
+        assert!(!scrubbed.contains("212.555.7788"));
+        assert!(!scrubbed.contains("123-45-6789"));
+        assert!(scrubbed.contains("[REDACTED_EMAIL]"));
+        assert!(scrubbed.contains("[REDACTED_PHONE]"));
+        assert!(scrubbed.contains("[REDACTED_SSN]"));
     }
 }

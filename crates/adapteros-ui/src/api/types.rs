@@ -1805,6 +1805,319 @@ pub struct ReplayDivergence {
 // Tagged JSON (`"event"` field) allows serde to discriminate variants.
 // ============================================================================
 
+// ============================================================================
+// Chat Collaboration Types (PASS 2)
+// ============================================================================
+
+/// Request to share a chat session
+#[derive(Debug, Clone, serde::Serialize, serde::Deserialize)]
+pub struct ShareSessionRequest {
+    #[serde(skip_serializing_if = "Option::is_none")]
+    pub user_ids: Option<Vec<String>>,
+    #[serde(skip_serializing_if = "Option::is_none")]
+    pub workspace_id: Option<String>,
+    pub permission: String,
+    #[serde(skip_serializing_if = "Option::is_none")]
+    pub expires_at: Option<String>,
+}
+
+/// Information about a session share
+#[derive(Debug, Clone, serde::Serialize, serde::Deserialize)]
+pub struct SessionShareInfo {
+    pub share_id: String,
+    pub user_id: String,
+    pub permission: String,
+    pub shared_at: String,
+}
+
+/// Response containing session shares
+#[derive(Debug, Clone, serde::Serialize, serde::Deserialize)]
+pub struct SessionSharesResponse {
+    pub shares: Vec<SessionShareInfo>,
+}
+
+/// A session shared with the current user
+#[derive(Debug, Clone, serde::Serialize, serde::Deserialize)]
+pub struct SharedSessionInfo {
+    pub session_id: String,
+    pub name: String,
+    pub shared_by: String,
+    pub permission: String,
+    pub shared_at: String,
+}
+
+/// Response containing sessions shared with the current user
+#[derive(Debug, Clone, serde::Serialize, serde::Deserialize)]
+pub struct SharedWithMeResponse {
+    pub sessions: Vec<SharedSessionInfo>,
+}
+
+/// A chat tag
+#[derive(Debug, Clone, serde::Serialize, serde::Deserialize)]
+pub struct ChatTagResponse {
+    pub id: String,
+    pub name: String,
+    #[serde(skip_serializing_if = "Option::is_none")]
+    pub color: Option<String>,
+}
+
+/// Request to create a chat tag
+#[derive(Debug, Clone, serde::Serialize, serde::Deserialize)]
+pub struct CreateChatTagRequest {
+    pub name: String,
+    #[serde(skip_serializing_if = "Option::is_none")]
+    pub color: Option<String>,
+}
+
+/// Request to assign tags to a session
+#[derive(Debug, Clone, serde::Serialize, serde::Deserialize)]
+pub struct AssignTagsRequest {
+    pub tag_ids: Vec<String>,
+}
+
+/// Response containing tags on a session
+#[derive(Debug, Clone, serde::Serialize, serde::Deserialize)]
+pub struct SessionTagsResponse {
+    pub tags: Vec<ChatTagResponse>,
+}
+
+/// Request to fork a chat session
+#[derive(Debug, Clone, serde::Serialize, serde::Deserialize)]
+pub struct ForkSessionRequest {
+    #[serde(skip_serializing_if = "Option::is_none")]
+    pub name: Option<String>,
+    pub include_messages: bool,
+}
+
+/// Response from forking a chat session
+#[derive(Debug, Clone, serde::Serialize, serde::Deserialize)]
+pub struct ForkSessionResponse {
+    pub session_id: String,
+    pub name: String,
+    pub created_at: String,
+    #[serde(default)]
+    pub forked_from: Option<ForkedFromInfo>,
+}
+
+/// Source session info for a forked session
+#[derive(Debug, Clone, serde::Serialize, serde::Deserialize)]
+pub struct ForkedFromInfo {
+    pub session_id: String,
+    #[serde(default)]
+    pub name: Option<String>,
+}
+
+/// Chat session list item (for archived/trash lists)
+#[derive(Debug, Clone, serde::Serialize, serde::Deserialize)]
+pub struct ChatSessionListItem {
+    pub id: String,
+    pub name: String,
+    pub created_at: String,
+    #[serde(skip_serializing_if = "Option::is_none")]
+    pub updated_at: Option<String>,
+}
+
+// ============================================================================
+// Replay Execution Types (PASS 3)
+// ============================================================================
+
+/// Request to execute a replay session
+#[derive(Debug, Clone, serde::Serialize, serde::Deserialize)]
+pub struct ExecuteReplayRequest {
+    #[serde(default)]
+    pub use_original_rag_docs: bool,
+    #[serde(skip_serializing_if = "Option::is_none")]
+    pub prompt: Option<String>,
+    pub max_tokens: u32,
+}
+
+/// Response from executing a replay session
+#[derive(Debug, Clone, serde::Serialize, serde::Deserialize)]
+pub struct ExecuteReplayResponse {
+    pub session_id: String,
+    pub output: String,
+    #[serde(default)]
+    pub degraded: bool,
+    #[serde(default)]
+    pub missing_doc_ids: Vec<String>,
+    #[serde(default)]
+    pub no_rag_state_stored: bool,
+    pub latency_ms: u64,
+    #[serde(default)]
+    pub verified_at: Option<String>,
+}
+
+/// Receipt verification result (reused for trace and bundle verify)
+#[derive(Debug, Clone, serde::Serialize, serde::Deserialize)]
+pub struct ReceiptVerificationResult {
+    #[serde(skip_serializing_if = "Option::is_none")]
+    pub trace_id: Option<String>,
+    pub pass: bool,
+    #[serde(default)]
+    pub reasons: Vec<String>,
+    #[serde(skip_serializing_if = "Option::is_none")]
+    pub context_digest: Option<String>,
+    #[serde(skip_serializing_if = "Option::is_none")]
+    pub run_head_hash: Option<String>,
+    #[serde(skip_serializing_if = "Option::is_none")]
+    pub output_digest: Option<String>,
+    #[serde(skip_serializing_if = "Option::is_none")]
+    pub receipt_digest: Option<String>,
+    #[serde(default)]
+    pub signature_checked: bool,
+    #[serde(default)]
+    pub signature_valid: bool,
+}
+
+// ============================================================================
+// Policy Governance Types (PASS 4)
+// ============================================================================
+
+/// Response from signing a policy
+#[derive(Debug, Clone, serde::Serialize, serde::Deserialize)]
+pub struct SignPolicyResponse {
+    pub cpid: String,
+    pub signature: String,
+    pub signed_at: String,
+    pub signed_by: String,
+}
+
+/// Response from verifying a policy signature
+#[derive(Debug, Clone, serde::Serialize, serde::Deserialize)]
+pub struct VerifyPolicyResponse {
+    pub cpid: String,
+    pub is_valid: bool,
+    #[serde(skip_serializing_if = "Option::is_none")]
+    pub error: Option<String>,
+    #[serde(default)]
+    pub signature: Option<String>,
+    #[serde(default)]
+    pub public_key: Option<String>,
+    #[serde(default)]
+    pub verified_at: Option<String>,
+}
+
+/// Request to compare two policies
+#[derive(Debug, Clone, serde::Serialize, serde::Deserialize)]
+pub struct PolicyComparisonRequest {
+    pub cpid_1: String,
+    pub cpid_2: String,
+}
+
+/// Response from comparing two policies
+#[derive(Debug, Clone, serde::Serialize, serde::Deserialize)]
+pub struct PolicyComparisonResponse {
+    #[serde(default)]
+    pub cpid_1: Option<String>,
+    #[serde(default)]
+    pub cpid_2: Option<String>,
+    pub differences: Vec<String>,
+    pub identical: bool,
+}
+
+/// Response from exporting a policy
+#[derive(Debug, Clone, serde::Serialize, serde::Deserialize)]
+pub struct ExportPolicyResponse {
+    pub cpid: String,
+    pub policy_json: String,
+    #[serde(skip_serializing_if = "Option::is_none")]
+    pub signature: Option<String>,
+    pub exported_at: String,
+}
+
+/// Policy assignment response
+#[derive(Debug, Clone, serde::Serialize, serde::Deserialize)]
+pub struct PolicyAssignmentResponse {
+    pub id: String,
+    pub policy_pack_id: String,
+    pub target_type: String,
+    #[serde(skip_serializing_if = "Option::is_none")]
+    pub target_id: Option<String>,
+    #[serde(skip_serializing_if = "Option::is_none")]
+    pub priority: Option<i32>,
+    #[serde(default)]
+    pub enforced: bool,
+}
+
+/// Policy violation response
+#[derive(Debug, Clone, serde::Serialize, serde::Deserialize)]
+pub struct PolicyViolationResponse {
+    pub id: String,
+    pub tenant_id: String,
+    pub resource_type: String,
+    pub severity: String,
+    pub message: String,
+    #[serde(default)]
+    pub resolved: bool,
+    pub created_at: String,
+}
+
+// ============================================================================
+// Session Security Types (PASS 5)
+// ============================================================================
+
+/// Response containing active auth sessions
+#[derive(Debug, Clone, serde::Serialize, serde::Deserialize)]
+pub struct SessionsResponse {
+    #[serde(default)]
+    pub schema_version: String,
+    pub sessions: Vec<adapteros_api_types::auth::SessionInfo>,
+}
+
+// ============================================================================
+// Storage Visibility Types (PASS 6)
+// ============================================================================
+
+/// Storage mode response
+#[derive(Debug, Clone, serde::Serialize, serde::Deserialize)]
+pub struct StorageModeResponse {
+    pub mode: String,
+    pub description: String,
+    #[serde(default)]
+    pub kv_available: bool,
+    #[serde(default)]
+    pub dual_write_active: bool,
+}
+
+/// Storage statistics response
+#[derive(Debug, Clone, serde::Serialize, serde::Deserialize)]
+pub struct StorageStatsResponse {
+    pub mode: String,
+    #[serde(default)]
+    pub sql_counts: serde_json::Value,
+    #[serde(default)]
+    pub kv_counts: serde_json::Value,
+    #[serde(default)]
+    pub kv_metrics: Option<serde_json::Value>,
+    #[serde(default)]
+    pub safe_to_cutover: Option<bool>,
+    #[serde(default)]
+    pub cutover_evidence: Vec<String>,
+    pub collected_at: String,
+}
+
+/// Tenant storage usage response
+#[derive(Debug, Clone, serde::Serialize, serde::Deserialize)]
+pub struct TenantStorageUsageResponse {
+    pub tenant_id: String,
+    #[serde(default)]
+    pub dataset_bytes: u64,
+    #[serde(default)]
+    pub artifact_bytes: u64,
+    #[serde(default)]
+    pub dataset_versions: i64,
+    #[serde(default)]
+    pub adapter_versions: i64,
+    #[serde(default)]
+    pub soft_limit_bytes: u64,
+    #[serde(default)]
+    pub hard_limit_bytes: u64,
+    #[serde(default)]
+    pub soft_exceeded: bool,
+    #[serde(default)]
+    pub hard_exceeded: bool,
+}
+
 /// Adapter lifecycle events from SSE stream `/v1/stream/adapters`.
 #[derive(Debug, Clone, serde::Serialize, serde::Deserialize)]
 #[serde(tag = "event", rename_all = "snake_case")]

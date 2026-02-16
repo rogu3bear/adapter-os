@@ -94,14 +94,14 @@ fn derive_checklist(status: &SystemStatusResponse) -> Vec<CheckItem> {
                 CheckStatus::Issue
             },
             hint: if workers_ok {
-                "At least one worker connected"
+                "Worker connected and ready"
             } else {
-                "No workers detected"
+                "A worker runs models. Connect one to continue"
             },
             action_label: if workers_ok {
                 None
             } else {
-                Some("Manage workers")
+                Some("Set up worker")
             },
             action_href: if workers_ok { None } else { Some("/workers") },
         },
@@ -115,13 +115,13 @@ fn derive_checklist(status: &SystemStatusResponse) -> Vec<CheckItem> {
                 CheckStatus::Issue
             },
             hint: if models_ok {
-                "Model loaded and ready"
+                "Model loaded on a worker"
             } else if model_count > 0 {
-                "Models registered but none loaded"
+                "Model added, but not loaded on a worker"
             } else {
-                "No models registered \u{2014} seed from local files"
+                "Next: add a model after a worker is online"
             },
-            action_label: Some("Models"),
+            action_label: Some("Open models"),
             action_href: Some("/models"),
         },
         CheckItem {
@@ -152,9 +152,9 @@ fn derive_checklist(status: &SystemStatusResponse) -> Vec<CheckItem> {
                 primary_blocker_hint(&status.inference_blockers)
             },
             action_label: if inference_ready {
-                Some("Chat")
+                Some("Open chat")
             } else {
-                Some("System status")
+                Some("See blockers")
             },
             action_href: if inference_ready {
                 Some("/chat")
@@ -179,9 +179,9 @@ fn primary_blocker_hint(blockers: &[InferenceBlocker]) -> &'static str {
         Some(InferenceBlocker::BootFailed) => "Boot failed \u{2014} check server logs",
         Some(InferenceBlocker::SystemBooting) => "System is still booting",
         Some(InferenceBlocker::DatabaseUnavailable) => "Database unavailable",
-        Some(InferenceBlocker::WorkerMissing) => "No workers connected",
+        Some(InferenceBlocker::WorkerMissing) => "No worker connected",
         Some(InferenceBlocker::NoModelLoaded) => "No model loaded on a worker",
-        Some(InferenceBlocker::ActiveModelMismatch) => "Model mismatch \u{2014} reload model",
+        Some(InferenceBlocker::ActiveModelMismatch) => "Loaded model does not match selection",
         Some(InferenceBlocker::TelemetryDegraded) => "Telemetry degraded (non-blocking)",
         None => "Resolve issues above to enable inference",
     }
@@ -213,8 +213,8 @@ pub fn Welcome() -> impl IntoView {
                         </svg>
                         <h2 class="welcome-title">"Welcome to AdapterOS"</h2>
                         <p class="welcome-subtitle">
-                            "Deterministic ML inference for Apple Silicon. "
-                            "Let\u{2019}s make sure your system is ready."
+                            "A worker runs your model and handles requests. "
+                            "Connect a worker, then load a model."
                         </p>
                     </div>
 
@@ -292,7 +292,7 @@ pub fn Welcome() -> impl IntoView {
                                                         <polyline points="22 4 12 14.01 9 11.01"/>
                                                     </svg>
                                                     <p class="welcome-ready-text">"System is ready for inference"</p>
-                                                    <a href="/chat" class="btn btn-primary mt-3">"Start chatting"</a>
+                                                    <a href="/chat" class="btn btn-primary mt-3">"Open chat"</a>
                                                 </div>
                                             })
                                         } else {

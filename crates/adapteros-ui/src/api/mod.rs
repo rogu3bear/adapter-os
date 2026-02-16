@@ -44,18 +44,30 @@ pub use types::{
     ValidateFileResponse, ValidatePolicyRequest, WorkflowType,
 };
 
+// Re-export UI-specific types for chat collaboration, replay, policy governance, sessions, storage
+pub use types::{
+    AssignTagsRequest, ChatSessionListItem, ChatTagResponse, CreateChatTagRequest,
+    ExecuteReplayRequest, ExecuteReplayResponse, ExportPolicyResponse, ForkSessionRequest,
+    ForkSessionResponse, PolicyAssignmentResponse, PolicyComparisonRequest,
+    PolicyComparisonResponse, PolicyViolationResponse, ReceiptVerificationResult, SessionShareInfo,
+    SessionSharesResponse, SessionTagsResponse, SessionsResponse, ShareSessionRequest,
+    SharedSessionInfo, SharedWithMeResponse, SignPolicyResponse, StorageModeResponse,
+    StorageStatsResponse, TenantStorageUsageResponse, VerifyPolicyResponse,
+};
+
 // Re-export types from adapteros-api-types via client module
 pub use client::{
     ActivityEventResponse, AllModelsStatusResponse, AneMemoryStatus, ApiKeyInfo,
-    ApiKeyListResponse, BaseModelStatusResponse, CanonicalRow, CreateApiKeyRequest,
-    CreateApiKeyResponse, CreateRoutingRuleRequest, DatasetFileResponse, DatasetManifest,
-    DatasetVersionsResponse, EmbeddingBenchmarkReport, EmbeddingBenchmarksQuery,
+    ApiKeyListResponse, BaseModelStatusResponse, CanonicalRow, ChatProvenanceResponse,
+    CreateApiKeyRequest, CreateApiKeyResponse, CreateRoutingRuleRequest, DatasetFileResponse,
+    DatasetManifest, DatasetVersionsResponse, EmbeddingBenchmarkReport, EmbeddingBenchmarksQuery,
     EmbeddingBenchmarksResponse, InFlightAdaptersResponse, JsonlValidationDiagnostic,
-    ListUsersResponse, ModelLoadStatus, ModelStatusResponse, RegisterRepositoryRequest,
+    ListUsersResponse, MfaDisableRequest, MfaEnrollStartResponse, MfaEnrollVerifyRequest,
+    MfaStatusResponse, ModelLoadStatus, ModelStatusResponse, RegisterRepositoryRequest,
     RegisterRepositoryResponse, RepositoryDetailResponse, RepositoryInfo, RepositoryListResponse,
     RevokeApiKeyResponse, RoutingRuleResponse, RoutingRulesResponse, ScanJobResponse,
-    ScanRepositoryRequest, SeedModelRequest, SeedModelResponse, TenantListResponse, TenantSummary,
-    UploadDatasetResponse, UserResponse, WorkerMetricsResponse,
+    ScanRepositoryRequest, SeedModelRequest, SeedModelResponse, SessionInfo, TenantListResponse,
+    TenantSummary, UploadDatasetResponse, UserResponse, WorkerMetricsResponse,
 };
 
 pub use diagnostic_bundle::DiagnosticBundle;

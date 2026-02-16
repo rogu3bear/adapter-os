@@ -917,9 +917,9 @@ mod tenant_isolation_validation_tests {
         assert!(result.is_err(), "Different tenant access should be denied");
 
         // Verify it's a 403 Forbidden
-        if let Err((status, response)) = result {
-            assert_eq!(status, axum::http::StatusCode::FORBIDDEN);
-            assert_eq!(response.0.code, "TENANT_ISOLATION_ERROR".to_string());
+        if let Err(err) = result {
+            assert_eq!(err.status, axum::http::StatusCode::FORBIDDEN);
+            assert_eq!(err.code, "TENANT_ISOLATION_ERROR");
         }
     }
 
@@ -1010,9 +1010,9 @@ mod http_status_code_tests {
         };
 
         match validate_tenant_isolation(&claims, "tenant-b") {
-            Err((status, _)) => {
+            Err(err) => {
                 assert_eq!(
-                    status,
+                    err.status,
                     StatusCode::FORBIDDEN,
                     "Should return 403 Forbidden for tenant isolation violation"
                 );

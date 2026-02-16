@@ -176,7 +176,7 @@ pub fn TrainingJobDetail(
     });
 
     view! {
-        <div class="space-y-4 min-w-0">
+        <div class="space-y-4 min-w-0" data-testid="training-job-detail">
             // Header with close button
             <div class="flex items-start justify-between gap-4">
                 <div>
@@ -594,12 +594,24 @@ fn OverviewTabContent(
                 {job.dataset_id.clone().map(|ds| view! {
                     <DetailRow label="Dataset" value=ds/>
                 })}
-                <DetailRow label="Created" value=format_date(&job.created_at)/>
+                <DetailRow
+                    label="Created"
+                    value=format_date(&job.created_at)
+                    data_testid="training-detail-created-row".to_string()
+                />
                 {job.started_at.clone().map(|ts| view! {
-                    <DetailRow label="Started" value=format_date(&ts)/>
+                    <DetailRow
+                        label="Started"
+                        value=format_date(&ts)
+                        data_testid="training-detail-started-row".to_string()
+                    />
                 })}
                 {job.completed_at.clone().map(|ts| view! {
-                    <DetailRow label="Completed" value=format_date(&ts)/>
+                    <DetailRow
+                        label="Completed"
+                        value=format_date(&ts)
+                        data_testid="training-detail-completed-row".to_string()
+                    />
                 })}
             </div>
         </Card>

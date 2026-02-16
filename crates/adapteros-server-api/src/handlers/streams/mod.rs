@@ -11,11 +11,14 @@
 
 use crate::auth::Claims;
 use crate::handlers::workers::is_terminal_worker_status;
+use crate::pause_tracker::{PausedInferenceInfo as ServerPausedInfo, ServerPauseTracker};
 use crate::permissions::{require_permission, Permission};
 use crate::security::check_tenant_access;
-use crate::sse::{EventGapRecoveryHint, SseErrorEvent, SseEventManager, SseStreamType};
+use crate::sse::{EventGapRecoveryHint, SseErrorEvent, SseEvent, SseEventManager, SseStreamType};
 use crate::state::AppState;
 use crate::types::*;
+use adapteros_api_types::review::{ListPausedResponse, PausedInferenceInfo as ApiPausedInfo};
+use adapteros_api_types::schema_version;
 use axum::{
     extract::{Path, Query, State},
     http::HeaderMap,
@@ -27,7 +30,7 @@ use axum::{
 };
 use futures_util::stream::{self, Stream};
 use futures_util::StreamExt as FuturesStreamExt;
-use serde::Deserialize;
+use serde::{Deserialize, Serialize};
 use serde_json::json;
 use sqlx::Row;
 use std::collections::HashMap;
@@ -247,6 +250,303 @@ fn create_replay_stream(
             .into_iter()
             .map(|e| Ok(SseEventManager::to_axum_event(&e))),
     )
+}
+
+#[derive(Debug, Clone, Serialize, Deserialize)]
+struct TenantScopedStreamEnvelope {
+    tenant_id: String,
+    payload_json: String,
+}
+
+fn encode_tenant_scoped_envelope(
+    tenant_id: &str,
+    payload_json: String,
+) -> Result<String, serde_json::Error> {
+    serde_json::to_string(&TenantScopedStreamEnvelope {
+        tenant_id: tenant_id.to_string(),
+        payload_json,
+    })
+}
+
+fn decode_tenant_scoped_payload_for_tenant(event: &SseEvent, tenant_id: &str) -> Option<String> {
+    let envelope: TenantScopedStreamEnvelope = serde_json::from_str(&event.data).ok()?;
+    if envelope.tenant_id != tenant_id {
+        return None;
+    }
+    Some(envelope.payload_json)
+}
+
+fn decode_tenant_scoped_replay_events_for_tenant(
+    events: Vec<SseEvent>,
+    tenant_id: &str,
+) -> Vec<Result<Event, Infallible>> {
+    events
+        .into_iter()
+        .filter_map(|event| {
+            decode_tenant_scoped_payload_for_tenant(&event, tenant_id)
+                .map(|payload| Ok(to_axum_event_with_payload(&event, payload)))
+        })
+        .collect()
+}
+
+#[derive(Debug, Clone, Serialize, Deserialize)]
+struct ReviewsStreamEnvelope {
+    tenant_id: String,
+    payload_json: String,
+}
+
+fn paused_review_to_api(info: ServerPausedInfo) -> ApiPausedInfo {
+    ApiPausedInfo {
+        inference_id: info.inference_id,
+        pause_id: info.pause_id,
+        kind: info.kind,
+        paused_at: info.created_at.to_rfc3339(),
+        duration_secs: info.duration_secs,
+        context_preview: info.context.question.map(|q| {
+            if q.len() > 100 {
+                format!("{}...", &q[..97])
+            } else {
+                q
+            }
+        }),
+    }
+}
+
+fn list_paused_payload(tracker: &ServerPauseTracker, tenant_id: &str) -> ListPausedResponse {
+    let paused_list = tracker.list_paused_for_tenant(tenant_id);
+    let total = paused_list.len();
+    let paused = paused_list.into_iter().map(paused_review_to_api).collect();
+
+    ListPausedResponse {
+        schema_version: schema_version(),
+        paused,
+        total,
+    }
+}
+
+fn reviews_payload_signature(payload: &ListPausedResponse) -> Result<String, serde_json::Error> {
+    let mut entries: Vec<serde_json::Value> = payload
+        .paused
+        .iter()
+        .map(|info| {
+            json!({
+                "pause_id": info.pause_id,
+                "inference_id": info.inference_id,
+                "kind": info.kind,
+                "paused_at": info.paused_at,
+                "context_preview": info.context_preview,
+            })
+        })
+        .collect();
+    entries.sort_by(|a, b| {
+        let left = a
+            .get("pause_id")
+            .and_then(|v| v.as_str())
+            .unwrap_or_default();
+        let right = b
+            .get("pause_id")
+            .and_then(|v| v.as_str())
+            .unwrap_or_default();
+        left.cmp(right)
+    });
+    serde_json::to_string(&entries)
+}
+
+fn encode_reviews_envelope(
+    tenant_id: &str,
+    payload_json: String,
+) -> Result<String, serde_json::Error> {
+    serde_json::to_string(&ReviewsStreamEnvelope {
+        tenant_id: tenant_id.to_string(),
+        payload_json,
+    })
+}
+
+fn decode_reviews_payload_for_tenant(event: &SseEvent, tenant_id: &str) -> Option<String> {
+    let envelope: ReviewsStreamEnvelope = serde_json::from_str(&event.data).ok()?;
+    if envelope.tenant_id != tenant_id {
+        return None;
+    }
+    Some(envelope.payload_json)
+}
+
+fn to_axum_event_with_payload(event: &SseEvent, payload_json: String) -> Event {
+    let mut sse_event = Event::default()
+        .id(event.id.to_string())
+        .event(&event.event_type)
+        .data(payload_json);
+
+    if let Some(retry_ms) = event.retry_ms {
+        sse_event = sse_event.retry(Duration::from_millis(retry_ms as u64));
+    }
+
+    sse_event
+}
+
+#[cfg(test)]
+mod reviews_stream_tests {
+    use super::*;
+
+    #[test]
+    fn reviews_signature_ignores_duration_churn() {
+        let base = ListPausedResponse {
+            schema_version: schema_version(),
+            paused: vec![ApiPausedInfo {
+                inference_id: "inf-1".to_string(),
+                pause_id: "pause-1".to_string(),
+                kind: adapteros_api_types::review::PauseKind::ReviewNeeded,
+                paused_at: "2026-01-01T00:00:00Z".to_string(),
+                duration_secs: 5,
+                context_preview: Some("needs review".to_string()),
+            }],
+            total: 1,
+        };
+        let mut updated = base.clone();
+        updated.paused[0].duration_secs = 65;
+
+        let base_sig = reviews_payload_signature(&base).expect("base signature");
+        let updated_sig = reviews_payload_signature(&updated).expect("updated signature");
+
+        assert_eq!(base_sig, updated_sig);
+    }
+
+    #[test]
+    fn decode_reviews_payload_filters_by_tenant() {
+        let payload = r#"{"paused":[],"total":0,"schema_version":"1.0.0"}"#.to_string();
+        let envelope = encode_reviews_envelope("tenant-a", payload.clone()).expect("envelope");
+        let event = SseEvent {
+            id: 7,
+            event_type: "reviews".to_string(),
+            data: envelope,
+            timestamp_ms: 0,
+            retry_ms: Some(3000),
+        };
+
+        assert_eq!(
+            decode_reviews_payload_for_tenant(&event, "tenant-a"),
+            Some(payload)
+        );
+        assert_eq!(decode_reviews_payload_for_tenant(&event, "tenant-b"), None);
+    }
+
+    #[test]
+    fn reviews_signature_ignores_order_churn() {
+        let first = ListPausedResponse {
+            schema_version: schema_version(),
+            paused: vec![
+                ApiPausedInfo {
+                    inference_id: "inf-2".to_string(),
+                    pause_id: "pause-2".to_string(),
+                    kind: adapteros_api_types::review::PauseKind::ReviewNeeded,
+                    paused_at: "2026-01-01T00:00:01Z".to_string(),
+                    duration_secs: 4,
+                    context_preview: Some("two".to_string()),
+                },
+                ApiPausedInfo {
+                    inference_id: "inf-1".to_string(),
+                    pause_id: "pause-1".to_string(),
+                    kind: adapteros_api_types::review::PauseKind::ReviewNeeded,
+                    paused_at: "2026-01-01T00:00:00Z".to_string(),
+                    duration_secs: 5,
+                    context_preview: Some("one".to_string()),
+                },
+            ],
+            total: 2,
+        };
+        let second = ListPausedResponse {
+            schema_version: schema_version(),
+            paused: vec![first.paused[1].clone(), first.paused[0].clone()],
+            total: 2,
+        };
+
+        let first_sig = reviews_payload_signature(&first).expect("first signature");
+        let second_sig = reviews_payload_signature(&second).expect("second signature");
+        assert_eq!(first_sig, second_sig);
+    }
+}
+
+#[cfg(test)]
+mod tenant_scoped_stream_envelope_tests {
+    use super::*;
+
+    #[test]
+    fn decode_tenant_scoped_payload_matches_tenant() {
+        let payload = r#"{"workers":[]}"#.to_string();
+        let envelope =
+            encode_tenant_scoped_envelope("tenant-a", payload.clone()).expect("envelope");
+        let event = SseEvent {
+            id: 11,
+            event_type: "workers".to_string(),
+            data: envelope,
+            timestamp_ms: 0,
+            retry_ms: Some(3000),
+        };
+
+        assert_eq!(
+            decode_tenant_scoped_payload_for_tenant(&event, "tenant-a"),
+            Some(payload)
+        );
+    }
+
+    #[test]
+    fn decode_tenant_scoped_payload_rejects_invalid_or_mismatched() {
+        let mismatched = SseEvent {
+            id: 12,
+            event_type: "training".to_string(),
+            data: encode_tenant_scoped_envelope("tenant-b", "{}".to_string()).expect("envelope"),
+            timestamp_ms: 0,
+            retry_ms: Some(3000),
+        };
+        let invalid = SseEvent {
+            id: 13,
+            event_type: "training".to_string(),
+            data: "{\"tenant_id\":\"tenant-a\"}".to_string(),
+            timestamp_ms: 0,
+            retry_ms: Some(3000),
+        };
+
+        assert_eq!(
+            decode_tenant_scoped_payload_for_tenant(&mismatched, "tenant-a"),
+            None
+        );
+        assert_eq!(
+            decode_tenant_scoped_payload_for_tenant(&invalid, "tenant-a"),
+            None
+        );
+    }
+
+    #[test]
+    fn replay_filter_drops_invalid_or_mismatched_envelopes() {
+        let matching_payload = r#"{"adapters":[]}"#.to_string();
+        let matching = SseEvent {
+            id: 14,
+            event_type: "adapters".to_string(),
+            data: encode_tenant_scoped_envelope("tenant-a", matching_payload).expect("envelope"),
+            timestamp_ms: 0,
+            retry_ms: Some(3000),
+        };
+        let mismatched = SseEvent {
+            id: 15,
+            event_type: "adapters".to_string(),
+            data: encode_tenant_scoped_envelope("tenant-b", "{}".to_string()).expect("envelope"),
+            timestamp_ms: 0,
+            retry_ms: Some(3000),
+        };
+        let invalid = SseEvent {
+            id: 16,
+            event_type: "adapters".to_string(),
+            data: "not-json".to_string(),
+            timestamp_ms: 0,
+            retry_ms: Some(3000),
+        };
+
+        let filtered = decode_tenant_scoped_replay_events_for_tenant(
+            vec![matching, mismatched, invalid],
+            "tenant-a",
+        );
+
+        assert_eq!(filtered.len(), 1);
+    }
 }
 
 /// SSE stream for system metrics
@@ -539,16 +839,19 @@ pub async fn adapter_state_stream(
     let last_event_id = SseEventManager::parse_last_event_id(&headers);
 
     // Get replay events if reconnecting
-    let replay_events = if let Some(last_id) = last_event_id {
-        sse_manager
-            .get_replay_events(SseStreamType::AdapterState, last_id)
-            .await
+    let replay_events: Vec<Result<Event, Infallible>> = if let Some(last_id) = last_event_id {
+        decode_tenant_scoped_replay_events_for_tenant(
+            sse_manager
+                .get_replay_events(SseStreamType::AdapterState, last_id)
+                .await,
+            &tenant_id,
+        )
     } else {
         Vec::new()
     };
 
     // Create replay stream
-    let replay_stream = create_replay_stream(replay_events);
+    let replay_stream = stream::iter(replay_events);
 
     let live_stream = stream::unfold(
         (state.clone(), tenant_id),
@@ -586,12 +889,30 @@ pub async fn adapter_state_stream(
                 }
             };
 
+            let envelope_json = match encode_tenant_scoped_envelope(&tenant_id, json.clone()) {
+                Ok(value) => value,
+                Err(err) => {
+                    tracing::warn!(
+                        tenant_id = %tenant_id,
+                        error = %err,
+                        "Failed to serialize adapter state stream envelope"
+                    );
+                    let event = mgr
+                        .create_error_event(SseStreamType::AdapterState, "serialization failed")
+                        .await;
+                    return Some((
+                        Ok(SseEventManager::to_axum_event(&event)),
+                        (state, tenant_id),
+                    ));
+                }
+            };
+
             let event = mgr
-                .create_event(SseStreamType::AdapterState, "adapters", json)
+                .create_event(SseStreamType::AdapterState, "adapters", envelope_json)
                 .await;
 
             Some((
-                Ok(SseEventManager::to_axum_event(&event)),
+                Ok(to_axum_event_with_payload(&event, json)),
                 (state, tenant_id),
             ))
         },
@@ -657,16 +978,19 @@ pub async fn workers_stream(
     let last_event_id = SseEventManager::parse_last_event_id(&headers);
 
     // Get replay events if reconnecting
-    let replay_events = if let Some(last_id) = last_event_id {
-        sse_manager
-            .get_replay_events(SseStreamType::Workers, last_id)
-            .await
+    let replay_events: Vec<Result<Event, Infallible>> = if let Some(last_id) = last_event_id {
+        decode_tenant_scoped_replay_events_for_tenant(
+            sse_manager
+                .get_replay_events(SseStreamType::Workers, last_id)
+                .await,
+            &tenant_id,
+        )
     } else {
         Vec::new()
     };
 
     // Create replay stream
-    let replay_stream = create_replay_stream(replay_events);
+    let replay_stream = stream::iter(replay_events);
 
     let live_stream = stream::unfold(
         (state.clone(), tenant_id),
@@ -747,14 +1071,234 @@ pub async fn workers_stream(
                 }
             };
 
+            let envelope_json = match encode_tenant_scoped_envelope(&tenant_id, json.clone()) {
+                Ok(value) => value,
+                Err(err) => {
+                    tracing::warn!(
+                        tenant_id = %tenant_id,
+                        error = %err,
+                        "Failed to serialize workers stream envelope"
+                    );
+                    let event = mgr
+                        .create_error_event(SseStreamType::Workers, "serialization failed")
+                        .await;
+                    return Some((
+                        Ok(SseEventManager::to_axum_event(&event)),
+                        (state, tenant_id),
+                    ));
+                }
+            };
+
             let event = mgr
-                .create_event(SseStreamType::Workers, "workers", json)
+                .create_event(SseStreamType::Workers, "workers", envelope_json)
                 .await;
 
             Some((
-                Ok(SseEventManager::to_axum_event(&event)),
+                Ok(to_axum_event_with_payload(&event, json)),
                 (state, tenant_id),
             ))
+        },
+    );
+
+    sse_response(FuturesStreamExt::chain(replay_stream, live_stream))
+}
+
+/// SSE stream for paused review queue updates
+///
+/// Streams tenant-scoped snapshots of paused reviews with replay support.
+#[utoipa::path(
+    tag = "reviews",
+    get,
+    path = "/v1/stream/reviews",
+    params(
+        ("tenant" = Option<String>, Query, description = "Tenant ID for filtering events (defaults to caller tenant)")
+    ),
+    responses(
+        (status = 200, description = "SSE stream of paused review queue updates")
+    )
+)]
+pub async fn reviews_stream(
+    State(state): State<AppState>,
+    Extension(claims): Extension<Claims>,
+    Query(params): Query<StreamQuery>,
+    headers: HeaderMap,
+) -> SseResponse {
+    let tenant_id = params
+        .tenant
+        .clone()
+        .unwrap_or_else(|| claims.tenant_id.clone());
+    if !check_tenant_access(&claims, &tenant_id) {
+        tracing::warn!(
+            user_id = %claims.sub,
+            user_tenant = %claims.tenant_id,
+            requested_tenant = %tenant_id,
+            "Reviews stream tenant access denied"
+        );
+        let event = Event::default()
+            .event("error")
+            .data("{\"error\": \"Access denied for tenant reviews stream\"}");
+        return sse_response(stream::iter(vec![Ok(event)]));
+    }
+
+    let pause_tracker = match state.pause_tracker.clone() {
+        Some(tracker) => tracker,
+        None => {
+            let event = Event::default()
+                .event("error")
+                .data("{\"error\": \"Server pause tracker not initialized\"}");
+            return sse_response(stream::iter(vec![Ok(event)]));
+        }
+    };
+
+    let sse_manager = state.sse_manager.clone();
+    let last_event_id = SseEventManager::parse_last_event_id(&headers);
+
+    let replay_events: Vec<Result<Event, Infallible>> = if let Some(last_id) = last_event_id {
+        sse_manager
+            .get_replay_events(SseStreamType::Reviews, last_id)
+            .await
+            .into_iter()
+            .filter_map(|event| {
+                decode_reviews_payload_for_tenant(&event, &tenant_id)
+                    .map(|payload| Ok(to_axum_event_with_payload(&event, payload)))
+            })
+            .collect()
+    } else {
+        Vec::new()
+    };
+    let replay_stream = stream::iter(replay_events);
+
+    let pause_change_rx = pause_tracker.subscribe_changes();
+    let live_stream = stream::unfold(
+        (
+            state.sse_manager.clone(),
+            pause_tracker,
+            tenant_id,
+            None::<String>,
+            pause_change_rx,
+            true,
+        ),
+        move |(
+            sse_manager,
+            pause_tracker,
+            tenant_id,
+            mut last_signature,
+            mut pause_change_rx,
+            mut first_poll,
+        )| async move {
+            loop {
+                if !first_poll {
+                    tokio::select! {
+                        change_result = pause_change_rx.changed() => {
+                            if change_result.is_err() {
+                                tracing::debug!("Pause tracker change channel closed");
+                                return None;
+                            }
+                        }
+                        _ = tokio::time::sleep(Duration::from_secs(60)) => {}
+                    }
+                }
+                first_poll = false;
+
+                let payload = list_paused_payload(&pause_tracker, &tenant_id);
+                let payload_json = match serde_json::to_string(&payload) {
+                    Ok(json) => json,
+                    Err(err) => {
+                        tracing::warn!(
+                            tenant_id = %tenant_id,
+                            error = %err,
+                            "Failed to serialize reviews stream payload"
+                        );
+                        let event = Event::default()
+                            .event("error")
+                            .data("{\"error\":\"serialization failed\"}");
+                        return Some((
+                            Ok(event),
+                            (
+                                sse_manager,
+                                pause_tracker,
+                                tenant_id,
+                                last_signature,
+                                pause_change_rx,
+                                first_poll,
+                            ),
+                        ));
+                    }
+                };
+
+                let payload_signature = match reviews_payload_signature(&payload) {
+                    Ok(signature) => signature,
+                    Err(err) => {
+                        tracing::warn!(
+                            tenant_id = %tenant_id,
+                            error = %err,
+                            "Failed to serialize reviews stream signature"
+                        );
+                        let event = Event::default()
+                            .event("error")
+                            .data("{\"error\":\"serialization failed\"}");
+                        return Some((
+                            Ok(event),
+                            (
+                                sse_manager,
+                                pause_tracker,
+                                tenant_id,
+                                last_signature,
+                                pause_change_rx,
+                                first_poll,
+                            ),
+                        ));
+                    }
+                };
+
+                if last_signature.as_deref() == Some(payload_signature.as_str()) {
+                    continue;
+                }
+
+                let envelope_json = match encode_reviews_envelope(&tenant_id, payload_json.clone())
+                {
+                    Ok(json) => json,
+                    Err(err) => {
+                        tracing::warn!(
+                            tenant_id = %tenant_id,
+                            error = %err,
+                            "Failed to serialize reviews stream envelope"
+                        );
+                        let event = Event::default()
+                            .event("error")
+                            .data("{\"error\":\"serialization failed\"}");
+                        return Some((
+                            Ok(event),
+                            (
+                                sse_manager,
+                                pause_tracker,
+                                tenant_id,
+                                last_signature,
+                                pause_change_rx,
+                                first_poll,
+                            ),
+                        ));
+                    }
+                };
+
+                let event = sse_manager
+                    .create_event(SseStreamType::Reviews, "reviews", envelope_json)
+                    .await;
+
+                last_signature = Some(payload_signature);
+                let outbound = to_axum_event_with_payload(&event, payload_json);
+                return Some((
+                    Ok(outbound),
+                    (
+                        sse_manager,
+                        pause_tracker,
+                        tenant_id,
+                        last_signature,
+                        pause_change_rx,
+                        first_poll,
+                    ),
+                ));
+            }
         },
     );
 
@@ -813,16 +1357,19 @@ pub async fn training_stream(
     let last_event_id = SseEventManager::parse_last_event_id(&headers);
 
     // Get replay events if reconnecting
-    let replay_events = if let Some(last_id) = last_event_id {
-        sse_manager
-            .get_replay_events(SseStreamType::Training, last_id)
-            .await
+    let replay_events: Vec<Result<Event, Infallible>> = if let Some(last_id) = last_event_id {
+        decode_tenant_scoped_replay_events_for_tenant(
+            sse_manager
+                .get_replay_events(SseStreamType::Training, last_id)
+                .await,
+            &tenant_id,
+        )
     } else {
         Vec::new()
     };
 
     // Create replay stream
-    let replay_stream = create_replay_stream(replay_events);
+    let replay_stream = stream::iter(replay_events);
 
     // Subscribe to the training signal broadcast channel
     let rx = state.training_signal_tx.subscribe();
@@ -830,8 +1377,9 @@ pub async fn training_stream(
     // Convert the broadcast receiver into a stream that filters by tenant
     // Use FuturesStreamExt::filter_map explicitly for async closure support
     let mgr_for_signals = Arc::new(state.sse_manager.clone());
+    let tenant_id_for_signals = tenant_id.clone();
     let signal_stream = FuturesStreamExt::filter_map(BroadcastStream::new(rx), move |result| {
-        let tenant_filter = tenant_id.clone();
+        let tenant_filter = tenant_id_for_signals.clone();
         let mgr = Arc::clone(&mgr_for_signals);
         async move {
             match result {
@@ -843,8 +1391,8 @@ pub async fn training_stream(
                         .and_then(|v| v.as_str())
                         .unwrap_or("");
 
-                    // Pass through if tenant matches or if no tenant filter in signal
-                    if signal_tenant.is_empty() || signal_tenant == tenant_filter {
+                    // Fail closed: only pass through when signal tenant matches subscriber tenant.
+                    if signal_tenant == tenant_filter.as_str() {
                         let event_data = serde_json::json!({
                             "type": signal.signal_type.to_string(),
                             "timestamp": signal.timestamp,
@@ -853,16 +1401,39 @@ pub async fn training_stream(
                             "trace_id": signal.trace_id,
                         });
 
+                        let payload_json = event_data.to_string();
+                        let envelope_json = match encode_tenant_scoped_envelope(
+                            &tenant_filter,
+                            payload_json.clone(),
+                        ) {
+                            Ok(value) => value,
+                            Err(err) => {
+                                tracing::warn!(
+                                    tenant_id = %tenant_filter,
+                                    error = %err,
+                                    "Failed to serialize training signal stream envelope"
+                                );
+                                let event = mgr
+                                    .create_error_event(
+                                        SseStreamType::Training,
+                                        "serialization failed",
+                                    )
+                                    .await;
+                                return Some(Ok(SseEventManager::to_axum_event(&event)));
+                            }
+                        };
+
                         let event = mgr
-                            .create_event(
-                                SseStreamType::Training,
-                                "training",
-                                event_data.to_string(),
-                            )
+                            .create_event(SseStreamType::Training, "training", envelope_json)
                             .await;
 
-                        Some(Ok(SseEventManager::to_axum_event(&event)))
+                        Some(Ok(to_axum_event_with_payload(&event, payload_json)))
                     } else {
+                        tracing::debug!(
+                            tenant_filter = %tenant_filter,
+                            signal_tenant = %signal_tenant,
+                            "Dropping training signal for tenant-mismatched or unlabeled payload"
+                        );
                         None
                     }
                 }
@@ -876,8 +1447,10 @@ pub async fn training_stream(
 
     // Also include a periodic heartbeat to keep connection alive
     let mgr_for_heartbeat = state.sse_manager.clone();
+    let tenant_id_for_heartbeat = tenant_id.clone();
     let heartbeat_stream = stream::unfold(0u64, move |counter| {
         let mgr = mgr_for_heartbeat.clone();
+        let tenant_id = tenant_id_for_heartbeat.clone();
         async move {
             tokio::time::sleep(Duration::from_secs(30)).await;
             let event_data = serde_json::json!({
@@ -889,11 +1462,31 @@ pub async fn training_stream(
                 "sequence": counter,
             });
 
+            let payload_json = event_data.to_string();
+            let envelope_json =
+                match encode_tenant_scoped_envelope(&tenant_id, payload_json.clone()) {
+                    Ok(value) => value,
+                    Err(err) => {
+                        tracing::warn!(
+                            tenant_id = %tenant_id,
+                            error = %err,
+                            "Failed to serialize training heartbeat stream envelope"
+                        );
+                        let event = mgr
+                            .create_error_event(SseStreamType::Training, "serialization failed")
+                            .await;
+                        return Some((Ok(SseEventManager::to_axum_event(&event)), counter + 1));
+                    }
+                };
+
             let event = mgr
-                .create_event(SseStreamType::Training, "training", event_data.to_string())
+                .create_event(SseStreamType::Training, "training", envelope_json)
                 .await;
 
-            Some((Ok(SseEventManager::to_axum_event(&event)), counter + 1))
+            Some((
+                Ok(to_axum_event_with_payload(&event, payload_json)),
+                counter + 1,
+            ))
         }
     });
 

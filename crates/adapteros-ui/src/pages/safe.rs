@@ -13,7 +13,7 @@ pub fn Safe() -> impl IntoView {
     };
 
     view! {
-        <main class="min-h-screen flex items-center justify-center bg-muted/40 p-6">
+        <main class="min-h-screen flex items-center justify-center bg-muted/40 p-6" data-testid="safe-page">
             <h1 class="sr-only">"Safety Mode"</h1>
             <Card
                 title="Safety Mode".to_string()

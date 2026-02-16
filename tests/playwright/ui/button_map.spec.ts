@@ -2,7 +2,7 @@ import { test, expect, type Page } from '@playwright/test';
 import fs from 'node:fs';
 import path from 'node:path';
 import { fileURLToPath } from 'node:url';
-import { ensureLoggedIn, waitForAppReady } from './utils';
+import { gotoAndBootstrap } from './utils';
 
 const __filename = fileURLToPath(import.meta.url);
 const __dirname = path.dirname(__filename);
@@ -76,9 +76,7 @@ test('button map (demo surfaces)', { tag: ['@map'] }, async ({ page }) => {
   const report: Entry[] = [];
 
   for (const route of routes) {
-    await page.goto(route, { waitUntil: 'domcontentloaded' });
-    await waitForAppReady(page);
-    await ensureLoggedIn(page);
+    await gotoAndBootstrap(page, route, { mode: 'ui-only' });
     await expect(page.locator('body')).toBeVisible();
 
     const entries = await collectButtonsAndLinks(page);

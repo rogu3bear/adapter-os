@@ -1,7 +1,7 @@
 use adapteros_server_api::boot_state::{failure_codes, BootStateManager, FailureReason};
-use adapteros_server_api::handlers::health::{ready, ReadyzResponse};
+use adapteros_server_api::handlers::health::{ready, ReadyzQuery, ReadyzResponse};
 use axum::body::to_bytes;
-use axum::extract::State;
+use axum::extract::{Query, State};
 use axum::http::StatusCode;
 use axum::response::IntoResponse;
 use std::time::Duration;
@@ -11,7 +11,9 @@ mod common;
 use common::setup_state;
 
 async fn call_readyz(state: adapteros_server_api::state::AppState) -> (StatusCode, ReadyzResponse) {
-    let response = ready(State(state)).await.into_response();
+    let response = ready(State(state), Query(ReadyzQuery { deep: false }))
+        .await
+        .into_response();
     let status = response.status();
     let body_bytes = to_bytes(response.into_body(), usize::MAX)
         .await

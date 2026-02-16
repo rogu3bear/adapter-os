@@ -233,3 +233,14 @@ export async function stubSystemStatus(
     });
   });
 }
+
+/** Intercept chat-session tag fetches used by chat workspace hydration. */
+export async function stubChatSessionTags(page: Page): Promise<void> {
+  await page.route('**/v1/chat/sessions/*/tags', async (route: Route) => {
+    await route.fulfill({
+      status: 200,
+      contentType: 'application/json',
+      body: JSON.stringify([]),
+    });
+  });
+}

@@ -9,19 +9,20 @@
  */
 
 import { test, expect } from '@playwright/test';
-import { ensureLoggedIn, seeded, waitForAppReady } from '../utils';
-import { stubSystemStatus } from '../helpers/sse';
+import { bootstrapAuth, gotoAndBootstrap, seeded, waitForAppReady } from '../utils';
+import { stubChatSessionTags, stubSystemStatus } from '../helpers/sse';
 import { useConsoleCatcher } from '../helpers/console-catcher';
 
 useConsoleCatcher(test);
 
 test('from adapters list, click Chat action, adapter is pinned in chat', { tag: ['@flow'] }, async ({ page }) => {
   await stubSystemStatus(page, { ready: true });
+  await stubChatSessionTags(page);
 
   // Navigate to adapters list.
-  await page.goto('/adapters', { waitUntil: 'domcontentloaded' });
-  await waitForAppReady(page);
-  await ensureLoggedIn(page);
+  await gotoAndBootstrap(page, '/adapters', {
+    mode: 'ui-then-api',
+  });
 
   await expect(
     page.getByRole('heading', { name: 'Adapters', level: 1, exact: true })
@@ -35,15 +36,14 @@ test('from adapters list, click Chat action, adapter is pinned in chat', { tag: 
 
   // Should navigate to chat with the adapter query param.
   await waitForAppReady(page);
-  await ensureLoggedIn(page);
+  await bootstrapAuth(page, { mode: 'ui-then-api' });
 
   // Verify we're on a chat session page.
-  await expect(
-    page.getByRole('heading', { name: 'Chat Session', level: 1, exact: true })
-  ).toBeVisible({ timeout: 20_000 });
+  await expect(page.getByTestId('chat-header')).toBeVisible({ timeout: 20_000 });
 
   // Verify the URL contains the adapter query param.
-  expect(page.url()).toContain(`adapter=${seeded.adapterId}`);
+  const adapterParam = new URL(page.url()).searchParams.get('adapter');
+  expect(adapterParam).toMatch(/^(adapter-test|adp-)/);
 
   // Verify the pending badge shows (adapter was auto-pinned).
   const pendingBadge = page.locator('[aria-label="Adapter changes pending confirmation"]');

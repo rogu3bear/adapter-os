@@ -20,6 +20,15 @@ pub fn temporal_ordering_violations() -> u64 {
     TEMPORAL_ORDERING_VIOLATIONS.load(Ordering::Relaxed)
 }
 
+fn is_terminal_worker_status(status: &str) -> bool {
+    // Keep compatibility with legacy rows that may still carry crashed/failed.
+    WorkerStatus::from_str(status)
+        .map(|parsed| parsed.is_terminal())
+        .unwrap_or_else(|_| {
+            status.eq_ignore_ascii_case("crashed") || status.eq_ignore_ascii_case("failed")
+        })
+}
+
 /// Valid worker incident types matching the database CHECK constraint.
 ///
 /// The database constraint in `migrations/0125_worker_health_metrics.sql` enforces:
@@ -1524,6 +1533,50 @@ impl Db {
         Ok(count > 0)
     }
 
+    /// Remove a worker record only when it is already in terminal state.
+    ///
+    /// Returns `AosError::Lifecycle` for non-terminal states so callers can map
+    /// this to an HTTP 409 conflict.
+    pub async fn remove_worker_if_terminal(&self, worker_id: &str) -> Result<()> {
+        let mut tx = self.begin_write_tx().await?;
+
+        let status_row: Option<(String,)> =
+            sqlx::query_as("SELECT status FROM workers WHERE id = ?")
+                .bind(worker_id)
+                .fetch_optional(&mut *tx)
+                .await
+                .map_err(|e| AosError::Database(format!("Failed to fetch worker: {}", e)))?;
+
+        let (status,) = status_row
+            .ok_or_else(|| AosError::NotFound(format!("Worker not found: {}", worker_id)))?;
+
+        if !is_terminal_worker_status(&status) {
+            return Err(AosError::Lifecycle(format!(
+                "Cannot remove worker {} in non-terminal status '{}'; terminal statuses are stopped, error, crashed, failed",
+                worker_id, status
+            )));
+        }
+
+        let result = sqlx::query("DELETE FROM workers WHERE id = ?")
+            .bind(worker_id)
+            .execute(&mut *tx)
+            .await
+            .map_err(|e| AosError::Database(format!("Failed to remove worker: {}", e)))?;
+
+        if result.rows_affected() == 0 {
+            return Err(AosError::NotFound(format!(
+                "Worker not found: {}",
+                worker_id
+            )));
+        }
+
+        tx.commit()
+            .await
+            .map_err(|e| AosError::Database(format!("Failed to commit: {}", e)))?;
+
+        Ok(())
+    }
+
     /// Purge terminal workers older than `retention_days`.
     ///
     /// Deletes rows from `workers` where status is terminal (`stopped`, `error`,
@@ -1582,6 +1635,40 @@ impl Db {
 #[cfg(test)]
 mod tests {
     use super::*;
+
+    async fn seed_worker_fk_dependencies(db: &Db) {
+        sqlx::query(
+            "INSERT OR IGNORE INTO tenants (id, name, created_at)
+             VALUES ('default', 'default', datetime('now'))",
+        )
+        .execute(db.pool())
+        .await
+        .expect("tenant insert should succeed");
+
+        sqlx::query(
+            "INSERT OR IGNORE INTO nodes (id, hostname, agent_endpoint, status, last_seen_at, labels_json, created_at)
+             VALUES ('node-01', 'test-host', 'http://localhost:9000', 'active', datetime('now'), '{}', datetime('now'))",
+        )
+        .execute(db.pool())
+        .await
+        .expect("node insert should succeed");
+
+        sqlx::query(
+            "INSERT OR IGNORE INTO manifests (id, tenant_id, hash_b3, body_json)
+             VALUES ('test-manifest-id', 'default', 'test-manifest-hash', '{}')",
+        )
+        .execute(db.pool())
+        .await
+        .expect("manifest insert should succeed");
+
+        sqlx::query(
+            "INSERT OR IGNORE INTO plans (id, tenant_id, plan_id_b3, manifest_hash_b3, kernel_hashes_json, layout_hash_b3)
+             VALUES ('test-plan', 'default', 'test-plan-hash', 'test-manifest-hash', '{}', 'layout-hash')",
+        )
+        .execute(db.pool())
+        .await
+        .expect("plan insert should succeed");
+    }
 
     #[test]
     fn test_schema_compatible_same_version() {
@@ -1688,6 +1775,15 @@ mod tests {
         );
     }
 
+    #[test]
+    fn test_terminal_worker_status_compatibility_helper() {
+        assert!(is_terminal_worker_status("stopped"));
+        assert!(is_terminal_worker_status("error"));
+        assert!(is_terminal_worker_status("crashed"));
+        assert!(is_terminal_worker_status("failed"));
+        assert!(!is_terminal_worker_status("healthy"));
+    }
+
     // =========================================================================
     // Unit Tests for WorkerIncidentType
     // =========================================================================
@@ -1782,47 +1878,17 @@ mod tests {
     }
 
     #[tokio::test]
-    async fn purge_terminal_workers_deletes_crashed_and_failed() {
+    async fn purge_terminal_workers_deletes_stopped_and_error() {
         let db = Db::new_in_memory().await.expect("db init should succeed");
 
-        sqlx::query(
-            "INSERT OR IGNORE INTO tenants (id, name, created_at)
-             VALUES ('default', 'default', datetime('now'))",
-        )
-        .execute(db.pool())
-        .await
-        .expect("tenant insert should succeed");
-
-        sqlx::query(
-            "INSERT OR IGNORE INTO nodes (id, hostname, agent_endpoint, status, last_seen_at, labels_json, created_at)
-             VALUES ('node-01', 'test-host', 'http://localhost:9000', 'active', datetime('now'), '{}', datetime('now'))",
-        )
-        .execute(db.pool())
-        .await
-        .expect("node insert should succeed");
-
-        sqlx::query(
-            "INSERT OR IGNORE INTO manifests (id, tenant_id, hash_b3, body_json)
-             VALUES ('test-manifest-id', 'default', 'test-manifest-hash', '{}')",
-        )
-        .execute(db.pool())
-        .await
-        .expect("manifest insert should succeed");
-
-        sqlx::query(
-            "INSERT OR IGNORE INTO plans (id, tenant_id, plan_id_b3, manifest_hash_b3, kernel_hashes_json, layout_hash_b3)
-             VALUES ('test-plan', 'default', 'test-plan-hash', 'test-manifest-hash', '{}', 'layout-hash')",
-        )
-        .execute(db.pool())
-        .await
-        .expect("plan insert should succeed");
+        seed_worker_fk_dependencies(&db).await;
 
         sqlx::query(
             "INSERT INTO workers
              (id, tenant_id, node_id, plan_id, uds_path, pid, status, manifest_hash_b3, schema_version, api_version, started_at, registered_at, last_transition_at)
              VALUES
-             ('worker-crashed', 'default', 'node-01', 'test-plan', '/var/run/crashed.sock', 1001, 'crashed', 'test-manifest-hash', '1.0.0', '1.0.0', datetime('now', '-30 days'), datetime('now', '-30 days'), datetime('now', '-30 days')),
-             ('worker-failed', 'default', 'node-01', 'test-plan', '/var/run/failed.sock', 1002, 'failed', 'test-manifest-hash', '1.0.0', '1.0.0', datetime('now', '-30 days'), datetime('now', '-30 days'), datetime('now', '-30 days')),
+             ('worker-stopped', 'default', 'node-01', 'test-plan', '/var/run/stopped.sock', 1001, 'stopped', 'test-manifest-hash', '1.0.0', '1.0.0', datetime('now', '-30 days'), datetime('now', '-30 days'), datetime('now', '-30 days')),
+             ('worker-error', 'default', 'node-01', 'test-plan', '/var/run/error.sock', 1002, 'error', 'test-manifest-hash', '1.0.0', '1.0.0', datetime('now', '-30 days'), datetime('now', '-30 days'), datetime('now', '-30 days')),
              ('worker-healthy', 'default', 'node-01', 'test-plan', '/var/run/healthy.sock', 1003, 'healthy', 'test-manifest-hash', '1.0.0', '1.0.0', datetime('now', '-30 days'), datetime('now', '-30 days'), datetime('now', '-30 days'))",
         )
         .execute(db.pool())
@@ -1833,16 +1899,16 @@ mod tests {
             .purge_terminal_workers(7)
             .await
             .expect("purge should succeed");
-        assert_eq!(deleted, 2, "crashed and failed workers should be purged");
+        assert_eq!(deleted, 2, "stopped and error workers should be purged");
 
-        let crashed_count = sqlx::query_scalar::<_, i64>(
-            "SELECT COUNT(*) FROM workers WHERE id = 'worker-crashed'",
+        let stopped_count = sqlx::query_scalar::<_, i64>(
+            "SELECT COUNT(*) FROM workers WHERE id = 'worker-stopped'",
         )
         .fetch_one(db.pool())
         .await
         .expect("query should succeed");
-        let failed_count =
-            sqlx::query_scalar::<_, i64>("SELECT COUNT(*) FROM workers WHERE id = 'worker-failed'")
+        let error_count =
+            sqlx::query_scalar::<_, i64>("SELECT COUNT(*) FROM workers WHERE id = 'worker-error'")
                 .fetch_one(db.pool())
                 .await
                 .expect("query should succeed");
@@ -1853,8 +1919,87 @@ mod tests {
         .await
         .expect("query should succeed");
 
-        assert_eq!(crashed_count, 0, "crashed worker should be deleted");
-        assert_eq!(failed_count, 0, "failed worker should be deleted");
+        assert_eq!(stopped_count, 0, "stopped worker should be deleted");
+        assert_eq!(error_count, 0, "error worker should be deleted");
         assert_eq!(healthy_count, 1, "non-terminal worker should remain");
+    }
+
+    #[tokio::test]
+    async fn remove_worker_if_terminal_rejects_non_terminal_worker() {
+        let db = Db::new_in_memory().await.expect("db init should succeed");
+        seed_worker_fk_dependencies(&db).await;
+
+        let params = WorkerInsertBuilder::new()
+            .id("worker-healthy")
+            .tenant_id("default")
+            .node_id("node-01")
+            .plan_id("test-plan")
+            .uds_path("/var/run/healthy.sock")
+            .pid(2001)
+            .status("healthy")
+            .build()
+            .expect("worker params should build");
+
+        db.insert_worker(params)
+            .await
+            .expect("worker insert should succeed");
+
+        let err = db
+            .remove_worker_if_terminal("worker-healthy")
+            .await
+            .expect_err("non-terminal worker removal should fail");
+        match err {
+            AosError::Lifecycle(msg) => {
+                assert!(
+                    msg.contains("non-terminal status 'healthy'"),
+                    "error should describe non-terminal guardrail, got: {}",
+                    msg
+                );
+            }
+            other => panic!("expected lifecycle error, got {:?}", other),
+        }
+
+        let count = sqlx::query_scalar::<_, i64>(
+            "SELECT COUNT(*) FROM workers WHERE id = 'worker-healthy'",
+        )
+        .fetch_one(db.pool())
+        .await
+        .expect("query should succeed");
+        assert_eq!(count, 1, "non-terminal worker should remain");
+    }
+
+    #[tokio::test]
+    async fn remove_worker_if_terminal_allows_stopped_and_error() {
+        let db = Db::new_in_memory().await.expect("db init should succeed");
+        seed_worker_fk_dependencies(&db).await;
+
+        for (worker_id, status, uds, pid) in [
+            ("worker-stopped", "stopped", "/var/run/stopped.sock", 3001),
+            ("worker-error", "error", "/var/run/error.sock", 3002),
+        ] {
+            sqlx::query(
+                "INSERT INTO workers
+                 (id, tenant_id, node_id, plan_id, uds_path, pid, status, manifest_hash_b3, schema_version, api_version, started_at, registered_at, last_transition_at)
+                 VALUES (?, 'default', 'node-01', 'test-plan', ?, ?, ?, 'test-manifest-hash', '1.0.0', '1.0.0', datetime('now', '-2 days'), datetime('now', '-2 days'), datetime('now', '-2 days'))",
+            )
+            .bind(worker_id)
+            .bind(uds)
+            .bind(pid)
+            .bind(status)
+            .execute(db.pool())
+            .await
+            .expect("worker insert should succeed");
+
+            db.remove_worker_if_terminal(worker_id)
+                .await
+                .expect("terminal worker removal should succeed");
+
+            let count = sqlx::query_scalar::<_, i64>("SELECT COUNT(*) FROM workers WHERE id = ?")
+                .bind(worker_id)
+                .fetch_one(db.pool())
+                .await
+                .expect("query should succeed");
+            assert_eq!(count, 0, "terminal worker should be deleted");
+        }
     }
 }

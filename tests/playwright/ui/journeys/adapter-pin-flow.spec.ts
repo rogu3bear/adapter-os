@@ -10,9 +10,10 @@
  */
 
 import { test, expect } from '@playwright/test';
-import { ensureLoggedIn, seeded, waitForAppReady } from '../utils';
+import { gotoAndBootstrap, seeded } from '../utils';
 import {
   buildStream,
+  stubChatSessionTags,
   stubInferStream,
   stubSystemStatus,
 } from '../helpers/sse';
@@ -22,6 +23,7 @@ useConsoleCatcher(test);
 
 test('pin adapter, send message, pending clears on SSE update', { tag: ['@flow'] }, async ({ page }) => {
   await stubSystemStatus(page, { ready: true });
+  await stubChatSessionTags(page);
 
   // Build a stream that includes an AdapterStateUpdate event.
   await stubInferStream(
@@ -37,15 +39,11 @@ test('pin adapter, send message, pending clears on SSE update', { tag: ['@flow']
 
   // Navigate directly to a new session with the adapter pinned via query param.
   // This simulates what happens when clicking "Chat" on the adapters page.
-  await page.goto(`/chat/ses-pin-test?adapter=${seeded.adapterId}`, {
-    waitUntil: 'domcontentloaded',
+  await gotoAndBootstrap(page, `/chat/ses-pin-test?adapter=${seeded.adapterId}`, {
+    mode: 'ui-then-api',
   });
-  await waitForAppReady(page);
-  await ensureLoggedIn(page);
 
-  await expect(
-    page.getByRole('heading', { name: 'Chat Session', level: 1, exact: true })
-  ).toBeVisible();
+  await expect(page.getByTestId('chat-header')).toBeVisible();
 
   // The pending badge should be visible after pinning.
   const pendingBadge = page.locator('[aria-label="Adapter changes pending confirmation"]');

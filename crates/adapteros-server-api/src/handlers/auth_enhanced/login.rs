@@ -4,6 +4,7 @@ use crate::auth_common::{
     RefreshTokenParams,
 };
 use crate::ip_extraction::ClientIp;
+use crate::mfa::{decrypt_mfa_secret, derive_mfa_key, verify_totp};
 use crate::security::{check_login_lockout, track_auth_attempt, upsert_user_session};
 use crate::state::AppState;
 use crate::types::ErrorResponse;
@@ -212,6 +213,76 @@ pub async fn login_handler(
         ));
     }
 
+    // 7. Enforce MFA when enabled for the account.
+    let mut mfa_level = None::<String>;
+    if user.mfa_enabled {
+        let totp_code = req.totp_code.as_deref().ok_or_else(|| {
+            (
+                StatusCode::UNAUTHORIZED,
+                Json(ErrorResponse::new("MFA code is required").with_code("MFA_REQUIRED")),
+            )
+        })?;
+
+        let secret_enc = user.mfa_secret_enc.as_deref().ok_or_else(|| {
+            (
+                StatusCode::INTERNAL_SERVER_ERROR,
+                Json(
+                    ErrorResponse::new("MFA is enabled but no secret is configured")
+                        .with_code("MFA_CONFIG_ERROR"),
+                ),
+            )
+        })?;
+
+        let mfa_key = derive_mfa_key(state.jwt_secret.as_slice());
+        let secret = decrypt_mfa_secret(secret_enc, &mfa_key).map_err(|e| {
+            warn!(
+                error = %e,
+                user_id = %user.id,
+                "Failed to decrypt MFA secret during login"
+            );
+            (
+                StatusCode::INTERNAL_SERVER_ERROR,
+                Json(ErrorResponse::new("MFA verification failed").with_code("MFA_SECRET_ERROR")),
+            )
+        })?;
+
+        if !verify_totp(&secret, totp_code) {
+            if let Err(e) = track_auth_attempt(
+                &state.db,
+                &user.email,
+                &ip_address,
+                false,
+                Some("invalid_mfa_code"),
+            )
+            .await
+            {
+                warn!(
+                    error = %e,
+                    user_id = %user.id,
+                    "Failed to record invalid MFA auth attempt"
+                );
+            }
+            return Err((
+                StatusCode::UNAUTHORIZED,
+                Json(ErrorResponse::new("Invalid MFA code").with_code("INVALID_MFA_CODE")),
+            ));
+        }
+
+        let verified_at = Utc::now().to_rfc3339();
+        if let Err(e) = state
+            .db
+            .update_user_mfa_last_verified(&user.id, &verified_at)
+            .await
+        {
+            warn!(
+                error = %e,
+                user_id = %user.id,
+                "Failed to update MFA verification timestamp"
+            );
+        }
+        mfa_level = Some("totp".to_string());
+    }
+
     // 7. Generate Session and Token
     let session_id = TypedId::new(IdPrefix::Ses).to_string();
     let rot_id = TypedId::new(IdPrefix::Rot).to_string();
@@ -235,7 +306,7 @@ pub async fn login_handler(
         admin_tenants: &admin_tenants,
         device_id: None,
         session_id: &session_id,
-        mfa_level: None,
+        mfa_level: mfa_level.as_deref(),
     };
     let token =
         issue_access_token(&state, &access_params, Some(token_ttl_seconds)).map_err(|e| {
@@ -397,7 +468,7 @@ pub async fn login_handler(
             role: user.role,
             expires_in: token_ttl_seconds,
             tenants: Some(tenants),
-            mfa_level: None, // MFA not implemented yet
+            mfa_level,
         }),
     ))
 }

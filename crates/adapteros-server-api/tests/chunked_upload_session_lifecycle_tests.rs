@@ -2,6 +2,7 @@
 
 use adapteros_db::sqlx::Row;
 use adapteros_server_api::handlers::datasets::cleanup_expired_sessions;
+use adapteros_server_api::ip_extraction::ClientIp;
 use adapteros_server_api::types::{CompleteChunkedUploadResponse, InitiateChunkedUploadResponse};
 use adapteros_server_api::{create_app, state::AppState};
 use axum::{
@@ -65,9 +66,13 @@ async fn cleanup_marks_stale_session_failed() {
     .await
     .expect("insert session");
 
-    let _ = cleanup_expired_sessions(State(state.clone()), Extension(claims))
-        .await
-        .expect("cleanup");
+    let _ = cleanup_expired_sessions(
+        State(state.clone()),
+        Extension(claims),
+        Extension(ClientIp("127.0.0.1".to_string())),
+    )
+    .await
+    .expect("cleanup");
 
     let (status, error_message) = fetch_session_status(&state, &session_id).await;
     assert_eq!(status, "failed");

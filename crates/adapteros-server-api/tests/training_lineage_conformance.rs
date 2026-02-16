@@ -6,7 +6,8 @@ use adapteros_api_types::workers::WorkerCapabilities;
 use adapteros_db::adapter_repositories::CreateRepositoryParams;
 use adapteros_orchestrator::training::compute_combined_data_spec_hash;
 use adapteros_server_api::handlers::training::start_training;
-use adapteros_server_api::types::ErrorResponse;
+use adapteros_server_api::ip_extraction::ClientIp;
+use adapteros_server_api::types::{ErrorResponse, TrainingJobResponse};
 use adapteros_types::training::TRAINING_DATA_CONTRACT_VERSION;
 use axum::{extract::State, http::StatusCode, Extension, Json};
 use tempfile::TempDir;
@@ -66,6 +67,9 @@ fn base_config() -> TrainingConfigRequest {
         force_resume: None,
         multi_module_training: None,
         lora_layer_indices: None,
+        early_stopping: None,
+        patience: None,
+        min_delta: None,
     }
 }
 
@@ -186,10 +190,7 @@ async fn seed_dataset_version(
 }
 
 async fn extract_error(
-    result: Result<
-        Json<adapteros_server_api::types::TrainingJobResponse>,
-        (StatusCode, Json<ErrorResponse>),
-    >,
+    result: Result<(StatusCode, Json<TrainingJobResponse>), (StatusCode, Json<ErrorResponse>)>,
 ) -> (StatusCode, ErrorResponse) {
     match result {
         Ok(_) => panic!("expected error"),
@@ -212,9 +213,16 @@ async fn synthetic_with_datasets_is_rejected_and_counts_metric() {
         weight: 1.0,
     }]);
 
-    let (status, body) =
-        extract_error(start_training(State(state.clone()), Extension(claims), Json(req)).await)
-            .await;
+    let (status, body) = extract_error(
+        start_training(
+            State(state.clone()),
+            Extension(claims),
+            Extension(ClientIp("127.0.0.1".to_string())),
+            Json(req),
+        )
+        .await,
+    )
+    .await;
 
     assert_eq!(status, StatusCode::BAD_REQUEST);
     assert_eq!(body.code, "LINEAGE_REQUIRED");
@@ -239,9 +247,16 @@ async fn non_synthetic_without_datasets_is_rejected_and_counts_metric() {
     let repo_id = create_test_repo(&state, &claims, &base_model_id).await;
 
     let req = base_request(repo_id, &base_model_id);
-    let (status, body) =
-        extract_error(start_training(State(state.clone()), Extension(claims), Json(req)).await)
-            .await;
+    let (status, body) = extract_error(
+        start_training(
+            State(state.clone()),
+            Extension(claims),
+            Extension(ClientIp("127.0.0.1".to_string())),
+            Json(req),
+        )
+        .await,
+    )
+    .await;
 
     assert_eq!(status, StatusCode::BAD_REQUEST);
     assert_eq!(body.code, "LINEAGE_REQUIRED");
@@ -281,9 +296,16 @@ async fn trust_blocked_dataset_rejected_with_metric() {
         weight: 1.0,
     }]);
 
-    let (status, body) =
-        extract_error(start_training(State(state.clone()), Extension(claims), Json(req)).await)
-            .await;
+    let (status, body) = extract_error(
+        start_training(
+            State(state.clone()),
+            Extension(claims),
+            Extension(ClientIp("127.0.0.1".to_string())),
+            Json(req),
+        )
+        .await,
+    )
+    .await;
 
     assert_eq!(status, StatusCode::BAD_REQUEST);
     assert_eq!(body.code, "DATASET_TRUST_BLOCKED");
@@ -324,9 +346,16 @@ async fn trust_unknown_is_rejected_as_needs_approval_and_counts_metric() {
         weight: 1.0,
     }]);
 
-    let (status, body) =
-        extract_error(start_training(State(state.clone()), Extension(claims), Json(req)).await)
-            .await;
+    let (status, body) = extract_error(
+        start_training(
+            State(state.clone()),
+            Extension(claims),
+            Extension(ClientIp("127.0.0.1".to_string())),
+            Json(req),
+        )
+        .await,
+    )
+    .await;
 
     assert_eq!(status, StatusCode::BAD_REQUEST);
     assert_eq!(body.code, "DATASET_TRUST_NEEDS_APPROVAL");
@@ -368,9 +397,16 @@ async fn data_spec_hash_mismatch_rejected() {
     }]);
     req.data_spec_hash = Some("expected-other".to_string());
 
-    let (status, body) =
-        extract_error(start_training(State(state.clone()), Extension(claims), Json(req)).await)
-            .await;
+    let (status, body) = extract_error(
+        start_training(
+            State(state.clone()),
+            Extension(claims),
+            Extension(ClientIp("127.0.0.1".to_string())),
+            Json(req),
+        )
+        .await,
+    )
+    .await;
 
     assert_eq!(status, StatusCode::BAD_REQUEST);
     assert_eq!(body.code, "DATA_SPEC_HASH_MISMATCH");
@@ -404,11 +440,16 @@ async fn allowed_with_warning_trust_passes_and_preserves_canonical_tokens() {
     }]);
     req.data_spec_hash = Some(combined_hash);
 
-    let response = start_training(State(state.clone()), Extension(claims), Json(req))
-        .await
-        .unwrap();
+    let (_, Json(response)) = start_training(
+        State(state.clone()),
+        Extension(claims),
+        Extension(ClientIp("127.0.0.1".to_string())),
+        Json(req),
+    )
+    .await
+    .unwrap();
 
-    assert_eq!(response.0.dataset_version_ids.unwrap().len(), 1);
+    assert_eq!(response.dataset_version_ids.unwrap().len(), 1);
     // No rejection metrics should have been emitted for trust.
     let blocked = state
         .metrics_registry

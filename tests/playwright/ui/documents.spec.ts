@@ -1,18 +1,14 @@
 import { test, expect } from '@playwright/test';
-import { ensureLoggedIn, seeded, waitForAppReady } from './utils';
+import { gotoAndBootstrap, seeded } from './utils';
 
 test('documents list and detail', { tag: ['@smoke', '@detail'] }, async ({ page }) => {
-  await page.goto('/documents', { waitUntil: 'domcontentloaded' });
-  await waitForAppReady(page);
-  await ensureLoggedIn(page);
+  await gotoAndBootstrap(page, '/documents', { mode: 'ui-only' });
   await expect(
     page.getByRole('heading', { name: 'Documents', level: 1, exact: true })
   ).toBeVisible();
   await expect(page.getByText('Fixture Document')).toBeVisible();
 
-  await page.goto(`/documents/${seeded.documentId}`, { waitUntil: 'domcontentloaded' });
-  await waitForAppReady(page);
-  await ensureLoggedIn(page);
+  await gotoAndBootstrap(page, `/documents/${seeded.documentId}`, { mode: 'ui-only' });
   await expect(
     page.getByRole('heading', { name: 'Document Details', level: 1, exact: true })
   ).toBeVisible();
@@ -20,9 +16,7 @@ test('documents list and detail', { tag: ['@smoke', '@detail'] }, async ({ page 
 });
 
 test('documents upload dialog opens and cancels', { tag: ['@smoke'] }, async ({ page }) => {
-  await page.goto('/documents', { waitUntil: 'domcontentloaded' });
-  await waitForAppReady(page);
-  await ensureLoggedIn(page);
+  await gotoAndBootstrap(page, '/documents', { mode: 'ui-only' });
   await page.getByRole('button', { name: 'Upload Document' }).click();
   await expect(
     page.getByRole('heading', { name: 'Upload Document', exact: true })

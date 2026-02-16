@@ -11,6 +11,21 @@ use leptos::prelude::*;
 use std::sync::Arc;
 
 const MAX_RECENT_ITEMS: usize = 6;
+const RUNS_CANONICAL_LABEL: &str = "Runs";
+const RUNS_LEGACY_ALIASES: &[&str] = &["flight recorder", "flight", "recorder"];
+
+fn is_runs_result(result: &SearchResult) -> bool {
+    result.id.eq_ignore_ascii_case("runs")
+        || result
+            .path()
+            .is_some_and(|path| path == "/runs" || path.starts_with("/runs/"))
+}
+
+fn matches_runs_legacy_alias(query_lower: &str) -> bool {
+    RUNS_LEGACY_ALIASES
+        .iter()
+        .any(|alias| query_lower.contains(alias))
+}
 
 /// Check if a result matches a query (case-insensitive substring match)
 fn result_matches(result: &SearchResult, query: &str) -> bool {
@@ -22,6 +37,7 @@ fn result_matches(result: &SearchResult, query: &str) -> bool {
             .as_ref()
             .map(|s| s.to_lowercase().contains(&query_lower))
             .unwrap_or(false)
+        || (is_runs_result(result) && matches_runs_legacy_alias(&query_lower))
 }
 
 #[derive(Clone)]
@@ -247,7 +263,14 @@ fn static_results(profile: adapteros_api_types::UiProfile) -> Vec<SearchResult> 
     // Build page results from nav registry (profile-aware)
     let mut results: Vec<SearchResult> = all_nav_items(profile)
         .into_iter()
-        .map(|item| SearchResult::page(item.id, item.label, None, item.route, 1.0))
+        .map(|item| {
+            let title = if item.route == "/runs" {
+                RUNS_CANONICAL_LABEL
+            } else {
+                item.label
+            };
+            SearchResult::page(item.id, title, None, item.route, 1.0)
+        })
         .collect();
 
     // Actions are always available regardless of profile

@@ -9,6 +9,7 @@ use adapteros_server_api::handlers::adapters::{
     update_adapter_strength, UpdateAdapterStrengthRequest,
 };
 use adapteros_server_api::handlers::{delete_adapter, get_adapter, list_adapters};
+use adapteros_server_api::ip_extraction::ClientIp;
 use adapteros_server_api::types::ListAdaptersQuery;
 use axum::extract::{Path, Query, State};
 use axum::http::StatusCode;
@@ -220,6 +221,7 @@ async fn delete_adapter_removes_adapter() -> Result<()> {
     let delete_result = delete_adapter(
         State(state.clone()),
         Extension(claims.clone()),
+        Extension(ClientIp("127.0.0.1".to_string())),
         Path("test-adapter-delete".to_string()),
     )
     .await;
@@ -270,6 +272,7 @@ async fn delete_adapter_cross_tenant_returns_404() -> Result<()> {
     let result = delete_adapter(
         State(state),
         Extension(other_claims),
+        Extension(ClientIp("127.0.0.1".to_string())),
         Path("tenant1-protected".to_string()),
     )
     .await;
@@ -404,6 +407,7 @@ async fn viewer_cannot_delete_adapter() -> Result<()> {
     let result = delete_adapter(
         State(state),
         Extension(viewer_claims),
+        Extension(ClientIp("127.0.0.1".to_string())),
         Path("protected-adapter".to_string()),
     )
     .await;

@@ -183,6 +183,7 @@ fn test_readyz_response_structure() {
         readiness_mode: ReadinessMode::Strict,
         boot_warnings: Vec::new(),
         build_id: None,
+        canary: None,
     };
     assert!(response.ready);
     assert!(response.checks.db.ok);
@@ -221,6 +222,7 @@ fn test_readyz_response_not_ready() {
         readiness_mode: ReadinessMode::Strict,
         boot_warnings: Vec::new(),
         build_id: None,
+        canary: None,
     };
     assert!(!response.ready);
     assert!(!response.checks.db.ok);
@@ -304,6 +306,7 @@ fn test_readyz_response_serialization() {
         readiness_mode: ReadinessMode::Strict,
         boot_warnings: Vec::new(),
         build_id: None,
+        canary: None,
     };
 
     let json = serde_json::to_string(&response).expect("Failed to serialize");
@@ -490,6 +493,7 @@ async fn test_readyz_structure_for_no_workers_scenario() {
         readiness_mode: ReadinessMode::Strict,
         boot_warnings: Vec::new(),
         build_id: None,
+        canary: None,
     };
 
     // Verify structure
@@ -535,6 +539,7 @@ async fn test_readyz_structure_for_no_models_scenario() {
         readiness_mode: ReadinessMode::Strict,
         boot_warnings: Vec::new(),
         build_id: None,
+        canary: None,
     };
 
     // Verify structure
@@ -583,6 +588,7 @@ async fn test_readyz_structure_for_db_timeout_scenario() {
         readiness_mode: ReadinessMode::Strict,
         boot_warnings: Vec::new(),
         build_id: None,
+        canary: None,
     };
 
     // Verify structure
@@ -636,6 +642,7 @@ async fn test_readyz_structure_for_db_unreachable_scenario() {
         readiness_mode: ReadinessMode::Strict,
         boot_warnings: Vec::new(),
         build_id: None,
+        canary: None,
     };
 
     // Verify structure
@@ -793,6 +800,7 @@ fn test_readyz_response_all_checks_failed() {
         readiness_mode: ReadinessMode::Strict,
         boot_warnings: Vec::new(),
         build_id: None,
+        canary: None,
     };
 
     assert!(!response.ready);
@@ -834,6 +842,7 @@ fn test_readyz_response_json_roundtrip() {
         readiness_mode: ReadinessMode::Strict,
         boot_warnings: Vec::new(),
         build_id: None,
+        canary: None,
     };
 
     let json = serde_json::to_string(&original).expect("Failed to serialize");

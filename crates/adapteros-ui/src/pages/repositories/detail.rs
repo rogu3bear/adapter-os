@@ -197,7 +197,7 @@ fn RepositoryContent(
 
     view! {
         // Status and actions
-        <Card title="Status".to_string()>
+        <Card title="Status".to_string() data_testid="repo-detail-status-card".to_string()>
             <div class="space-y-4">
                 <div class="flex items-center justify-between">
                     <RepoStatusBadge status=repo_data.status.clone()/>
@@ -240,7 +240,11 @@ fn RepositoryContent(
         </Card>
 
         // Basic info
-        <Card title="Information".to_string() class="mt-4".to_string()>
+        <Card
+            title="Information".to_string()
+            class="mt-4".to_string()
+            data_testid="repo-detail-info-card".to_string()
+        >
             <div class="grid gap-3 text-sm">
                 <DetailRow label="Repository ID" value=repo_data.repo_id.clone()/>
                 <DetailRow label="Path" value=repo_data.path.clone()/>
@@ -259,7 +263,11 @@ fn RepositoryContent(
         </Card>
 
         // Languages
-        <Card title="Languages".to_string() class="mt-4".to_string()>
+        <Card
+            title="Languages".to_string()
+            class="mt-4".to_string()
+            data_testid="repo-detail-languages-card".to_string()
+        >
             <div class="flex flex-wrap gap-2">
                 {if repo_data.languages.is_empty() {
                     view! { <span class="text-muted-foreground text-sm">"None detected"</span> }.into_any()
@@ -273,7 +281,11 @@ fn RepositoryContent(
         </Card>
 
         // Scan details
-        <Card title="Scan Details".to_string() class="mt-4".to_string()>
+        <Card
+            title="Scan Details".to_string()
+            class="mt-4".to_string()
+            data_testid="repo-detail-scan-card".to_string()
+        >
             <div class="grid gap-3 text-sm">
                 <DetailRow
                     label="Latest Commit"

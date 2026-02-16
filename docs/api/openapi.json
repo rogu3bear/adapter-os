@@ -13186,6 +13186,14 @@
         ],
         "type": "object"
       },
+      "GpuMemoryAvailability": {
+        "description": "Availability state for GPU memory telemetry.",
+        "enum": [
+          "available",
+          "unavailable"
+        ],
+        "type": "string"
+      },
       "HealthResponse": {
         "description": "Health check response",
         "properties": {
@@ -15938,16 +15946,26 @@
       "MemoryReportResponse": {
         "description": "GPU memory report response",
         "properties": {
+          "availability": {
+            "$ref": "#/components/schemas/GpuMemoryAvailability",
+            "description": "Whether GPU memory telemetry is currently available."
+          },
           "available_gpu_memory_bytes": {
             "description": "Available GPU memory in bytes",
             "format": "int64",
             "minimum": 0,
-            "type": "integer"
+            "type": [
+              "integer",
+              "null"
+            ]
           },
           "gpu_headroom_pct": {
             "description": "GPU memory headroom percentage",
             "format": "float",
-            "type": "number"
+            "type": [
+              "number",
+              "null"
+            ]
           },
           "per_adapter_usage": {
             "description": "Per-adapter memory usage",
@@ -15960,20 +15978,23 @@
             "description": "Total GPU memory in bytes",
             "format": "int64",
             "minimum": 0,
-            "type": "integer"
+            "type": [
+              "integer",
+              "null"
+            ]
           },
           "used_gpu_memory_bytes": {
             "description": "Used GPU memory in bytes",
             "format": "int64",
             "minimum": 0,
-            "type": "integer"
+            "type": [
+              "integer",
+              "null"
+            ]
           }
         },
         "required": [
-          "total_gpu_memory_bytes",
-          "used_gpu_memory_bytes",
-          "available_gpu_memory_bytes",
-          "gpu_headroom_pct",
+          "availability",
           "per_adapter_usage"
         ],
         "type": "object"
@@ -16419,6 +16440,89 @@
           "metrics",
           "time_range",
           "sample_count"
+        ],
+        "type": "object"
+      },
+      "MfaDisableRequest": {
+        "description": "Disable MFA request (requires TOTP or backup code)",
+        "properties": {
+          "backup_code": {
+            "type": [
+              "string",
+              "null"
+            ]
+          },
+          "totp_code": {
+            "type": [
+              "string",
+              "null"
+            ]
+          }
+        },
+        "type": "object"
+      },
+      "MfaEnrollStartResponse": {
+        "description": "MFA enrollment start response",
+        "properties": {
+          "otpauth_url": {
+            "description": "otpauth URI (for QR rendering)",
+            "type": "string"
+          },
+          "secret": {
+            "description": "Base32-encoded TOTP secret",
+            "type": "string"
+          }
+        },
+        "required": [
+          "secret",
+          "otpauth_url"
+        ],
+        "type": "object"
+      },
+      "MfaEnrollVerifyRequest": {
+        "description": "MFA enrollment verification request",
+        "properties": {
+          "totp_code": {
+            "description": "First TOTP code to confirm the secret",
+            "type": "string"
+          }
+        },
+        "required": [
+          "totp_code"
+        ],
+        "type": "object"
+      },
+      "MfaEnrollVerifyResponse": {
+        "description": "MFA enrollment verification response",
+        "properties": {
+          "backup_codes": {
+            "description": "Plaintext backup codes (shown once)",
+            "items": {
+              "type": "string"
+            },
+            "type": "array"
+          }
+        },
+        "required": [
+          "backup_codes"
+        ],
+        "type": "object"
+      },
+      "MfaStatusResponse": {
+        "description": "MFA status response",
+        "properties": {
+          "enrolled_at": {
+            "type": [
+              "string",
+              "null"
+            ]
+          },
+          "mfa_enabled": {
+            "type": "boolean"
+          }
+        },
+        "required": [
+          "mfa_enabled"
         ],
         "type": "object"
       },
@@ -33433,6 +33537,132 @@
         ],
         "type": "object"
       },
+      "WorkerHeartbeatRequest": {
+        "description": "Worker heartbeat request\n\nSent periodically by workers to report liveness and health.",
+        "properties": {
+          "adapters_loaded": {
+            "description": "Optional count of currently loaded adapters",
+            "format": "int32",
+            "minimum": 0,
+            "type": [
+              "integer",
+              "null"
+            ]
+          },
+          "cache_active_entries": {
+            "description": "Number of active cache entries (in-use, cannot be evicted)",
+            "format": "int32",
+            "minimum": 0,
+            "type": [
+              "integer",
+              "null"
+            ]
+          },
+          "cache_max_mb": {
+            "description": "Maximum cache memory budget in MB",
+            "format": "int32",
+            "minimum": 0,
+            "type": [
+              "integer",
+              "null"
+            ]
+          },
+          "cache_pinned_entries": {
+            "description": "Number of pinned cache entries (cannot be evicted)",
+            "format": "int32",
+            "minimum": 0,
+            "type": [
+              "integer",
+              "null"
+            ]
+          },
+          "cache_used_mb": {
+            "description": "Current cache memory usage in MB",
+            "format": "int32",
+            "minimum": 0,
+            "type": [
+              "integer",
+              "null"
+            ]
+          },
+          "coreml_failure_reason": {
+            "description": "CoreML failure reason (stage-specific)",
+            "type": [
+              "string",
+              "null"
+            ]
+          },
+          "coreml_failure_stage": {
+            "description": "CoreML failure stage (init/config/model_path/model_integrity/runtime)",
+            "type": [
+              "string",
+              "null"
+            ]
+          },
+          "memory_usage_pct": {
+            "description": "Optional memory usage percentage",
+            "format": "double",
+            "type": [
+              "number",
+              "null"
+            ]
+          },
+          "status": {
+            "description": "Current status (e.g., healthy, draining)",
+            "type": "string"
+          },
+          "timestamp": {
+            "description": "ISO-8601 timestamp provided by worker",
+            "type": "string"
+          },
+          "tokenizer_hash_b3": {
+            "description": "Tokenizer hash (BLAKE3 hex) loaded by this worker",
+            "type": [
+              "string",
+              "null"
+            ]
+          },
+          "tokenizer_vocab_size": {
+            "description": "Tokenizer vocab size loaded by this worker",
+            "format": "int32",
+            "minimum": 0,
+            "type": [
+              "integer",
+              "null"
+            ]
+          },
+          "worker_id": {
+            "description": "Worker ID sending the heartbeat",
+            "type": "string"
+          }
+        },
+        "required": [
+          "worker_id",
+          "status",
+          "timestamp"
+        ],
+        "type": "object"
+      },
+      "WorkerHeartbeatResponse": {
+        "description": "Worker heartbeat response\n\nReturned by control plane to acknowledge heartbeat and provide next interval.",
+        "properties": {
+          "acknowledged": {
+            "description": "Whether the heartbeat was accepted",
+            "type": "boolean"
+          },
+          "next_heartbeat_secs": {
+            "description": "Recommended seconds until the next heartbeat",
+            "format": "int32",
+            "minimum": 0,
+            "type": "integer"
+          }
+        },
+        "required": [
+          "acknowledged",
+          "next_heartbeat_secs"
+        ],
+        "type": "object"
+      },
       "WorkerManifestFetchResponse": {
         "description": "Manifest fetch response for workers",
         "properties": {
@@ -38404,8 +38634,24 @@
           "required": true
         },
         "responses": {
-          "501": {
-            "description": "Auth disabled - use dev bypass"
+          "200": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/BootstrapResponse"
+                }
+              }
+            },
+            "description": "Bootstrap completed"
+          },
+          "400": {
+            "description": "Invalid bootstrap payload"
+          },
+          "409": {
+            "description": "Bootstrap already completed"
+          },
+          "500": {
+            "description": "Internal bootstrap failure"
           }
         },
         "tags": [
@@ -38558,9 +38804,35 @@
     "/v1/auth/mfa/disable": {
       "post": {
         "operationId": "mfa_disable_handler",
+        "requestBody": {
+          "content": {
+            "application/json": {
+              "schema": {
+                "$ref": "#/components/schemas/MfaDisableRequest"
+              }
+            }
+          },
+          "required": true
+        },
         "responses": {
-          "501": {
-            "description": "Auth disabled - use dev bypass"
+          "200": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/MfaStatusResponse"
+                }
+              }
+            },
+            "description": "MFA disabled"
+          },
+          "400": {
+            "description": "No verification code provided"
+          },
+          "401": {
+            "description": "Invalid verification code"
+          },
+          "404": {
+            "description": "User not found"
           }
         },
         "tags": [
@@ -38572,8 +38844,21 @@
       "post": {
         "operationId": "mfa_start_handler",
         "responses": {
-          "501": {
-            "description": "Auth disabled - use dev bypass"
+          "200": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/MfaEnrollStartResponse"
+                }
+              }
+            },
+            "description": "MFA enrollment started"
+          },
+          "404": {
+            "description": "User not found"
+          },
+          "500": {
+            "description": "Failed to generate MFA secret"
           }
         },
         "tags": [
@@ -38585,8 +38870,18 @@
       "get": {
         "operationId": "mfa_status_handler",
         "responses": {
-          "501": {
-            "description": "Auth disabled - use dev bypass"
+          "200": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/MfaStatusResponse"
+                }
+              }
+            },
+            "description": "Current MFA status"
+          },
+          "404": {
+            "description": "User not found"
           }
         },
         "tags": [
@@ -38597,9 +38892,35 @@
     "/v1/auth/mfa/verify": {
       "post": {
         "operationId": "mfa_verify_handler",
+        "requestBody": {
+          "content": {
+            "application/json": {
+              "schema": {
+                "$ref": "#/components/schemas/MfaEnrollVerifyRequest"
+              }
+            }
+          },
+          "required": true
+        },
         "responses": {
-          "501": {
-            "description": "Auth disabled - use dev bypass"
+          "200": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/MfaEnrollVerifyResponse"
+                }
+              }
+            },
+            "description": "MFA enrollment verified"
+          },
+          "400": {
+            "description": "MFA setup not started"
+          },
+          "401": {
+            "description": "Invalid TOTP code"
+          },
+          "404": {
+            "description": "User not found"
           }
         },
         "tags": [
@@ -53597,6 +53918,32 @@
         ]
       }
     },
+    "/v1/stream/reviews": {
+      "get": {
+        "description": "Streams tenant-scoped snapshots of paused reviews with replay support.",
+        "operationId": "reviews_stream",
+        "parameters": [
+          {
+            "description": "Tenant ID for filtering events (defaults to caller tenant)",
+            "in": "query",
+            "name": "tenant",
+            "required": false,
+            "schema": {
+              "type": "string"
+            }
+          }
+        ],
+        "responses": {
+          "200": {
+            "description": "SSE stream of paused review queue updates"
+          }
+        },
+        "summary": "SSE stream for paused review queue updates",
+        "tags": [
+          "reviews"
+        ]
+      }
+    },
     "/v1/stream/stack-policies/{id}": {
       "get": {
         "description": "Streams real-time policy compliance updates for a specific stack.\nUseful for live monitoring of policy enforcement and violations.",
@@ -58257,6 +58604,58 @@
         ]
       }
     },
+    "/v1/workers/heartbeat": {
+      "post": {
+        "description": "Lightweight liveness update that also captures tokenizer metadata and cache stats.",
+        "operationId": "worker_heartbeat",
+        "requestBody": {
+          "content": {
+            "application/json": {
+              "schema": {
+                "$ref": "#/components/schemas/WorkerHeartbeatRequest"
+              }
+            }
+          },
+          "required": true
+        },
+        "responses": {
+          "200": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/WorkerHeartbeatResponse"
+                }
+              }
+            },
+            "description": "Heartbeat accepted"
+          },
+          "404": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ErrorResponse"
+                }
+              }
+            },
+            "description": "Worker not found"
+          },
+          "500": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ErrorResponse"
+                }
+              }
+            },
+            "description": "Internal server error"
+          }
+        },
+        "summary": "Worker heartbeat endpoint",
+        "tags": [
+          "workers"
+        ]
+      }
+    },
     "/v1/workers/register": {
       "post": {
         "description": "Workers call this endpoint on startup to register with the control plane.\nThe control plane validates:\n1. The plan exists\n2. The worker's manifest_hash matches the plan's expected manifest_hash_b3\n3. The schema_version is compatible\n\nOn successful registration, the worker is inserted with status 'registered'.\nThe worker must then call the status notification endpoint to transition to 'healthy'.\n\n**Note:** This endpoint is called by workers, not by users. No auth required.\n\n# Example\n```\nPOST /v1/workers/register\n{\n  \"worker_id\": \"01234567-89ab-cdef-0123-456789abcdef\",\n  \"tenant_id\": \"tenant-123\",\n  \"plan_id\": \"plan-456\",\n  \"manifest_hash\": \"abc123...\",\n  \"schema_version\": \"1.0\",\n  \"api_version\": \"1.0\",\n  \"pid\": 12345,\n  \"uds_path\": \"/var/run/aos/tenant-123/worker.sock\",\n  \"capabilities\": [\"coreml\", \"mlx\"]\n}\n```",
@@ -58420,6 +58819,69 @@
           }
         },
         "summary": "Notify worker status change",
+        "tags": [
+          "workers"
+        ]
+      }
+    },
+    "/v1/workers/{worker_id}": {
+      "delete": {
+        "description": "Guardrail: decommission is only allowed when the worker is already in a\nterminal lifecycle state (`stopped`, `error`, `crashed`, or `failed`).",
+        "operationId": "decommission_worker",
+        "parameters": [
+          {
+            "description": "Worker ID",
+            "in": "path",
+            "name": "worker_id",
+            "required": true,
+            "schema": {
+              "type": "string"
+            }
+          }
+        ],
+        "responses": {
+          "200": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/WorkerStopResponse"
+                }
+              }
+            },
+            "description": "Worker decommissioned"
+          },
+          "404": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ErrorResponse"
+                }
+              }
+            },
+            "description": "Worker not found"
+          },
+          "409": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ErrorResponse"
+                }
+              }
+            },
+            "description": "Worker must be terminal before decommission"
+          },
+          "500": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ErrorResponse"
+                }
+              }
+            },
+            "description": "Failed to decommission worker"
+          }
+        },
+        "summary": "Decommission (remove) a worker record.",
         "tags": [
           "workers"
         ]
@@ -58746,6 +59208,69 @@
         "summary": "List process logs for a worker",
         "tags": [
           "system"
+        ]
+      }
+    },
+    "/v1/workers/{worker_id}/restart": {
+      "post": {
+        "description": "Initiates a restart by transitioning the worker to `draining` and sending\nSIGTERM to allow graceful shutdown. The worker supervisor is expected to\nstart a replacement process.",
+        "operationId": "restart_worker",
+        "parameters": [
+          {
+            "description": "Worker ID",
+            "in": "path",
+            "name": "worker_id",
+            "required": true,
+            "schema": {
+              "type": "string"
+            }
+          }
+        ],
+        "responses": {
+          "200": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/WorkerStopResponse"
+                }
+              }
+            },
+            "description": "Worker restart initiated"
+          },
+          "404": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ErrorResponse"
+                }
+              }
+            },
+            "description": "Worker not found"
+          },
+          "409": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ErrorResponse"
+                }
+              }
+            },
+            "description": "Invalid state transition"
+          },
+          "500": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ErrorResponse"
+                }
+              }
+            },
+            "description": "Failed to restart worker"
+          }
+        },
+        "summary": "Restart a worker process",
+        "tags": [
+          "workers"
         ]
       }
     },

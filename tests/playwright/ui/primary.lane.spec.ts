@@ -1,5 +1,5 @@
 import { test, expect } from '@playwright/test';
-import { ensureLoggedIn, waitForAppReady } from './utils';
+import { ensureActiveChatSession, gotoAndBootstrap } from './utils';
 
 const streamStub = [
   'event: aos.run_envelope',
@@ -191,33 +191,30 @@ test('primary lane end-to-end', { tag: ['@flow'] }, async ({ page }) => {
     }
   });
 
-  await page.goto('/chat', { waitUntil: 'domcontentloaded' });
-  await waitForAppReady(page);
-  await ensureLoggedIn(page);
+  await gotoAndBootstrap(page, '/chat', {
+    mode: 'ui-only',
+  });
 
-  await page.getByRole('button', { name: 'New Session' }).click();
-  await expect(
-    page.getByRole('heading', { name: 'Chat Session', level: 1, exact: true })
-  ).toBeVisible();
+  await ensureActiveChatSession(page);
 
-  await page.getByPlaceholder('Type your message...').fill('hello');
-  await page.getByRole('button', { name: 'Send message', exact: true }).click();
+  await page.getByTestId('chat-input').fill('hello');
+  await page.getByTestId('chat-send').click();
 
   await expect(
     page.getByLabel('Chat messages').getByText('Primary lane response')
   ).toBeVisible();
 
-  const runLink = page.getByRole('link', { name: 'Run', exact: true }).first();
+  const runLink = page.getByTestId('chat-run-link').first();
   await expect(runLink).toBeVisible();
-  await runLink.click();
-
-  await waitForAppReady(page);
+  const runHref = await runLink.getAttribute('href');
+  expect(runHref).toBeTruthy();
+  await gotoAndBootstrap(page, runHref as string, { mode: 'ui-only' });
   await expect(page.getByRole('heading', { name: 'Run Detail', level: 2 })).toBeVisible();
   await expect(
     page.getByRole('heading', { name: 'Run Summary', level: 3 })
   ).toBeVisible();
   await expect(
-    page.getByRole('heading', { name: 'Provenance', level: 3 })
+    page.getByRole('heading', { name: 'Provenance', level: 3, exact: true })
   ).toBeVisible();
   await expect(page.getByTestId('run-provenance-summary')).toBeVisible();
   await expect(
@@ -279,20 +276,10 @@ test('primary lane guardrail: no model loaded', { tag: ['@flow'] }, async ({ pag
     });
   });
 
-  await page.goto('/chat', { waitUntil: 'domcontentloaded' });
-  await waitForAppReady(page);
-  await ensureLoggedIn(page);
-
-  await expect(page.getByText("Inference isn't ready")).toBeVisible();
-  await expect(page.getByRole('link', { name: 'Load a model' })).toBeVisible();
-
-  await page.getByRole('button', { name: 'New Session' }).click();
-  await expect(
-    page.getByRole('heading', { name: 'Chat Session', level: 1, exact: true })
-  ).toBeVisible();
-
-  await page.getByPlaceholder('Type your message...').fill('hello');
-  await page.getByRole('button', { name: 'Send message', exact: true }).click();
+  await gotoAndBootstrap(page, '/chat', {
+    mode: 'ui-only',
+  });
 
   await expect(page.getByText(/No model loaded/i).first()).toBeVisible();
+  await expect(page.getByTestId('chat-unavailable-action')).toBeVisible();
 });

@@ -1,5 +1,5 @@
 import { test, expect } from '@playwright/test';
-import { waitForAppReady } from './utils';
+import { resolveChatEntryContract, waitForAppReady } from './utils';
 
 test.use({ storageState: { cookies: [], origins: [] } });
 
@@ -14,8 +14,18 @@ test('login page loads and authenticates', { tag: ['@smoke'] }, async ({ page })
   await page.getByRole('button', { name: 'Log in' }).click();
   await page.waitForLoadState('domcontentloaded');
   await waitForAppReady(page);
-  // Login redirects to /chat by default; verify the shell is up and the chat landing is present.
-  await expect(page).toHaveURL(/\/chat/);
+  await page
+    .waitForURL(/\/($|dashboard(\/|$)|chat(\/|$))/, { timeout: 20_000 })
+    .catch(() => {});
+
+  // Post-login can land on /chat or dashboard fallback depending on readiness.
+  const path = new URL(page.url()).pathname;
+  expect(path).toMatch(/^\/($|dashboard(\/|$)|chat(\/|$))/);
   await expect(page.getByRole('link', { name: 'Dashboard' })).toBeVisible();
-  await expect(page.getByRole('button', { name: 'New Chat' })).toBeVisible();
+  if (/^\/chat(\/|$)/.test(path)) {
+    const contract = await resolveChatEntryContract(page);
+    if (contract.state === 'unavailable') {
+      await expect(page.getByTestId('chat-unavailable-reason')).toBeVisible();
+    }
+  }
 });

@@ -19,29 +19,31 @@ pub fn Routing() -> impl IntoView {
     let active_tab = RwSignal::new("rules");
 
     view! {
-        <PageScaffold
-            title="Routing Debug"
-            subtitle="Inspect and manage how requests are routed across adapters."
-            breadcrumbs=vec![
-                PageBreadcrumbItem::label("Route"),
-                PageBreadcrumbItem::current("Routing"),
-            ]
-        >
-            <TabNav
-                tabs=vec![
-                    ("rules", "Management"),
-                    ("decisions", "Decisions"),
+        <div data-testid="routing-page">
+            <PageScaffold
+                title="Routing Debug"
+                subtitle="Inspect and manage how requests are routed across adapters."
+                breadcrumbs=vec![
+                    PageBreadcrumbItem::label("Route"),
+                    PageBreadcrumbItem::current("Routing"),
                 ]
-                active=active_tab
-            />
+            >
+                <TabNav
+                    tabs=vec![
+                        ("rules", "Management"),
+                        ("decisions", "Decisions"),
+                    ]
+                    active=active_tab
+                />
 
-            <TabPanel tab="rules" active=active_tab>
-                <RoutingRules/>
-            </TabPanel>
+                <TabPanel tab="rules" active=active_tab>
+                    <RoutingRules/>
+                </TabPanel>
 
-            <TabPanel tab="decisions" active=active_tab>
-                <RoutingDecisions/>
-            </TabPanel>
-        </PageScaffold>
+                <TabPanel tab="decisions" active=active_tab>
+                    <RoutingDecisions/>
+                </TabPanel>
+            </PageScaffold>
+        </div>
     }
 }

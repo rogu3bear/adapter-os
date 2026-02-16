@@ -202,6 +202,8 @@ fn test_inference_request_internal_with_pinned_adapters() {
         allow_fallback: true,
         abstention_threshold: None,
         citation_mode: None,
+        fim_prefix: None,
+        fim_suffix: None,
     };
 
     assert_eq!(request.pinned_adapter_ids, Some(pinned));
