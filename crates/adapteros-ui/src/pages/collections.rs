@@ -13,11 +13,12 @@ use crate::api::{
     CollectionResponse, CreateCollectionRequest, DocumentListParams, DocumentListResponse,
 };
 use crate::components::{
-    async_state::AsyncBoundary, loaded_signal, Badge, BadgeVariant, Button, ButtonVariant, Card,
+    async_state::{AsyncBoundary, AsyncBoundaryWithErrorRender},
+    loaded_signal, Badge, BadgeVariant, Button, ButtonLink, ButtonSize, ButtonVariant, Card,
     Checkbox, Column, ConfirmationDialog, ConfirmationSeverity, CopyableId, DataTable, Dialog,
-    EmptyStateVariant, FormField, Input, ListEmptyCard, PageBreadcrumbItem, PageScaffold,
-    PageScaffoldActions, PaginationControls, RefreshButton, Select, Spinner, Table, TableBody,
-    TableCell, TableHead, TableHeader, TableRow, Textarea,
+    EmptyStateVariant, ErrorDisplay, FormField, Input, ListEmptyCard, PageBreadcrumbItem,
+    PageScaffold, PageScaffoldActions, PaginationControls, RefreshButton, Select, Spinner, Table,
+    TableBody, TableCell, TableHead, TableHeader, TableRow, Textarea,
 };
 use crate::hooks::{use_api, use_api_resource, use_scope_alive, LoadingState};
 use crate::utils::{format_bytes, format_date};
@@ -289,8 +290,8 @@ fn CollectionsList(
 #[component]
 pub fn CollectionDetail() -> impl IntoView {
     let params = use_params_map();
-    let client = use_api();
     let navigate = use_navigate();
+    let client = use_api();
 
     // Get collection ID from URL
     let collection_id = Memo::new(move |_| {
@@ -320,14 +321,14 @@ pub fn CollectionDetail() -> impl IntoView {
 
     // Delete handler
     let on_delete = {
-        let client = Arc::clone(&client);
         let navigate = navigate.clone();
+        let client = Arc::clone(&client);
         move |_| {
             let id = collection_id.try_get().unwrap_or_default();
             deleting.set(true);
 
-            let client = Arc::clone(&client);
             let navigate = navigate.clone();
+            let client = Arc::clone(&client);
             wasm_bindgen_futures::spawn_local(async move {
                 match client.delete_collection(&id).await {
                     Ok(_) => {
@@ -413,8 +414,9 @@ pub fn CollectionDetail() -> impl IntoView {
                 let remove_handler = create_remove_handler.clone();
                 let refetch = refetch;
                 view! {
-                    <AsyncBoundary
+                    <AsyncBoundaryWithErrorRender
                         state=collection
+                        on_retry=Callback::new(move |_| refetch())
                         render=move |data| {
                             let handler = remove_handler.clone();
                             view! {
@@ -429,6 +431,36 @@ pub fn CollectionDetail() -> impl IntoView {
                                     existing_documents=data.documents.iter().map(|d| d.document_id.clone()).collect()
                                     on_added=Callback::new(move |_| refetch())
                                 />
+                            }
+                        }
+                        render_error=move |e, retry| {
+                            if e.is_not_found() {
+                                view! {
+                                    <div class="flex min-h-[40vh] flex-col items-center justify-center px-4">
+                                        <Card class="p-8 max-w-md w-full text-center">
+                                            <div class="text-4xl font-bold text-muted-foreground mb-2">"404"</div>
+                                            <h2 class="heading-3 mb-2">"Collection not found"</h2>
+                                            <p class="text-muted-foreground mb-6">
+                                                "This collection may have been deleted or doesn't exist."
+                                            </p>
+                                            <ButtonLink
+                                                href="/collections"
+                                                variant=ButtonVariant::Primary
+                                                size=ButtonSize::Md
+                                            >
+                                                "View all collections"
+                                            </ButtonLink>
+                                        </Card>
+                                    </div>
+                                }
+                                    .into_any()
+                            } else {
+                                match retry {
+                                    Some(retry_cb) => {
+                                        view! { <ErrorDisplay error=e on_retry=retry_cb/> }.into_any()
+                                    }
+                                    None => view! { <ErrorDisplay error=e/> }.into_any(),
+                                }
                             }
                         }
                     />

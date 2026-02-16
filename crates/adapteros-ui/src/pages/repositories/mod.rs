@@ -15,7 +15,7 @@ use crate::hooks::{use_api_resource, LoadingState};
 use detail::{RepositoryDetailPanel, RepositoryDetailStandalone};
 use dialogs::RegisterRepositoryDialog;
 use leptos::prelude::*;
-use leptos_router::hooks::use_params_map;
+use leptos_router::hooks::{use_navigate, use_params_map};
 use list::RepositoryList;
 use std::sync::Arc;
 
@@ -46,6 +46,21 @@ pub fn Repositories() -> impl IntoView {
                 Some(filter.as_str())
             };
             client.list_repositories(status).await
+        }
+    });
+
+    // Keep list/detail state consistent across filtering and refresh.
+    Effect::new(move || {
+        let Some(selected_id) = selected_repo_id.get() else {
+            return;
+        };
+
+        let LoadingState::Loaded(data) = repos.get() else {
+            return;
+        };
+
+        if !data.repos.iter().any(|repo| repo.repo_id == selected_id) {
+            selected_repo_id.set(None);
         }
     });
 
@@ -135,6 +150,7 @@ pub fn Repositories() -> impl IntoView {
 #[component]
 pub fn RepositoryDetail() -> impl IntoView {
     let params = use_params_map();
+    let navigate = use_navigate();
 
     // Get repository ID from URL
     let repo_id = Memo::new(move |_| params.get().get("id").unwrap_or_default());
@@ -148,6 +164,17 @@ pub fn RepositoryDetail() -> impl IntoView {
                 PageBreadcrumbItem::current(repo_id.get()),
             ]
         >
+            <PageScaffoldActions slot>
+                <Button
+                    variant=ButtonVariant::Secondary
+                    on_click=Callback::new({
+                        let navigate = navigate.clone();
+                        move |_| navigate("/repositories", Default::default())
+                    })
+                >
+                    "Back to Repositories"
+                </Button>
+            </PageScaffoldActions>
             {move || {
                 let id = repo_id.get();
                 if id.is_empty() {

@@ -201,14 +201,14 @@ pub fn Documents() -> impl IntoView {
     });
 
     let (documents, _) = use_api_resource(move |client: Arc<ApiClient>| {
-        let status_val = status_filter.try_get().unwrap_or_default();
+        let status_val = status_filter.get();
         let status = if status_val.is_empty() {
             None
         } else {
             Some(status_val)
         };
-        let page = current_page.try_get().unwrap_or(1);
-        let _trigger = refetch_trigger.try_get().unwrap_or_default();
+        let page = current_page.get();
+        let _trigger = refetch_trigger.get();
         async move {
             let params = DocumentListParams {
                 status,
@@ -221,7 +221,7 @@ pub fn Documents() -> impl IntoView {
 
     // Refetch and reset page on filter change
     Effect::new(move || {
-        let _ = status_filter.try_get();
+        let _ = status_filter.get();
         let _ = set_current_page.try_set(1);
         let _ = set_refetch_trigger.try_update(|t| *t += 1);
     });
@@ -984,13 +984,35 @@ pub fn DocumentDetail() -> impl IntoView {
                             />
                         }.into_any()
                     }
+                    LoadingState::Error(e) if e.is_not_found() => {
+                        view! {
+                            <div class="flex min-h-[40vh] flex-col items-center justify-center px-4">
+                                <Card class="p-8 max-w-md w-full text-center">
+                                    <div class="text-4xl font-bold text-muted-foreground mb-2">"404"</div>
+                                    <h2 class="heading-3 mb-2">"Document not found"</h2>
+                                    <p class="text-muted-foreground mb-6">
+                                        "This document may have been deleted or doesn't exist."
+                                    </p>
+                                    <ButtonLink
+                                        href="/documents"
+                                        variant=ButtonVariant::Primary
+                                        size=ButtonSize::Md
+                                    >
+                                        "View all documents"
+                                    </ButtonLink>
+                                </Card>
+                            </div>
+                        }
+                            .into_any()
+                    }
                     LoadingState::Error(e) => {
                         view! {
                             <ErrorDisplay
                                 error=e
                                 on_retry=Callback::new(move |_| refetch())
                             />
-                        }.into_any()
+                        }
+                            .into_any()
                     }
                 }
             }}

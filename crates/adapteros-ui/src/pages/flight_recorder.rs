@@ -29,7 +29,7 @@ use adapteros_api_types::errors::ErrorInstance;
 use adapteros_api_types::UiProfile;
 use leptos::prelude::*;
 use leptos::task::spawn_local;
-use leptos_router::hooks::{use_params_map, use_query_map};
+use leptos_router::hooks::{use_navigate, use_params_map, use_query_map};
 use std::sync::Arc;
 use web_time::Instant;
 
@@ -143,6 +143,7 @@ pub fn FlightRecorder() -> impl IntoView {
 #[component]
 pub fn FlightRecorderDetail() -> impl IntoView {
     let params = use_params_map();
+    let navigate = use_navigate();
     let run_id = move || params.get().get("id").unwrap_or_default();
 
     view! {
@@ -154,6 +155,17 @@ pub fn FlightRecorderDetail() -> impl IntoView {
                 PageBreadcrumbItem::current(run_id()),
             ]
         >
+            <PageScaffoldActions slot>
+                <Button
+                    variant=ButtonVariant::Secondary
+                    on_click=Callback::new({
+                        let navigate = navigate.clone();
+                        move |_| navigate("/runs", Default::default())
+                    })
+                >
+                    "Back to Runs"
+                </Button>
+            </PageScaffoldActions>
             {move || {
                 let id = run_id();
                 if id.is_empty() {
@@ -632,11 +644,19 @@ fn RunDetailHub(run_id: String, on_close: Callback<()>) -> impl IntoView {
                     // If the diagnostic export path fails (common for pure trace IDs),
                     // degrade gracefully to a trace-only viewer instead of hard erroring the page.
                     if run_id.starts_with("trc-") || err.is_not_found() {
+                        let fallback_message = if err.is_not_found() {
+                            "Run export not found; attempting trace-only fallback."
+                        } else {
+                            "Diagnostic export unavailable; showing trace-only view."
+                        };
                         view! {
                             <div class="space-y-3">
                                 <div class="text-sm text-muted-foreground">
-                                    "Diagnostic export unavailable; showing trace-only view."
+                                    {fallback_message}
                                 </div>
+                                <a href="/runs" class="inline-flex text-sm text-primary hover:underline">
+                                    "Back to Flight Recorder"
+                                </a>
                                 <crate::components::trace_viewer::TraceViewer trace_id=run_id.clone() compact=false/>
                             </div>
                         }.into_any()
