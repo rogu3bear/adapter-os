@@ -49,8 +49,8 @@ pub fn Collections() -> impl IntoView {
 
     // Fetch collections with pagination
     let (collections, _refetch) = use_api_resource(move |client: Arc<ApiClient>| {
-        let current_page = page.try_get().unwrap_or(1);
-        let _trigger = refetch_trigger.try_get().unwrap_or_default(); // Subscribe to trigger changes
+        let current_page = page.get();
+        let _trigger = refetch_trigger.get(); // Subscribe to trigger changes
         async move { client.list_collections(current_page, limit).await }
     });
 
@@ -636,6 +636,7 @@ fn AddDocumentsDialog(
         let is_open = open.try_get().unwrap_or(false);
         let page = page.try_get().unwrap_or(1);
         let status_value = status_filter.try_get().unwrap_or_default();
+        let search_value = search_query.try_get().unwrap_or_default();
         let _trigger = refetch_trigger.try_get().unwrap_or_default();
         async move {
             if !is_open {
@@ -653,12 +654,48 @@ fn AddDocumentsDialog(
             } else {
                 Some(status_value)
             };
-            let params = DocumentListParams {
-                status,
-                page: Some(page),
-                limit: Some(20),
-            };
-            client.list_documents(Some(&params)).await
+
+            if search_value.trim().is_empty() {
+                let params = DocumentListParams {
+                    status,
+                    page: Some(page),
+                    limit: Some(20),
+                };
+                client.list_documents(Some(&params)).await
+            } else {
+                // Search mode needs a complete eligible set; page-local filtering
+                // creates false "no results" states.
+                let search_limit = 100_u32;
+                let first_page_params = DocumentListParams {
+                    status: status.clone(),
+                    page: Some(1),
+                    limit: Some(search_limit),
+                };
+                let first_page = client.list_documents(Some(&first_page_params)).await?;
+                let schema_version = first_page.schema_version.clone();
+                let total = first_page.total;
+                let total_pages = first_page.pages.max(1);
+                let mut all_docs = first_page.data;
+
+                for current_page in 2..=total_pages {
+                    let page_params = DocumentListParams {
+                        status: status.clone(),
+                        page: Some(current_page),
+                        limit: Some(search_limit),
+                    };
+                    let response = client.list_documents(Some(&page_params)).await?;
+                    all_docs.extend(response.data);
+                }
+
+                Ok(DocumentListResponse {
+                    schema_version,
+                    data: all_docs,
+                    total,
+                    page: 1,
+                    limit: search_limit,
+                    pages: 1,
+                })
+            }
         }
     });
 
