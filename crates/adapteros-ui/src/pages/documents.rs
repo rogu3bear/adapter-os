@@ -5,7 +5,7 @@
 use crate::api::client::{ChunkListResponse, DocumentListParams, DocumentResponse};
 use crate::api::{report_error_with_toast, ApiClient};
 use crate::components::{
-    Badge, BadgeVariant, Button, ButtonSize, ButtonVariant, Card, ConfirmationDialog,
+    Badge, BadgeVariant, Button, ButtonLink, ButtonSize, ButtonVariant, Card, ConfirmationDialog,
     ConfirmationSeverity, CopyableId, Dialog, EmptyState, EmptyStateVariant, ErrorDisplay,
     IconExternalLink, InlineProgress, LoadingDisplay, PageBreadcrumbItem, PageScaffold,
     PageScaffoldActions, ProgressStage, ProgressStages, RefreshButton, Select, Table, TableBody,
@@ -525,16 +525,17 @@ fn DocumentsList(
                                             {is_terminal_ready.then(|| {
                                                 let doc_id_for_train = id.clone();
                                                 view! {
-                                                    <a
+                                                    <ButtonLink
                                                         href=format!(
                                                             "/documents/{}#train-adapter-cta",
                                                             doc_id_for_train
                                                         )
-                                                        class="btn btn-ghost btn-sm"
+                                                        variant=ButtonVariant::Ghost
+                                                        size=ButtonSize::Sm
                                                         aria_label="Train using this document"
                                                     >
                                                         "Train"
-                                                    </a>
+                                                    </ButtonLink>
                                                 }
                                             })}
                                             {(!is_in_flight).then(|| {

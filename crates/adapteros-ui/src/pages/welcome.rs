@@ -4,8 +4,7 @@
 //! no workers registered). Guides the operator through initial setup.
 
 use crate::api::ApiClient;
-use crate::components::PageScaffold;
-use crate::components::Spinner;
+use crate::components::{Button, ButtonLink, ButtonSize, ButtonVariant, PageScaffold, Spinner};
 use crate::hooks::{use_api_resource, LoadingState};
 use adapteros_api_types::{
     InferenceBlocker, InferenceReadyState, StatusIndicator, SystemStatusResponse,
@@ -193,7 +192,7 @@ pub fn Welcome() -> impl IntoView {
     let (status, refetch) =
         use_api_resource(|client: Arc<ApiClient>| async move { client.system_status().await });
 
-    let on_refresh = move |_| refetch.run(());
+    let on_refresh = Callback::new(move |_| refetch.run(()));
 
     view! {
         <PageScaffold
@@ -241,9 +240,14 @@ pub fn Welcome() -> impl IntoView {
                                             </p>
                                         </div>
                                     </div>
-                                    <button class="btn btn-outline btn-sm mt-4" on:click=on_refresh>
+                                    <Button
+                                        variant=ButtonVariant::Outline
+                                        size=ButtonSize::Sm
+                                        class="mt-4".to_string()
+                                        on_click=on_refresh
+                                    >
                                         "Retry"
-                                    </button>
+                                    </Button>
                                 </div>
                             }.into_any(),
                             LoadingState::Loaded(ref s) => {
@@ -292,7 +296,14 @@ pub fn Welcome() -> impl IntoView {
                                                         <polyline points="22 4 12 14.01 9 11.01"/>
                                                     </svg>
                                                     <p class="welcome-ready-text">"System is ready for inference"</p>
-                                                    <a href="/chat" class="btn btn-primary mt-3">"Open chat"</a>
+                                                    <ButtonLink
+                                                        href="/chat"
+                                                        variant=ButtonVariant::Primary
+                                                        size=ButtonSize::Md
+                                                        class="mt-3".to_string()
+                                                    >
+                                                        "Open chat"
+                                                    </ButtonLink>
                                                 </div>
                                             })
                                         } else {

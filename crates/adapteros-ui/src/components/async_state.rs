@@ -5,7 +5,7 @@
 
 use crate::api::ApiError;
 use crate::components::layout::BreadcrumbItem;
-use crate::components::{Badge, BadgeVariant, Button, ButtonVariant, Spinner};
+use crate::components::{Badge, BadgeVariant, Button, ButtonLink, ButtonSize, ButtonVariant, Spinner};
 use adapteros_api_types::FailureCode;
 use leptos::prelude::*;
 
@@ -508,24 +508,25 @@ pub fn EmptyState(
                         {action_label_clone.map(|label| {
                             let cb = on_action;
                             view! {
-                                <button
-                                    class="btn btn-primary btn-md"
-                                    on:click=move |_| {
+                                <Button
+                                    variant=ButtonVariant::Primary
+                                    size=ButtonSize::Md
+                                    on_click=Callback::new(move |_| {
                                         if let Some(ref callback) = cb {
                                             callback.run(());
                                         }
-                                    }
+                                    })
                                 >
                                     {label}
-                                </button>
+                                </Button>
                             }
                         })}
                         {secondary_label_clone.map(|label| {
                             if let Some(href) = secondary_href_clone.clone() {
                                 view! {
-                                    <a href=href class="btn btn-ghost btn-md">
+                                    <ButtonLink href=href variant=ButtonVariant::Ghost size=ButtonSize::Md>
                                         {label}
-                                    </a>
+                                    </ButtonLink>
                                 }.into_any()
                             } else {
                                 view! {

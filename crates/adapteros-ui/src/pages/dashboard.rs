@@ -5,8 +5,8 @@ use crate::boot_log;
 use crate::components::inference_guidance::{guidance_for, primary_blocker};
 use crate::components::status_center::use_status_center;
 use crate::components::{
-    Button, ButtonVariant, Card, ChartPoint, DataSeries, EmptyState, EmptyStateVariant,
-    ErrorDisplay, IconCheckCircle, IconPlay, IconServer, LineChart, PageScaffold,
+    Button, ButtonLink, ButtonSize, ButtonVariant, Card, ChartPoint, DataSeries, EmptyState,
+    EmptyStateVariant, ErrorDisplay, IconCheckCircle, IconPlay, IconServer, LineChart, PageScaffold,
     PageScaffoldActions, SkeletonCard, SkeletonStatsGrid, SparklineMetric, Spinner, StatusColor,
     StatusIconBox, StatusIndicator, StatusVariant, TimeSeriesData, WorkerStatusBadge,
 };
@@ -470,12 +470,13 @@ fn DashboardContent(
                                 <div class="mt-2 space-y-2">
                                     <p class="text-xs text-muted-foreground">{guidance.reason}</p>
                                     <div class="flex flex-wrap items-center gap-2">
-                                        <a
+                                        <ButtonLink
                                             href=action.href
-                                            class="btn btn-outline btn-sm"
+                                            variant=ButtonVariant::Outline
+                                            size=ButtonSize::Sm
                                         >
                                             {action.label}
-                                        </a>
+                                        </ButtonLink>
                                         {status_center.map(|ctx| view! {
                                                 <button
                                                     class="text-xs text-muted-foreground hover:text-foreground"

@@ -1,6 +1,6 @@
 //! 404 Not Found page
 
-use crate::components::Card;
+use crate::components::{ButtonLink, ButtonSize, ButtonVariant, Card};
 use leptos::prelude::*;
 use leptos_router::hooks::use_location;
 
@@ -86,12 +86,13 @@ pub fn NotFound() -> impl IntoView {
                 })}
 
                 <div class="flex items-center justify-center gap-3">
-                    <a
+                    <ButtonLink
                         href="/"
-                        class="btn btn-primary btn-md"
+                        variant=ButtonVariant::Primary
+                        size=ButtonSize::Md
                     >
                         "Go to Dashboard"
-                    </a>
+                    </ButtonLink>
                 </div>
             </Card>
         </div>
