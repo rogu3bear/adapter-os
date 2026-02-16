@@ -12,6 +12,25 @@ test.describe('visual baselines', () => {
     await expect(
       page.getByRole('heading', { name: 'Style Audit', level: 1, exact: true })
     ).toBeVisible();
+    // Wait for async trace/metrics surfaces to settle before full-page capture.
+    await expect(page.getByText('Loading recent traces...')).toBeHidden({ timeout: 15_000 });
+    await expect(page.getByText('Loading trace data...')).toBeHidden({ timeout: 15_000 });
+    await page.waitForFunction(
+      () => {
+        const key = '__styleAuditHeights';
+        const root = document.documentElement;
+        if (!root) return false;
+        const current = root.scrollHeight;
+        const win = window as unknown as Record<string, unknown>;
+        const history = (win[key] as number[] | undefined) ?? [];
+        history.push(current);
+        if (history.length > 5) history.shift();
+        win[key] = history;
+        if (history.length < 4) return false;
+        return history.every((value) => value === history[0]);
+      },
+      { timeout: 10_000, polling: 100 }
+    );
     await expect(page).toHaveScreenshot('style-audit.png', {
       fullPage: true,
       maxDiffPixels: 2500,
