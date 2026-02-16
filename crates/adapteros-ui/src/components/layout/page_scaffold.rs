@@ -154,15 +154,15 @@ pub fn PageScaffold(
                 })}
 
                 // Title row with actions
-                <div class="flex items-center justify-between gap-4">
-                    <div class="min-w-0">
-                        <h1 class="heading-1 truncate">{title}</h1>
+                <div class="flex flex-col gap-3 sm:flex-row sm:items-start sm:justify-between">
+                    <div class="min-w-0 w-full">
+                        <h1 class="heading-1 break-words">{title}</h1>
                         {subtitle.map(|s| view! {
                             <p class="body-small text-muted-foreground mt-1">{s}</p>
                         })}
                     </div>
                     {page_scaffold_actions.map(|actions| view! {
-                        <div class="flex items-center gap-2 shrink-0">
+                        <div class="flex w-full flex-wrap items-center gap-2 sm:w-auto sm:shrink-0 sm:justify-end">
                             {(actions.children)()}
                         </div>
                     })}

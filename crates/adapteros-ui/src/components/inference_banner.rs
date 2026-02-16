@@ -4,8 +4,8 @@
 //! state the impact, name the cause, offer the fix. No mechanism explanations.
 
 use crate::api::ApiClient;
-use crate::components::{Button, ButtonLink, ButtonSize, ButtonVariant};
 use crate::components::inference_guidance::{guidance_for, primary_blocker};
+use crate::components::{Button, ButtonLink, ButtonSize, ButtonVariant};
 use crate::hooks::{use_api_resource, LoadingState};
 use adapteros_api_types::InferenceReadyState;
 use leptos::prelude::*;
