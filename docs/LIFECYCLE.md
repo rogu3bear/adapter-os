@@ -2,7 +2,7 @@
 
 **Canonical reference for adapter and base model lifecycle management**
 
-**Last Updated:** 2025-12-29
+**Last Updated:** 2026-02-16
 
 ---
 
@@ -53,6 +53,13 @@ The lifecycle systems ensure:
 | **RequestPinner** | `crates/adapteros-lora-worker/src/request_pinner.rs` | RAII pinning guard |
 | **Lifecycle DB** | `crates/adapteros-db/src/lifecycle.rs` | Database transition operations |
 | **SQL Triggers** | `migrations/0075_lifecycle_state_transition_triggers.sql` | Database-level state machine enforcement |
+
+### Backend Rectification Notes (2026-02-16)
+
+- Evidence ingestion now enforces cryptographic signature verification during validation.
+- Worker signal streaming supports `X-Signal-Stream: true` with SSE lifecycle signal frames.
+- Secure enclave/host identity attestation now records explicit attestation kind (`hardware` or `synthetic`) and supports fail-closed hardware-required mode.
+- Rotation daemon supports KMS key-provider mode for key rotation workflows.
 
 ---
 
@@ -1019,7 +1026,7 @@ let pinned_new = pinner.pin()?; // Sees adapter B
 
 ### Permanent Pinning (Future Feature)
 
-**API (planned):**
+**API (roadmap):**
 ```bash
 # Pin adapter to prevent eviction
 aosctl pin-adapter --id my-critical-adapter

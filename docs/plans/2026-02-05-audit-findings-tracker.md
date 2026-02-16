@@ -1,7 +1,7 @@
 # Audit Findings Tracker
 
 **Created**: 2026-02-05
-**Last Updated**: 2026-02-05
+**Last Updated**: 2026-02-16
 **Purpose**: Track all issues identified in Logic, Design, and Topography audits
 
 ---
@@ -14,6 +14,25 @@
 | Design   | 0        | 3        | 7     | 10    |
 | Topo     | 3        | 3        | 3     | 9     |
 | **Total**| **6**    | **12**   | **14**| **32**|
+
+---
+
+## Backend Rectification (Items 1-10, 2026-02-16)
+
+The backend/E2E rectification pass for Items 1-10 was completed on 2026-02-16 and is tracked separately from the audit issue inventory above.
+
+| Item | Status | Implementation Note |
+|------|--------|---------------------|
+| 1 | Resolved | Evidence ingestion now performs real Ed25519 signature verification (no format-only acceptance path). |
+| 2 | Resolved | Default backend profile is embeddings-capable; default builds no longer emit 501 "not implemented" for document/dataset embedding paths. |
+| 3 | Resolved | Operation tracker supports Redis-backed start/update/complete/status with TTL and conflict detection; local cancellation semantics retained. |
+| 4 | Resolved | Dedicated embedding execution path is implemented in worker embedding runtime. |
+| 5 | Resolved | `X-Signal-Stream` requests now emit and parse SSE `event: signal` lifecycle frames end-to-end. |
+| 6 | Resolved | Secure enclave attestation is explicit (`hardware` vs `synthetic`) and fail-closed when hardware attestation is required. |
+| 7 | Resolved | Rotation daemon KMS provider mode is enabled via concrete key-provider wiring. |
+| 8 | Resolved | Inference spoke handlers/routes delegate to real production inference handlers (no placeholder payloads). |
+| 9 | Resolved | Worker determinism guards are re-enabled with active initialization and violation accounting. |
+| 10 | Resolved | Documentation and verification notes reconciled with current backend/runtime behavior. |
 
 ---
 
