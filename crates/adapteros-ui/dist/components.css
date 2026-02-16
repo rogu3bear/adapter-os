@@ -52,24 +52,24 @@
 
 /* Primary - Main action, semi-transparent with blur */
 .btn-primary {
-  background: hsla(222, 47%, 21%, 0.85);
+  background: var(--action-primary-bg);
   color: var(--color-primary-foreground);
-  border-color: hsla(222, 47%, 30%, 0.3);
+  border-color: var(--action-primary-border);
 }
 
 .btn-primary:hover {
-  background: hsla(222, 47%, 24%, 0.92);
+  background: var(--action-primary-bg-hover);
   backdrop-filter: blur(var(--glass-blur-2)) saturate(1.2);
   -webkit-backdrop-filter: blur(var(--glass-blur-2)) saturate(1.2);
 }
 
 .dark .btn-primary {
-  background: hsla(217, 91%, 60%, 0.85);
-  border-color: hsla(217, 91%, 70%, 0.25);
+  background: var(--action-primary-bg);
+  border-color: var(--action-primary-border);
 }
 
 .dark .btn-primary:hover {
-  background: hsla(217, 91%, 65%, 0.92);
+  background: var(--action-primary-bg-hover);
 }
 
 /* Secondary - Tier 1 glass, subtle presence */
@@ -87,33 +87,33 @@
 
 /* Destructive - Semi-transparent red with subtle glow on hover */
 .btn-destructive {
-  background: hsla(0, 72%, 51%, 0.8);
-  color: white;
-  border-color: hsla(0, 72%, 60%, 0.3);
+  background: var(--action-destructive-bg);
+  color: var(--color-destructive-foreground);
+  border-color: var(--action-destructive-border);
 }
 
 .btn-destructive:hover {
-  background: hsla(0, 72%, 51%, 0.9);
+  background: var(--action-destructive-bg-hover);
   backdrop-filter: blur(var(--glass-blur-2)) saturate(1.2);
   -webkit-backdrop-filter: blur(var(--glass-blur-2)) saturate(1.2);
-  box-shadow: 0 0 20px hsla(0, 72%, 51%, 0.2);
+  box-shadow: var(--action-destructive-glow);
 }
 
 .dark .btn-destructive {
-  background: hsla(0, 62%, 45%, 0.8);
-  border-color: hsla(0, 62%, 55%, 0.25);
+  background: var(--action-destructive-bg);
+  border-color: var(--action-destructive-border);
 }
 
 .dark .btn-destructive:hover {
-  background: hsla(0, 62%, 50%, 0.9);
-  box-shadow: 0 0 24px hsla(0, 62%, 50%, 0.25);
+  background: var(--action-destructive-bg-hover);
+  box-shadow: var(--action-destructive-glow);
 }
 
 /* Outline - Transparent with glass border, fills on hover */
 .btn-outline {
   background: transparent;
   color: var(--color-foreground);
-  border-color: var(--glass-border);
+  border-color: var(--action-outline-border);
   backdrop-filter: none;
   -webkit-backdrop-filter: none;
 }
@@ -125,7 +125,7 @@
 }
 
 .dark .btn-outline {
-  border-color: hsla(215, 30%, 50%, 0.35);
+  border-color: var(--action-outline-border);
 }
 
 /* Ghost - Invisible until hover, then glass fades in */
@@ -3704,18 +3704,18 @@
     width: 3.5rem;
     height: 3.5rem;
     border-radius: 9999px;
-    background: hsla(222, 47%, 21%, 0.9);
+    background: var(--action-primary-fab-bg);
     color: var(--color-primary-foreground);
     box-shadow: var(--glass-shadow-lg);
     cursor: pointer;
-    border: 1px solid var(--glass-border);
+    border: 1px solid var(--action-primary-fab-border);
     backdrop-filter: blur(var(--glass-blur-2)) saturate(1.2);
     -webkit-backdrop-filter: blur(var(--glass-blur-2)) saturate(1.2);
     transition: all 200ms ease;
   }
 
   .mobile-chat-fab:hover {
-    background: hsla(222, 47%, 24%, 0.95);
+    background: var(--action-primary-fab-bg-hover);
     box-shadow: var(--glass-shadow-lg), var(--glass-glow);
   }
 
@@ -3724,12 +3724,12 @@
   }
 
   .dark .mobile-chat-fab {
-    background: hsla(217, 91%, 60%, 0.85);
-    border-color: hsla(217, 91%, 70%, 0.25);
+    background: var(--action-primary-fab-bg);
+    border-color: var(--action-primary-fab-border);
   }
 
   .dark .mobile-chat-fab:hover {
-    background: hsla(217, 91%, 65%, 0.92);
+    background: var(--action-primary-fab-bg-hover);
   }
 }
 
