@@ -82,6 +82,7 @@ pub mod preflight_fix;
 pub mod preflight_readiness;
 pub mod profile;
 pub mod quantize_qwen;
+pub mod quarantine;
 pub mod receipt_backfill;
 pub mod recover;
 pub mod register_adapter;
@@ -130,6 +131,7 @@ pub mod verify_cancellation_receipt;
 pub mod verify_determinism_loop;
 pub mod verify_gpu;
 pub mod verify_receipt;
+pub mod workers;
 
 pub const NOT_IMPLEMENTED_ISSUE_URL: &str = "https://github.com/rogu3bear/adapter-os/issues/194";
 pub const NOT_IMPLEMENTED_MESSAGE: &str =

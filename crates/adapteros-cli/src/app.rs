@@ -641,6 +641,46 @@ pub enum Commands {
 "#)]
     Policy(policy::PolicyCommand),
 
+    /// Quarantine management (status, clear, rollback)
+    #[command(subcommand)]
+    #[command(after_help = r#"Examples:
+  # Check quarantine status
+  aosctl quarantine status
+
+  # Clear all violations
+  aosctl quarantine clear
+
+  # Clear specific pack violations
+  aosctl quarantine clear --pack-id Egress
+
+  # Clear with baseline reload
+  aosctl quarantine clear --rollback
+
+  # Rollback to last known good config
+  aosctl quarantine rollback
+"#)]
+    Quarantine(commands::quarantine::QuarantineCommand),
+
+    /// Worker monitoring and management (list, health, drain, restart)
+    #[command(subcommand)]
+    #[command(after_help = r#"Examples:
+  # List active workers
+  aosctl worker list
+
+  # List all workers including stopped
+  aosctl worker list --include-inactive
+
+  # Show health summary
+  aosctl worker health
+
+  # Drain a worker gracefully
+  aosctl worker drain wrk-abc123
+
+  # Restart a worker
+  aosctl worker restart wrk-abc123
+"#)]
+    Worker(commands::workers::WorkerCommand),
+
     /// Start inference server for a tenant
     #[command(after_help = r#"Examples:
   # Validate setup without starting (recommended first)
@@ -1614,6 +1654,12 @@ async fn execute_command(command: &Commands, cli: &Cli, output: &OutputWriter) -
         Commands::Policy(cmd) => {
             cmd.clone().run()?;
         }
+        Commands::Quarantine(cmd) => {
+            commands::quarantine::handle_quarantine_command(cmd.clone(), output).await?;
+        }
+        Commands::Worker(cmd) => {
+            commands::workers::handle_worker_command(cmd.clone(), output).await?;
+        }
 
         Commands::Serve {
             tenant,
@@ -1897,6 +1943,8 @@ fn get_command_name(command: &Commands) -> String {
         Commands::Dataset { .. } => "dataset",
         Commands::Verify { .. } => "verify",
         Commands::Policy(_) => "policy",
+        Commands::Quarantine(_) => "quarantine",
+        Commands::Worker(_) => "worker",
         Commands::Serve { .. } => "serve",
         Commands::Audit { .. } => "audit",
         Commands::AuditDeterminism { .. } => "audit-determinism",
