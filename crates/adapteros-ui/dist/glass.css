@@ -13,7 +13,7 @@
  *
  * BORDERS (required - glass without borders looks like fog):
  *   Width: 1px
- *   Color: hsla(0, 0%, 100%, 0.30) light / hsla(215, 30%, 40%, 0.25) dark
+ *   Color: hsla(215, 20%, 60%, 0.30) light / hsla(215, 25%, 55%, 0.35) dark
  *
  * NOISE (break banding, not dirty monitor):
  *   Opacity: 2% light / 2.5% dark
@@ -38,18 +38,18 @@
     --glass-bg-2: hsla(0, 0%, 100%, 0.78);
     --glass-bg-3: hsla(0, 0%, 100%, 0.85);
 
-    /* Glass border */
-    --glass-border: hsla(0, 0%, 100%, 0.30);
+    /* Glass border (dark edge on light bg — white borders are invisible on white) */
+    --glass-border: hsla(215, 20%, 60%, 0.30);
 
     /* Glass shadows with HSL tints (colored soft shadows) */
-    --glass-shadow-sm: 0 1px 2px hsla(220, 60%, 50%, 0.05),
-                       0 1px 3px hsla(220, 60%, 50%, 0.03);
-    --glass-shadow-md: 0 4px 6px hsla(220, 60%, 50%, 0.07),
-                       0 2px 4px hsla(220, 60%, 50%, 0.04),
-                       0 1px 2px hsla(220, 60%, 50%, 0.02);
-    --glass-shadow-lg: 0 10px 15px hsla(220, 60%, 50%, 0.08),
-                       0 4px 6px hsla(220, 60%, 50%, 0.05),
-                       0 2px 4px hsla(220, 60%, 50%, 0.03);
+    --glass-shadow-sm: 0 1px 2px hsla(220, 60%, 50%, 0.10),
+                       0 1px 3px hsla(220, 60%, 50%, 0.06);
+    --glass-shadow-md: 0 4px 6px hsla(220, 60%, 50%, 0.12),
+                       0 2px 4px hsla(220, 60%, 50%, 0.07),
+                       0 1px 2px hsla(220, 60%, 50%, 0.04);
+    --glass-shadow-lg: 0 10px 15px hsla(220, 60%, 50%, 0.14),
+                       0 4px 6px hsla(220, 60%, 50%, 0.08),
+                       0 2px 4px hsla(220, 60%, 50%, 0.05);
 
     /* Glass effects */
     --glass-blur: 12px;
@@ -75,16 +75,16 @@
     --glass-bg-2: hsla(222, 47%, 10%, 0.72);
     --glass-bg-3: hsla(222, 47%, 12%, 0.80);
 
-    --glass-border: hsla(215, 30%, 40%, 0.25);
+    --glass-border: hsla(215, 25%, 55%, 0.35);
 
-    --glass-shadow-sm: 0 1px 2px hsla(220, 80%, 20%, 0.15),
-                       0 1px 3px hsla(220, 80%, 10%, 0.10);
-    --glass-shadow-md: 0 4px 6px hsla(220, 80%, 15%, 0.20),
-                       0 2px 4px hsla(220, 80%, 10%, 0.12),
-                       0 1px 2px hsla(220, 80%, 5%, 0.08);
-    --glass-shadow-lg: 0 10px 15px hsla(220, 80%, 10%, 0.25),
-                       0 4px 6px hsla(220, 80%, 5%, 0.15),
-                       0 2px 4px hsla(220, 80%, 0%, 0.10);
+    --glass-shadow-sm: 0 1px 2px hsla(220, 80%, 20%, 0.22),
+                       0 1px 3px hsla(220, 80%, 10%, 0.14);
+    --glass-shadow-md: 0 4px 6px hsla(220, 80%, 15%, 0.28),
+                       0 2px 4px hsla(220, 80%, 10%, 0.16),
+                       0 1px 2px hsla(220, 80%, 5%, 0.10);
+    --glass-shadow-lg: 0 10px 15px hsla(220, 80%, 10%, 0.32),
+                       0 4px 6px hsla(220, 80%, 5%, 0.20),
+                       0 2px 4px hsla(220, 80%, 0%, 0.12);
 
     --glass-blur: 16px;
     --glass-saturation: 1.4;
