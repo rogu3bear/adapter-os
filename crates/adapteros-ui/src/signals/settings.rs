@@ -147,11 +147,23 @@ impl UserSettings {
     pub fn load() -> Self {
         #[cfg(target_arch = "wasm32")]
         {
-            web_sys::window()
+            let mut settings: Self = web_sys::window()
                 .and_then(|w| w.local_storage().ok().flatten())
                 .and_then(|s| s.get_item(SETTINGS_KEY).ok().flatten())
                 .and_then(|json| serde_json::from_str(&json).ok())
-                .unwrap_or_default()
+                .unwrap_or_default();
+
+            // Migrate old aos_glass_theme localStorage key into unified settings
+            if let Some(storage) = web_sys::window().and_then(|w| w.local_storage().ok().flatten())
+            {
+                if let Ok(Some(old_value)) = storage.get_item("aos_glass_theme") {
+                    settings.glass_enabled = old_value == "true";
+                    settings.save();
+                    let _ = storage.remove_item("aos_glass_theme");
+                }
+            }
+
+            settings
         }
         #[cfg(not(target_arch = "wasm32"))]
         {
@@ -225,8 +237,9 @@ pub type SettingsContext = RwSignal<UserSettings>;
 pub fn provide_settings_context() {
     let settings = RwSignal::new(UserSettings::load());
 
-    // Apply theme on initial load
+    // Apply visual state on initial load
     settings.get_untracked().apply_theme();
+    settings.get_untracked().apply_glass();
 
     provide_context(settings);
 
