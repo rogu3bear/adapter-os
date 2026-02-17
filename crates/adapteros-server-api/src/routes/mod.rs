@@ -581,6 +581,7 @@ use utoipa_swagger_ui::SwaggerUi;
         handlers::tenants::revoke_tenant_tokens,
         handlers::execution_policy::get_execution_policy,
         handlers::execution_policy::create_execution_policy,
+        handlers::execution_policy::update_execution_policy,
         handlers::execution_policy::deactivate_execution_policy,
         handlers::execution_policy::get_execution_policy_history,
         handlers::event_applier::apply_tenant_event,
@@ -1220,6 +1221,18 @@ pub fn build(state: AppState) -> Router {
         )
         // Tenant routes (extracted to routes/tenant_routes.rs)
         .merge(tenant_routes::tenant_routes())
+        // Prefix template routes
+        .route(
+            "/v1/prefix-templates",
+            get(handlers::prefix_templates::list_prefix_templates)
+                .post(handlers::prefix_templates::create_prefix_template),
+        )
+        .route(
+            "/v1/prefix-templates/{template_id}",
+            get(handlers::prefix_templates::get_prefix_template)
+                .put(handlers::prefix_templates::update_prefix_template)
+                .delete(handlers::prefix_templates::delete_prefix_template),
+        )
         .route("/v1/nodes", get(handlers::list_nodes))
         .route("/v1/nodes/register", post(handlers::register_node))
         .route(
@@ -1591,6 +1604,7 @@ pub fn build(state: AppState) -> Router {
             "/v1/infer/{inference_id}/review",
             post(handlers::review::submit_review),
         )
+        // Deprecated: use /v1/reviews/paused instead
         .route("/v1/infer/paused", get(handlers::review::list_paused))
         // Provenance chain query (AUDIT)
         .route(
@@ -1699,6 +1713,19 @@ pub fn build(state: AppState) -> Router {
             get(handlers::chat_sessions::get_contact_interactions),
         )
         // SSE Streaming routes - Citation: CONTACTS_AND_STREAMS_IMPLEMENTATION_PLAN.md §3.5, §4.4
+        .route(
+            "/v1/stream/training",
+            get(handlers::streams::training_stream),
+        )
+        .route(
+            "/v1/stream/discovery",
+            get(handlers::discovery::discovery_stream),
+        )
+        .route(
+            "/v1/stream/contacts",
+            get(handlers::discovery::contacts_stream),
+        )
+        // Deprecated aliases for old plural paths
         .route(
             "/v1/streams/training",
             get(handlers::streams::training_stream),
@@ -2311,6 +2338,11 @@ pub fn build(state: AppState) -> Router {
             post(handlers::git::end_git_session),
         )
         .route("/v1/git/branches", get(handlers::git::list_git_branches))
+        .route(
+            "/v1/stream/file-changes",
+            get(handlers::git::file_changes_stream),
+        )
+        // Deprecated alias for old plural path
         .route(
             "/v1/streams/file-changes",
             get(handlers::git::file_changes_stream),

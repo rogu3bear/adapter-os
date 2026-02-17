@@ -45,7 +45,7 @@ pub struct DiscoveryStreamQuery {
 #[utoipa::path(
     tag = "system",
     get,
-    path = "/v1/streams/discovery",
+    path = "/v1/stream/discovery",
     params(
         ("tenant" = String, Query, description = "Tenant ID for filtering events"),
         ("repo" = Option<String>, Query, description = "Optional repository ID filter")
@@ -192,7 +192,7 @@ pub async fn discovery_stream(
 #[utoipa::path(
     tag = "system",
     get,
-    path = "/v1/streams/contacts",
+    path = "/v1/stream/contacts",
     params(
         ("tenant" = String, Query, description = "Tenant ID for filtering events")
     ),

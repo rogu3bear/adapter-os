@@ -290,7 +290,7 @@ pub async fn list_git_branches(
 /// Stream file changes via SSE
 #[utoipa::path(
     get,
-    path = "/v1/streams/file-changes",
+    path = "/v1/stream/file-changes",
     params(
         ("repo_id" = Option<String>, Query, description = "Filter by repository ID")
     ),

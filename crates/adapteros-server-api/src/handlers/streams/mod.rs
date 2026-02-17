@@ -1320,7 +1320,7 @@ pub async fn reviews_stream(
 #[utoipa::path(
     tag = "system",
     get,
-    path = "/v1/streams/training",
+    path = "/v1/stream/training",
     params(
         ("tenant" = Option<String>, Query, description = "Tenant ID for filtering events (defaults to caller tenant)")
     ),

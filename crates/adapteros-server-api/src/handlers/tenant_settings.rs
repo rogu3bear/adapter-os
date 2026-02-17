@@ -12,7 +12,9 @@ use crate::auth::Claims;
 use crate::security::validate_tenant_isolation;
 use crate::state::AppState;
 use crate::types::*;
-use adapteros_api_types::{DeterminismPolicyKnobs, TenantSettingsResponse, UpdateTenantSettingsRequest};
+use adapteros_api_types::{
+    DeterminismPolicyKnobs, TenantSettingsResponse, UpdateTenantSettingsRequest,
+};
 use adapteros_db::UpdateTenantSettingsParams;
 use axum::{extract::Extension, extract::Path, extract::State, http::StatusCode, response::Json};
 use tracing::{info, warn};
@@ -53,10 +55,7 @@ pub async fn get_tenant_settings(
                 } else {
                     Some(policy.determinism.allowed_modes)
                 },
-                pins_outside_effective: policy
-                    .routing
-                    .as_ref()
-                    .map(|r| r.pin_enforcement.clone()),
+                pins_outside_effective: policy.routing.as_ref().map(|r| r.pin_enforcement.clone()),
                 fallback_allowed: Some(policy.determinism.allow_fallback),
             })
         }
@@ -91,6 +90,7 @@ pub async fn get_tenant_settings(
         use_default_stack_on_infer_session: settings.use_default_stack_on_infer_session,
         settings_json,
         determinism_policy,
+        codebase_serving_policy: None,
         created_at,
         updated_at,
     }))
@@ -153,20 +153,15 @@ pub async fn update_tenant_settings(
     // Load execution policy from tenant_execution_policies
     // Note: determinism_policy updates go through execution policy endpoints, not here
     let determinism_policy = match state.db.get_execution_policy_or_default(&tenant_id).await {
-        Ok(policy) => {
-            Some(DeterminismPolicyKnobs {
-                allowed_modes: if policy.determinism.allowed_modes.is_empty() {
-                    None
-                } else {
-                    Some(policy.determinism.allowed_modes)
-                },
-                pins_outside_effective: policy
-                    .routing
-                    .as_ref()
-                    .map(|r| r.pin_enforcement.clone()),
-                fallback_allowed: Some(policy.determinism.allow_fallback),
-            })
-        }
+        Ok(policy) => Some(DeterminismPolicyKnobs {
+            allowed_modes: if policy.determinism.allowed_modes.is_empty() {
+                None
+            } else {
+                Some(policy.determinism.allowed_modes)
+            },
+            pins_outside_effective: policy.routing.as_ref().map(|r| r.pin_enforcement.clone()),
+            fallback_allowed: Some(policy.determinism.allow_fallback),
+        }),
         Err(e) => {
             warn!(tenant_id = %tenant_id, error = %e, "Failed to load execution policy, returning None");
             None
@@ -186,6 +181,7 @@ pub async fn update_tenant_settings(
         use_default_stack_on_infer_session: settings.use_default_stack_on_infer_session,
         settings_json,
         determinism_policy,
+        codebase_serving_policy: None,
         created_at: Some(settings.created_at),
         updated_at: Some(settings.updated_at),
     }))

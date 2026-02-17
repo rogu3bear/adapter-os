@@ -14,7 +14,9 @@ use crate::auth::Claims;
 use crate::security::validate_tenant_isolation;
 use crate::state::AppState;
 use crate::types::*;
-use adapteros_api_types::{CreateExecutionPolicyRequest, TenantExecutionPolicy};
+use adapteros_api_types::{
+    CreateExecutionPolicyRequest, TenantExecutionPolicy, UpdateExecutionPolicyRequest,
+};
 use axum::{
     extract::Extension, extract::Path, extract::Query, extract::State, http::StatusCode,
     response::Json,
@@ -133,6 +135,89 @@ pub async fn create_execution_policy(
     );
 
     Ok(Json(CreatePolicyResponse { policy_id }))
+}
+
+/// Update an existing execution policy
+///
+/// Applies a partial update to the specified policy, creating a new version.
+/// Only provided fields are changed; omitted fields retain their current values.
+///
+/// # Errors
+/// - 401: Unauthorized - missing or invalid authentication
+/// - 403: Forbidden - tenant isolation violation
+/// - 404: Not Found - policy not found
+/// - 500: Internal server error
+#[utoipa::path(
+    put,
+    path = "/v1/tenants/{tenant_id}/execution-policy/{policy_id}",
+    params(
+        ("tenant_id" = String, Path, description = "Tenant ID"),
+        ("policy_id" = String, Path, description = "Policy ID to update")
+    ),
+    request_body = UpdateExecutionPolicyRequest,
+    responses(
+        (status = 200, description = "Policy updated (new version created)", body = CreatePolicyResponse),
+        (status = 401, description = "Unauthorized", body = ErrorResponse),
+        (status = 403, description = "Forbidden", body = ErrorResponse),
+        (status = 404, description = "Policy not found", body = ErrorResponse),
+        (status = 500, description = "Internal server error", body = ErrorResponse)
+    ),
+    tag = "execution-policy"
+)]
+pub async fn update_execution_policy(
+    State(state): State<AppState>,
+    Extension(claims): Extension<Claims>,
+    Path((tenant_id, policy_id)): Path<(String, String)>,
+    Json(request): Json<UpdateExecutionPolicyRequest>,
+) -> Result<Json<CreatePolicyResponse>, (StatusCode, Json<ErrorResponse>)> {
+    let tenant_id = crate::id_resolver::resolve_any_id(&state.db, &tenant_id)
+        .await
+        .map_err(<(StatusCode, Json<ErrorResponse>)>::from)?;
+    let policy_id = crate::id_resolver::resolve_any_id(&state.db, &policy_id)
+        .await
+        .map_err(<(StatusCode, Json<ErrorResponse>)>::from)?;
+    // Validate tenant isolation
+    validate_tenant_isolation(&claims, &tenant_id)?;
+
+    // Fetch existing policy to merge partial update
+    let existing = state
+        .db
+        .get_execution_policy_or_default(&tenant_id)
+        .await
+        .map_err(ApiError::db_error)?;
+
+    // Merge: provided fields override, missing fields retain current values
+    let merged = CreateExecutionPolicyRequest {
+        determinism: request.determinism.unwrap_or(existing.determinism),
+        routing: match request.routing {
+            Some(r) => r,
+            None => existing.routing,
+        },
+        golden: match request.golden {
+            Some(g) => g,
+            None => existing.golden,
+        },
+        require_signed_adapters: request
+            .require_signed_adapters
+            .unwrap_or(existing.require_signed_adapters),
+    };
+
+    let new_policy_id = state
+        .db
+        .update_execution_policy(&policy_id, merged)
+        .await
+        .map_err(ApiError::db_error)?;
+
+    info!(
+        tenant_id = %tenant_id,
+        old_policy_id = %policy_id,
+        new_policy_id = %new_policy_id,
+        "Execution policy updated"
+    );
+
+    Ok(Json(CreatePolicyResponse {
+        policy_id: new_policy_id,
+    }))
 }
 
 /// Deactivate an execution policy

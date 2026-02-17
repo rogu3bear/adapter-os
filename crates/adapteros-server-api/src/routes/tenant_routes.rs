@@ -75,11 +75,18 @@ pub fn tenant_routes() -> Router<AppState> {
         )
         .route(
             "/v1/tenants/{tenant_id}/execution-policy/{policy_id}",
-            delete(handlers::execution_policy::deactivate_execution_policy),
+            put(handlers::execution_policy::update_execution_policy)
+                .delete(handlers::execution_policy::deactivate_execution_policy),
         )
         .route(
             "/v1/tenants/{tenant_id}/execution-policy/history",
             get(handlers::execution_policy::get_execution_policy_history),
+        )
+        // Tenant settings
+        .route(
+            "/v1/tenants/{tenant_id}/settings",
+            get(handlers::tenant_settings::get_tenant_settings)
+                .put(handlers::tenant_settings::update_tenant_settings),
         )
         // Event application endpoint
         .route(

@@ -219,10 +219,13 @@ pub async fn submit_review(
 }
 
 // =============================================================================
-// GET /v1/infer/paused
+// GET /v1/infer/paused (deprecated — use GET /v1/reviews/paused)
 // =============================================================================
 
 /// List all paused inferences
+///
+/// **Deprecated**: Use `GET /v1/reviews/paused` instead. This endpoint is
+/// retained for backward compatibility and delegates to the reviews endpoint.
 #[utoipa::path(
     tag = "inference",
     get,
@@ -280,10 +283,13 @@ pub async fn list_paused(
 }
 
 // =============================================================================
-// GET /v1/reviews/paused - Alias for CLI compatibility
+// GET /v1/reviews/paused (canonical endpoint)
 // =============================================================================
 
-/// List all paused inferences (CLI-compatible alias)
+/// List all paused inferences (canonical endpoint)
+///
+/// Returns all paused inferences visible to the authenticated tenant.
+/// Prefer this endpoint over the deprecated `/v1/infer/paused`.
 #[utoipa::path(
     tag = "reviews",
     get,
