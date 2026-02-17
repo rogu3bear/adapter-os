@@ -143,8 +143,8 @@ pub fn generate_contextual_actions(ctx: &RouteContext) -> Vec<SearchResult> {
                     actions.push(SearchResult {
                         id: format!("ctx-chat-trained-{}", sel.entity_id),
                         result_type: SearchResultType::Action,
-                        title: "Try trained adapter in chat".to_string(),
-                        subtitle: Some(sel.entity_name.clone()),
+                        title: "Open chat to test training results".to_string(),
+                        subtitle: Some("Continue validation in chat".to_string()),
                         score: 2.0,
                         action: SearchAction::Navigate("/chat".to_string()),
                         shortcut: None,
@@ -685,6 +685,98 @@ pub fn generate_contextual_actions(ctx: &RouteContext) -> Vec<SearchResult> {
             subtitle: Some("View and edit role definitions".to_string()),
             score: 1.3,
             action: SearchAction::Execute("switch-admin-tab:roles".to_string()),
+            shortcut: None,
+        });
+    }
+
+    // Agents page contextual actions
+    if route.starts_with("/agents") {
+        actions.push(SearchResult {
+            id: "ctx-open-worker-health".to_string(),
+            result_type: SearchResultType::Action,
+            title: "Open worker health".to_string(),
+            subtitle: Some("Inspect worker state and capacity".to_string()),
+            score: 1.5,
+            action: SearchAction::Navigate("/workers".to_string()),
+            shortcut: None,
+        });
+
+        actions.push(SearchResult {
+            id: "ctx-open-agent-files".to_string(),
+            result_type: SearchResultType::Action,
+            title: "Open file browser".to_string(),
+            subtitle: Some("Inspect repositories and workspace files".to_string()),
+            score: 1.4,
+            action: SearchAction::Navigate("/files".to_string()),
+            shortcut: None,
+        });
+    }
+
+    // Files page contextual actions
+    if route.starts_with("/files") {
+        actions.push(SearchResult {
+            id: "ctx-open-repositories".to_string(),
+            result_type: SearchResultType::Action,
+            title: "Open repositories".to_string(),
+            subtitle: Some("Review connected code sources".to_string()),
+            score: 1.5,
+            action: SearchAction::Navigate("/repositories".to_string()),
+            shortcut: None,
+        });
+
+        actions.push(SearchResult {
+            id: "ctx-open-documents".to_string(),
+            result_type: SearchResultType::Action,
+            title: "Open documents".to_string(),
+            subtitle: Some("Browse indexed docs for RAG".to_string()),
+            score: 1.4,
+            action: SearchAction::Navigate("/documents".to_string()),
+            shortcut: None,
+        });
+    }
+
+    // Settings page contextual actions
+    if route.starts_with("/settings") {
+        actions.push(SearchResult {
+            id: "ctx-open-system-status".to_string(),
+            result_type: SearchResultType::Action,
+            title: "Open system status".to_string(),
+            subtitle: Some("View runtime and component health".to_string()),
+            score: 1.5,
+            action: SearchAction::Navigate("/system".to_string()),
+            shortcut: None,
+        });
+
+        actions.push(SearchResult {
+            id: "ctx-open-user-profile".to_string(),
+            result_type: SearchResultType::Action,
+            title: "Open user profile".to_string(),
+            subtitle: Some("Manage account and preferences".to_string()),
+            score: 1.4,
+            action: SearchAction::Navigate("/user".to_string()),
+            shortcut: None,
+        });
+    }
+
+    // System page contextual actions
+    if route.starts_with("/system") {
+        actions.push(SearchResult {
+            id: "ctx-open-monitoring".to_string(),
+            result_type: SearchResultType::Action,
+            title: "Open monitoring".to_string(),
+            subtitle: Some("Inspect alerts and system metrics".to_string()),
+            score: 1.5,
+            action: SearchAction::Navigate("/monitoring".to_string()),
+            shortcut: None,
+        });
+
+        actions.push(SearchResult {
+            id: "ctx-open-system-settings".to_string(),
+            result_type: SearchResultType::Action,
+            title: "Open settings".to_string(),
+            subtitle: Some("Adjust runtime and UI preferences".to_string()),
+            score: 1.4,
+            action: SearchAction::Navigate("/settings".to_string()),
             shortcut: None,
         });
     }

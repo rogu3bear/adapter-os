@@ -5,9 +5,9 @@
 
 ## Deliverable A: Route/Action Coverage
 - Contextual action coverage exists for:
-`/documents`, `/adapters`, `/training`, `/chat`, `/collections`, `/models`, `/workers`, `/stacks`, `/repositories`, `/datasets`, `/runs`, `/reviews`, `/audit`, `/policies`, `/monitoring`, `/errors`, `/admin`, `/routing`, `/diff`.
+`/documents`, `/adapters`, `/training`, `/chat`, `/collections`, `/models`, `/workers`, `/stacks`, `/repositories`, `/datasets`, `/runs`, `/reviews`, `/audit`, `/policies`, `/monitoring`, `/errors`, `/admin`, `/agents`, `/files`, `/settings`, `/system`, `/routing`, `/diff`.
 - Router routes currently without contextual actions:
-`/`, `/settings`, `/system`, `/user`, `/welcome`, `/agents`, `/files`, `/login`, `/safe`, `/style-audit`, `/dashboard`, `/flight-recorder`, `/flight-recorder/:id`.
+`/`, `/user`, `/welcome`, `/login`, `/safe`, `/style-audit`, `/dashboard`, `/flight-recorder`, `/flight-recorder/:id`.
 - Contextual routes without router matches: none found.
 
 ## Deliverable B: Duplication + Risk Map
@@ -21,7 +21,7 @@
 ## Deliverable C: Smallest-Diff Source-of-Truth Migration
 1. Keep `nav_registry` as canonical route metadata source for nav/search surfaces.
 2. Keep `search/index.rs` page derivation from `all_nav_items` (already present) and avoid parallel route registries.
-3. Add contextual coverage for uncovered high-value routes (`/agents`, `/files`, `/settings`, `/system`) using shared route constants/helpers rather than new literals.
+3. Add contextual coverage for uncovered high-value routes (`/agents`, `/files`, `/settings`, `/system`) with minimal route-native actions.
 4. Normalize repeated query/path builders for `/chat` and `/training` actions into shared helpers to prevent drift.
 5. Preserve router definitions in `lib.rs` as authoritative runtime map and validate parity through `rg` checks.
 
