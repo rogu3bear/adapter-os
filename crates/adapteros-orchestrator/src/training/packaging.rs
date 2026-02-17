@@ -743,6 +743,7 @@ pub(crate) async fn package_and_register_adapter(
                     );
                 }
 
+                let mut policy_promoted = false;
                 if coreml_used.unwrap_or(false) {
                     if let Some(repo_id) = versioning_snapshot.and_then(|v| v.repo_id.clone()) {
                         let tenant_for_repo = tenant_id.unwrap_or("default");
@@ -751,7 +752,7 @@ pub(crate) async fn package_and_register_adapter(
                             .await
                         {
                             if policy.autopromote_coreml {
-                                let _ = database
+                                if database
                                     .promote_adapter_version(
                                         tenant_for_repo,
                                         &repo_id,
@@ -759,7 +760,44 @@ pub(crate) async fn package_and_register_adapter(
                                         Some("orchestrator"),
                                         Some("auto_coreml_promotion"),
                                     )
-                                    .await;
+                                    .await
+                                    .is_ok()
+                                {
+                                    policy_promoted = true;
+                                }
+                            }
+                        }
+                    }
+                }
+
+                // General auto-promote: promote adapter version when post_actions.auto_promote is true
+                if !policy_promoted && post_actions.auto_promote {
+                    if let Some(repo_id) = versioning_snapshot.and_then(|v| v.repo_id.clone()) {
+                        let tenant_for_repo = tenant_id.unwrap_or("default");
+                        match database
+                            .promote_adapter_version(
+                                tenant_for_repo,
+                                &repo_id,
+                                &version_id,
+                                Some("orchestrator"),
+                                Some("auto_promote_on_training_completion"),
+                            )
+                            .await
+                        {
+                            Ok(_) => {
+                                info!(
+                                    job_id = %job_id,
+                                    version_id = %version_id,
+                                    "Adapter version auto-promoted to active"
+                                );
+                            }
+                            Err(e) => {
+                                warn!(
+                                    job_id = %job_id,
+                                    version_id = %version_id,
+                                    error = %e,
+                                    "Failed to auto-promote adapter version (non-fatal)"
+                                );
                             }
                         }
                     }
@@ -1352,6 +1390,7 @@ pub(crate) async fn package_and_register_adapter(
                 );
             }
 
+            let mut policy_promoted = false;
             if coreml_used.unwrap_or(false) {
                 if let Some(repo_id) = versioning_snapshot.and_then(|v| v.repo_id.clone()) {
                     let tenant_for_repo = tenant_id.unwrap_or("default");
@@ -1360,7 +1399,7 @@ pub(crate) async fn package_and_register_adapter(
                         .await
                     {
                         if policy.autopromote_coreml {
-                            let _ = database
+                            if database
                                 .promote_adapter_version(
                                     tenant_for_repo,
                                     &repo_id,
@@ -1368,7 +1407,44 @@ pub(crate) async fn package_and_register_adapter(
                                     Some("orchestrator"),
                                     Some("auto_coreml_promotion"),
                                 )
-                                .await;
+                                .await
+                                .is_ok()
+                            {
+                                policy_promoted = true;
+                            }
+                        }
+                    }
+                }
+            }
+
+            // General auto-promote: promote adapter version when post_actions.auto_promote is true
+            if !policy_promoted && post_actions.auto_promote {
+                if let Some(repo_id) = versioning_snapshot.and_then(|v| v.repo_id.clone()) {
+                    let tenant_for_repo = tenant_id.unwrap_or("default");
+                    match database
+                        .promote_adapter_version(
+                            tenant_for_repo,
+                            &repo_id,
+                            &version_id,
+                            Some("orchestrator"),
+                            Some("auto_promote_on_training_completion"),
+                        )
+                        .await
+                    {
+                        Ok(_) => {
+                            info!(
+                                job_id = %job_id,
+                                version_id = %version_id,
+                                "Adapter version auto-promoted to active"
+                            );
+                        }
+                        Err(e) => {
+                            warn!(
+                                job_id = %job_id,
+                                version_id = %version_id,
+                                error = %e,
+                                "Failed to auto-promote adapter version (non-fatal)"
+                            );
                         }
                     }
                 }

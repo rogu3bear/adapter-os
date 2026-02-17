@@ -711,6 +711,14 @@ pub struct PostActionsRequest {
     /// Create a new stack with the adapter after registration (default: true).
     /// Note: The new stack will NOT be set as the tenant's default stack.
     pub create_stack: Option<bool>,
+    /// Activate the stack after creation (default: false).
+    /// If true, sets the created stack as the tenant's default stack.
+    /// WARNING: This changes the tenant's active inference behavior immediately.
+    pub activate_stack: Option<bool>,
+    /// Auto-promote adapter to active after successful packaging (default: false).
+    /// If true, transitions adapter from "ready" to "active" state
+    /// immediately after training completes with all evidence (hash, manifest, snapshot).
+    pub auto_promote: Option<bool>,
     /// Tier to assign: persistent, warm, ephemeral (default: warm)
     pub tier: Option<String>,
     /// Custom adapters root directory

@@ -13,6 +13,8 @@ fn test_post_actions_default_has_no_fields_set() {
     assert!(default.package.is_none());
     assert!(default.register.is_none());
     assert!(default.create_stack.is_none());
+    assert!(default.activate_stack.is_none());
+    assert!(default.auto_promote.is_none());
     assert!(default.tier.is_none());
     assert!(default.adapters_root.is_none());
 }
@@ -50,6 +52,8 @@ fn test_post_actions_serialize_roundtrip() {
         package: Some(true),
         register: Some(true),
         create_stack: Some(true),
+        activate_stack: Some(false),
+        auto_promote: Some(true),
         tier: Some("warm".to_string()),
         adapters_root: Some("./adapters".to_string()),
     };
@@ -60,6 +64,8 @@ fn test_post_actions_serialize_roundtrip() {
     assert_eq!(parsed.package, original.package);
     assert_eq!(parsed.register, original.register);
     assert_eq!(parsed.create_stack, original.create_stack);
+    assert_eq!(parsed.activate_stack, original.activate_stack);
+    assert_eq!(parsed.auto_promote, original.auto_promote);
     assert_eq!(parsed.tier, original.tier);
     assert_eq!(parsed.adapters_root, original.adapters_root);
 }
@@ -70,6 +76,8 @@ fn test_post_actions_all_fields() {
         "package": false,
         "register": true,
         "create_stack": false,
+        "activate_stack": true,
+        "auto_promote": true,
         "tier": "persistent",
         "adapters_root": "/custom/path"
     }"#;
@@ -79,6 +87,24 @@ fn test_post_actions_all_fields() {
     assert_eq!(parsed.package, Some(false));
     assert_eq!(parsed.register, Some(true));
     assert_eq!(parsed.create_stack, Some(false));
+    assert_eq!(parsed.activate_stack, Some(true));
+    assert_eq!(parsed.auto_promote, Some(true));
     assert_eq!(parsed.tier, Some("persistent".to_string()));
     assert_eq!(parsed.adapters_root, Some("/custom/path".to_string()));
+}
+
+#[test]
+fn test_post_actions_auto_promote_defaults_to_none() {
+    let json = r#"{"package": true}"#;
+    let parsed: PostActionsRequest = serde_json::from_str(json).unwrap();
+    assert!(parsed.auto_promote.is_none());
+    assert!(parsed.activate_stack.is_none());
+}
+
+#[test]
+fn test_post_actions_auto_promote_true() {
+    let json = r#"{"auto_promote": true, "activate_stack": true}"#;
+    let parsed: PostActionsRequest = serde_json::from_str(json).unwrap();
+    assert_eq!(parsed.auto_promote, Some(true));
+    assert_eq!(parsed.activate_stack, Some(true));
 }
