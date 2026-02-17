@@ -223,7 +223,7 @@ pub fn Monitoring() -> impl IntoView {
                                                                     <div class="flex items-center gap-2 mb-2">
                                                                         <Badge variant=severity_variant>{alert.severity.clone()}</Badge>
                                                                         <Badge variant=status_variant>{alert.status.clone()}</Badge>
-                                                                        <span class="text-xs text-muted-foreground">"Worker: "{alert.worker_id.clone()}</span>
+                                                                        <span class="text-xs text-muted-foreground">"Worker: "{adapteros_id::short_id(&alert.worker_id)}</span>
                                                                     </div>
                                                                     <p class="text-sm font-medium">{alert.message.clone()}</p>
                                                                     <p class="text-xs text-muted-foreground mt-1">"Triggered: "{alert.triggered_at.clone()}</p>
@@ -324,7 +324,7 @@ pub fn Monitoring() -> impl IntoView {
                                                                     </div>
                                                                     <p class="text-sm font-medium">{anomaly.description.clone()}</p>
                                                                     <div class="flex items-center gap-4 mt-2 text-xs text-muted-foreground">
-                                                                        <span>"Worker: "{anomaly.worker_id.clone()}</span>
+                                                                        <span>"Worker: "{adapteros_id::short_id(&anomaly.worker_id)}</span>
                                                                         <span>"Detected: "{anomaly.detected_at.clone()}</span>
                                                                         {resolved_at.map(|r| view! {
                                                                             <span>"Resolved: "{r}</span>
@@ -668,7 +668,7 @@ fn WorkerHealthCard(worker_id: String, metrics: Vec<ProcessHealthMetricResponse>
         <Card>
             <div class="space-y-3">
                 <div class="flex items-center justify-between">
-                    <span class="font-medium">{worker_id}</span>
+                    <span class="font-medium">{adapteros_id::short_id(&worker_id)}</span>
                     <Badge variant=BadgeVariant::Outline>{metrics_count.to_string()}" metrics"</Badge>
                 </div>
                 <div class="space-y-2">

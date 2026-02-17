@@ -869,7 +869,8 @@ fn CrashesSection() -> impl IntoView {
                                 let options: Vec<(String, String)> = list
                                     .iter()
                                     .map(|worker| {
-                                        let label = format!("{} ({})", truncate_message(&worker.id, 12), worker.status);
+                                        let name = worker.display_name.clone().unwrap_or_else(|| adapteros_id::short_id(&worker.id));
+                                        let label = format!("{} ({})", name, worker.status);
                                         (worker.id.clone(), label)
                                     })
                                     .collect();
@@ -949,7 +950,7 @@ fn CrashesSection() -> impl IntoView {
                             }),
                             Column::custom("Worker", |c: &ProcessCrashDumpResponse| {
                                 let title = c.worker_id.clone();
-                                let label = truncate_message(&c.worker_id, 12);
+                                let label = adapteros_id::short_id(&c.worker_id);
                                 view! {
                                     <span class="text-xs font-mono" title=title>{label}</span>
                                 }

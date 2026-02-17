@@ -116,6 +116,23 @@ pub fn format_relative_date(iso_date: &str) -> String {
     }
 }
 
+/// Human-readable name for a worker.
+///
+/// Prefers `WorkerResponse.display_name` (server-provided semantic name),
+/// then falls back to `short_id` which returns the word alias (or hex truncation
+/// for non-aliased types).
+pub fn worker_display_name(id: &str, display_name: Option<&str>) -> String {
+    if let Some(name) = display_name.filter(|s| !s.is_empty()) {
+        return name.to_string();
+    }
+    adapteros_id::short_id(id)
+}
+
+/// Human-readable name from just an ID string (no `WorkerResponse` available).
+pub fn worker_name_from_id(id: &str) -> String {
+    worker_display_name(id, None)
+}
+
 /// Map worker status string to badge variant via StatusVariant
 pub fn status_badge_variant(status: &str) -> BadgeVariant {
     StatusVariant::from_worker_status(status).to_badge_variant()

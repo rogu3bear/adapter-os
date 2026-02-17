@@ -16,7 +16,8 @@ use std::sync::Arc;
 
 use super::utils::{
     format_timestamp, format_uptime, health_badge_variant, is_terminal_worker_status,
-    status_badge_variant, WorkerHealthRecord, WorkerHealthSummary, WORKERS_PAGE_SIZE,
+    status_badge_variant, worker_display_name, WorkerHealthRecord, WorkerHealthSummary,
+    WORKERS_PAGE_SIZE,
 };
 use crate::components::{IconPause, IconRefresh, IconStop, IconTrash, IconX};
 
@@ -364,7 +365,7 @@ pub fn WorkerRow(
     let health_variant = health_badge_variant(health_status.as_str());
     let errors_24h = health.as_ref().map(|h| h.recent_incidents_24h).unwrap_or(0);
 
-    let short_worker_id = adapteros_id::short_id(&worker.id);
+    let short_worker_id = worker_display_name(&worker.id, worker.display_name.as_deref());
     let short_tenant_id = adapteros_id::short_id(&worker.tenant_id);
 
     let backend = worker
@@ -593,7 +594,7 @@ pub fn WorkerDetailPanel(
                 // Header
                 <div class="flex items-center justify-between" data-testid="worker-panel-header">
                     <div class="flex items-center gap-3">
-                        <span class="font-mono text-lg">{adapteros_id::short_id(&worker.id)}</span>
+                        <span class="font-mono text-lg">{worker_display_name(&worker.id, worker.display_name.as_deref())}</span>
                         <Badge variant=status_badge_variant(&worker.status)>
                             {worker.status.clone()}
                         </Badge>
@@ -829,7 +830,7 @@ pub fn WorkerDetailView(
             <div class="flex items-center justify-between">
                 <div class="flex items-center gap-4">
                     <h2 class="heading-2 font-mono" data-testid="worker-detail-heading">
-                        {adapteros_id::short_id(&worker.id)}
+                        {worker_display_name(&worker.id, worker.display_name.as_deref())}
                     </h2>
                     <span data-testid="worker-detail-status-badge">
                         <Badge variant=status_badge_variant(&worker.status)>
@@ -928,7 +929,7 @@ pub fn WorkerDetailView(
                 let worker_id = worker.id.clone();
                 let drain_desc = format!(
                     "Drain worker '{}'? Use drain for graceful maintenance: reject new requests while active requests complete.",
-                    adapteros_id::short_id(&worker.id),
+                    worker_display_name(&worker.id, worker.display_name.as_deref()),
                 );
                 view! {
                     <div data-testid="worker-detail-confirm-drain">
@@ -981,7 +982,7 @@ pub fn WorkerDetailView(
                 let worker_id = worker.id.clone();
                 let stop_desc = format!(
                     "Stop worker '{}'? Use stop for urgent shutdown: active inference requests terminate immediately.",
-                    adapteros_id::short_id(&worker.id),
+                    worker_display_name(&worker.id, worker.display_name.as_deref()),
                 );
                 view! {
                     <div data-testid="worker-detail-confirm-stop">
@@ -1033,7 +1034,7 @@ pub fn WorkerDetailView(
                 let worker_id = worker.id.clone();
                 let restart_desc = format!(
                     "Restart worker '{}'? The process will be relaunched and in-flight requests may fail.",
-                    adapteros_id::short_id(&worker.id),
+                    worker_display_name(&worker.id, worker.display_name.as_deref()),
                 );
                 view! {
                     <div data-testid="worker-detail-confirm-restart">
@@ -1094,7 +1095,7 @@ pub fn WorkerDetailView(
                 let worker_id = worker.id.clone();
                 let remove_desc = format!(
                     "Remove worker '{}'? This decommissions the worker record and cannot be undone.",
-                    adapteros_id::short_id(&worker.id),
+                    worker_display_name(&worker.id, worker.display_name.as_deref()),
                 );
                 view! {
                     <div data-testid="worker-detail-confirm-remove">
