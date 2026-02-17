@@ -129,30 +129,29 @@ where
 
             match current_mode {
                 SplitMode::Desktop => {
-                    // Desktop: two-column layout
+                    // Desktop: two-column layout with always-in-DOM detail panel for CSS transitions
                     let list_class = if selected {
-                        format!("{} pr-4 min-w-0 box-border", ratio.list_class())
+                        format!("split-panel-list {} pr-4 min-w-0 box-border", ratio.list_class())
                     } else {
-                        "flex-1 pr-4 min-w-0 box-border".to_string()
+                        "split-panel-list flex-1 pr-4 min-w-0 box-border".to_string()
+                    };
+                    let detail_class = if selected {
+                        format!("split-panel-detail split-panel-detail--open {} border-l px-4 min-w-0 box-border", ratio.detail_class())
+                    } else {
+                        "split-panel-detail min-w-0 box-border".to_string()
                     };
 
                     view! {
-                        <div class="flex min-w-0">
+                        <div class="split-panel flex min-w-0">
                             // List panel
                             <div class=list_class>
                                 {list_fn()}
                             </div>
 
-                            // Detail panel (when selected)
-                            {selected.then(move || {
-                                let detail_class =
-                                    format!("{} border-l px-4 min-w-0 box-border", ratio.detail_class());
-                                view! {
-                                    <div class=detail_class role="complementary" aria-label="Detail panel">
-                                        {detail_fn()}
-                                    </div>
-                                }
-                            })}
+                            // Detail panel (always in DOM; content only rendered when selected)
+                            <div class=detail_class role="complementary" aria-label="Detail panel">
+                                {if selected { Some(detail_fn()) } else { None }}
+                            </div>
                         </div>
                     }.into_any()
                 }
