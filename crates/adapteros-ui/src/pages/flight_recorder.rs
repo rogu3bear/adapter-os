@@ -2525,7 +2525,7 @@ fn EventRow(event: DiagEventResponse) -> impl IntoView {
         <div class="border-l-2 border-border pl-3 py-1">
             <div class="flex items-center gap-2 text-sm">
                 <span class="font-mono text-muted-foreground">{"#"}{seq}</span>
-                <span class=severity_class>{severity}</span>
+                <span class=severity_class>{severity.to_uppercase()}</span>
                 <span class="text-muted-foreground font-mono text-xs">{mono_us}</span>
             </div>
             <pre class="text-xs text-muted-foreground mt-1 overflow-x-auto">{payload_truncated}</pre>

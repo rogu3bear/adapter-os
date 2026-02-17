@@ -14,6 +14,7 @@ use crate::components::{
     TableRow,
 };
 use crate::hooks::{use_api_resource, use_polling, LoadingState};
+use crate::utils::humanize;
 use adapteros_api_types::HealthResponse;
 use leptos::prelude::*;
 use std::sync::Arc;
@@ -320,7 +321,7 @@ pub fn Monitoring() -> impl IntoView {
                                                                     <div class="flex items-center gap-2 mb-2">
                                                                         <Badge variant=severity_variant>{anomaly.severity.clone()}</Badge>
                                                                         <Badge variant=status_variant>{anomaly.status.clone()}</Badge>
-                                                                        <span class="text-xs text-muted-foreground">{anomaly.anomaly_type.clone()}</span>
+                                                                        <span class="text-xs text-muted-foreground">{humanize(&anomaly.anomaly_type)}</span>
                                                                     </div>
                                                                     <p class="text-sm font-medium">{anomaly.description.clone()}</p>
                                                                     <div class="flex items-center gap-4 mt-2 text-xs text-muted-foreground">

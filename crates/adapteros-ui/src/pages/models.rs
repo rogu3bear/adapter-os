@@ -17,10 +17,11 @@ use crate::hooks::{
     use_api, use_api_resource, use_cached_api_resource, use_polling, CacheTtl, LoadingState,
     Refetch,
 };
+use crate::pages::training::utils::format_backend;
 use crate::signals::{
     try_use_route_context, use_auth, use_notifications, use_refetch_signal, RefetchTopic,
 };
-use crate::utils::{format_bytes, format_datetime};
+use crate::utils::{format_bytes, format_datetime, humanize};
 use leptos::prelude::*;
 use leptos_router::hooks::use_params_map;
 use std::collections::HashMap;
@@ -462,8 +463,8 @@ fn ModelList(
 
                             // Format column: format + optional quantization suffix
                             let format_display = match (&row.format, &row.quantization) {
-                                (Some(fmt), Some(q)) => format!("{} ({})", fmt, q),
-                                (Some(fmt), None) => fmt.clone(),
+                                (Some(fmt), Some(q)) => format!("{} ({})", fmt.to_uppercase(), q),
+                                (Some(fmt), None) => fmt.to_uppercase(),
                                 (None, Some(q)) => q.clone(),
                                 (None, None) => "-".to_string(),
                             };
@@ -1047,7 +1048,7 @@ fn ModelDetailContent(
                         {uma_level.map(|level| view! {
                             <div class="flex justify-between">
                                 <span class="text-muted-foreground">"UMA Pressure"</span>
-                                <span>{level}</span>
+                                <span>{humanize(&level)}</span>
                             </div>
                         })}
                     </div>
@@ -1076,7 +1077,7 @@ fn ModelDetailContent(
                                 <div class="flex justify-between">
                                     <span class="text-muted-foreground">"Backend"</span>
                                     <span class="font-medium flex items-center gap-2">
-                                        {be}
+                                        {format_backend(&be)}
                                         {is_coreml.then(|| view! {
                                             <Badge variant=BadgeVariant::Secondary>"No Adapter Support"</Badge>
                                         })}
@@ -1087,13 +1088,13 @@ fn ModelDetailContent(
                         {row.quantization.clone().map(|q| view! {
                             <div class="flex justify-between">
                                 <span class="text-muted-foreground">"Quantization"</span>
-                                <span class="font-medium">{q}</span>
+                                <span class="font-medium">{q.to_uppercase()}</span>
                             </div>
                         })}
                         {row.import_status.clone().map(|is| view! {
                             <div class="flex justify-between">
                                 <span class="text-muted-foreground">"Import Status"</span>
-                                <span class="font-medium">{is}</span>
+                                <span class="font-medium">{humanize(&is)}</span>
                             </div>
                         })}
                     </div>

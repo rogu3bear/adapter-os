@@ -20,7 +20,7 @@ use crate::hooks::{
     use_api, use_api_resource, use_delete_dialog, DeleteDialogState, LoadingState, Refetch,
 };
 use crate::pages::training::dataset_wizard::{DatasetUploadOutcome, DatasetUploadWizard};
-use crate::utils::{format_bytes, format_date};
+use crate::utils::{format_bytes, format_date, humanize};
 #[cfg(target_arch = "wasm32")]
 use adapteros_api_types::TrainingJobResponse;
 use leptos::prelude::*;
@@ -1358,11 +1358,11 @@ fn DatasetsCardGrid(
                                 <Badge variant=status_variant>{status.clone()}</Badge>
                                 {validation_status.clone().map(|s| {
                                     let v = validation_variant.unwrap_or(BadgeVariant::Secondary);
-                                    view! { <Badge variant=v>{format!("validation: {}", s)}</Badge> }
+                                    view! { <Badge variant=v>{format!("Validation: {}", humanize(&s))}</Badge> }
                                 })}
                                 {trust_state.clone().map(|s| {
                                     let v = trust_variant.unwrap_or(BadgeVariant::Secondary);
-                                    view! { <Badge variant=v>{format!("trust: {}", s)}</Badge> }
+                                    view! { <Badge variant=v>{format!("Trust: {}", humanize(&s))}</Badge> }
                                 })}
                                 <Badge variant=BadgeVariant::Outline>{format.to_uppercase()}</Badge>
                             </div>
@@ -2306,7 +2306,7 @@ pub fn DatasetDetail() -> impl IntoView {
                                                         </div>
                                                         <div class="flex justify-between">
                                                             <dt class="text-muted-foreground">"Format"</dt>
-                                                            <dd>{data.format.clone()}</dd>
+                                                            <dd>{data.format.to_uppercase()}</dd>
                                                         </div>
                                                         <div class="flex justify-between">
                                                             <dt class="text-muted-foreground">"Status"</dt>

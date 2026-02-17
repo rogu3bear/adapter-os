@@ -27,7 +27,7 @@ use crate::contexts::use_in_flight;
 use crate::hooks::{use_api_resource, use_cached_api_resource, CacheTtl, LoadingState};
 use crate::signals::refetch::{use_refetch_signal, RefetchTopic};
 use crate::signals::{try_use_route_context, SelectedEntity};
-use crate::utils::{chat_path_with_adapter, format_datetime};
+use crate::utils::{chat_path_with_adapter, format_datetime, humanize};
 use adapteros_api_types::{AdapterResponse, LifecycleState};
 use leptos::prelude::*;
 use leptos_router::hooks::{use_navigate, use_params_map};
@@ -289,7 +289,7 @@ fn AdaptersListInteractive(
                                         </div>
                                     </TableCell>
                                     <TableCell>
-                                        <span class="text-sm text-muted-foreground">{tier}</span>
+                                        <span class="text-sm text-muted-foreground">{humanize(&tier)}</span>
                                     </TableCell>
                                     <TableCell>
                                         {
@@ -574,18 +574,18 @@ fn AdapterDetailContent(adapter: AdapterResponse) -> impl IntoView {
                     </Badge>
                     {adapter.runtime_state.clone().map(|state| view! {
                         <Badge variant=BadgeVariant::Secondary>
-                            {state}
+                            {humanize(&state)}
                         </Badge>
                     })}
                 </div>
                 <div class="space-y-2 text-sm">
                     <div>
                         <span class="text-muted-foreground">"Tier: "</span>
-                        <span class="font-medium">{adapter.tier.clone()}</span>
+                        <span class="font-medium">{humanize(&adapter.tier)}</span>
                     </div>
                     <div>
                         <span class="text-muted-foreground">"Category: "</span>
-                        <span class="font-medium">{adapter.category.clone().unwrap_or_else(|| "N/A".to_string())}</span>
+                        <span class="font-medium">{adapter.category.as_deref().map(humanize).unwrap_or_else(|| "N/A".to_string())}</span>
                     </div>
                 </div>
                 <div class="mt-3 pt-3 border-t border-border/50">

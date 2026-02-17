@@ -12,7 +12,7 @@ use crate::components::{
 };
 use crate::contexts::use_in_flight;
 use crate::hooks::{use_api, use_api_resource, LoadingState, Refetch};
-use crate::utils::format_datetime;
+use crate::utils::{format_datetime, humanize};
 use adapteros_api_types::AdapterResponse;
 use leptos::prelude::*;
 use leptos_router::hooks::use_params_map;
@@ -304,7 +304,7 @@ pub fn StackDetailContent(
                                         view! {
                                             <div class="flex items-center gap-2">
                                                 <Badge variant=BadgeVariant::Secondary>
-                                                    {tier}
+                                                    {humanize(&tier)}
                                                 </Badge>
                                                 <Badge variant=badge_variant>
                                                     {lifecycle_label}

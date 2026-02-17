@@ -22,7 +22,7 @@ mod detail;
 pub mod generate_wizard;
 mod readiness;
 mod state;
-mod utils;
+pub mod utils;
 mod wizard;
 
 use crate::api::ApiClient;

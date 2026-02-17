@@ -15,7 +15,6 @@ mod components;
 pub mod dialogs;
 mod utils;
 pub(crate) use utils::is_terminal_worker_status;
-use utils::worker_name_from_id;
 
 use crate::api::{report_error_with_toast, ApiClient};
 use crate::components::{
@@ -498,7 +497,7 @@ pub fn Workers() -> impl IntoView {
                             {
                                 let drain_desc = {
                                     let wid = pending_drain_worker.get().unwrap_or_default();
-                                    let name = worker_name_from_id(&wid);
+                                    let name = adapteros_id::short_id(&wid);
                                     format!("Drain worker '{}'? New requests will be rejected while existing ones complete.", name)
                                 };
                                 view! {
@@ -548,7 +547,7 @@ pub fn Workers() -> impl IntoView {
                             {
                                 let stop_desc = {
                                     let wid = pending_stop_worker.get().unwrap_or_default();
-                                    let name = worker_name_from_id(&wid);
+                                    let name = adapteros_id::short_id(&wid);
                                     format!("Stop worker '{}'? Active inference requests will be terminated.", name)
                                 };
                                 view! {
@@ -598,7 +597,7 @@ pub fn Workers() -> impl IntoView {
                             {
                                 let restart_desc = {
                                     let wid = pending_restart_worker.get().unwrap_or_default();
-                                    let name = worker_name_from_id(&wid);
+                                    let name = adapteros_id::short_id(&wid);
                                     format!("Restart worker '{}'? The process will be relaunched and in-flight requests may fail.", name)
                                 };
                                 view! {
@@ -648,7 +647,7 @@ pub fn Workers() -> impl IntoView {
                             {
                                 let remove_desc = {
                                     let wid = pending_remove_worker.get().unwrap_or_default();
-                                    let name = worker_name_from_id(&wid);
+                                    let name = adapteros_id::short_id(&wid);
                                     format!("Remove worker '{}'? This decommissions the worker record and cannot be undone.", name)
                                 };
                                 view! {

@@ -15,7 +15,7 @@ use crate::components::{
 };
 use crate::constants::urls::docs_link;
 use crate::hooks::{use_api_resource, use_scope_alive, LoadingState, Refetch};
-use crate::utils::format_datetime;
+use crate::utils::{format_datetime, humanize};
 use leptos::prelude::*;
 use std::sync::Arc;
 
@@ -1030,7 +1030,7 @@ fn PolicyViolationsPanel(
         Column::custom("Resource", |v: &PolicyViolationResponse| {
             let rt = v.resource_type.clone();
             view! {
-                <span class="text-sm">{rt}</span>
+                <span class="text-sm">{humanize(&rt)}</span>
             }
         }),
         Column::custom("Severity", |v: &PolicyViolationResponse| {

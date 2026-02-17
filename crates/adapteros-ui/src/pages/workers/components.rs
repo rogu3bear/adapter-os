@@ -20,6 +20,8 @@ use super::utils::{
     WORKERS_PAGE_SIZE,
 };
 use crate::components::{IconPause, IconRefresh, IconStop, IconTrash, IconX};
+use crate::pages::training::utils::format_backend;
+use crate::utils::humanize;
 
 // ============================================================================
 // Summary Cards
@@ -440,12 +442,12 @@ pub fn WorkerRow(
                     <Badge variant=health_variant>
                         {health_status.clone()}
                     </Badge>
-                    <span class="text-xs text-muted-foreground">{worker.status.clone()}</span>
+                    <span class="text-xs text-muted-foreground">{humanize(&worker.status)}</span>
                 </div>
             </TableCell>
             <TableCell>
                 <div class="space-y-1">
-                    <span class="text-sm">{backend}</span>
+                    <span class="text-sm">{format_backend(&backend)}</span>
                     {has_capabilities.then(move || {
                         let visible_caps = visible_caps.clone();
                         view! {

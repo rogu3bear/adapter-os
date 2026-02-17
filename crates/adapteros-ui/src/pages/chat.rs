@@ -1755,7 +1755,7 @@ fn SessionListItem(
     }
 }
 
-use crate::utils::format_relative_time;
+use crate::utils::{format_relative_time, humanize};
 
 fn generate_readable_id(_prefix: &str, _slug_source: &str) -> String {
     adapteros_id::TypedId::new(adapteros_id::IdPrefix::Ses).to_string()
@@ -4545,13 +4545,13 @@ fn ProvenancePanel(session_id: String, #[prop(into)] on_close: Callback<()>) -> 
                                                         {adapter.training_job.map(|job| view! {
                                                             <div class="mt-1 pl-2 border-l-2 border-primary/30 space-y-0.5">
                                                                 <p class="font-medium">"Training Job"</p>
-                                                                <p>{format!("Status: {}", job.status)}</p>
+                                                                <p>{format!("Status: {}", humanize(&job.status))}</p>
                                                                 <p>{format!("Started: {}", job.started_at)}</p>
                                                                 {job.completed_at.map(|c| view! { <p>{format!("Completed: {}", c)}</p> })}
                                                                 {job.dataset.map(|ds| view! {
                                                                     <div class="mt-0.5">
                                                                         <p class="font-medium">"Dataset"</p>
-                                                                        <p>{format!("{} ({})", ds.name, ds.format)}</p>
+                                                                        <p>{format!("{} ({})", ds.name, ds.format.to_uppercase())}</p>
                                                                         <p>{format!("Files: {}, Size: {} bytes", ds.file_count, ds.total_size_bytes)}</p>
                                                                     </div>
                                                                 })}

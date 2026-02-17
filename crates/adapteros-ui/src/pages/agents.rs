@@ -9,7 +9,7 @@ use crate::components::{
     PageBreadcrumbItem, PageScaffold, PageScaffoldActions, RefreshButton,
 };
 use crate::hooks::{use_api_resource, LoadingState};
-use crate::utils::format_relative_time;
+use crate::utils::{format_relative_time, humanize};
 use adapteros_api_types::orchestration::OrchestrationConfig;
 use leptos::prelude::*;
 use std::sync::Arc;
@@ -43,9 +43,7 @@ impl OrchestrationSessionsResponse {
     }
 }
 
-fn short_id(id: &str) -> String {
-    adapteros_id::short_id(id)
-}
+use adapteros_id::short_id;
 
 #[component]
 pub fn Agents() -> impl IntoView {
@@ -271,7 +269,7 @@ pub fn Agents() -> impl IntoView {
                                         } else {
                                             s.status.clone()
                                         };
-                                        view! { <span>{status}</span> }
+                                        view! { <span>{humanize(&status)}</span> }
                                     }),
                                     Column::custom("Created", |s: &OrchestrationSession| {
                                         let created = if s.created_at.is_empty() {

@@ -7,7 +7,7 @@ use crate::components::{
 };
 use crate::hooks::{use_api_resource, use_polling, LoadingState};
 use crate::signals::{use_auth, use_notifications, use_refetch_signal, RefetchTopic};
-use crate::utils::format_datetime;
+use crate::utils::{format_datetime, humanize};
 use leptos::prelude::*;
 use std::sync::Arc;
 use wasm_bindgen_futures::spawn_local;
@@ -133,7 +133,7 @@ pub fn OrgSection() -> impl IntoView {
                                     </div>
                                     <div class="flex items-center justify-between py-2 border-b">
                                         <span class="text-muted-foreground">"Status"</span>
-                                        <span class="text-muted-foreground">{status}</span>
+                                        <span class="text-muted-foreground">{humanize(&status)}</span>
                                     </div>
                                     <div class="flex items-center justify-between py-2 border-b">
                                         <span class="text-muted-foreground">"Created"</span>

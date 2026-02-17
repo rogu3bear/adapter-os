@@ -15,6 +15,7 @@ use crate::components::{
     TableCell, TableHead, TableHeader, TableRow,
 };
 use crate::hooks::{use_api_resource, use_scope_alive, LoadingState};
+use crate::utils::humanize;
 use adapteros_api_types::telemetry::{ClientErrorItem, ClientErrorStatsResponse};
 use leptos::prelude::*;
 use std::collections::VecDeque;
@@ -870,7 +871,7 @@ fn CrashesSection() -> impl IntoView {
                                     .iter()
                                     .map(|worker| {
                                         let name = worker.display_name.clone().unwrap_or_else(|| adapteros_id::short_id(&worker.id));
-                                        let label = format!("{} ({})", name, worker.status);
+                                        let label = format!("{} ({})", name, humanize(&worker.status));
                                         (worker.id.clone(), label)
                                     })
                                     .collect();
@@ -958,7 +959,7 @@ fn CrashesSection() -> impl IntoView {
                             Column::custom("Type", |c: &ProcessCrashDumpResponse| {
                                 let crash_type = c.crash_type.clone();
                                 view! {
-                                    <span class="text-sm font-medium">{crash_type}</span>
+                                    <span class="text-sm font-medium">{crash_type.to_uppercase()}</span>
                                 }
                             }),
                             Column::custom("Recovery", |c: &ProcessCrashDumpResponse| {
@@ -969,7 +970,7 @@ fn CrashesSection() -> impl IntoView {
                                     .unwrap_or_else(|| "-".to_string());
                                 view! {
                                     <div class="space-y-1">
-                                        <span class="text-sm">{action}</span>
+                                        <span class="text-sm">{humanize(&action)}</span>
                                         <span class="text-xs text-muted-foreground">
                                             {"Recovered: "}{recovered}
                                         </span>

@@ -128,11 +128,6 @@ pub fn worker_display_name(id: &str, display_name: Option<&str>) -> String {
     adapteros_id::short_id(id)
 }
 
-/// Human-readable name from just an ID string (no `WorkerResponse` available).
-pub fn worker_name_from_id(id: &str) -> String {
-    worker_display_name(id, None)
-}
-
 /// Map worker status string to badge variant via StatusVariant
 pub fn status_badge_variant(status: &str) -> BadgeVariant {
     StatusVariant::from_worker_status(status).to_badge_variant()

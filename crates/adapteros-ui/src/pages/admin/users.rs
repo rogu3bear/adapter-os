@@ -8,7 +8,7 @@ use crate::components::{
 };
 use crate::hooks::{use_api_resource, use_polling, LoadingState};
 use crate::signals::{use_refetch_signal, RefetchTopic};
-use crate::utils::format_datetime;
+use crate::utils::{format_datetime, humanize};
 use leptos::prelude::*;
 use std::sync::Arc;
 
@@ -170,7 +170,7 @@ pub fn UsersSection() -> impl IntoView {
                                                                         <span>{user.display_name.clone()}</span>
                                                                     </TableCell>
                                                                     <TableCell>
-                                                                        <Badge variant=role_variant>{user.role.clone()}</Badge>
+                                                                        <Badge variant=role_variant>{humanize(&user.role)}</Badge>
                                                                     </TableCell>
                                                                     <TableCell>
                                                                         <span class="text-sm text-muted-foreground">{last_login}</span>
@@ -300,7 +300,7 @@ fn UserDetailPanel(user: UserResponse, on_close: impl Fn() + Copy + 'static) -> 
                     // Role badge
                     <div class="flex items-center gap-2">
                         <span class="text-sm font-medium">"Role:"</span>
-                        <Badge variant=role_variant>{user.role.clone()}</Badge>
+                        <Badge variant=role_variant>{humanize(&user.role)}</Badge>
                     </div>
 
                     // Info grid
