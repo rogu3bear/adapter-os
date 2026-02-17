@@ -101,15 +101,27 @@ echo -e "${GREEN}✅ Release binary built${NC}"
 # Step 6: Run database migrations
 echo "📊 Running database migrations..."
 DB_PATH=$(grep '^path =' "$CONFIG_FILE" | head -1 | cut -d'"' -f2 || echo "var/aos-cp.sqlite3")
-if [ -f "$DB_PATH" ]; then
-    echo "Database exists at $DB_PATH"
+if [[ "$DB_PATH" =~ ^(postgres|postgresql|mysql|mariadb):// ]]; then
+    echo "Database DSN configured: $DB_PATH"
 else
-    echo "Creating new database at $DB_PATH"
-    mkdir -p "$(dirname "$DB_PATH")"
+    if [[ "$DB_PATH" == sqlite://* ]]; then
+        DB_FILE_PATH="${DB_PATH#sqlite://}"
+    elif [[ "$DB_PATH" == sqlite:* ]]; then
+        DB_FILE_PATH="${DB_PATH#sqlite:}"
+    else
+        DB_FILE_PATH="$DB_PATH"
+    fi
+
+    if [ -f "$DB_FILE_PATH" ]; then
+        echo "Database exists at $DB_FILE_PATH"
+    else
+        echo "Creating new database at $DB_FILE_PATH"
+        mkdir -p "$(dirname "$DB_FILE_PATH")"
+    fi
 fi
 
 # Run migrations via binary
-./target/release/aos-cp --config "$CONFIG_FILE" --migrate-only || {
+./target/release/aos-server --config "$CONFIG_FILE" --migrate-only || {
     echo -e "${YELLOW}⚠️  Migration check completed (may be no-op)${NC}"
 }
 
@@ -126,7 +138,7 @@ Type=simple
 User=adapteros
 Group=adapteros
 WorkingDirectory=$(pwd)
-ExecStart=$(pwd)/target/release/aos-cp --config $CONFIG_FILE
+ExecStart=$(pwd)/target/release/aos-server --config $CONFIG_FILE
 Restart=always
 RestartSec=10
 StandardOutput=journal

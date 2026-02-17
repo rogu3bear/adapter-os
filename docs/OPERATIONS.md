@@ -854,10 +854,10 @@ Use `scripts/monitor_index_performance.sh` to track:
 1. **Backup Verification**
    ```bash
    # Test backup integrity
-   ./scripts/verify-backups.sh
+   ./scripts/backup/verify-backups.sh
 
    # Verify backup restore capability
-   ./scripts/test-restore.sh --dry-run
+   ./scripts/backup/test-restore.sh --dry-run
    ```
 
 2. **Database Maintenance**
@@ -883,10 +883,10 @@ Use `scripts/monitor_index_performance.sh` to track:
 1. **Performance Benchmarking**
    ```bash
    # Run inference benchmarks
-   ./scripts/benchmark-inference.sh --model qwen2.5-7b-instruct
+   ./scripts/run_benchmarks.sh
 
    # Check memory usage patterns
-   ./scripts/analyze-memory-usage.sh --month $(date +%Y-%m)
+   aosctl metrics history --hours 720 --limit 200
    ```
 
 2. **Security Updates**
@@ -904,10 +904,10 @@ Use `scripts/monitor_index_performance.sh` to track:
 3. **Capacity Review**
    ```bash
    # Review usage patterns
-   ./scripts/capacity-review.sh --months 3
+   aosctl metrics history --hours 2160 --limit 300
 
    # Update capacity planning based on growth
-   ./scripts/update-capacity-plan.sh
+   aosctl metrics export --output capacity-plan.json --hours 2160 --format json
    ```
 
 ### Emergency Maintenance
