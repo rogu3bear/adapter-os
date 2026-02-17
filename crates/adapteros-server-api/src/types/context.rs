@@ -563,3 +563,44 @@ pub struct ChunkReference {
     /// Rank in retrieval results
     pub rank: usize,
 }
+
+#[cfg(test)]
+mod tests {
+    use super::InferenceRequestInternal;
+    use std::time::Duration;
+
+    #[test]
+    fn inference_request_internal_default_values_are_hardened() {
+        let req = InferenceRequestInternal::default();
+
+        assert_eq!(req.max_tokens, 100);
+        assert_eq!(req.temperature, 0.0);
+        assert_eq!(req.top_p, Some(1.0));
+        assert!(req.allow_fallback);
+        assert_eq!(req.utf8_healing, None);
+        assert_eq!(req.fusion_interval, None);
+        assert!(
+            req.created_at.elapsed() < Duration::from_secs(1),
+            "created_at should be initialized to now"
+        );
+    }
+
+    #[test]
+    fn inference_request_internal_constructor_overrides_are_minimal() {
+        let req = InferenceRequestInternal {
+            request_id: "req-123".to_string(),
+            cpid: "tenant-1".to_string(),
+            prompt: "hello".to_string(),
+            max_tokens: 256,
+            ..InferenceRequestInternal::default()
+        };
+
+        assert_eq!(req.request_id, "req-123");
+        assert_eq!(req.cpid, "tenant-1");
+        assert_eq!(req.prompt, "hello");
+        assert_eq!(req.max_tokens, 256);
+        assert_eq!(req.top_p, Some(1.0));
+        assert!(req.allow_fallback);
+        assert_eq!(req.utf8_healing, None);
+    }
+}

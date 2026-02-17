@@ -22,7 +22,7 @@ use ed25519_dalek::VerifyingKey;
 use serde_json;
 use std::path::PathBuf;
 use std::sync::{
-    atomic::{AtomicBool, Ordering},
+    atomic::{AtomicBool, AtomicU64, Ordering},
     Arc, RwLock,
 };
 use tokio::io::{AsyncReadExt, AsyncWriteExt};
@@ -71,6 +71,9 @@ const UDS_ACCEPT_FAILURE_THRESHOLD: u32 = 5;
 
 /// Maximum allowed size for JSON request bodies (16MB)
 const MAX_REQUEST_SIZE: usize = 16 * 1024 * 1024; // 16MB
+/// One-release compatibility telemetry for legacy inference payload fallback.
+/// TODO(remove next release): delete when control-plane canonical transport is universal.
+static LEGACY_PARSE_FALLBACK_COUNT: AtomicU64 = AtomicU64::new(0);
 
 fn trip_uds_accept_circuit_breaker(
     failure_count: u32,
@@ -116,7 +119,10 @@ fn parse_inference_request_with_compat(
             let canonical_err_msg = canonical_err.to_string();
             match parse_json_with_limit::<InferenceRequest>(body) {
                 Ok(mut legacy_req) => {
+                    let fallback_count =
+                        LEGACY_PARSE_FALLBACK_COUNT.fetch_add(1, Ordering::Relaxed) + 1;
                     warn!(
+                        fallback_count = fallback_count,
                         canonical_parse_error = %canonical_err_msg,
                         "Falling back to legacy runtime inference parse path (TODO(remove next release))"
                     );
@@ -1923,10 +1929,8 @@ mod tests {
             "fim_suffix": "}"
         }"#;
 
-        let request =
-            parse_inference_request_with_compat(payload, std::time::Instant::now()).expect(
-                "canonical worker transport payload should parse",
-            );
+        let request = parse_inference_request_with_compat(payload, std::time::Instant::now())
+            .expect("canonical worker transport payload should parse");
 
         assert_eq!(request.cpid, "cpid-canonical");
         assert_eq!(request.fim_prefix.as_deref(), Some("fn main() {"));
@@ -1936,6 +1940,8 @@ mod tests {
 
     #[test]
     fn test_parse_inference_request_falls_back_to_legacy_runtime_shape() {
+        let fallback_before =
+            LEGACY_PARSE_FALLBACK_COUNT.load(std::sync::atomic::Ordering::Relaxed);
         let payload = r#"{
             "cpid": "cpid-legacy",
             "prompt": "hello",
@@ -1943,15 +1949,19 @@ mod tests {
             "legacy_runtime_only_field": true
         }"#;
 
-        let request =
-            parse_inference_request_with_compat(payload, std::time::Instant::now()).expect(
-                "legacy runtime payload should parse via fallback path",
-            );
+        let request = parse_inference_request_with_compat(payload, std::time::Instant::now())
+            .expect("legacy runtime payload should parse via fallback path");
 
         assert_eq!(request.cpid, "cpid-legacy");
         assert_eq!(request.prompt, "hello");
         assert_eq!(request.max_tokens, 8);
         assert!(request.arrival_instant.is_some());
+        let fallback_after = LEGACY_PARSE_FALLBACK_COUNT.load(std::sync::atomic::Ordering::Relaxed);
+        assert_eq!(
+            fallback_after,
+            fallback_before + 1,
+            "legacy fallback counter should increment"
+        );
     }
 
     #[test]
