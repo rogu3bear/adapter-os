@@ -7,11 +7,11 @@ use std::collections::HashSet;
 use std::time::{Duration, Instant};
 
 use adapteros_api_types::system_status::{
-    AdapterInventory, AneMemorySummary, BootFailure, BootPhaseTiming, BootStatus, ComponentCheck,
-    DataAvailability, DegradedReason, DriftLevel, DriftStatus, InferenceBlocker,
-    InferenceReadyState, IntegrityStatus, KernelMemorySummary, KernelStatus, ModelInventory,
-    ModelStatusSummary, PlanStatusSummary, ReadinessChecks, ReadinessStatus, StatusIndicator,
-    SystemStatusResponse, UmaMemorySummary,
+    AdapterInventory, AneMemorySummary, BackendMemoryBreakdown, BootFailure, BootPhaseTiming,
+    BootStatus, ComponentCheck, DataAvailability, DegradedReason, DriftLevel, DriftStatus,
+    InferenceBlocker, InferenceReadyState, IntegrityStatus, KernelMemorySummary, KernelStatus,
+    ModelInventory, ModelStatusSummary, PlanStatusSummary, ReadinessChecks, ReadinessStatus,
+    StatusIndicator, SystemStatusResponse, UmaMemorySummary,
 };
 use adapteros_api_types::{ModelLoadStatus, API_SCHEMA_VERSION};
 use axum::{extract::State, Extension, Json};
@@ -690,6 +690,7 @@ async fn build_memory_summary(state: &AppState) -> Option<KernelMemorySummary> {
         ane: None,
         uma: None,
         pressure: None,
+        backend_breakdown: None,
     };
 
     // Build UMA summary - only if we have real data (total_mb > 0)
@@ -745,6 +746,21 @@ async fn build_memory_summary(state: &AppState) -> Option<KernelMemorySummary> {
             used_mb: None,
             available_mb: None,
             usage_pct: None,
+        });
+    }
+
+    // Build backend breakdown from UMA stats for resource contention visibility.
+    // Per-backend fields (metal_mb, mlx_mb, coreml_mb) require MemoryPressureManager
+    // which is not yet wired into AppState. Populate totals from UMA monitor.
+    if uma_stats.total_mb > 0 {
+        memory.backend_breakdown = Some(BackendMemoryBreakdown {
+            metal_mb: None,
+            mlx_mb: None,
+            coreml_mb: uma_stats.ane_used_mb.map(|v| v as f64),
+            total_used_mb: Some(uma_stats.used_mb as f64),
+            total_available_mb: Some(uma_stats.total_mb as f64),
+            headroom_pct: Some(uma_stats.headroom_pct),
+            pressure_level: Some(state.uma_monitor.get_current_pressure().to_string()),
         });
     }
 

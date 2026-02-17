@@ -240,45 +240,50 @@ pub async fn infer(
 
     // Build multi-turn prompt if session_id is provided
     // This loads chat history and formats it with role markers for context
-    let (base_prompt, chat_context_hash) = if let Some(ref session_id) = req.session_id {
-        // STABILITY: Use poison-safe lock access
-        let chat_config = state
-            .config
-            .read()
-            .unwrap_or_else(|e| {
-                tracing::warn!("Config lock poisoned in inference, recovering");
-                e.into_inner()
-            })
-            .chat_context
-            .clone();
-        match build_chat_prompt(&state.db, session_id, &req.prompt, &chat_config).await {
-            Ok(result) => {
-                info!(
-                    request_id = %request_id_str,
-                    tenant_id = %claims.tenant_id,
-                    session_id = %session_id,
-                    message_count = result.message_count,
-                    truncated = result.truncated,
-                    context_hash = %result.context_hash,
-                    "Built multi-turn prompt from session history"
-                );
-                (result.prompt_text, Some(result.context_hash))
+    let (base_prompt, session_messages, chat_context_hash) =
+        if let Some(ref session_id) = req.session_id {
+            // STABILITY: Use poison-safe lock access
+            let chat_config = state
+                .config
+                .read()
+                .unwrap_or_else(|e| {
+                    tracing::warn!("Config lock poisoned in inference, recovering");
+                    e.into_inner()
+                })
+                .chat_context
+                .clone();
+            match build_chat_prompt(&state.db, session_id, &req.prompt, &chat_config).await {
+                Ok(result) => {
+                    info!(
+                        request_id = %request_id_str,
+                        tenant_id = %claims.tenant_id,
+                        session_id = %session_id,
+                        message_count = result.message_count,
+                        truncated = result.truncated,
+                        context_hash = %result.context_hash,
+                        "Built multi-turn prompt from session history"
+                    );
+                    (
+                        result.prompt_text,
+                        Some(result.messages),
+                        Some(result.context_hash),
+                    )
+                }
+                Err(e) => {
+                    warn!(
+                        request_id = %request_id_str,
+                        tenant_id = %claims.tenant_id,
+                        session_id = %session_id,
+                        error = %e,
+                        "Failed to build multi-turn prompt, using single-turn"
+                    );
+                    (req.prompt.clone(), None, None)
+                }
             }
-            Err(e) => {
-                warn!(
-                    request_id = %request_id_str,
-                    tenant_id = %claims.tenant_id,
-                    session_id = %session_id,
-                    error = %e,
-                    "Failed to build multi-turn prompt, using single-turn"
-                );
-                (req.prompt.clone(), None)
-            }
-        }
-    } else {
-        // No session, use prompt directly (single-turn)
-        (req.prompt.clone(), None)
-    };
+        } else {
+            // No session, use prompt directly (single-turn)
+            (req.prompt.clone(), None, None)
+        };
 
     if base_prompt.len() > MAX_REPLAY_TEXT_SIZE {
         return Err(ApiError::bad_request("prompt too long for context window"));
@@ -288,6 +293,10 @@ pub async fn infer(
     let mut internal = InferenceRequestInternal::from((&req, &claims));
     internal.request_id = request_id_str.clone();
     internal.prompt = base_prompt;
+    // Prefer session-built messages (multi-turn) over request-level messages
+    if let Some(msgs) = session_messages {
+        internal.messages = Some(msgs);
+    }
     internal.chat_context_hash = chat_context_hash;
     internal.policy_mask_digest_b3 = policy_mask_digest;
     internal.run_envelope = Some(new_run_envelope(

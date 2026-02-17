@@ -8,7 +8,7 @@ use crate::auth::Claims;
 use crate::security::validate_tenant_isolation;
 use crate::state::AppState;
 use crate::types::ErrorResponse;
-use adapteros_db::contacts::ContactUpsertParams;
+use adapteros_db::contacts::{ContactUpdateParams, ContactUpsertParams};
 use adapteros_db::Contact;
 use axum::{
     extract::{Path, Query, State},
@@ -116,6 +116,53 @@ pub async fn get_contact(
             "Contact not found".into(),
         ))
         .into_response(),
+        Err(e) => aos_error_to_response(e).into_response(),
+    }
+}
+
+/// Update contact
+#[utoipa::path(
+    put,
+    path = "/v1/contacts/{id}",
+    params(
+        ("id" = String, Path, description = "Contact ID")
+    ),
+    request_body = ContactUpdateParams,
+    responses(
+        (status = 200, description = "Contact updated", body = Contact),
+        (status = 404, description = "Contact not found", body = ErrorResponse),
+        (status = 500, description = "Internal server error", body = ErrorResponse)
+    )
+)]
+pub async fn update_contact(
+    State(state): State<AppState>,
+    Extension(claims): Extension<Claims>,
+    Path(id): Path<String>,
+    Json(params): Json<ContactUpdateParams>,
+) -> impl IntoResponse {
+    let id = match crate::id_resolver::resolve_any_id(&state.db, &id).await {
+        Ok(id) => id,
+        Err(e) => return e.into_response(),
+    };
+
+    // Verify ownership
+    match state.db.get_contact(&id).await {
+        Ok(Some(contact)) => {
+            if let Err(e) = validate_tenant_isolation(&claims, &contact.tenant_id) {
+                return e.into_response();
+            }
+        }
+        Ok(None) => {
+            return aos_error_to_response(adapteros_core::AosError::NotFound(
+                "Contact not found".into(),
+            ))
+            .into_response()
+        }
+        Err(e) => return aos_error_to_response(e).into_response(),
+    }
+
+    match state.db.update_contact(&id, &params).await {
+        Ok(contact) => Json(contact).into_response(),
         Err(e) => aos_error_to_response(e).into_response(),
     }
 }

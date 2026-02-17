@@ -5,7 +5,7 @@
 use crate::api_error::ApiError;
 use crate::auth::Principal;
 use crate::state::AppState;
-use adapteros_db::routing_rules::{CreateRoutingRuleParams, RoutingRule};
+use adapteros_db::routing_rules::{CreateRoutingRuleParams, RoutingRule, UpdateRoutingRuleParams};
 use axum::{
     extract::{Path, State},
     Json,
@@ -61,6 +61,62 @@ pub async fn create_rule(
     params.created_by = Some(identity.principal_id);
 
     let rule = RoutingRule::create(&state.db_pool, &params)
+        .await
+        .map_err(ApiError::db_error)?;
+
+    Ok(Json(rule))
+}
+
+/// Get a specific routing rule
+#[utoipa::path(
+    get,
+    path = "/v1/routing-rules/{rule_id}",
+    params(
+        ("rule_id" = String, Path, description = "Routing rule ID")
+    ),
+    responses(
+        (status = 200, description = "Routing rule"),
+        (status = 404, description = "Rule not found"),
+        (status = 500, description = "Internal error")
+    ),
+    tag = "routing"
+)]
+pub async fn get_rule(
+    State(state): State<AppState>,
+    _identity: Principal,
+    Path(rule_id): Path<String>,
+) -> Result<Json<RoutingRule>, ApiError> {
+    let rule_id = crate::id_resolver::resolve_any_id(&state.db, &rule_id).await?;
+    let rule = RoutingRule::get(&state.db_pool, &rule_id)
+        .await
+        .map_err(ApiError::db_error)?;
+
+    Ok(Json(rule))
+}
+
+/// Update a routing rule
+#[utoipa::path(
+    put,
+    path = "/v1/routing-rules/{rule_id}",
+    params(
+        ("rule_id" = String, Path, description = "Routing rule ID")
+    ),
+    request_body = UpdateRoutingRuleParams,
+    responses(
+        (status = 200, description = "Routing rule updated"),
+        (status = 404, description = "Rule not found"),
+        (status = 500, description = "Internal error")
+    ),
+    tag = "routing"
+)]
+pub async fn update_rule(
+    State(state): State<AppState>,
+    _identity: Principal,
+    Path(rule_id): Path<String>,
+    Json(params): Json<UpdateRoutingRuleParams>,
+) -> Result<Json<RoutingRule>, ApiError> {
+    let rule_id = crate::id_resolver::resolve_any_id(&state.db, &rule_id).await?;
+    let rule = RoutingRule::update(&state.db_pool, &rule_id, &params)
         .await
         .map_err(ApiError::db_error)?;
 

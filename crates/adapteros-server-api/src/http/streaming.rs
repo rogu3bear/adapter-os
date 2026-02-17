@@ -296,6 +296,7 @@ async fn generate_streaming_response<
     let inference_req = adapteros_lora_worker::InferenceRequest {
         cpid: cpid.clone(),
         prompt: request.prompt.clone(),
+        messages: None,
         max_tokens: request.max_tokens,
         request_id: Some(cpid),
         run_envelope: None,
@@ -331,6 +332,7 @@ async fn generate_streaming_response<
         utf8_healing: true,
         admin_override: false,
         arrival_instant: None,
+        session_id: None,
     };
 
     debug!(
@@ -479,6 +481,7 @@ pub async fn completion_handler<K: FusedKernels + StrictnessControl + Send + Syn
     let inference_req = adapteros_lora_worker::InferenceRequest {
         cpid: cpid.clone(),
         prompt: request.prompt.clone(),
+        messages: None,
         max_tokens: request.max_tokens,
         request_id: Some(cpid),
         run_envelope: None,
@@ -514,6 +517,7 @@ pub async fn completion_handler<K: FusedKernels + StrictnessControl + Send + Syn
         utf8_healing: true,
         admin_override: false,
         arrival_instant: None,
+        session_id: None,
     };
 
     // Run inference

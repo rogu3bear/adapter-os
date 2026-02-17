@@ -18,6 +18,7 @@ impl From<(&InferRequest, &Claims)> for super::context::InferenceRequestInternal
             request_id: crate::id_generator::readable_request_id(),
             cpid: claims.tenant_id.clone(),
             prompt: req.prompt.clone(),
+            messages: req.messages.clone(),
             run_envelope: None,
             reasoning_mode: req.reasoning_mode.unwrap_or(false),
             admin_override: is_admin,

@@ -74,6 +74,10 @@ use utoipa_swagger_ui::SwaggerUi;
         handlers::workers::notify_worker_status,
         handlers::workers::worker_heartbeat,
         handlers::admin::list_users,
+        handlers::admin::get_user,
+        handlers::admin::create_user,
+        handlers::admin::update_user,
+        handlers::admin::delete_user,
         handlers::admin_lifecycle::request_shutdown,
         handlers::admin_lifecycle::request_maintenance,
         handlers::admin_lifecycle::safe_restart,
@@ -101,6 +105,7 @@ use utoipa_swagger_ui::SwaggerUi;
         handlers::models::unload_model,
         handlers::models::get_model_status,
         handlers::models::validate_model,
+        handlers::models::delete_model,
         handlers::list_plans,
         handlers::build_plan,
         handlers::get_plan_details,
@@ -176,6 +181,7 @@ use utoipa_swagger_ui::SwaggerUi;
         handlers::openai_compat::chat_completions,
         handlers::openai_compat::completions_openai,
         handlers::openai_compat::embeddings_openai,
+        handlers::fim::fim_completions,
         handlers::infer,
         handlers::streaming_infer::streaming_infer,
         handlers::streaming_infer::streaming_infer_with_progress,
@@ -184,6 +190,7 @@ use utoipa_swagger_ui::SwaggerUi;
         handlers::review::submit_review,
         handlers::review::list_paused,
         handlers::inference::get_inference_provenance,
+        handlers::provenance::verify_provenance_certificate,
         handlers::review::list_paused_reviews,
         handlers::review::get_pause_details,
         handlers::review::export_review_context,
@@ -208,6 +215,7 @@ use utoipa_swagger_ui::SwaggerUi;
         handlers::chat_sessions::list_contacts,
         handlers::chat_sessions::create_contact,
         handlers::chat_sessions::get_contact,
+        handlers::chat_sessions::update_contact,
         handlers::chat_sessions::delete_contact,
         handlers::chat_sessions::get_contact_interactions,
         handlers::streams::training_stream,
@@ -309,6 +317,8 @@ use utoipa_swagger_ui::SwaggerUi;
         handlers::adapters::get_commit_diff,
         handlers::routing_rules::list_rules,
         handlers::routing_rules::create_rule,
+        handlers::routing_rules::get_rule,
+        handlers::routing_rules::update_rule,
         handlers::routing_rules::delete_rule,
         handlers::routing_decisions::debug_routing,
         handlers::routing_decisions::get_routing_history,
@@ -576,6 +586,9 @@ use utoipa_swagger_ui::SwaggerUi;
         handlers::set_default_stack,
         handlers::clear_default_stack,
         handlers::router_config::get_router_config,
+        handlers::router_config::get_router_weights,
+        handlers::router_config::update_router_weights,
+        handlers::router_config::reset_router_weights,
         handlers::list_tenant_policy_bindings,
         handlers::toggle_tenant_policy,
         handlers::tenants::revoke_tenant_tokens,
@@ -1206,7 +1219,16 @@ pub fn build(state: AppState) -> Router {
         // Auth routes (extracted to routes/auth_routes.rs)
         .merge(auth_routes::protected_auth_routes())
         // Admin routes
-        .route("/v1/admin/users", get(handlers::admin::list_users))
+        .route(
+            "/v1/admin/users",
+            get(handlers::admin::list_users).post(handlers::admin::create_user),
+        )
+        .route(
+            "/v1/admin/users/{user_id}",
+            get(handlers::admin::get_user)
+                .put(handlers::admin::update_user)
+                .delete(handlers::admin::delete_user),
+        )
         .route(
             "/admin/lifecycle/request-shutdown",
             post(handlers::admin_lifecycle::request_shutdown),
@@ -1322,6 +1344,10 @@ pub fn build(state: AppState) -> Router {
         .route(
             "/v1/models/{model_id}/validate",
             get(handlers::models::validate_model),
+        )
+        .route(
+            "/v1/models/{model_id}",
+            delete(handlers::models::delete_model),
         )
         .route("/v1/plans", get(handlers::list_plans))
         .route("/v1/plans/build", post(handlers::build_plan))
@@ -1706,6 +1732,7 @@ pub fn build(state: AppState) -> Router {
         .route(
             "/v1/contacts/{id}",
             get(handlers::chat_sessions::get_contact)
+                .put(handlers::chat_sessions::update_contact)
                 .delete(handlers::chat_sessions::delete_contact),
         )
         .route(
@@ -2120,7 +2147,9 @@ pub fn build(state: AppState) -> Router {
         )
         .route(
             "/v1/routing-rules/{rule_id}",
-            delete(handlers::routing_rules::delete_rule),
+            get(handlers::routing_rules::get_rule)
+                .put(handlers::routing_rules::update_rule)
+                .delete(handlers::routing_rules::delete_rule),
         )
         .route(
             "/v1/routing/debug",

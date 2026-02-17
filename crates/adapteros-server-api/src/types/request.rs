@@ -215,6 +215,27 @@ pub struct RoutingDebugRequest {
     pub context: Option<String>,
 }
 
+/// Request to update router feature importance weights
+#[derive(Debug, Serialize, Deserialize, ToSchema)]
+pub struct UpdateRouterWeightsRequest {
+    #[serde(skip_serializing_if = "Option::is_none")]
+    pub language_weight: Option<f64>,
+    #[serde(skip_serializing_if = "Option::is_none")]
+    pub framework_weight: Option<f64>,
+    #[serde(skip_serializing_if = "Option::is_none")]
+    pub symbol_hits_weight: Option<f64>,
+    #[serde(skip_serializing_if = "Option::is_none")]
+    pub path_tokens_weight: Option<f64>,
+    #[serde(skip_serializing_if = "Option::is_none")]
+    pub prompt_verb_weight: Option<f64>,
+    #[serde(skip_serializing_if = "Option::is_none")]
+    pub orthogonal_weight: Option<f64>,
+    #[serde(skip_serializing_if = "Option::is_none")]
+    pub diversity_weight: Option<f64>,
+    #[serde(skip_serializing_if = "Option::is_none")]
+    pub similarity_penalty: Option<f64>,
+}
+
 /// Propose patch request
 #[derive(Debug, Serialize, Deserialize, ToSchema)]
 pub struct ProposePatchRequest {
@@ -254,6 +275,9 @@ fn default_utf8_healing_worker() -> bool {
 pub struct WorkerInferRequest {
     pub cpid: String,
     pub prompt: String,
+    /// Structured chat messages for model-aware template formatting.
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub messages: Option<Vec<adapteros_types::inference::ChatMessage>>,
     pub max_tokens: usize,
     /// Optional request ID for worker-side tracing
     #[serde(default, skip_serializing_if = "Option::is_none")]

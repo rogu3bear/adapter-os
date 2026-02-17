@@ -3,16 +3,19 @@ use crate::auth::Claims;
 use crate::permissions::{require_permission, Permission};
 use crate::security::validate_tenant_isolation;
 use crate::state::AppState;
+use crate::types::request::UpdateRouterWeightsRequest;
+use crate::types::response::RouterWeightsResponse;
 use crate::types::ErrorResponse;
 use adapteros_api_types::RoutingPolicy;
 use adapteros_db::adapters::Adapter;
+use adapteros_lora_router::RouterWeights;
 use adapteros_model_hub::manifest::{Adapter as ManifestAdapter, ManifestV3, RouterCfg};
 use axum::extract::{Extension, Path, State};
 use axum::http::StatusCode;
 use axum::Json;
 use serde::Serialize;
 use std::collections::{HashMap, HashSet};
-use tracing::debug;
+use tracing::{debug, info, warn};
 use utoipa::ToSchema;
 
 /// Router parameters as used by the worker manifest.
@@ -287,6 +290,266 @@ fn default_router_cfg() -> RouterCfg {
     }
 }
 
+// ============================================================================
+// Router Weights endpoints
+// ============================================================================
+
+/// Load tenant-specific router weights from tenant settings JSON,
+/// falling back to RouterWeights::default().
+pub(crate) async fn load_tenant_weights(
+    state: &AppState,
+    tenant_id: &str,
+) -> (RouterWeights, bool) {
+    let settings = match state.db.get_tenant_settings(tenant_id).await {
+        Ok(s) => s,
+        Err(e) => {
+            warn!(tenant_id = %tenant_id, error = %e, "Failed to load tenant settings for weights");
+            return (RouterWeights::default(), true);
+        }
+    };
+
+    let parsed = settings
+        .settings_json
+        .as_ref()
+        .and_then(|json_str| serde_json::from_str::<serde_json::Value>(json_str).ok())
+        .and_then(|val| val.get("router_weights").cloned())
+        .and_then(|w| serde_json::from_value::<RouterWeights>(w).ok());
+
+    match parsed {
+        Some(weights) => (weights, false),
+        None => (RouterWeights::default(), true),
+    }
+}
+
+pub(crate) fn weights_to_response(
+    tenant_id: String,
+    weights: &RouterWeights,
+    is_default: bool,
+) -> RouterWeightsResponse {
+    RouterWeightsResponse {
+        tenant_id,
+        language_weight: weights.language_weight as f64,
+        framework_weight: weights.framework_weight as f64,
+        symbol_hits_weight: weights.symbol_hits_weight as f64,
+        path_tokens_weight: weights.path_tokens_weight as f64,
+        prompt_verb_weight: weights.prompt_verb_weight as f64,
+        orthogonal_weight: weights.orthogonal_weight as f64,
+        diversity_weight: weights.diversity_weight as f64,
+        similarity_penalty: weights.similarity_penalty as f64,
+        total_weight: weights.total_weight() as f64,
+        is_default,
+    }
+}
+
+/// GET /v1/tenants/{tenant_id}/router/weights
+///
+/// Returns the current feature importance weights used by the router for this tenant.
+/// Falls back to system defaults if no tenant-specific weights are configured.
+#[utoipa::path(
+    get,
+    path = "/v1/tenants/{tenant_id}/router/weights",
+    params(
+        ("tenant_id" = String, Path, description = "Tenant ID")
+    ),
+    responses(
+        (status = 200, description = "Current router weights", body = RouterWeightsResponse),
+        (status = 403, description = "Forbidden", body = ErrorResponse),
+        (status = 500, description = "Internal server error", body = ErrorResponse)
+    ),
+    tag = "routing",
+    security(("bearer_token" = []))
+)]
+pub async fn get_router_weights(
+    State(state): State<AppState>,
+    Extension(claims): Extension<Claims>,
+    Path(tenant_id): Path<String>,
+) -> Result<Json<RouterWeightsResponse>, (StatusCode, Json<ErrorResponse>)> {
+    require_permission(&claims, Permission::AdapterView)?;
+    let tenant_id = crate::id_resolver::resolve_any_id(&state.db, &tenant_id)
+        .await
+        .map_err(<(StatusCode, Json<ErrorResponse>)>::from)?;
+    validate_tenant_isolation(&claims, &tenant_id)?;
+
+    let (weights, is_default) = load_tenant_weights(&state, &tenant_id).await;
+    Ok(Json(weights_to_response(tenant_id, &weights, is_default)))
+}
+
+/// PUT /v1/tenants/{tenant_id}/router/weights
+///
+/// Update router feature importance weights for this tenant.
+/// Only provided fields are updated; omitted fields retain their current value.
+#[utoipa::path(
+    put,
+    path = "/v1/tenants/{tenant_id}/router/weights",
+    params(
+        ("tenant_id" = String, Path, description = "Tenant ID")
+    ),
+    request_body = UpdateRouterWeightsRequest,
+    responses(
+        (status = 200, description = "Updated router weights", body = RouterWeightsResponse),
+        (status = 403, description = "Forbidden", body = ErrorResponse),
+        (status = 500, description = "Internal server error", body = ErrorResponse)
+    ),
+    tag = "routing",
+    security(("bearer_token" = []))
+)]
+pub async fn update_router_weights(
+    State(state): State<AppState>,
+    Extension(claims): Extension<Claims>,
+    Path(tenant_id): Path<String>,
+    Json(req): Json<UpdateRouterWeightsRequest>,
+) -> Result<Json<RouterWeightsResponse>, (StatusCode, Json<ErrorResponse>)> {
+    require_permission(&claims, Permission::AdapterView)?;
+    let tenant_id = crate::id_resolver::resolve_any_id(&state.db, &tenant_id)
+        .await
+        .map_err(<(StatusCode, Json<ErrorResponse>)>::from)?;
+    validate_tenant_isolation(&claims, &tenant_id)?;
+
+    // Load current weights to merge partial updates
+    let (mut weights, _) = load_tenant_weights(&state, &tenant_id).await;
+
+    if let Some(v) = req.language_weight {
+        weights.language_weight = v as f32;
+    }
+    if let Some(v) = req.framework_weight {
+        weights.framework_weight = v as f32;
+    }
+    if let Some(v) = req.symbol_hits_weight {
+        weights.symbol_hits_weight = v as f32;
+    }
+    if let Some(v) = req.path_tokens_weight {
+        weights.path_tokens_weight = v as f32;
+    }
+    if let Some(v) = req.prompt_verb_weight {
+        weights.prompt_verb_weight = v as f32;
+    }
+    if let Some(v) = req.orthogonal_weight {
+        weights.orthogonal_weight = v as f32;
+    }
+    if let Some(v) = req.diversity_weight {
+        weights.diversity_weight = v as f32;
+    }
+    if let Some(v) = req.similarity_penalty {
+        weights.similarity_penalty = v as f32;
+    }
+
+    // Persist into tenant settings JSON under "router_weights" key
+    save_tenant_weights(&state, &tenant_id, &weights).await?;
+
+    info!(tenant_id = %tenant_id, total = %weights.total_weight(), "Router weights updated");
+
+    Ok(Json(weights_to_response(tenant_id, &weights, false)))
+}
+
+/// POST /v1/tenants/{tenant_id}/router/weights/reset
+///
+/// Reset router weights to system defaults by removing the tenant-specific override.
+#[utoipa::path(
+    post,
+    path = "/v1/tenants/{tenant_id}/router/weights/reset",
+    params(
+        ("tenant_id" = String, Path, description = "Tenant ID")
+    ),
+    responses(
+        (status = 200, description = "Router weights reset to defaults", body = RouterWeightsResponse),
+        (status = 403, description = "Forbidden", body = ErrorResponse),
+        (status = 500, description = "Internal server error", body = ErrorResponse)
+    ),
+    tag = "routing",
+    security(("bearer_token" = []))
+)]
+pub async fn reset_router_weights(
+    State(state): State<AppState>,
+    Extension(claims): Extension<Claims>,
+    Path(tenant_id): Path<String>,
+) -> Result<Json<RouterWeightsResponse>, (StatusCode, Json<ErrorResponse>)> {
+    require_permission(&claims, Permission::AdapterView)?;
+    let tenant_id = crate::id_resolver::resolve_any_id(&state.db, &tenant_id)
+        .await
+        .map_err(<(StatusCode, Json<ErrorResponse>)>::from)?;
+    validate_tenant_isolation(&claims, &tenant_id)?;
+
+    // Remove the router_weights key from tenant settings
+    let settings = state
+        .db
+        .get_tenant_settings(&tenant_id)
+        .await
+        .map_err(ApiError::db_error)?;
+
+    let mut settings_obj: serde_json::Value = settings
+        .settings_json
+        .as_ref()
+        .and_then(|s| serde_json::from_str(s).ok())
+        .unwrap_or(serde_json::json!({}));
+
+    if let Some(obj) = settings_obj.as_object_mut() {
+        obj.remove("router_weights");
+    }
+
+    let params = adapteros_db::UpdateTenantSettingsParams {
+        use_default_stack_on_chat_create: None,
+        use_default_stack_on_infer_session: None,
+        settings_json: Some(
+            serde_json::to_string(&settings_obj)
+                .map_err(|e| ApiError::internal(&format!("Failed to serialize settings: {}", e)))?,
+        ),
+    };
+
+    state
+        .db
+        .upsert_tenant_settings(&tenant_id, params)
+        .await
+        .map_err(ApiError::db_error)?;
+
+    info!(tenant_id = %tenant_id, "Router weights reset to defaults");
+
+    let defaults = RouterWeights::default();
+    Ok(Json(weights_to_response(tenant_id, &defaults, true)))
+}
+
+/// Persist router weights into the tenant settings JSON under the "router_weights" key.
+async fn save_tenant_weights(
+    state: &AppState,
+    tenant_id: &str,
+    weights: &RouterWeights,
+) -> Result<(), (StatusCode, Json<ErrorResponse>)> {
+    let settings = state
+        .db
+        .get_tenant_settings(tenant_id)
+        .await
+        .map_err(ApiError::db_error)?;
+
+    let mut settings_obj: serde_json::Value = settings
+        .settings_json
+        .as_ref()
+        .and_then(|s| serde_json::from_str(s).ok())
+        .unwrap_or(serde_json::json!({}));
+
+    let weights_value = serde_json::to_value(weights)
+        .map_err(|e| ApiError::internal(&format!("Failed to serialize weights: {}", e)))?;
+
+    if let Some(obj) = settings_obj.as_object_mut() {
+        obj.insert("router_weights".to_string(), weights_value);
+    }
+
+    let params = adapteros_db::UpdateTenantSettingsParams {
+        use_default_stack_on_chat_create: None,
+        use_default_stack_on_infer_session: None,
+        settings_json: Some(
+            serde_json::to_string(&settings_obj)
+                .map_err(|e| ApiError::internal(&format!("Failed to serialize settings: {}", e)))?,
+        ),
+    };
+
+    state
+        .db
+        .upsert_tenant_settings(tenant_id, params)
+        .await
+        .map_err(ApiError::db_error)?;
+
+    Ok(())
+}
+
 #[cfg(test)]
 mod tests {
     use super::*;
@@ -301,5 +564,24 @@ mod tests {
         assert_eq!(cfg.sample_tokens_full, 128);
         assert_eq!(cfg.algorithm, "weighted");
         assert!(!cfg.warmup);
+    }
+
+    #[test]
+    fn weights_to_response_reflects_defaults() {
+        let defaults = RouterWeights::default();
+        let resp = weights_to_response("t1".to_string(), &defaults, true);
+        assert!(resp.is_default);
+        assert!((resp.total_weight - 1.0).abs() < 0.01);
+        assert_eq!(resp.tenant_id, "t1");
+    }
+
+    #[test]
+    fn weights_to_response_custom_weights() {
+        let weights =
+            RouterWeights::new_with_dir_weights(0.3, 0.2, 0.15, 0.1, 0.1, 0.05, 0.05, 0.05);
+        let resp = weights_to_response("t2".to_string(), &weights, false);
+        assert!(!resp.is_default);
+        assert!((resp.language_weight - 0.3).abs() < f64::EPSILON);
+        assert!((resp.total_weight - 1.0).abs() < 0.01);
     }
 }

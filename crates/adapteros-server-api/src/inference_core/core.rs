@@ -856,6 +856,7 @@ impl<'a> InferenceCore<'a> {
         let worker_request = WorkerInferRequest {
             cpid: request.cpid.clone(),
             prompt: augmented_prompt.clone(),
+            messages: request.messages.clone(),
             max_tokens: request.max_tokens,
             request_id: Some(request.request_id.clone()),
             run_envelope: request.run_envelope.clone(),

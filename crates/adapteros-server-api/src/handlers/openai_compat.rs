@@ -290,7 +290,11 @@ fn content_to_text(content: &Value) -> Option<String> {
     }
 }
 
-fn messages_to_prompt(messages: &[OpenAiChatMessage]) -> Result<String, OpenAiErrorResponse> {
+/// Convert OpenAI-format messages into both a legacy prompt string and structured
+/// [`ChatMessage`] values suitable for model-aware template formatting.
+fn messages_to_prompt_and_messages(
+    messages: &[OpenAiChatMessage],
+) -> Result<(String, Vec<adapteros_types::inference::ChatMessage>), OpenAiErrorResponse> {
     if messages.is_empty() {
         return Err(openai_error(
             "`messages` must be a non-empty array",
@@ -300,6 +304,8 @@ fn messages_to_prompt(messages: &[OpenAiChatMessage]) -> Result<String, OpenAiEr
     }
 
     let mut prompt = String::new();
+    let mut chat_messages = Vec::with_capacity(messages.len());
+
     for (idx, msg) in messages.iter().enumerate() {
         if idx > 0 {
             prompt.push('\n');
@@ -313,10 +319,14 @@ fn messages_to_prompt(messages: &[OpenAiChatMessage]) -> Result<String, OpenAiEr
             )
         })?;
 
+        // Legacy flat prompt for backward compatibility
         prompt.push_str(&format!("[{}]: {}", role, content));
+
+        // Structured message for model-aware template formatting
+        chat_messages.push(adapteros_types::inference::ChatMessage { role, content });
     }
 
-    Ok(prompt)
+    Ok((prompt, chat_messages))
 }
 
 fn map_finish_reason(stop_reason_code: Option<StopReasonCode>) -> Option<String> {
@@ -435,8 +445,8 @@ async fn chat_completions_non_streaming(
     canonical_request: Option<Extension<CanonicalRequest>>,
     req: OpenAiChatCompletionsRequest,
 ) -> Result<Json<OpenAiChatCompletionsResponse>, (StatusCode, Json<OpenAiErrorResponse>)> {
-    let prompt =
-        messages_to_prompt(&req.messages).map_err(|e| (StatusCode::BAD_REQUEST, Json(e)))?;
+    let (prompt, chat_messages) = messages_to_prompt_and_messages(&req.messages)
+        .map_err(|e| (StatusCode::BAD_REQUEST, Json(e)))?;
     let prompt_tokens_estimate = estimate_tokens(&prompt);
 
     // Compute cache key from canonical request if available
@@ -530,6 +540,7 @@ async fn chat_completions_non_streaming(
     // Cache miss - run inference
     let infer_req = InferRequest {
         prompt,
+        messages: Some(chat_messages),
         model: req.model.clone(),
         max_tokens: req
             .max_tokens
@@ -949,9 +960,9 @@ async fn chat_completions_streaming(
         (status, Json(map_adapteros_error_to_openai(err)))
     })?;
 
-    // Convert messages to prompt
-    let prompt =
-        messages_to_prompt(&req.messages).map_err(|e| (StatusCode::BAD_REQUEST, Json(e)))?;
+    // Convert messages to prompt and structured messages
+    let (prompt, chat_messages) = messages_to_prompt_and_messages(&req.messages)
+        .map_err(|e| (StatusCode::BAD_REQUEST, Json(e)))?;
 
     // Validate prompt length
     if prompt.is_empty() {
@@ -1088,6 +1099,7 @@ async fn chat_completions_streaming(
         request_id: request_id.clone(),
         cpid: claims.tenant_id.clone(),
         prompt,
+        messages: Some(chat_messages),
         run_envelope: Some(run_envelope.clone()),
         reasoning_mode: false,
         admin_override: is_admin,

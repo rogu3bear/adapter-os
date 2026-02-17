@@ -44,6 +44,10 @@ pub struct InferenceRequestInternal {
     pub cpid: String,
     /// Input prompt text
     pub prompt: String,
+    /// Structured chat messages for model-aware template formatting.
+    /// When present, the worker applies the model's chat template instead of
+    /// using the legacy flat prompt.
+    pub messages: Option<Vec<adapteros_types::inference::ChatMessage>>,
     /// Canonical execution envelope for determinism/audit
     pub run_envelope: Option<adapteros_api_types::RunEnvelope>,
     /// Enable reasoning-aware routing and hot-swaps
@@ -217,6 +221,7 @@ impl InferenceRequestInternal {
             request_id: crate::id_generator::readable_request_id(),
             cpid,
             prompt,
+            messages: None,
             run_envelope: None,
             reasoning_mode: false,
             admin_override: false,

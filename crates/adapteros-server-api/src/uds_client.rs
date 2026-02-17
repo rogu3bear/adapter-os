@@ -2110,6 +2110,7 @@ mod tests {
         let request = crate::types::WorkerInferRequest {
             cpid: "cp-123".to_string(),
             prompt: "Hello worker".to_string(),
+            messages: None,
             max_tokens: 128,
             request_id: Some("req-123".to_string()),
             run_envelope: None,

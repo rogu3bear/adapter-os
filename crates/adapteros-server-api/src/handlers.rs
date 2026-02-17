@@ -2667,6 +2667,8 @@ pub async fn debug_routing(
             decision.entropy,
             explanation.format()
         ),
+        weights_used: None,
+        feature_scores: Vec::new(),
     }))
 }
 
@@ -2767,6 +2769,8 @@ pub async fn get_routing_history(
                 adapter_scores,
                 selected_adapters,
                 explanation,
+                weights_used: None,
+                feature_scores: Vec::new(),
             }
         })
         .collect();

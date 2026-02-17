@@ -2200,4 +2200,54 @@ pub async fn get_download_progress(
     }))
 }
 
+/// Delete a model
+///
+/// Rejects deletion if the model is currently loaded or referenced by adapters.
+///
+/// # Endpoint
+/// DELETE /v1/models/{model_id}
+///
+/// # Errors
+/// - `FORBIDDEN` (403): User lacks required role
+/// - `NOT_FOUND` (404): Model does not exist
+/// - `CONFLICT` (409): Model is loaded or referenced by adapters
+/// - `INTERNAL_ERROR` (500): Database error
+#[utoipa::path(
+    delete,
+    path = "/v1/models/{model_id}",
+    params(
+        ("model_id" = String, Path, description = "Model ID to delete")
+    ),
+    responses(
+        (status = 204, description = "Model deleted"),
+        (status = 404, description = "Model not found"),
+        (status = 409, description = "Model in use"),
+        (status = 500, description = "Internal error")
+    ),
+    tag = "models"
+)]
+pub async fn delete_model(
+    State(state): State<AppState>,
+    Extension(claims): Extension<Claims>,
+    Path(model_id): Path<String>,
+) -> Result<StatusCode, ApiError> {
+    require_any_role(&claims, &[Role::Admin]).map_err(|_| ApiError::forbidden("access denied"))?;
+
+    let model_id = crate::id_resolver::resolve_any_id(&state.db, &model_id).await?;
+
+    match state.db.delete_model(&model_id).await {
+        Ok(()) => Ok(StatusCode::NO_CONTENT),
+        Err(e) => {
+            let msg = e.to_string();
+            if msg.contains("not found") || msg.contains("Not found") {
+                Err(ApiError::not_found("Model"))
+            } else if msg.contains("Cannot delete") {
+                Err(ApiError::conflict(msg))
+            } else {
+                Err(ApiError::db_error(e))
+            }
+        }
+    }
+}
+
 // Note: get_base_model_status is now in handlers::infrastructure module

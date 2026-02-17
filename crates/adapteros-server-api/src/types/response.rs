@@ -487,6 +487,12 @@ pub struct RoutingDebugResponse {
     pub adapter_scores: Vec<AdapterScore>,
     pub selected_adapters: Vec<String>,
     pub explanation: String,
+    /// Router weights that were used for this debug evaluation
+    #[serde(skip_serializing_if = "Option::is_none")]
+    pub weights_used: Option<RouterWeightsResponse>,
+    /// Per-adapter feature score breakdown
+    #[serde(default, skip_serializing_if = "Vec::is_empty")]
+    pub feature_scores: Vec<FeatureScoreBreakdown>,
 }
 
 /// Feature vector
@@ -506,6 +512,35 @@ pub struct AdapterScore {
     pub score: f64,
     pub gate_value: f64,
     pub selected: bool,
+}
+
+/// Router weights response — current feature importance weights for routing
+#[derive(Debug, Serialize, Deserialize, ToSchema)]
+pub struct RouterWeightsResponse {
+    pub tenant_id: String,
+    pub language_weight: f64,
+    pub framework_weight: f64,
+    pub symbol_hits_weight: f64,
+    pub path_tokens_weight: f64,
+    pub prompt_verb_weight: f64,
+    pub orthogonal_weight: f64,
+    pub diversity_weight: f64,
+    pub similarity_penalty: f64,
+    pub total_weight: f64,
+    pub is_default: bool,
+}
+
+/// Per-feature score breakdown for a single adapter
+#[derive(Debug, Serialize, Deserialize, ToSchema)]
+pub struct FeatureScoreBreakdown {
+    pub adapter_id: String,
+    pub language_score: f64,
+    pub framework_score: f64,
+    pub symbol_hits_score: f64,
+    pub path_tokens_score: f64,
+    pub prompt_verb_score: f64,
+    pub tier_boost: f64,
+    pub total_score: f64,
 }
 
 /// Propose patch response

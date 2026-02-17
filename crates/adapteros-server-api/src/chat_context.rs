@@ -37,6 +37,9 @@ const CHARS_PER_TOKEN: usize = 4;
 pub struct ChatPromptResult {
     /// The formatted multi-turn prompt text
     pub prompt_text: String,
+    /// Structured chat messages for model-aware template formatting.
+    /// Includes history messages plus the new user message.
+    pub messages: Vec<adapteros_types::inference::ChatMessage>,
     /// Number of history messages included (excluding the new message)
     pub message_count: usize,
     /// Whether history was truncated due to limits
@@ -116,14 +119,15 @@ pub async fn build_chat_prompt(
         );
     }
 
-    // Build the prompt text
-    let prompt_text = format_prompt(&selected_messages, new_user_message);
+    // Build the prompt text and structured messages
+    let (prompt_text, messages) = format_prompt_and_messages(&selected_messages, new_user_message);
 
     // Compute context hash from message IDs (for replay verification)
     let context_hash = compute_context_hash(&selected_messages);
 
     Ok(ChatPromptResult {
         prompt_text,
+        messages,
         message_count: selected_messages.len(),
         truncated,
         context_hash,
@@ -181,7 +185,10 @@ fn estimate_tokens(s: &str) -> usize {
     s.len().div_ceil(CHARS_PER_TOKEN)
 }
 
-/// Format messages into a prompt with role markers.
+/// Format messages into a prompt with role markers and build structured messages.
+///
+/// Returns both the legacy flat prompt and a `Vec<ChatMessage>` for model-aware
+/// template formatting.
 ///
 /// Format:
 /// ```text
@@ -190,18 +197,30 @@ fn estimate_tokens(s: &str) -> usize {
 /// [assistant]: Assistant response
 /// [user]: New message
 /// ```
-fn format_prompt(history: &[&ChatMessage], new_message: &str) -> String {
+fn format_prompt_and_messages(
+    history: &[&ChatMessage],
+    new_message: &str,
+) -> (String, Vec<adapteros_types::inference::ChatMessage>) {
     let mut prompt = String::new();
+    let mut messages = Vec::with_capacity(history.len() + 1);
 
     // Add history messages
     for msg in history {
         prompt.push_str(&format!("[{}]: {}\n", msg.role, msg.content));
+        messages.push(adapteros_types::inference::ChatMessage {
+            role: msg.role.clone(),
+            content: msg.content.clone(),
+        });
     }
 
     // Add the new user message
     prompt.push_str(&format!("[user]: {}", new_message));
+    messages.push(adapteros_types::inference::ChatMessage {
+        role: "user".to_string(),
+        content: new_message.to_string(),
+    });
 
-    prompt
+    (prompt, messages)
 }
 
 /// Compute BLAKE3 hash of message IDs for replay verification.
@@ -242,8 +261,11 @@ mod tests {
     #[test]
     fn test_format_prompt_empty_history() {
         let history: Vec<&ChatMessage> = vec![];
-        let result = format_prompt(&history, "Hello");
-        assert_eq!(result, "[user]: Hello");
+        let (prompt, messages) = format_prompt_and_messages(&history, "Hello");
+        assert_eq!(prompt, "[user]: Hello");
+        assert_eq!(messages.len(), 1);
+        assert_eq!(messages[0].role, "user");
+        assert_eq!(messages[0].content, "Hello");
     }
 
     #[test]
@@ -252,12 +274,17 @@ mod tests {
         let msg2 = make_message("2", "assistant", "First answer");
         let history: Vec<&ChatMessage> = vec![&msg1, &msg2];
 
-        let result = format_prompt(&history, "Second question");
+        let (prompt, messages) = format_prompt_and_messages(&history, "Second question");
 
         assert_eq!(
-            result,
+            prompt,
             "[user]: First question\n[assistant]: First answer\n[user]: Second question"
         );
+        assert_eq!(messages.len(), 3);
+        assert_eq!(messages[0].role, "user");
+        assert_eq!(messages[1].role, "assistant");
+        assert_eq!(messages[2].role, "user");
+        assert_eq!(messages[2].content, "Second question");
     }
 
     #[test]
@@ -267,12 +294,16 @@ mod tests {
         let msg3 = make_message("3", "assistant", "Hi there");
         let history: Vec<&ChatMessage> = vec![&msg1, &msg2, &msg3];
 
-        let result = format_prompt(&history, "New message");
+        let (prompt, messages) = format_prompt_and_messages(&history, "New message");
 
         assert_eq!(
-            result,
+            prompt,
             "[system]: You are helpful\n[user]: Hello\n[assistant]: Hi there\n[user]: New message"
         );
+        assert_eq!(messages.len(), 4);
+        assert_eq!(messages[0].role, "system");
+        assert_eq!(messages[3].role, "user");
+        assert_eq!(messages[3].content, "New message");
     }
 
     #[test]

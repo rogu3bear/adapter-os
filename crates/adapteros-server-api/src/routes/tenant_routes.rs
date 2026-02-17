@@ -56,6 +56,15 @@ pub fn tenant_routes() -> Router<AppState> {
             get(handlers::router_config::get_router_config),
         )
         .route(
+            "/v1/tenants/{tenant_id}/router/weights",
+            get(handlers::router_config::get_router_weights)
+                .put(handlers::router_config::update_router_weights),
+        )
+        .route(
+            "/v1/tenants/{tenant_id}/router/weights/reset",
+            post(handlers::router_config::reset_router_weights),
+        )
+        .route(
             "/v1/tenants/{tenant_id}/policy-bindings",
             get(handlers::list_tenant_policy_bindings),
         )

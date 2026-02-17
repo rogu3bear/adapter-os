@@ -1054,6 +1054,8 @@ fn default_training_post_actions() -> PostActionsRequest {
         package: Some(true),
         register: Some(true),
         create_stack: Some(true),
+        activate_stack: None,
+        auto_promote: None,
         tier: None,
         adapters_root: None,
     }

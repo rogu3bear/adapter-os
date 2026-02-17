@@ -150,6 +150,7 @@ impl From<(&StreamingInferRequest, &Claims)> for InferenceRequestInternal {
             request_id: crate::id_generator::readable_request_id(),
             cpid: claims.tenant_id.clone(),
             prompt: req.prompt.clone(),
+            messages: None,
             run_envelope: None,
             reasoning_mode: req.reasoning_mode,
             admin_override: is_admin,

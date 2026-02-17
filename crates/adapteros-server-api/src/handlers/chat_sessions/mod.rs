@@ -90,8 +90,8 @@ pub use sharing::{
 // Re-export contact handlers and their OpenAPI path functions
 pub use contacts::{
     __path_create_contact, __path_delete_contact, __path_get_contact,
-    __path_get_contact_interactions, __path_list_contacts, create_contact, delete_contact,
-    get_contact, get_contact_interactions, list_contacts,
+    __path_get_contact_interactions, __path_list_contacts, __path_update_contact, create_contact,
+    delete_contact, get_contact, get_contact_interactions, list_contacts, update_contact,
 };
 
 // Re-export fork handlers and OpenAPI path function

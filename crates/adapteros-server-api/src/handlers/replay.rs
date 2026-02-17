@@ -687,6 +687,7 @@ pub async fn execute_replay_session(
         request_id: run_id,
         cpid: session.cpid.clone(),
         prompt: final_prompt,
+        messages: None,
         run_envelope: Some(run_envelope),
         reasoning_mode: false,
         admin_override: false,

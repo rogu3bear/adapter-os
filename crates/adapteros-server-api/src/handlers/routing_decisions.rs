@@ -8,12 +8,13 @@
 use crate::adapter_helpers::fetch_adapter_for_tenant;
 use crate::api_error::{ApiError, ApiResult};
 use crate::auth::Claims;
+use crate::handlers::router_config::{load_tenant_weights, weights_to_response};
 use crate::middleware::require_any_role;
 use crate::security::validate_tenant_isolation;
 use crate::state::AppState;
 use crate::types::{
-    AdapterScore, ErrorResponse, FeatureVector, RoutingDebugRequest, RoutingDebugResponse,
-    RoutingHistoryQuery,
+    AdapterScore, ErrorResponse, FeatureScoreBreakdown, FeatureVector, RouterWeightsResponse,
+    RoutingDebugRequest, RoutingDebugResponse, RoutingHistoryQuery,
 };
 use adapteros_core::Q15_GATE_DENOMINATOR;
 use adapteros_db::users::Role;
@@ -865,7 +866,10 @@ pub async fn debug_routing(
         })
         .collect();
 
-    let mut router = Router::new_with_weights(RouterWeights::default(), 3, 1.0, 0.02);
+    // Load tenant-specific weights (or system defaults)
+    let (tenant_weights, weights_is_default) = load_tenant_weights(&state, &claims.tenant_id).await;
+
+    let mut router = Router::new_with_weights(tenant_weights.clone(), 3, 1.0, 0.02);
     let decision = router
         .route_with_code_features(&code_features, &adapter_infos)
         .map_err(|e| {
@@ -874,7 +878,8 @@ pub async fn debug_routing(
                 .with_code("ROUTING_ERROR")
                 .with_details(e.to_string())
         })?;
-    let explanation = router.explain_score(&code_features.to_vector());
+    let feature_vec = code_features.to_vector();
+    let explanation = router.explain_score(&feature_vec);
 
     let candidate_scores: HashMap<u16, f32> = decision
         .candidates
@@ -923,6 +928,30 @@ pub async fn debug_routing(
         .filter_map(|&idx| adapter_infos.get(idx as usize).map(|a| a.id.clone()))
         .collect();
 
+    // Build per-adapter feature score breakdowns
+    let feature_scores: Vec<FeatureScoreBreakdown> = adapter_infos
+        .iter()
+        .map(|adapter| {
+            let adapter_explanation = router.explain_score(&feature_vec);
+            FeatureScoreBreakdown {
+                adapter_id: adapter.id.clone(),
+                language_score: adapter_explanation.language_score as f64,
+                framework_score: adapter_explanation.framework_score as f64,
+                symbol_hits_score: adapter_explanation.symbol_hits_score as f64,
+                path_tokens_score: adapter_explanation.path_tokens_score as f64,
+                prompt_verb_score: adapter_explanation.prompt_verb_score as f64,
+                tier_boost: 0.0, // tier boost is applied during routing, not in explain_score
+                total_score: adapter_explanation.total_score as f64,
+            }
+        })
+        .collect();
+
+    let weights_response = weights_to_response(
+        claims.tenant_id.clone(),
+        &tenant_weights,
+        weights_is_default,
+    );
+
     Ok(Json(RoutingDebugResponse {
         features: FeatureVector {
             language,
@@ -937,8 +966,10 @@ pub async fn debug_routing(
             "Router selected {} adapters with entropy {:.3}. {}",
             decision.indices.len(),
             decision.entropy,
-            explanation.format()
+            explanation.format_with_weights(&tenant_weights)
         ),
+        weights_used: Some(weights_response),
+        feature_scores,
     }))
 }
 

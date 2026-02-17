@@ -667,6 +667,7 @@ pub async fn execute_replay(
         request_id: replay_id.clone(),
         cpid: claims.tenant_id.clone(),
         prompt: prompt.clone(),
+        messages: None,
         run_envelope: Some(run_envelope),
         reasoning_mode: false,
         admin_override: false,
