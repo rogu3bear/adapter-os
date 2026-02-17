@@ -225,6 +225,10 @@ pub struct IoBuffers {
     pub attention_entropy: Option<f32>,
     /// Optional hidden state activations (e.g. last layer) for feature-based routing.
     pub activations: Option<Vec<f32>>,
+    /// Session ID for KV cache lookup in multi-turn chat.
+    /// When present, the backend uses a persistent per-session cache
+    /// instead of creating a temporary one.
+    pub session_id: Option<String>,
 }
 
 impl IoBuffers {
@@ -235,6 +239,7 @@ impl IoBuffers {
             position: 0,
             attention_entropy: None,
             activations: None,
+            session_id: None,
         }
     }
 }
@@ -497,6 +502,30 @@ pub trait FusedKernels: Send + Sync {
         _buffer_size: u64,
     ) -> (bool, f64, Option<(f64, f64, usize)>) {
         (false, 0.0, None) // No baseline = cannot verify tolerance
+    }
+
+    /// Whether this backend supports session-aware KV caching.
+    ///
+    /// When true, the backend maintains per-session KV caches that
+    /// persist across inference calls for multi-turn chat efficiency.
+    fn supports_kv_cache(&self) -> bool {
+        false
+    }
+
+    /// Clear KV cache for a specific session.
+    ///
+    /// Called when a chat session ends or is reset. No-op if the
+    /// session doesn't have a cache or caching is unsupported.
+    fn clear_session_cache(&mut self, _session_id: &str) {}
+
+    /// Clear all session caches (memory pressure response).
+    ///
+    /// Called during memory pressure events to reclaim GPU memory.
+    fn clear_all_caches(&mut self) {}
+
+    /// Estimated cache memory usage in bytes across all sessions.
+    fn cache_memory_bytes(&self) -> usize {
+        0
     }
 
     /// Get backend metrics
@@ -907,6 +936,22 @@ macro_rules! impl_fused_kernels_for_box {
                 buffer_size: u64,
             ) -> (bool, f64, Option<(f64, f64, usize)>) {
                 (**self).check_memory_footprint(id, buffer_size)
+            }
+
+            fn supports_kv_cache(&self) -> bool {
+                (**self).supports_kv_cache()
+            }
+
+            fn clear_session_cache(&mut self, session_id: &str) {
+                (**self).clear_session_cache(session_id)
+            }
+
+            fn clear_all_caches(&mut self) {
+                (**self).clear_all_caches()
+            }
+
+            fn cache_memory_bytes(&self) -> usize {
+                (**self).cache_memory_bytes()
             }
 
             fn get_metrics(&self) -> BackendMetrics {

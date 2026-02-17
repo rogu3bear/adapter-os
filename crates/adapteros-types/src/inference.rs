@@ -165,6 +165,17 @@ impl CancellationState {
     }
 }
 
+/// Structured chat message for template-aware formatting.
+#[derive(Debug, Clone, Serialize, Deserialize)]
+#[cfg_attr(feature = "utoipa", derive(utoipa::ToSchema))]
+#[serde(rename_all = "snake_case")]
+pub struct ChatMessage {
+    /// Message role: "system", "user", or "assistant"
+    pub role: String,
+    /// Message content
+    pub content: String,
+}
+
 /// Inference request (API surface)
 #[derive(Debug, Clone, Default, Serialize, Deserialize)]
 #[cfg_attr(feature = "utoipa", derive(utoipa::ToSchema))]
@@ -179,6 +190,12 @@ pub struct InferRequest<Backend = String, Interval = FusionInterval, StopPolicy 
 {
     /// Raw prompt text or chat payload.
     pub prompt: String,
+    /// Structured chat messages for model-aware template formatting.
+    /// When present, the worker applies the model's chat template to these messages
+    /// instead of using the raw `prompt` field for template application.
+    /// The `prompt` field is still used as fallback when `messages` is None.
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub messages: Option<Vec<ChatMessage>>,
     /// Explicit model identifier to target (optional).
     #[serde(skip_serializing_if = "Option::is_none")]
     pub model: Option<String>,
