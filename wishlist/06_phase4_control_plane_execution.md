@@ -8,8 +8,8 @@
 | Field group | Server source | API source | Status |
 |---|---|---|---|
 | `routing.use_session_stack_for_routing` | `crates/adapteros-server/src/config.rs` (`RoutingConfig`) | `crates/adapteros-server/src/boot/api_config.rs` (`build_api_config`) | Drift: API config is still hardcoded to `false`. |
-| `server.health_check_worker_timeout_ms` | `crates/adapteros-server/src/config.rs` | `crates/adapteros-server/src/boot/api_config.rs` + `crates/adapteros-server-api/src/handlers/health.rs` | Drift: fixed `5000` in API config path. |
-| `server.health_check_models_timeout_ms` | `crates/adapteros-server/src/config.rs` | `crates/adapteros-server/src/boot/api_config.rs` + `crates/adapteros-server-api/src/handlers/health.rs` | Drift: fixed `15000` in API config path. |
+| `server.health_check_worker_timeout_ms` | `crates/adapteros-server/src/config.rs` | `crates/adapteros-server/src/boot/api_config.rs` + `crates/adapteros-server-api/src/handlers/health.rs` | Aligned: API config now maps `cfg.server.health_check_worker_timeout_ms`. |
+| `server.health_check_models_timeout_ms` | `crates/adapteros-server/src/config.rs` | `crates/adapteros-server/src/boot/api_config.rs` + `crates/adapteros-server-api/src/handlers/health.rs` | Aligned: API config now maps `cfg.server.health_check_models_timeout_ms`. |
 | `metrics`, `paths`, `auth`, most `security` fields | `crates/adapteros-server/src/config.rs` | `crates/adapteros-server/src/boot/api_config.rs` and `crates/adapteros-server-api/src/state.rs` | Mostly parity; selective mapping still requires explicit contract table. |
 
 ## Deliverable B: Boot -> `readyz` Invariant Map
@@ -34,7 +34,7 @@
 ## Verification Run
 - Ran parity scan:
 `rg -n "use_session_stack_for_routing|health_check_worker_timeout_ms|health_check_models_timeout_ms|build_api_config|ready\(" crates/adapteros-server/src/config.rs crates/adapteros-server/src/boot/api_config.rs crates/adapteros-server-api/src/handlers/health.rs crates/adapteros-server-api/src/state.rs`
-- Result: drift anchors confirmed in source.
+- Result: health-timeout mapping now aligned; remaining drift is `use_session_stack_for_routing` hardcoded fallback pending routing config plumb-through.
 
 - Ran targeted readiness tests:
 `cargo test -p adapteros-server-api --test readyz_failure_modes`
