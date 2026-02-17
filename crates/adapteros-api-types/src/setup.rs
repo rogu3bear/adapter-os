@@ -8,9 +8,12 @@ use serde::{Deserialize, Serialize};
 #[serde(rename_all = "snake_case")]
 pub struct SetupDiscoveredModel {
     pub name: String,
-    pub model_path: String,
+    #[serde(alias = "model_path")]
+    pub path: String,
     pub format: String,
     pub backend: String,
+    #[serde(default)]
+    pub already_registered: bool,
 }
 
 /// Response for setup model discovery.
@@ -67,9 +70,16 @@ pub struct SetupSeedModelsResponse {
     #[serde(default = "crate::schema_version")]
     pub schema_version: String,
     pub total: usize,
-    pub seeded: usize,
-    pub skipped: usize,
-    pub failed: usize,
+    pub seeded_count: usize,
+    pub skipped_count: usize,
+    pub failed_count: usize,
+    #[serde(default, skip_serializing_if = "Vec::is_empty")]
+    pub seeded: Vec<SetupSeedModelResult>,
+    #[serde(default, skip_serializing_if = "Vec::is_empty")]
+    pub skipped: Vec<SetupSeedModelResult>,
+    #[serde(default, skip_serializing_if = "Vec::is_empty")]
+    pub failed: Vec<SetupSeedModelResult>,
+    #[serde(default, skip_serializing_if = "Vec::is_empty")]
     pub results: Vec<SetupSeedModelResult>,
 }
 
@@ -81,5 +91,6 @@ pub struct SetupMigrateResponse {
     #[serde(default = "crate::schema_version")]
     pub schema_version: String,
     pub status: String,
+    pub completed_at: String,
     pub message: String,
 }

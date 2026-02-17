@@ -56,6 +56,9 @@ pub use validation::{
 // Internal imports from submodules
 use trust::{derive_overall_safety_status, derive_trust_state};
 
+use crate::adapter_repositories::{
+    DatasetTrustMutationResult, DatasetTrustOverrideResult, DatasetTrustPropagationResult,
+};
 use crate::constants::{
     DATASET_SCAN_ROOT_COLUMNS, TRAINING_DATASET_COLUMNS, TRAINING_DATASET_ROW_COLUMNS,
 };
@@ -3042,7 +3045,7 @@ impl Db {
         dataset_version_id: &str,
         status: &str,
         errors_json: Option<&str>,
-    ) -> Result<String> {
+    ) -> Result<DatasetTrustMutationResult> {
         let prev_effective = self.get_effective_trust_state(dataset_version_id).await?;
 
         let current = self
@@ -3083,16 +3086,23 @@ impl Db {
 
         self.sync_dataset_version_to_kv(dataset_version_id).await?;
 
-        if let Some(new_effective) = self.get_effective_trust_state(dataset_version_id).await? {
+        let propagation = if let Some(new_effective) =
+            self.get_effective_trust_state(dataset_version_id).await?
+        {
             self.propagate_dataset_trust_change(
                 dataset_version_id,
                 prev_effective.as_deref(),
                 &new_effective,
             )
-            .await?;
-        }
+            .await?
+        } else {
+            DatasetTrustPropagationResult::default()
+        };
 
-        Ok(trust_state)
+        Ok(DatasetTrustMutationResult {
+            trust_state,
+            propagation,
+        })
     }
 
     /// Update semantic/safety statuses and recompute trust for a dataset version.
@@ -3103,7 +3113,7 @@ impl Db {
         toxicity_status: Option<&str>,
         leak_status: Option<&str>,
         anomaly_status: Option<&str>,
-    ) -> Result<String> {
+    ) -> Result<DatasetTrustMutationResult> {
         let prev_effective = self.get_effective_trust_state(dataset_version_id).await?;
 
         let mut current = self
@@ -3159,16 +3169,23 @@ impl Db {
 
         self.sync_dataset_version_to_kv(dataset_version_id).await?;
 
-        if let Some(new_effective) = self.get_effective_trust_state(dataset_version_id).await? {
+        let propagation = if let Some(new_effective) =
+            self.get_effective_trust_state(dataset_version_id).await?
+        {
             self.propagate_dataset_trust_change(
                 dataset_version_id,
                 prev_effective.as_deref(),
                 &new_effective,
             )
-            .await?;
-        }
+            .await?
+        } else {
+            DatasetTrustPropagationResult::default()
+        };
 
-        Ok(trust_state)
+        Ok(DatasetTrustMutationResult {
+            trust_state,
+            propagation,
+        })
     }
 
     /// Record a validation run for observability/audit.
@@ -3224,7 +3241,7 @@ impl Db {
         override_state: &str,
         reason: Option<&str>,
         created_by: &str,
-    ) -> Result<String> {
+    ) -> Result<DatasetTrustOverrideResult> {
         let prev_effective = self.get_effective_trust_state(dataset_version_id).await?;
 
         let id = new_id(IdPrefix::Dst);
@@ -3242,16 +3259,23 @@ impl Db {
         .await
         .map_err(db_err("create dataset version override"))?;
 
-        if let Some(new_effective) = self.get_effective_trust_state(dataset_version_id).await? {
+        let propagation = if let Some(new_effective) =
+            self.get_effective_trust_state(dataset_version_id).await?
+        {
             self.propagate_dataset_trust_change(
                 dataset_version_id,
                 prev_effective.as_deref(),
                 &new_effective,
             )
-            .await?;
-        }
+            .await?
+        } else {
+            DatasetTrustPropagationResult::default()
+        };
 
-        Ok(id)
+        Ok(DatasetTrustOverrideResult {
+            override_id: id,
+            propagation,
+        })
     }
 
     /// List validation runs for a dataset version, ordered by most recent first.

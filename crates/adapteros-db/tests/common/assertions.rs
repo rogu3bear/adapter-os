@@ -443,6 +443,8 @@ mod tests {
             versioning_threshold: None,
             coreml_package_hash: None,
             training_dataset_hash_b3: None,
+            adapter_version_id: None,
+            effective_version_weight: None,
             created_at: "2024-01-01T00:00:00Z".to_string(),
             updated_at: "2024-01-01T00:00:00Z".to_string(),
             stable_id: None,

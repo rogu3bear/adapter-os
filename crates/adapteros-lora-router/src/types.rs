@@ -596,6 +596,8 @@ pub struct AdapterInfo {
     pub scope_path: Option<String>,
     pub lora_tier: Option<String>,
     pub base_model: Option<String>,
+    /// Version-aware canary multiplier (neutral default 1.0).
+    pub version_weight: f32,
     pub recommended_for_moe: bool,
     /// Optional reasoning specialties (e.g., math, logic) for dynamic routing
     pub reasoning_specialties: Vec<String>,
@@ -648,6 +650,7 @@ impl Default for AdapterInfo {
             scope_path: None,
             lora_tier: None,
             base_model: None,
+            version_weight: 1.0,
             recommended_for_moe: true,
             reasoning_specialties: Vec::new(),
             adapter_type: None,

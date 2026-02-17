@@ -848,7 +848,10 @@ async fn adapter_version_captures_trust_snapshot() -> Result<()> {
         .await?;
     assert_eq!(lineage.len(), 1);
     assert_eq!(lineage[0].0, ds_version_id);
-    assert_eq!(lineage[0].1.as_deref(), Some(trust_state.as_str()));
+    assert_eq!(
+        lineage[0].1.as_deref(),
+        Some(trust_state.trust_state.as_str())
+    );
 
     Ok(())
 }

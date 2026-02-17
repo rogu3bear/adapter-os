@@ -2148,6 +2148,21 @@ dependencies = [
 ]
 
 [[package]]
+name = "adapteros-training-worker"
+version = "0.14.1"
+dependencies = [
+ "adapteros-client",
+ "adapteros-config",
+ "adapteros-orchestrator",
+ "anyhow",
+ "chrono",
+ "serde",
+ "serde_json",
+ "tokio",
+ "tracing",
+]
+
+[[package]]
 name = "adapteros-transport-types"
 version = "0.14.1"
 dependencies = [

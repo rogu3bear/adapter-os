@@ -16,6 +16,8 @@ use axum::{
     extract::{Extension, State},
     Json,
 };
+use chrono::Utc;
+use std::collections::HashSet;
 use std::path::{Path, PathBuf};
 
 async fn model_allowed_roots() -> Result<Vec<PathBuf>, ApiError> {
@@ -71,6 +73,7 @@ pub async fn setup_migrate(
     Ok(Json(SetupMigrateResponse {
         schema_version: schema_version(),
         status: "ok".to_string(),
+        completed_at: Utc::now().to_rfc3339(),
         message: "Migrations completed successfully".to_string(),
     }))
 }
@@ -86,31 +89,51 @@ pub async fn setup_migrate(
     tag = "setup"
 )]
 pub async fn setup_discover_models(
+    State(state): State<AppState>,
     Extension(claims): Extension<Claims>,
 ) -> ApiResult<SetupDiscoverModelsResponse> {
     require_any_role(&claims, &[Role::Admin]).map_err(|_| ApiError::forbidden("access denied"))?;
 
     let allowed_roots = model_allowed_roots().await?;
-    let root = allowed_roots
-        .first()
-        .cloned()
-        .ok_or_else(|| ApiError::internal("no allowed model roots configured"))?;
+    let canonical_roots: Vec<PathBuf> = allowed_roots
+        .iter()
+        .map(|root| canonicalize_model_path(root, &allowed_roots))
+        .collect::<Result<Vec<_>, _>>()?;
 
-    let canonical_root = canonicalize_model_path(&root, &allowed_roots)?;
-    let models: Vec<SetupDiscoveredModel> =
-        adapteros_db::Db::setup_discover_models(&canonical_root)
+    let registered_paths: HashSet<String> = if state.db.pool_opt().is_some() {
+        sqlx::query_scalar::<_, String>("SELECT model_path FROM models")
+            .fetch_all(state.db.pool())
+            .await
+            .map_err(ApiError::db_error)?
             .into_iter()
-            .map(|model| SetupDiscoveredModel {
+            .collect()
+    } else {
+        HashSet::new()
+    };
+
+    let mut models: Vec<SetupDiscoveredModel> = canonical_roots
+        .iter()
+        .flat_map(|root| adapteros_db::Db::setup_discover_models(root))
+        .map(|model| {
+            let path = model.path.to_string_lossy().to_string();
+            SetupDiscoveredModel {
                 name: model.name,
-                model_path: model.path.to_string_lossy().to_string(),
+                path: path.clone(),
                 format: model.format,
                 backend: model.backend,
-            })
-            .collect();
+                already_registered: registered_paths.contains(&path),
+            }
+        })
+        .collect();
+    models.sort_by(|a, b| a.name.cmp(&b.name).then(a.path.cmp(&b.path)));
+    models.dedup_by(|a, b| a.path == b.path);
 
     Ok(Json(SetupDiscoverModelsResponse {
         schema_version: schema_version(),
-        root: canonical_root.to_string_lossy().to_string(),
+        root: canonical_roots
+            .first()
+            .map(|root| root.to_string_lossy().to_string())
+            .unwrap_or_default(),
         total: models.len(),
         models,
     }))
@@ -175,12 +198,31 @@ pub async fn setup_seed_models(
         })
         .collect();
 
+    let seeded = results
+        .iter()
+        .filter(|item| item.status == SetupSeedModelStatus::Seeded)
+        .cloned()
+        .collect::<Vec<_>>();
+    let skipped = results
+        .iter()
+        .filter(|item| item.status == SetupSeedModelStatus::Skipped)
+        .cloned()
+        .collect::<Vec<_>>();
+    let failed = results
+        .iter()
+        .filter(|item| item.status == SetupSeedModelStatus::Failed)
+        .cloned()
+        .collect::<Vec<_>>();
+
     Ok(Json(SetupSeedModelsResponse {
         schema_version: schema_version(),
         total: summary.total,
-        seeded: summary.seeded,
-        skipped: summary.skipped,
-        failed: summary.failed,
+        seeded_count: summary.seeded,
+        skipped_count: summary.skipped,
+        failed_count: summary.failed,
+        seeded,
+        skipped,
+        failed,
         results,
     }))
 }

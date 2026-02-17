@@ -200,6 +200,7 @@ pub async fn list_adapter_versions(
             dataset_version_trust,
             adapter_trust_state: version.adapter_trust_state,
             release_state: version.release_state,
+            version_weight: version.version_weight.unwrap_or(1.0),
             metrics_snapshot_id: version.metrics_snapshot_id,
             evaluation_summary: version.evaluation_summary,
             created_at: version.created_at,
@@ -415,6 +416,7 @@ pub async fn get_adapter_version(
         dataset_version_trust,
         adapter_trust_state: version.adapter_trust_state,
         release_state: version.release_state,
+        version_weight: version.version_weight.unwrap_or(1.0),
         metrics_snapshot_id: version.metrics_snapshot_id,
         evaluation_summary: version.evaluation_summary,
         created_at: version.created_at,
@@ -423,6 +425,64 @@ pub async fn get_adapter_version(
         serveable_reason,
         display_name,
     }))
+}
+
+#[utoipa::path(
+    tag = "system",
+    put,
+    path = "/v1/adapter-versions/{version_id}/weight",
+    request_body = SetAdapterVersionWeightRequest,
+    params(
+        ("version_id" = String, Path, description = "Version ID")
+    ),
+    responses(
+        (status = 204, description = "Version weight updated"),
+        (status = 404, description = "Version not found", body = ErrorResponse),
+        (status = 400, description = "Validation error", body = ErrorResponse)
+    )
+)]
+pub async fn set_adapter_version_weight_handler(
+    State(state): State<AppState>,
+    Extension(claims): Extension<Claims>,
+    Path(version_id): Path<String>,
+    Json(req): Json<SetAdapterVersionWeightRequest>,
+) -> Result<StatusCode, (StatusCode, Json<ErrorResponse>)> {
+    require_permission(&claims, Permission::AdapterRegister)?;
+    let version_id = crate::id_resolver::resolve_any_id(&state.db, &version_id)
+        .await
+        .map_err(<(StatusCode, Json<ErrorResponse>)>::from)?;
+
+    if !req.version_weight.is_finite() || !(0.0..=2.0).contains(&req.version_weight) {
+        return Err((
+            StatusCode::BAD_REQUEST,
+            Json(
+                ErrorResponse::new("version_weight must be finite and within 0.0..=2.0")
+                    .with_code("VALIDATION_ERROR"),
+            ),
+        ));
+    }
+
+    state
+        .db
+        .set_adapter_version_weight(&claims.tenant_id, &version_id, req.version_weight)
+        .await
+        .map_err(|e| {
+            let status = if matches!(e, AosError::NotFound(_)) {
+                StatusCode::NOT_FOUND
+            } else {
+                StatusCode::BAD_REQUEST
+            };
+            (
+                status,
+                Json(
+                    ErrorResponse::new("failed to update version weight")
+                        .with_code("VALIDATION_ERROR")
+                        .with_string_details(e.to_string()),
+                ),
+            )
+        })?;
+
+    Ok(StatusCode::NO_CONTENT)
 }
 
 #[utoipa::path(

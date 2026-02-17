@@ -144,6 +144,9 @@ pub struct AdapterVersion {
     pub published_at: Option<String>,
     /// Short description for published adapter
     pub short_description: Option<String>,
+    /// Deterministic version-aware routing multiplier (0.0..=2.0), defaults to 1.0.
+    #[sqlx(default)]
+    pub version_weight: Option<f64>,
 }
 
 #[derive(Debug, Clone, Serialize, Deserialize, sqlx::FromRow)]
@@ -275,6 +278,114 @@ pub struct VersionHistoryRecord {
     pub reason: Option<String>,
     pub train_job_id: Option<String>,
     pub created_at: String,
+}
+
+#[derive(Debug, Clone, Serialize, Deserialize)]
+pub struct RollbackAdapterBranchResult {
+    #[serde(alias = "promoted_timeline_event_id")]
+    pub timeline_event_id: String,
+}
+
+#[derive(Debug, Clone, Serialize, Deserialize)]
+pub struct AutoRollbackApplied {
+    pub repo_id: String,
+    pub branch: String,
+    pub target_version_id: String,
+    pub dataset_version_id: String,
+    pub timeline_event_id: String,
+    pub reason: String,
+}
+
+#[derive(Debug, Clone, Serialize, Deserialize, Default)]
+pub struct DatasetTrustPropagationResult {
+    pub linked_version_ids: Vec<String>,
+    pub auto_rollbacks: Vec<AutoRollbackApplied>,
+}
+
+/// Trust mutation outcome for dataset-version updates.
+///
+/// Keeps trust state and auto-rollback propagation in a single return type.
+#[derive(Debug, Clone, Serialize, Deserialize, Default)]
+pub struct DatasetTrustMutationResult {
+    pub trust_state: String,
+    #[serde(default)]
+    pub propagation: DatasetTrustPropagationResult,
+}
+
+impl DatasetTrustMutationResult {
+    pub fn into_trust_state(self) -> String {
+        self.trust_state
+    }
+}
+
+impl std::fmt::Display for DatasetTrustMutationResult {
+    fn fmt(&self, f: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
+        write!(f, "{}", self.trust_state)
+    }
+}
+
+impl std::ops::Deref for DatasetTrustMutationResult {
+    type Target = str;
+
+    fn deref(&self) -> &Self::Target {
+        self.trust_state.as_str()
+    }
+}
+
+impl PartialEq<&str> for DatasetTrustMutationResult {
+    fn eq(&self, other: &&str) -> bool {
+        self.trust_state == *other
+    }
+}
+
+impl From<DatasetTrustMutationResult> for String {
+    fn from(value: DatasetTrustMutationResult) -> Self {
+        value.trust_state
+    }
+}
+
+/// Trust override outcome containing override id and trust propagation metadata.
+#[derive(Debug, Clone, Serialize, Deserialize, Default)]
+pub struct DatasetTrustOverrideResult {
+    pub override_id: String,
+    #[serde(default)]
+    pub propagation: DatasetTrustPropagationResult,
+}
+
+impl DatasetTrustOverrideResult {
+    pub fn into_override_id(self) -> String {
+        self.override_id
+    }
+
+    pub fn is_empty(&self) -> bool {
+        self.override_id.is_empty()
+    }
+}
+
+impl std::fmt::Display for DatasetTrustOverrideResult {
+    fn fmt(&self, f: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
+        write!(f, "{}", self.override_id)
+    }
+}
+
+impl std::ops::Deref for DatasetTrustOverrideResult {
+    type Target = str;
+
+    fn deref(&self) -> &Self::Target {
+        self.override_id.as_str()
+    }
+}
+
+impl PartialEq<&str> for DatasetTrustOverrideResult {
+    fn eq(&self, other: &&str) -> bool {
+        self.override_id == *other
+    }
+}
+
+impl From<DatasetTrustOverrideResult> for String {
+    fn from(value: DatasetTrustOverrideResult) -> Self {
+        value.override_id
+    }
 }
 
 fn normalize_release_state(state: &str) -> String {
@@ -450,11 +561,11 @@ impl Db {
         Ok(())
     }
 
-    async fn insert_version_history(
+    async fn insert_version_history_with_id(
         &self,
         tx: &mut Transaction<'_, Sqlite>,
         entry: VersionHistoryEntry<'_>,
-    ) -> Result<()> {
+    ) -> Result<String> {
         let new_state = normalize_release_state(entry.new_state);
         let old_state = entry.old_state.map(normalize_release_state);
 
@@ -486,6 +597,15 @@ impl Db {
         .await
         .map_err(|e| AosError::Database(e.to_string()))?;
 
+        Ok(id)
+    }
+
+    async fn insert_version_history(
+        &self,
+        tx: &mut Transaction<'_, Sqlite>,
+        entry: VersionHistoryEntry<'_>,
+    ) -> Result<()> {
+        self.insert_version_history_with_id(tx, entry).await?;
         Ok(())
     }
 
@@ -631,7 +751,7 @@ impl Db {
         dataset_version_id: &str,
         previous_effective: Option<&str>,
         new_effective: &str,
-    ) -> Result<Vec<String>> {
+    ) -> Result<DatasetTrustPropagationResult> {
         let prev_norm = previous_effective.map(normalize_adapter_trust_state);
         let new_norm = normalize_adapter_trust_state(new_effective);
         let blocked_transition = new_norm == "blocked" && prev_norm.as_deref() != Some("blocked");
@@ -672,6 +792,7 @@ impl Db {
             .await
             .map_err(|e| AosError::Database(e.to_string()))?;
 
+        let mut auto_rollbacks: Vec<AutoRollbackApplied> = Vec::new();
         for (version_id, repo_id, tenant_id, branch) in regressed_versions.iter() {
             if let Some(policy) = self
                 .get_adapter_repository_policy(tenant_id, repo_id)
@@ -712,21 +833,41 @@ impl Db {
                         .map_err(|e| AosError::Database(e.to_string()))?;
 
                         if let Some(target) = rollback_target {
-                            let reason = Some("auto rollback on dataset trust regression");
-                            self.rollback_adapter_branch(
-                                tenant_id, repo_id, branch, &target, None, reason,
-                            )
-                            .await?;
+                            let reason = "auto rollback on dataset trust regression";
+                            let rollback_result = self
+                                .rollback_adapter_branch(
+                                    tenant_id,
+                                    repo_id,
+                                    branch,
+                                    &target,
+                                    None,
+                                    Some(reason),
+                                )
+                                .await?;
+
+                            auto_rollbacks.push(AutoRollbackApplied {
+                                repo_id: repo_id.clone(),
+                                branch: branch.clone(),
+                                target_version_id: target,
+                                dataset_version_id: dataset_version_id.to_string(),
+                                timeline_event_id: rollback_result.timeline_event_id,
+                                reason: reason.to_string(),
+                            });
                         }
                     }
                 }
             }
         }
 
-        Ok(linked_versions
+        let linked_version_ids = linked_versions
             .into_iter()
             .map(|(id, _, _, _)| id)
-            .collect())
+            .collect();
+
+        Ok(DatasetTrustPropagationResult {
+            linked_version_ids,
+            auto_rollbacks,
+        })
     }
 
     pub async fn create_adapter_repository(
@@ -1233,7 +1374,7 @@ impl Db {
                    manifest_schema_version, parent_version_id, code_commit_sha,
                    data_spec_hash, training_backend, coreml_used, coreml_device_type,
                    adapter_trust_state, release_state, metrics_snapshot_id, evaluation_summary, created_at,
-                   attach_mode, required_scope_dataset_version_id, is_archived, published_at, short_description
+                   attach_mode, required_scope_dataset_version_id, is_archived, published_at, short_description, version_weight
             FROM adapter_versions
             WHERE id = ? AND tenant_id = ?
             "#,
@@ -1260,7 +1401,7 @@ impl Db {
                    manifest_schema_version, parent_version_id, code_commit_sha,
                    data_spec_hash, training_backend, coreml_used, coreml_device_type,
                    adapter_trust_state, release_state, metrics_snapshot_id, evaluation_summary, created_at,
-                   attach_mode, required_scope_dataset_version_id, is_archived, published_at, short_description
+                   attach_mode, required_scope_dataset_version_id, is_archived, published_at, short_description, version_weight
             FROM adapter_versions
             WHERE tenant_id =
             "#,
@@ -1297,6 +1438,117 @@ impl Db {
         versions.sort_by(|a, b| compare_versions_desc(a, b));
 
         Ok(versions)
+    }
+
+    pub async fn set_adapter_version_weight(
+        &self,
+        tenant_id: &str,
+        version_id: &str,
+        version_weight: f64,
+    ) -> Result<()> {
+        if !version_weight.is_finite() || !(0.0..=2.0).contains(&version_weight) {
+            return Err(AosError::Validation(
+                "version_weight must be finite and within 0.0..=2.0".to_string(),
+            ));
+        }
+
+        let mut tx = self.begin_write_tx().await?;
+
+        let exists: Option<(String,)> = sqlx::query_as(
+            "SELECT id FROM adapter_versions WHERE id = ? AND tenant_id = ? LIMIT 1",
+        )
+        .bind(version_id)
+        .bind(tenant_id)
+        .fetch_optional(&mut *tx)
+        .await
+        .map_err(|e| AosError::Database(e.to_string()))?;
+
+        if exists.is_none() {
+            return Err(AosError::NotFound(format!(
+                "adapter version {}",
+                version_id
+            )));
+        }
+
+        sqlx::query(
+            "UPDATE adapter_versions SET version_weight = ? WHERE id = ? AND tenant_id = ?",
+        )
+        .bind(version_weight)
+        .bind(version_id)
+        .bind(tenant_id)
+        .execute(&mut *tx)
+        .await
+        .map_err(|e| AosError::Database(e.to_string()))?;
+
+        // Keep runtime adapter rows in sync for fast routing reads.
+        sqlx::query(
+            "UPDATE adapters SET effective_version_weight = ? WHERE tenant_id = ? AND adapter_version_id = ?",
+        )
+        .bind(version_weight)
+        .bind(tenant_id)
+        .bind(version_id)
+        .execute(&mut *tx)
+        .await
+        .map_err(|e| AosError::Database(e.to_string()))?;
+
+        tx.commit()
+            .await
+            .map_err(|e| AosError::Database(e.to_string()))?;
+
+        Ok(())
+    }
+
+    pub async fn link_adapter_registration_to_version(
+        &self,
+        tenant_id: &str,
+        adapter_id: &str,
+        repo_id: Option<&str>,
+        version_id: &str,
+    ) -> Result<()> {
+        let mut tx = self.begin_write_tx().await?;
+
+        let version_row: Option<(f64,)> = sqlx::query_as(
+            "SELECT version_weight FROM adapter_versions WHERE id = ? AND tenant_id = ? LIMIT 1",
+        )
+        .bind(version_id)
+        .bind(tenant_id)
+        .fetch_optional(&mut *tx)
+        .await
+        .map_err(|e| AosError::Database(e.to_string()))?;
+
+        let (version_weight,) = version_row
+            .ok_or_else(|| AosError::NotFound(format!("adapter version {}", version_id)))?;
+
+        let normalized_repo_id = repo_id
+            .map(str::trim)
+            .filter(|value| !value.is_empty())
+            .map(ToOwned::to_owned);
+
+        let result = sqlx::query(
+            "UPDATE adapters
+             SET repo_id = COALESCE(?, repo_id),
+                 adapter_version_id = ?,
+                 effective_version_weight = ?
+             WHERE tenant_id = ? AND adapter_id = ?",
+        )
+        .bind(normalized_repo_id)
+        .bind(version_id)
+        .bind(version_weight)
+        .bind(tenant_id)
+        .bind(adapter_id)
+        .execute(&mut *tx)
+        .await
+        .map_err(|e| AosError::Database(e.to_string()))?;
+
+        if result.rows_affected() == 0 {
+            return Err(AosError::NotFound(format!("adapter {}", adapter_id)));
+        }
+
+        tx.commit()
+            .await
+            .map_err(|e| AosError::Database(e.to_string()))?;
+
+        Ok(())
     }
 
     pub async fn upsert_adapter_version_runtime_state(
@@ -1368,7 +1620,7 @@ impl Db {
                    manifest_schema_version, parent_version_id, code_commit_sha,
                    data_spec_hash, training_backend, coreml_used, coreml_device_type,
                    adapter_trust_state, release_state, metrics_snapshot_id, evaluation_summary, created_at,
-                   attach_mode, required_scope_dataset_version_id, is_archived, published_at, short_description
+                   attach_mode, required_scope_dataset_version_id, is_archived, published_at, short_description, version_weight
             FROM adapter_versions
             WHERE id = ?
             "#,
@@ -1660,7 +1912,7 @@ impl Db {
                    manifest_schema_version, parent_version_id, code_commit_sha,
                    data_spec_hash, training_backend, coreml_used, coreml_device_type,
                    adapter_trust_state, release_state, metrics_snapshot_id, evaluation_summary, created_at,
-                   attach_mode, required_scope_dataset_version_id, is_archived, published_at, short_description
+                   attach_mode, required_scope_dataset_version_id, is_archived, published_at, short_description, version_weight
             FROM adapter_versions
             WHERE id = ?
             "#,
@@ -1750,7 +2002,7 @@ impl Db {
                    manifest_schema_version, parent_version_id, code_commit_sha,
                    data_spec_hash, training_backend, coreml_used, coreml_device_type,
                    adapter_trust_state, release_state, metrics_snapshot_id, evaluation_summary, created_at,
-                   attach_mode, required_scope_dataset_version_id, is_archived, published_at, short_description
+                   attach_mode, required_scope_dataset_version_id, is_archived, published_at, short_description, version_weight
             FROM adapter_versions
             WHERE repo_id = ? AND tenant_id = ? AND branch = ? AND release_state = 'active'
             ORDER BY created_at DESC
@@ -1783,7 +2035,7 @@ impl Db {
                    manifest_schema_version, parent_version_id, code_commit_sha,
                    data_spec_hash, training_backend, coreml_used, coreml_device_type,
                    adapter_trust_state, release_state, metrics_snapshot_id, evaluation_summary, created_at,
-                   attach_mode, required_scope_dataset_version_id, is_archived, published_at, short_description
+                   attach_mode, required_scope_dataset_version_id, is_archived, published_at, short_description, version_weight
             FROM adapter_versions
             WHERE id = ?
             "#,
@@ -1869,7 +2121,7 @@ impl Db {
                    manifest_schema_version, parent_version_id, code_commit_sha,
                    data_spec_hash, training_backend, coreml_used, coreml_device_type,
                    adapter_trust_state, release_state, metrics_snapshot_id, evaluation_summary, created_at,
-                   attach_mode, required_scope_dataset_version_id, is_archived, published_at, short_description
+                   attach_mode, required_scope_dataset_version_id, is_archived, published_at, short_description, version_weight
             FROM adapter_versions
             WHERE repo_id = ? AND tenant_id = ? AND branch = ? AND release_state = 'active'
             LIMIT 1
@@ -2093,7 +2345,7 @@ impl Db {
         target_version_id: &str,
         actor: Option<&str>,
         reason: Option<&str>,
-    ) -> Result<()> {
+    ) -> Result<RollbackAdapterBranchResult> {
         let mut tx = self.begin_write_tx().await?;
 
         let target_version = sqlx::query_as::<Sqlite, AdapterVersion>(
@@ -2102,7 +2354,7 @@ impl Db {
                    manifest_schema_version, parent_version_id, code_commit_sha,
                    data_spec_hash, training_backend, coreml_used, coreml_device_type,
                    adapter_trust_state, release_state, metrics_snapshot_id, evaluation_summary, created_at,
-                   attach_mode, required_scope_dataset_version_id, is_archived, published_at, short_description
+                   attach_mode, required_scope_dataset_version_id, is_archived, published_at, short_description, version_weight
             FROM adapter_versions
             WHERE id = ?
             "#,
@@ -2138,7 +2390,7 @@ impl Db {
                    manifest_schema_version, parent_version_id, code_commit_sha,
                    data_spec_hash, training_backend, coreml_used, coreml_device_type,
                    adapter_trust_state, release_state, metrics_snapshot_id, evaluation_summary, created_at,
-                   attach_mode, required_scope_dataset_version_id, is_archived, published_at, short_description
+                   attach_mode, required_scope_dataset_version_id, is_archived, published_at, short_description, version_weight
             FROM adapter_versions
             WHERE repo_id = ? AND tenant_id = ? AND branch = ? AND release_state = 'active'
             LIMIT 1
@@ -2184,27 +2436,30 @@ impl Db {
             .await
             .map_err(|e| AosError::Database(e.to_string()))?;
 
-        self.insert_version_history(
-            &mut tx,
-            VersionHistoryEntry {
-                repo_id,
-                tenant_id,
-                branch,
-                version_id: target_version_id,
-                old_state: Some(&target_version.release_state),
-                new_state: "active",
-                actor,
-                reason,
-                train_job_id: None,
-            },
-        )
-        .await?;
+        let promoted_timeline_event_id = self
+            .insert_version_history_with_id(
+                &mut tx,
+                VersionHistoryEntry {
+                    repo_id,
+                    tenant_id,
+                    branch,
+                    version_id: target_version_id,
+                    old_state: Some(&target_version.release_state),
+                    new_state: "active",
+                    actor,
+                    reason,
+                    train_job_id: None,
+                },
+            )
+            .await?;
 
         tx.commit()
             .await
             .map_err(|e| AosError::Database(e.to_string()))?;
 
-        Ok(())
+        Ok(RollbackAdapterBranchResult {
+            timeline_event_id: promoted_timeline_event_id,
+        })
     }
 
     /// Mark a promotion as failed and restore the last deprecated version on the branch, if any.
@@ -2225,7 +2480,7 @@ impl Db {
                    manifest_schema_version, parent_version_id, code_commit_sha,
                    data_spec_hash, training_backend, coreml_used, coreml_device_type,
                    adapter_trust_state, release_state, metrics_snapshot_id, evaluation_summary, created_at,
-                   attach_mode, required_scope_dataset_version_id, is_archived, published_at, short_description
+                   attach_mode, required_scope_dataset_version_id, is_archived, published_at, short_description, version_weight
             FROM adapter_versions
             WHERE id = ?
             "#,
@@ -2286,7 +2541,7 @@ impl Db {
                    manifest_schema_version, parent_version_id, code_commit_sha,
                    data_spec_hash, training_backend, coreml_used, coreml_device_type,
                    adapter_trust_state, release_state, metrics_snapshot_id, evaluation_summary, created_at,
-                   attach_mode, required_scope_dataset_version_id, is_archived, published_at, short_description
+                   attach_mode, required_scope_dataset_version_id, is_archived, published_at, short_description, version_weight
             FROM adapter_versions
             WHERE repo_id = ? AND tenant_id = ? AND branch = ? AND release_state = 'deprecated' AND id != ?
             ORDER BY created_at DESC
@@ -2411,7 +2666,7 @@ impl Db {
                    manifest_schema_version, parent_version_id, code_commit_sha,
                    data_spec_hash, training_backend, coreml_used, coreml_device_type,
                    adapter_trust_state, release_state, metrics_snapshot_id, evaluation_summary, created_at,
-                   attach_mode, required_scope_dataset_version_id, is_archived, published_at, short_description
+                   attach_mode, required_scope_dataset_version_id, is_archived, published_at, short_description, version_weight
             FROM adapter_versions
             WHERE tenant_id = ? AND repo_id = ? AND branch = ? AND release_state = 'active'
             ORDER BY created_at DESC
@@ -2480,7 +2735,7 @@ impl Db {
                    manifest_schema_version, parent_version_id, code_commit_sha,
                    data_spec_hash, training_backend, coreml_used, coreml_device_type,
                    adapter_trust_state, release_state, metrics_snapshot_id, evaluation_summary, created_at,
-                   attach_mode, required_scope_dataset_version_id, is_archived, published_at, short_description
+                   attach_mode, required_scope_dataset_version_id, is_archived, published_at, short_description, version_weight
             FROM adapter_versions
             WHERE tenant_id = ? AND repo_id = ? AND branch = ? AND version = ?
             LIMIT 1
@@ -2535,7 +2790,7 @@ impl Db {
                    manifest_schema_version, parent_version_id, code_commit_sha,
                    data_spec_hash, training_backend, coreml_used, coreml_device_type,
                    adapter_trust_state, release_state, metrics_snapshot_id, evaluation_summary, created_at,
-                   attach_mode, required_scope_dataset_version_id, is_archived, published_at, short_description
+                   attach_mode, required_scope_dataset_version_id, is_archived, published_at, short_description, version_weight
             FROM adapter_versions
             "#,
         )
@@ -2760,7 +3015,7 @@ impl Db {
                    manifest_schema_version, parent_version_id, code_commit_sha,
                    data_spec_hash, training_backend, coreml_used, coreml_device_type,
                    adapter_trust_state, release_state, metrics_snapshot_id, evaluation_summary, created_at,
-                   attach_mode, required_scope_dataset_version_id, is_archived, published_at, short_description
+                   attach_mode, required_scope_dataset_version_id, is_archived, published_at, short_description, version_weight
             FROM adapter_versions
             WHERE id = ? AND tenant_id = ?
             "#

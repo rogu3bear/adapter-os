@@ -22,6 +22,9 @@ const AOS_SKIP_SYMLINK_CHECK_ENV: &str = "AOS_SKIP_SYMLINK_CHECK";
 /// Primary adapters root environment variable.
 pub const AOS_ADAPTERS_ROOT_ENV: &str = "AOS_ADAPTERS_ROOT";
 
+/// Default control-plane/training-worker UDS socket path.
+pub const DEFAULT_TRAINING_WORKER_SOCKET: &str = "var/run/training-worker.sock";
+
 /// Source describing where a resolved path originated.
 #[derive(Debug, Clone, PartialEq, Eq)]
 pub enum PathSource {
@@ -508,6 +511,70 @@ pub fn resolve_worker_socket_for_cp() -> Result<ResolvedPath> {
     Ok(ResolvedPath {
         path,
         source: PathSource::Default("worker-socket-cp"),
+        used_dev_fallback: false,
+    })
+}
+
+/// Resolve training-worker socket for the training worker process.
+///
+/// Precedence:
+/// 1) CLI override (already parsed into `override_path`)
+/// 2) AOS_TRAINING_WORKER_SOCKET
+/// 3) DEFAULT_TRAINING_WORKER_SOCKET
+pub fn resolve_training_worker_socket_for_worker(
+    override_path: Option<&Path>,
+) -> Result<ResolvedPath> {
+    crate::model::load_dotenv();
+    if let Some(path) = override_path {
+        let path = rebase_var_path(path);
+        reject_tmp_socket(&path, "training-worker")?;
+        tracing::info!(
+            path = %path.display(),
+            source = %PathSource::Cli,
+            "Resolved training worker socket from CLI override"
+        );
+        return Ok(ResolvedPath {
+            path,
+            source: PathSource::Cli,
+            used_dev_fallback: false,
+        });
+    }
+
+    resolve_training_worker_socket_for_cp()
+}
+
+/// Resolve training-worker socket for control plane clients.
+///
+/// Precedence:
+/// 1) AOS_TRAINING_WORKER_SOCKET
+/// 2) DEFAULT_TRAINING_WORKER_SOCKET
+pub fn resolve_training_worker_socket_for_cp() -> Result<ResolvedPath> {
+    crate::model::load_dotenv();
+    if let Ok(env_path) = std::env::var("AOS_TRAINING_WORKER_SOCKET") {
+        let path = rebase_var_path(PathBuf::from(&env_path));
+        reject_tmp_socket(&path, "training-worker-control-plane")?;
+        tracing::info!(
+            path = %path.display(),
+            source = %PathSource::Env("AOS_TRAINING_WORKER_SOCKET"),
+            "Resolved training worker socket from environment"
+        );
+        return Ok(ResolvedPath {
+            path,
+            source: PathSource::Env("AOS_TRAINING_WORKER_SOCKET"),
+            used_dev_fallback: false,
+        });
+    }
+
+    let path = rebase_default_var_path(DEFAULT_TRAINING_WORKER_SOCKET);
+    reject_tmp_socket(&path, "training-worker-control-plane")?;
+    tracing::info!(
+        path = %path.display(),
+        source = %PathSource::Default("training-worker-socket"),
+        "Using default training worker socket"
+    );
+    Ok(ResolvedPath {
+        path,
+        source: PathSource::Default("training-worker-socket"),
         used_dev_fallback: false,
     })
 }
@@ -1366,6 +1433,32 @@ mod tests {
         let resolved = resolve_worker_socket_for_cp().unwrap();
         assert_eq!(resolved.path, resolve_var_dir().join("run/adapteros.sock"));
         assert_eq!(resolved.source, PathSource::Default("worker-socket-cp"));
+    }
+
+    #[test]
+    fn training_worker_socket_rebases_under_var_dir() {
+        let _env = TestEnvGuard::new();
+        std::env::set_var("AOS_VAR_DIR", "var/custom-root");
+        let resolved = resolve_training_worker_socket_for_cp().unwrap();
+        assert_eq!(
+            resolved.path,
+            resolve_var_dir().join("run/training-worker.sock")
+        );
+        assert_eq!(
+            resolved.source,
+            PathSource::Default("training-worker-socket")
+        );
+    }
+
+    #[test]
+    fn training_worker_socket_rejects_tmp_env() {
+        let _env = TestEnvGuard::new();
+        std::env::set_var("AOS_TRAINING_WORKER_SOCKET", "/tmp/training-worker.sock");
+        let err = resolve_training_worker_socket_for_cp()
+            .unwrap_err()
+            .to_string();
+        assert!(err.contains("must not be under /tmp"));
+        std::env::remove_var("AOS_TRAINING_WORKER_SOCKET");
     }
 
     #[test]

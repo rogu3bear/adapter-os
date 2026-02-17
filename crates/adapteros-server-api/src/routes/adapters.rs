@@ -79,6 +79,10 @@ pub fn adapter_routes() -> Router<AppState> {
             post(handlers::promote_adapter_version_handler),
         )
         .route(
+            "/v1/adapter-versions/{version_id}/weight",
+            put(handlers::set_adapter_version_weight_handler),
+        )
+        .route(
             "/v1/adapter-versions/{version_id}/tag",
             post(handlers::tag_adapter_version_handler),
         )

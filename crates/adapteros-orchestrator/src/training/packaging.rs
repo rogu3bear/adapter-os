@@ -839,6 +839,9 @@ pub(crate) async fn package_and_register_adapter(
         }
 
         let adapter_tenant_id = tenant_id.unwrap_or(tenant);
+        let versioning_repo_id = versioning_snapshot.and_then(|v| v.repo_id.as_deref());
+        let versioning_adapter_version_id =
+            versioning_snapshot.and_then(|v| v.adapter_version_id.as_deref());
         let base_model_lookup_tenant = base_model_tenant_or_workspace_id
             .or(tenant_id)
             .unwrap_or(adapter_tenant_id);
@@ -951,6 +954,7 @@ pub(crate) async fn package_and_register_adapter(
             .rank(orchestrator_cfg.rank as i32)
             .tier(&post_actions.tier)
             .alpha(orchestrator_cfg.alpha as f64)
+            .repo_id(versioning_repo_id)
             .category(adapter_category)
             .adapter_type(adapter_type.clone())
             .scope(registration_scope)
@@ -988,6 +992,26 @@ pub(crate) async fn package_and_register_adapter(
                     db_id = %db_id,
                     "Adapter registered in database"
                 );
+
+                if let Some(version_id) = versioning_adapter_version_id {
+                    if let Err(e) = database
+                        .link_adapter_registration_to_version(
+                            adapter_tenant_id,
+                            &packaged.adapter_id,
+                            versioning_repo_id,
+                            version_id,
+                        )
+                        .await
+                    {
+                        warn!(
+                            job_id = %job_id,
+                            adapter_id = %packaged.adapter_id,
+                            version_id = %version_id,
+                            error = %e,
+                            "Failed to link registered adapter to adapter version (non-fatal)"
+                        );
+                    }
+                }
 
                 // Update training job with artifact metadata
                 if let Err(e) = database

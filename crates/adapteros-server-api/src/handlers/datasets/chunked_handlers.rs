@@ -9,6 +9,7 @@ use super::helpers::{
 };
 use super::paths::{resolve_dataset_root, DatasetPaths};
 use super::progress::emit_progress;
+use super::safety::emit_auto_rollback_events;
 use super::tenant::bind_dataset_to_tenant;
 use super::types::{
     CompleteChunkedUploadRequest, CompleteChunkedUploadResponse, ListUploadSessionsResponse,
@@ -944,7 +945,7 @@ pub async fn complete_chunked_upload(
             .map_err(|e| ApiError::db_error(format!("Failed to ensure dataset version: {}", e)))?
     };
 
-    if let Err(e) = state
+    match state
         .db
         .update_dataset_version_structural_validation(
             &version_id,
@@ -953,12 +954,17 @@ pub async fn complete_chunked_upload(
         )
         .await
     {
-        warn!(
-            error = %e,
-            dataset_id = %dataset_id,
-            dataset_version_id = %version_id,
-            "Failed to update dataset version validation status"
-        );
+        Ok(result) => {
+            emit_auto_rollback_events(&state, &result.propagation.auto_rollbacks).await;
+        }
+        Err(e) => {
+            warn!(
+                error = %e,
+                dataset_id = %dataset_id,
+                dataset_version_id = %version_id,
+                "Failed to update dataset version validation status"
+            );
+        }
     }
 
     if request.format == "jsonl" {

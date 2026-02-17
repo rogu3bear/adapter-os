@@ -32,6 +32,7 @@ members = [
     "crates/adapteros-lora-rag",
     "crates/adapteros-ingest-docs",
     "crates/adapteros-lora-worker",  # Re-enabled for MVP
+    "crates/adapteros-training-worker",
     "crates/adapteros-telemetry",
     "crates/adapteros-telemetry-verifier",
     "crates/adapteros-policy",

@@ -2097,6 +2097,10 @@
           },
           "version": {
             "type": "string"
+          },
+          "version_weight": {
+            "format": "double",
+            "type": "number"
           }
         },
         "required": [
@@ -2201,6 +2205,188 @@
         "required": [
           "to_cluster_id",
           "probability"
+        ],
+        "type": "object"
+      },
+      "AdminConfigResponse": {
+        "description": "Sanitized admin configuration response",
+        "properties": {
+          "access_token_ttl_seconds": {
+            "format": "int64",
+            "minimum": 0,
+            "type": [
+              "integer",
+              "null"
+            ]
+          },
+          "allow_registration": {
+            "type": "boolean"
+          },
+          "concurrent_requests": {
+            "minimum": 0,
+            "type": [
+              "integer",
+              "null"
+            ]
+          },
+          "dev_bypass_enabled": {
+            "type": "boolean"
+          },
+          "environment": {
+            "type": [
+              "string",
+              "null"
+            ]
+          },
+          "jwt_mode": {
+            "type": [
+              "string",
+              "null"
+            ]
+          },
+          "max_adapters": {
+            "minimum": 0,
+            "type": [
+              "integer",
+              "null"
+            ]
+          },
+          "max_concurrent_training_jobs": {
+            "minimum": 0,
+            "type": "integer"
+          },
+          "max_workers": {
+            "minimum": 0,
+            "type": [
+              "integer",
+              "null"
+            ]
+          },
+          "metrics_enabled": {
+            "type": "boolean"
+          },
+          "production_mode": {
+            "type": "boolean"
+          },
+          "require_mfa": {
+            "type": "boolean"
+          },
+          "review_webhook_configured": {
+            "type": "boolean"
+          },
+          "schema_version": {
+            "type": "string"
+          },
+          "self_hosting_mode": {
+            "type": "string"
+          },
+          "self_hosting_repo_allowlist_count": {
+            "minimum": 0,
+            "type": "integer"
+          },
+          "session_ttl_seconds": {
+            "format": "int64",
+            "minimum": 0,
+            "type": [
+              "integer",
+              "null"
+            ]
+          },
+          "ssrf_protection": {
+            "type": "boolean"
+          },
+          "streaming_heartbeat_interval_secs": {
+            "format": "int64",
+            "minimum": 0,
+            "type": "integer"
+          },
+          "streaming_idle_timeout_secs": {
+            "format": "int64",
+            "minimum": 0,
+            "type": "integer"
+          },
+          "token_ttl_seconds": {
+            "format": "int64",
+            "minimum": 0,
+            "type": [
+              "integer",
+              "null"
+            ]
+          },
+          "worker_heartbeat_interval_secs": {
+            "format": "int64",
+            "minimum": 0,
+            "type": "integer"
+          }
+        },
+        "required": [
+          "production_mode",
+          "dev_bypass_enabled",
+          "require_mfa",
+          "allow_registration",
+          "ssrf_protection",
+          "metrics_enabled",
+          "review_webhook_configured",
+          "max_concurrent_training_jobs",
+          "worker_heartbeat_interval_secs",
+          "streaming_heartbeat_interval_secs",
+          "streaming_idle_timeout_secs",
+          "self_hosting_mode",
+          "self_hosting_repo_allowlist_count"
+        ],
+        "type": "object"
+      },
+      "AdminStatusResponse": {
+        "description": "Admin status response",
+        "properties": {
+          "draining_mode": {
+            "type": "boolean"
+          },
+          "in_flight_requests": {
+            "format": "int64",
+            "minimum": 0,
+            "type": "integer"
+          },
+          "lifecycle": {
+            "type": "string"
+          },
+          "maintenance_mode": {
+            "type": "boolean"
+          },
+          "rag_enabled": {
+            "type": "boolean"
+          },
+          "registered_workers": {
+            "minimum": 0,
+            "type": "integer"
+          },
+          "runtime_mode": {
+            "type": "string"
+          },
+          "schema_version": {
+            "type": "string"
+          },
+          "status": {
+            "type": "string"
+          },
+          "strict_mode": {
+            "type": "boolean"
+          },
+          "version": {
+            "type": "string"
+          }
+        },
+        "required": [
+          "status",
+          "version",
+          "runtime_mode",
+          "lifecycle",
+          "strict_mode",
+          "maintenance_mode",
+          "draining_mode",
+          "in_flight_requests",
+          "registered_workers",
+          "rag_enabled"
         ],
         "type": "object"
       },
@@ -3508,6 +3694,67 @@
           "modelserver"
         ],
         "type": "string"
+      },
+      "BackendMemoryBreakdown": {
+        "description": "Per-backend memory breakdown for resource contention visibility.",
+        "properties": {
+          "coreml_mb": {
+            "description": "CoreML/ANE memory used in MB",
+            "format": "double",
+            "type": [
+              "number",
+              "null"
+            ]
+          },
+          "headroom_pct": {
+            "description": "Headroom percentage (0.0-100.0)",
+            "format": "float",
+            "type": [
+              "number",
+              "null"
+            ]
+          },
+          "metal_mb": {
+            "description": "Metal GPU memory used in MB",
+            "format": "double",
+            "type": [
+              "number",
+              "null"
+            ]
+          },
+          "mlx_mb": {
+            "description": "MLX memory used in MB",
+            "format": "double",
+            "type": [
+              "number",
+              "null"
+            ]
+          },
+          "pressure_level": {
+            "description": "Pressure level string: \"low\", \"medium\", \"high\", \"critical\"",
+            "type": [
+              "string",
+              "null"
+            ]
+          },
+          "total_available_mb": {
+            "description": "System total available in MB",
+            "format": "double",
+            "type": [
+              "number",
+              "null"
+            ]
+          },
+          "total_used_mb": {
+            "description": "Total used across backends in MB",
+            "format": "double",
+            "type": [
+              "number",
+              "null"
+            ]
+          }
+        },
+        "type": "object"
       },
       "BackgroundTaskEntry": {
         "properties": {
@@ -4826,6 +5073,15 @@
         ],
         "type": "object"
       },
+      "ChainCompleteness": {
+        "description": "Chain completeness classification for API responses.",
+        "enum": [
+          "full",
+          "partial",
+          "minimal"
+        ],
+        "type": "string"
+      },
       "ChainVerificationResponse": {
         "description": "Chain verification response",
         "properties": {
@@ -5060,51 +5316,20 @@
         "type": "string"
       },
       "ChatMessage": {
-        "description": "Chat message record",
+        "description": "Structured chat message for template-aware formatting.",
         "properties": {
           "content": {
+            "description": "Message content",
             "type": "string"
-          },
-          "created_at": {
-            "type": "string"
-          },
-          "id": {
-            "type": "string"
-          },
-          "metadata_json": {
-            "type": [
-              "string",
-              "null"
-            ]
           },
           "role": {
+            "description": "Message role: \"system\", \"user\", or \"assistant\"",
             "type": "string"
-          },
-          "sequence": {
-            "format": "int64",
-            "type": "integer"
-          },
-          "session_id": {
-            "type": "string"
-          },
-          "tenant_id": {
-            "type": "string"
-          },
-          "timestamp": {
-            "type": [
-              "string",
-              "null"
-            ]
           }
         },
         "required": [
-          "id",
-          "session_id",
-          "tenant_id",
           "role",
-          "content",
-          "created_at",
-          "sequence"
+          "content"
         ],
         "type": "object"
       },
@@ -7066,6 +7291,48 @@
         ],
         "type": "object"
       },
+      "ContactUpdateParams": {
+        "description": "Parameters for updating a contact by ID",
+        "properties": {
+          "avatar_url": {
+            "type": [
+              "string",
+              "null"
+            ]
+          },
+          "category": {
+            "type": [
+              "string",
+              "null"
+            ]
+          },
+          "email": {
+            "type": [
+              "string",
+              "null"
+            ]
+          },
+          "metadata_json": {
+            "type": [
+              "string",
+              "null"
+            ]
+          },
+          "name": {
+            "type": [
+              "string",
+              "null"
+            ]
+          },
+          "role": {
+            "type": [
+              "string",
+              "null"
+            ]
+          }
+        },
+        "type": "object"
+      },
       "ContactUpsertParams": {
         "description": "Parameters for contact upsert operation",
         "properties": {
@@ -8742,6 +9009,33 @@
           "base_model_id",
           "dataset_id",
           "params"
+        ],
+        "type": "object"
+      },
+      "CreateUserRequest": {
+        "description": "Create user request",
+        "properties": {
+          "display_name": {
+            "type": "string"
+          },
+          "email": {
+            "type": "string"
+          },
+          "password": {
+            "type": "string"
+          },
+          "role": {
+            "type": "string"
+          },
+          "tenant_id": {
+            "type": "string"
+          }
+        },
+        "required": [
+          "email",
+          "display_name",
+          "password",
+          "role"
         ],
         "type": "object"
       },
@@ -12165,6 +12459,120 @@
         ],
         "type": "object"
       },
+      "FIMRequest": {
+        "description": "Fill-in-the-Middle inference request for code completion.\n\nThe model generates code to fill the gap between `prefix` (code before\ncursor) and `suffix` (code after cursor). Internally this is encoded as:\n`<|fim_prefix|>{prefix}<|fim_suffix|>{suffix}<|fim_middle|>`\nand the generated tokens form the completion.",
+        "properties": {
+          "adapter_id": {
+            "description": "Adapter ID to use for generation (routes through existing adapter router)",
+            "type": [
+              "string",
+              "null"
+            ]
+          },
+          "max_tokens": {
+            "description": "Maximum tokens to generate for the infill",
+            "format": "int32",
+            "minimum": 0,
+            "type": "integer"
+          },
+          "prefix": {
+            "description": "Code before the cursor position",
+            "type": "string"
+          },
+          "run_envelope": {
+            "oneOf": [
+              {
+                "type": "null"
+              },
+              {
+                "$ref": "#/components/schemas/RunEnvelope",
+                "description": "Run envelope for audit trail"
+              }
+            ]
+          },
+          "stack_id": {
+            "description": "Stack ID to use for multi-adapter routing",
+            "type": [
+              "string",
+              "null"
+            ]
+          },
+          "stop_sequences": {
+            "description": "Optional stop sequences (in addition to built-in FIM stops)",
+            "items": {
+              "type": "string"
+            },
+            "type": "array"
+          },
+          "stream": {
+            "description": "Whether to stream the response via SSE",
+            "type": "boolean"
+          },
+          "suffix": {
+            "description": "Code after the cursor position",
+            "type": "string"
+          },
+          "temperature": {
+            "description": "Sampling temperature (0.0 = greedy)",
+            "format": "float",
+            "type": "number"
+          }
+        },
+        "required": [
+          "prefix",
+          "suffix"
+        ],
+        "type": "object"
+      },
+      "FIMResponse": {
+        "description": "Fill-in-the-Middle inference response.",
+        "properties": {
+          "adapter_id": {
+            "description": "Adapter used for generation",
+            "type": [
+              "string",
+              "null"
+            ]
+          },
+          "completion": {
+            "description": "Generated infill text (the code that fills the gap)",
+            "type": "string"
+          },
+          "schema_version": {
+            "description": "Schema version",
+            "type": "string"
+          },
+          "stop_reason": {
+            "description": "Why generation stopped",
+            "type": [
+              "string",
+              "null"
+            ]
+          },
+          "token_ids": {
+            "description": "Token IDs generated",
+            "items": {
+              "format": "int32",
+              "minimum": 0,
+              "type": "integer"
+            },
+            "type": "array"
+          },
+          "tokens_generated": {
+            "description": "Number of tokens generated",
+            "format": "int32",
+            "minimum": 0,
+            "type": "integer"
+          }
+        },
+        "required": [
+          "completion",
+          "token_ids",
+          "tokens_generated",
+          "schema_version"
+        ],
+        "type": "object"
+      },
       "FailureCode": {
         "description": "Structured failure codes for smoke-test visibility and UI surfacing.",
         "enum": [
@@ -12209,6 +12617,53 @@
           "THUNDERING_HERD_REJECTED"
         ],
         "type": "string"
+      },
+      "FeatureScoreBreakdown": {
+        "description": "Per-feature score breakdown for prompt-global contributions\n(adapter_id remains for shape compatibility with older consumers).",
+        "properties": {
+          "adapter_id": {
+            "type": "string"
+          },
+          "framework_score": {
+            "format": "double",
+            "type": "number"
+          },
+          "language_score": {
+            "format": "double",
+            "type": "number"
+          },
+          "path_tokens_score": {
+            "format": "double",
+            "type": "number"
+          },
+          "prompt_verb_score": {
+            "format": "double",
+            "type": "number"
+          },
+          "symbol_hits_score": {
+            "format": "double",
+            "type": "number"
+          },
+          "tier_boost": {
+            "format": "double",
+            "type": "number"
+          },
+          "total_score": {
+            "format": "double",
+            "type": "number"
+          }
+        },
+        "required": [
+          "adapter_id",
+          "language_score",
+          "framework_score",
+          "symbol_hits_score",
+          "path_tokens_score",
+          "prompt_verb_score",
+          "tier_boost",
+          "total_score"
+        ],
+        "type": "object"
       },
       "FeatureVector": {
         "description": "Feature vector",
@@ -12394,6 +12849,34 @@
         ],
         "type": "object"
       },
+      "FieldCheck": {
+        "description": "Result of verifying a single provenance field.",
+        "properties": {
+          "field": {
+            "type": "string"
+          },
+          "note": {
+            "type": [
+              "string",
+              "null"
+            ]
+          },
+          "present": {
+            "type": "boolean"
+          },
+          "verified": {
+            "type": [
+              "boolean",
+              "null"
+            ]
+          }
+        },
+        "required": [
+          "field",
+          "present"
+        ],
+        "type": "object"
+      },
       "FileBrowseEntry": {
         "description": "A single filesystem entry",
         "properties": {
@@ -12503,6 +12986,67 @@
           "file_path",
           "change_type",
           "timestamp"
+        ],
+        "type": "object"
+      },
+      "FileContentResponse": {
+        "description": "Response with file content payload",
+        "properties": {
+          "content": {
+            "description": "UTF-8 file content",
+            "type": "string"
+          },
+          "language": {
+            "description": "Language hint for editors",
+            "type": [
+              "string",
+              "null"
+            ]
+          },
+          "line_count": {
+            "description": "Total line count",
+            "format": "int32",
+            "minimum": 0,
+            "type": "integer"
+          },
+          "mime_type": {
+            "description": "MIME type guess",
+            "type": [
+              "string",
+              "null"
+            ]
+          },
+          "modified_at": {
+            "description": "Last modified time (ISO 8601)",
+            "type": [
+              "string",
+              "null"
+            ]
+          },
+          "path": {
+            "description": "Canonical path that was read",
+            "type": "string"
+          },
+          "readonly": {
+            "description": "Whether file is readonly in editor",
+            "type": "boolean"
+          },
+          "schema_version": {
+            "description": "Schema version",
+            "type": "string"
+          },
+          "size_bytes": {
+            "description": "File size in bytes",
+            "format": "int64",
+            "minimum": 0,
+            "type": "integer"
+          }
+        },
+        "required": [
+          "path",
+          "content",
+          "size_bytes",
+          "line_count"
         ],
         "type": "object"
       },
@@ -12895,6 +13439,68 @@
         ],
         "type": "object"
       },
+      "GitCheckoutRequest": {
+        "description": "Checkout branch request",
+        "properties": {
+          "branch": {
+            "type": "string"
+          }
+        },
+        "required": [
+          "branch"
+        ],
+        "type": "object"
+      },
+      "GitCheckoutResponse": {
+        "description": "Checkout branch response",
+        "properties": {
+          "branch": {
+            "type": "string"
+          },
+          "schema_version": {
+            "type": "string"
+          },
+          "success": {
+            "type": "boolean"
+          }
+        },
+        "required": [
+          "success",
+          "branch"
+        ],
+        "type": "object"
+      },
+      "GitCommitRequest": {
+        "description": "Create commit request",
+        "properties": {
+          "message": {
+            "type": "string"
+          }
+        },
+        "required": [
+          "message"
+        ],
+        "type": "object"
+      },
+      "GitCommitResponse": {
+        "description": "Create commit response",
+        "properties": {
+          "commit_sha": {
+            "type": "string"
+          },
+          "schema_version": {
+            "type": "string"
+          },
+          "success": {
+            "type": "boolean"
+          }
+        },
+        "required": [
+          "success",
+          "commit_sha"
+        ],
+        "type": "object"
+      },
       "GitInfo": {
         "description": "Git repository information",
         "properties": {
@@ -12923,36 +13529,27 @@
         ],
         "type": "object"
       },
-      "GitStatusResponse": {
-        "description": "Git status response",
+      "GitLogEntry": {
+        "description": "Lightweight git log entry",
         "properties": {
-          "branch": {
+          "author": {
             "type": "string"
           },
-          "modified_files": {
-            "items": {
-              "type": "string"
-            },
-            "type": "array"
+          "date": {
+            "type": "string"
           },
-          "staged_files": {
-            "items": {
-              "type": "string"
-            },
-            "type": "array"
+          "message": {
+            "type": "string"
           },
-          "untracked_files": {
-            "items": {
-              "type": "string"
-            },
-            "type": "array"
+          "sha": {
+            "type": "string"
           }
         },
         "required": [
-          "branch",
-          "modified_files",
-          "untracked_files",
-          "staged_files"
+          "sha",
+          "message",
+          "author",
+          "date"
         ],
         "type": "object"
       },
@@ -13402,6 +13999,16 @@
             "minimum": 0,
             "type": [
               "integer",
+              "null"
+            ]
+          },
+          "messages": {
+            "description": "Structured chat messages for model-aware template formatting.\nWhen present, the worker applies the model's chat template to these messages\ninstead of using the raw `prompt` field for template application.\nThe `prompt` field is still used as fallback when `messages` is None.",
+            "items": {
+              "$ref": "#/components/schemas/ChatMessage"
+            },
+            "type": [
+              "array",
               "null"
             ]
           },
@@ -14548,6 +15155,17 @@
               },
               {
                 "$ref": "#/components/schemas/AneMemorySummary"
+              }
+            ]
+          },
+          "backend_breakdown": {
+            "oneOf": [
+              {
+                "type": "null"
+              },
+              {
+                "$ref": "#/components/schemas/BackendMemoryBreakdown",
+                "description": "Per-backend memory breakdown for resource contention visibility."
               }
             ]
           },
@@ -19762,10 +20380,24 @@
       "PostActionsRequest": {
         "description": "Post-training actions configuration",
         "properties": {
+          "activate_stack": {
+            "description": "Activate the stack after creation (default: false).\nIf true, sets the created stack as the tenant's default stack.\nWARNING: This changes the tenant's active inference behavior immediately.",
+            "type": [
+              "boolean",
+              "null"
+            ]
+          },
           "adapters_root": {
             "description": "Custom adapters root directory",
             "type": [
               "string",
+              "null"
+            ]
+          },
+          "auto_promote": {
+            "description": "Auto-promote adapter to active after successful packaging (default: false).\nIf true, transitions adapter from \"ready\" to \"active\" state\nimmediately after training completes with all evidence (hash, manifest, snapshot).",
+            "type": [
+              "boolean",
               "null"
             ]
           },
@@ -24216,6 +24848,67 @@
         ],
         "type": "object"
       },
+      "RouterWeightsResponse": {
+        "description": "Router weights response — current feature importance weights for routing",
+        "properties": {
+          "diversity_weight": {
+            "format": "double",
+            "type": "number"
+          },
+          "framework_weight": {
+            "format": "double",
+            "type": "number"
+          },
+          "is_default": {
+            "type": "boolean"
+          },
+          "language_weight": {
+            "format": "double",
+            "type": "number"
+          },
+          "orthogonal_weight": {
+            "format": "double",
+            "type": "number"
+          },
+          "path_tokens_weight": {
+            "format": "double",
+            "type": "number"
+          },
+          "prompt_verb_weight": {
+            "format": "double",
+            "type": "number"
+          },
+          "similarity_penalty": {
+            "format": "double",
+            "type": "number"
+          },
+          "symbol_hits_weight": {
+            "format": "double",
+            "type": "number"
+          },
+          "tenant_id": {
+            "type": "string"
+          },
+          "total_weight": {
+            "format": "double",
+            "type": "number"
+          }
+        },
+        "required": [
+          "tenant_id",
+          "language_weight",
+          "framework_weight",
+          "symbol_hits_weight",
+          "path_tokens_weight",
+          "prompt_verb_weight",
+          "orthogonal_weight",
+          "diversity_weight",
+          "similarity_penalty",
+          "total_weight",
+          "is_default"
+        ],
+        "type": "object"
+      },
       "RoutingDebugRequest": {
         "description": "Routing debug request",
         "properties": {
@@ -24246,6 +24939,13 @@
           "explanation": {
             "type": "string"
           },
+          "feature_scores": {
+            "description": "Prompt-global feature score breakdown (list-shaped for compatibility)",
+            "items": {
+              "$ref": "#/components/schemas/FeatureScoreBreakdown"
+            },
+            "type": "array"
+          },
           "features": {
             "$ref": "#/components/schemas/FeatureVector"
           },
@@ -24254,12 +24954,81 @@
               "type": "string"
             },
             "type": "array"
+          },
+          "weights_used": {
+            "oneOf": [
+              {
+                "type": "null"
+              },
+              {
+                "$ref": "#/components/schemas/RouterWeightsResponse",
+                "description": "Router weights that were used for this debug evaluation"
+              }
+            ]
           }
         },
         "required": [
           "features",
           "adapter_scores",
           "selected_adapters",
+          "explanation"
+        ],
+        "type": "object"
+      },
+      "RoutingDebugResponseV2": {
+        "description": "Routing debug response with explicit router diagnostics",
+        "properties": {
+          "adapter_scores": {
+            "items": {
+              "$ref": "#/components/schemas/AdapterScore"
+            },
+            "type": "array"
+          },
+          "entropy": {
+            "format": "double",
+            "type": "number"
+          },
+          "explanation": {
+            "type": "string"
+          },
+          "feature_scores": {
+            "description": "Prompt-global feature score breakdown (list-shaped for compatibility)",
+            "items": {
+              "$ref": "#/components/schemas/FeatureScoreBreakdown"
+            },
+            "type": "array"
+          },
+          "features": {
+            "$ref": "#/components/schemas/FeatureVector"
+          },
+          "k_value": {
+            "format": "int32",
+            "type": "integer"
+          },
+          "selected_adapters": {
+            "items": {
+              "type": "string"
+            },
+            "type": "array"
+          },
+          "weights_used": {
+            "oneOf": [
+              {
+                "type": "null"
+              },
+              {
+                "$ref": "#/components/schemas/RouterWeightsResponse",
+                "description": "Router weights that were used for this debug evaluation"
+              }
+            ]
+          }
+        },
+        "required": [
+          "features",
+          "adapter_scores",
+          "selected_adapters",
+          "entropy",
+          "k_value",
           "explanation"
         ],
         "type": "object"
@@ -26242,6 +27011,19 @@
         ],
         "type": "object"
       },
+      "SetAdapterVersionWeightRequest": {
+        "description": "Set adapter version canary weight request.",
+        "properties": {
+          "version_weight": {
+            "format": "double",
+            "type": "number"
+          }
+        },
+        "required": [
+          "version_weight"
+        ],
+        "type": "object"
+      },
       "SetCategoryRequest": {
         "description": "Request to set session category",
         "properties": {
@@ -26286,6 +27068,197 @@
           "success",
           "restart_required",
           "message"
+        ],
+        "type": "object"
+      },
+      "SetupDiscoverModelsResponse": {
+        "description": "Response for setup model discovery.",
+        "properties": {
+          "models": {
+            "items": {
+              "$ref": "#/components/schemas/SetupDiscoveredModel"
+            },
+            "type": "array"
+          },
+          "root": {
+            "type": "string"
+          },
+          "schema_version": {
+            "type": "string"
+          },
+          "total": {
+            "minimum": 0,
+            "type": "integer"
+          }
+        },
+        "required": [
+          "root",
+          "models",
+          "total"
+        ],
+        "type": "object"
+      },
+      "SetupDiscoveredModel": {
+        "description": "A discovered model entry returned by setup discovery.",
+        "properties": {
+          "already_registered": {
+            "type": "boolean"
+          },
+          "backend": {
+            "type": "string"
+          },
+          "format": {
+            "type": "string"
+          },
+          "name": {
+            "type": "string"
+          },
+          "path": {
+            "type": "string"
+          }
+        },
+        "required": [
+          "name",
+          "path",
+          "format",
+          "backend"
+        ],
+        "type": "object"
+      },
+      "SetupMigrateResponse": {
+        "description": "Response for setup migration trigger.",
+        "properties": {
+          "completed_at": {
+            "type": "string"
+          },
+          "message": {
+            "type": "string"
+          },
+          "schema_version": {
+            "type": "string"
+          },
+          "status": {
+            "type": "string"
+          }
+        },
+        "required": [
+          "status",
+          "completed_at",
+          "message"
+        ],
+        "type": "object"
+      },
+      "SetupSeedModelResult": {
+        "description": "Per-model result for setup seeding.",
+        "properties": {
+          "message": {
+            "type": [
+              "string",
+              "null"
+            ]
+          },
+          "model_id": {
+            "type": [
+              "string",
+              "null"
+            ]
+          },
+          "model_path": {
+            "type": "string"
+          },
+          "name": {
+            "type": "string"
+          },
+          "status": {
+            "$ref": "#/components/schemas/SetupSeedModelStatus"
+          }
+        },
+        "required": [
+          "name",
+          "model_path",
+          "status"
+        ],
+        "type": "object"
+      },
+      "SetupSeedModelStatus": {
+        "description": "Seed status for an individual model.",
+        "enum": [
+          "seeded",
+          "skipped",
+          "failed"
+        ],
+        "type": "string"
+      },
+      "SetupSeedModelsRequest": {
+        "description": "Request for setup model seeding.",
+        "properties": {
+          "force": {
+            "type": "boolean"
+          },
+          "model_paths": {
+            "items": {
+              "type": "string"
+            },
+            "type": "array"
+          }
+        },
+        "required": [
+          "model_paths"
+        ],
+        "type": "object"
+      },
+      "SetupSeedModelsResponse": {
+        "description": "Response for setup model seeding.",
+        "properties": {
+          "failed": {
+            "items": {
+              "$ref": "#/components/schemas/SetupSeedModelResult"
+            },
+            "type": "array"
+          },
+          "failed_count": {
+            "minimum": 0,
+            "type": "integer"
+          },
+          "results": {
+            "items": {
+              "$ref": "#/components/schemas/SetupSeedModelResult"
+            },
+            "type": "array"
+          },
+          "schema_version": {
+            "type": "string"
+          },
+          "seeded": {
+            "items": {
+              "$ref": "#/components/schemas/SetupSeedModelResult"
+            },
+            "type": "array"
+          },
+          "seeded_count": {
+            "minimum": 0,
+            "type": "integer"
+          },
+          "skipped": {
+            "items": {
+              "$ref": "#/components/schemas/SetupSeedModelResult"
+            },
+            "type": "array"
+          },
+          "skipped_count": {
+            "minimum": 0,
+            "type": "integer"
+          },
+          "total": {
+            "minimum": 0,
+            "type": "integer"
+          }
+        },
+        "required": [
+          "total",
+          "seeded_count",
+          "skipped_count",
+          "failed_count"
         ],
         "type": "object"
       },
@@ -32104,6 +33077,52 @@
         },
         "type": "object"
       },
+      "UpdateExecutionPolicyRequest": {
+        "description": "Request to update an existing execution policy\n\nAll fields are optional to support partial updates.\nFields not provided will preserve existing values.",
+        "properties": {
+          "determinism": {
+            "oneOf": [
+              {
+                "type": "null"
+              },
+              {
+                "$ref": "#/components/schemas/DeterminismPolicy",
+                "description": "Determinism policy configuration (replaces existing if provided)"
+              }
+            ]
+          },
+          "golden": {
+            "oneOf": [
+              {
+                "type": "null"
+              },
+              {
+                "$ref": "#/components/schemas/GoldenPolicy",
+                "description": "Golden verification policy configuration (replaces existing if provided)\nUse null to remove golden policy."
+              }
+            ]
+          },
+          "require_signed_adapters": {
+            "description": "PRD-ART-01: Require Ed25519 signatures on imported .aos adapter files.\nWhen provided, updates the require_signed_adapters setting.",
+            "type": [
+              "boolean",
+              "null"
+            ]
+          },
+          "routing": {
+            "oneOf": [
+              {
+                "type": "null"
+              },
+              {
+                "$ref": "#/components/schemas/RoutingPolicy",
+                "description": "Routing policy configuration (replaces existing if provided)\nUse null to remove routing policy."
+              }
+            ]
+          }
+        },
+        "type": "object"
+      },
       "UpdateMonitoringRuleApiRequest": {
         "properties": {
           "description": {
@@ -32166,6 +33185,93 @@
             ]
           },
           "description": {
+            "type": [
+              "string",
+              "null"
+            ]
+          }
+        },
+        "type": "object"
+      },
+      "UpdateRouterWeightsRequest": {
+        "description": "Request to update router feature importance weights",
+        "properties": {
+          "diversity_weight": {
+            "format": "double",
+            "type": [
+              "number",
+              "null"
+            ]
+          },
+          "framework_weight": {
+            "format": "double",
+            "type": [
+              "number",
+              "null"
+            ]
+          },
+          "language_weight": {
+            "format": "double",
+            "type": [
+              "number",
+              "null"
+            ]
+          },
+          "orthogonal_weight": {
+            "format": "double",
+            "type": [
+              "number",
+              "null"
+            ]
+          },
+          "path_tokens_weight": {
+            "format": "double",
+            "type": [
+              "number",
+              "null"
+            ]
+          },
+          "prompt_verb_weight": {
+            "format": "double",
+            "type": [
+              "number",
+              "null"
+            ]
+          },
+          "similarity_penalty": {
+            "format": "double",
+            "type": [
+              "number",
+              "null"
+            ]
+          },
+          "symbol_hits_weight": {
+            "format": "double",
+            "type": [
+              "number",
+              "null"
+            ]
+          }
+        },
+        "type": "object"
+      },
+      "UpdateRoutingRuleParams": {
+        "description": "Parameters for updating an existing routing rule",
+        "properties": {
+          "condition_logic": {
+            "type": [
+              "string",
+              "null"
+            ]
+          },
+          "priority": {
+            "format": "int64",
+            "type": [
+              "integer",
+              "null"
+            ]
+          },
+          "target_adapter_id": {
             "type": [
               "string",
               "null"
@@ -32381,6 +33487,30 @@
           "priority",
           "message"
         ],
+        "type": "object"
+      },
+      "UpdateUserRequest": {
+        "description": "Update user request",
+        "properties": {
+          "disabled": {
+            "type": [
+              "boolean",
+              "null"
+            ]
+          },
+          "display_name": {
+            "type": [
+              "string",
+              "null"
+            ]
+          },
+          "role": {
+            "type": [
+              "string",
+              "null"
+            ]
+          }
+        },
         "type": "object"
       },
       "UpdateWorkspaceMemberRequest": {
@@ -33080,6 +34210,47 @@
           "confidence",
           "evaluator_type",
           "created_at"
+        ],
+        "type": "object"
+      },
+      "VerificationReport": {
+        "description": "Verification report for a provenance certificate.",
+        "properties": {
+          "adapter_id": {
+            "type": "string"
+          },
+          "certificate_id": {
+            "type": "string"
+          },
+          "chain_completeness": {
+            "$ref": "#/components/schemas/ChainCompleteness"
+          },
+          "completeness_score": {
+            "format": "double",
+            "type": "number"
+          },
+          "field_checks": {
+            "description": "Individual field verification results",
+            "items": {
+              "$ref": "#/components/schemas/FieldCheck"
+            },
+            "type": "array"
+          },
+          "signature_valid": {
+            "type": "boolean"
+          },
+          "verified_at": {
+            "type": "string"
+          }
+        },
+        "required": [
+          "certificate_id",
+          "adapter_id",
+          "signature_valid",
+          "chain_completeness",
+          "completeness_score",
+          "field_checks",
+          "verified_at"
         ],
         "type": "object"
       },
@@ -34372,6 +35543,84 @@
         ],
         "type": "string"
       },
+      "WorkingTreeDiffResponse": {
+        "description": "Working-tree diff response for repository/path",
+        "properties": {
+          "diff": {
+            "type": "string"
+          },
+          "schema_version": {
+            "type": "string"
+          }
+        },
+        "required": [
+          "diff"
+        ],
+        "type": "object"
+      },
+      "WorkingTreeFileOperationRequest": {
+        "description": "Working-tree operation request for a single file path",
+        "properties": {
+          "file_path": {
+            "type": "string"
+          }
+        },
+        "required": [
+          "file_path"
+        ],
+        "type": "object"
+      },
+      "WorkingTreeOperationResponse": {
+        "description": "Generic working-tree operation response",
+        "properties": {
+          "schema_version": {
+            "type": "string"
+          },
+          "success": {
+            "type": "boolean"
+          }
+        },
+        "required": [
+          "success"
+        ],
+        "type": "object"
+      },
+      "WorkingTreeStatusResponse": {
+        "description": "Working-tree status response for a repository",
+        "properties": {
+          "branch": {
+            "type": "string"
+          },
+          "modified_files": {
+            "items": {
+              "type": "string"
+            },
+            "type": "array"
+          },
+          "schema_version": {
+            "type": "string"
+          },
+          "staged_files": {
+            "items": {
+              "type": "string"
+            },
+            "type": "array"
+          },
+          "untracked_files": {
+            "items": {
+              "type": "string"
+            },
+            "type": "array"
+          }
+        },
+        "required": [
+          "branch",
+          "modified_files",
+          "untracked_files",
+          "staged_files"
+        ],
+        "type": "object"
+      },
       "WorkspaceActiveStateRequest": {
         "properties": {
           "active_adapter_ids": {
@@ -34485,6 +35734,55 @@
           "created_by",
           "created_at",
           "updated_at"
+        ],
+        "type": "object"
+      },
+      "WriteFileContentRequest": {
+        "description": "Request to write file content",
+        "properties": {
+          "content": {
+            "description": "UTF-8 content to write",
+            "type": "string"
+          },
+          "path": {
+            "description": "Absolute file path to write",
+            "type": "string"
+          }
+        },
+        "required": [
+          "path",
+          "content"
+        ],
+        "type": "object"
+      },
+      "WriteFileContentResponse": {
+        "description": "Response after writing file content",
+        "properties": {
+          "modified_at": {
+            "description": "Last modified time (ISO 8601)",
+            "type": [
+              "string",
+              "null"
+            ]
+          },
+          "path": {
+            "description": "Canonical path that was written",
+            "type": "string"
+          },
+          "schema_version": {
+            "description": "Schema version",
+            "type": "string"
+          },
+          "size_bytes": {
+            "description": "Written byte size",
+            "format": "int64",
+            "minimum": 0,
+            "type": "integer"
+          }
+        },
+        "required": [
+          "path",
+          "size_bytes"
         ],
         "type": "object"
       }
@@ -35813,6 +37111,60 @@
         "responses": {
           "204": {
             "description": "Tag upserted"
+          },
+          "404": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ErrorResponse"
+                }
+              }
+            },
+            "description": "Version not found"
+          }
+        },
+        "tags": [
+          "system"
+        ]
+      }
+    },
+    "/v1/adapter-versions/{version_id}/weight": {
+      "put": {
+        "operationId": "set_adapter_version_weight_handler",
+        "parameters": [
+          {
+            "description": "Version ID",
+            "in": "path",
+            "name": "version_id",
+            "required": true,
+            "schema": {
+              "type": "string"
+            }
+          }
+        ],
+        "requestBody": {
+          "content": {
+            "application/json": {
+              "schema": {
+                "$ref": "#/components/schemas/SetAdapterVersionWeightRequest"
+              }
+            }
+          },
+          "required": true
+        },
+        "responses": {
+          "204": {
+            "description": "Version weight updated"
+          },
+          "400": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ErrorResponse"
+                }
+              }
+            },
+            "description": "Validation error"
           },
           "404": {
             "content": {
@@ -37994,6 +39346,63 @@
         ]
       }
     },
+    "/v1/admin/config": {
+      "get": {
+        "operationId": "admin_config",
+        "responses": {
+          "200": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/AdminConfigResponse"
+                }
+              }
+            },
+            "description": "Sanitized admin configuration"
+          },
+          "401": {
+            "description": "Unauthorized"
+          },
+          "403": {
+            "description": "Forbidden - Admin role required"
+          },
+          "500": {
+            "description": "Internal server error"
+          }
+        },
+        "summary": "Get sanitized admin configuration summary",
+        "tags": [
+          "admin"
+        ]
+      }
+    },
+    "/v1/admin/status": {
+      "get": {
+        "operationId": "admin_status",
+        "responses": {
+          "200": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/AdminStatusResponse"
+                }
+              }
+            },
+            "description": "Admin status summary"
+          },
+          "401": {
+            "description": "Unauthorized"
+          },
+          "403": {
+            "description": "Forbidden - Admin role required"
+          }
+        },
+        "summary": "Get high-level admin status",
+        "tags": [
+          "admin"
+        ]
+      }
+    },
     "/v1/admin/users": {
       "get": {
         "description": "Requires Admin role. Supports filtering by role and tenant_id.",
@@ -38060,6 +39469,181 @@
           }
         },
         "summary": "List users with pagination and filtering",
+        "tags": [
+          "admin"
+        ]
+      },
+      "post": {
+        "operationId": "create_user",
+        "requestBody": {
+          "content": {
+            "application/json": {
+              "schema": {
+                "$ref": "#/components/schemas/CreateUserRequest"
+              }
+            }
+          },
+          "required": true
+        },
+        "responses": {
+          "201": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/UserResponse"
+                }
+              }
+            },
+            "description": "User created"
+          },
+          "400": {
+            "description": "Invalid request"
+          },
+          "401": {
+            "description": "Unauthorized"
+          },
+          "403": {
+            "description": "Forbidden - Admin role required"
+          },
+          "500": {
+            "description": "Internal server error"
+          }
+        },
+        "summary": "Create a new user",
+        "tags": [
+          "admin"
+        ]
+      }
+    },
+    "/v1/admin/users/{user_id}": {
+      "delete": {
+        "operationId": "delete_user",
+        "parameters": [
+          {
+            "description": "User ID",
+            "in": "path",
+            "name": "user_id",
+            "required": true,
+            "schema": {
+              "type": "string"
+            }
+          }
+        ],
+        "responses": {
+          "204": {
+            "description": "User deleted"
+          },
+          "401": {
+            "description": "Unauthorized"
+          },
+          "403": {
+            "description": "Forbidden - Admin role required"
+          },
+          "404": {
+            "description": "User not found"
+          },
+          "500": {
+            "description": "Internal server error"
+          }
+        },
+        "summary": "Delete a user",
+        "tags": [
+          "admin"
+        ]
+      },
+      "get": {
+        "operationId": "get_user",
+        "parameters": [
+          {
+            "description": "User ID",
+            "in": "path",
+            "name": "user_id",
+            "required": true,
+            "schema": {
+              "type": "string"
+            }
+          }
+        ],
+        "responses": {
+          "200": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/UserResponse"
+                }
+              }
+            },
+            "description": "User details"
+          },
+          "401": {
+            "description": "Unauthorized"
+          },
+          "403": {
+            "description": "Forbidden - Admin role required"
+          },
+          "404": {
+            "description": "User not found"
+          },
+          "500": {
+            "description": "Internal server error"
+          }
+        },
+        "summary": "Get a specific user by ID",
+        "tags": [
+          "admin"
+        ]
+      },
+      "put": {
+        "operationId": "update_user",
+        "parameters": [
+          {
+            "description": "User ID",
+            "in": "path",
+            "name": "user_id",
+            "required": true,
+            "schema": {
+              "type": "string"
+            }
+          }
+        ],
+        "requestBody": {
+          "content": {
+            "application/json": {
+              "schema": {
+                "$ref": "#/components/schemas/UpdateUserRequest"
+              }
+            }
+          },
+          "required": true
+        },
+        "responses": {
+          "200": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/UserResponse"
+                }
+              }
+            },
+            "description": "User updated"
+          },
+          "400": {
+            "description": "Invalid request"
+          },
+          "401": {
+            "description": "Unauthorized"
+          },
+          "403": {
+            "description": "Forbidden - Admin role required"
+          },
+          "404": {
+            "description": "User not found"
+          },
+          "500": {
+            "description": "Internal server error"
+          }
+        },
+        "summary": "Update a user",
         "tags": [
           "admin"
         ]
@@ -41958,6 +43542,66 @@
           }
         },
         "summary": "Get contact",
+        "tags": [
+          "handlers::chat_sessions"
+        ]
+      },
+      "put": {
+        "operationId": "update_contact",
+        "parameters": [
+          {
+            "description": "Contact ID",
+            "in": "path",
+            "name": "id",
+            "required": true,
+            "schema": {
+              "type": "string"
+            }
+          }
+        ],
+        "requestBody": {
+          "content": {
+            "application/json": {
+              "schema": {
+                "$ref": "#/components/schemas/ContactUpdateParams"
+              }
+            }
+          },
+          "required": true
+        },
+        "responses": {
+          "200": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/Contact"
+                }
+              }
+            },
+            "description": "Contact updated"
+          },
+          "404": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ErrorResponse"
+                }
+              }
+            },
+            "description": "Contact not found"
+          },
+          "500": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ErrorResponse"
+                }
+              }
+            },
+            "description": "Internal server error"
+          }
+        },
+        "summary": "Update contact",
         "tags": [
           "handlers::chat_sessions"
         ]
@@ -46661,6 +48305,139 @@
         ]
       }
     },
+    "/v1/filesystem/content": {
+      "get": {
+        "operationId": "read_file_content",
+        "parameters": [
+          {
+            "description": "File path to read",
+            "in": "query",
+            "name": "path",
+            "required": true,
+            "schema": {
+              "type": "string"
+            }
+          }
+        ],
+        "responses": {
+          "200": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/FileContentResponse"
+                }
+              }
+            },
+            "description": "File content"
+          },
+          "400": {
+            "description": "Bad request"
+          },
+          "403": {
+            "description": "Access denied"
+          }
+        },
+        "tags": [
+          "filesystem"
+        ]
+      },
+      "put": {
+        "operationId": "write_file_content",
+        "requestBody": {
+          "content": {
+            "application/json": {
+              "schema": {
+                "$ref": "#/components/schemas/WriteFileContentRequest"
+              }
+            }
+          },
+          "required": true
+        },
+        "responses": {
+          "200": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/WriteFileContentResponse"
+                }
+              }
+            },
+            "description": "File written"
+          },
+          "400": {
+            "description": "Bad request"
+          },
+          "403": {
+            "description": "Access denied"
+          }
+        },
+        "tags": [
+          "filesystem"
+        ]
+      }
+    },
+    "/v1/fim/completions": {
+      "post": {
+        "description": "Generates code to fill the gap between a prefix (code before cursor) and\nsuffix (code after cursor) using the FIM token format.",
+        "operationId": "fim_completions",
+        "requestBody": {
+          "content": {
+            "application/json": {
+              "schema": {
+                "$ref": "#/components/schemas/FIMRequest"
+              }
+            }
+          },
+          "required": true
+        },
+        "responses": {
+          "200": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/FIMResponse"
+                }
+              }
+            },
+            "description": "FIM completion succeeded"
+          },
+          "400": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ErrorResponse"
+                }
+              }
+            },
+            "description": "Invalid request"
+          },
+          "500": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ErrorResponse"
+                }
+              }
+            },
+            "description": "Internal server error"
+          },
+          "501": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ErrorResponse"
+                }
+              }
+            },
+            "description": "Model does not support FIM"
+          }
+        },
+        "summary": "FIM completions endpoint",
+        "tags": [
+          "inference"
+        ]
+      }
+    },
     "/v1/git/branches": {
       "get": {
         "operationId": "list_git_branches",
@@ -46690,6 +48467,174 @@
           }
         },
         "summary": "List adapter Git branches",
+        "tags": [
+          "git"
+        ]
+      }
+    },
+    "/v1/git/checkout": {
+      "post": {
+        "operationId": "git_checkout",
+        "parameters": [
+          {
+            "description": "Repository ID; defaults to first registered repository",
+            "in": "query",
+            "name": "repo_id",
+            "required": false,
+            "schema": {
+              "type": "string"
+            }
+          }
+        ],
+        "requestBody": {
+          "content": {
+            "application/json": {
+              "schema": {
+                "$ref": "#/components/schemas/GitCheckoutRequest"
+              }
+            }
+          },
+          "required": true
+        },
+        "responses": {
+          "200": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/GitCheckoutResponse"
+                }
+              }
+            },
+            "description": "Checked out branch"
+          },
+          "500": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ErrorResponse"
+                }
+              }
+            },
+            "description": "Internal server error"
+          }
+        },
+        "summary": "Checkout a branch",
+        "tags": [
+          "git"
+        ]
+      }
+    },
+    "/v1/git/commit": {
+      "post": {
+        "operationId": "git_commit",
+        "parameters": [
+          {
+            "description": "Repository ID; defaults to first registered repository",
+            "in": "query",
+            "name": "repo_id",
+            "required": false,
+            "schema": {
+              "type": "string"
+            }
+          }
+        ],
+        "requestBody": {
+          "content": {
+            "application/json": {
+              "schema": {
+                "$ref": "#/components/schemas/GitCommitRequest"
+              }
+            }
+          },
+          "required": true
+        },
+        "responses": {
+          "200": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/GitCommitResponse"
+                }
+              }
+            },
+            "description": "Commit created"
+          },
+          "500": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ErrorResponse"
+                }
+              }
+            },
+            "description": "Internal server error"
+          }
+        },
+        "summary": "Commit currently staged changes",
+        "tags": [
+          "git"
+        ]
+      }
+    },
+    "/v1/git/log": {
+      "get": {
+        "operationId": "git_log",
+        "parameters": [
+          {
+            "description": "Repository ID; defaults to first registered repository",
+            "in": "query",
+            "name": "repo_id",
+            "required": false,
+            "schema": {
+              "type": "string"
+            }
+          },
+          {
+            "description": "Branch name; defaults to repo default branch",
+            "in": "query",
+            "name": "branch",
+            "required": false,
+            "schema": {
+              "type": "string"
+            }
+          },
+          {
+            "description": "Maximum commits (default 50, max 200)",
+            "in": "query",
+            "name": "limit",
+            "required": false,
+            "schema": {
+              "minimum": 0,
+              "type": "integer"
+            }
+          }
+        ],
+        "responses": {
+          "200": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "items": {
+                    "$ref": "#/components/schemas/GitLogEntry"
+                  },
+                  "type": "array"
+                }
+              }
+            },
+            "description": "Git log"
+          },
+          "500": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ErrorResponse"
+                }
+              }
+            },
+            "description": "Internal server error"
+          }
+        },
+        "summary": "Get git commit log for repository/branch",
         "tags": [
           "git"
         ]
@@ -46986,6 +48931,57 @@
         ]
       }
     },
+    "/v1/git/stage": {
+      "post": {
+        "operationId": "stage_file",
+        "parameters": [
+          {
+            "description": "Repository ID; defaults to first registered repository",
+            "in": "query",
+            "name": "repo_id",
+            "required": false,
+            "schema": {
+              "type": "string"
+            }
+          }
+        ],
+        "requestBody": {
+          "content": {
+            "application/json": {
+              "schema": {
+                "$ref": "#/components/schemas/WorkingTreeFileOperationRequest"
+              }
+            }
+          },
+          "required": true
+        },
+        "responses": {
+          "200": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/WorkingTreeOperationResponse"
+                }
+              }
+            },
+            "description": "File staged"
+          },
+          "500": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ErrorResponse"
+                }
+              }
+            },
+            "description": "Internal server error"
+          }
+        },
+        "tags": [
+          "git"
+        ]
+      }
+    },
     "/v1/git/status": {
       "get": {
         "operationId": "git_status",
@@ -46994,7 +48990,7 @@
             "content": {
               "application/json": {
                 "schema": {
-                  "$ref": "#/components/schemas/GitStatusResponse"
+                  "$ref": "#/components/schemas/WorkingTreeStatusResponse"
                 }
               }
             },
@@ -47012,6 +49008,292 @@
           }
         },
         "summary": "Get Git status",
+        "tags": [
+          "git"
+        ]
+      }
+    },
+    "/v1/git/unstage": {
+      "post": {
+        "operationId": "unstage_file",
+        "parameters": [
+          {
+            "description": "Repository ID; defaults to first registered repository",
+            "in": "query",
+            "name": "repo_id",
+            "required": false,
+            "schema": {
+              "type": "string"
+            }
+          }
+        ],
+        "requestBody": {
+          "content": {
+            "application/json": {
+              "schema": {
+                "$ref": "#/components/schemas/WorkingTreeFileOperationRequest"
+              }
+            }
+          },
+          "required": true
+        },
+        "responses": {
+          "200": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/WorkingTreeOperationResponse"
+                }
+              }
+            },
+            "description": "File unstaged"
+          },
+          "500": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ErrorResponse"
+                }
+              }
+            },
+            "description": "Internal server error"
+          }
+        },
+        "tags": [
+          "git"
+        ]
+      }
+    },
+    "/v1/git/working-diff": {
+      "get": {
+        "operationId": "git_working_diff",
+        "parameters": [
+          {
+            "description": "Repository ID; defaults to first registered repository",
+            "in": "query",
+            "name": "repo_id",
+            "required": false,
+            "schema": {
+              "type": "string"
+            }
+          },
+          {
+            "description": "Repository-relative path to filter diff",
+            "in": "query",
+            "name": "path",
+            "required": false,
+            "schema": {
+              "type": "string"
+            }
+          }
+        ],
+        "responses": {
+          "200": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/WorkingTreeDiffResponse"
+                }
+              }
+            },
+            "description": "Working-tree diff"
+          },
+          "500": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ErrorResponse"
+                }
+              }
+            },
+            "description": "Internal server error"
+          }
+        },
+        "summary": "Get working-tree diff (optionally filtered by repository-relative path)",
+        "tags": [
+          "git"
+        ]
+      }
+    },
+    "/v1/git/working-status": {
+      "get": {
+        "operationId": "git_working_status",
+        "responses": {
+          "200": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/WorkingTreeStatusResponse"
+                }
+              }
+            },
+            "description": "Working-tree status"
+          },
+          "500": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ErrorResponse"
+                }
+              }
+            },
+            "description": "Internal server error"
+          }
+        },
+        "summary": "Get working-tree status",
+        "tags": [
+          "git"
+        ]
+      }
+    },
+    "/v1/git/working-tree/discard": {
+      "post": {
+        "operationId": "discard_working_tree_file",
+        "parameters": [
+          {
+            "description": "Repository ID; defaults to first registered repository",
+            "in": "query",
+            "name": "repo_id",
+            "required": false,
+            "schema": {
+              "type": "string"
+            }
+          }
+        ],
+        "requestBody": {
+          "content": {
+            "application/json": {
+              "schema": {
+                "$ref": "#/components/schemas/WorkingTreeFileOperationRequest"
+              }
+            }
+          },
+          "required": true
+        },
+        "responses": {
+          "200": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/WorkingTreeOperationResponse"
+                }
+              }
+            },
+            "description": "File changes discarded"
+          },
+          "500": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ErrorResponse"
+                }
+              }
+            },
+            "description": "Internal server error"
+          }
+        },
+        "tags": [
+          "git"
+        ]
+      }
+    },
+    "/v1/git/working-tree/stage": {
+      "post": {
+        "operationId": "stage_working_tree_file",
+        "parameters": [
+          {
+            "description": "Repository ID; defaults to first registered repository",
+            "in": "query",
+            "name": "repo_id",
+            "required": false,
+            "schema": {
+              "type": "string"
+            }
+          }
+        ],
+        "requestBody": {
+          "content": {
+            "application/json": {
+              "schema": {
+                "$ref": "#/components/schemas/WorkingTreeFileOperationRequest"
+              }
+            }
+          },
+          "required": true
+        },
+        "responses": {
+          "200": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/WorkingTreeOperationResponse"
+                }
+              }
+            },
+            "description": "File staged"
+          },
+          "500": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ErrorResponse"
+                }
+              }
+            },
+            "description": "Internal server error"
+          }
+        },
+        "tags": [
+          "git"
+        ]
+      }
+    },
+    "/v1/git/working-tree/unstage": {
+      "post": {
+        "operationId": "unstage_working_tree_file",
+        "parameters": [
+          {
+            "description": "Repository ID; defaults to first registered repository",
+            "in": "query",
+            "name": "repo_id",
+            "required": false,
+            "schema": {
+              "type": "string"
+            }
+          }
+        ],
+        "requestBody": {
+          "content": {
+            "application/json": {
+              "schema": {
+                "$ref": "#/components/schemas/WorkingTreeFileOperationRequest"
+              }
+            }
+          },
+          "required": true
+        },
+        "responses": {
+          "200": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/WorkingTreeOperationResponse"
+                }
+              }
+            },
+            "description": "File unstaged"
+          },
+          "500": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ErrorResponse"
+                }
+              }
+            },
+            "description": "Internal server error"
+          }
+        },
         "tags": [
           "git"
         ]
@@ -47571,6 +49853,7 @@
     },
     "/v1/infer/paused": {
       "get": {
+        "description": "**Deprecated**: Use `GET /v1/reviews/paused` instead. This endpoint is\nretained for backward compatibility and delegates to the reviews endpoint.",
         "operationId": "list_paused",
         "parameters": [
           {
@@ -48748,6 +51031,41 @@
           }
         },
         "summary": "Get all models status",
+        "tags": [
+          "models"
+        ]
+      }
+    },
+    "/v1/models/{model_id}": {
+      "delete": {
+        "description": "Rejects deletion if the model is currently loaded or referenced by adapters.\n\n# Endpoint\nDELETE /v1/models/{model_id}\n\n# Errors\n- `FORBIDDEN` (403): User lacks required role\n- `NOT_FOUND` (404): Model does not exist\n- `CONFLICT` (409): Model is loaded or referenced by adapters\n- `INTERNAL_ERROR` (500): Database error",
+        "operationId": "delete_model",
+        "parameters": [
+          {
+            "description": "Model ID to delete",
+            "in": "path",
+            "name": "model_id",
+            "required": true,
+            "schema": {
+              "type": "string"
+            }
+          }
+        ],
+        "responses": {
+          "204": {
+            "description": "Model deleted"
+          },
+          "404": {
+            "description": "Model not found"
+          },
+          "409": {
+            "description": "Model in use"
+          },
+          "500": {
+            "description": "Internal error"
+          }
+        },
+        "summary": "Delete a model",
         "tags": [
           "models"
         ]
@@ -51485,6 +53803,49 @@
         ]
       }
     },
+    "/v1/provenance/{certificate_id}/verify": {
+      "get": {
+        "description": "Reconstructs the certificate from the DB record, recomputes the JCS\ncontent hash, and verifies the Ed25519 signature. This endpoint is\npublic (no auth required) to support external audit workflows.",
+        "operationId": "verify_provenance_certificate",
+        "parameters": [
+          {
+            "description": "Certificate ID",
+            "in": "path",
+            "name": "certificate_id",
+            "required": true,
+            "schema": {
+              "type": "string"
+            }
+          }
+        ],
+        "responses": {
+          "200": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/VerificationReport"
+                }
+              }
+            },
+            "description": "Verification report"
+          },
+          "404": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ErrorResponse"
+                }
+              }
+            },
+            "description": "Certificate not found"
+          }
+        },
+        "summary": "Verify a provenance certificate.",
+        "tags": [
+          "provenance"
+        ]
+      }
+    },
     "/v1/registry/status": {
       "get": {
         "description": "Returns whether the registry is initialized and available for adapter management.",
@@ -52533,6 +54894,7 @@
     },
     "/v1/reviews/paused": {
       "get": {
+        "description": "Returns all paused inferences visible to the authenticated tenant.\nPrefer this endpoint over the deprecated `/v1/infer/paused`.",
         "operationId": "list_paused_reviews",
         "parameters": [
           {
@@ -52560,7 +54922,7 @@
             "description": "List of paused inferences"
           }
         },
-        "summary": "List all paused inferences (CLI-compatible alias)",
+        "summary": "List all paused inferences (canonical endpoint)",
         "tags": [
           "reviews"
         ]
@@ -52788,6 +55150,74 @@
         "tags": [
           "routing"
         ]
+      },
+      "get": {
+        "operationId": "get_rule",
+        "parameters": [
+          {
+            "description": "Routing rule ID",
+            "in": "path",
+            "name": "rule_id",
+            "required": true,
+            "schema": {
+              "type": "string"
+            }
+          }
+        ],
+        "responses": {
+          "200": {
+            "description": "Routing rule"
+          },
+          "404": {
+            "description": "Rule not found"
+          },
+          "500": {
+            "description": "Internal error"
+          }
+        },
+        "summary": "Get a specific routing rule",
+        "tags": [
+          "routing"
+        ]
+      },
+      "put": {
+        "operationId": "update_rule",
+        "parameters": [
+          {
+            "description": "Routing rule ID",
+            "in": "path",
+            "name": "rule_id",
+            "required": true,
+            "schema": {
+              "type": "string"
+            }
+          }
+        ],
+        "requestBody": {
+          "content": {
+            "application/json": {
+              "schema": {
+                "$ref": "#/components/schemas/UpdateRoutingRuleParams"
+              }
+            }
+          },
+          "required": true
+        },
+        "responses": {
+          "200": {
+            "description": "Routing rule updated"
+          },
+          "404": {
+            "description": "Rule not found"
+          },
+          "500": {
+            "description": "Internal error"
+          }
+        },
+        "summary": "Update a routing rule",
+        "tags": [
+          "routing"
+        ]
       }
     },
     "/v1/routing/chain": {
@@ -52863,7 +55293,7 @@
             "content": {
               "application/json": {
                 "schema": {
-                  "$ref": "#/components/schemas/RoutingDebugResponse"
+                  "$ref": "#/components/schemas/RoutingDebugResponseV2"
                 }
               }
             },
@@ -53721,6 +56151,97 @@
         ]
       }
     },
+    "/v1/setup/migrate": {
+      "post": {
+        "operationId": "setup_migrate",
+        "responses": {
+          "200": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/SetupMigrateResponse"
+                }
+              }
+            },
+            "description": "Migrations completed"
+          },
+          "403": {
+            "description": "Forbidden - Admin role required"
+          },
+          "500": {
+            "description": "Migration failed"
+          }
+        },
+        "tags": [
+          "setup"
+        ]
+      }
+    },
+    "/v1/setup/models/discover": {
+      "get": {
+        "operationId": "setup_discover_models",
+        "responses": {
+          "200": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/SetupDiscoverModelsResponse"
+                }
+              }
+            },
+            "description": "Discovered setup models"
+          },
+          "403": {
+            "description": "Forbidden - Admin role required"
+          },
+          "500": {
+            "description": "Discovery failed"
+          }
+        },
+        "tags": [
+          "setup"
+        ]
+      }
+    },
+    "/v1/setup/models/seed": {
+      "post": {
+        "operationId": "setup_seed_models",
+        "requestBody": {
+          "content": {
+            "application/json": {
+              "schema": {
+                "$ref": "#/components/schemas/SetupSeedModelsRequest"
+              }
+            }
+          },
+          "required": true
+        },
+        "responses": {
+          "200": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/SetupSeedModelsResponse"
+                }
+              }
+            },
+            "description": "Seed results"
+          },
+          "400": {
+            "description": "Invalid request"
+          },
+          "403": {
+            "description": "Forbidden - Admin role required"
+          },
+          "500": {
+            "description": "Seeding failed"
+          }
+        },
+        "tags": [
+          "setup"
+        ]
+      }
+    },
     "/v1/stacks/validate-name": {
       "post": {
         "operationId": "validate_stack_name",
@@ -53993,6 +56514,95 @@
         ]
       }
     },
+    "/v1/stream/contacts": {
+      "get": {
+        "description": "Streams real-time contact discovery and update events as contacts are\ndiscovered during inference operations.\n\nCitation: CONTACTS_AND_STREAMS_IMPLEMENTATION_PLAN.md §2.6",
+        "operationId": "contacts_stream",
+        "parameters": [
+          {
+            "description": "Tenant ID for filtering events",
+            "in": "query",
+            "name": "tenant",
+            "required": true,
+            "schema": {
+              "type": "string"
+            }
+          }
+        ],
+        "responses": {
+          "200": {
+            "description": "SSE stream of contact events"
+          }
+        },
+        "summary": "Contacts stream SSE endpoint",
+        "tags": [
+          "system"
+        ]
+      }
+    },
+    "/v1/stream/discovery": {
+      "get": {
+        "description": "Streams real-time repository scanning and code discovery events including\nscan progress, symbol indexing, framework detection, and completion events.\n\nEvents are sent as Server-Sent Events (SSE) with the following format:\n```\nevent: discovery\ndata: {\"type\":\"symbol_indexed\",\"timestamp\":...,\"payload\":{...}}\n```\n\nCitation: CONTACTS_AND_STREAMS_IMPLEMENTATION_PLAN.md §4.4",
+        "operationId": "discovery_stream",
+        "parameters": [
+          {
+            "description": "Tenant ID for filtering events",
+            "in": "query",
+            "name": "tenant",
+            "required": true,
+            "schema": {
+              "type": "string"
+            }
+          },
+          {
+            "description": "Optional repository ID filter",
+            "in": "query",
+            "name": "repo",
+            "required": false,
+            "schema": {
+              "type": "string"
+            }
+          }
+        ],
+        "responses": {
+          "200": {
+            "description": "SSE stream of discovery events"
+          }
+        },
+        "summary": "Discovery stream SSE endpoint",
+        "tags": [
+          "system"
+        ]
+      }
+    },
+    "/v1/stream/file-changes": {
+      "get": {
+        "operationId": "file_changes_stream",
+        "parameters": [
+          {
+            "description": "Filter by repository ID",
+            "in": "query",
+            "name": "repo_id",
+            "required": false,
+            "schema": {
+              "type": "string"
+            }
+          }
+        ],
+        "responses": {
+          "200": {
+            "description": "Server-Sent Events stream of file changes"
+          },
+          "500": {
+            "description": "Internal server error"
+          }
+        },
+        "summary": "Stream file changes via SSE",
+        "tags": [
+          "git"
+        ]
+      }
+    },
     "/v1/stream/messages/{workspace_id}": {
       "get": {
         "description": "Streams real-time messages for a workspace. Polls for new messages\nevery 2 seconds and emits changes. Uses circuit breaker for error handling.\n\n# SSE Event Format\n```json\nevent: message\ndata: {\"messages\": [...], \"count\": 3, \"timestamp\": \"...\"}\n```",
@@ -54129,6 +56739,32 @@
         ]
       }
     },
+    "/v1/stream/training": {
+      "get": {
+        "description": "Streams real-time training events including adapter lifecycle transitions,\npromotion/demotion events, profiler metrics, and K reduction events.\n\nEvents are sent as Server-Sent Events (SSE) with the following format:\n```text\nid: 42\nevent: training\nretry: 3000\ndata: {\"type\":\"adapter_promoted\",\"timestamp\":...,\"payload\":{...}}\n```",
+        "operationId": "training_stream",
+        "parameters": [
+          {
+            "description": "Tenant ID for filtering events (defaults to caller tenant)",
+            "in": "query",
+            "name": "tenant",
+            "required": false,
+            "schema": {
+              "type": "string"
+            }
+          }
+        ],
+        "responses": {
+          "200": {
+            "description": "SSE stream of training events"
+          }
+        },
+        "summary": "Training stream SSE endpoint",
+        "tags": [
+          "system"
+        ]
+      }
+    },
     "/v1/stream/workers": {
       "get": {
         "description": "Streams worker snapshots with replay support.",
@@ -54150,121 +56786,6 @@
           }
         },
         "summary": "SSE stream for worker status updates",
-        "tags": [
-          "system"
-        ]
-      }
-    },
-    "/v1/streams/contacts": {
-      "get": {
-        "description": "Streams real-time contact discovery and update events as contacts are\ndiscovered during inference operations.\n\nCitation: CONTACTS_AND_STREAMS_IMPLEMENTATION_PLAN.md §2.6",
-        "operationId": "contacts_stream",
-        "parameters": [
-          {
-            "description": "Tenant ID for filtering events",
-            "in": "query",
-            "name": "tenant",
-            "required": true,
-            "schema": {
-              "type": "string"
-            }
-          }
-        ],
-        "responses": {
-          "200": {
-            "description": "SSE stream of contact events"
-          }
-        },
-        "summary": "Contacts stream SSE endpoint",
-        "tags": [
-          "system"
-        ]
-      }
-    },
-    "/v1/streams/discovery": {
-      "get": {
-        "description": "Streams real-time repository scanning and code discovery events including\nscan progress, symbol indexing, framework detection, and completion events.\n\nEvents are sent as Server-Sent Events (SSE) with the following format:\n```\nevent: discovery\ndata: {\"type\":\"symbol_indexed\",\"timestamp\":...,\"payload\":{...}}\n```\n\nCitation: CONTACTS_AND_STREAMS_IMPLEMENTATION_PLAN.md §4.4",
-        "operationId": "discovery_stream",
-        "parameters": [
-          {
-            "description": "Tenant ID for filtering events",
-            "in": "query",
-            "name": "tenant",
-            "required": true,
-            "schema": {
-              "type": "string"
-            }
-          },
-          {
-            "description": "Optional repository ID filter",
-            "in": "query",
-            "name": "repo",
-            "required": false,
-            "schema": {
-              "type": "string"
-            }
-          }
-        ],
-        "responses": {
-          "200": {
-            "description": "SSE stream of discovery events"
-          }
-        },
-        "summary": "Discovery stream SSE endpoint",
-        "tags": [
-          "system"
-        ]
-      }
-    },
-    "/v1/streams/file-changes": {
-      "get": {
-        "operationId": "file_changes_stream",
-        "parameters": [
-          {
-            "description": "Filter by repository ID",
-            "in": "query",
-            "name": "repo_id",
-            "required": false,
-            "schema": {
-              "type": "string"
-            }
-          }
-        ],
-        "responses": {
-          "200": {
-            "description": "Server-Sent Events stream of file changes"
-          },
-          "500": {
-            "description": "Internal server error"
-          }
-        },
-        "summary": "Stream file changes via SSE",
-        "tags": [
-          "git"
-        ]
-      }
-    },
-    "/v1/streams/training": {
-      "get": {
-        "description": "Streams real-time training events including adapter lifecycle transitions,\npromotion/demotion events, profiler metrics, and K reduction events.\n\nEvents are sent as Server-Sent Events (SSE) with the following format:\n```text\nid: 42\nevent: training\nretry: 3000\ndata: {\"type\":\"adapter_promoted\",\"timestamp\":...,\"payload\":{...}}\n```",
-        "operationId": "training_stream",
-        "parameters": [
-          {
-            "description": "Tenant ID for filtering events (defaults to caller tenant)",
-            "in": "query",
-            "name": "tenant",
-            "required": false,
-            "schema": {
-              "type": "string"
-            }
-          }
-        ],
-        "responses": {
-          "200": {
-            "description": "SSE stream of training events"
-          }
-        },
-        "summary": "Training stream SSE endpoint",
         "tags": [
           "system"
         ]
@@ -55992,6 +58513,96 @@
         "tags": [
           "execution-policy"
         ]
+      },
+      "put": {
+        "description": "Applies a partial update to the specified policy, creating a new version.\nOnly provided fields are changed; omitted fields retain their current values.\n\n# Errors\n- 401: Unauthorized - missing or invalid authentication\n- 403: Forbidden - tenant isolation violation\n- 404: Not Found - policy not found\n- 500: Internal server error",
+        "operationId": "update_execution_policy",
+        "parameters": [
+          {
+            "description": "Tenant ID",
+            "in": "path",
+            "name": "tenant_id",
+            "required": true,
+            "schema": {
+              "type": "string"
+            }
+          },
+          {
+            "description": "Policy ID to update",
+            "in": "path",
+            "name": "policy_id",
+            "required": true,
+            "schema": {
+              "type": "string"
+            }
+          }
+        ],
+        "requestBody": {
+          "content": {
+            "application/json": {
+              "schema": {
+                "$ref": "#/components/schemas/UpdateExecutionPolicyRequest"
+              }
+            }
+          },
+          "required": true
+        },
+        "responses": {
+          "200": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/CreatePolicyResponse"
+                }
+              }
+            },
+            "description": "Policy updated (new version created)"
+          },
+          "401": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ErrorResponse"
+                }
+              }
+            },
+            "description": "Unauthorized"
+          },
+          "403": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ErrorResponse"
+                }
+              }
+            },
+            "description": "Forbidden"
+          },
+          "404": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ErrorResponse"
+                }
+              }
+            },
+            "description": "Policy not found"
+          },
+          "500": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ErrorResponse"
+                }
+              }
+            },
+            "description": "Internal server error"
+          }
+        },
+        "summary": "Update an existing execution policy",
+        "tags": [
+          "execution-policy"
+        ]
       }
     },
     "/v1/tenants/{tenant_id}/manifests/{manifest_hash}": {
@@ -56467,6 +59078,188 @@
           }
         ],
         "summary": "GET /v1/tenants/{tenant_id}/router/config",
+        "tags": [
+          "routing"
+        ]
+      }
+    },
+    "/v1/tenants/{tenant_id}/router/weights": {
+      "get": {
+        "description": "Returns the current feature importance weights used by the router for this tenant.\nFalls back to system defaults if no tenant-specific weights are configured.",
+        "operationId": "get_router_weights",
+        "parameters": [
+          {
+            "description": "Tenant ID",
+            "in": "path",
+            "name": "tenant_id",
+            "required": true,
+            "schema": {
+              "type": "string"
+            }
+          }
+        ],
+        "responses": {
+          "200": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/RouterWeightsResponse"
+                }
+              }
+            },
+            "description": "Current router weights"
+          },
+          "403": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ErrorResponse"
+                }
+              }
+            },
+            "description": "Forbidden"
+          },
+          "500": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ErrorResponse"
+                }
+              }
+            },
+            "description": "Internal server error"
+          }
+        },
+        "security": [
+          {
+            "bearer_token": []
+          }
+        ],
+        "summary": "GET /v1/tenants/{tenant_id}/router/weights",
+        "tags": [
+          "routing"
+        ]
+      },
+      "put": {
+        "description": "Update router feature importance weights for this tenant.\nOnly provided fields are updated; omitted fields retain their current value.",
+        "operationId": "update_router_weights",
+        "parameters": [
+          {
+            "description": "Tenant ID",
+            "in": "path",
+            "name": "tenant_id",
+            "required": true,
+            "schema": {
+              "type": "string"
+            }
+          }
+        ],
+        "requestBody": {
+          "content": {
+            "application/json": {
+              "schema": {
+                "$ref": "#/components/schemas/UpdateRouterWeightsRequest"
+              }
+            }
+          },
+          "required": true
+        },
+        "responses": {
+          "200": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/RouterWeightsResponse"
+                }
+              }
+            },
+            "description": "Updated router weights"
+          },
+          "403": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ErrorResponse"
+                }
+              }
+            },
+            "description": "Forbidden"
+          },
+          "500": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ErrorResponse"
+                }
+              }
+            },
+            "description": "Internal server error"
+          }
+        },
+        "security": [
+          {
+            "bearer_token": []
+          }
+        ],
+        "summary": "PUT /v1/tenants/{tenant_id}/router/weights",
+        "tags": [
+          "routing"
+        ]
+      }
+    },
+    "/v1/tenants/{tenant_id}/router/weights/reset": {
+      "post": {
+        "description": "Reset router weights to system defaults by removing the tenant-specific override.",
+        "operationId": "reset_router_weights",
+        "parameters": [
+          {
+            "description": "Tenant ID",
+            "in": "path",
+            "name": "tenant_id",
+            "required": true,
+            "schema": {
+              "type": "string"
+            }
+          }
+        ],
+        "responses": {
+          "200": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/RouterWeightsResponse"
+                }
+              }
+            },
+            "description": "Router weights reset to defaults"
+          },
+          "403": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ErrorResponse"
+                }
+              }
+            },
+            "description": "Forbidden"
+          },
+          "500": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ErrorResponse"
+                }
+              }
+            },
+            "description": "Internal server error"
+          }
+        },
+        "security": [
+          {
+            "bearer_token": []
+          }
+        ],
+        "summary": "POST /v1/tenants/{tenant_id}/router/weights/reset",
         "tags": [
           "routing"
         ]

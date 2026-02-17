@@ -25,6 +25,7 @@ use super::helpers::{
     PROMPT_BLOCK_LEN, PROMPT_WARN_LEN, STREAM_BUFFER_SIZE,
 };
 use super::progress::emit_progress;
+use super::safety::emit_auto_rollback_events;
 use crate::api_error::ApiError;
 use crate::auth::Claims;
 use crate::permissions::{require_permission, Permission};
@@ -2245,14 +2246,27 @@ pub async fn validate_dataset(
 
     // Mirror structural validation into dataset version trust pipeline
     if let Ok(version_id) = state.db.ensure_dataset_version_exists(&dataset_id).await {
-        let _ = state
+        match state
             .db
             .update_dataset_version_structural_validation(
                 &version_id,
                 validation_status,
                 validation_errors_json.as_deref(),
             )
-            .await;
+            .await
+        {
+            Ok(result) => {
+                emit_auto_rollback_events(&state, &result.propagation.auto_rollbacks).await;
+            }
+            Err(err) => {
+                tracing::warn!(
+                    error = %err,
+                    dataset_id = %dataset_id,
+                    dataset_version_id = %version_id,
+                    "Failed to mirror dataset version structural validation"
+                );
+            }
+        }
         // Kick off tier2 safety validation asynchronously (stub pipeline)
         spawn_tier2_safety_validation(state.clone(), version_id.clone(), claims.sub.clone());
 

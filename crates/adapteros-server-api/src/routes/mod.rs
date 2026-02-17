@@ -499,6 +499,7 @@ use utoipa_swagger_ui::SwaggerUi;
         handlers::resolve_adapter_version_handler,
         handlers::create_draft_version,
         handlers::adapters::get_adapter_version,
+        handlers::set_adapter_version_weight_handler,
         handlers::promote_adapter_version_handler,
         handlers::tag_adapter_version_handler,
         handlers::adapters_lifecycle::delete_adapter,

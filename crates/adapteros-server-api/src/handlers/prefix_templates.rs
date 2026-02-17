@@ -83,11 +83,10 @@ pub async fn get_prefix_template(
         .ok_or_else(|| {
             (
                 StatusCode::NOT_FOUND,
-                Json(ErrorResponse::new(format!(
-                    "Prefix template not found: {}",
-                    template_id
-                ))
-                .with_code(error_codes::NOT_FOUND)),
+                Json(
+                    ErrorResponse::new(format!("Prefix template not found: {}", template_id))
+                        .with_code(error_codes::NOT_FOUND),
+                ),
             )
         })?;
 
@@ -113,11 +112,10 @@ pub async fn update_prefix_template(
         .ok_or_else(|| {
             (
                 StatusCode::NOT_FOUND,
-                Json(ErrorResponse::new(format!(
-                    "Prefix template not found: {}",
-                    template_id
-                ))
-                .with_code(error_codes::NOT_FOUND)),
+                Json(
+                    ErrorResponse::new(format!("Prefix template not found: {}", template_id))
+                        .with_code(error_codes::NOT_FOUND),
+                ),
             )
         })?;
 
@@ -162,11 +160,10 @@ pub async fn delete_prefix_template(
         .ok_or_else(|| {
             (
                 StatusCode::NOT_FOUND,
-                Json(ErrorResponse::new(format!(
-                    "Prefix template not found: {}",
-                    template_id
-                ))
-                .with_code(error_codes::NOT_FOUND)),
+                Json(
+                    ErrorResponse::new(format!("Prefix template not found: {}", template_id))
+                        .with_code(error_codes::NOT_FOUND),
+                ),
             )
         })?;
 
@@ -188,9 +185,7 @@ pub async fn delete_prefix_template(
     } else {
         Err((
             StatusCode::NOT_FOUND,
-            Json(
-                ErrorResponse::new("Prefix template not found").with_code(error_codes::NOT_FOUND),
-            ),
+            Json(ErrorResponse::new("Prefix template not found").with_code(error_codes::NOT_FOUND)),
         ))
     }
 }

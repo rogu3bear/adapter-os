@@ -429,6 +429,8 @@ pub struct AdapterVersionResponse {
     pub dataset_version_trust: Option<Vec<DatasetVersionTrustSnapshot>>,
     pub adapter_trust_state: String,
     pub release_state: String,
+    #[serde(default = "default_version_weight")]
+    pub version_weight: f64,
     pub metrics_snapshot_id: Option<String>,
     pub evaluation_summary: Option<String>,
     pub created_at: String,
@@ -442,6 +444,11 @@ pub struct AdapterVersionResponse {
     /// Populated when the ID uses the TypedId format.
     #[serde(skip_serializing_if = "Option::is_none")]
     pub display_name: Option<String>,
+}
+
+#[cfg(feature = "server")]
+fn default_version_weight() -> f64 {
+    1.0
 }
 
 /// Create repository request
@@ -499,6 +506,14 @@ pub struct PromoteVersionRequest {
 pub struct RollbackVersionRequest {
     pub branch: String,
     pub target_version_id: String,
+}
+
+/// Set adapter version canary weight request.
+#[derive(Debug, Clone, Serialize, Deserialize)]
+#[cfg_attr(feature = "server", derive(utoipa::ToSchema))]
+#[serde(rename_all = "snake_case")]
+pub struct SetAdapterVersionWeightRequest {
+    pub version_weight: f64,
 }
 
 /// Tag version request

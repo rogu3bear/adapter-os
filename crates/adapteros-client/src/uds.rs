@@ -10,6 +10,9 @@
 
 use crate::{adapterOSClient, types::*, TelemetryBundleResponse, TelemetryEvent};
 use adapteros_types::tenants::Tenant;
+use adapteros_types::training::{
+    DataLineageMode, DatasetVersionSelection, LoraTier, TrainingConfig,
+};
 use anyhow::Result;
 use futures_util::stream::BoxStream;
 use serde_json;
@@ -388,6 +391,23 @@ impl UdsClient {
         serde_json::from_str(&response)
             .map_err(|e| UdsClientError::SerializationError(e.to_string()))
     }
+
+    /// Start a training job via UDS.
+    pub async fn start_training_job(
+        &self,
+        uds_path: &Path,
+        request: &UdsTrainingStartRequest,
+    ) -> Result<UdsTrainingStartResponse, UdsClientError> {
+        let request_json = serde_json::to_string(request)
+            .map_err(|e| UdsClientError::SerializationError(e.to_string()))?;
+
+        let response = self
+            .send_request(uds_path, "POST", "/training/start", Some(&request_json))
+            .await?;
+
+        serde_json::from_str(&response)
+            .map_err(|e| UdsClientError::SerializationError(e.to_string()))
+    }
 }
 
 /// Connection pool for efficient UDS communication
@@ -459,6 +479,51 @@ pub struct CancelTrainingResponse {
     pub final_loss: Option<f32>,
     /// Epoch number where training was stopped
     pub stopped_at_epoch: Option<u32>,
+}
+
+/// Request payload for worker-dispatched training execution.
+#[derive(Debug, Clone, serde::Serialize, serde::Deserialize)]
+pub struct UdsTrainingStartRequest {
+    /// Control-plane job id to preserve cancel compatibility.
+    pub job_id: String,
+    pub adapter_name: String,
+    pub config: TrainingConfig,
+    pub template_id: Option<String>,
+    pub repo_id: Option<String>,
+    pub target_branch: Option<String>,
+    pub base_version_id: Option<String>,
+    pub dataset_id: Option<String>,
+    pub dataset_version_ids: Option<Vec<DatasetVersionSelection>>,
+    pub synthetic_mode: bool,
+    pub data_lineage_mode: DataLineageMode,
+    pub tenant_id: Option<String>,
+    pub initiated_by: Option<String>,
+    pub initiated_by_role: Option<String>,
+    pub base_model_id: Option<String>,
+    pub collection_id: Option<String>,
+    pub scope: Option<String>,
+    pub lora_tier: Option<LoraTier>,
+    pub category: Option<String>,
+    pub description: Option<String>,
+    pub language: Option<String>,
+    pub framework_id: Option<String>,
+    pub framework_version: Option<String>,
+    pub post_actions_json: Option<String>,
+    pub retry_of_job_id: Option<String>,
+    pub code_commit_sha: Option<String>,
+    pub data_spec_json: Option<String>,
+    pub data_spec_hash: Option<String>,
+}
+
+/// Response payload for worker-dispatched training execution.
+#[derive(Debug, Clone, serde::Serialize, serde::Deserialize)]
+pub struct UdsTrainingStartResponse {
+    /// Control-plane job id echoed from request.
+    pub job_id: String,
+    /// Worker-local job id when worker executes via local TrainingService.
+    pub worker_job_id: Option<String>,
+    /// Dispatch status ("accepted" on success).
+    pub status: String,
 }
 
 impl adapterOSClient for UdsClient {

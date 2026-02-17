@@ -277,6 +277,12 @@ impl<'a> InferenceCore<'a> {
             }
         }
 
+        self.state
+            .training_service
+            .scheduler()
+            .notify_inference_active()
+            .await;
+
         let result = async {
         let mut all_policy_decisions = Vec::new();
         if request.run_envelope.is_none() {
@@ -852,6 +858,14 @@ impl<'a> InferenceCore<'a> {
         } else {
             None
         };
+        let adapter_version_weights = match request.effective_adapter_ids.as_ref() {
+            Some(effective_ids) if effective_ids.is_empty() => None,
+            Some(effective_ids) => Some(
+                self.resolve_version_weights_for_adapters(&request.cpid, effective_ids)
+                    .await?,
+            ),
+            None => Some(self.resolve_version_weights_for_tenant(&request.cpid).await?),
+        };
 
         let worker_request = WorkerInferRequest {
             cpid: request.cpid.clone(),
@@ -889,6 +903,7 @@ impl<'a> InferenceCore<'a> {
             routing_determinism_mode: request.routing_determinism_mode,
             effective_adapter_ids: request.effective_adapter_ids.clone(),
             adapter_stable_ids,
+            adapter_version_weights,
             routing_policy,
             placement: None,
             adapter_strength_overrides: request.adapter_strength_overrides.clone(),
@@ -1698,6 +1713,12 @@ impl<'a> InferenceCore<'a> {
             }
         }
 
+        self.state
+            .training_service
+            .scheduler()
+            .notify_inference_idle()
+            .await;
+
         // Update inference state tracker with completion status
         if let Some(ref tracker) = self.state.inference_state_tracker {
             match &result {
@@ -1981,6 +2002,88 @@ impl<'a> InferenceCore<'a> {
         }
 
         Ok(stable_ids)
+    }
+
+    async fn resolve_version_weights_for_adapters(
+        &self,
+        tenant_id: &str,
+        adapter_ids: &[String],
+    ) -> Result<std::collections::HashMap<String, f32>, InferenceError> {
+        let mut weights =
+            std::collections::HashMap::with_capacity(adapter_ids.len().saturating_mul(2));
+        let mut seen = std::collections::HashSet::with_capacity(adapter_ids.len());
+
+        for requested in adapter_ids {
+            if !seen.insert(requested.as_str()) {
+                continue;
+            }
+
+            let adapter = self
+                .state
+                .db
+                .get_adapter_for_tenant(tenant_id, requested)
+                .await
+                .map_err(|e| {
+                    InferenceError::DatabaseError(format!(
+                        "Failed to resolve version weight for adapter '{}': {}",
+                        requested, e
+                    ))
+                })?
+                .ok_or_else(|| {
+                    InferenceError::AdapterNotFound(format!(
+                        "Adapter '{}' not found for tenant {}",
+                        requested, tenant_id
+                    ))
+                })?;
+
+            let weight = adapter
+                .effective_version_weight
+                .filter(|w| w.is_finite())
+                .unwrap_or(1.0)
+                .clamp(0.0, 2.0) as f32;
+
+            weights.insert(requested.clone(), weight);
+            weights.insert(adapter.id.clone(), weight);
+            if let Some(adapter_id) = adapter.adapter_id.clone() {
+                weights.insert(adapter_id, weight);
+            }
+        }
+
+        Ok(weights)
+    }
+
+    async fn resolve_version_weights_for_tenant(
+        &self,
+        tenant_id: &str,
+    ) -> Result<std::collections::HashMap<String, f32>, InferenceError> {
+        let adapters = self
+            .state
+            .db
+            .list_adapters_for_tenant_unthrottled(tenant_id)
+            .await
+            .map_err(|e| {
+                InferenceError::DatabaseError(format!(
+                    "Failed to list adapters for tenant '{}' version weight resolution: {}",
+                    tenant_id, e
+                ))
+            })?;
+
+        let mut weights =
+            std::collections::HashMap::with_capacity(adapters.len().saturating_mul(2));
+        for adapter in adapters {
+            let weight = adapter
+                .effective_version_weight
+                .filter(|w| w.is_finite())
+                .unwrap_or(1.0)
+                .clamp(0.0, 2.0) as f32;
+
+            weights.insert(adapter.id.clone(), weight);
+            if let Some(adapter_id) = adapter.adapter_id.clone() {
+                weights.insert(adapter_id, weight);
+            }
+        }
+
+        Ok(weights)
     }
 
     /// Validate pinned adapters belong to the requesting tenant.

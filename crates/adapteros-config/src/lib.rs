@@ -73,11 +73,13 @@ pub use path_resolver::{
     resolve_base_model_location, resolve_database_url, resolve_embedding_model_path,
     resolve_embedding_model_path_with_override, resolve_index_root, resolve_manifest_cache_dir,
     resolve_manifest_path, resolve_model_path, resolve_qwen_int4_manifest_dir, resolve_status_path,
-    resolve_telemetry_dir, resolve_worker_socket_for_cp, resolve_worker_socket_for_worker,
-    BaseModelLocation, PathSource, ResolvedPath, DEFAULT_ADAPTERS_ROOT, DEFAULT_BASE_MODEL_ID,
-    DEFAULT_CP_WORKER_SOCKET, DEFAULT_DB_PATH, DEFAULT_EMBEDDING_MODEL_PATH, DEFAULT_INDEX_ROOT,
-    DEFAULT_MANIFEST_CACHE_DIR, DEFAULT_MODEL_CACHE_ROOT, DEFAULT_QWEN_INT4_MANIFEST_DIR,
-    DEFAULT_STATUS_PATH, DEFAULT_TELEMETRY_DIR, DEFAULT_WORKER_SOCKET_DEV,
+    resolve_telemetry_dir, resolve_training_worker_socket_for_cp,
+    resolve_training_worker_socket_for_worker, resolve_worker_socket_for_cp,
+    resolve_worker_socket_for_worker, BaseModelLocation, PathSource, ResolvedPath,
+    DEFAULT_ADAPTERS_ROOT, DEFAULT_BASE_MODEL_ID, DEFAULT_CP_WORKER_SOCKET, DEFAULT_DB_PATH,
+    DEFAULT_EMBEDDING_MODEL_PATH, DEFAULT_INDEX_ROOT, DEFAULT_MANIFEST_CACHE_DIR,
+    DEFAULT_MODEL_CACHE_ROOT, DEFAULT_QWEN_INT4_MANIFEST_DIR, DEFAULT_STATUS_PATH,
+    DEFAULT_TELEMETRY_DIR, DEFAULT_TRAINING_WORKER_SOCKET, DEFAULT_WORKER_SOCKET_DEV,
     DEFAULT_WORKER_SOCKET_PROD_ROOT, DEV_MANIFEST_PATH, DEV_MODEL_PATH,
 };
 pub use placement::{PlacementConfig, PlacementMode, PlacementWeights};
@@ -138,4 +140,51 @@ pub fn get_config() -> Result<&'static DeterministicConfig> {
 /// Check if configuration is frozen
 pub fn is_frozen() -> bool {
     CONFIG.get().is_some()
+}
+
+/// Training execution mode selector.
+#[derive(Debug, Clone, Copy, PartialEq, Eq)]
+pub enum TrainingExecutionMode {
+    Worker,
+    InProcess,
+}
+
+impl TrainingExecutionMode {
+    /// Parse environment value; defaults to `Worker`.
+    #[must_use]
+    pub fn from_env() -> Self {
+        match std::env::var("AOS_TRAINING_EXECUTION_MODE")
+            .unwrap_or_else(|_| "worker".to_string())
+            .trim()
+            .to_ascii_lowercase()
+            .as_str()
+        {
+            "in_process" => Self::InProcess,
+            "worker" => Self::Worker,
+            _ => Self::Worker,
+        }
+    }
+}
+
+/// Resolve training execution mode from environment.
+#[must_use]
+pub fn training_execution_mode() -> TrainingExecutionMode {
+    TrainingExecutionMode::from_env()
+}
+
+/// Controls whether control plane should fall back to in-process training if worker dispatch fails.
+///
+/// Defaults to `true` (`AOS_TRAINING_WORKER_FALLBACK=true`).
+#[must_use]
+pub fn training_worker_fallback_enabled() -> bool {
+    match std::env::var("AOS_TRAINING_WORKER_FALLBACK")
+        .unwrap_or_else(|_| "true".to_string())
+        .trim()
+        .to_ascii_lowercase()
+        .as_str()
+    {
+        "0" | "false" | "no" | "off" => false,
+        "1" | "true" | "yes" | "on" => true,
+        _ => true,
+    }
 }

@@ -1621,6 +1621,12 @@ impl Router {
             if self.is_moe_model && !adapter_info[i].recommended_for_moe {
                 score *= 0.8;
             }
+            let version_weight = if adapter_info[i].version_weight.is_finite() {
+                adapter_info[i].version_weight.clamp(0.0, 2.0)
+            } else {
+                1.0
+            };
+            score *= version_weight;
             if !score.is_finite() {
                 return Err(AosError::DeterminismViolation(format!(
                     "Non-finite combined score for adapter {}",

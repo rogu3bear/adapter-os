@@ -206,6 +206,8 @@ mod tests {
             "unknown_flag": true,
             "nested_unknown": {"a": 1}
         });
+        let original_nested = serde_json::to_string(&value["nested_unknown"])
+            .expect("serialize original nested unknown value");
         let mut registry = TenantSettingsRegistry::from_value(&value).expect("valid object");
 
         registry
@@ -225,6 +227,9 @@ mod tests {
             serde_json::from_str(&registry.to_json_string().expect("serialize")).expect("parse");
         assert_eq!(round_tripped["unknown_flag"], json!(true));
         assert_eq!(round_tripped["nested_unknown"], json!({"a": 1}));
+        let round_nested = serde_json::to_string(&round_tripped["nested_unknown"])
+            .expect("serialize round-tripped nested unknown value");
+        assert_eq!(round_nested, original_nested);
         assert!(round_tripped.get("router_weights").is_some());
     }
 

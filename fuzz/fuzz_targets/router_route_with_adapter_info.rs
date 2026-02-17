@@ -63,6 +63,7 @@ fn build_adapter(u: &mut Unstructured<'_>, idx: usize) -> Option<AdapterInfo> {
         scope_path,
         lora_tier,
         base_model: None,
+        version_weight: 1.0,
         recommended_for_moe: false,
         reasoning_specialties: vec![],
         adapter_type: None,

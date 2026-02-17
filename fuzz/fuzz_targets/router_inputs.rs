@@ -58,6 +58,7 @@ fuzz_target!(|data: &[u8]| {
             },
             lora_tier: None,
             base_model: None,
+            version_weight: 1.0,
             recommended_for_moe: false,
             reasoning_specialties: vec![],
             adapter_type: None,

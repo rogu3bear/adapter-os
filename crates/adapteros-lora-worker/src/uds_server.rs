@@ -849,6 +849,7 @@ impl<K: adapteros_lora_kernel_api::FusedKernels + StrictnessControl + 'static> U
                     routing_determinism_mode: None,
                     effective_adapter_ids: None,
                     adapter_stable_ids: None,
+                    adapter_version_weights: None,
                     placement: None,
                     routing_policy: None,
                     stop_policy: None,

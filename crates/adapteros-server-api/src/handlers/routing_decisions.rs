@@ -860,6 +860,10 @@ pub async fn debug_routing(
                 languages,
                 tier: adapter.tier.clone(),
                 base_model: adapter.base_model_id.clone(),
+                version_weight: adapter
+                    .effective_version_weight
+                    .filter(|w| w.is_finite())
+                    .unwrap_or(1.0) as f32,
                 recommended_for_moe: adapter.recommended_for_moe.unwrap_or(true),
                 ..Default::default()
             }

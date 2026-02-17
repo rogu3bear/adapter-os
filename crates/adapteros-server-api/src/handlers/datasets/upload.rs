@@ -9,6 +9,7 @@ use super::helpers::{
 };
 use super::paths::{resolve_dataset_root, DatasetPaths};
 use super::progress::emit_progress;
+use super::safety::emit_auto_rollback_events;
 use super::tenant::bind_dataset_to_tenant;
 use super::types::{InitiateChunkedUploadRequest, InitiateChunkedUploadResponse};
 use super::upload_sessions::{
@@ -839,7 +840,7 @@ pub async fn upload_dataset(
         .await
         .map_err(|e| ApiError::db_error(format!("Failed to update validation status: {}", e)))?;
 
-    if let Err(e) = state
+    match state
         .db
         .update_dataset_version_structural_validation(
             &dataset_version_id,
@@ -848,12 +849,17 @@ pub async fn upload_dataset(
         )
         .await
     {
-        warn!(
-            error = %e,
-            dataset_id = %dataset_id,
-            dataset_version_id = %dataset_version_id,
-            "Failed to update dataset version validation status"
-        );
+        Ok(result) => {
+            emit_auto_rollback_events(&state, &result.propagation.auto_rollbacks).await;
+        }
+        Err(e) => {
+            warn!(
+                error = %e,
+                dataset_id = %dataset_id,
+                dataset_version_id = %dataset_version_id,
+                "Failed to update dataset version validation status"
+            );
+        }
     }
 
     if !validation_result.is_valid {

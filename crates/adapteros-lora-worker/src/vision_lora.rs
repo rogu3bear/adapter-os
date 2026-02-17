@@ -7,7 +7,6 @@
 #![allow(clippy::useless_vec)]
 
 use std::collections::HashMap;
-use std::convert::TryInto;
 use std::sync::Arc;
 
 use adapteros_core::{AosError, Result};
@@ -317,7 +316,11 @@ mod tests {
         let base_floats: Vec<f32> = first_tensor
             .data()
             .chunks_exact(std::mem::size_of::<f32>())
-            .map(|chunk| f32::from_le_bytes(chunk.try_into().unwrap()))
+            .map(|chunk| {
+                let mut raw = [0u8; std::mem::size_of::<f32>()];
+                raw.copy_from_slice(chunk);
+                f32::from_le_bytes(raw)
+            })
             .collect();
 
         let base_clone = base_floats.clone();

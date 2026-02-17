@@ -417,6 +417,9 @@ impl From<AdapterKv> for Adapter {
             coreml_package_hash: kv.coreml_package_hash,
             // Training lineage (not stored in KV, set to None)
             training_dataset_hash_b3: None,
+            // Version mapping fields are SQL-derived metadata and not persisted in KV.
+            adapter_version_id: None,
+            effective_version_weight: None,
             // Stable ID (not stored in KV, set to None)
             stable_id: None,
         }
@@ -1432,6 +1435,8 @@ mod tests {
             versioning_threshold: None,
             coreml_package_hash: None,
             training_dataset_hash_b3: None,
+            adapter_version_id: None,
+            effective_version_weight: None,
             stable_id: Some(1),
         };
 
@@ -1530,6 +1535,8 @@ mod tests {
                 versioning_threshold: None,
                 coreml_package_hash: None,
                 training_dataset_hash_b3: None,
+                adapter_version_id: None,
+                effective_version_weight: None,
                 stable_id: Some(1),
             },
             Adapter {
@@ -1603,6 +1610,8 @@ mod tests {
                 versioning_threshold: None,
                 coreml_package_hash: None,
                 training_dataset_hash_b3: None,
+                adapter_version_id: None,
+                effective_version_weight: None,
                 stable_id: Some(2),
             },
         ];

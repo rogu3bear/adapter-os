@@ -2143,6 +2143,7 @@ mod tests {
             strict_mode: true,
             effective_adapter_ids: Some(vec!["eff-1".to_string(), "eff-2".to_string()]),
             adapter_stable_ids: None,
+            adapter_version_weights: None,
             routing_policy: None,
             placement: None,
             adapter_strength_overrides: Some(

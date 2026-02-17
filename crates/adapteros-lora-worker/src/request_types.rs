@@ -126,6 +126,9 @@ pub struct InferenceRequest {
     /// legacy adapter that predates stable_id assignment.
     #[serde(default, skip_serializing_if = "Option::is_none")]
     pub adapter_stable_ids: Option<std::collections::HashMap<String, u64>>,
+    /// Per-adapter version-aware canary multipliers (neutral default 1.0).
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub adapter_version_weights: Option<std::collections::HashMap<String, f32>>,
     /// Placement override for replay
     #[serde(default)]
     pub placement: Option<PlacementReplay>,
@@ -232,6 +235,7 @@ impl From<WorkerInferenceRequest> for InferenceRequest {
             adapter_strength_overrides: req.adapter_strength_overrides,
             effective_adapter_ids: req.effective_adapter_ids,
             adapter_stable_ids: req.adapter_stable_ids,
+            adapter_version_weights: req.adapter_version_weights,
             placement: req.placement.map(PlacementReplay::from),
             routing_policy: req.routing_policy,
             policy_mask_digest_b3: req.policy_mask_digest_b3,

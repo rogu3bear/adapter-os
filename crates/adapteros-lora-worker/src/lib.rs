@@ -3302,12 +3302,17 @@ impl<K: FusedKernels + StrictnessControl + Send + Sync + 'static> Worker<K> {
         };
 
         let stable_id_lookup = request.adapter_stable_ids.as_ref();
+        let version_weight_lookup = request.adapter_version_weights.as_ref();
         let adapter_info: Vec<AdapterInfo> = active_entries
             .iter()
             .map(|(_, adapter)| {
                 let stable_id = stable_id_lookup
                     .and_then(|m| m.get(adapter.id.as_str()).copied())
                     .unwrap_or(0);
+                let version_weight = version_weight_lookup
+                    .and_then(|m| m.get(adapter.id.as_str()).copied())
+                    .unwrap_or(1.0)
+                    .clamp(0.0, 2.0);
 
                 AdapterInfo {
                     id: adapter.id.clone(),
@@ -3316,6 +3321,7 @@ impl<K: FusedKernels + StrictnessControl + Send + Sync + 'static> Worker<K> {
                     languages: vec![0], // Default language
                     tier: format!("{:?}", adapter.tier).to_lowercase(),
                     base_model: None, // Base model info not available in this context
+                    version_weight,
                     recommended_for_moe: adapter.recommended_for_moe,
                     ..Default::default()
                 }

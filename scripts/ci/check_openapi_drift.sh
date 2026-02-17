@@ -84,6 +84,10 @@ if [ -z "$ACTUAL_UTOIPA" ] || [ "$ACTUAL_UTOIPA" = "null" ]; then
     fi
 fi
 
+# Normalize legacy parse forms like: version = "5.4.0"
+ACTUAL_UTOIPA=$(printf '%s' "$ACTUAL_UTOIPA" \
+    | sed -E 's/^version *= *"([^"]+)".*$/\1/; s/^"([^"]+)"$/\1/')
+
 if [ -z "$ACTUAL_UTOIPA" ]; then
     echo "WARNING: Could not determine utoipa version (jq not available and Cargo.lock parse failed)"
     echo "         Skipping version check, proceeding with spec generation..."
@@ -125,7 +129,7 @@ echo "Generating OpenAPI spec via export-openapi..."
 # Deterministic builds: rely on the committed SQLx offline cache.
 # This avoids compile-time DB access (and failures) during spec generation.
 SQLX_OFFLINE_DIR="${SQLX_OFFLINE_DIR:-$ROOT_DIR/crates/adapteros-db/.sqlx}"
-env SQLX_OFFLINE=1 SQLX_OFFLINE_DIR="$SQLX_OFFLINE_DIR" \
+env RUSTC_WRAPPER= SQLX_OFFLINE=1 SQLX_OFFLINE_DIR="$SQLX_OFFLINE_DIR" \
   cargo run --locked -p adapteros-server-api --bin export-openapi -- "$TMP_SPEC"
 
 if [ ! -f "$TMP_SPEC" ]; then

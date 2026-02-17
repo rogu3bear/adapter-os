@@ -201,6 +201,11 @@ fn adapter_to_router_info(adapter: &adapteros_db::adapters::Adapter) -> AdapterI
         Some(adapter.scope.clone())
     };
 
+    let version_weight = adapter
+        .effective_version_weight
+        .filter(|w| w.is_finite())
+        .unwrap_or(1.0) as f32;
+
     AdapterInfo {
         id: adapter
             .adapter_id
@@ -214,6 +219,7 @@ fn adapter_to_router_info(adapter: &adapteros_db::adapters::Adapter) -> AdapterI
         scope_path,
         lora_tier: None,
         base_model: adapter.base_model_id.clone(),
+        version_weight,
         recommended_for_moe: adapter.recommended_for_moe.unwrap_or(true),
         // Demo note: tag adapter metadata with `reasoning_specialties` and enable
         // reasoning_mode=true (chat UI sets backend=coreml) for conversation-driven hot-swaps.

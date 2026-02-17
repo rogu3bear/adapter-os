@@ -34,7 +34,9 @@ use crate::auth::Claims;
 use crate::ip_extraction::ClientIp;
 use crate::permissions::{require_permission, Permission};
 use crate::security::validate_tenant_isolation;
+use crate::sse::{AdapterVersionEvent, SseStreamType};
 use crate::state::AppState;
+use adapteros_db::adapter_repositories::AutoRollbackApplied;
 use axum::{
     extract::{Path, Query, State},
     response::IntoResponse,
@@ -72,6 +74,25 @@ pub const DEFAULT_SYNTHETIC_RATIO_CAP: f64 = 0.5;
 
 /// Warning threshold for synthetic data ratio (approaching cap).
 pub const SYNTHETIC_RATIO_WARNING_THRESHOLD: f64 = 0.4;
+
+pub(crate) async fn emit_auto_rollback_events(state: &AppState, outcomes: &[AutoRollbackApplied]) {
+    for outcome in outcomes {
+        state
+            .sse_manager
+            .emit_lifecycle(
+                SseStreamType::AdapterState,
+                &AdapterVersionEvent::AutoRollbackApplied {
+                    repo_id: outcome.repo_id.clone(),
+                    branch: outcome.branch.clone(),
+                    target_version_id: outcome.target_version_id.clone(),
+                    dataset_version_id: outcome.dataset_version_id.clone(),
+                    timeline_event_id: outcome.timeline_event_id.clone(),
+                    reason: outcome.reason.clone(),
+                },
+            )
+            .await;
+    }
+}
 
 // ============================================================================
 // Synthetic Ratio Validation Types
@@ -806,7 +827,7 @@ pub async fn update_dataset_safety(
         normalized.anomaly_status.as_deref().unwrap_or("unknown"),
     );
 
-    let trust_state = state
+    let trust_update = state
         .db
         .update_dataset_version_safety_status(
             &version_id,
@@ -817,6 +838,8 @@ pub async fn update_dataset_safety(
         )
         .await
         .map_err(|e| ApiError::db_error(format!("Failed to update safety status: {}", e)))?;
+    emit_auto_rollback_events(&state, &trust_update.propagation.auto_rollbacks).await;
+    let trust_state = trust_update.trust_state;
 
     record_safety_status_updates(&state, &version_id, &claims.sub, &normalized).await;
 
@@ -896,7 +919,7 @@ pub async fn override_dataset_trust(
     let normalized_state = normalize_override_state("trust_state", &body.trust_state)
         .map_err(ApiError::bad_request)?;
 
-    state
+    let override_result = state
         .db
         .create_dataset_version_override(
             &version_id,
@@ -906,6 +929,7 @@ pub async fn override_dataset_trust(
         )
         .await
         .map_err(|e| ApiError::db_error(format!("Failed to create trust override: {}", e)))?;
+    emit_auto_rollback_events(&state, &override_result.propagation.auto_rollbacks).await;
 
     // Audit log: trust override
     audit_helper::log_success_or_warn(
@@ -1074,7 +1098,7 @@ pub async fn apply_dataset_trust_override(
         .await
         .map_err(|e| ApiError::db_error(format!("Failed to ensure dataset version: {}", e)))?;
 
-    state
+    let override_result = state
         .db
         .create_dataset_version_override(
             &version_id,
@@ -1084,6 +1108,7 @@ pub async fn apply_dataset_trust_override(
         )
         .await
         .map_err(|e| ApiError::db_error(format!("Failed to create override: {}", e)))?;
+    emit_auto_rollback_events(&state, &override_result.propagation.auto_rollbacks).await;
 
     let effective = state
         .db
@@ -1186,7 +1211,7 @@ pub async fn apply_dataset_version_trust_override(
             .map_err(ApiError::bad_request)?;
 
     // Create the override (this automatically propagates trust changes via DB triggers)
-    state
+    let override_result = state
         .db
         .create_dataset_version_override(
             &version_id,
@@ -1196,6 +1221,7 @@ pub async fn apply_dataset_version_trust_override(
         )
         .await
         .map_err(|e| ApiError::db_error(format!("Failed to create override: {}", e)))?;
+    emit_auto_rollback_events(&state, &override_result.propagation.auto_rollbacks).await;
 
     // Get the effective trust state after override
     let effective = state
@@ -1310,7 +1336,7 @@ pub async fn update_dataset_version_safety(
     );
 
     // Update safety status (this automatically propagates trust changes via DB layer)
-    let trust_state = state
+    let trust_update = state
         .db
         .update_dataset_version_safety_status(
             &version_id,
@@ -1321,6 +1347,8 @@ pub async fn update_dataset_version_safety(
         )
         .await
         .map_err(|e| ApiError::db_error(format!("Failed to update safety status: {}", e)))?;
+    emit_auto_rollback_events(&state, &trust_update.propagation.auto_rollbacks).await;
+    let trust_state = trust_update.trust_state;
 
     record_safety_status_updates(&state, &version_id, &claims.sub, &normalized).await;
 

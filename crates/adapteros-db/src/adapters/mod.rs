@@ -99,7 +99,8 @@ const ADAPTER_COLUMNS_ALIAS_A: &str =
      a.content_hash_b3, a.metadata_json, a.provenance_json, a.repo_path, a.codebase_scope, \
      a.dataset_version_id, a.registration_timestamp, a.manifest_hash, \
      a.adapter_type, a.base_adapter_id, a.stream_session_id, a.versioning_threshold, a.coreml_package_hash, \
-     a.training_dataset_hash_b3, a.created_at, a.updated_at, a.active";
+     a.training_dataset_hash_b3, a.adapter_version_id, a.effective_version_weight, a.stable_id, \
+     a.created_at, a.updated_at, a.active";
 
 tokio::task_local! {
     static TENANT_SCOPE_ACTIVE: bool;
@@ -1039,6 +1040,15 @@ pub struct Adapter {
     /// (from migration 0282)
     #[sqlx(default)]
     pub training_dataset_hash_b3: Option<String>,
+
+    /// Linked adapter version ID when this adapter maps to a unique repository version.
+    /// Best-effort mapping by (tenant_id, repo_id, version).
+    #[sqlx(default)]
+    pub adapter_version_id: Option<String>,
+    /// Effective canary multiplier from the linked adapter version.
+    /// Neutral default is 1.0.
+    #[sqlx(default)]
+    pub effective_version_weight: Option<f64>,
 
     /// Monotonic stable ID per tenant for deterministic tie-breaking.
     /// Used by the router for consistent ordering when scores are equal.

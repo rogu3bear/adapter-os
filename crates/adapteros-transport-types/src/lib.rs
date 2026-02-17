@@ -137,6 +137,8 @@ pub struct WorkerInferenceRequest {
     #[serde(default, skip_serializing_if = "Option::is_none")]
     pub adapter_stable_ids: Option<HashMap<String, u64>>,
     #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub adapter_version_weights: Option<HashMap<String, f32>>,
+    #[serde(default, skip_serializing_if = "Option::is_none")]
     pub placement: Option<PlacementReplay>,
     #[serde(default, skip_serializing_if = "Option::is_none")]
     pub routing_policy: Option<RoutingPolicy>,
@@ -192,6 +194,7 @@ mod tests {
             adapter_strength_overrides: None,
             effective_adapter_ids: None,
             adapter_stable_ids: None,
+            adapter_version_weights: None,
             placement: None,
             routing_policy: None,
             stop_policy: None,

@@ -100,4 +100,13 @@ pub enum AdapterVersionEvent {
         branch: String,
         target_version_id: String,
     },
+    /// An automatic rollback was applied after dataset trust regression.
+    AutoRollbackApplied {
+        repo_id: String,
+        branch: String,
+        target_version_id: String,
+        dataset_version_id: String,
+        timeline_event_id: String,
+        reason: String,
+    },
 }

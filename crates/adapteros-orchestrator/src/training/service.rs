@@ -802,6 +802,102 @@ impl TrainingService {
             jobs.insert(job_id.clone(), job.clone());
         }
 
+        let execution_mode = adapteros_config::training_execution_mode();
+        if execution_mode == adapteros_config::TrainingExecutionMode::Worker {
+            let worker_request = adapteros_client::uds::UdsTrainingStartRequest {
+                job_id: job_id.clone(),
+                adapter_name: job.adapter_name.clone(),
+                config: job.config.clone(),
+                template_id: job.template_id.clone(),
+                repo_id: job.repo_id.clone(),
+                target_branch: job.target_branch.clone(),
+                base_version_id: job.base_version_id.clone(),
+                dataset_id: job.dataset_id.clone(),
+                dataset_version_ids: job.dataset_version_ids.clone(),
+                synthetic_mode: job.synthetic_mode,
+                data_lineage_mode: job.data_lineage_mode.unwrap_or(data_lineage_mode),
+                tenant_id: job.tenant_id.clone(),
+                initiated_by: job.initiated_by.clone(),
+                initiated_by_role: job.initiated_by_role.clone(),
+                base_model_id: job.base_model_id.clone(),
+                collection_id: job.collection_id.clone(),
+                scope: job.scope.clone(),
+                lora_tier: job.lora_tier,
+                category: job.category.clone(),
+                description: job.description.clone(),
+                language: job.language.clone(),
+                framework_id: job.framework_id.clone(),
+                framework_version: job.framework_version.clone(),
+                post_actions_json: job.post_actions_json.clone(),
+                retry_of_job_id: job.retry_of_job_id.clone(),
+                code_commit_sha: job.code_commit_sha.clone(),
+                data_spec_json: job.data_spec_json.clone(),
+                data_spec_hash: job.data_spec_hash.clone(),
+            };
+
+            let worker_dispatch_result: Result<(
+                adapteros_config::ResolvedPath,
+                adapteros_client::uds::UdsTrainingStartResponse,
+            )> = async {
+                let resolved_socket = adapteros_config::resolve_training_worker_socket_for_cp()?;
+                let uds_client = adapteros_client::UdsClient::new(Duration::from_secs(10));
+                let dispatch = uds_client
+                    .start_training_job(resolved_socket.path.as_path(), &worker_request)
+                    .await
+                    .map_err(|e| {
+                        AosError::Worker(format!("Training worker start request failed: {}", e))
+                    })?;
+                Ok((resolved_socket, dispatch))
+            }
+            .await;
+
+            match worker_dispatch_result {
+                Ok((resolved_socket, dispatch)) => {
+                    let started_at = chrono::Utc::now().to_rfc3339();
+                    let mut dispatched_job = job.clone();
+                    dispatched_job.status = TrainingJobStatus::Running;
+                    dispatched_job.started_at = Some(started_at.clone());
+
+                    {
+                        let mut jobs = self.jobs.write().await;
+                        if let Some(existing) = jobs.get_mut(&job_id) {
+                            existing.status = TrainingJobStatus::Running;
+                            existing.started_at = Some(started_at);
+                        }
+                    }
+
+                    if let Some(ref database) = self.db {
+                        if let Err(e) = database.update_training_status(&job_id, "running").await {
+                            warn!(job_id = %job_id, error = %e, "Failed to persist worker-dispatched training status (non-fatal)");
+                        }
+                    }
+
+                    info!(
+                        job_id = %job_id,
+                        worker_job_id = ?dispatch.worker_job_id,
+                        socket_path = %resolved_socket.path.display(),
+                        socket_source = %resolved_socket.source,
+                        mode = "worker",
+                        "Training job dispatched to training worker"
+                    );
+                    return Ok(dispatched_job);
+                }
+                Err(error) => {
+                    if adapteros_config::training_worker_fallback_enabled() {
+                        warn!(
+                            job_id = %job_id,
+                            error = %error,
+                            mode = "worker",
+                            fallback_mode = "in_process",
+                            "Training worker dispatch failed; falling back to in-process execution"
+                        );
+                    } else {
+                        return Err(error);
+                    }
+                }
+            }
+        }
+
         // Create and register cancel token for this job
         let cancel_token = Arc::new(AtomicBool::new(false));
         {
@@ -953,7 +1049,20 @@ impl TrainingService {
                 );
                 std::path::PathBuf::from(socket)
             } else {
-                let resolved = adapteros_config::resolve_worker_socket_for_cp()?;
+                let resolved = if adapteros_config::training_execution_mode()
+                    == adapteros_config::TrainingExecutionMode::Worker
+                {
+                    adapteros_config::resolve_training_worker_socket_for_cp().or_else(|e| {
+                        warn!(
+                            job_id = %job_id,
+                            error = %e,
+                            "Failed to resolve training worker socket; falling back to control-plane worker socket"
+                        );
+                        adapteros_config::resolve_worker_socket_for_cp()
+                    })?
+                } else {
+                    adapteros_config::resolve_worker_socket_for_cp()?
+                };
                 info!(
                     job_id = %job_id,
                     socket_path = %resolved.path.display(),

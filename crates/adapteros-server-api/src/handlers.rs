@@ -201,10 +201,11 @@ pub use adapter_lifecycle::{
 pub use adapter_versions::{
     __path_create_draft_version, __path_get_adapter_version, __path_list_adapter_versions,
     __path_promote_adapter_version_handler, __path_resolve_adapter_version_handler,
-    __path_rollback_adapter_version_handler, __path_tag_adapter_version_handler,
-    create_draft_version, get_adapter_version, list_adapter_versions,
-    promote_adapter_version_handler, resolve_adapter_version_handler,
-    rollback_adapter_version_handler, tag_adapter_version_handler, ListAdapterVersionsParams,
+    __path_rollback_adapter_version_handler, __path_set_adapter_version_weight_handler,
+    __path_tag_adapter_version_handler, create_draft_version, get_adapter_version,
+    list_adapter_versions, promote_adapter_version_handler, resolve_adapter_version_handler,
+    rollback_adapter_version_handler, set_adapter_version_weight_handler,
+    tag_adapter_version_handler, ListAdapterVersionsParams,
 };
 
 // Re-export adapter health functions
