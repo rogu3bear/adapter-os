@@ -149,6 +149,41 @@ impl FederationDaemon {
         }
     }
 
+    /// Restore quarantine state from the database on boot.
+    ///
+    /// Checks the `policy_quarantine` table for unreleased records. If any exist,
+    /// the in-memory `QuarantineManager` is set to quarantined with the reason from
+    /// the most recent unreleased record. This ensures quarantine survives server
+    /// restarts — without this, a restart would clear the in-memory flag and allow
+    /// serving despite unresolved policy violations.
+    pub async fn restore_quarantine_from_db(&self) -> Result<()> {
+        match self.db.get_active_quarantine_details().await {
+            Ok(Some(details)) => {
+                let reason = format!(
+                    "{} (restored from DB, originally triggered at {})",
+                    details.reason, details.triggered_at
+                );
+                let mut quarantine = self.quarantine.write();
+                quarantine.set_quarantined(true, reason);
+                warn!(
+                    original_reason = %details.reason,
+                    triggered_at = %details.triggered_at,
+                    violation_type = %details.violation_type,
+                    "Quarantine state restored from database — system remains quarantined"
+                );
+            }
+            Ok(None) => {
+                debug!("No active quarantine records in database — system starts clean");
+            }
+            Err(e) => {
+                // Conservative: if we can't read the DB, log an error but don't quarantine.
+                // The background sweep will catch violations within its first cycle.
+                error!(error = %e, "Failed to check quarantine state on boot");
+            }
+        }
+        Ok(())
+    }
+
     /// Run the daemon with graceful shutdown support
     pub fn start(self: Arc<Self>, shutdown_rx: broadcast::Receiver<()>) -> JoinHandle<()> {
         info!(

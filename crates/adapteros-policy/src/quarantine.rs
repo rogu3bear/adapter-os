@@ -69,7 +69,19 @@ impl QuarantineOperation {
     }
 }
 
-/// Quarantine manager for policy violation enforcement
+/// Quarantine manager for policy violation enforcement.
+///
+/// # Persistence Model
+///
+/// `QuarantineManager` is intentionally in-memory. Quarantine *records* are persisted
+/// to the `policy_quarantine` DB table by `PolicyHashWatcher::trigger_quarantine()` and
+/// `FederationDaemon::trigger_policy_quarantine()`. On server boot,
+/// `FederationDaemon::restore_quarantine_from_db()` checks for unreleased DB records
+/// and restores the in-memory flag, ensuring quarantine survives restarts.
+///
+/// The background `PolicyHashWatcher` (60s) and `FederationDaemon` (5min) sweeps
+/// provide continuous re-validation — if violations exist at runtime, quarantine
+/// will be re-triggered regardless of the boot-time state.
 pub struct QuarantineManager {
     /// Whether the system is currently quarantined
     quarantined: bool,

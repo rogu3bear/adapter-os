@@ -201,6 +201,16 @@ pub async fn initialize_federation(
         federation_config,
     ));
 
+    // Restore quarantine state from DB before starting the daemon.
+    // This ensures that if the server was quarantined before a restart,
+    // the in-memory QuarantineManager reflects that state immediately
+    // rather than waiting for the next background sweep to detect violations.
+    if !dev_mode {
+        if let Err(e) = federation_daemon.restore_quarantine_from_db().await {
+            warn!(error = %e, "Failed to restore quarantine state from database");
+        }
+    }
+
     // Start daemon only in production mode
     if !dev_mode {
         let federation_shutdown_rx = shutdown_coordinator.subscribe_shutdown();
