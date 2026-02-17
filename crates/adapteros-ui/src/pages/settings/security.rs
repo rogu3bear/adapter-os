@@ -629,32 +629,33 @@ fn MfaDisableFlow(open: RwSignal<bool>, refetch: Refetch) -> impl IntoView {
             let code = code.clone();
             let client = client.clone();
             wasm_bindgen_futures::spawn_local(async move {
-            // Determine if code looks like a TOTP (6 digits) or backup code
-            let req = if code.len() == 6 && code.chars().all(|c| c.is_ascii_digit()) {
-                MfaDisableRequest {
-                    totp_code: Some(code),
-                    backup_code: None,
+                // Determine if code looks like a TOTP (6 digits) or backup code
+                let req = if code.len() == 6 && code.chars().all(|c| c.is_ascii_digit()) {
+                    MfaDisableRequest {
+                        totp_code: Some(code),
+                        backup_code: None,
+                    }
+                } else {
+                    MfaDisableRequest {
+                        totp_code: None,
+                        backup_code: Some(code),
+                    }
+                };
+                match client.mfa_disable(&req).await {
+                    Ok(_) => {
+                        let _ = disabling.try_set(false);
+                        let _ = open.try_set(false);
+                        totp_code.set(String::new());
+                        refetch.run(());
+                    }
+                    Err(e) => {
+                        let _ = disabling.try_set(false);
+                        error_msg.set(Some(e.user_message()));
+                    }
                 }
-            } else {
-                MfaDisableRequest {
-                    totp_code: None,
-                    backup_code: Some(code),
-                }
-            };
-            match client.mfa_disable(&req).await {
-                Ok(_) => {
-                    let _ = disabling.try_set(false);
-                    let _ = open.try_set(false);
-                    totp_code.set(String::new());
-                    refetch.run(());
-                }
-                Err(e) => {
-                    let _ = disabling.try_set(false);
-                    error_msg.set(Some(e.user_message()));
-                }
-            }
-        });
-    });
+            });
+        })
+    };
 
     // Reset state when dialog closes
     Effect::new(move || {

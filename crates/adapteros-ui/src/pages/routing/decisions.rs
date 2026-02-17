@@ -660,20 +660,14 @@ fn DebugPanel() -> impl IntoView {
                 />
 
                 // Submit button
-                {move || {
-                    let is_disabled = prompt.try_get().unwrap_or_default().is_empty() || loading.try_get().unwrap_or(false);
-                    let is_loading = loading.try_get().unwrap_or(false);
-                    view! {
-                        <Button
-                            variant=ButtonVariant::Primary
-                            loading=is_loading
-                            disabled=is_disabled
-                            on_click=Callback::new(on_debug)
-                        >
-                            "Run Routing Probe"
-                        </Button>
-                    }
-                }}
+                <Button
+                    variant=ButtonVariant::Primary
+                    loading=Signal::derive(move || loading.try_get().unwrap_or(false))
+                    disabled=Signal::derive(move || prompt.try_get().unwrap_or_default().is_empty() || loading.try_get().unwrap_or(false))
+                    on_click=Callback::new(on_debug)
+                >
+                    "Run Routing Probe"
+                </Button>
 
                 // Error display
                 {move || error.try_get().flatten().map(|e| view! {

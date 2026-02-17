@@ -22,8 +22,8 @@ use std::sync::Arc;
 /// Process Monitoring page with tabs for alerts, anomalies, and health metrics
 #[component]
 pub fn Monitoring() -> impl IntoView {
-    // Shared API client for action handlers
-    let client = use_api_client();
+    // Shared API client for action handlers (StoredValue makes Arc<ApiClient> Copy for reactive closures)
+    let client = StoredValue::new(use_api_client());
 
     // Active tab state
     let active_tab = RwSignal::new("alerts");
@@ -241,7 +241,7 @@ pub fn Monitoring() -> impl IntoView {
                                                                             loading=acknowledging.try_get().unwrap_or(false)
                                                                             on_click=Callback::new(move |_| {
                                                                                 let alert_id = alert_id.clone();
-                                                                                let client = client.clone();
+                                                                                let client = client.get_value();
                                                                                 let _ = acknowledging.try_set(true);
                                                                                 wasm_bindgen_futures::spawn_local(async move {
                                                                                     match client.acknowledge_alert(&alert_id).await {
