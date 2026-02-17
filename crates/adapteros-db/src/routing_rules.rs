@@ -31,6 +31,15 @@ pub struct CreateRoutingRuleParams {
     pub created_by: Option<String>,
 }
 
+/// Parameters for updating an existing routing rule
+#[derive(Debug, Clone, Serialize, Deserialize)]
+#[cfg_attr(feature = "utoipa", derive(utoipa::ToSchema))]
+pub struct UpdateRoutingRuleParams {
+    pub condition_logic: Option<String>,
+    pub target_adapter_id: Option<String>,
+    pub priority: Option<i64>,
+}
+
 impl RoutingRule {
     /// Create a new routing rule
     pub async fn create(
@@ -95,6 +104,57 @@ impl RoutingRule {
         )
         .fetch_one(pool)
         .await
+    }
+
+    /// Update an existing routing rule
+    pub async fn update(
+        pool: &SqlitePool,
+        id: &str,
+        params: &UpdateRoutingRuleParams,
+    ) -> Result<Self, sqlx::Error> {
+        // Build SET clauses for provided fields
+        let mut sets = Vec::new();
+        if params.condition_logic.is_some() {
+            sets.push("condition_logic = ?3");
+        }
+        if params.target_adapter_id.is_some() {
+            sets.push("target_adapter_id = ?4");
+        }
+        if params.priority.is_some() {
+            sets.push("priority = ?5");
+        }
+
+        if sets.is_empty() {
+            // Nothing to update, just return the existing rule
+            return Self::get(pool, id).await;
+        }
+
+        let set_clause = sets.join(", ");
+        let query = format!(
+            "UPDATE routing_rules SET {} WHERE id = ?1 RETURNING *",
+            set_clause
+        );
+
+        let condition_logic = params
+            .condition_logic
+            .as_deref()
+            .unwrap_or_default()
+            .to_string();
+        let target_adapter_id = params
+            .target_adapter_id
+            .as_deref()
+            .unwrap_or_default()
+            .to_string();
+        let priority = params.priority.unwrap_or_default();
+
+        sqlx::query_as::<_, RoutingRule>(&query)
+            .bind(id)
+            .bind(id) // ?2 unused but keeps positional consistency
+            .bind(&condition_logic)
+            .bind(&target_adapter_id)
+            .bind(priority)
+            .fetch_one(pool)
+            .await
     }
 
     /// Delete a rule

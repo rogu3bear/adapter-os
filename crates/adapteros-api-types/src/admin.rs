@@ -59,3 +59,33 @@ fn default_page() -> i64 {
 fn default_page_size() -> i64 {
     100
 }
+
+/// Create user request
+#[derive(Debug, Clone, Serialize, Deserialize)]
+#[cfg_attr(feature = "server", derive(utoipa::ToSchema))]
+#[serde(rename_all = "snake_case")]
+pub struct CreateUserRequest {
+    pub email: String,
+    pub display_name: String,
+    pub password: String,
+    pub role: String,
+    #[serde(default = "default_tenant")]
+    pub tenant_id: String,
+}
+
+fn default_tenant() -> String {
+    "default".to_string()
+}
+
+/// Update user request
+#[derive(Debug, Clone, Serialize, Deserialize)]
+#[cfg_attr(feature = "server", derive(utoipa::ToSchema))]
+#[serde(rename_all = "snake_case")]
+pub struct UpdateUserRequest {
+    #[serde(skip_serializing_if = "Option::is_none")]
+    pub display_name: Option<String>,
+    #[serde(skip_serializing_if = "Option::is_none")]
+    pub role: Option<String>,
+    #[serde(skip_serializing_if = "Option::is_none")]
+    pub disabled: Option<bool>,
+}

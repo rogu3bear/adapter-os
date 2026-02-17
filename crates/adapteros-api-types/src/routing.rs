@@ -26,6 +26,16 @@ pub struct CreateRoutingRuleRequest {
     pub priority: i64,
 }
 
+/// Update routing rule request
+#[derive(Debug, Clone, Serialize, Deserialize)]
+#[cfg_attr(feature = "server", derive(utoipa::ToSchema))]
+#[serde(rename_all = "snake_case")]
+pub struct UpdateRoutingRuleRequest {
+    pub condition_logic: Option<String>,
+    pub target_adapter_id: Option<String>,
+    pub priority: Option<i64>,
+}
+
 /// Routing rules response
 #[derive(Debug, Clone, Serialize, Deserialize)]
 #[cfg_attr(feature = "server", derive(utoipa::ToSchema))]

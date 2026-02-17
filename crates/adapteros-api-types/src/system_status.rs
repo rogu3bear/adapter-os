@@ -287,6 +287,37 @@ pub struct KernelMemorySummary {
     pub uma: Option<UmaMemorySummary>,
     #[serde(skip_serializing_if = "Option::is_none")]
     pub pressure: Option<String>,
+    /// Per-backend memory breakdown for resource contention visibility.
+    #[serde(skip_serializing_if = "Option::is_none")]
+    pub backend_breakdown: Option<BackendMemoryBreakdown>,
+}
+
+/// Per-backend memory breakdown for resource contention visibility.
+#[derive(Debug, Clone, Serialize, Deserialize)]
+#[cfg_attr(feature = "server", derive(utoipa::ToSchema))]
+#[serde(rename_all = "snake_case")]
+pub struct BackendMemoryBreakdown {
+    /// Metal GPU memory used in MB
+    #[serde(skip_serializing_if = "Option::is_none")]
+    pub metal_mb: Option<f64>,
+    /// MLX memory used in MB
+    #[serde(skip_serializing_if = "Option::is_none")]
+    pub mlx_mb: Option<f64>,
+    /// CoreML/ANE memory used in MB
+    #[serde(skip_serializing_if = "Option::is_none")]
+    pub coreml_mb: Option<f64>,
+    /// Total used across backends in MB
+    #[serde(skip_serializing_if = "Option::is_none")]
+    pub total_used_mb: Option<f64>,
+    /// System total available in MB
+    #[serde(skip_serializing_if = "Option::is_none")]
+    pub total_available_mb: Option<f64>,
+    /// Headroom percentage (0.0-100.0)
+    #[serde(skip_serializing_if = "Option::is_none")]
+    pub headroom_pct: Option<f32>,
+    /// Pressure level string: "low", "medium", "high", "critical"
+    #[serde(skip_serializing_if = "Option::is_none")]
+    pub pressure_level: Option<String>,
 }
 
 /// Apple Neural Engine memory stats.

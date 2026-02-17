@@ -814,6 +814,58 @@ impl Db {
         Ok(result)
     }
 
+    /// Delete a model by ID
+    ///
+    /// Rejects deletion if the model has active adapters referencing it
+    /// or if it is currently loaded.
+    pub async fn delete_model(&self, id: &str) -> Result<()> {
+        // Pre-check: ensure model exists
+        let model = self
+            .get_model(id)
+            .await?
+            .ok_or_else(|| anyhow::anyhow!("Model not found: {}", id))?;
+
+        // Pre-check: reject if adapters reference this model
+        let adapter_count = self.count_adapters_for_model(id).await?;
+        if adapter_count > 0 {
+            return Err(anyhow::anyhow!(
+                "Cannot delete model '{}': {} adapter(s) reference it",
+                model.name,
+                adapter_count
+            ));
+        }
+
+        // Pre-check: reject if model is currently loaded
+        let statuses = self.list_base_model_statuses().await?;
+        let is_loaded = statuses
+            .iter()
+            .any(|s| s.model_id == id && (s.status == "loaded" || s.status == "loading"));
+        if is_loaded {
+            return Err(anyhow::anyhow!(
+                "Cannot delete model '{}': model is currently loaded or loading",
+                model.name
+            ));
+        }
+
+        // Delete associated base_model_status records
+        sqlx::query("DELETE FROM base_model_status WHERE model_id = ?")
+            .bind(id)
+            .execute(self.pool())
+            .await?;
+
+        // Delete the model
+        let result = sqlx::query("DELETE FROM models WHERE id = ?")
+            .bind(id)
+            .execute(self.pool())
+            .await?;
+
+        if result.rows_affected() == 0 {
+            return Err(anyhow::anyhow!("Model not found: {}", id));
+        }
+
+        Ok(())
+    }
+
     /// Update base model status
     pub async fn update_base_model_status(
         &self,

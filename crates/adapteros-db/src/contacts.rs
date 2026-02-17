@@ -133,7 +133,88 @@ pub struct ContactInteraction {
 // Alias for backwards compatibility with worker code
 pub type ContactStream = ContactInteraction;
 
+/// Parameters for updating a contact by ID
+#[derive(Debug, Clone, Serialize, Deserialize)]
+#[cfg_attr(feature = "utoipa", derive(utoipa::ToSchema))]
+pub struct ContactUpdateParams {
+    pub name: Option<String>,
+    pub email: Option<String>,
+    pub category: Option<String>,
+    pub role: Option<String>,
+    pub avatar_url: Option<String>,
+    pub metadata_json: Option<String>,
+}
+
 impl Db {
+    /// Update a contact by ID with optional fields
+    pub async fn update_contact(&self, id: &str, params: &ContactUpdateParams) -> Result<Contact> {
+        let mut sets = Vec::new();
+        if params.name.is_some() {
+            sets.push("name = ?");
+        }
+        if params.email.is_some() {
+            sets.push("email = ?");
+        }
+        if params.category.is_some() {
+            sets.push("category = ?");
+        }
+        if params.role.is_some() {
+            sets.push("role = ?");
+        }
+        if params.avatar_url.is_some() {
+            sets.push("avatar_url = ?");
+        }
+        if params.metadata_json.is_some() {
+            sets.push("metadata_json = ?");
+        }
+
+        if sets.is_empty() {
+            // Nothing to update, return existing
+            return self
+                .get_contact(id)
+                .await?
+                .ok_or_else(|| AosError::NotFound(format!("Contact not found: {}", id)));
+        }
+
+        sets.push("updated_at = datetime('now')");
+        let set_clause = sets.join(", ");
+        let query = format!("UPDATE contacts SET {} WHERE id = ?", set_clause);
+
+        let mut builder = sqlx::query(&query);
+        if let Some(ref v) = params.name {
+            builder = builder.bind(v);
+        }
+        if let Some(ref v) = params.email {
+            builder = builder.bind(v);
+        }
+        if let Some(ref v) = params.category {
+            builder = builder.bind(v);
+        }
+        if let Some(ref v) = params.role {
+            builder = builder.bind(v);
+        }
+        if let Some(ref v) = params.avatar_url {
+            builder = builder.bind(v);
+        }
+        if let Some(ref v) = params.metadata_json {
+            builder = builder.bind(v);
+        }
+        builder = builder.bind(id);
+
+        let result = builder
+            .execute(self.pool())
+            .await
+            .map_err(|e| AosError::Database(e.to_string()))?;
+
+        if result.rows_affected() == 0 {
+            return Err(AosError::NotFound(format!("Contact not found: {}", id)));
+        }
+
+        self.get_contact(id)
+            .await?
+            .ok_or_else(|| AosError::NotFound(format!("Contact not found: {}", id)))
+    }
+
     /// Upsert a contact (insert or update if exists)
     ///
     /// Use [`ContactUpsertBuilder`] to construct contact parameters:
