@@ -43,7 +43,7 @@
     --action-destructive-bg-hover: hsl(0 72% 51% / 0.90);
     --action-destructive-border: hsl(0 72% 60% / 0.30);
     --action-destructive-glow: 0 0 20px hsl(0 72% 51% / 0.20);
-    --action-outline-border: var(--glass-border, hsl(214.3 31.8% 91.4% / 0.8));
+    --action-outline-border: var(--glass-border, hsl(215 20% 60% / 0.30));
 
     /* Boot diagnostics tokens (pre-hydration overlay/probe surfaces) */
     --boot-font-mono: var(--font-mono, ui-monospace, monospace);
@@ -102,11 +102,11 @@
     --line-height-body: 1.58;
     --line-height-heading: 1.22;
     --line-height-compact: 1.4;
-    --surface-border-muted: hsl(214 32% 88% / 0.9);
-    --surface-shadow-sm: 0 1px 2px hsl(222 47% 11% / 0.06),
-        0 6px 16px hsl(222 47% 11% / 0.04);
-    --surface-shadow-md: 0 2px 4px hsl(222 47% 11% / 0.08),
-        0 12px 28px hsl(222 47% 11% / 0.08);
+    --surface-border-muted: hsl(214 32% 82% / 0.9);
+    --surface-shadow-sm: 0 1px 2px hsl(222 47% 11% / 0.10),
+        0 6px 16px hsl(222 47% 11% / 0.07);
+    --surface-shadow-md: 0 2px 4px hsl(222 47% 11% / 0.12),
+        0 12px 28px hsl(222 47% 11% / 0.10);
 }
 
 /* Dark mode */
