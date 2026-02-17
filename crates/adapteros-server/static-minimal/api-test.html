@@ -161,9 +161,13 @@
         </div>
     </div>
 
+    <script src="./diagnostics-shared.js"></script>
     <script>
         const results = document.getElementById('results');
         let testCounter = 0;
+        if (window.aosMinimalDiagnostics) {
+            window.aosMinimalDiagnostics.ready('api-test harness loaded');
+        }
 
         function log(message, status = 'success') {
             testCounter++;
@@ -173,6 +177,10 @@
             const badge = `<span class="status-badge ${status}">${status.toUpperCase()}</span>`;
             p.innerHTML = `[${testCounter}] ${timestamp} ${badge}\n${escapeHtml(message)}`;
             results.insertBefore(p, results.firstChild);
+            if (window.aosMinimalDiagnostics) {
+                const summary = String(message).split('\n')[0].slice(0, 120);
+                window.aosMinimalDiagnostics.setStatus(status, summary);
+            }
         }
 
         function escapeHtml(text) {

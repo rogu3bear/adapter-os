@@ -8,8 +8,8 @@
 | Surface | Current behavior | Mismatch |
 |---|---|---|
 | `crates/adapteros-server/static/index.html` | Rich boot-progress stages, panic overlay, WASM fetch tracking, backend `/healthz` post-mount probe | Full diagnostic stack exists only here. |
-| `crates/adapteros-server/static-minimal/index-minimal.html` | Minimal HTML bootstrap with module script only | No boot/panic diagnostics parity with main static UI. |
-| `crates/adapteros-server/static-minimal/api-test.html` | API test harness with endpoint buttons and inline logging | Health endpoint now canonicalized to `/healthz`; residual mismatch is styling/diagnostic semantics vs main boot UI. |
+| `crates/adapteros-server/static-minimal/index-minimal.html` | Minimal HTML bootstrap plus shared diagnostics helper (`diagnostics-shared.js`) | Still intentionally lighter than full static boot runtime (no full boot-stage telemetry stream). |
+| `crates/adapteros-server/static-minimal/api-test.html` | API test harness with endpoint buttons, inline logging, and shared diagnostics helper | Styling/diagnostic semantics remain intentionally lighter than main boot UI. |
 
 ## Deliverable B: Shared Snippet Strategy (No duplicate JS logic)
 1. Extract shared diagnostics primitives (`safe error banner`, `status badge`, `boot stage formatter`) into a single static script under `crates/adapteros-server/static-minimal/` and reuse in both minimal pages.
@@ -25,7 +25,7 @@
 ## Verification Run
 - Ran static/minimal diagnostics anchor scan:
 `rg -n "boot|panic|__TRUNK_HASH__|health|readyz|api|fetch|status" crates/adapteros-server/static/index.html crates/adapteros-server/static-minimal/index-minimal.html crates/adapteros-server/static-minimal/api-test.html`
-- Result: confirms diagnostics asymmetry remains; endpoint drift resolved (`api-test.html` now uses `/healthz`).
+- Result: confirms shared helper parity landed across minimal surfaces; endpoint drift resolved (`api-test.html` uses `/healthz`) and remaining asymmetry is deliberate scope.
 
 - Ran direct content inspections:
 `nl -ba crates/adapteros-server/static/index.html`
@@ -35,6 +35,6 @@
 
 ## Phase 6 Completion
 - [x] Mismatch checklist delivered.
-- [x] Shared snippet strategy delivered.
+- [x] Shared diagnostics snippet introduced and wired into both minimal pages.
 - [x] Migration order delivered.
 - [x] Verification evidence captured.
