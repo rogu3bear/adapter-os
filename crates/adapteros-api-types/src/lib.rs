@@ -85,7 +85,7 @@ pub use adapters::*;
 pub use admin::*;
 pub use api_keys::*;
 pub use auth::*;
-pub use codebase_adapters::*;
+// codebase_adapters types are internal-only (legacy, routes removed)
 pub use dashboard::*;
 pub use dataset_domain::*;
 pub use diagnostics::*;

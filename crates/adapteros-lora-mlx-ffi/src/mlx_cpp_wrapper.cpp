@@ -99,6 +99,10 @@ extern "C" mlx_array_t* mlx_model_forward_with_hidden_states(
     mlx_model_t*, mlx_array_t*, int, mlx_array_t**, int*) {
     return nullptr;
 }
+extern "C" mlx_array_t* mlx_model_forward_with_cache(
+    mlx_model_t*, mlx_array_t*, int, mlx_kv_cache_t*) {
+    return nullptr;
+}
 extern "C" void mlx_hidden_states_free(mlx_array_t*, int) {}
 extern "C" int mlx_model_get_hidden_state_name(mlx_model_t*, int, char*, int) { return 0; }
 extern "C" int mlx_model_get_hidden_state_count(mlx_model_t*) { return 0; }

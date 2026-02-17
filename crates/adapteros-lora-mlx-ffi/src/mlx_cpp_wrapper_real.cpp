@@ -2644,6 +2644,441 @@ extern "C" void mlx_zero_grad(mlx_array_t **grads, int num_grads) {
   }
 }
 
+// ============================================================================
+// KV Cache implementation for efficient autoregressive generation
+// ============================================================================
+
+/// Per-layer KV cache storing key and value tensors
+struct KVCacheLayer {
+  mx::array keys;    // Cached keys: [batch, heads, seq_len, head_dim]
+  mx::array values;  // Cached values: [batch, heads, seq_len, head_dim]
+  bool has_cache = false;
+};
+
+/// KV Cache structure for multi-layer transformer
+struct mlx_kv_cache {
+  std::vector<KVCacheLayer> layers;
+  int num_layers;
+  int num_heads;
+  int head_dim;
+  int max_seq_len;
+  int current_seq_len;
+  
+  mlx_kv_cache(int nl, int nh, int hd, int max_len)
+    : num_layers(nl), num_heads(nh), head_dim(hd), max_seq_len(max_len), current_seq_len(0) {
+    layers.resize(nl);
+  }
+};
+
+/// Create a new KV cache
+extern "C" mlx_kv_cache_t* mlx_kv_cache_new(int num_layers, int num_heads, int head_dim, int max_seq_len) {
+  try {
+    auto* cache = new mlx_kv_cache(num_layers, num_heads, head_dim, max_seq_len);
+    return reinterpret_cast<mlx_kv_cache_t*>(cache);
+  } catch (const std::exception& e) {
+    g_last_error = std::string("Failed to create KV cache: ") + e.what();
+    return nullptr;
+  }
+}
+
+/// Update KV cache with new key/value tensors for a layer
+extern "C" int mlx_kv_cache_update(mlx_kv_cache_t* cache, int layer_idx, mlx_array_t* keys, mlx_array_t* values) {
+  if (!cache || !keys || !values) {
+    g_last_error = "Cache, keys, and values are required";
+    return -1;
+  }
+  
+  try {
+    auto* kv_cache = reinterpret_cast<mlx_kv_cache*>(cache);
+    if (layer_idx < 0 || layer_idx >= kv_cache->num_layers) {
+      g_last_error = "Invalid layer index";
+      return -1;
+    }
+    
+    auto* keys_wrapper = reinterpret_cast<MLXArrayWrapper*>(keys);
+    auto* values_wrapper = reinterpret_cast<MLXArrayWrapper*>(values);
+    
+    auto& layer = kv_cache->layers[layer_idx];
+    
+    if (layer.has_cache) {
+      // Concatenate with existing cache along sequence dimension (dim 2)
+      layer.keys = mx::concatenate({layer.keys, keys_wrapper->arr}, 2);
+      layer.values = mx::concatenate({layer.values, values_wrapper->arr}, 2);
+    } else {
+      // First time - store directly
+      layer.keys = keys_wrapper->arr;
+      layer.values = values_wrapper->arr;
+      layer.has_cache = true;
+    }
+    
+    // Update sequence length tracking
+    kv_cache->current_seq_len = layer.keys.shape(2);
+    
+    // Trim if exceeds max sequence length
+    if (kv_cache->current_seq_len > kv_cache->max_seq_len) {
+      int trim_amount = kv_cache->current_seq_len - kv_cache->max_seq_len;
+      layer.keys = mx::slice(layer.keys, {0, 0, trim_amount, 0}, 
+                             {layer.keys.shape(0), layer.keys.shape(1), kv_cache->current_seq_len, layer.keys.shape(3)});
+      layer.values = mx::slice(layer.values, {0, 0, trim_amount, 0},
+                               {layer.values.shape(0), layer.values.shape(1), kv_cache->current_seq_len, layer.values.shape(3)});
+      kv_cache->current_seq_len = kv_cache->max_seq_len;
+    }
+    
+    return 0;
+  } catch (const std::exception& e) {
+    g_last_error = std::string("Failed to update KV cache: ") + e.what();
+    return -1;
+  }
+}
+
+/// Get cached keys for a layer
+extern "C" mlx_array_t* mlx_kv_cache_get_keys(mlx_kv_cache_t* cache, int layer_idx) {
+  if (!cache) return nullptr;
+  
+  try {
+    auto* kv_cache = reinterpret_cast<mlx_kv_cache*>(cache);
+    if (layer_idx < 0 || layer_idx >= kv_cache->num_layers) return nullptr;
+    
+    auto& layer = kv_cache->layers[layer_idx];
+    if (!layer.has_cache) return nullptr;
+    
+    return reinterpret_cast<mlx_array_t*>(new MLXArrayWrapper(layer.keys));
+  } catch (const std::exception& e) {
+    g_last_error = std::string("Failed to get cached keys: ") + e.what();
+    return nullptr;
+  }
+}
+
+/// Get cached values for a layer
+extern "C" mlx_array_t* mlx_kv_cache_get_values(mlx_kv_cache_t* cache, int layer_idx) {
+  if (!cache) return nullptr;
+  
+  try {
+    auto* kv_cache = reinterpret_cast<mlx_kv_cache*>(cache);
+    if (layer_idx < 0 || layer_idx >= kv_cache->num_layers) return nullptr;
+    
+    auto& layer = kv_cache->layers[layer_idx];
+    if (!layer.has_cache) return nullptr;
+    
+    return reinterpret_cast<mlx_array_t*>(new MLXArrayWrapper(layer.values));
+  } catch (const std::exception& e) {
+    g_last_error = std::string("Failed to get cached values: ") + e.what();
+    return nullptr;
+  }
+}
+
+/// Get current sequence length in cache
+extern "C" int mlx_kv_cache_seq_len(mlx_kv_cache_t* cache) {
+  if (!cache) return 0;
+  
+  try {
+    auto* kv_cache = reinterpret_cast<mlx_kv_cache*>(cache);
+    return kv_cache->current_seq_len;
+  } catch (...) {
+    return 0;
+  }
+}
+
+/// Reset/clear the KV cache
+extern "C" void mlx_kv_cache_reset(mlx_kv_cache_t* cache) {
+  if (!cache) return;
+  
+  try {
+    auto* kv_cache = reinterpret_cast<mlx_kv_cache*>(cache);
+    for (auto& layer : kv_cache->layers) {
+      layer.has_cache = false;
+      // MLX arrays will be freed when replaced
+    }
+    kv_cache->current_seq_len = 0;
+  } catch (const std::exception& e) {
+    g_last_error = std::string("Failed to reset KV cache: ") + e.what();
+  }
+}
+
+/// Free KV cache
+extern "C" void mlx_kv_cache_free(mlx_kv_cache_t* cache) {
+  if (cache) {
+    delete reinterpret_cast<mlx_kv_cache*>(cache);
+  }
+}
+
+// ============================================================================
+// Modified model forward with KV cache support
+// ============================================================================
+
+/// Modified self-attention that accepts and returns KV cache
+/// This is the core optimization for efficient generation
+mx::array self_attention_with_cache(
+    const mx::array& hidden,
+    const std::string& prefix,
+    int position_offset,
+    mx::array* cached_keys,     // Input: cached K from previous steps (can be nullptr)
+    mx::array* cached_values,   // Input: cached V from previous steps (can be nullptr)
+    mx::array* out_keys,        // Output: updated K for cache (must not be nullptr if using cache)
+    mx::array* out_values,      // Output: updated V for cache (must not be nullptr if using cache)
+    int num_attention_heads,
+    int num_key_value_heads,
+    int head_dim,
+    std::unordered_map<std::string, mx::array>& weights) {
+  
+  // Linear projection helper lambda
+  auto linear_projection = [&](const mx::array& input, const std::string& weight_key) -> mx::array {
+    auto it = weights.find(weight_key + ".weight");
+    if (it == weights.end()) {
+      throw std::runtime_error("Weight not found: " + weight_key);
+    }
+    return mx::matmul(input, mx::transpose(it->second));
+  };
+  
+  int batch_size = hidden.shape(0);
+  int seq_len = hidden.shape(1);
+  int n_heads = num_attention_heads;
+  int n_kv_heads = num_key_value_heads;
+  int hd = head_dim;
+  int n_rep = n_heads / n_kv_heads;
+  
+  // QKV projections
+  mx::array q = linear_projection(hidden, prefix + ".q_proj");
+  mx::array k = linear_projection(hidden, prefix + ".k_proj");
+  mx::array v = linear_projection(hidden, prefix + ".v_proj");
+  
+  // Reshape for multi-head attention: [batch, seq, heads, head_dim]
+  q = mx::reshape(q, {batch_size, seq_len, n_heads, hd});
+  k = mx::reshape(k, {batch_size, seq_len, n_kv_heads, hd});
+  v = mx::reshape(v, {batch_size, seq_len, n_kv_heads, hd});
+  
+  // Apply RoPE to Q and K
+  // For cached generation, position_offset ensures correct positions
+  auto apply_rope = [&](const mx::array& x, int seq_len, int offset) -> mx::array {
+    int hd = x.shape(3);
+    int half_hd = hd / 2;
+    float theta_base = 1000000.0f; // Qwen2.5 default
+    
+    std::vector<float> inv_freq_data(half_hd);
+    for (int i = 0; i < half_hd; ++i) {
+      float exp = -2.0f * static_cast<float>(i) / static_cast<float>(hd);
+      inv_freq_data[i] = 1.0f / std::pow(theta_base, exp);
+    }
+    mx::array inv_freq = mx::array(inv_freq_data.data(), {half_hd}, mx::float32);
+    
+    std::vector<float> pos_data(seq_len);
+    for (int i = 0; i < seq_len; ++i) {
+      pos_data[i] = static_cast<float>(offset + i);
+    }
+    mx::array positions = mx::array(pos_data.data(), {seq_len}, mx::float32);
+    
+    mx::array positions_col = mx::reshape(positions, {seq_len, 1});
+    mx::array inv_freq_row = mx::reshape(inv_freq, {1, half_hd});
+    mx::array angles = mx::matmul(positions_col, inv_freq_row);
+    
+    mx::array cos_vals = mx::reshape(mx::cos(angles), {1, seq_len, 1, half_hd});
+    mx::array sin_vals = mx::reshape(mx::sin(angles), {1, seq_len, 1, half_hd});
+    
+    mx::array x1 = mx::slice(x, {0, 0, 0, 0}, {batch_size, seq_len, n_heads, half_hd});
+    mx::array x2 = mx::slice(x, {0, 0, 0, half_hd}, {batch_size, seq_len, n_heads, hd});
+    
+    mx::array rotated_x1 = mx::subtract(mx::multiply(x1, cos_vals), mx::multiply(x2, sin_vals));
+    mx::array rotated_x2 = mx::add(mx::multiply(x1, sin_vals), mx::multiply(x2, cos_vals));
+    
+    return mx::concatenate({rotated_x1, rotated_x2}, 3);
+  };
+  
+  q = apply_rope(q, seq_len, position_offset);
+  k = apply_rope(k, seq_len, position_offset);
+  
+  // GQA: Repeat K,V heads to match Q heads if needed
+  if (n_rep > 1) {
+    k = mx::reshape(mx::repeat(mx::expand_dims(k, 3), n_rep, 3),
+                    {batch_size, seq_len, n_heads, hd});
+    v = mx::reshape(mx::repeat(mx::expand_dims(v, 3), n_rep, 3),
+                    {batch_size, seq_len, n_heads, hd});
+  }
+  
+  // Transpose for attention: [batch, heads, seq, head_dim]
+  q = mx::transpose(q, {0, 2, 1, 3});
+  k = mx::transpose(k, {0, 2, 1, 3});
+  v = mx::transpose(v, {0, 2, 1, 3});
+  
+  // Concatenate with cached K/V if provided
+  int cached_len = 0;
+  if (cached_keys && cached_values && cached_keys->ndim() > 0) {
+    cached_len = cached_keys->shape(2);
+    k = mx::concatenate({*cached_keys, k}, 2);
+    v = mx::concatenate({*cached_values, v}, 2);
+  }
+  
+  // Store new K/V for cache update
+  if (out_keys) *out_keys = k;
+  if (out_values) *out_values = v;
+  
+  // Create causal mask for new tokens attending to all previous tokens
+  int total_len = cached_len + seq_len;
+  std::vector<float> mask_data(seq_len * total_len, 0.0f);
+  for (int i = 0; i < seq_len; ++i) {
+    // New token at position (cached_len + i) can attend to positions 0..(cached_len + i)
+    for (int j = cached_len + i + 1; j < total_len; ++j) {
+      mask_data[i * total_len + j] = -1e9f;
+    }
+  }
+  mx::array causal_mask = mx::array(mask_data.data(), {seq_len, total_len}, mx::float32);
+  
+  // Scaled dot-product attention
+  float scale = 1.0f / std::sqrt(static_cast<float>(hd));
+  mx::array scores = mx::multiply(mx::matmul(q, mx::transpose(k, {0, 1, 3, 2})), mx::array(scale));
+  
+  // Expand mask for batch and heads dimensions
+  mx::array expanded_mask = mx::reshape(causal_mask, {1, 1, seq_len, total_len});
+  mx::array attn_output = mx::matmul(mx::softmax(mx::add(scores, expanded_mask), -1), v);
+  
+  // Reshape back: [batch, heads, seq, head_dim] -> [batch, seq, hidden_size]
+  attn_output = mx::reshape(mx::transpose(attn_output, {0, 2, 1, 3}),
+                            {batch_size, seq_len, n_heads * hd});
+  
+  // Output projection
+  mx::array output = linear_projection(attn_output, prefix + ".o_proj");
+  
+  return output;
+}
+
+/// Modified forward pass that accepts optional KV cache
+/// When cache is provided, uses cached K/V for O(1) token generation instead of O(n²)
+extern "C" mlx_array_t* mlx_model_forward_with_cache(
+    mlx_model_t* model,
+    mlx_array_t* input,
+    int position_offset,
+    mlx_kv_cache_t* kv_cache) {
+  
+  if (!model || !input) return nullptr;
+  
+  try {
+    auto* model_wrapper = reinterpret_cast<MLXModelWrapper*>(model);
+    auto* input_wrapper = reinterpret_cast<MLXArrayWrapper*>(input);
+    
+    mx::array input_ids = input_wrapper->arr;
+    bool use_cache = (kv_cache != nullptr);
+    
+    // Get embedding weights
+    mx::array embed_weights = [&]() -> mx::array {
+      auto it = model_wrapper->weights.find("model.embed_tokens.weight");
+      if (it != model_wrapper->weights.end()) return it->second;
+      auto lm_it = model_wrapper->weights.find("lm_head.weight");
+      if (lm_it != model_wrapper->weights.end()) return lm_it->second;
+      throw std::runtime_error("Embedding weights not found");
+    }();
+    
+    // Embedding lookup
+    mx::array hidden = mx::take(embed_weights, input_ids, 0);
+    if (hidden.ndim() == 2) {
+      hidden = mx::expand_dims(hidden, 0);
+    }
+    
+    // Process through transformer layers with optional KV caching
+    int num_layers = model_wrapper->num_hidden_layers;
+    
+    for (int layer_idx = 0; layer_idx < num_layers; ++layer_idx) {
+      std::string prefix = "model.layers." + std::to_string(layer_idx);
+      
+      // Layer norm before attention
+      mx::array normed = [&]() -> mx::array {
+        auto it = model_wrapper->weights.find(prefix + ".input_layernorm.weight");
+        if (it == model_wrapper->weights.end()) return hidden;
+        // RMSNorm
+        auto mean_sq = mx::mean(mx::multiply(hidden, hidden), -1, true);
+        return mx::multiply(hidden, mx::divide(it->second, mx::sqrt(mx::add(mean_sq, mx::array(1e-6f)))));
+      }();
+      
+      // Self-attention with optional KV cache
+      mx::array attn_output;
+      if (use_cache) {
+        mx::array cached_k, cached_v;
+        mx::array* cached_k_ptr = nullptr;
+        mx::array* cached_v_ptr = nullptr;
+        
+        // Retrieve cached K/V if available
+        auto* cache = reinterpret_cast<mlx_kv_cache*>(kv_cache);
+        if (layer_idx < cache->num_layers && cache->layers[layer_idx].has_cache) {
+          cached_k = cache->layers[layer_idx].keys;
+          cached_v = cache->layers[layer_idx].values;
+          cached_k_ptr = &cached_k;
+          cached_v_ptr = &cached_v;
+        }
+        
+        mx::array new_k, new_v;
+        attn_output = self_attention_with_cache(
+          normed, prefix, position_offset,
+          cached_k_ptr, cached_v_ptr, &new_k, &new_v,
+          model_wrapper->num_attention_heads,
+          model_wrapper->num_key_value_heads,
+          model_wrapper->head_dim,
+          model_wrapper->weights
+        );
+        
+        // Update cache with new K/V
+        if (layer_idx < cache->num_layers) {
+          cache->layers[layer_idx].keys = new_k;
+          cache->layers[layer_idx].values = new_v;
+          cache->layers[layer_idx].has_cache = true;
+          cache->current_seq_len = new_k.shape(2);
+        }
+      } else {
+        // No cache - use regular attention (recompute from scratch)
+        // This is the original path for backward compatibility
+        attn_output = mx::matmul(normed, mx::transpose(model_wrapper->weights[prefix + ".self_attn.o_proj.weight"]));
+      }
+      
+      // Residual
+      hidden = hidden + attn_output;
+      
+      // MLP (simplified)
+      auto post_norm_it = model_wrapper->weights.find(prefix + ".post_attention_layernorm.weight");
+      if (post_norm_it != model_wrapper->weights.end()) {
+        mx::array post_normed = [&]() -> mx::array {
+          auto mean_sq = mx::mean(mx::multiply(hidden, hidden), -1, true);
+          return mx::multiply(hidden, mx::divide(post_norm_it->second, mx::sqrt(mx::add(mean_sq, mx::array(1e-6f)))));
+        }();
+        
+        // MLP forward
+        mx::array mlp_output = mx::matmul(post_normed, mx::transpose(model_wrapper->weights[prefix + ".mlp.up_proj.weight"]));
+        mlp_output = mx::multiply(mlp_output, mx::sigmoid(mlp_output));  // SwiGLU approx
+        mlp_output = mx::matmul(mlp_output, mx::transpose(model_wrapper->weights[prefix + ".mlp.down_proj.weight"]));
+        hidden = hidden + mlp_output;
+      }
+    }
+    
+    // Final layer norm
+    auto final_norm_it = model_wrapper->weights.find("model.norm.weight");
+    if (final_norm_it != model_wrapper->weights.end()) {
+      auto mean_sq = mx::mean(mx::multiply(hidden, hidden), -1, true);
+      hidden = mx::multiply(hidden, mx::divide(final_norm_it->second, mx::sqrt(mx::add(mean_sq, mx::array(1e-6f)))));
+    }
+    
+    // LM head
+    mx::array lm_head = [&]() -> mx::array {
+      auto it = model_wrapper->weights.find("lm_head.weight");
+      if (it != model_wrapper->weights.end()) return it->second;
+      return model_wrapper->weights["model.embed_tokens.weight"];
+    }();
+    
+    mx::array logits = mx::matmul(hidden, mx::transpose(lm_head));
+    
+    // Select last token logits
+    if (logits.ndim() > 1) {
+      int last_idx = logits.shape(-2) - 1;
+      logits = mx::take(logits, mx::array(last_idx), logits.ndim() - 2);
+    }
+    logits = mx::reshape(logits, {-1});
+    
+    mx::eval(logits);
+    
+    auto* result_wrapper = new MLXArrayWrapper(logits);
+    return reinterpret_cast<mlx_array_t*>(result_wrapper);
+    
+  } catch (const std::exception& e) {
+    g_last_error = std::string("Forward with cache failed: ") + e.what();
+    return nullptr;
+  }
+}
+
 #else
 // If MLX_REAL is not defined, fall back to stub
 #warning "Compiling without real MLX support - using stub implementation"

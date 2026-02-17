@@ -356,6 +356,17 @@ void mlx_kv_cache_reset(mlx_kv_cache_t* cache);
 // Free KV cache
 void mlx_kv_cache_free(mlx_kv_cache_t* cache);
 
+// Forward pass with KV cache for efficient autoregressive generation
+// Parameters:
+//   model: loaded model handle
+//   input: input token IDs (single token for generation, full prompt for first call)
+//   position_offset: starting position for RoPE (0 for prompt, N for incremental generation at position N)
+//   kv_cache: KV cache handle for storing/retrieving key-value tensors (NULL for no caching)
+// Returns: logits tensor, NULL on error
+// Note: When kv_cache is provided, the function uses cached K/V from previous calls for O(1) generation
+//       instead of recomputing attention from scratch (O(n²)). Pass NULL to disable caching.
+mlx_array_t* mlx_model_forward_with_cache(mlx_model_t* model, mlx_array_t* input, int position_offset, mlx_kv_cache_t* kv_cache);
+
 // ============================================================================
 // SafeTensors weight loading
 // ============================================================================

@@ -406,6 +406,9 @@ pub struct MLXFFIModel {
     model_path: PathBuf,
     /// Tokenizer for text encoding/decoding (loaded lazily)
     tokenizer: Option<tokenizer::MLXTokenizer>,
+    /// Optional C++ KV cache for efficient autoregressive generation
+    /// When present, enables O(1) per-token generation instead of O(n²)
+    kv_cache: Option<*mut mlx_kv_cache_t>,
 }
 
 /// Health status for MLX model
@@ -476,6 +479,7 @@ impl MLXFFIModel {
             health: create_initial_health(),
             model_path: PathBuf::new(),
             tokenizer: None,
+            kv_cache: None,
         }
     }
 
@@ -640,6 +644,7 @@ impl MLXFFIModel {
             health,
             model_path: model_path.to_path_buf(),
             tokenizer,
+            kv_cache: None,
         })
     }
 
@@ -700,6 +705,7 @@ impl MLXFFIModel {
             health,
             model_path: PathBuf::new(),
             tokenizer: None,
+            kv_cache: None,
         })
     }
 
@@ -1320,6 +1326,14 @@ extern "C" {
         position_offset: i32,
         hidden_states: *mut *mut mlx_array_t,
         hidden_count: *mut i32,
+    ) -> *mut mlx_array_t;
+
+    // Forward pass with KV cache for efficient generation
+    fn mlx_model_forward_with_cache(
+        model: *mut mlx_model_t,
+        input: *mut mlx_array_t,
+        position_offset: i32,
+        kv_cache: *mut mlx_kv_cache_t,
     ) -> *mut mlx_array_t;
 
     // Hidden states access (pub for use in backend.rs)
