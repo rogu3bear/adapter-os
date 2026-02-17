@@ -29,7 +29,7 @@
 ## Determinism Rules (Critical)
 
 - Seed derivation: HKDF-SHA256 with BLAKE3 global seed
-- Router tie-breaking: score DESC, index ASC
+- Router tie-breaking: score DESC, stable_id ASC
 - Q15 quantization denominator: 32767.0
 - **No `-ffast-math` compiler flags**
 - Set `AOS_DEBUG_DETERMINISM=1` to debug

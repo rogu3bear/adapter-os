@@ -50,7 +50,7 @@ Enforcing mechanisms:
 - Request-boundary seed isolation (prevents cross-request seed state leakage):
   - `seed_isolation_middleware` and `seed_isolation_middleware_fast` in `crates/adapteros-server-api/src/middleware/seed_isolation.rs`.
 - Deterministic routing tie-break and deterministic float ordering:
-  - Router sorting uses score DESC then index ASC and `total_cmp` for IEEE 754 total ordering in `crates/adapteros-lora-router/src/router.rs` (see `route_deprecated` implementation and related routing paths).
+  - Router sorting uses score DESC then stable_id ASC and `total_cmp` for IEEE 754 total ordering in `crates/adapteros-lora-router/src/router.rs` (see `sort_scores_deterministic`; deprecated paths still use index ASC).
 - Determinism-critical Q15 constants:
   - `ROUTER_GATE_Q15_DENOM == 32767.0` and compile-time assertions in `crates/adapteros-lora-router/src/quantization.rs`.
 - Deterministic execution tracking via a global tick ledger with atomic tick assignment:

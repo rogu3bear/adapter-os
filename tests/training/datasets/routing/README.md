@@ -57,7 +57,7 @@
 
 ### Q15 Quantization
 - `gate_q15` in range [-32768, 32767]
-- Conversion accuracy: `gate_float ≈ gate_q15 / 32768.0` (tolerance < 0.01)
+- Conversion accuracy: `gate_float ≈ gate_q15 / 32767.0` (tolerance < 0.01)
 
 ### Overhead Metrics
 - Calculation: `overhead_pct ≈ (router_latency_us / total_inference_latency_us) * 100`
@@ -74,7 +74,7 @@
 |-------|------|-----------|
 | **k_value** | Count of `selected: true` must equal k_value | Exact |
 | **gate_q15** | Range: [-32768, 32767] | Exact |
-| **gate_float** | `gate_q15 / 32768.0` | < 0.01 |
+| **gate_float** | `gate_q15 / 32767.0` | < 0.01 |
 | **overhead_pct** | `(router_us / total_us) * 100` | < 0.5% |
 | **entropy** | >= 0 and >= entropy_floor | Exact |
 | **tau** | > 0 | Exact |

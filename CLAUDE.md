@@ -349,8 +349,8 @@ Checkpointing is disabled by default. To enable, set in training config:
 These rules ensure reproducible inference:
 
 - Seed derivation: HKDF-SHA256 with BLAKE3 global seed (`crates/adapteros-core/src/seed.rs`)
-- Router tie-breaking: score DESC, index ASC
-- Q15 quantization denominator: 32767.0 (`crates/adapteros-lora-router/src/constants.rs`)
+- Router tie-breaking: score DESC, stable_id ASC
+- Q15 quantization denominator: 32767.0 (`crates/adapteros-lora-router/src/quantization.rs`)
 - No `-ffast-math` compiler flags
 - Set `AOS_DEBUG_DETERMINISM=1` to log seed inputs and router details
 

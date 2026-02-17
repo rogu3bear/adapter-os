@@ -575,11 +575,8 @@ mod tests {
 
         // Deny "c" — remaining gates [0.5, 0.3] should renormalize to sum=1.0
         let policy = RoutingPolicy {
-            allowed_adapter_ids: None,
             denied_adapter_ids: Some(vec!["c".to_string()]),
-            max_adapters_per_token: None,
-            allowed_clusters: None,
-            denied_clusters: None,
+            ..Default::default()
         };
 
         let result = filter_decision_by_policy(decision, &adapter_ids, &clusters, Some(&policy))
@@ -620,11 +617,8 @@ mod tests {
         let decision = make_decision(&[0, 1], &[g0, g1]);
 
         let policy = RoutingPolicy {
-            allowed_adapter_ids: None,
             denied_adapter_ids: Some(vec!["nonexistent".to_string()]),
-            max_adapters_per_token: None,
-            allowed_clusters: None,
-            denied_clusters: None,
+            ..Default::default()
         };
 
         let result = filter_decision_by_policy(decision, &adapter_ids, &clusters, Some(&policy))

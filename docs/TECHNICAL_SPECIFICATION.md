@@ -394,7 +394,7 @@ All gate values pass through Q15 fixed-point quantization before reaching kernel
 q15_value = round(float_value * 32767.0)
 ```
 
-The denominator is exactly `32767.0` (defined in `crates/adapteros-lora-router/src/constants.rs`).
+The denominator is exactly `32767.0` (defined in `crates/adapteros-lora-router/src/quantization.rs`).
 This preserves the symmetric signed range `[-32767, +32767]` and avoids the asymmetry that
 would occur with `32768.0` (since `-32768` has no positive counterpart in i16).
 

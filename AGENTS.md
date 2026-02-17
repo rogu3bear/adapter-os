@@ -148,7 +148,7 @@ To refresh this list:
 ## Determinism Rules
 
 - Seed derivation: HKDF-SHA256 with BLAKE3 global seed (`crates/adapteros-core/src/seed.rs`).
-- Router determinism: score DESC, index ASC tie-break; Q15 denominator is 32767.0 (`crates/adapteros-lora-router/src/quantization.rs`).
+- Router determinism: score DESC, stable_id ASC tie-break; Q15 denominator is 32767.0 (`crates/adapteros-lora-router/src/quantization.rs`).
 - No `-ffast-math` compiler flags (CI scans build artifacts and `Cargo.toml` via `scripts/check_fast_math_flags.sh`; keep the flag absent).
 - Set `AOS_DEBUG_DETERMINISM=1` to log seed inputs and router tie-break details.
 - CI determinism gate runs determinism tests and scans build artifacts for `-ffast-math`.
@@ -159,7 +159,7 @@ To refresh this list:
 ### Determinism
 
 1. Check seed derivation inputs.
-2. Verify router sorting (score DESC, index ASC tie-break).
+2. Verify router sorting (score DESC, stable_id ASC tie-break).
 3. Confirm Q15 denominator = 32767.0.
 4. Run `cargo test --test determinism_core_suite` and `cargo test -p adapteros-lora-router --test determinism`.
 
@@ -294,7 +294,7 @@ Canonical reference: `docs/ERRORS.md` and `crates/adapteros-core/src/error.rs`.
 
 ### K-Sparse Routing
 
-Canonical reference: `docs/DETERMINISM.md` and `crates/adapteros-lora-router/` (tie-break: score DESC, index ASC; Q15 denom 32767.0).
+Canonical reference: `docs/DETERMINISM.md` and `crates/adapteros-lora-router/` (tie-break: score DESC, stable_id ASC; Q15 denom 32767.0).
 
 <a id="uma-backpressure--eviction"></a>
 ### UMA Backpressure And Eviction

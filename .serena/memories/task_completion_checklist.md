@@ -28,7 +28,7 @@ When completing a coding task in AdapterOS, run through this checklist:
 ## 5. Determinism Rules (for inference/training changes)
 
 - [ ] Verify seed derivation uses HKDF-SHA256
-- [ ] Check router tie-breaking: score DESC, index ASC
+- [ ] Check router tie-breaking: score DESC, stable_id ASC
 - [ ] Confirm no `-ffast-math` flags
 - [ ] Test with `AOS_DEBUG_DETERMINISM=1` if debugging
 
