@@ -101,15 +101,15 @@
 /* ===== Noise Texture SVG (inline for performance) ===== */
 .theme-glass {
     --glass-noise-url: url("data:image/svg+xml,%3Csvg viewBox='0 0 256 256' xmlns='http://www.w3.org/2000/svg'%3E%3Cfilter id='noise'%3E%3CfeTurbulence type='fractalNoise' baseFrequency='0.8' numOctaves='4' stitchTiles='stitch'/%3E%3C/filter%3E%3Crect width='100%25' height='100%25' filter='url(%23noise)'/%3E%3C/svg%3E");
-    --action-primary-bg: color-mix(in srgb, var(--color-primary) 34%, var(--glass-bg-2));
-    --action-primary-bg-hover: color-mix(in srgb, var(--color-primary) 42%, var(--glass-bg-2));
-    --action-primary-border: color-mix(in srgb, var(--color-primary) 24%, var(--glass-border));
+    --action-primary-bg: color-mix(in srgb, var(--color-primary) 72%, var(--glass-bg-2));
+    --action-primary-bg-hover: color-mix(in srgb, var(--color-primary) 80%, var(--glass-bg-2));
+    --action-primary-border: color-mix(in srgb, var(--color-primary) 50%, var(--glass-border));
     --action-primary-fab-bg: color-mix(in srgb, var(--color-primary) 40%, var(--glass-bg-3));
     --action-primary-fab-bg-hover: color-mix(in srgb, var(--color-primary) 48%, var(--glass-bg-3));
     --action-primary-fab-border: var(--action-primary-border);
-    --action-destructive-bg: color-mix(in srgb, var(--color-destructive) 28%, var(--glass-bg-2));
-    --action-destructive-bg-hover: color-mix(in srgb, var(--color-destructive) 34%, var(--glass-bg-2));
-    --action-destructive-border: color-mix(in srgb, var(--color-destructive) 32%, var(--glass-border));
+    --action-destructive-bg: color-mix(in srgb, var(--color-destructive) 60%, var(--glass-bg-2));
+    --action-destructive-bg-hover: color-mix(in srgb, var(--color-destructive) 68%, var(--glass-bg-2));
+    --action-destructive-border: color-mix(in srgb, var(--color-destructive) 50%, var(--glass-border));
     --action-destructive-glow: 0 0 20px color-mix(in srgb, var(--color-destructive) 26%, transparent);
     --action-outline-border: var(--glass-border);
     --glass-field-bg: color-mix(in srgb, var(--glass-bg-1) 88%, var(--color-background));

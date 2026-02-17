@@ -17,10 +17,8 @@
   cursor: pointer;
   outline: none;
   border: 1px solid var(--glass-border);
-  backdrop-filter: blur(var(--glass-blur-1)) saturate(1.1);
-  -webkit-backdrop-filter: blur(var(--glass-blur-1)) saturate(1.1);
   transition: all 200ms ease;
-  box-shadow: 0 1px 0 hsl(0 0% 100% / 0.25) inset, 0 1px 2px hsl(222 47% 11% / 0.06);
+  box-shadow: 0 1px 3px hsl(222 47% 11% / 0.08), 0 1px 2px hsl(222 47% 11% / 0.04);
 }
 
 .btn:focus-visible {
@@ -29,7 +27,7 @@
 }
 
 .btn:active:not(:disabled) {
-  transform: scale(0.98);
+  transform: translateY(1px);
   transition: transform 100ms ease;
 }
 
@@ -39,8 +37,6 @@
   color: var(--color-disabled-foreground);
   border-color: transparent;
   cursor: not-allowed;
-  backdrop-filter: blur(calc(var(--glass-blur) * 0.33)) saturate(0.8);
-  -webkit-backdrop-filter: blur(calc(var(--glass-blur) * 0.33)) saturate(0.8);
 }
 
 .dark .btn:disabled {
@@ -50,7 +46,7 @@
 
 /* ===== Button Variants ===== */
 
-/* Primary - Main action, semi-transparent with blur */
+/* Primary - Main action, solid confident fill */
 .btn-primary {
   background: var(--action-primary-bg);
   color: var(--color-primary-foreground);
@@ -59,8 +55,7 @@
 
 .btn-primary:hover {
   background: var(--action-primary-bg-hover);
-  backdrop-filter: blur(var(--glass-blur-2)) saturate(1.2);
-  -webkit-backdrop-filter: blur(var(--glass-blur-2)) saturate(1.2);
+  filter: brightness(1.08);
 }
 
 .dark .btn-primary {
@@ -81,11 +76,9 @@
 
 .btn-secondary:hover {
   background: var(--glass-bg-2);
-  backdrop-filter: blur(var(--glass-blur-2)) saturate(1.2);
-  -webkit-backdrop-filter: blur(var(--glass-blur-2)) saturate(1.2);
 }
 
-/* Destructive - Semi-transparent red with subtle glow on hover */
+/* Destructive - Solid red with subtle glow on hover */
 .btn-destructive {
   background: var(--action-destructive-bg);
   color: var(--color-destructive-foreground);
@@ -94,8 +87,7 @@
 
 .btn-destructive:hover {
   background: var(--action-destructive-bg-hover);
-  backdrop-filter: blur(var(--glass-blur-2)) saturate(1.2);
-  -webkit-backdrop-filter: blur(var(--glass-blur-2)) saturate(1.2);
+  filter: brightness(1.08);
   box-shadow: var(--action-destructive-glow);
 }
 
