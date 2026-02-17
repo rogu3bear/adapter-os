@@ -12,6 +12,7 @@ Agents should assume the code already exists; new code is only appropriate when 
 - Start by restating: goal, non-goals, constraints, acceptance criteria, and the smallest relevant verification command(s). If any are missing, ask.
 - Prefer minimal diffs and existing patterns; avoid refactors unless explicitly requested.
 - Before running expensive/slow actions (full-workspace tests, `cargo clean`, starting services, downloading models), ask or clearly justify why it's necessary.
+- **Scope fence:** Only edit files explicitly listed in your task. All other files are read-only. If you find an adjacent issue, report it — don't fix it. This prevents coupled cross-agent changes that break when partially reverted.
 
 ## Local Overrides
 
