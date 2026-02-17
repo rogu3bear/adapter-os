@@ -3512,10 +3512,10 @@ All streaming endpoints use Server-Sent Events (SSE) and require authentication.
 
 | Path | Description |
 |------|-------------|
-| `/v1/streams/training` | Training events (optional `tenant` query param; defaults to caller tenant) |
-| `/v1/streams/discovery` | Discovery events |
-| `/v1/streams/contacts` | Contacts events |
-| `/v1/streams/file-changes` | File change notifications |
+| `/v1/stream/training` | Training events (optional `tenant` query param; defaults to caller tenant) |
+| `/v1/stream/discovery` | Discovery events |
+| `/v1/stream/contacts` | Contacts events |
+| `/v1/stream/file-changes` | File change notifications |
 | `/v1/stream/metrics` | System metrics stream |
 | `/v1/stream/telemetry` | Telemetry events |
 | `/v1/stream/adapters` | Adapter state changes |

@@ -411,10 +411,10 @@ Internal route policy:
 | GET | `/v1/stream/messages/{ws_id}` | `streaming::messages_stream` | Messages |
 | GET | `/v1/stream/activity/{ws_id}` | `streaming::activity_stream` | Activity |
 | GET | `/v1/stream/trace-receipts` | `streaming::trace_receipts_stream` | Trace receipts |
-| GET | `/v1/streams/training` | `streams::training_stream` | Training events |
-| GET | `/v1/streams/discovery` | `discovery::discovery_stream` | Discovery events |
-| GET | `/v1/streams/contacts` | `discovery::contacts_stream` | Contacts events |
-| GET | `/v1/streams/file-changes` | `git::file_changes_stream` | File change notifications |
+| GET | `/v1/stream/training` | `streams::training_stream` | Training events |
+| GET | `/v1/stream/discovery` | `discovery::discovery_stream` | Discovery events |
+| GET | `/v1/stream/contacts` | `discovery::contacts_stream` | Contacts events |
+| GET | `/v1/stream/file-changes` | `git::file_changes_stream` | File change notifications |
 | GET | `/v1/logs/stream` | `telemetry::stream_logs` | Log stream |
 
 ---

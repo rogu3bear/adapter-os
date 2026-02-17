@@ -328,10 +328,10 @@
 | `protected` | `/v1/stream/telemetry` |
 | `protected` | `/v1/stream/trace-receipts` |
 | `protected` | `/v1/stream/workers` |
-| `protected` | `/v1/streams/contacts` |
-| `protected` | `/v1/streams/discovery` |
-| `protected` | `/v1/streams/file-changes` |
-| `protected` | `/v1/streams/training` |
+| `protected` | `/v1/stream/contacts` |
+| `protected` | `/v1/stream/discovery` |
+| `protected` | `/v1/stream/file-changes` |
+| `protected` | `/v1/stream/training` |
 | `protected` | `/v1/system/boot-attestation` |
 | `protected` | `/v1/system/integrity` |
 | `protected` | `/v1/system/memory` |
