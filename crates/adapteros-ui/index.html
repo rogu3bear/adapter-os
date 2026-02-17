@@ -329,6 +329,24 @@
 </head>
 
 <body>
+    <!-- PRD-UI-000: Pre-hydration glass to prevent FOUC -->
+    <script>
+        (function() {
+            try {
+                var raw = localStorage.getItem('adapteros_settings');
+                var settings = raw ? JSON.parse(raw) : {};
+                // Glass theme (default: enabled)
+                var glass = settings.glass_enabled;
+                if (glass === undefined) {
+                    var old = localStorage.getItem('aos_glass_theme');
+                    glass = old !== 'false';
+                }
+                if (glass !== false) {
+                    document.body.classList.add('theme-glass');
+                }
+            } catch(e) {}
+        })();
+    </script>
     <!-- PRD-UI-000: Boot progress display -->
     <div id="aos-boot-progress">
         <div class="boot-header">

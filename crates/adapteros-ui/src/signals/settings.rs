@@ -201,6 +201,21 @@ impl UserSettings {
             }
         }
     }
+
+    /// Apply glass theme class to document body
+    pub fn apply_glass(&self) {
+        #[cfg(target_arch = "wasm32")]
+        if let Some(body) = web_sys::window()
+            .and_then(|w| w.document())
+            .and_then(|d| d.body())
+        {
+            let _ = if self.glass_enabled {
+                body.class_list().add_1("theme-glass")
+            } else {
+                body.class_list().remove_1("theme-glass")
+            };
+        }
+    }
 }
 
 /// Settings context type
