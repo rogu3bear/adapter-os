@@ -56,6 +56,7 @@ pub mod telemetry_overlay;
 pub mod toast;
 pub mod toggle;
 pub mod trace_viewer;
+pub mod version_timeline;
 pub mod virtual_list;
 pub mod workspace;
 
@@ -133,6 +134,7 @@ pub use trace_viewer::{
     TokenDecisions, TokenDecisionsPaged, TraceButton, TraceDetailStandalone, TracePanel,
     TraceViewer, TraceViewerWithData,
 };
+pub use version_timeline::VersionTimeline;
 pub use workspace::{
     TwoColumnRatio, Workspace, WorkspaceColumn, WorkspaceGrid, WorkspaceTwoColumn,
 };

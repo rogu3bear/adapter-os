@@ -1,15 +1,18 @@
 //! Routing pages for inspecting adapter routing behavior.
 //!
-//! Provides two views:
+//! Provides three views:
 //! - **Rules (Management)**: View and manage routing rules that determine
 //!   how requests are distributed across adapters.
 //! - **Decisions**: Inspect recent routing decisions and their outcomes.
+//! - **Weights**: View and adjust router feature importance weights.
 
 pub mod decisions;
 pub mod rules;
+pub mod weights;
 
 pub use decisions::RoutingDecisions;
 pub use rules::RoutingRules;
+pub use weights::RoutingWeights;
 
 use crate::components::{PageBreadcrumbItem, PageScaffold, TabNav, TabPanel};
 use leptos::prelude::*;
@@ -32,6 +35,7 @@ pub fn Routing() -> impl IntoView {
                     tabs=vec![
                         ("rules", "Rules"),
                         ("decisions", "Decisions"),
+                        ("weights", "Weights"),
                     ]
                     active=active_tab
                 />
@@ -42,6 +46,10 @@ pub fn Routing() -> impl IntoView {
 
                 <TabPanel tab="decisions" active=active_tab>
                     <RoutingDecisions/>
+                </TabPanel>
+
+                <TabPanel tab="weights" active=active_tab>
+                    <RoutingWeights/>
                 </TabPanel>
             </PageScaffold>
         </div>

@@ -351,6 +351,11 @@ fn user_message_for_code(
         "FORBIDDEN" | "PERMISSION_DENIED" | "AUTHORIZATION_ERROR" => {
             "You don't have access to this action. Contact an admin if you need access.".to_string()
         }
+        "REPO_ARCHIVED" => "This repository is archived and read-only.".to_string(),
+        "SIGNATURE_INVALID" => "The cryptographic signature is invalid.".to_string(),
+        "SIGNATURE_REQUIRED" => {
+            "A cryptographic signature is required for this operation.".to_string()
+        }
         "TENANT_ISOLATION_ERROR" => {
             "Cross-tenant access denied. You can only access your own workspace.".to_string()
         }
@@ -387,6 +392,8 @@ fn user_message_for_code(
         "NOT_FOUND" | "ENDPOINT_NOT_FOUND" | "MODEL_NOT_FOUND" | "ADAPTER_NOT_FOUND" => {
             "Not found. Check the URL or try again.".to_string()
         }
+        "REPO_NOT_FOUND" => "Repository not found.".to_string(),
+        "VERSION_NOT_FOUND" => "Version not found.".to_string(),
         "CACHE_ENTRY_NOT_FOUND" => "Cache entry not found. It may have been evicted.".to_string(),
 
         // -- 400 Bad Request: validation and parse errors --
@@ -426,6 +433,16 @@ fn user_message_for_code(
         "DETERMINISM_ERROR" => {
             "Determinism validation failed. Check seed configuration.".to_string()
         }
+        "HASH_INTEGRITY_FAILURE" => {
+            "Data integrity check failed — the content hash does not match.".to_string()
+        }
+        "INCOMPATIBLE_BASE_MODEL" => {
+            "The base model is incompatible with this adapter.".to_string()
+        }
+        "UNSUPPORTED_BACKEND" => "This inference backend is not supported.".to_string(),
+        "VERSION_NOT_PROMOTABLE" => {
+            "This version cannot be promoted in its current state.".to_string()
+        }
 
         // -- 409 Conflict --
         "CONFLICT" => "Conflict detected. Another operation may be in progress.".to_string(),
@@ -445,6 +462,7 @@ fn user_message_for_code(
         "DUPLICATE_REQUEST" => {
             "Duplicate request detected. Your previous request is being processed.".to_string()
         }
+        "REPO_ALREADY_EXISTS" => "A repository with this name already exists.".to_string(),
 
         // -- 422 Unprocessable --
         "REASONING_LOOP_DETECTED" => {
@@ -453,6 +471,9 @@ fn user_message_for_code(
 
         // -- 429 Too Many Requests --
         "TOO_MANY_REQUESTS" => "Too many requests. Retry in a moment.".to_string(),
+        "THUNDERING_HERD_REJECTED" => {
+            "Too many concurrent requests. Try again shortly.".to_string()
+        }
 
         // -- 499 Client Closed --
         "CLIENT_CLOSED_REQUEST" => "Request cancelled.".to_string(),
@@ -470,6 +491,14 @@ fn user_message_for_code(
         "RAG_ERROR" => "Document retrieval failed. Check the knowledge base.".to_string(),
         "ROUTING_BYPASS" => "Internal routing error. Retry in a moment.".to_string(),
         "REPLAY_ERROR" => "Replay operation failed. Check the replay bundle.".to_string(),
+        "MIGRATION_FILE_MISSING" => {
+            "Database migration file missing. Contact your administrator.".to_string()
+        }
+        "MIGRATION_CHECKSUM_MISMATCH" => "Database migration integrity check failed.".to_string(),
+        "SCHEMA_VERSION_MISMATCH" => {
+            "Database schema version mismatch. A migration may be needed.".to_string()
+        }
+        "RATE_LIMITER_NOT_CONFIGURED" => "Rate limiting is not configured.".to_string(),
 
         // -- 502 Bad Gateway --
         "BASE_LLM_ERROR" => "Base model error. Retry in a moment or check worker logs.".to_string(),
@@ -499,6 +528,12 @@ fn user_message_for_code(
             "Service temporarily unavailable. Retry in a moment.".to_string()
         }
         "CIRCUIT_BREAKER_HALF_OPEN" => "Service is recovering. Retry in a moment.".to_string(),
+        "CACHE_EVICTION" => "Cache eviction in progress. Retry in a moment.".to_string(),
+        "CACHE_STALE" => "Cached data is stale. Refreshing — retry shortly.".to_string(),
+        "EVENT_GAP_DETECTED" => {
+            "Event stream gap detected. Some updates may have been missed.".to_string()
+        }
+        "STREAM_DISCONNECTED" => "Real-time connection lost. Reconnecting.".to_string(),
         "HEALTH_CHECK_FAILED" => "Health check failed. The system may be starting up.".to_string(),
         "CPU_THROTTLED" => "System is CPU-throttled. Reduce load or retry later.".to_string(),
         "DISK_FULL" => "Disk space exhausted. Free storage and retry.".to_string(),

@@ -19,6 +19,7 @@ use crate::api::use_api_client;
 use crate::components::{
     AdapterLifecycleControls, Badge, BadgeVariant, Button, ButtonSize, ButtonVariant, Card,
     ConfirmationDialog, ConfirmationSeverity, CopyableId, HashDisplay, ProvenanceBadge, Spinner,
+    VersionTimeline,
 };
 use crate::contexts::use_in_flight;
 use crate::signals::notifications::use_notifications;
@@ -203,6 +204,7 @@ fn AdapterDetailContent(
     let memory_bytes = adapter.memory_bytes;
     let is_pinned = adapter.pinned.unwrap_or(false);
     let repo_id = adapter.repo_id.clone();
+    let repo_id_for_timeline = repo_id.clone();
 
     // Suggestion context values
     let has_suggestion = suggestion_context.reason.is_some()
@@ -402,6 +404,11 @@ fn AdapterDetailContent(
                 <AdapterVersionPromotionSection repo_id=rid />
             })}
 
+            // Version History Timeline (shown when repo_id is available)
+            {repo_id_for_timeline.map(|rid| view! {
+                <VersionTimeline repo_id=rid />
+            })}
+
             // Actions
             <Card title="Actions">
                 <div class="adapter-detail-actions">
@@ -469,10 +476,20 @@ fn AdapterDetailContent(
     }
 }
 
+/// Returns a `BadgeVariant` for a trust state string.
+fn trust_state_badge_variant(trust_state: &str) -> BadgeVariant {
+    match trust_state {
+        "allowed" => BadgeVariant::Success,
+        "warn" => BadgeVariant::Warning,
+        "blocked" | "blocked_regressed" => BadgeVariant::Destructive,
+        _ => BadgeVariant::Secondary,
+    }
+}
+
 /// Adapter version promotion section.
 ///
-/// Fetches versions for a repository and allows promoting a version
-/// to make it the active serving version on its branch.
+/// Fetches versions for a repository and allows promoting, rolling back,
+/// and inspecting trust state and dataset lineage per version.
 #[component]
 fn AdapterVersionPromotionSection(
     /// Repository ID to fetch versions for
@@ -491,6 +508,15 @@ fn AdapterVersionPromotionSection(
     let show_promote_dialog = RwSignal::new(false);
     let promote_target = RwSignal::new(None::<(String, String, String)>); // (version_id, repo_id, version_label)
     let promote_loading = RwSignal::new(false);
+
+    // Rollback dialog state
+    let show_rollback_dialog = RwSignal::new(false);
+    // (version_id, repo_id, branch, version_label)
+    let rollback_target = RwSignal::new(None::<(String, String, String, String)>);
+    let rollback_loading = RwSignal::new(false);
+
+    // Dataset lineage expand state (tracked by version id)
+    let expanded_lineage = RwSignal::new(None::<String>);
 
     // Fetch versions on mount
     {
@@ -548,6 +574,48 @@ fn AdapterVersionPromotionSection(
         })
     };
 
+    // Handle rollback confirmation
+    let handle_rollback = {
+        let client = Arc::clone(&client);
+        let notifications = notifications.clone();
+        Callback::new(move |()| {
+            let Some((version_id, rid, branch, label)) =
+                rollback_target.try_get_untracked().flatten()
+            else {
+                return;
+            };
+            let client = Arc::clone(&client);
+            let notifications = notifications.clone();
+            rollback_loading.set(true);
+            spawn_local(async move {
+                match client
+                    .rollback_adapter_version(&rid, &branch, &version_id)
+                    .await
+                {
+                    Ok(()) => {
+                        notifications.success(
+                            "Version Rolled Back",
+                            &format!("Rolled back to version {}", label),
+                        );
+                        show_rollback_dialog.set(false);
+                        rollback_loading.set(false);
+                        rollback_target.set(None);
+
+                        // Refresh the version list
+                        match client.list_adapter_versions(&rid).await {
+                            Ok(v) => versions.set(v),
+                            Err(_) => {} // stale list is acceptable
+                        }
+                    }
+                    Err(err) => {
+                        notifications.error("Rollback Failed", &err.to_string());
+                        rollback_loading.set(false);
+                    }
+                }
+            });
+        })
+    };
+
     view! {
         <Card title="Versions">
             {move || {
@@ -574,60 +642,179 @@ fn AdapterVersionPromotionSection(
                 }
 
                 view! {
-                    <div class="space-y-2">
+                    <div class="version-list">
                         {vers.into_iter().map(|v| {
                             let version_label = v.display_name.clone()
                                 .unwrap_or_else(|| v.version.clone());
                             let is_promoted = v.release_state == "promoted";
+                            let is_deprecated = v.release_state == "deprecated";
                             let is_serveable = v.serveable;
+                            let trust_state = v.adapter_trust_state.clone();
                             let state_variant = match v.release_state.as_str() {
                                 "promoted" => BadgeVariant::Success,
                                 "draft" => BadgeVariant::Secondary,
                                 "candidate" => BadgeVariant::Warning,
+                                "deprecated" => BadgeVariant::Default,
                                 _ => BadgeVariant::Default,
                             };
 
                             let vid = v.id.clone();
                             let rid = v.repo_id.clone();
+                            let branch = v.branch.clone();
                             let label_for_dialog = version_label.clone();
                             let release_state = v.release_state.clone();
-                            let branch = v.branch.clone();
+                            let branch_display = v.branch.clone();
+
+                            // Dataset lineage data
+                            let dataset_ids = v.dataset_version_ids.clone().unwrap_or_default();
+                            let dataset_trust = v.dataset_version_trust.clone().unwrap_or_default();
+                            let has_dataset_lineage = !dataset_ids.is_empty();
+                            let vid_for_lineage = v.id.clone();
+
+                            // Serveable indicator
+                            let serveable_reason = v.serveable_reason.clone()
+                                .unwrap_or_else(|| if is_serveable { "ready to serve".to_string() } else { "not serveable".to_string() });
 
                             view! {
-                                <div class="flex items-center justify-between py-1.5 border-b border-border/30 last:border-b-0">
-                                    <div class="flex items-center gap-2 min-w-0">
-                                        <span class="text-sm font-medium truncate">{version_label.clone()}</span>
-                                        <Badge variant=state_variant>{release_state}</Badge>
-                                        <span class="text-xs text-muted-foreground">{branch}</span>
-                                    </div>
-                                    {(!is_promoted && is_serveable).then(|| {
-                                        let vid = vid.clone();
-                                        let rid = rid.clone();
-                                        let label = label_for_dialog.clone();
-                                        view! {
-                                            <Button
-                                                variant=ButtonVariant::Outline
-                                                size=ButtonSize::Sm
-                                                on_click=Callback::new(move |_| {
-                                                    promote_target.set(Some((vid.clone(), rid.clone(), label.clone())));
-                                                    show_promote_dialog.set(true);
-                                                })
+                                <div class="version-item">
+                                    // Main row: label, badges, actions
+                                    <div class="version-item-row">
+                                        <div class="version-item-info">
+                                            <span class="version-item-label">{version_label.clone()}</span>
+                                            <Badge variant=state_variant>{release_state}</Badge>
+                                            // Trust state badge
+                                            {(!trust_state.is_empty()).then(|| {
+                                                let variant = trust_state_badge_variant(&trust_state);
+                                                view! {
+                                                    <Badge variant=variant>{trust_state.clone()}</Badge>
+                                                }
+                                            })}
+                                            // Serveable indicator
+                                            <span
+                                                class={if is_serveable { "version-serveable-icon version-serveable-yes" } else { "version-serveable-icon version-serveable-no" }}
+                                                title=serveable_reason
                                             >
-                                                "Promote"
-                                            </Button>
-                                        }
-                                    })}
-                                    {(!is_promoted && !is_serveable).then(|| {
-                                        let reason = v.serveable_reason.clone()
-                                            .unwrap_or_else(|| "not serveable".to_string());
-                                        view! {
-                                            <span class="text-xs text-muted-foreground italic" title=reason>
-                                                "Not serveable"
+                                                {if is_serveable {
+                                                    view! { <svg class="version-check-icon" viewBox="0 0 20 20" fill="currentColor"><path fill-rule="evenodd" d="M16.707 5.293a1 1 0 010 1.414l-8 8a1 1 0 01-1.414 0l-4-4a1 1 0 011.414-1.414L8 12.586l7.293-7.293a1 1 0 011.414 0z" clip-rule="evenodd"/></svg> }.into_any()
+                                                } else {
+                                                    view! { <svg class="version-check-icon" viewBox="0 0 20 20" fill="currentColor"><path fill-rule="evenodd" d="M4.293 4.293a1 1 0 011.414 0L10 8.586l4.293-4.293a1 1 0 111.414 1.414L11.414 10l4.293 4.293a1 1 0 01-1.414 1.414L10 11.414l-4.293 4.293a1 1 0 01-1.414-1.414L8.586 10 4.293 5.707a1 1 0 010-1.414z" clip-rule="evenodd"/></svg> }.into_any()
+                                                }}
                                             </span>
+                                            <span class="version-item-branch">{branch_display}</span>
+                                        </div>
+                                        <div class="version-item-actions">
+                                            // Promote button (non-promoted, serveable versions)
+                                            {(!is_promoted && is_serveable).then(|| {
+                                                let vid = vid.clone();
+                                                let rid = rid.clone();
+                                                let label = label_for_dialog.clone();
+                                                view! {
+                                                    <Button
+                                                        variant=ButtonVariant::Outline
+                                                        size=ButtonSize::Sm
+                                                        on_click=Callback::new(move |_| {
+                                                            promote_target.set(Some((vid.clone(), rid.clone(), label.clone())));
+                                                            show_promote_dialog.set(true);
+                                                        })
+                                                    >
+                                                        "Promote"
+                                                    </Button>
+                                                }
+                                            })}
+                                            // Rollback button (shown on deprecated versions)
+                                            {is_deprecated.then(|| {
+                                                let vid = vid.clone();
+                                                let rid = rid.clone();
+                                                let branch = branch.clone();
+                                                let label = label_for_dialog.clone();
+                                                view! {
+                                                    <Button
+                                                        variant=ButtonVariant::Destructive
+                                                        size=ButtonSize::Sm
+                                                        on_click=Callback::new(move |_| {
+                                                            rollback_target.set(Some((vid.clone(), rid.clone(), branch.clone(), label.clone())));
+                                                            show_rollback_dialog.set(true);
+                                                        })
+                                                    >
+                                                        "Rollback"
+                                                    </Button>
+                                                }
+                                            })}
+                                            // Not serveable label (non-promoted, non-deprecated, not serveable)
+                                            {(!is_promoted && !is_serveable && !is_deprecated).then(|| {
+                                                let reason = v.serveable_reason.clone()
+                                                    .unwrap_or_else(|| "not serveable".to_string());
+                                                view! {
+                                                    <span class="version-not-serveable" title=reason>
+                                                        "Not serveable"
+                                                    </span>
+                                                }
+                                            })}
+                                            // Active label for promoted
+                                            {is_promoted.then(|| view! {
+                                                <span class="version-active-label">"Active"</span>
+                                            })}
+                                            // Dataset lineage toggle
+                                            {has_dataset_lineage.then(|| {
+                                                let vid_toggle = vid_for_lineage.clone();
+                                                view! {
+                                                    <button
+                                                        type="button"
+                                                        class="version-lineage-toggle"
+                                                        on:click=move |_| {
+                                                            let current = expanded_lineage.try_get().flatten();
+                                                            if current.as_deref() == Some(&vid_toggle) {
+                                                                expanded_lineage.set(None);
+                                                            } else {
+                                                                expanded_lineage.set(Some(vid_toggle.clone()));
+                                                            }
+                                                        }
+                                                        title="Dataset lineage"
+                                                    >
+                                                        <svg class="version-lineage-icon" viewBox="0 0 20 20" fill="currentColor">
+                                                            <path d="M3 12v3c0 1.657 3.134 3 7 3s7-1.343 7-3v-3c0 1.657-3.134 3-7 3s-7-1.343-7-3z"/>
+                                                            <path d="M3 7v3c0 1.657 3.134 3 7 3s7-1.343 7-3V7c0 1.657-3.134 3-7 3S3 8.657 3 7z"/>
+                                                            <path d="M17 5c0 1.657-3.134 3-7 3S3 6.657 3 5s3.134-3 7-3 7 1.343 7 3z"/>
+                                                        </svg>
+                                                    </button>
+                                                }
+                                            })}
+                                        </div>
+                                    </div>
+                                    // Collapsible dataset lineage section
+                                    {has_dataset_lineage.then(|| {
+                                        let vid_check = vid_for_lineage.clone();
+                                        let ds_ids = dataset_ids.clone();
+                                        let ds_trust = dataset_trust.clone();
+                                        view! {
+                                            <div
+                                                class="version-lineage-section"
+                                                style:display=move || {
+                                                    if expanded_lineage.try_get().flatten().as_deref() == Some(&vid_check) {
+                                                        "block"
+                                                    } else {
+                                                        "none"
+                                                    }
+                                                }
+                                            >
+                                                <span class="version-lineage-title">"Dataset Lineage"</span>
+                                                <div class="version-lineage-list">
+                                                    {ds_ids.into_iter().map(|ds_id| {
+                                                        let trust_label = ds_trust.iter()
+                                                            .find(|t| t.dataset_version_id == ds_id)
+                                                            .and_then(|t| t.trust_at_training_time.clone())
+                                                            .unwrap_or_else(|| "unknown".to_string());
+                                                        let trust_variant = trust_state_badge_variant(&trust_label);
+                                                        view! {
+                                                            <div class="version-lineage-item">
+                                                                <CopyableId id=ds_id truncate=20 />
+                                                                <Badge variant=trust_variant>{trust_label}</Badge>
+                                                            </div>
+                                                        }
+                                                    }).collect_view()}
+                                                </div>
+                                            </div>
                                         }
-                                    })}
-                                    {is_promoted.then(|| view! {
-                                        <span class="text-xs text-success font-medium">"Active"</span>
                                     })}
                                 </div>
                             }
@@ -645,6 +832,17 @@ fn AdapterVersionPromotionSection(
                 confirm_text="Promote"
                 on_confirm=handle_promote
                 loading=Signal::derive(move || promote_loading.try_get().unwrap_or(false))
+            />
+
+            // Rollback confirmation dialog
+            <ConfirmationDialog
+                open=show_rollback_dialog
+                title="Roll Back Version"
+                description="Rolling back will deprecate the current active version and re-activate the selected version for serving.".to_string()
+                severity=ConfirmationSeverity::Destructive
+                confirm_text="Roll Back"
+                on_confirm=handle_rollback
+                loading=Signal::derive(move || rollback_loading.try_get().unwrap_or(false))
             />
         </Card>
     }

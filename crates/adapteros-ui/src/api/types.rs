@@ -2136,7 +2136,7 @@ pub struct TenantStorageUsageResponse {
 /// WASM-friendly adapter version summary for the version list UI.
 ///
 /// This mirrors the server-only `AdapterVersionResponse` but omits fields
-/// that pull in server-only dependencies (e.g., `DatasetVersionTrustSnapshot`).
+/// that pull in server-only dependencies.
 /// Unknown fields are silently dropped via `#[serde(default)]`.
 #[derive(Debug, Clone, serde::Serialize, serde::Deserialize)]
 #[serde(rename_all = "snake_case")]
@@ -2157,9 +2157,24 @@ pub struct AdapterVersionSummary {
     pub training_backend: Option<String>,
     #[serde(default)]
     pub coreml_used: Option<bool>,
+    /// Dataset version IDs linked to this adapter version (provenance)
+    #[serde(default)]
+    pub dataset_version_ids: Option<Vec<String>>,
+    /// Trust state snapshots for linked dataset versions
+    #[serde(default)]
+    pub dataset_version_trust: Option<Vec<DatasetVersionTrustSummary>>,
     pub created_at: String,
     #[serde(default)]
     pub display_name: Option<String>,
+}
+
+/// Lightweight trust snapshot for dataset versions, used in the version list UI.
+#[derive(Debug, Clone, serde::Serialize, serde::Deserialize)]
+#[serde(rename_all = "snake_case")]
+pub struct DatasetVersionTrustSummary {
+    pub dataset_version_id: String,
+    #[serde(default)]
+    pub trust_at_training_time: Option<String>,
 }
 
 /// Adapter lifecycle events from SSE stream `/v1/stream/adapters`.
@@ -2256,4 +2271,16 @@ pub enum SystemHealthTransitionEvent {
         worker_id: String,
         previous_status: String,
     },
+}
+
+/// WASM-friendly timeline event for the version history timeline UI.
+///
+/// Mirrors the server-only `RepoTimelineEventResponse` from repos handler.
+#[derive(Debug, Clone, serde::Serialize, serde::Deserialize)]
+#[serde(rename_all = "snake_case")]
+pub struct TimelineEvent {
+    pub id: String,
+    pub timestamp: String,
+    pub event_type: String,
+    pub description: String,
 }

@@ -535,6 +535,36 @@ impl ApiClient {
         .await
     }
 
+    /// Rollback a repository branch to a previous adapter version.
+    /// Returns `Ok(())` on success (HTTP 204).
+    pub async fn rollback_adapter_version(
+        &self,
+        repo_id: &str,
+        branch: &str,
+        target_version_id: &str,
+    ) -> ApiResult<()> {
+        self.post_no_response(
+            &format!(
+                "/v1/adapter-repositories/{}/versions/rollback",
+                encode(repo_id)
+            ),
+            &serde_json::json!({
+                "branch": branch,
+                "target_version_id": target_version_id,
+            }),
+        )
+        .await
+    }
+
+    /// Get version history timeline for a repository.
+    pub async fn get_repo_timeline(
+        &self,
+        repo_id: &str,
+    ) -> ApiResult<Vec<super::types::TimelineEvent>> {
+        self.get(&format!("/v1/repos/{}/timeline", encode(repo_id)))
+            .await
+    }
+
     // --- System ---
 
     /// Get system status
@@ -744,6 +774,15 @@ impl ApiClient {
         job_id: &str,
     ) -> ApiResult<adapteros_api_types::TrainingMetricsListResponse> {
         self.get(&format!("/v1/training/jobs/{}/metrics", job_id))
+            .await
+    }
+
+    /// Get training report for a completed job
+    pub async fn get_training_report(
+        &self,
+        job_id: &str,
+    ) -> ApiResult<adapteros_api_types::TrainingReportResponse> {
+        self.get(&format!("/v1/training/jobs/{}/report", job_id))
             .await
     }
 

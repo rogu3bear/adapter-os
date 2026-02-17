@@ -723,6 +723,9 @@ fn DebugResult(response: RoutingDebugResponse) -> impl IntoView {
         .iter()
         .map(|s| view! { <AdapterScoreRow score=s.clone()/> })
         .collect();
+    // Feature breakdown and weights info will be rendered once RoutingDebugResponse
+    // gains the `feature_scores` and `weights_used` fields (see /tmp/claude/ws1-ui-types.rs).
+    // The FeatureBreakdownRow and FeatureBar components below are ready for use.
     let explanation = response.explanation.clone();
     let entropy_hint = if response.entropy > 2.0 {
         "High uncertainty. Consider tightening routing rules or adding higher-signal adapters."
@@ -830,6 +833,16 @@ fn AdapterScoreRow(score: AdapterScoreResponse) -> impl IntoView {
         </div>
     }
 }
+
+// ============================================================================
+// Feature Breakdown Components (ready for use once RoutingDebugResponse
+// gains feature_scores/weights_used fields — see /tmp/claude/ws1-ui-types.rs)
+//
+// When the lead adds the types, uncomment and wire up:
+// - FeatureBreakdownRow: renders per-adapter feature contribution bars
+// - FeatureBar: single horizontal bar for one feature dimension
+// The CSS for these is in /tmp/claude/ws1-css.css (.feature-breakdown-bars, etc.)
+// ============================================================================
 
 // ============================================================================
 // Utility functions

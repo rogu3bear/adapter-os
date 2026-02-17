@@ -6165,6 +6165,106 @@
   text-shadow: 0 0 1px var(--color-background);
 }
 
+/* ===== Version Timeline Component ===== */
+
+.version-timeline {
+  display: flex;
+  flex-direction: column;
+  gap: 0;
+}
+
+.version-timeline-item {
+  display: flex;
+  gap: 0.75rem;
+  min-height: 3rem;
+}
+
+.version-timeline-dot-column {
+  display: flex;
+  flex-direction: column;
+  align-items: center;
+  flex-shrink: 0;
+  width: 1rem;
+}
+
+.version-timeline-dot {
+  width: 0.5rem;
+  height: 0.5rem;
+  border-radius: 50%;
+  background-color: var(--color-primary);
+  border: 1.5px solid var(--color-primary);
+  flex-shrink: 0;
+  margin-top: 0.375rem;
+}
+
+.version-timeline-line {
+  width: 1.5px;
+  flex: 1;
+  background-color: var(--color-border);
+  min-height: 0.75rem;
+}
+
+.version-timeline-item:last-child .version-timeline-line {
+  display: none;
+}
+
+.version-timeline-content {
+  flex: 1;
+  padding-bottom: 0.75rem;
+  min-width: 0;
+}
+
+.version-timeline-header {
+  display: flex;
+  align-items: center;
+  gap: 0.5rem;
+  flex-wrap: wrap;
+}
+
+.version-timeline-time {
+  font-size: 0.75rem;
+  color: var(--color-muted-foreground);
+  white-space: nowrap;
+}
+
+.version-timeline-description {
+  font-size: 0.8125rem;
+  color: var(--color-foreground);
+  margin-top: 0.25rem;
+  line-height: 1.4;
+}
+
+.version-timeline-loading {
+  display: flex;
+  align-items: center;
+  gap: 0.5rem;
+  padding: 0.5rem 0;
+}
+
+.version-timeline-loading-text {
+  font-size: 0.875rem;
+  color: var(--color-muted-foreground);
+}
+
+.version-timeline-empty {
+  font-size: 0.875rem;
+  color: var(--color-muted-foreground);
+}
+
+.version-timeline-error {
+  font-size: 0.875rem;
+  color: var(--color-muted-foreground);
+}
+
+/* Glass theme: version timeline */
+.theme-glass .version-timeline-dot {
+  box-shadow: 0 0 4px color-mix(in srgb, var(--color-primary) 30%, transparent);
+}
+
+.theme-glass .version-timeline-line {
+  background-color: var(--glass-border);
+}
+
 /* ===== Upload Dropzone Component ===== */
 
 .upload-dropzone {

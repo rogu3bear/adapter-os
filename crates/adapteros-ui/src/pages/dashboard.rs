@@ -527,7 +527,12 @@ fn DashboardContent(
         // SLO PERFORMANCE: Secondary indicators alongside readiness checks
         // Muted treatment - operational context, not primary health signal
         // ═══════════════════════════════════════════════════════════════════════════
-        <SloPerformanceSection status=slo_status live_metrics=live_metrics/>
+        <SloPerformanceSection status=slo_status.clone() live_metrics=live_metrics/>
+
+        // ═══════════════════════════════════════════════════════════════════════════
+        // RESOURCE ALLOCATION: Per-backend memory breakdown and contention warnings
+        // ═══════════════════════════════════════════════════════════════════════════
+        <ResourceAllocationSection status=slo_status/>
 
         // ═══════════════════════════════════════════════════════════════════════════
         // MAIN CONTENT: Two-column layout for desktop, stacked for mobile
@@ -821,6 +826,161 @@ fn SloPerformanceSection(
             </div>
         </div>
     }
+}
+
+/// Resource allocation section: per-backend memory breakdown with contention warnings.
+///
+/// Renders a stacked horizontal bar (Metal / MLX / CoreML / headroom),
+/// a contention warning banner when pressure is high/critical, and a
+/// stats row with per-backend usage. Only visible when `backend_breakdown`
+/// is present in the system status response.
+#[component]
+fn ResourceAllocationSection(status: SystemStatusResponse) -> impl IntoView {
+    let breakdown = status
+        .kernel
+        .as_ref()
+        .and_then(|k| k.memory.as_ref())
+        .and_then(|m| m.backend_breakdown.clone());
+
+    let Some(bd) = breakdown else {
+        return view! {}.into_any();
+    };
+
+    let total_available = bd.total_available_mb.unwrap_or(1.0).max(1.0);
+    let total_used = bd.total_used_mb.unwrap_or(0.0);
+    let metal = bd.metal_mb.unwrap_or(0.0);
+    let mlx = bd.mlx_mb.unwrap_or(0.0);
+    let coreml = bd.coreml_mb.unwrap_or(0.0);
+    let headroom_pct = bd.headroom_pct.unwrap_or(0.0);
+    let pressure = bd.pressure_level.clone().unwrap_or_default();
+
+    // Calculate bar segment widths as percentages of total available
+    let metal_pct = (metal / total_available * 100.0).min(100.0);
+    let mlx_pct = (mlx / total_available * 100.0).min(100.0);
+    let coreml_pct = (coreml / total_available * 100.0).min(100.0);
+    // "Other" usage not attributed to a specific backend
+    let attributed = metal + mlx + coreml;
+    let other_pct = if total_used > attributed {
+        ((total_used - attributed) / total_available * 100.0).min(100.0)
+    } else {
+        0.0
+    };
+
+    let is_high = pressure == "high" || pressure == "High";
+    let is_critical = pressure == "critical" || pressure == "Critical";
+
+    let warning_banner = if is_critical {
+        Some(view! {
+            <div class="banner banner-error">
+                <p class="text-sm font-medium">"Critical memory pressure. Consider pausing training jobs."</p>
+            </div>
+        })
+    } else if is_high {
+        Some(view! {
+            <div class="banner banner-warning">
+                <p class="text-sm font-medium">"Memory pressure is elevated. Training may impact inference quality."</p>
+            </div>
+        })
+    } else {
+        None
+    };
+
+    // Format MB values for display
+    let fmt_mb = |v: f64| -> String {
+        if v >= 1024.0 {
+            format!("{:.1} GB", v / 1024.0)
+        } else {
+            format!("{:.0} MB", v)
+        }
+    };
+
+    let total_used_str = fmt_mb(total_used);
+    let total_avail_str = fmt_mb(total_available);
+
+    // Build stats fragments conditionally (only show if non-zero)
+    let metal_str = (metal > 0.0).then(|| format!("Metal: {}", fmt_mb(metal)));
+    let mlx_str = (mlx > 0.0).then(|| format!("MLX: {}", fmt_mb(mlx)));
+    let coreml_str = (coreml > 0.0).then(|| format!("CoreML: {}", fmt_mb(coreml)));
+    let headroom_str = format!("Headroom: {:.0}%", headroom_pct);
+
+    let stats_parts: Vec<String> = [metal_str, mlx_str, coreml_str]
+        .into_iter()
+        .flatten()
+        .chain(std::iter::once(headroom_str))
+        .collect();
+    let stats_text = stats_parts.join("  |  ");
+
+    view! {
+        <div class="mt-4 space-y-3">
+            {warning_banner}
+
+            <Card title="Resource Allocation".to_string()>
+                // Stacked memory bar
+                <div class="mb-3">
+                    <div class="flex justify-between text-xs text-muted-foreground mb-1">
+                        <span>{format!("Used: {}", total_used_str)}</span>
+                        <span>{format!("Total: {}", total_avail_str)}</span>
+                    </div>
+                    <div class="resource-bar" style="display:flex;height:12px;border-radius:6px;overflow:hidden;background:var(--color-surface-secondary, hsl(0 0% 50% / 0.15))">
+                        {(metal_pct > 0.0).then(|| view! {
+                            <div
+                                style=format!("width:{}%;background:var(--color-chart-1, #3b82f6)", metal_pct)
+                                title=format!("Metal: {}", fmt_mb(metal))
+                            ></div>
+                        })}
+                        {(mlx_pct > 0.0).then(|| view! {
+                            <div
+                                style=format!("width:{}%;background:var(--color-chart-2, #8b5cf6)", mlx_pct)
+                                title=format!("MLX: {}", fmt_mb(mlx))
+                            ></div>
+                        })}
+                        {(coreml_pct > 0.0).then(|| view! {
+                            <div
+                                style=format!("width:{}%;background:var(--color-chart-3, #10b981)", coreml_pct)
+                                title=format!("CoreML: {}", fmt_mb(coreml))
+                            ></div>
+                        })}
+                        {(other_pct > 0.0).then(|| view! {
+                            <div
+                                style=format!("width:{}%;background:var(--color-surface-tertiary, hsl(0 0% 50% / 0.3))", other_pct)
+                                title=format!("Other: {}", fmt_mb(total_used - attributed))
+                            ></div>
+                        })}
+                    </div>
+                    // Legend
+                    <div class="flex flex-wrap gap-4 mt-2 text-xs text-muted-foreground">
+                        {(metal > 0.0).then(|| view! {
+                            <span class="flex items-center gap-1">
+                                <span style="display:inline-block;width:8px;height:8px;border-radius:50%;background:var(--color-chart-1, #3b82f6)"></span>
+                                "Metal"
+                            </span>
+                        })}
+                        {(mlx > 0.0).then(|| view! {
+                            <span class="flex items-center gap-1">
+                                <span style="display:inline-block;width:8px;height:8px;border-radius:50%;background:var(--color-chart-2, #8b5cf6)"></span>
+                                "MLX"
+                            </span>
+                        })}
+                        {(coreml > 0.0).then(|| view! {
+                            <span class="flex items-center gap-1">
+                                <span style="display:inline-block;width:8px;height:8px;border-radius:50%;background:var(--color-chart-3, #10b981)"></span>
+                                "CoreML"
+                            </span>
+                        })}
+                        <span class="flex items-center gap-1">
+                            <span style="display:inline-block;width:8px;height:8px;border-radius:50%;background:var(--color-surface-secondary, hsl(0 0% 50% / 0.15))"></span>
+                            "Available"
+                        </span>
+                    </div>
+                </div>
+
+                // Stats row
+                <div class="pt-2 border-t border-border">
+                    <p class="text-xs text-muted-foreground">{stats_text}</p>
+                </div>
+            </Card>
+        </div>
+    }.into_any()
 }
 
 /// Single SLO metric cell with graceful degradation.

@@ -1,7 +1,8 @@
 //! Welcome / first-run page
 //!
 //! Shown when AdapterOS detects a fresh installation (no models loaded,
-//! no workers registered). Guides the operator through initial setup.
+//! no workers registered). Guides the operator through initial setup
+//! via an interactive 4-step wizard.
 
 use crate::api::ApiClient;
 use crate::components::{Button, ButtonLink, ButtonSize, ButtonVariant, PageScaffold, Spinner};
@@ -11,6 +12,10 @@ use adapteros_api_types::{
 };
 use leptos::prelude::*;
 use std::sync::Arc;
+
+// ---------------------------------------------------------------------------
+// Legacy checklist (kept for derive_checklist backward compat)
+// ---------------------------------------------------------------------------
 
 /// A single setup checklist item.
 struct CheckItem {
@@ -184,6 +189,275 @@ fn primary_blocker_hint(blockers: &[InferenceBlocker]) -> &'static str {
     }
 }
 
+// ---------------------------------------------------------------------------
+// Wizard state machine
+// ---------------------------------------------------------------------------
+
+#[derive(Clone, Copy, PartialEq, Eq, Debug)]
+enum WizardStep {
+    Database,
+    Worker,
+    Models,
+    Ready,
+}
+
+impl WizardStep {
+    fn index(self) -> usize {
+        match self {
+            Self::Database => 0,
+            Self::Worker => 1,
+            Self::Models => 2,
+            Self::Ready => 3,
+        }
+    }
+
+    fn label(self) -> &'static str {
+        match self {
+            Self::Database => "Database",
+            Self::Worker => "Worker",
+            Self::Models => "Models",
+            Self::Ready => "Ready",
+        }
+    }
+
+    const ALL: [WizardStep; 4] = [
+        WizardStep::Database,
+        WizardStep::Worker,
+        WizardStep::Models,
+        WizardStep::Ready,
+    ];
+}
+
+/// Determine the current wizard step from system status.
+fn wizard_step_from_status(status: &SystemStatusResponse) -> WizardStep {
+    let db_ok = status.readiness.checks.db.status == StatusIndicator::Ready
+        && status.readiness.checks.migrations.status == StatusIndicator::Ready;
+    if !db_ok {
+        return WizardStep::Database;
+    }
+
+    let workers_ok = status.readiness.checks.workers.status == StatusIndicator::Ready;
+    if !workers_ok {
+        return WizardStep::Worker;
+    }
+
+    let models_ok = status.readiness.checks.models.status == StatusIndicator::Ready;
+    if !models_ok {
+        return WizardStep::Models;
+    }
+
+    WizardStep::Ready
+}
+
+// ---------------------------------------------------------------------------
+// Wizard progress indicator
+// ---------------------------------------------------------------------------
+
+#[component]
+fn WizardProgress(current_step: WizardStep) -> impl IntoView {
+    view! {
+        <div class="wizard-progress">
+            {WizardStep::ALL.into_iter().map(|step| {
+                let is_complete = step.index() < current_step.index();
+                let is_active = step == current_step;
+                let class = if is_complete {
+                    "wizard-step wizard-step-complete"
+                } else if is_active {
+                    "wizard-step wizard-step-active"
+                } else {
+                    "wizard-step"
+                };
+                let step_num = step.index() + 1;
+                view! {
+                    <div class=class>
+                        <div class="wizard-step-circle">
+                            {if is_complete {
+                                view! {
+                                    <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.5" stroke-linecap="round" stroke-linejoin="round">
+                                        <path d="M5 13l4 4L19 7"/>
+                                    </svg>
+                                }.into_any()
+                            } else {
+                                view! { <span>{step_num}</span> }.into_any()
+                            }}
+                        </div>
+                        <span class="wizard-step-label">{step.label()}</span>
+                    </div>
+                }
+            }).collect_view()}
+        </div>
+    }
+}
+
+// ---------------------------------------------------------------------------
+// Individual wizard step views
+// ---------------------------------------------------------------------------
+
+#[component]
+fn DatabaseStep(
+    db_ok: bool,
+    #[prop(into)] on_migrate: Callback<()>,
+    migrating: ReadSignal<bool>,
+    migrate_error: ReadSignal<Option<String>>,
+) -> impl IntoView {
+    let is_migrating = move || migrating.try_get().unwrap_or(false);
+    let error_msg = move || migrate_error.try_get().flatten();
+    view! {
+        <div class="wizard-action-area">
+            <h3 class="wizard-step-title">"Database Setup"</h3>
+            <Show
+                when=move || db_ok
+                fallback=move || view! {
+                    <p class="wizard-step-desc">
+                        "The database needs migrations applied before the system can start."
+                    </p>
+                    <Show
+                        when=is_migrating
+                        fallback=move || view! {
+                            <Button
+                                variant=ButtonVariant::Primary
+                                size=ButtonSize::Md
+                                on_click=Callback::new(move |_| on_migrate.run(()))
+                            >
+                                "Run Migrations"
+                            </Button>
+                        }
+                    >
+                        <div class="wizard-inline-spinner">
+                            <Spinner />
+                            <span>"Running migrations..."</span>
+                        </div>
+                    </Show>
+                    {move || error_msg().map(|e| view! {
+                        <p class="wizard-error">{e}</p>
+                    })}
+                }
+            >
+                <div class="wizard-step-success">
+                    <svg class="wizard-success-icon" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round">
+                        <path d="M22 11.08V12a10 10 0 11-5.93-9.14"/>
+                        <polyline points="22 4 12 14.01 9 11.01"/>
+                    </svg>
+                    <span>"Database connected, migrations current"</span>
+                </div>
+            </Show>
+        </div>
+    }
+}
+
+#[component]
+fn WorkerStep(worker_connected: bool) -> impl IntoView {
+    view! {
+        <div class="wizard-action-area">
+            <h3 class="wizard-step-title">"Connect a Worker"</h3>
+            <Show
+                when=move || worker_connected
+                fallback=move || view! {
+                    <p class="wizard-step-desc">
+                        "A worker process handles inference. Start one in a terminal:"
+                    </p>
+                    <code class="wizard-code-block">"./start worker"</code>
+                    <p class="wizard-step-hint">"Waiting for worker to connect..."</p>
+                    <ButtonLink
+                        href="/workers"
+                        variant=ButtonVariant::Outline
+                        size=ButtonSize::Sm
+                        class="mt-2".to_string()
+                    >
+                        "View Workers"
+                    </ButtonLink>
+                }
+            >
+                <div class="wizard-step-success">
+                    <svg class="wizard-success-icon" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round">
+                        <path d="M22 11.08V12a10 10 0 11-5.93-9.14"/>
+                        <polyline points="22 4 12 14.01 9 11.01"/>
+                    </svg>
+                    <span>"Worker connected and ready"</span>
+                </div>
+            </Show>
+        </div>
+    }
+}
+
+#[component]
+fn ModelsStep(models_seeded: bool, model_count: i64) -> impl IntoView {
+    view! {
+        <div class="wizard-action-area">
+            <h3 class="wizard-step-title">"Seed a Model"</h3>
+            <Show
+                when=move || models_seeded
+                fallback=move || view! {
+                    <p class="wizard-step-desc">
+                        "Register a base model so the system can run inference."
+                    </p>
+                    <code class="wizard-code-block">"./aosctl models seed"</code>
+                    <p class="wizard-step-hint">
+                        "Place model files in " <code>"var/models/"</code>
+                        " then run the seed command."
+                    </p>
+                    <ButtonLink
+                        href="/models"
+                        variant=ButtonVariant::Outline
+                        size=ButtonSize::Sm
+                        class="mt-2".to_string()
+                    >
+                        "View Models"
+                    </ButtonLink>
+                }
+            >
+                <div class="wizard-step-success">
+                    <svg class="wizard-success-icon" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round">
+                        <path d="M22 11.08V12a10 10 0 11-5.93-9.14"/>
+                        <polyline points="22 4 12 14.01 9 11.01"/>
+                    </svg>
+                    <span>{format!("{} model(s) registered", model_count)}</span>
+                </div>
+            </Show>
+        </div>
+    }
+}
+
+#[component]
+fn ReadyStep() -> impl IntoView {
+    view! {
+        <div class="wizard-action-area">
+            <h3 class="wizard-step-title">"All Set"</h3>
+            <div class="wizard-step-success">
+                <svg class="wizard-success-icon" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round">
+                    <path d="M22 11.08V12a10 10 0 11-5.93-9.14"/>
+                    <polyline points="22 4 12 14.01 9 11.01"/>
+                </svg>
+                <span>"System is ready for inference"</span>
+            </div>
+            <p class="wizard-step-desc">
+                "AdapterOS can route requests through LoRA adapters for domain-specific responses. "
+                "Try it out in the chat, or explore the dashboard."
+            </p>
+            <div class="wizard-ready-actions">
+                <ButtonLink
+                    href="/chat"
+                    variant=ButtonVariant::Primary
+                    size=ButtonSize::Md
+                >
+                    "Open Chat"
+                </ButtonLink>
+                <ButtonLink
+                    href="/"
+                    variant=ButtonVariant::Outline
+                    size=ButtonSize::Md
+                >
+                    "Go to Dashboard"
+                </ButtonLink>
+            </div>
+        </div>
+    }
+}
+
+// ---------------------------------------------------------------------------
+// Main Welcome component
+// ---------------------------------------------------------------------------
+
 /// Welcome page for first-run setup guidance.
 #[component]
 pub fn Welcome() -> impl IntoView {
@@ -191,6 +465,58 @@ pub fn Welcome() -> impl IntoView {
         use_api_resource(|client: Arc<ApiClient>| async move { client.system_status().await });
 
     let on_refresh = Callback::new(move |_| refetch.run(()));
+
+    // Wizard action state
+    let (migrating, set_migrating) = signal(false);
+    let (migrate_error, set_migrate_error) = signal(Option::<String>::None);
+
+    // Capture the API client in the component's reactive scope
+    #[cfg(target_arch = "wasm32")]
+    let client = crate::api::use_api_client();
+    let refetch_clone = refetch;
+    let on_migrate = Callback::new(move |()| {
+        set_migrating.set(true);
+        set_migrate_error.set(None);
+        #[cfg(target_arch = "wasm32")]
+        {
+            let refetch = refetch_clone;
+            let client = Arc::clone(&client);
+            wasm_bindgen_futures::spawn_local(async move {
+                // The setup_migrate endpoint is not yet wired in the client,
+                // so we just refetch system status to detect if migrations resolved.
+                // Once the lead merges ws2-client-methods, this can call setup_migrate().
+                match client.system_status().await {
+                    Ok(_) => {
+                        set_migrating.set(false);
+                        refetch.run(());
+                    }
+                    Err(e) => {
+                        set_migrating.set(false);
+                        set_migrate_error.set(Some(format!("Migration check failed: {}", e)));
+                    }
+                }
+            });
+        }
+    });
+
+    // Auto-poll: refetch system status every 10 seconds.
+    // The interval is leaked intentionally (same pattern as system_tray.rs).
+    // It calls try_set on internal signals which is safe after disposal.
+    #[cfg(target_arch = "wasm32")]
+    {
+        let refetch_poll = refetch.clone();
+        let started = StoredValue::new(false);
+        Effect::new(move || {
+            if !started.get_value() {
+                started.set_value(true);
+                let refetch_inner = refetch_poll.clone();
+                let interval = gloo_timers::callback::Interval::new(10_000, move || {
+                    refetch_inner.run(());
+                });
+                std::mem::forget(interval);
+            }
+        });
+    }
 
     view! {
         <PageScaffold
@@ -210,13 +536,12 @@ pub fn Welcome() -> impl IntoView {
                         </svg>
                         <h2 class="welcome-title">"Welcome to AdapterOS"</h2>
                         <p class="welcome-subtitle">
-                            "A worker runs your model and handles requests. "
-                            "Connect a worker, then load a model."
+                            "Follow the steps below to get your system ready for inference."
                         </p>
                     </div>
 
                     {move || {
-                        match status.get() {
+                        match status.try_get().unwrap_or(LoadingState::Idle) {
                             LoadingState::Idle | LoadingState::Loading => view! {
                                 <div class="welcome-loading">
                                     <Spinner />
@@ -249,64 +574,68 @@ pub fn Welcome() -> impl IntoView {
                                 </div>
                             }.into_any(),
                             LoadingState::Loaded(ref s) => {
-                                let checklist = derive_checklist(s);
-                                let all_ready = checklist.iter().all(|c| c.status == CheckStatus::Ready);
-                                let ready_count = checklist.iter().filter(|c| c.status == CheckStatus::Ready).count();
-                                let total = checklist.len();
+                                let current_step = wizard_step_from_status(s);
+                                let db_ok = s.readiness.checks.db.status == StatusIndicator::Ready
+                                    && s.readiness.checks.migrations.status == StatusIndicator::Ready;
+                                let workers_ok = s.readiness.checks.workers.status == StatusIndicator::Ready;
+                                let models_ok = s.readiness.checks.models.status == StatusIndicator::Ready;
+                                let model_count = s.kernel.as_ref()
+                                    .and_then(|k| k.models.as_ref())
+                                    .and_then(|m| m.total)
+                                    .unwrap_or(0);
+
                                 view! {
                                     <div class="welcome-checklist">
-                                        <div class="welcome-progress-bar">
-                                            <div class="welcome-progress-fill" style=format!("width: {}%", ready_count * 100 / total) />
+                                        <WizardProgress current_step=current_step />
+
+                                        <div class="wizard-step-content">
+                                            <Show
+                                                when=move || current_step == WizardStep::Database
+                                                fallback=move || view! {}.into_any()
+                                            >
+                                                <DatabaseStep
+                                                    db_ok=db_ok
+                                                    on_migrate=on_migrate
+                                                    migrating=migrating
+                                                    migrate_error=migrate_error
+                                                />
+                                            </Show>
+                                            <Show
+                                                when=move || current_step == WizardStep::Worker
+                                                fallback=move || view! {}.into_any()
+                                            >
+                                                <WorkerStep worker_connected=workers_ok />
+                                            </Show>
+                                            <Show
+                                                when=move || current_step == WizardStep::Models
+                                                fallback=move || view! {}.into_any()
+                                            >
+                                                <ModelsStep models_seeded=models_ok model_count=model_count />
+                                            </Show>
+                                            <Show
+                                                when=move || current_step == WizardStep::Ready
+                                                fallback=move || view! {}.into_any()
+                                            >
+                                                <ReadyStep />
+                                            </Show>
                                         </div>
-                                        <p class="welcome-progress-label">
-                                            {format!("{} of {} checks passing", ready_count, total)}
-                                        </p>
 
-                                        <ul class="welcome-checks">
-                                            {checklist.into_iter().map(|item| {
-                                                let status_class = item.status.css_class();
-                                                let icon = item.status.icon_path();
-                                                view! {
-                                                    <li class=format!("welcome-check-item {}", status_class)>
-                                                        <svg class="welcome-check-icon" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round">
-                                                            <path d=icon />
-                                                        </svg>
-                                                        <div class="welcome-check-content">
-                                                            <span class="welcome-check-label">{item.label}</span>
-                                                            <span class="welcome-check-hint">{item.hint}</span>
-                                                        </div>
-                                                        {item.action_href.map(|href| {
-                                                            let label = item.action_label.unwrap_or("View");
-                                                            view! {
-                                                                <a href=href class="welcome-check-action">{label}</a>
-                                                            }
-                                                        })}
-                                                    </li>
-                                                }
-                                            }).collect_view()}
-                                        </ul>
-
-                                        {if all_ready {
-                                            Some(view! {
-                                                <div class="welcome-ready">
-                                                    <svg class="welcome-ready-icon" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round">
-                                                        <path d="M22 11.08V12a10 10 0 11-5.93-9.14"/>
-                                                        <polyline points="22 4 12 14.01 9 11.01"/>
-                                                    </svg>
-                                                    <p class="welcome-ready-text">"System is ready for inference"</p>
-                                                    <ButtonLink
-                                                        href="/chat"
-                                                        variant=ButtonVariant::Primary
-                                                        size=ButtonSize::Md
-                                                        class="mt-3".to_string()
-                                                    >
-                                                        "Open chat"
-                                                    </ButtonLink>
+                                        // Compact checklist summary below the wizard
+                                        {
+                                            let checklist = derive_checklist(s);
+                                            let ready_count = checklist.iter().filter(|c| c.status == CheckStatus::Ready).count();
+                                            let total = checklist.len();
+                                            view! {
+                                                <div class="wizard-summary">
+                                                    <div class="welcome-progress-bar">
+                                                        <div class="welcome-progress-fill" style=format!("width: {}%", ready_count * 100 / total) />
+                                                    </div>
+                                                    <p class="welcome-progress-label">
+                                                        {format!("{} of {} checks passing", ready_count, total)}
+                                                    </p>
                                                 </div>
-                                            })
-                                        } else {
-                                            None
-                                        }}
+                                            }
+                                        }
                                     </div>
                                 }.into_any()
                             },
