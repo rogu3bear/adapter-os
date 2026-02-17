@@ -118,11 +118,6 @@
     gap: 0.25rem;
 }
 
-.heatmap-row {
-    display: flex;
-    gap: 0.25rem;
-}
-
 .heatmap-cell {
     width: 0.5rem;
     height: 0.5rem;
