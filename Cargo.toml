@@ -207,7 +207,7 @@ toml = "0.8"
 
 # Database
 rusqlite = { version = "0.32.1", features = ["bundled"] }
-refinery = { version = "0.8", features = ["rusqlite"] }
+refinery = { version = "0.9", features = ["rusqlite"] }
 sqlx = { version = "0.8.2", default-features = false, features = ["runtime-tokio", "sqlite", "macros", "migrate", "chrono", "uuid"] }
 libsqlite3-sys = { version = "=0.30.1", features = ["bundled"] }
 
