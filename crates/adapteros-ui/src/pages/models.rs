@@ -13,7 +13,10 @@ use crate::components::{
     LoadingDisplay, PageBreadcrumbItem, PageScaffold, PageScaffoldActions, Select, SkeletonTable,
     Spinner, SplitPanel, Table, TableBody, TableCell, TableHead, TableHeader, TableRow,
 };
-use crate::hooks::{use_api, use_api_resource, use_polling, LoadingState, Refetch};
+use crate::hooks::{
+    use_api, use_api_resource, use_cached_api_resource, use_polling, CacheTtl, LoadingState,
+    Refetch,
+};
 use crate::signals::{
     try_use_route_context, use_auth, use_notifications, use_refetch_signal, RefetchTopic,
 };
@@ -179,14 +182,19 @@ pub fn Models() -> impl IntoView {
     // Import dialog state
     let show_import_dialog = RwSignal::new(false);
 
-    // Fetch base model status list (models with load status)
-    let (models_status, refetch_models_status) = use_api_resource(
+    // Fetch base model status list (models with load status, SWR-cached)
+    let (models_status, refetch_models_status) = use_cached_api_resource(
+        "models_status",
+        CacheTtl::LIST,
         move |client: Arc<ApiClient>| async move { client.list_models_status().await },
     );
 
-    // Also fetch registered models (may include models not yet loaded)
-    let (registered_models, refetch_registered) =
-        use_api_resource(move |client: Arc<ApiClient>| async move { client.list_models().await });
+    // Also fetch registered models (may include models not yet loaded, SWR-cached)
+    let (registered_models, refetch_registered) = use_cached_api_resource(
+        "models_list",
+        CacheTtl::LIST,
+        move |client: Arc<ApiClient>| async move { client.list_models().await },
+    );
 
     let refetch_all = move |()| {
         refetch_models_status.run(());
@@ -1059,7 +1067,7 @@ fn ModelDetailContent(
                         {row.format.clone().map(|fmt| view! {
                             <div class="flex justify-between">
                                 <span class="text-muted-foreground">"Format"</span>
-                                <span class="font-medium">{fmt}</span>
+                                <span class="font-medium">{fmt.to_uppercase()}</span>
                             </div>
                         })}
                         {row.backend.clone().map(|be| {

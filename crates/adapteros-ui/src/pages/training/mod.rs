@@ -30,7 +30,7 @@ use crate::components::{
     AsyncBoundary, Button, ButtonLink, ButtonSize, ButtonVariant, PageBreadcrumbItem, PageScaffold,
     PageScaffoldActions, SplitPanel,
 };
-use crate::hooks::{use_api_resource, use_conditional_polling, LoadingState};
+use crate::hooks::{use_cached_api_resource, use_conditional_polling, CacheTtl, LoadingState};
 use crate::signals::{try_use_route_context, SelectedEntity};
 use adapteros_api_types::TrainingListParams;
 use leptos::prelude::*;
@@ -161,32 +161,36 @@ pub fn Training() -> impl IntoView {
         }
     });
 
-    // Fetch training jobs with server-side filtering
-    let (jobs, refetch_jobs) = use_api_resource(move |client: Arc<ApiClient>| {
-        let filter = status_filter.get_untracked();
-        let adapter_name = adapter_name_filter.get_untracked();
-        async move {
-            let has_filter = !filter.is_empty() || adapter_name.is_some();
-            let params = if has_filter {
-                Some(TrainingListParams {
-                    status: if filter.is_empty() {
-                        None
-                    } else {
-                        Some(filter)
-                    },
-                    adapter_name,
-                    ..Default::default()
-                })
-            } else {
-                None
-            };
-            client.list_training_jobs(params.as_ref()).await
-        }
-    });
+    // Fetch training jobs with server-side filtering (SWR-cached)
+    let (jobs, refetch_jobs) = use_cached_api_resource(
+        "training_jobs_list",
+        CacheTtl::LIST,
+        move |client: Arc<ApiClient>| {
+            let filter = status_filter.get_untracked();
+            let adapter_name = adapter_name_filter.get_untracked();
+            async move {
+                let has_filter = !filter.is_empty() || adapter_name.is_some();
+                let params = if has_filter {
+                    Some(TrainingListParams {
+                        status: if filter.is_empty() {
+                            None
+                        } else {
+                            Some(filter)
+                        },
+                        adapter_name,
+                        ..Default::default()
+                    })
+                } else {
+                    None
+                };
+                client.list_training_jobs(params.as_ref()).await
+            }
+        },
+    );
 
     // Derive whether we need to poll (only when there are active jobs)
     let should_poll = Signal::derive(move || {
-        matches!(jobs.get(), LoadingState::Loaded(ref data) if data.jobs.iter().any(|job| {
+        matches!(jobs.try_get(), Some(LoadingState::Loaded(ref data)) if data.jobs.iter().any(|job| {
             matches!(job.status.as_str(), "running" | "pending")
         }))
     });

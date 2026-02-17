@@ -24,7 +24,7 @@ use crate::components::{
     Table, TableBody, TableCell, TableHead, TableHeader, TableRow,
 };
 use crate::contexts::use_in_flight;
-use crate::hooks::{use_api_resource, LoadingState};
+use crate::hooks::{use_api_resource, use_cached_api_resource, CacheTtl, LoadingState};
 use crate::signals::refetch::{use_refetch_signal, RefetchTopic};
 use crate::signals::{try_use_route_context, SelectedEntity};
 use crate::utils::{chat_path_with_adapter, format_datetime};
@@ -42,8 +42,11 @@ pub fn Adapters() -> impl IntoView {
     // State: selected adapter ID (None = detail panel closed)
     let selected_id = RwSignal::new(None::<String>);
 
-    let (adapters, refetch) =
-        use_api_resource(|client: Arc<ApiClient>| async move { client.list_adapters().await });
+    let (adapters, refetch) = use_cached_api_resource(
+        "adapters_list",
+        CacheTtl::LIST,
+        |client: Arc<ApiClient>| async move { client.list_adapters().await },
+    );
 
     let refetch_signal = StoredValue::new(refetch);
 

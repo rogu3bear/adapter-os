@@ -15,6 +15,7 @@ mod components;
 pub mod dialogs;
 mod utils;
 pub(crate) use utils::is_terminal_worker_status;
+use utils::worker_name_from_id;
 
 use crate::api::{report_error_with_toast, ApiClient};
 use crate::components::{
@@ -22,7 +23,9 @@ use crate::components::{
     ErrorDisplay, LoadingDisplay, PageBreadcrumbItem, PageScaffold, PageScaffoldActions,
     RefreshButton, SkeletonCard, SkeletonTable, SplitPanel, SplitRatio,
 };
-use crate::hooks::{use_api, use_api_resource, use_polling, LoadingState};
+use crate::hooks::{
+    use_api, use_api_resource, use_cached_api_resource, use_polling, CacheTtl, LoadingState,
+};
 use crate::signals::use_notifications;
 use adapteros_api_types::SpawnWorkerRequest;
 use leptos::prelude::*;
@@ -55,8 +58,10 @@ pub fn Workers() -> impl IntoView {
     let show_remove_confirm = RwSignal::new(false);
     let notifications = use_notifications();
 
-    // Fetch workers list (terminal entries hidden unless history is explicitly enabled)
-    let (workers, refetch_workers) = use_api_resource({
+    // Fetch workers list (terminal entries hidden unless history is explicitly enabled, SWR-cached)
+    let (workers, refetch_workers) = use_cached_api_resource(
+        "workers_detail",
+        CacheTtl::LIST,
         move |client: Arc<ApiClient>| {
             let include_history = show_history.get_untracked();
             async move {
@@ -66,8 +71,8 @@ pub fn Workers() -> impl IntoView {
                     client.list_workers().await
                 }
             }
-        }
-    });
+        },
+    );
 
     // Fetch worker health summary (health status + incident counts)
     let (worker_health, refetch_worker_health) =
@@ -77,9 +82,12 @@ pub fn Workers() -> impl IntoView {
                 .await
         });
 
-    // Fetch nodes for spawn form
-    let (nodes, _refetch_nodes) =
-        use_api_resource(|client: Arc<ApiClient>| async move { client.list_nodes().await });
+    // Fetch nodes for spawn form (SWR-cached)
+    let (nodes, _refetch_nodes) = use_cached_api_resource(
+        "nodes_list",
+        CacheTtl::LIST,
+        |client: Arc<ApiClient>| async move { client.list_nodes().await },
+    );
 
     // Fetch plans for spawn form
     let (plans, _refetch_plans) = use_api_resource(|client: Arc<ApiClient>| async move {
@@ -490,8 +498,8 @@ pub fn Workers() -> impl IntoView {
                             {
                                 let drain_desc = {
                                     let wid = pending_drain_worker.get().unwrap_or_default();
-                                    let short = adapteros_id::short_id(&wid);
-                                    format!("Drain worker '{}'? New requests will be rejected while existing ones complete.", short)
+                                    let name = worker_name_from_id(&wid);
+                                    format!("Drain worker '{}'? New requests will be rejected while existing ones complete.", name)
                                 };
                                 view! {
                                     <ConfirmationDialog
@@ -540,8 +548,8 @@ pub fn Workers() -> impl IntoView {
                             {
                                 let stop_desc = {
                                     let wid = pending_stop_worker.get().unwrap_or_default();
-                                    let short = adapteros_id::short_id(&wid);
-                                    format!("Stop worker '{}'? Active inference requests will be terminated.", short)
+                                    let name = worker_name_from_id(&wid);
+                                    format!("Stop worker '{}'? Active inference requests will be terminated.", name)
                                 };
                                 view! {
                                     <ConfirmationDialog
@@ -590,8 +598,8 @@ pub fn Workers() -> impl IntoView {
                             {
                                 let restart_desc = {
                                     let wid = pending_restart_worker.get().unwrap_or_default();
-                                    let short = adapteros_id::short_id(&wid);
-                                    format!("Restart worker '{}'? The process will be relaunched and in-flight requests may fail.", short)
+                                    let name = worker_name_from_id(&wid);
+                                    format!("Restart worker '{}'? The process will be relaunched and in-flight requests may fail.", name)
                                 };
                                 view! {
                                     <ConfirmationDialog
@@ -640,8 +648,8 @@ pub fn Workers() -> impl IntoView {
                             {
                                 let remove_desc = {
                                     let wid = pending_remove_worker.get().unwrap_or_default();
-                                    let short = adapteros_id::short_id(&wid);
-                                    format!("Remove worker '{}'? This decommissions the worker record and cannot be undone.", short)
+                                    let name = worker_name_from_id(&wid);
+                                    format!("Remove worker '{}'? This decommissions the worker record and cannot be undone.", name)
                                 };
                                 view! {
                                     <ConfirmationDialog

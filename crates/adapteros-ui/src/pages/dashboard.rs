@@ -10,7 +10,7 @@ use crate::components::{
     PageScaffold, PageScaffoldActions, SkeletonCard, SkeletonStatsGrid, SparklineMetric, Spinner,
     StatusColor, StatusIconBox, StatusIndicator, StatusVariant, TimeSeriesData, WorkerStatusBadge,
 };
-use crate::hooks::{use_api_resource, use_sse_notifications, LoadingState};
+use crate::hooks::{use_cached_api_resource, use_sse_notifications, CacheTtl, LoadingState};
 use crate::pages::workers::is_terminal_worker_status;
 use crate::signals::use_auth;
 use crate::utils::format_relative_time;
@@ -155,9 +155,12 @@ impl MetricsHistory {
 pub fn Dashboard() -> impl IntoView {
     boot_log("route", "Dashboard rendered");
 
-    // Fetch system status
-    let (status, refetch) =
-        use_api_resource(|client: Arc<ApiClient>| async move { client.system_status().await });
+    // Fetch system status (SWR-cached to avoid spinner flash on re-navigation)
+    let (status, refetch) = use_cached_api_resource(
+        "system_status",
+        CacheTtl::STATUS,
+        |client: Arc<ApiClient>| async move { client.system_status().await },
+    );
 
     // Log first successful status fetch
     let logged_first_status = StoredValue::new(false);
@@ -173,9 +176,12 @@ pub fn Dashboard() -> impl IntoView {
         }
     });
 
-    // Fetch workers list
-    let (workers, refetch_workers) =
-        use_api_resource(|client: Arc<ApiClient>| async move { client.list_workers().await });
+    // Fetch workers list (SWR-cached)
+    let (workers, refetch_workers) = use_cached_api_resource(
+        "workers_list",
+        CacheTtl::LIST,
+        |client: Arc<ApiClient>| async move { client.list_workers().await },
+    );
 
     let (auth_state, _) = use_auth();
     let can_view_activity = Memo::new(move |_| {
@@ -188,16 +194,18 @@ pub fn Dashboard() -> impl IntoView {
             .unwrap_or(false)
     });
 
-    // Fetch activity feed (permission-aware)
-    let (activity, refetch_activity) = use_api_resource({
+    // Fetch activity feed (permission-aware, SWR-cached)
+    let (activity, refetch_activity) = use_cached_api_resource(
+        "activity_recent",
+        CacheTtl::LIST,
         move |client: Arc<ApiClient>| async move {
             if !can_view_activity.get_untracked() {
                 Ok(Vec::new())
             } else {
                 client.activity_feed(Some(20)).await
             }
-        }
-    });
+        },
+    );
 
     // Live metrics snapshot - lightweight struct for display (avoids full response clone)
     let live_metrics: RwSignal<Option<MetricsSnapshot>> = RwSignal::new(None);
@@ -231,9 +239,12 @@ pub fn Dashboard() -> impl IntoView {
     // Bridge SSE connection state to user notifications
     use_sse_notifications(sse_status.read_only());
 
-    // REST fallback for metrics when SSE fails or is not connected
-    let (metrics_fallback, refetch_metrics_fallback) =
-        use_api_resource(|client: Arc<ApiClient>| async move { client.system_metrics().await });
+    // REST fallback for metrics when SSE fails or is not connected (SWR-cached)
+    let (metrics_fallback, refetch_metrics_fallback) = use_cached_api_resource(
+        "system_metrics",
+        CacheTtl::STATUS,
+        |client: Arc<ApiClient>| async move { client.system_metrics().await },
+    );
 
     // Update live_metrics from REST fallback when SSE is not providing data
     Effect::new(move || {
@@ -582,7 +593,7 @@ fn DashboardContent(
                                         <div class="flex items-center justify-between p-2 rounded-lg border">
                                             <div class="flex items-center gap-3">
                                                 <div>
-                                                    <p class="font-medium text-sm">{worker.id.clone()}</p>
+                                                    <p class="font-medium text-sm">{worker.display_name.clone().unwrap_or_else(|| adapteros_id::short_id(&worker.id))}</p>
                                                     <p class="text-xs text-muted-foreground">
                                                         {worker.backend.clone().unwrap_or_else(|| "Unknown backend".to_string())}
                                                     </p>
