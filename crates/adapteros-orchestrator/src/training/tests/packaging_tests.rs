@@ -23,6 +23,10 @@ fn test_post_actions_defaults() {
         !actions.activate_stack,
         "Default activate_stack should be false"
     );
+    assert!(
+        !actions.auto_promote,
+        "Default auto_promote should be false"
+    );
     assert_eq!(actions.tier, "warm", "Default tier should be 'warm'");
     assert!(
         actions.adapters_root.is_none(),
@@ -40,6 +44,7 @@ fn test_post_actions_deserialize_empty_json() {
     assert!(actions.register);
     assert!(actions.create_stack);
     assert!(!actions.activate_stack);
+    assert!(!actions.auto_promote);
     assert_eq!(actions.tier, "warm");
 }
 
@@ -105,6 +110,30 @@ fn test_post_actions_activate_stack_true() {
     let actions: PostActions = serde_json::from_str(json).unwrap();
 
     assert!(actions.activate_stack);
+}
+
+/// Test auto_promote=true enables auto-promotion on training completion.
+#[test]
+fn test_post_actions_auto_promote_true() {
+    let json = r#"{"auto_promote": true}"#;
+    let actions: PostActions = serde_json::from_str(json).unwrap();
+
+    assert!(actions.auto_promote);
+    // Other flags should have defaults
+    assert!(actions.package);
+    assert!(actions.register);
+}
+
+/// Test auto_promote defaults to false.
+#[test]
+fn test_post_actions_auto_promote_default_false() {
+    let json = r#"{}"#;
+    let actions: PostActions = serde_json::from_str(json).unwrap();
+
+    assert!(
+        !actions.auto_promote,
+        "auto_promote should default to false"
+    );
 }
 
 /// Test package=false skips entire packaging pipeline.

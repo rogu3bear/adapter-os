@@ -22,6 +22,11 @@ pub struct PostActions {
     /// WARNING: This changes the tenant's active inference behavior immediately.
     #[serde(default = "default_false")]
     pub activate_stack: bool,
+    /// Auto-promote adapter to active after successful packaging (default: false).
+    /// If true, creates training snapshot and transitions adapter to "active" state
+    /// immediately after training completes with all evidence.
+    #[serde(default = "default_false")]
+    pub auto_promote: bool,
     /// Tier to assign: persistent, warm, ephemeral (default: warm)
     #[serde(default = "default_tier")]
     pub tier: String,
@@ -36,6 +41,7 @@ impl Default for PostActions {
             register: true,
             create_stack: true,
             activate_stack: false,
+            auto_promote: false,
             tier: default_tier(),
             adapters_root: None,
         }

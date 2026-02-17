@@ -13,6 +13,8 @@ use adapteros_lora_worker::training::{
     AdapterPackager, LoRAQuantizer, TrainingConfig as WorkerTrainingConfig, TrainingResult,
 };
 
+use adapteros_db::adapter_snapshots::CreateSnapshotParams;
+
 use crate::training::config::PostActions;
 use crate::training::coreml::run_coreml_export_flow;
 use crate::training::job::{
@@ -1042,6 +1044,106 @@ pub(crate) async fn package_and_register_adapter(
                                 error = %e,
                                 "Failed to record adapter training lineage (non-fatal)"
                             );
+                        }
+                    }
+                }
+
+                // Step 3.5: Create training snapshot for reproducibility and evidence
+                // This is required for auto-promotion and provides audit trail
+                let documents_json = if let Some(ds_id) = dataset_id {
+                    if let Some(versions) = dataset_version_ids_for_training {
+                        let docs: Vec<serde_json::Value> = versions
+                            .iter()
+                            .map(|sel| {
+                                serde_json::json!({
+                                    "dataset_id": ds_id,
+                                    "dataset_version_id": sel.dataset_version_id.clone(),
+                                })
+                            })
+                            .collect();
+                        serde_json::json!(docs).to_string()
+                    } else {
+                        serde_json::json!([{
+                            "dataset_id": ds_id,
+                            "dataset_version_id": serde_json::Value::Null,
+                        }])
+                        .to_string()
+                    }
+                } else {
+                    "[]".to_string()
+                };
+
+                let chunking_config_json = {
+                    let jobs = jobs_ref.read().await;
+                    jobs.get(job_id)
+                        .and_then(|j| j.data_spec_json.clone())
+                        .unwrap_or_else(|| "{}".to_string())
+                };
+
+                let chunk_manifest_hash = data_spec_hash_for_training
+                    .map(|h| h.to_string())
+                    .or_else(|| dataset_hash_for_metadata.clone())
+                    .unwrap_or_else(|| packaged.hash_b3.clone());
+
+                let dataset_version_id = dataset_version_ids_for_training
+                    .and_then(|v| v.first().map(|sel| sel.dataset_version_id.clone()));
+
+                if let Err(e) = database
+                    .create_training_snapshot(CreateSnapshotParams {
+                        adapter_id: packaged.adapter_id.clone(),
+                        training_job_id: job_id.to_string(),
+                        collection_id: {
+                            let jobs = jobs_ref.read().await;
+                            jobs.get(job_id).and_then(|j| j.collection_id.clone())
+                        },
+                        documents_json,
+                        chunk_manifest_hash,
+                        chunking_config_json,
+                        dataset_id: dataset_id.map(|s| s.to_string()),
+                        dataset_version_id,
+                        dataset_hash_b3: dataset_hash_for_metadata.clone(),
+                    })
+                    .await
+                {
+                    tracing::warn!(
+                        job_id = %job_id,
+                        adapter_id = %packaged.adapter_id,
+                        error = %e,
+                        "Failed to create training snapshot (non-fatal)"
+                    );
+                } else {
+                    info!(
+                        job_id = %job_id,
+                        adapter_id = %packaged.adapter_id,
+                        "Training snapshot created successfully"
+                    );
+
+                    // Step 3.6: Auto-promote to active if enabled and snapshot succeeded
+                    if post_actions.auto_promote {
+                        match database
+                            .transition_adapter_lifecycle(
+                                &packaged.adapter_id,
+                                "active",
+                                "auto_promote_on_training_completion",
+                                "system",
+                            )
+                            .await
+                        {
+                            Ok(_) => {
+                                info!(
+                                    job_id = %job_id,
+                                    adapter_id = %packaged.adapter_id,
+                                    "Adapter auto-promoted to active state"
+                                );
+                            }
+                            Err(e) => {
+                                warn!(
+                                    job_id = %job_id,
+                                    adapter_id = %packaged.adapter_id,
+                                    error = %e,
+                                    "Failed to auto-promote adapter to active (adapter remains in ready state)"
+                                );
+                            }
                         }
                     }
                 }
