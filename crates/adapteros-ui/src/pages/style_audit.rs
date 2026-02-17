@@ -17,6 +17,7 @@ use crate::components::{
 };
 use crate::constants::pagination::TOKEN_DECISIONS_PAGE_SIZE;
 use crate::hooks::{use_api_resource, LoadingState};
+use crate::signals::settings::{update_setting, use_settings, Theme};
 use crate::signals::use_auth;
 use chrono::DateTime;
 use leptos::prelude::*;
@@ -33,23 +34,13 @@ pub fn StyleAudit() -> impl IntoView {
             .is_some_and(|state| state.is_authenticated())
     });
 
-    // Theme state for toggling
-    let is_dark = RwSignal::new(false);
-
-    // Toggle theme on the document
-    Effect::new(move || {
-        let Some(dark) = is_dark.try_get() else {
-            return;
-        };
-        if let Some(document) = web_sys::window().and_then(|w| w.document()) {
-            if let Some(html) = document.document_element() {
-                if dark {
-                    let _ = html.class_list().add_1("dark");
-                } else {
-                    let _ = html.class_list().remove_1("dark");
-                }
-            }
-        }
+    // Theme state from settings store
+    let settings = use_settings();
+    let is_dark = Signal::derive(move || {
+        settings
+            .try_get()
+            .map(|s| matches!(s.theme, Theme::Dark))
+            .unwrap_or(false)
     });
 
     // Dialog states for examples
@@ -197,7 +188,19 @@ pub fn StyleAudit() -> impl IntoView {
                         </span>
                         <button
                             class="px-4 py-2 rounded-md border border-input bg-background hover:bg-accent text-sm font-medium"
-                            on:click=move |_| is_dark.update(|v| *v = !*v)
+                            on:click={
+                                let settings = use_settings();
+                                move |_| {
+                                    update_setting(settings, |s| {
+                                        s.theme = if matches!(s.theme, Theme::Dark) {
+                                            Theme::Light
+                                        } else {
+                                            Theme::Dark
+                                        };
+                                    });
+                                    settings.get_untracked().apply_theme();
+                                }
+                            }
                         >
                             {move || if is_dark.try_get().unwrap_or(false) { "Switch to Light" } else { "Switch to Dark" }}
                         </button>

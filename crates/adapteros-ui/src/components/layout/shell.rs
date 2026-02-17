@@ -19,8 +19,8 @@ use crate::components::status_center::StatusCenterProvider;
 use crate::components::telemetry_overlay::TelemetryOverlay;
 use crate::components::workspace::Workspace;
 use crate::signals::{
-    provide_route_context, provide_ui_profile_context, use_chat, use_route_context, use_search,
-    use_settings, use_ui_profile, DockState,
+    provide_route_context, use_chat, use_route_context, use_search, use_settings, use_ui_profile,
+    DockState,
 };
 use leptos::prelude::*;
 use leptos_router::components::Outlet;
@@ -70,7 +70,6 @@ fn clear_shell_keydown_listener() {
 #[component]
 pub fn Shell() -> impl IntoView {
     web_sys::console::log_1(&"[Shell] Rendering...".into());
-    provide_ui_profile_context();
     provide_sidebar_context();
     provide_route_context();
     let (chat_state, chat_action) = use_chat();

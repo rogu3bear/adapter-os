@@ -265,7 +265,9 @@ fn BaseUrlError(reason: String) -> impl IntoView {
 
 #[component]
 fn AppProviders(children: Children) -> impl IntoView {
+    provide_context(Arc::new(ApiClient::new()));
     provide_settings_context();
+    provide_ui_profile_context();
     provide_notifications_context();
     provide_chat_context();
     provide_refetch_context();
