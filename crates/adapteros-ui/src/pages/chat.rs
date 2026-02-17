@@ -24,12 +24,12 @@ use crate::api::{api_base_url, report_error_with_toast, ApiClient};
 use crate::components::inference_guidance::{guidance_for, primary_blocker};
 use crate::components::status_center::use_status_center;
 use crate::components::{
-    use_is_tablet_or_smaller, AdapterHeat, AdapterMagnet, Badge, BadgeVariant, Button, ButtonLink,
-    ButtonSize, ButtonType, ButtonVariant, ChatAdaptersRegion, Checkbox, ConfirmationDialog,
-    ConfirmationSeverity, Dialog, Input, Markdown, MarkdownStream, Spinner, SuggestedAdapterView,
-    Textarea, TraceButton, TracePanel,
+    use_is_tablet_or_smaller, AdapterHeat, AdapterMagnet, AlertBanner, Badge, BadgeVariant,
+    BannerVariant, Button, ButtonLink, ButtonSize, ButtonType, ButtonVariant, ChatAdaptersRegion,
+    Checkbox, ConfirmationDialog, ConfirmationSeverity, Dialog, Input, Markdown, MarkdownStream,
+    Spinner, SuggestedAdapterView, Textarea, TraceButton, TracePanel,
 };
-use crate::hooks::{use_api_resource, LoadingState};
+use crate::hooks::{use_api_resource, use_system_status, LoadingState};
 use crate::signals::{
     use_chat, use_settings, ChatSessionMeta, ChatSessionsManager, ChatTarget, StreamNoticeTone,
 };
@@ -67,8 +67,7 @@ pub fn Chat() -> impl IntoView {
     let sessions = ChatSessionsManager::load_sessions();
     let recent_session_id = sessions.first().map(|session| session.id.clone());
     let has_recent_session = recent_session_id.is_some();
-    let (system_status, refetch_status) =
-        use_api_resource(|client: Arc<ApiClient>| async move { client.system_status().await });
+    let (system_status, refetch_status) = use_system_status();
     let refetch_status_signal = StoredValue::new(refetch_status);
     let redirected_to_recent = RwSignal::new(false);
     let retry_status = Callback::new(move |_: ()| {
@@ -2055,8 +2054,7 @@ fn ChatConversationPanel(
 
     // Use global chat state
     let (chat_state, chat_action) = use_chat();
-    let (system_status, _refetch_status) =
-        use_api_resource(|client: Arc<ApiClient>| async move { client.system_status().await });
+    let (system_status, _refetch_status) = use_system_status();
     let status_center = use_status_center();
 
     // Local state for input and trace panel
@@ -3278,7 +3276,19 @@ fn ChatConversationPanel(
                 };
                 Some(view! {
                     <div class=css_class data-testid="chat-stream-status">
-                        <Badge variant=variant>{message}</Badge>
+                        {if is_warning {
+                            view! {
+                                <AlertBanner
+                                    title="Stream warning"
+                                    message=message.clone()
+                                    variant=BannerVariant::Warning
+                                />
+                            }.into_any()
+                        } else {
+                            view! {
+                                <Badge variant=variant>{message}</Badge>
+                            }.into_any()
+                        }}
                     </div>
                 })
             }}

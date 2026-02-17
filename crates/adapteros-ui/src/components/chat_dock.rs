@@ -5,7 +5,7 @@
 
 use crate::api::ApiClient;
 use crate::components::{Button, ButtonSize, ButtonType, ButtonVariant, Spinner, Textarea};
-use crate::hooks::{use_api_resource, LoadingState};
+use crate::hooks::{use_api_resource, use_system_status, LoadingState};
 use crate::signals::{
     use_chat, use_settings, ChatTarget, ContextToggle, DockState, MessageStatus, PendingPhase,
 };
@@ -209,8 +209,7 @@ pub fn ChatTargetSelector(#[prop(optional)] inline: bool) -> impl IntoView {
     let has_loaded = RwSignal::new(false);
 
     // Fetch system status to resolve active model name for "Auto" display.
-    let (system_status, _) =
-        use_api_resource(|client: Arc<ApiClient>| async move { client.system_status().await });
+    let (system_status, _) = use_system_status();
     let active_model_name =
         Signal::derive(
             move || match system_status.try_get().unwrap_or(LoadingState::Idle) {
@@ -1048,8 +1047,7 @@ fn ClearButton() -> impl IntoView {
 fn ChatInput() -> impl IntoView {
     let (chat_state, chat_action) = use_chat();
     let message = RwSignal::new(String::new());
-    let (system_status, _refetch_status) =
-        use_api_resource(|client: Arc<ApiClient>| async move { client.system_status().await });
+    let (system_status, _refetch_status) = use_system_status();
 
     // Create derived signals for state tracking
     let is_loading = Memo::new(move |_| chat_state.get().loading);

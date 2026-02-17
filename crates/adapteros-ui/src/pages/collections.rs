@@ -31,6 +31,7 @@ use std::sync::Arc;
 #[component]
 pub fn Collections() -> impl IntoView {
     let client = use_api();
+    let navigate = use_navigate();
 
     // Pagination state
     let (page, set_page) = signal(1u32);
@@ -61,6 +62,7 @@ pub fn Collections() -> impl IntoView {
     // Create collection handler
     let on_create = {
         let client = Arc::clone(&client);
+        let navigate = navigate.clone();
         move |_| {
             let name = new_name.try_get().unwrap_or_default();
             let description = new_description.try_get().unwrap_or_default();
@@ -75,6 +77,7 @@ pub fn Collections() -> impl IntoView {
 
             let refetch = refetch;
             let client = Arc::clone(&client);
+            let navigate = navigate.clone();
             wasm_bindgen_futures::spawn_local(async move {
                 let request = CreateCollectionRequest {
                     name: name.trim().to_string(),
@@ -86,11 +89,15 @@ pub fn Collections() -> impl IntoView {
                 };
 
                 match client.create_collection(&request).await {
-                    Ok(_) => {
+                    Ok(created) => {
                         let _ = show_create_dialog.try_set(false);
                         let _ = new_name.try_set(String::new());
                         let _ = new_description.try_set(String::new());
                         refetch();
+                        navigate(
+                            &format!("/collections/{}", created.collection_id),
+                            Default::default(),
+                        );
                     }
                     Err(e) => {
                         let _ = create_error.try_set(Some(e.user_message()));
@@ -562,20 +569,7 @@ where
 
         // Documents table
         <Card title="Documents".to_string() class="mt-6".to_string()>
-            {if collection.documents.is_empty() {
-                view! {
-                    <div class="py-8 text-center">
-                        <svg xmlns="http://www.w3.org/2000/svg" width="40" height="40" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1" stroke-linecap="round" stroke-linejoin="round" class="mx-auto text-muted-foreground mb-3">
-                            <path d="M14.5 2H6a2 2 0 0 0-2 2v16a2 2 0 0 0 2 2h12a2 2 0 0 0 2-2V7.5L14.5 2z"/>
-                            <polyline points="14 2 14 8 20 8"/>
-                        </svg>
-                        <p class="text-muted-foreground">"No documents in this collection"</p>
-                        <p class="text-sm text-muted-foreground mt-1">
-                            "Use Add Documents above to enable RAG-enabled inference."
-                        </p>
-                    </div>
-                }.into_any()
-            } else {
+            {
                 let remove_fn: Arc<dyn Fn(String) + Send + Sync> = Arc::new(remove_document);
                 let remove_for_col = Arc::clone(&remove_fn);
 
@@ -629,9 +623,12 @@ where
                         data=data
                         columns=columns
                         card=false
+                        empty_title="No documents in this collection"
+                        empty_description="Use Add Documents above to add indexed documents and enable RAG-enabled inference."
                     />
-                }.into_any()
-            }}
+                }
+                .into_any()
+            }
         </Card>
     }
 }

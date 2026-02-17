@@ -176,6 +176,9 @@ pub fn StepFormDialog(
     on_back: Callback<()>,
     /// Callback when form is submitted (on final step)
     on_submit: Callback<()>,
+    /// Final-step submit button label (default: "Submit")
+    #[prop(optional, into)]
+    submit_label: Option<String>,
     /// Optional callback when dialog is cancelled
     #[prop(optional)]
     on_cancel: Option<Callback<()>>,
@@ -192,6 +195,7 @@ pub fn StepFormDialog(
     let loading_signal = Signal::derive(move || loading.and_then(|l| l.try_get()).unwrap_or(false));
     let valid_signal = Signal::derive(move || step_valid.and_then(|v| v.try_get()).unwrap_or(true));
     let invalid_signal = Signal::derive(move || !valid_signal.try_get().unwrap_or(true));
+    let submit_text = StoredValue::new(submit_label.unwrap_or_else(|| "Submit".to_string()));
     let submit_disabled = Signal::derive(move || {
         loading_signal.try_get().unwrap_or(false) || !valid_signal.try_get().unwrap_or(true)
     });
@@ -288,7 +292,7 @@ pub fn StepFormDialog(
                             disabled=submit_disabled
                             loading=loading_signal
                         >
-                            "Submit"
+                            {submit_text.get_value()}
                         </Button>
                     </Show>
                 </div>

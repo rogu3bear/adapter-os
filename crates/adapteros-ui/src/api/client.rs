@@ -529,6 +529,33 @@ impl ApiClient {
         .await
     }
 
+    /// Resolve a version selector (e.g. `tag:latest-stable`, `main@v3`, `main`)
+    /// to a concrete version ID for a repository.
+    pub async fn resolve_adapter_version(
+        &self,
+        repo_id: &str,
+        selector: &str,
+    ) -> ApiResult<Option<String>> {
+        let request = ResolveVersionRequest {
+            selector: selector.to_string(),
+        };
+
+        match self
+            .post::<_, ResolveVersionResponse>(
+                &format!(
+                    "/v1/adapter-repositories/{}/resolve-version",
+                    encode(repo_id)
+                ),
+                &request,
+            )
+            .await
+        {
+            Ok(response) => Ok(response.version_id),
+            Err(err) if err.is_not_found() => Ok(None),
+            Err(err) => Err(err),
+        }
+    }
+
     /// Promote an adapter version (activates it for serving on its branch).
     /// Returns `Ok(())` on success (HTTP 204).
     pub async fn promote_adapter_version(&self, version_id: &str, repo_id: &str) -> ApiResult<()> {

@@ -2482,10 +2482,14 @@ fn DatasetDraftView(
     let dataset_id_state = RwSignal::new(dataset_id);
     let document_ids_store = StoredValue::new(document_ids);
     let client = use_api();
+    #[cfg(target_arch = "wasm32")]
     let query = use_query_map();
+    #[cfg(target_arch = "wasm32")]
     let navigate = use_navigate();
+    #[cfg(target_arch = "wasm32")]
     let navigate_store = StoredValue::new(navigate);
     let poll_nonce = RwSignal::new(0u64);
+    #[cfg(target_arch = "wasm32")]
     let on_dataset_created = Callback::new(move |new_dataset_id: String| {
         let mut params: HashMap<String, String> = query
             .try_get()
@@ -3230,8 +3234,11 @@ fn DatasetDraftView(
                     <h3 class="heading-4 mb-4">"Training"</h3>
                     <div class="space-y-4 text-sm">
                         <div class="space-y-2">
-                            <label class="text-xs text-muted-foreground">"Base model"</label>
+                            <label class="text-xs text-muted-foreground" for="dataset-train-base-model">
+                                "Base model"
+                            </label>
                             <Combobox
+                                id="dataset-train-base-model".to_string()
                                 value=base_model
                                 options=Signal::derive(move || {
                                     models_state.try_get().unwrap_or_default()
@@ -3356,12 +3363,15 @@ fn DatasetDraftView(
                     // Basic config: epochs and learning_rate
                     <div class="grid gap-4 md:grid-cols-2">
                         <div class="space-y-2">
-                            <label class="text-xs text-muted-foreground">"Epochs"</label>
+                            <label class="text-xs text-muted-foreground" for="dataset-train-epochs">
+                                "Epochs"
+                            </label>
                             <Input
+                                id="dataset-train-epochs".to_string()
                                 value=epochs
                                 input_type="number".to_string()
                                 placeholder="10".to_string()
-                                on_blur=Some(on_epochs_blur)
+                                on_blur=on_epochs_blur
                             />
                             <p class="text-xs text-muted-foreground">"Number of training epochs"</p>
                             {move || epochs_error.try_get().flatten().map(|msg| view! {
@@ -3369,12 +3379,15 @@ fn DatasetDraftView(
                             })}
                         </div>
                         <div class="space-y-2">
-                            <label class="text-xs text-muted-foreground">"Learning Rate"</label>
+                            <label class="text-xs text-muted-foreground" for="dataset-train-learning-rate">
+                                "Learning Rate"
+                            </label>
                             <Input
+                                id="dataset-train-learning-rate".to_string()
                                 value=learning_rate
                                 input_type="text".to_string()
                                 placeholder="0.0001".to_string()
-                                on_blur=Some(on_learning_rate_blur)
+                                on_blur=on_learning_rate_blur
                             />
                             <p class="text-xs text-muted-foreground">"Learning rate for optimizer"</p>
                             {move || learning_rate_error.try_get().flatten().map(|msg| view! {
@@ -3395,8 +3408,11 @@ fn DatasetDraftView(
                         <div class="pt-4 border-t border-border space-y-4">
                             <div class="grid gap-4 md:grid-cols-2">
                                 <div class="space-y-2">
-                                    <label class="text-xs text-muted-foreground">"LoRA Rank"</label>
+                                    <label class="text-xs text-muted-foreground" for="dataset-train-rank">
+                                        "LoRA Rank"
+                                    </label>
                                     <Input
+                                        id="dataset-train-rank".to_string()
                                         value=rank
                                         input_type="number".to_string()
                                         placeholder="8".to_string()
@@ -3404,8 +3420,11 @@ fn DatasetDraftView(
                                     <p class="text-xs text-muted-foreground">"Low-rank adaptation dimension"</p>
                                 </div>
                                 <div class="space-y-2">
-                                    <label class="text-xs text-muted-foreground">"LoRA Alpha"</label>
+                                    <label class="text-xs text-muted-foreground" for="dataset-train-alpha">
+                                        "LoRA Alpha"
+                                    </label>
                                     <Input
+                                        id="dataset-train-alpha".to_string()
                                         value=alpha
                                         input_type="number".to_string()
                                         placeholder="16".to_string()
@@ -3415,8 +3434,11 @@ fn DatasetDraftView(
                             </div>
                             <div class="grid gap-4 md:grid-cols-2">
                                 <div class="space-y-2">
-                                    <label class="text-xs text-muted-foreground">"Batch Size"</label>
+                                    <label class="text-xs text-muted-foreground" for="dataset-train-batch-size">
+                                        "Batch Size"
+                                    </label>
                                     <Input
+                                        id="dataset-train-batch-size".to_string()
                                         value=batch_size
                                         input_type="number".to_string()
                                         placeholder="4".to_string()
@@ -3424,8 +3446,11 @@ fn DatasetDraftView(
                                     <p class="text-xs text-muted-foreground">"Training batch size"</p>
                                 </div>
                                 <div class="space-y-2">
-                                    <label class="text-xs text-muted-foreground">"Validation Split"</label>
+                                    <label class="text-xs text-muted-foreground" for="dataset-train-validation-split">
+                                        "Validation Split"
+                                    </label>
                                     <Input
+                                        id="dataset-train-validation-split".to_string()
                                         value=validation_split
                                         input_type="text".to_string()
                                         placeholder="0.1".to_string()

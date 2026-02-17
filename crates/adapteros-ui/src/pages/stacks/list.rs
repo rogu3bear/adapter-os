@@ -5,8 +5,9 @@
 use super::helpers::{lifecycle_badge_variant, workflow_type_label};
 use crate::api::{report_error_with_toast, StackResponse};
 use crate::components::{
-    Badge, BadgeVariant, Card, ConfirmationDialog, ConfirmationSeverity, EmptyState, Table,
-    TableBody, TableCell, TableHead, TableHeader, TableRow,
+    AlertBanner, Badge, BadgeVariant, BannerVariant, Card, ConfirmationDialog,
+    ConfirmationSeverity, EmptyState, Table, TableBody, TableCell, TableHead, TableHeader,
+    TableRow,
 };
 use crate::hooks::Refetch;
 use leptos::prelude::*;
@@ -168,6 +169,34 @@ pub fn StacksList(stacks: Vec<StackResponse>, refetch: Refetch) -> impl IntoView
 
     view! {
         <Card>
+            {move || {
+                activate_error
+                    .try_get()
+                    .flatten()
+                    .map(|msg| {
+                        view! {
+                            <AlertBanner
+                                title="Unable to activate stack"
+                                message=msg
+                                variant=BannerVariant::Error
+                            />
+                        }
+                    })
+                    .or_else(|| {
+                        deactivate_error
+                            .try_get()
+                            .flatten()
+                            .map(|msg| {
+                                view! {
+                                    <AlertBanner
+                                        title="Unable to deactivate stack"
+                                        message=msg
+                                        variant=BannerVariant::Error
+                                    />
+                                }
+                            })
+                    })
+            }}
             <Table>
                 <TableHeader>
                     <TableRow>

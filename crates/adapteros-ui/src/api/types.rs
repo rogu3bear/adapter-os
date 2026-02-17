@@ -3,6 +3,7 @@
 //! UI-specific types for API responses not available in adapteros-api-types (wasm feature).
 //! These types are used by the API client for serialization/deserialization.
 
+pub use adapteros_api_types::adapters::{ResolveVersionRequest, ResolveVersionResponse};
 pub use adapteros_api_types::training::JsonlValidationDiagnostic;
 
 /// Checkpoint verification response (mirrors server-side `CheckpointVerifyResponse`)
@@ -2251,6 +2252,15 @@ pub enum AdapterVersionEvent {
         repo_id: String,
         branch: String,
         target_version_id: String,
+    },
+    /// An automatic rollback was applied after dataset trust regression.
+    AutoRollbackApplied {
+        repo_id: String,
+        branch: String,
+        target_version_id: String,
+        dataset_version_id: String,
+        timeline_event_id: String,
+        reason: String,
     },
 }
 

@@ -553,10 +553,11 @@ pub fn CreateJobWizard(
             current_step=Signal::derive(move || current_step.try_get().unwrap_or_default().index())
             total_steps=STEPS.len()
             step_labels=step_labels
-            loading=Some(Signal::derive(move || submitting.try_get().unwrap_or(false)))
+            loading=Signal::derive(move || submitting.try_get().unwrap_or(false))
             on_next=Callback::new(go_next)
             on_back=Callback::new(go_back)
             on_submit=Callback::new(submit.clone())
+            submit_label="Start Training".to_string()
             size=DialogSize::Lg
             scrollable=true
         >
@@ -881,19 +882,19 @@ fn DatasetReadyView(
                             label="Dataset ID"
                             name="dataset_id"
                             help="Use an existing dataset ID if you already have one"
-                            error=Some(dataset_error)
+                            error=dataset_error
                         >
                             <Input
                                 value=dataset_id
                                 placeholder="ds-abc123".to_string()
-                                on_blur=Some(Callback::new(move |_| {
+                                on_blur=Callback::new(move |_| {
                                     let dataset_rules = [ValidationRule::Pattern {
                                         pattern: r"^\s*\S.*$",
                                         message: "Select or generate a dataset before continuing",
                                     }];
                                     let dataset = dataset_id.get();
                                     let _ = validate_on_blur("dataset_id", &dataset, &dataset_rules, form_state);
-                                }))
+                                })
                             />
                         </FormField>
                     </div>
@@ -985,19 +986,19 @@ fn DatasetChooseView(
                     label="Dataset ID"
                     name="dataset_id"
                     help="Use an existing dataset ID if you already have one"
-                    error=Some(dataset_error)
+                    error=dataset_error
                 >
                     <Input
                         value=dataset_id
                         placeholder="ds-abc123".to_string()
-                        on_blur=Some(Callback::new(move |_| {
+                        on_blur=Callback::new(move |_| {
                             let dataset_rules = [ValidationRule::Pattern {
                                 pattern: r"^\s*\S.*$",
                                 message: "Select or generate a dataset before continuing",
                             }];
                             let dataset = dataset_id.get();
                             let _ = validate_on_blur("dataset_id", &dataset, &dataset_rules, form_state);
-                        }))
+                        })
                     />
                 </FormField>
             </div>
@@ -1039,16 +1040,16 @@ fn ModelStepContent(
                 name="adapter_name"
                 required=true
                 help="A unique name for your trained adapter (letters, numbers, hyphens)"
-                error=Some(adapter_name_error)
+                error=adapter_name_error
             >
                 <Input
                     value=adapter_name
                     placeholder="my-code-adapter".to_string()
-                    on_blur=Some(Callback::new(move |_| {
+                    on_blur=Callback::new(move |_| {
                         let adapter_name_rules = rules::adapter_name();
                         let value = adapter_name.get();
                         let _ = validate_on_blur("adapter_name", &value, &adapter_name_rules, form_state);
-                    }))
+                    })
                 />
             </FormField>
 
@@ -1057,7 +1058,7 @@ fn ModelStepContent(
                 name="base_model_id"
                 required=true
                 help="The foundation model to fine-tune"
-                error=Some(base_model_error)
+                error=base_model_error
             >
                 {move || {
                     if use_custom_model.try_get().unwrap_or(false) {
@@ -1066,14 +1067,14 @@ fn ModelStepContent(
                                 <Input
                                     value=base_model_id
                                     placeholder="model-id".to_string()
-                                    on_blur=Some(Callback::new(move |_| {
+                                    on_blur=Callback::new(move |_| {
                                         let model_rules = [ValidationRule::Pattern {
                                             pattern: r"^\s*\S.*$",
                                             message: "Base model is required",
                                         }];
                                         let value = base_model_id.get();
                                         let _ = validate_on_blur("base_model_id", &value, &model_rules, form_state);
-                                    }))
+                                    })
                                 />
                                 <button
                                     class="text-xs text-primary hover:underline"
@@ -1111,13 +1112,13 @@ fn ModelStepContent(
                                             <Select
                                                 value=base_model_id
                                                 options=options
-                                                on_change=Some(Callback::new(move |selected: String| {
+                                                on_change=Callback::new(move |selected: String| {
                                                     let model_rules = [ValidationRule::Pattern {
                                                         pattern: r"^\s*\S.*$",
                                                         message: "Base model is required",
                                                     }];
                                                     let _ = validate_on_blur("base_model_id", &selected, &model_rules, form_state);
-                                                }))
+                                                })
                                             />
                                             {move || {
                                                 let selected = base_model_id.get();
@@ -1240,19 +1241,19 @@ fn ConfigStepContent(
                                     name="batch_size"
                                     required=true
                                     help="Examples per step (1-256)"
-                                    error=Some(batch_size_error)
+                                    error=batch_size_error
                                 >
                                     <Input
                                         value=batch_size
                                         input_type="number".to_string()
-                                        on_blur=Some(Callback::new(move |_| {
+                                        on_blur=Callback::new(move |_| {
                                             let batch_size_rules = [
                                                 ValidationRule::Required,
                                                 ValidationRule::IntRange { min: 1, max: 256 },
                                             ];
                                             let value = batch_size.get();
                                             let _ = validate_on_blur("batch_size", &value, &batch_size_rules, form_state);
-                                        }))
+                                        })
                                     />
                                 </FormField>
                                 <FormField
@@ -1260,19 +1261,19 @@ fn ConfigStepContent(
                                     name="rank"
                                     required=true
                                     help="Adapter dimension (4, 8, 16 typical)"
-                                    error=Some(rank_error)
+                                    error=rank_error
                                 >
                                     <Input
                                         value=rank
                                         input_type="number".to_string()
-                                        on_blur=Some(Callback::new(move |_| {
+                                        on_blur=Callback::new(move |_| {
                                             let rank_rules = [
                                                 ValidationRule::Required,
                                                 ValidationRule::IntRange { min: 1, max: 256 },
                                             ];
                                             let value = rank.get();
                                             let _ = validate_on_blur("rank", &value, &rank_rules, form_state);
-                                        }))
+                                        })
                                     />
                                 </FormField>
                                 <FormField
@@ -1280,19 +1281,19 @@ fn ConfigStepContent(
                                     name="alpha"
                                     required=true
                                     help="Scaling factor (typically 2x rank)"
-                                    error=Some(alpha_error)
+                                    error=alpha_error
                                 >
                                     <Input
                                         value=alpha
                                         input_type="number".to_string()
-                                        on_blur=Some(Callback::new(move |_| {
+                                        on_blur=Callback::new(move |_| {
                                             let alpha_rules = [
                                                 ValidationRule::Required,
                                                 ValidationRule::IntRange { min: 1, max: 512 },
                                             ];
                                             let value = alpha.get();
                                             let _ = validate_on_blur("alpha", &value, &alpha_rules, form_state);
-                                        }))
+                                        })
                                     />
                                 </FormField>
                             </div>

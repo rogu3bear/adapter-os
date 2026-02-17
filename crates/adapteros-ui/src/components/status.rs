@@ -378,15 +378,23 @@ impl StatusVariant {
         }
     }
 
-    /// Create from a worker status string
-    pub fn from_worker_status(status: &str) -> Self {
-        match status {
-            "healthy" | "running" | "active" => Self::Success,
-            "draining" | "starting" | "pending" => Self::Warning,
+    /// Create from a generic status string used across UI surfaces.
+    pub fn from_status(status: &str) -> Self {
+        let normalized = status.trim().to_ascii_lowercase();
+        match normalized.as_str() {
+            "healthy" | "running" | "active" | "completed" | "ready" | "indexed" => Self::Success,
+            "draining" | "starting" | "pending" | "loading" | "unloading" | "checking"
+            | "scanning" | "syncing" | "cancelled" => Self::Warning,
             "error" | "stopped" | "failed" | "crashed" | "unhealthy" => Self::Error,
             "idle" => Self::Info,
+            "unloaded" | "no model" | "nomodel" | "unknown" => Self::Muted,
             _ => Self::Muted,
         }
+    }
+
+    /// Create from a worker status string
+    pub fn from_worker_status(status: &str) -> Self {
+        Self::from_status(status)
     }
 
     /// Create from a boolean condition (true = success, false = error)

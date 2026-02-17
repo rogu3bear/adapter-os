@@ -5336,7 +5336,11 @@
 
 /* Variant-specific styling */
 .empty-state-no-results .empty-state-icon-wrapper {
-  background-color: hsl(38 92% 50% / 0.1);
+  background-color: color-mix(
+    in srgb,
+    var(--color-status-warning) 12%,
+    transparent
+  );
 }
 
 .empty-state-no-results .empty-state-icon {
@@ -5344,7 +5348,11 @@
 }
 
 .empty-state-no-permission .empty-state-icon-wrapper {
-  background-color: hsl(0 84% 60% / 0.1);
+  background-color: color-mix(
+    in srgb,
+    var(--color-destructive) 12%,
+    transparent
+  );
 }
 
 .empty-state-no-permission .empty-state-icon {
@@ -5934,15 +5942,16 @@
   gap: 1rem;
   padding: 0.75rem 1rem;
   border-radius: 0.5rem;
-  background: hsl(142 76% 36% / 0.1);
-  border: 1px solid hsl(142 76% 36% / 0.2);
+  background: color-mix(in srgb, var(--color-status-success) 12%, transparent);
+  border: 0.0625rem solid
+    color-mix(in srgb, var(--color-status-success) 24%, transparent);
 }
 
 .theme-glass .training-return-banner {
-  background: hsl(142 76% 36% / 0.08);
-  border-color: hsl(142 76% 36% / 0.15);
-  backdrop-filter: blur(8px);
-  -webkit-backdrop-filter: blur(8px);
+  background: color-mix(in srgb, var(--color-status-success) 10%, transparent);
+  border-color: color-mix(in srgb, var(--color-status-success) 18%, transparent);
+  backdrop-filter: blur(0.5rem);
+  -webkit-backdrop-filter: blur(0.5rem);
 }
 
 /* ===== Adapter Detail Panel ===== */

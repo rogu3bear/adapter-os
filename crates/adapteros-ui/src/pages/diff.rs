@@ -207,10 +207,10 @@ pub fn Diff() -> impl IntoView {
 
 #[component]
 pub(crate) fn RunSelector(
-    id: String,
     runs: ReadSignal<LoadingState<ListDiagRunsResponse>>,
     selected: RwSignal<String>,
     exclude: Signal<String>,
+    #[prop(optional, into)] id: Option<String>,
 ) -> impl IntoView {
     view! {
         <select

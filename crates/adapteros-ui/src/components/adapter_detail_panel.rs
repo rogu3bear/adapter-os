@@ -520,6 +520,12 @@ fn AdapterVersionPromotionSection(
     let rollback_target = RwSignal::new(None::<(String, String, String, String)>);
     let rollback_loading = RwSignal::new(false);
 
+    // Selector-based version resolution state
+    let version_selector = RwSignal::new(String::new());
+    let resolve_loading = RwSignal::new(false);
+    let resolve_error = RwSignal::new(None::<String>);
+    let resolved_version_id = RwSignal::new(None::<String>);
+
     // Dataset lineage expand state (tracked by version id)
     let expanded_lineage = RwSignal::new(None::<String>);
 
@@ -540,6 +546,50 @@ fn AdapterVersionPromotionSection(
             }
         });
     }
+
+    // Handle selector resolve action
+    let handle_resolve = {
+        let client = Arc::clone(&client);
+        let repo_id = repo_id.clone();
+        Callback::new(move |()| {
+            let selector = version_selector
+                .try_get_untracked()
+                .unwrap_or_default()
+                .trim()
+                .to_string();
+            if selector.is_empty() {
+                resolved_version_id.set(None);
+                resolve_error.set(Some(
+                    "Enter a selector. Examples: tag:latest-stable, main@v3, main".to_string(),
+                ));
+                return;
+            }
+
+            resolve_loading.set(true);
+            resolve_error.set(None);
+            let client = Arc::clone(&client);
+            let repo_id = repo_id.clone();
+            spawn_local(async move {
+                match client.resolve_adapter_version(&repo_id, &selector).await {
+                    Ok(Some(version_id)) => {
+                        resolved_version_id.set(Some(version_id));
+                        resolve_loading.set(false);
+                    }
+                    Ok(None) => {
+                        resolved_version_id.set(None);
+                        resolve_error
+                            .set(Some(format!("No version matched selector '{}'.", selector)));
+                        resolve_loading.set(false);
+                    }
+                    Err(err) => {
+                        resolved_version_id.set(None);
+                        resolve_error.set(Some(err.user_message()));
+                        resolve_loading.set(false);
+                    }
+                }
+            });
+        })
+    };
 
     // Handle promote confirmation
     let handle_promote = {
@@ -646,184 +696,306 @@ fn AdapterVersionPromotionSection(
                     }.into_any();
                 }
 
+                let resolve_error_msg = resolve_error.try_get().flatten();
+                let resolved_id = resolved_version_id.try_get().flatten();
+                let resolved_version = resolved_id
+                    .as_ref()
+                    .and_then(|id| vers.iter().find(|v| v.id == *id).cloned());
+
                 view! {
-                    <div class="version-list">
-                        {vers.into_iter().map(|v| {
-                            let version_label = v.display_name.clone()
-                                .unwrap_or_else(|| v.version.clone());
-                            let is_promoted = v.release_state == "promoted";
-                            let is_deprecated = v.release_state == "deprecated";
-                            let is_serveable = v.serveable;
-                            let trust_state = v.adapter_trust_state.clone();
-                            let state_variant = match v.release_state.as_str() {
-                                "promoted" => BadgeVariant::Success,
-                                "draft" => BadgeVariant::Secondary,
-                                "candidate" => BadgeVariant::Warning,
-                                "deprecated" => BadgeVariant::Default,
-                                _ => BadgeVariant::Default,
-                            };
+                    <div class="space-y-3">
+                        <div class="rounded-md border border-border/40 p-3">
+                            <div class="flex flex-col gap-2 sm:flex-row sm:items-center">
+                                <input
+                                    type="text"
+                                    class="input flex-1"
+                                    placeholder="Enter version selector"
+                                    prop:value=move || version_selector.try_get().unwrap_or_default()
+                                    on:input=move |ev| {
+                                        version_selector.set(event_target_value(&ev));
+                                        resolve_error.set(None);
+                                    }
+                                />
+                                <Button
+                                    variant=ButtonVariant::Outline
+                                    size=ButtonSize::Sm
+                                    on_click=handle_resolve
+                                    disabled=Signal::derive(move || {
+                                        version_selector
+                                            .try_get()
+                                            .map(|selector| selector.trim().is_empty())
+                                            .unwrap_or(true)
+                                    })
+                                    loading=Signal::derive(move || resolve_loading.try_get().unwrap_or(false))
+                                >
+                                    "Resolve"
+                                </Button>
+                            </div>
+                            <p class="mt-2 text-xs text-muted-foreground">
+                                "Examples: tag:latest-stable, main@v3, main"
+                            </p>
+                            {resolve_error_msg.map(|err| view! {
+                                <p class="mt-2 text-xs text-destructive">{err}</p>
+                            })}
+                            {resolved_version.map(|resolved| {
+                                let resolved_label = resolved
+                                    .display_name
+                                    .clone()
+                                    .unwrap_or_else(|| resolved.version.clone());
+                                let resolved_is_promoted = resolved.release_state == "promoted";
+                                let resolved_is_deprecated = resolved.release_state == "deprecated";
+                                let resolved_is_serveable = resolved.serveable;
+                                let resolved_branch_display = resolved.branch.clone();
 
-                            let vid = v.id.clone();
-                            let rid = v.repo_id.clone();
-                            let branch = v.branch.clone();
-                            let label_for_dialog = version_label.clone();
-                            let release_state = v.release_state.clone();
-                            let branch_display = v.branch.clone();
+                                let promote_vid = resolved.id.clone();
+                                let promote_rid = resolved.repo_id.clone();
+                                let promote_label = resolved_label.clone();
 
-                            // Dataset lineage data
-                            let dataset_ids = v.dataset_version_ids.clone().unwrap_or_default();
-                            let dataset_trust = v.dataset_version_trust.clone().unwrap_or_default();
-                            let has_dataset_lineage = !dataset_ids.is_empty();
-                            let vid_for_lineage = v.id.clone();
+                                let rollback_vid = resolved.id.clone();
+                                let rollback_rid = resolved.repo_id.clone();
+                                let rollback_branch = resolved.branch.clone();
+                                let rollback_label = resolved_label.clone();
 
-                            // Serveable indicator
-                            let serveable_reason = v.serveable_reason.clone()
-                                .unwrap_or_else(|| if is_serveable { "ready to serve".to_string() } else { "not serveable".to_string() });
-
-                            view! {
-                                <div class="version-item">
-                                    // Main row: label, badges, actions
-                                    <div class="version-item-row">
-                                        <div class="version-item-info">
-                                            <span class="version-item-label">{version_label.clone()}</span>
-                                            <Badge variant=state_variant>{release_state}</Badge>
-                                            // Trust state badge
-                                            {(!trust_state.is_empty()).then(|| {
-                                                let variant = trust_state_badge_variant(&trust_state);
-                                                view! {
-                                                    <Badge variant=variant>{trust_state.clone()}</Badge>
-                                                }
-                                            })}
-                                            // Serveable indicator
-                                            <span
-                                                class={if is_serveable { "version-serveable-icon version-serveable-yes" } else { "version-serveable-icon version-serveable-no" }}
-                                                title=serveable_reason
-                                            >
-                                                {if is_serveable {
-                                                    view! { <svg class="version-check-icon" viewBox="0 0 20 20" fill="currentColor"><path fill-rule="evenodd" d="M16.707 5.293a1 1 0 010 1.414l-8 8a1 1 0 01-1.414 0l-4-4a1 1 0 011.414-1.414L8 12.586l7.293-7.293a1 1 0 011.414 0z" clip-rule="evenodd"/></svg> }.into_any()
-                                                } else {
-                                                    view! { <svg class="version-check-icon" viewBox="0 0 20 20" fill="currentColor"><path fill-rule="evenodd" d="M4.293 4.293a1 1 0 011.414 0L10 8.586l4.293-4.293a1 1 0 111.414 1.414L11.414 10l4.293 4.293a1 1 0 01-1.414 1.414L10 11.414l-4.293 4.293a1 1 0 01-1.414-1.414L8.586 10 4.293 5.707a1 1 0 010-1.414z" clip-rule="evenodd"/></svg> }.into_any()
-                                                }}
-                                            </span>
-                                            <span class="version-item-branch">{branch_display}</span>
-                                        </div>
-                                        <div class="version-item-actions">
-                                            // Promote button (non-promoted, serveable versions)
-                                            {(!is_promoted && is_serveable).then(|| {
-                                                let vid = vid.clone();
-                                                let rid = rid.clone();
-                                                let label = label_for_dialog.clone();
-                                                view! {
-                                                    <Button
-                                                        variant=ButtonVariant::Outline
-                                                        size=ButtonSize::Sm
-                                                        on_click=Callback::new(move |_| {
-                                                            promote_target.set(Some((vid.clone(), rid.clone(), label.clone())));
-                                                            show_promote_dialog.set(true);
-                                                        })
-                                                    >
-                                                        "Promote"
-                                                    </Button>
-                                                }
-                                            })}
-                                            // Rollback button (shown on deprecated versions)
-                                            {is_deprecated.then(|| {
-                                                let vid = vid.clone();
-                                                let rid = rid.clone();
-                                                let branch = branch.clone();
-                                                let label = label_for_dialog.clone();
-                                                view! {
-                                                    <Button
-                                                        variant=ButtonVariant::Destructive
-                                                        size=ButtonSize::Sm
-                                                        on_click=Callback::new(move |_| {
-                                                            rollback_target.set(Some((vid.clone(), rid.clone(), branch.clone(), label.clone())));
-                                                            show_rollback_dialog.set(true);
-                                                        })
-                                                    >
-                                                        "Rollback"
-                                                    </Button>
-                                                }
-                                            })}
-                                            // Not serveable label (non-promoted, non-deprecated, not serveable)
-                                            {(!is_promoted && !is_serveable && !is_deprecated).then(|| {
-                                                let reason = v.serveable_reason.clone()
-                                                    .unwrap_or_else(|| "not serveable".to_string());
-                                                view! {
-                                                    <span class="version-not-serveable" title=reason>
-                                                        "Not serveable"
-                                                    </span>
-                                                }
-                                            })}
-                                            // Active label for promoted
-                                            {is_promoted.then(|| view! {
-                                                <span class="version-active-label">"Active"</span>
-                                            })}
-                                            // Dataset lineage toggle
-                                            {has_dataset_lineage.then(|| {
-                                                let vid_toggle = vid_for_lineage.clone();
-                                                view! {
-                                                    <button
-                                                        type="button"
-                                                        class="version-lineage-toggle"
-                                                        on:click=move |_| {
-                                                            let current = expanded_lineage.try_get().flatten();
-                                                            if current.as_deref() == Some(&vid_toggle) {
-                                                                expanded_lineage.set(None);
-                                                            } else {
-                                                                expanded_lineage.set(Some(vid_toggle.clone()));
-                                                            }
-                                                        }
-                                                        title="Dataset lineage"
-                                                    >
-                                                        <svg class="version-lineage-icon" viewBox="0 0 20 20" fill="currentColor">
-                                                            <path d="M3 12v3c0 1.657 3.134 3 7 3s7-1.343 7-3v-3c0 1.657-3.134 3-7 3s-7-1.343-7-3z"/>
-                                                            <path d="M3 7v3c0 1.657 3.134 3 7 3s7-1.343 7-3V7c0 1.657-3.134 3-7 3S3 8.657 3 7z"/>
-                                                            <path d="M17 5c0 1.657-3.134 3-7 3S3 6.657 3 5s3.134-3 7-3 7 1.343 7 3z"/>
-                                                        </svg>
-                                                    </button>
-                                                }
-                                            })}
-                                        </div>
+                                view! {
+                                    <div class="mt-3 flex flex-wrap items-center gap-2">
+                                        <span class="text-xs text-muted-foreground">"Resolved version:"</span>
+                                        <span class="text-sm font-medium">{resolved_label.clone()}</span>
+                                        <Badge variant=BadgeVariant::Secondary>{resolved_branch_display.clone()}</Badge>
+                                        {(!resolved_is_promoted && resolved_is_serveable).then(|| {
+                                            let vid = promote_vid.clone();
+                                            let rid = promote_rid.clone();
+                                            let label = promote_label.clone();
+                                            view! {
+                                                <Button
+                                                    variant=ButtonVariant::Outline
+                                                    size=ButtonSize::Sm
+                                                    on_click=Callback::new(move |_| {
+                                                        promote_target.set(Some((vid.clone(), rid.clone(), label.clone())));
+                                                        show_promote_dialog.set(true);
+                                                    })
+                                                >
+                                                    "Promote Resolved"
+                                                </Button>
+                                            }
+                                        })}
+                                        {resolved_is_deprecated.then(|| {
+                                            let vid = rollback_vid.clone();
+                                            let rid = rollback_rid.clone();
+                                            let branch = rollback_branch.clone();
+                                            let label = rollback_label.clone();
+                                            view! {
+                                                <Button
+                                                    variant=ButtonVariant::Destructive
+                                                    size=ButtonSize::Sm
+                                                    on_click=Callback::new(move |_| {
+                                                        rollback_target.set(Some((vid.clone(), rid.clone(), branch.clone(), label.clone())));
+                                                        show_rollback_dialog.set(true);
+                                                    })
+                                                >
+                                                    "Rollback Resolved"
+                                                </Button>
+                                            }
+                                        })}
+                                        {resolved_is_promoted.then(|| view! {
+                                            <span class="version-active-label">"Active"</span>
+                                        })}
+                                        {(!resolved_is_promoted && !resolved_is_serveable && !resolved_is_deprecated).then(|| view! {
+                                            <span class="version-not-serveable">"Resolved version is not serveable"</span>
+                                        })}
                                     </div>
-                                    // Collapsible dataset lineage section
-                                    {has_dataset_lineage.then(|| {
-                                        let vid_check = vid_for_lineage.clone();
-                                        let ds_ids = dataset_ids.clone();
-                                        let ds_trust = dataset_trust.clone();
-                                        view! {
-                                            <div
-                                                class="version-lineage-section"
-                                                style:display=move || {
-                                                    if expanded_lineage.try_get().flatten().as_deref() == Some(&vid_check) {
-                                                        "block"
-                                                    } else {
-                                                        "none"
-                                                    }
-                                                }
-                                            >
-                                                <span class="version-lineage-title">"Dataset Lineage"</span>
-                                                <div class="version-lineage-list">
-                                                    {ds_ids.into_iter().map(|ds_id| {
-                                                        let trust_label = ds_trust.iter()
-                                                            .find(|t| t.dataset_version_id == ds_id)
-                                                            .and_then(|t| t.trust_at_training_time.clone())
-                                                            .unwrap_or_else(|| "unknown".to_string());
-                                                        let trust_variant = trust_state_badge_variant(&trust_label);
-                                                        view! {
-                                                            <div class="version-lineage-item">
-                                                                <CopyableId id=ds_id truncate=20 />
-                                                                <Badge variant=trust_variant>{trust_label}</Badge>
-                                                            </div>
-                                                        }
-                                                    }).collect_view()}
-                                                </div>
-                                            </div>
+                                }
+                            })}
+                        </div>
+
+                        <div class="version-list">
+                            {vers.into_iter().map(|v| {
+                                let version_label = v.display_name.clone()
+                                    .unwrap_or_else(|| v.version.clone());
+                                let is_promoted = v.release_state == "promoted";
+                                let is_deprecated = v.release_state == "deprecated";
+                                let is_serveable = v.serveable;
+                                let is_resolved = resolved_id.as_deref() == Some(v.id.as_str());
+                                let trust_state = v.adapter_trust_state.clone();
+                                let state_variant = match v.release_state.as_str() {
+                                    "promoted" => BadgeVariant::Success,
+                                    "draft" => BadgeVariant::Secondary,
+                                    "candidate" => BadgeVariant::Warning,
+                                    "deprecated" => BadgeVariant::Default,
+                                    _ => BadgeVariant::Default,
+                                };
+
+                                let vid = v.id.clone();
+                                let rid = v.repo_id.clone();
+                                let branch = v.branch.clone();
+                                let label_for_dialog = version_label.clone();
+                                let release_state = v.release_state.clone();
+                                let branch_display = v.branch.clone();
+
+                                // Dataset lineage data
+                                let dataset_ids = v.dataset_version_ids.clone().unwrap_or_default();
+                                let dataset_trust = v.dataset_version_trust.clone().unwrap_or_default();
+                                let has_dataset_lineage = !dataset_ids.is_empty();
+                                let vid_for_lineage = v.id.clone();
+
+                                // Serveable indicator
+                                let serveable_reason = v.serveable_reason.clone()
+                                    .unwrap_or_else(|| if is_serveable { "ready to serve".to_string() } else { "not serveable".to_string() });
+
+                                view! {
+                                    <div
+                                        class="version-item"
+                                        style=if is_resolved {
+                                            "box-shadow: inset 0 0 0 1px rgba(14, 165, 233, 0.6); background-color: rgba(14, 165, 233, 0.08);"
+                                        } else {
+                                            ""
                                         }
-                                    })}
-                                </div>
-                            }
-                        }).collect_view()}
+                                    >
+                                        // Main row: label, badges, actions
+                                        <div class="version-item-row">
+                                            <div class="version-item-info">
+                                                <span class="version-item-label">{version_label.clone()}</span>
+                                                <Badge variant=state_variant>{release_state}</Badge>
+                                                {is_resolved.then(|| view! {
+                                                    <Badge variant=BadgeVariant::Secondary>"Resolved"</Badge>
+                                                })}
+                                                // Trust state badge
+                                                {(!trust_state.is_empty()).then(|| {
+                                                    let variant = trust_state_badge_variant(&trust_state);
+                                                    view! {
+                                                        <Badge variant=variant>{trust_state.clone()}</Badge>
+                                                    }
+                                                })}
+                                                // Serveable indicator
+                                                <span
+                                                    class={if is_serveable { "version-serveable-icon version-serveable-yes" } else { "version-serveable-icon version-serveable-no" }}
+                                                    title=serveable_reason
+                                                >
+                                                    {if is_serveable {
+                                                        view! { <svg class="version-check-icon" viewBox="0 0 20 20" fill="currentColor"><path fill-rule="evenodd" d="M16.707 5.293a1 1 0 010 1.414l-8 8a1 1 0 01-1.414 0l-4-4a1 1 0 011.414-1.414L8 12.586l7.293-7.293a1 1 0 011.414 0z" clip-rule="evenodd"/></svg> }.into_any()
+                                                    } else {
+                                                        view! { <svg class="version-check-icon" viewBox="0 0 20 20" fill="currentColor"><path fill-rule="evenodd" d="M4.293 4.293a1 1 0 011.414 0L10 8.586l4.293-4.293a1 1 0 111.414 1.414L11.414 10l4.293 4.293a1 1 0 01-1.414 1.414L10 11.414l-4.293 4.293a1 1 0 01-1.414-1.414L8.586 10 4.293 5.707a1 1 0 010-1.414z" clip-rule="evenodd"/></svg> }.into_any()
+                                                    }}
+                                                </span>
+                                                <span class="version-item-branch">{branch_display}</span>
+                                            </div>
+                                            <div class="version-item-actions">
+                                                // Promote button (non-promoted, serveable versions)
+                                                {(!is_promoted && is_serveable).then(|| {
+                                                    let vid = vid.clone();
+                                                    let rid = rid.clone();
+                                                    let label = label_for_dialog.clone();
+                                                    view! {
+                                                        <Button
+                                                            variant=ButtonVariant::Outline
+                                                            size=ButtonSize::Sm
+                                                            on_click=Callback::new(move |_| {
+                                                                promote_target.set(Some((vid.clone(), rid.clone(), label.clone())));
+                                                                show_promote_dialog.set(true);
+                                                            })
+                                                        >
+                                                            "Promote"
+                                                        </Button>
+                                                    }
+                                                })}
+                                                // Rollback button (shown on deprecated versions)
+                                                {is_deprecated.then(|| {
+                                                    let vid = vid.clone();
+                                                    let rid = rid.clone();
+                                                    let branch = branch.clone();
+                                                    let label = label_for_dialog.clone();
+                                                    view! {
+                                                        <Button
+                                                            variant=ButtonVariant::Destructive
+                                                            size=ButtonSize::Sm
+                                                            on_click=Callback::new(move |_| {
+                                                                rollback_target.set(Some((vid.clone(), rid.clone(), branch.clone(), label.clone())));
+                                                                show_rollback_dialog.set(true);
+                                                            })
+                                                        >
+                                                            "Rollback"
+                                                        </Button>
+                                                    }
+                                                })}
+                                                // Not serveable label (non-promoted, non-deprecated, not serveable)
+                                                {(!is_promoted && !is_serveable && !is_deprecated).then(|| {
+                                                    let reason = v.serveable_reason.clone()
+                                                        .unwrap_or_else(|| "not serveable".to_string());
+                                                    view! {
+                                                        <span class="version-not-serveable" title=reason>
+                                                            "Not serveable"
+                                                        </span>
+                                                    }
+                                                })}
+                                                // Active label for promoted
+                                                {is_promoted.then(|| view! {
+                                                    <span class="version-active-label">"Active"</span>
+                                                })}
+                                                // Dataset lineage toggle
+                                                {has_dataset_lineage.then(|| {
+                                                    let vid_toggle = vid_for_lineage.clone();
+                                                    view! {
+                                                        <button
+                                                            type="button"
+                                                            class="version-lineage-toggle"
+                                                            on:click=move |_| {
+                                                                let current = expanded_lineage.try_get().flatten();
+                                                                if current.as_deref() == Some(&vid_toggle) {
+                                                                    expanded_lineage.set(None);
+                                                                } else {
+                                                                    expanded_lineage.set(Some(vid_toggle.clone()));
+                                                                }
+                                                            }
+                                                            title="Dataset lineage"
+                                                        >
+                                                            <svg class="version-lineage-icon" viewBox="0 0 20 20" fill="currentColor">
+                                                                <path d="M3 12v3c0 1.657 3.134 3 7 3s7-1.343 7-3v-3c0 1.657-3.134 3-7 3s-7-1.343-7-3z"/>
+                                                                <path d="M3 7v3c0 1.657 3.134 3 7 3s7-1.343 7-3V7c0 1.657-3.134 3-7 3S3 8.657 3 7z"/>
+                                                                <path d="M17 5c0 1.657-3.134 3-7 3S3 6.657 3 5s3.134-3 7-3 7 1.343 7 3z"/>
+                                                            </svg>
+                                                        </button>
+                                                    }
+                                                })}
+                                            </div>
+                                        </div>
+                                        // Collapsible dataset lineage section
+                                        {has_dataset_lineage.then(|| {
+                                            let vid_check = vid_for_lineage.clone();
+                                            let ds_ids = dataset_ids.clone();
+                                            let ds_trust = dataset_trust.clone();
+                                            view! {
+                                                <div
+                                                    class="version-lineage-section"
+                                                    style:display=move || {
+                                                        if expanded_lineage.try_get().flatten().as_deref() == Some(&vid_check) {
+                                                            "block"
+                                                        } else {
+                                                            "none"
+                                                        }
+                                                    }
+                                                >
+                                                    <span class="version-lineage-title">"Dataset Lineage"</span>
+                                                    <div class="version-lineage-list">
+                                                        {ds_ids.into_iter().map(|ds_id| {
+                                                            let trust_label = ds_trust.iter()
+                                                                .find(|t| t.dataset_version_id == ds_id)
+                                                                .and_then(|t| t.trust_at_training_time.clone())
+                                                                .unwrap_or_else(|| "unknown".to_string());
+                                                            let trust_variant = trust_state_badge_variant(&trust_label);
+                                                            view! {
+                                                                <div class="version-lineage-item">
+                                                                    <CopyableId id=ds_id truncate=20 />
+                                                                    <Badge variant=trust_variant>{trust_label}</Badge>
+                                                                </div>
+                                                            }
+                                                        }).collect_view()}
+                                                    </div>
+                                                </div>
+                                            }
+                                        })}
+                                    </div>
+                                }
+                            }).collect_view()}
+                        </div>
                     </div>
                 }.into_any()
             }}

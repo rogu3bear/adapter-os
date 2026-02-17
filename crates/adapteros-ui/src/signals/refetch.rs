@@ -171,7 +171,8 @@ impl RefetchAction {
     pub fn dispatch_adapter_version_event(&self, event: &AdapterVersionEvent) {
         match event {
             AdapterVersionEvent::VersionPromoted { .. }
-            | AdapterVersionEvent::VersionRolledBack { .. } => {
+            | AdapterVersionEvent::VersionRolledBack { .. }
+            | AdapterVersionEvent::AutoRollbackApplied { .. } => {
                 self.adapters();
                 self.repositories();
                 self.models();

@@ -34,7 +34,7 @@ use crate::hooks::{use_cached_api_resource, use_conditional_polling, CacheTtl, L
 use crate::signals::{try_use_route_context, SelectedEntity};
 use adapteros_api_types::TrainingListParams;
 use leptos::prelude::*;
-use leptos_router::hooks::use_query_map;
+use leptos_router::hooks::{use_params_map, use_query_map};
 use std::sync::Arc;
 
 use components::{CoremlFilters, StatusFilter, TrainingJobList};
@@ -42,6 +42,62 @@ use detail::TrainingJobDetail;
 use readiness::BackendReadinessPanel;
 use state::{matches_coreml_filters, CoremlFilterState};
 use wizard::CreateJobWizard;
+
+fn navigate_to_training_list() {
+    if let Some(window) = web_sys::window() {
+        let _ = window.location().set_href("/training");
+    }
+}
+
+/// Standalone training job detail route (`/training/:id`) without list preload dependency.
+#[component]
+pub fn TrainingDetailRoute() -> impl IntoView {
+    let params = use_params_map();
+    let query = use_query_map();
+
+    let job_id = Memo::new(move |_| {
+        params
+            .try_get()
+            .unwrap_or_default()
+            .get("id")
+            .unwrap_or_default()
+    });
+    let return_to = Memo::new(move |_| query.try_get().unwrap_or_default().get("return_to"));
+
+    view! {
+        <PageScaffold
+            title="Training Job"
+            subtitle="Inspect status, logs, and artifacts for this training run."
+            breadcrumbs=vec![
+                PageBreadcrumbItem::new("Train", "/training"),
+                PageBreadcrumbItem::new("Training Jobs", "/training"),
+                PageBreadcrumbItem::current("Details"),
+            ]
+        >
+            {move || {
+                let id = job_id.get();
+                if id.is_empty() {
+                    view! {
+                        <div class="py-8 text-sm text-muted-foreground">
+                            "Training job ID is missing from the route."
+                        </div>
+                    }
+                    .into_any()
+                } else {
+                    view! {
+                        <TrainingJobDetail
+                            job_id=id
+                            on_close=navigate_to_training_list
+                            on_cancelled=|| {}
+                            return_to=return_to.get()
+                        />
+                    }
+                    .into_any()
+                }
+            }}
+        </PageScaffold>
+    }
+}
 
 /// Training jobs page with list and detail panels
 #[component]

@@ -16,6 +16,34 @@ use crate::api::types::TimelineEvent;
 use crate::api::use_api_client;
 use crate::components::{Badge, BadgeVariant, Card, Spinner};
 
+fn read_query_param(name: &str) -> Option<String> {
+    #[cfg(target_arch = "wasm32")]
+    {
+        let window = web_sys::window()?;
+        let location = window.location();
+        let search = location.search().ok()?;
+        let query = search.strip_prefix('?').unwrap_or(&search);
+        for pair in query.split('&') {
+            if pair.is_empty() {
+                continue;
+            }
+            if let Some((key, value)) = pair.split_once('=') {
+                if key == name {
+                    return Some(value.to_string());
+                }
+            } else if pair == name {
+                return Some(String::new());
+            }
+        }
+        None
+    }
+    #[cfg(not(target_arch = "wasm32"))]
+    {
+        let _ = name;
+        None
+    }
+}
+
 /// Classify a timeline event type string into a display label and badge variant.
 fn classify_event(event_type: &str) -> (&'static str, BadgeVariant) {
     // event_type format is "state_change:<new_state>" from the server handler
@@ -122,6 +150,7 @@ pub fn VersionTimeline(
     let events = RwSignal::new(Vec::<TimelineEvent>::new());
     let loading = RwSignal::new(true);
     let error = RwSignal::new(None::<String>);
+    let focused_event_id = Signal::derive(move || read_query_param("timeline_event_id"));
 
     // Fetch timeline on mount
     {
@@ -140,6 +169,28 @@ pub fn VersionTimeline(
             }
         });
     }
+
+    Effect::new(move || {
+        if loading.try_get().unwrap_or(true) {
+            return;
+        }
+        let _ = events.try_get();
+        let Some(focus_id) = focused_event_id.try_get().flatten() else {
+            return;
+        };
+        #[cfg(target_arch = "wasm32")]
+        {
+            if let Some(window) = web_sys::window() {
+                if let Some(document) = window.document() {
+                    if let Some(element) =
+                        document.get_element_by_id(&format!("timeline-event-{}", focus_id))
+                    {
+                        element.scroll_into_view();
+                    }
+                }
+            }
+        }
+    });
 
     view! {
         <Card title="Version History">
@@ -169,12 +220,26 @@ pub fn VersionTimeline(
                 view! {
                     <div class="version-timeline">
                         {items.into_iter().map(|event| {
+                            let is_focused = focused_event_id
+                                .try_get_untracked()
+                                .flatten()
+                                .as_deref()
+                                == Some(event.id.as_str());
                             let (label, variant) = classify_event(&event.event_type);
                             let relative = format_relative_time(&event.timestamp);
                             let raw_timestamp = event.timestamp.clone();
+                            let event_dom_id = format!("timeline-event-{}", event.id);
 
                             view! {
-                                <div class="version-timeline-item">
+                                <div
+                                    id=event_dom_id
+                                    class="version-timeline-item"
+                                    style=if is_focused {
+                                        "box-shadow: inset 0 0 0 1px rgba(14, 165, 233, 0.7); background-color: rgba(14, 165, 233, 0.08);"
+                                    } else {
+                                        ""
+                                    }
+                                >
                                     <div class="version-timeline-dot-column">
                                         <div class="version-timeline-dot"></div>
                                         <div class="version-timeline-line"></div>

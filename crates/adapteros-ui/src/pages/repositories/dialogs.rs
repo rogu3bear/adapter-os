@@ -13,7 +13,10 @@ use leptos::prelude::*;
 
 /// Register repository dialog
 #[component]
-pub fn RegisterRepositoryDialog(open: RwSignal<bool>, on_registered: Callback<String>) -> impl IntoView {
+pub fn RegisterRepositoryDialog(
+    open: RwSignal<bool>,
+    on_registered: Callback<String>,
+) -> impl IntoView {
     let client = use_api_client();
     let (auth_state, _) = use_auth();
     let notifications = use_notifications();
@@ -33,12 +36,8 @@ pub fn RegisterRepositoryDialog(open: RwSignal<bool>, on_registered: Callback<St
         // Validate
         let rid = repo_id.get();
         let p = path.get();
-        let repo_id_valid = validate_for_submit(
-            "repo_id",
-            &rid,
-            &[ValidationRule::Required],
-            form_state,
-        );
+        let repo_id_valid =
+            validate_for_submit("repo_id", &rid, &[ValidationRule::Required], form_state);
         let path_valid = validate_for_submit("path", &p, &[ValidationRule::Required], form_state);
         mark_submitted(form_state);
         if !repo_id_valid {
@@ -121,34 +120,34 @@ pub fn RegisterRepositoryDialog(open: RwSignal<bool>, on_registered: Callback<St
 
             // Form
             <div class="space-y-4">
-                <FormField label="Repository ID" name="repo_id" required=true error=Some(repo_id_error)>
+                <FormField label="Repository ID" name="repo_id" required=true error=repo_id_error>
                     <Input
                         value=repo_id
                         placeholder="my-project".to_string()
                         required=true
-                        on_blur=Some(Callback::new(move |_| {
+                        on_blur=Callback::new(move |_| {
                             validate_on_blur(
                                 "repo_id",
                                 &repo_id.get(),
                                 &[ValidationRule::Required],
                                 form_state,
                             );
-                        }))
+                        })
                     />
                 </FormField>
-                <FormField label="Path" name="path" required=true error=Some(path_error)>
+                <FormField label="Path" name="path" required=true error=path_error>
                     <Input
                         value=path
                         placeholder="/path/to/repository".to_string()
                         required=true
-                        on_blur=Some(Callback::new(move |_| {
+                        on_blur=Callback::new(move |_| {
                             validate_on_blur(
                                 "path",
                                 &path.get(),
                                 &[ValidationRule::Required],
                                 form_state,
                             );
-                        }))
+                        })
                     />
                 </FormField>
                 <FormField label="Languages (comma-separated)" name="languages">

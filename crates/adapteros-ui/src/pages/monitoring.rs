@@ -475,7 +475,13 @@ fn HealthEndpointsCard(
                             <TableRow>
                                 <TableCell><span class="font-mono text-sm">"/healthz"</span></TableCell>
                                 <TableCell><Spinner/></TableCell>
-                                <TableCell><span class="text-sm text-muted-foreground">"Loading..."</span></TableCell>
+                                <TableCell>
+                                    <span
+                                        class="inline-block h-4 w-28 rounded bg-muted/60 animate-pulse"
+                                        aria-hidden="true"
+                                    ></span>
+                                    <span class="sr-only">"Loading endpoint status"</span>
+                                </TableCell>
                             </TableRow>
                         }.into_any(),
                         LoadingState::Loaded((status_code, data)) => {
@@ -510,7 +516,13 @@ fn HealthEndpointsCard(
                             <TableRow>
                                 <TableCell><span class="font-mono text-sm">"/readyz"</span></TableCell>
                                 <TableCell><Spinner/></TableCell>
-                                <TableCell><span class="text-sm text-muted-foreground">"Loading..."</span></TableCell>
+                                <TableCell>
+                                    <span
+                                        class="inline-block h-4 w-28 rounded bg-muted/60 animate-pulse"
+                                        aria-hidden="true"
+                                    ></span>
+                                    <span class="sr-only">"Loading endpoint status"</span>
+                                </TableCell>
                             </TableRow>
                         }.into_any(),
                         LoadingState::Loaded((status_code, data)) => {
@@ -550,7 +562,13 @@ fn HealthEndpointsCard(
                             <TableRow>
                                 <TableCell><span class="font-mono text-sm">"/system/ready"</span></TableCell>
                                 <TableCell><Spinner/></TableCell>
-                                <TableCell><span class="text-sm text-muted-foreground">"Loading..."</span></TableCell>
+                                <TableCell>
+                                    <span
+                                        class="inline-block h-4 w-28 rounded bg-muted/60 animate-pulse"
+                                        aria-hidden="true"
+                                    ></span>
+                                    <span class="sr-only">"Loading endpoint status"</span>
+                                </TableCell>
                             </TableRow>
                         }.into_any(),
                         LoadingState::Loaded((status_code, data)) => {
@@ -590,7 +608,13 @@ fn HealthEndpointsCard(
                             <TableRow>
                                 <TableCell><span class="font-mono text-sm">"/healthz/all"</span></TableCell>
                                 <TableCell><Spinner/></TableCell>
-                                <TableCell><span class="text-sm text-muted-foreground">"Loading..."</span></TableCell>
+                                <TableCell>
+                                    <span
+                                        class="inline-block h-4 w-28 rounded bg-muted/60 animate-pulse"
+                                        aria-hidden="true"
+                                    ></span>
+                                    <span class="sr-only">"Loading endpoint status"</span>
+                                </TableCell>
                             </TableRow>
                         }.into_any(),
                         LoadingState::Loaded(data) => {

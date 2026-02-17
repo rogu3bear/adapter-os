@@ -6,7 +6,7 @@
 
 use crate::api::ApiClient;
 use crate::components::{Button, ButtonLink, ButtonSize, ButtonVariant, PageScaffold, Spinner};
-use crate::hooks::{use_api_resource, use_polling, LoadingState};
+use crate::hooks::{use_api_resource, use_polling, use_system_status, LoadingState};
 use crate::signals::{use_refetch_signal, RefetchTopic};
 use adapteros_api_types::{
     InferenceBlocker, InferenceReadyState, SetupDiscoveredModel, SetupSeedModelsRequest,
@@ -465,15 +465,19 @@ fn ModelsStep(
                                     .unwrap_or_default()
                                     .into_iter()
                                     .map(|model| {
-                                        let path = model.model_path;
+                                        let path = model.path;
                                         let is_selected = selected_paths.iter().any(|p| p == &path);
                                         let action_label = if is_selected { "Deselect" } else { "Select" };
+                                        let already_registered = model.already_registered;
                                         view! {
                                             <div class="wizard-model-item">
                                                 <div>
                                                     <p class="text-sm font-semibold">{model.name}</p>
                                                     <p class="text-xs text-muted-foreground">{path.clone()}</p>
                                                     <p class="text-xs text-muted-foreground">{format!("{} / {}", model.format, model.backend)}</p>
+                                                    {already_registered.then(|| view! {
+                                                        <p class="text-xs text-muted-foreground">"Already registered"</p>
+                                                    })}
                                                 </div>
                                                 <Button
                                                     variant=ButtonVariant::Outline
@@ -554,8 +558,7 @@ fn ReadyStep() -> impl IntoView {
 /// Welcome page for first-run setup guidance.
 #[component]
 pub fn Welcome() -> impl IntoView {
-    let (status, refetch) =
-        use_api_resource(|client: Arc<ApiClient>| async move { client.system_status().await });
+    let (status, refetch) = use_system_status();
 
     // SSE-driven refresh from Shell's health lifecycle stream.
     let health_refetch_counter = use_refetch_signal(RefetchTopic::Health);
@@ -638,7 +641,8 @@ pub fn Welcome() -> impl IntoView {
                         let selected = response
                             .models
                             .iter()
-                            .map(|m| m.model_path.clone())
+                            .filter(|m| !m.already_registered)
+                            .map(|m| m.path.clone())
                             .collect::<Vec<_>>();
                         set_discovering_models.set(false);
                         set_discovered_models.set(response.models);
@@ -680,7 +684,7 @@ pub fn Welcome() -> impl IntoView {
                         set_seeding_models.set(false);
                         set_seed_message.set(Some(format!(
                             "Seeded {}, skipped {}, failed {}.",
-                            response.seeded, response.skipped, response.failed
+                            response.seeded_count, response.skipped_count, response.failed_count
                         )));
                         refetch.run(());
                     }

@@ -3,7 +3,7 @@
 use super::helpers::format_datetime;
 use crate::api::RepositoryInfo;
 use crate::components::{
-    Badge, BadgeVariant, Card, EmptyState, EmptyStateVariant, Table, TableBody, TableCell,
+    Badge, Card, EmptyState, EmptyStateVariant, StatusVariant, Table, TableBody, TableCell,
     TableHead, TableHeader, TableRow,
 };
 use crate::constants::urls::docs_link;
@@ -103,14 +103,15 @@ pub fn RepositoryList(
 /// Repository status badge
 #[component]
 pub fn RepoStatusBadge(status: String) -> impl IntoView {
-    let (variant, label) = match status.as_str() {
-        "active" => (BadgeVariant::Success, "Active"),
-        "scanning" => (BadgeVariant::Default, "Scanning"),
-        "pending" => (BadgeVariant::Secondary, "Pending"),
-        "error" => (BadgeVariant::Destructive, "Error"),
-        "syncing" => (BadgeVariant::Default, "Syncing"),
-        _ => (BadgeVariant::Secondary, "Unknown"),
+    let (status_key, label) = match status.as_str() {
+        "active" => ("active", "Active"),
+        "scanning" => ("scanning", "Scanning"),
+        "pending" => ("pending", "Pending"),
+        "error" => ("error", "Error"),
+        "syncing" => ("syncing", "Syncing"),
+        _ => ("unknown", "Unknown"),
     };
+    let variant = StatusVariant::from_status(status_key).to_badge_variant();
 
     view! {
         <Badge variant=variant>

@@ -3,8 +3,8 @@
 //! Components for displaying training job lists and status.
 
 use crate::components::{
-    Badge, BadgeVariant, Button, ButtonVariant, Card, Checkbox, Select, Table, TableBody,
-    TableCell, TableHead, TableHeader, TableRow,
+    Badge, BadgeVariant, Button, ButtonVariant, Card, Checkbox, Select, StatusVariant, Table,
+    TableBody, TableCell, TableHead, TableHeader, TableRow,
 };
 use adapteros_api_types::TrainingJobResponse;
 use leptos::prelude::*;
@@ -201,14 +201,15 @@ pub fn TrainingJobList(
 /// Job status badge component
 #[component]
 pub fn JobStatusBadge(status: String) -> impl IntoView {
-    let (variant, label) = match status.as_str() {
-        "pending" => (BadgeVariant::Secondary, "Pending"),
-        "running" => (BadgeVariant::Default, "Running"),
-        "completed" => (BadgeVariant::Success, "Completed"),
-        "failed" => (BadgeVariant::Destructive, "Failed"),
-        "cancelled" => (BadgeVariant::Warning, "Cancelled"),
-        _ => (BadgeVariant::Secondary, "Unknown"),
+    let (status_key, label) = match status.as_str() {
+        "pending" => ("pending", "Pending"),
+        "running" => ("running", "Running"),
+        "completed" => ("completed", "Completed"),
+        "failed" => ("failed", "Failed"),
+        "cancelled" => ("cancelled", "Cancelled"),
+        _ => ("unknown", "Unknown"),
     };
+    let variant = StatusVariant::from_status(status_key).to_badge_variant();
 
     view! {
         <Badge variant=variant>

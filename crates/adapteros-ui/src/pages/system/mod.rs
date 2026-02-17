@@ -18,7 +18,9 @@ use crate::components::{
     Button, ButtonVariant, ErrorDisplay, PageBreadcrumbItem, PageScaffold, PageScaffoldActions,
     Spinner,
 };
-use crate::hooks::{use_api_resource, use_polling, use_sse_notifications, LoadingState};
+use crate::hooks::{
+    use_api_resource, use_polling, use_sse_notifications, use_system_status, LoadingState,
+};
 use crate::signals::{use_refetch_signal, RefetchTopic};
 use adapteros_api_types::{
     workers::WorkerStatusUpdate, HealthResponse, SystemStateResponse, WorkerResponse,
@@ -47,8 +49,7 @@ pub enum WorkerStreamEvent {
 #[component]
 pub fn System() -> impl IntoView {
     // Fetch system status
-    let (status, refetch_status) =
-        use_api_resource(|client: Arc<ApiClient>| async move { client.system_status().await });
+    let (status, refetch_status) = use_system_status();
 
     // Fetch workers list (initial load, then updated via SSE)
     let (workers, refetch_workers) =

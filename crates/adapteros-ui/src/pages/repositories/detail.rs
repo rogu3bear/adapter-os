@@ -8,6 +8,7 @@ use crate::api::{
 };
 use crate::components::{
     Button, ButtonSize, ButtonVariant, Card, DetailRow, ErrorDisplay, NotFoundSurface, Spinner,
+    VersionTimeline,
 };
 use crate::hooks::{use_api_resource, LoadingState};
 use crate::signals::{use_auth, use_notifications};
@@ -193,6 +194,7 @@ fn RepositoryContent(
             .try_get()
             .and_then(|s| s.user().map(|u| u.tenant_id.clone()))
     };
+    let repo_id_for_timeline = repo_data.repo_id.clone();
 
     view! {
         // Status and actions
@@ -329,5 +331,7 @@ fn RepositoryContent(
                 />
             </div>
         </Card>
+
+        <VersionTimeline repo_id=repo_id_for_timeline />
     }
 }

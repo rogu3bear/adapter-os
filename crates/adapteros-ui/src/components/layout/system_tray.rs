@@ -5,7 +5,7 @@
 use crate::api::ApiClient;
 use crate::components::status::{StatusColor, StatusIndicator};
 use crate::components::status_center::use_status_center;
-use crate::hooks::{use_api_resource, use_polling, LoadingState};
+use crate::hooks::{use_api_resource, use_polling, use_system_status, LoadingState};
 use leptos::prelude::*;
 use std::sync::Arc;
 
@@ -24,8 +24,7 @@ pub fn SystemTray() -> impl IntoView {
     let status_center = use_status_center();
     let (health, _refetch_health) =
         use_api_resource(|client: Arc<ApiClient>| async move { client.health().await });
-    let (system_status, _refetch_status) =
-        use_api_resource(|client: Arc<ApiClient>| async move { client.system_status().await });
+    let (system_status, _refetch_status) = use_system_status();
 
     // Current time (updates every second)
     let (time, set_time) = signal(get_current_time());

@@ -8,8 +8,9 @@ use crate::api::{
     SessionInfo, SessionsResponse,
 };
 use crate::components::{
-    Badge, BadgeVariant, Button, ButtonVariant, Card, Dialog, ErrorDisplay, SimpleConfirmDialog,
-    Spinner, Table, TableBody, TableCell, TableHead, TableHeader, TableRow,
+    AlertBanner, Badge, BadgeVariant, BannerVariant, Button, ButtonVariant, Card, Dialog,
+    ErrorDisplay, SimpleConfirmDialog, Spinner, Table, TableBody, TableCell, TableHead,
+    TableHeader, TableRow,
 };
 use crate::hooks::{use_api_resource, LoadingState, Refetch};
 use leptos::prelude::*;
@@ -320,11 +321,11 @@ fn MfaCard() -> impl IntoView {
                         let is_unavailable = matches!(&e, crate::api::ApiError::Server(_));
                         if is_unavailable {
                             view! {
-                                <div class="rounded-lg border border-border bg-muted/30 p-4">
-                                    <p class="text-sm text-muted-foreground">
-                                        "MFA is not available in this deployment."
-                                    </p>
-                                </div>
+                                <AlertBanner
+                                    title="MFA unavailable"
+                                    message="MFA is not available in this deployment."
+                                    variant=BannerVariant::Info
+                                />
                             }.into_any()
                         } else {
                             let refetch = refetch;

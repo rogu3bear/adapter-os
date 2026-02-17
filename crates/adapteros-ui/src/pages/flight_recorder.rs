@@ -14,8 +14,8 @@ use crate::components::{
     ActionCard, ActionCardVariant, AsyncBoundary, Badge, BadgeVariant, Button, ButtonVariant, Card,
     Checkbox, CopyableId, Dialog, DiffResults, EmptyState, EmptyStateVariant, Link,
     PageBreadcrumbItem, PageScaffold, PageScaffoldActions, Select, SkeletonDetailSection, Spinner,
-    SplitPanel, SplitRatio, Table, TableBody, TableCell, TableHead, TableHeader, TableRow,
-    TokenDecisionsPaged, TraceViewerWithData, VirtualTableBody,
+    SplitPanel, SplitRatio, StatusVariant, Table, TableBody, TableCell, TableHead, TableHeader,
+    TableRow, TokenDecisionsPaged, TraceViewerWithData, VirtualTableBody,
 };
 use crate::components::{ButtonSize, Input};
 use crate::constants::pagination::TOKEN_DECISIONS_PAGE_SIZE;
@@ -202,8 +202,7 @@ fn RunsTable(
         },
         RUNS_PAGE_SIZE,
     );
-    let visible_runs =
-        Signal::derive(move || controls.visible_items.try_get().unwrap_or_default());
+    let visible_runs = Signal::derive(move || controls.visible_items.try_get().unwrap_or_default());
 
     view! {
         <Card>
@@ -354,13 +353,7 @@ fn RunsTable(
 /// Status badge component
 #[component]
 fn StatusBadge(status: String) -> impl IntoView {
-    let variant = match status.as_str() {
-        "completed" => BadgeVariant::Success,
-        "running" => BadgeVariant::Default,
-        "failed" => BadgeVariant::Destructive,
-        "cancelled" => BadgeVariant::Warning,
-        _ => BadgeVariant::Outline,
-    };
+    let variant = StatusVariant::from_status(&status).to_badge_variant();
     view! {
         <Badge variant=variant>{status}</Badge>
     }
@@ -1118,7 +1111,10 @@ fn OverviewTab(
                                     }
                                 }
                                 _ => view! {
-                                    <p class="font-medium text-sm text-muted-foreground/70 italic">"Loading..."</p>
+                                    <span class="inline-flex items-center gap-2 text-muted-foreground/80">
+                                        <Spinner/>
+                                        <span class="text-xs">"Loading details"</span>
+                                    </span>
                                 }.into_any()
                             }
                         }}
@@ -1135,7 +1131,10 @@ fn OverviewTab(
                                     }
                                 }
                                 _ => view! {
-                                    <p class="font-medium text-sm text-muted-foreground/70 italic">"Loading..."</p>
+                                    <span class="inline-flex items-center gap-2 text-muted-foreground/80">
+                                        <Spinner/>
+                                        <span class="text-xs">"Loading details"</span>
+                                    </span>
                                 }.into_any()
                             }
                         }}
@@ -1152,7 +1151,10 @@ fn OverviewTab(
                                     }
                                 }
                                 _ => view! {
-                                    <p class="font-medium text-sm text-muted-foreground/70 italic">"Loading..."</p>
+                                    <span class="inline-flex items-center gap-2 text-muted-foreground/80">
+                                        <Spinner/>
+                                        <span class="text-xs">"Loading details"</span>
+                                    </span>
                                 }.into_any()
                             }
                         }}
@@ -1175,7 +1177,10 @@ fn OverviewTab(
                                     }
                                 }
                                 _ => view! {
-                                    <p class="font-medium text-sm text-muted-foreground/70 italic">"Loading..."</p>
+                                    <span class="inline-flex items-center gap-2 text-muted-foreground/80">
+                                        <Spinner/>
+                                        <span class="text-xs">"Loading details"</span>
+                                    </span>
                                 }.into_any()
                             }
                         }}
@@ -1205,7 +1210,10 @@ fn OverviewTab(
                                     }
                                 }
                                 _ => view! {
-                                    <p class="font-medium text-sm text-muted-foreground/70 italic">"Loading..."</p>
+                                    <span class="inline-flex items-center gap-2 text-muted-foreground/80">
+                                        <Spinner/>
+                                        <span class="text-xs">"Loading details"</span>
+                                    </span>
                                 }.into_any()
                             }
                         }}
@@ -2677,8 +2685,11 @@ fn ExecuteReplayDialog(session_id: String, open: RwSignal<bool>) -> impl IntoVie
                     />
 
                     <div>
-                        <label class="text-sm text-muted-foreground block mb-1">"Prompt override (optional)"</label>
+                        <label class="text-sm text-muted-foreground block mb-1" for="replay-prompt-override">
+                            "Prompt override (optional)"
+                        </label>
                         <textarea
+                            id="replay-prompt-override"
                             class="flex w-full rounded-md border border-input bg-background px-3 py-2 text-sm min-h-[80px] resize-y"
                             placeholder="Leave empty to use original prompt..."
                             prop:value=move || prompt_override.try_get().unwrap_or_default()
@@ -2687,8 +2698,11 @@ fn ExecuteReplayDialog(session_id: String, open: RwSignal<bool>) -> impl IntoVie
                     </div>
 
                     <div>
-                        <label class="text-sm text-muted-foreground block mb-1">"Max tokens"</label>
+                        <label class="text-sm text-muted-foreground block mb-1" for="replay-max-tokens">
+                            "Max tokens"
+                        </label>
                         <input
+                            id="replay-max-tokens"
                             type="number"
                             class="flex h-10 w-32 rounded-md border border-input bg-background px-3 py-2 text-sm"
                             prop:value=move || max_tokens.try_get().unwrap_or(512).to_string()

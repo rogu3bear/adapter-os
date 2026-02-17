@@ -1092,9 +1092,11 @@ impl Default for StreamingInferenceHandler {
 /// Returns `(sse_state, reconnect_fn)`.
 pub fn use_adapter_lifecycle_sse() -> (RwSignal<SseState>, impl Fn()) {
     use crate::api::types::{AdapterLifecycleEvent, AdapterVersionEvent};
+    use crate::signals::notifications::try_use_notifications;
     use crate::signals::refetch::use_refetch;
 
     let refetch = use_refetch();
+    let notifications = try_use_notifications();
 
     use_sse("/v1/stream/adapters", move |event: SseEvent| {
         let data = event.data.trim();
@@ -1111,6 +1113,30 @@ pub fn use_adapter_lifecycle_sse() -> (RwSignal<SseState>, impl Fn()) {
         // Try adapter version event
         if let Ok(parsed) = serde_json::from_str::<AdapterVersionEvent>(data) {
             refetch.dispatch_adapter_version_event(&parsed);
+            if let (
+                AdapterVersionEvent::AutoRollbackApplied {
+                    repo_id,
+                    branch,
+                    target_version_id,
+                    timeline_event_id,
+                    ..
+                },
+                Some(notifications),
+            ) = (&parsed, notifications.as_ref())
+            {
+                notifications.success_with_action(
+                    "Auto rollback applied",
+                    &format!(
+                        "Branch '{}' rolled back to version {}.",
+                        branch, target_version_id
+                    ),
+                    "View timeline",
+                    &format!(
+                        "/repositories/{}?timeline_event_id={}",
+                        repo_id, timeline_event_id
+                    ),
+                );
+            }
         }
     })
 }

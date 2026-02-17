@@ -15,12 +15,21 @@ use crate::constants::pagination::{TOKEN_DECISIONS_DOM_CAP, TOKEN_DECISIONS_PAGE
 use crate::hooks::LoadingState;
 use crate::signals::{perf_logging_enabled, try_use_notifications};
 use leptos::task::spawn_local;
-use std::{cell::RefCell, rc::Rc};
+use std::sync::{
+    atomic::{AtomicU32, Ordering},
+    Arc, Mutex,
+};
 use wasm_bindgen::JsCast;
 use web_time::Instant;
 
 const TRACE_PANEL_FOCUSABLE_SELECTOR: &str =
     "button:not([disabled]), [href], input:not([disabled]), select:not([disabled]), textarea:not([disabled]), [tabindex]:not([tabindex='-1']):not([disabled])";
+static TRACE_PANEL_TRIGGER_COUNTER: AtomicU32 = AtomicU32::new(0);
+
+fn next_trace_panel_trigger_id() -> String {
+    let id = TRACE_PANEL_TRIGGER_COUNTER.fetch_add(1, Ordering::Relaxed);
+    format!("trace-panel-trigger-{}", id)
+}
 
 /// State for the trace viewer
 #[derive(Clone, Debug)]
@@ -827,14 +836,26 @@ pub fn TracePanel(
     let full_page_url = format!("/runs/{}?tab=trace", trace_id);
     let panel_ref = NodeRef::<leptos::html::Div>::new();
     let close_button_ref = NodeRef::<leptos::html::Button>::new();
-    let focus_origin: Rc<RefCell<Option<web_sys::Element>>> = Rc::new(RefCell::new(None));
+    let focus_origin: Arc<Mutex<Option<(String, bool)>>> = Arc::new(Mutex::new(None));
     let focus_origin_for_cleanup = focus_origin.clone();
 
     let panel_ref_for_focus = panel_ref.clone();
     let close_button_ref_for_focus = close_button_ref.clone();
     Effect::new(move |_| {
         if let Some(document) = web_sys::window().and_then(|window| window.document()) {
-            *focus_origin.borrow_mut() = document.active_element();
+            let trigger_focus = document.active_element().map(|active| {
+                let id = active.id();
+                if !id.is_empty() {
+                    (id, false)
+                } else {
+                    let temp_id = next_trace_panel_trigger_id();
+                    active.set_id(&temp_id);
+                    (temp_id, true)
+                }
+            });
+            if let Ok(mut guard) = focus_origin.lock() {
+                *guard = trigger_focus;
+            }
         }
 
         let panel_ref = panel_ref_for_focus.clone();
@@ -850,9 +871,20 @@ pub fn TracePanel(
     });
 
     on_cleanup(move || {
-        if let Some(previous_focus) = focus_origin_for_cleanup.borrow_mut().take() {
-            if let Some(html_element) = previous_focus.dyn_ref::<web_sys::HtmlElement>() {
-                let _ = html_element.focus();
+        let stored_focus = focus_origin_for_cleanup
+            .lock()
+            .ok()
+            .and_then(|mut guard| guard.take());
+        if let Some((trigger_id, is_temp)) = stored_focus {
+            if let Some(document) = web_sys::window().and_then(|window| window.document()) {
+                if let Some(element) = document.get_element_by_id(&trigger_id) {
+                    if let Some(html_element) = element.dyn_ref::<web_sys::HtmlElement>() {
+                        let _ = html_element.focus();
+                    }
+                    if is_temp {
+                        let _ = element.remove_attribute("id");
+                    }
+                }
             }
         }
     });

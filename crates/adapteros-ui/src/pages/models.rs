@@ -11,7 +11,8 @@ use crate::components::{
     AsyncBoundary, Badge, BadgeVariant, Button, ButtonVariant, Card, ConfirmationDialog,
     ConfirmationSeverity, CopyableId, Dialog, ErrorDisplay, FormField, Input, ListEmptyCard,
     LoadingDisplay, PageBreadcrumbItem, PageScaffold, PageScaffoldActions, Select, SkeletonTable,
-    Spinner, SplitPanel, Table, TableBody, TableCell, TableHead, TableHeader, TableRow,
+    Spinner, SplitPanel, StatusVariant, Table, TableBody, TableCell, TableHead, TableHeader,
+    TableRow,
 };
 use crate::hooks::{
     use_api, use_api_resource, use_cached_api_resource, use_polling, CacheTtl, LoadingState,
@@ -1474,12 +1475,13 @@ fn SeedModelDialog(open: RwSignal<bool>, on_imported: Callback<()>) -> impl Into
 // ============================================================================
 
 fn model_status_label(status: ModelLoadStatus) -> (BadgeVariant, &'static str) {
-    match status {
-        ModelLoadStatus::Ready => (BadgeVariant::Success, "Ready"),
-        ModelLoadStatus::Loading => (BadgeVariant::Default, "Loading"),
-        ModelLoadStatus::Unloading => (BadgeVariant::Default, "Unloading"),
-        ModelLoadStatus::Checking => (BadgeVariant::Default, "Checking"),
-        ModelLoadStatus::Error => (BadgeVariant::Destructive, "Error"),
-        ModelLoadStatus::NoModel => (BadgeVariant::Secondary, "Unloaded"),
-    }
+    let label = match status {
+        ModelLoadStatus::Ready => "Ready",
+        ModelLoadStatus::Loading => "Loading",
+        ModelLoadStatus::Unloading => "Unloading",
+        ModelLoadStatus::Checking => "Checking",
+        ModelLoadStatus::Error => "Error",
+        ModelLoadStatus::NoModel => "Unloaded",
+    };
+    (StatusVariant::from_status(label).to_badge_variant(), label)
 }

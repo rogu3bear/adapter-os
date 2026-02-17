@@ -197,7 +197,7 @@ pub fn App() -> impl IntoView {
                             <Route path=path!("/models/:id") view=pages::ModelDetail/>
                             <Route path=path!("/policies") view=pages::Policies/>
                             <Route path=path!("/training") view=pages::Training/>
-                            <Route path=path!("/training/:id") view=TrainingIdRedirect/>
+                            <Route path=path!("/training/:id") view=pages::training::TrainingDetailRoute/>
                             <Route path=path!("/stacks") view=pages::Stacks/>
                             <Route path=path!("/stacks/:id") view=pages::StackDetail/>
                             <Route path=path!("/collections") view=pages::Collections/>
@@ -279,18 +279,6 @@ fn SearchProvider(children: Children) -> impl IntoView {
     let client = crate::api::use_api_client();
     provide_search_context(client);
     children()
-}
-
-/// Redirect component for /training/:id -> /training?job_id=:id
-#[component]
-fn TrainingIdRedirect() -> impl IntoView {
-    use leptos_router::hooks::use_params_map;
-    let params = use_params_map();
-    let path = move || {
-        let id = params.get().get("id").unwrap_or_default();
-        format!("/training?job_id={}", id)
-    };
-    view! { <Redirect path=path()/> }
 }
 
 /// Redirect component for /flight-recorder/:id -> /runs/:id (preserves query params)
