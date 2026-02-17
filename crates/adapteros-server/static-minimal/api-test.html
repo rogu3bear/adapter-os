@@ -120,7 +120,7 @@
 
             <div class="test-group">
                 <h3>System</h3>
-                <button onclick="testHealth()">Test /health</button>
+                <button onclick="testHealth()">Test /healthz</button>
                 <button onclick="testSystemInfo()">Test /v1/system/info</button>
                 <button onclick="testSystemMetrics()">Test /v1/system/metrics</button>
             </div>
@@ -188,12 +188,12 @@
 
         async function testHealth() {
             try {
-                log('Testing /health...', 'pending');
-                const res = await fetch('/health');
+                log('Testing /healthz...', 'pending');
+                const res = await fetch('/healthz');
                 const data = await res.json();
-                log(`✅ /health (${res.status})\n${JSON.stringify(data, null, 2)}`, 'success');
+                log(`✅ /healthz (${res.status})\n${JSON.stringify(data, null, 2)}`, 'success');
             } catch (err) {
-                log(`❌ /health\n${err.message}`, 'error');
+                log(`❌ /healthz\n${err.message}`, 'error');
             }
         }
 

@@ -57,4 +57,27 @@ if [[ "${GITHUB_EVENT_NAME:-}" == "pull_request" ]] && [[ -n "${GITHUB_BASE_REF:
   fi
 fi
 
+# Static scan: no unseeded randomness in production inference paths.
+# Allowed in: crypto, CLI, tests, benchmarks, stress tests.
+UNSEEDED_HITS=$(rg -l "thread_rng|OsRng|from_entropy|rand::random" \
+  --type rust \
+  --glob '!**/tests/**' \
+  --glob '!**/test/**' \
+  --glob '!**/benches/**' \
+  --glob '!**/*_test.rs' \
+  --glob '!**/stress_test*' \
+  "$ROOT_DIR/crates/adapteros-lora-router/src" \
+  "$ROOT_DIR/crates/adapteros-lora-worker/src" \
+  "$ROOT_DIR/crates/adapteros-lora-kernel-mtl/src" \
+  "$ROOT_DIR/crates/adapteros-lora-kernel-coreml/src" \
+  "$ROOT_DIR/crates/adapteros-deterministic-exec/src" \
+  2>/dev/null || true)
+
+if [[ -n "$UNSEEDED_HITS" ]]; then
+  echo "WARN: Unseeded randomness found in inference-path crates:"
+  echo "$UNSEEDED_HITS"
+  echo "Review these files — inference code must use HKDF-derived seeds."
+  echo "If these are intentional (e.g., NonDeterministic mode gated by cfg), add them to the allow-list."
+fi
+
 echo "=== Determinism Contract Check: PASSED ==="

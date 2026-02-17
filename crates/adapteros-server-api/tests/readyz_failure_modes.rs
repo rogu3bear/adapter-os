@@ -32,6 +32,7 @@ async fn advance_boot_to_ready(boot_state: &BootStateManager) {
     boot_state.start_backend().await;
     boot_state.load_base_models().await;
     boot_state.load_adapters().await;
+    boot_state.worker_discovery().await;
     boot_state.ready().await;
 }
 

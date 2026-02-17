@@ -267,6 +267,40 @@ jobs:
           path: var/playwright/runs/ci-concurrency-b/
           if-no-files-found: ignore
 
+  playwright-ui-detail-gate:
+    name: "Tier 2: Playwright UI Detail Gate"
+    needs: tier-1-gate
+    runs-on: ubuntu-latest
+    timeout-minutes: 35
+    env:
+      PLAYWRIGHT_BROWSERS_PATH: ${{ github.workspace }}/var/playwright/browsers
+      PW_TEST_TMPDIR: ${{ github.workspace }}/var/playwright/tmp
+    steps:
+      - uses: actions/checkout@v4
+      - uses: dtolnay/rust-toolchain@stable
+      - uses: actions/setup-node@v4
+        with:
+          node-version: '20'
+      - name: Install Playwright dependencies
+        run: |
+          cd tests/playwright
+          npm ci
+      - name: Install Playwright browser
+        run: |
+          cd tests/playwright
+          npx playwright install --with-deps chromium
+      - name: Run blocking UI detail flows
+        run: |
+          cd tests/playwright
+          npm run test:ui -- --project=chromium ui/runs.spec.ts ui/repositories.spec.ts
+      - name: Upload detail gate artifacts
+        if: failure()
+        uses: actions/upload-artifact@v4
+        with:
+          name: playwright-ui-detail-gate
+          path: var/playwright/runs/
+          if-no-files-found: ignore
+
   extended-tenant-isolation-tests:
     name: "Tier 2: Extended Tenant Isolation Tests"
     needs: tier-1-gate
@@ -508,7 +542,8 @@ jobs:
   # Determinism Replay Harness (runs on all PRs and main pushes)
   # ==========================================================================
   replay-harness:
-    name: Determinism Replay Harness
+    name: "Tier 2: Determinism Replay Harness"
+    needs: tier-1-gate
     runs-on: macos-14
     timeout-minutes: 20
     # Run on PRs and main pushes to catch replay regressions before merge
@@ -539,7 +574,8 @@ jobs:
   # Determinism Gate (minimal regression harness)
   # ==========================================================================
   determinism-gate:
-    name: Determinism Gate
+    name: "Tier 2: Determinism Gate"
+    needs: tier-1-gate
     runs-on: ubuntu-latest
     timeout-minutes: 10
     env:
@@ -561,7 +597,8 @@ jobs:
   # Determinism Suite
   # ==========================================================================
   determinism:
-    name: Determinism Suite
+    name: "Tier 2: Determinism Suite"
+    needs: tier-1-gate
     runs-on: ubuntu-latest
     timeout-minutes: 15
     env:
@@ -574,7 +611,7 @@ jobs:
       - name: Determinism smoke fixtures
         run: cargo test --test determinism_smoke -- --nocapture
       - name: Run determinism check
-        run: make determinism-check
+        run: cargo test --test determinism_core_suite -- --test-threads=1 --nocapture
       - name: Run determinism hardening tests
         run: cargo test --test determinism_hardening_tests -- --nocapture
       - name: Scan build for -ffast-math flags
@@ -1080,6 +1117,19 @@ jobs:
           fi
 
           echo "✓ WASM closure is clean (no server-only crates)"
+      - name: Generate UI component similarity report (JSON)
+        run: |
+          mkdir -p var/reports/ui-similarity
+          python3 scripts/ui_component_similarity.py --threshold 0.80 --exclude-file-suffix components/icons.rs --json > var/reports/ui-similarity/report.json
+      - name: Check UI component similarity
+        run: bash scripts/ci/check_ui_component_similarity.sh
+      - name: Upload UI component similarity report
+        if: always()
+        uses: actions/upload-artifact@v4
+        with:
+          name: ui-component-similarity-report
+          path: var/reports/ui-similarity/report.json
+          if-no-files-found: warn
 
   leptos-api-types-contract:
     name: Leptos API Types Contract
