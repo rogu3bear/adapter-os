@@ -40,6 +40,7 @@ use crate::training::job::{
     DataLineageMode, DatasetVersionSelection, DatasetVersionTrustSnapshot, TrainingBackendKind,
     TrainingBackendPolicy, TrainingConfig, TrainingJob, TrainingJobStatus, TrainingTemplate,
 };
+use crate::training::scheduler::TrainingScheduler;
 use crate::training::versioning::{
     canonical_trust_state, compute_combined_data_spec_hash, TrainingVersioningContext,
 };
@@ -66,6 +67,8 @@ pub struct TrainingService {
     /// Cancel tokens for active training jobs (job_id -> token)
     /// Set token to true to request cancellation; trainer checks at epoch boundaries
     cancel_tokens: Arc<RwLock<HashMap<String, Arc<AtomicBool>>>>,
+    /// Scheduler that pauses training when inference is active
+    scheduler: Arc<TrainingScheduler>,
 }
 
 impl TrainingService {
@@ -165,6 +168,7 @@ impl TrainingService {
             storage_root: None,
             artifacts_root: None,
             cancel_tokens: Arc::new(RwLock::new(HashMap::new())),
+            scheduler: Arc::new(TrainingScheduler::new()),
         }
     }
 
@@ -275,6 +279,15 @@ impl TrainingService {
     /// Set artifacts root
     pub fn set_artifacts_root(&mut self, path: PathBuf) {
         self.artifacts_root = Some(path);
+    }
+
+    /// Get a reference to the training scheduler.
+    ///
+    /// The scheduler coordinates pausing/resuming training when inference is active.
+    /// Call `scheduler().notify_inference_active()` when inference starts and
+    /// `scheduler().notify_inference_idle()` when it completes.
+    pub fn scheduler(&self) -> &Arc<TrainingScheduler> {
+        &self.scheduler
     }
 
     /// List all training jobs
@@ -796,9 +809,13 @@ impl TrainingService {
             tokens.insert(job_id.clone(), cancel_token.clone());
         }
 
+        // Register with scheduler to get pause token (starts paused if inference is active)
+        let pause_token = self.scheduler.register_job(&job_id).await;
+
         // Spawn deterministic training task
         let jobs_ref = self.jobs.clone();
         let cancel_tokens_ref = self.cancel_tokens.clone();
+        let scheduler_ref = self.scheduler.clone();
         let cfg = job.config.clone();
         let job_id_spawn = job.id.clone();
         let adapter_name = job.adapter_name.clone();
@@ -812,6 +829,7 @@ impl TrainingService {
         let base_model_id_spawn = job.base_model_id.clone();
         let scope_spawn = scope.clone();
         let cancel_token_spawn = cancel_token.clone();
+        let pause_token_spawn = pause_token;
         let job_timeout = training_job_timeout();
         // Training runs on the main tokio runtime rather than the deterministic
         // executor. The executor's single-threaded poll loop starves tokio I/O,
@@ -836,6 +854,8 @@ impl TrainingService {
                 base_model_id_spawn,
                 scope_spawn,
                 cancel_token_spawn.clone(),
+                pause_token_spawn,
+                scheduler_ref.clone(),
             );
 
             let result = match tokio::time::timeout(job_timeout, training_future).await {
@@ -863,10 +883,12 @@ impl TrainingService {
                 }
             };
 
+            // Clean up: remove cancel token and deregister from scheduler
             {
                 let mut tokens = cancel_tokens_ref.write().await;
                 tokens.remove(&job_id_spawn);
             }
+            scheduler_ref.deregister_job(&job_id_spawn).await;
 
             if let Err(err) = result {
                 tracing::error!("Training job {} failed: {}", job_id_spawn, err);

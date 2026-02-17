@@ -84,7 +84,8 @@ pub use synthesis::{
     SynthesisOutput, SynthesisRequest, SynthesisResult,
 };
 pub use training::{
-    TrainingConfig, TrainingJob, TrainingJobStatus, TrainingService, TrainingTemplate,
+    TrainingConfig, TrainingJob, TrainingJobStatus, TrainingScheduler, TrainingService,
+    TrainingTemplate,
 };
 pub use training_dataset_integration::{
     CreateDatasetFromFilePathsRequest, DatasetCreationResult, TrainingDatasetManager,

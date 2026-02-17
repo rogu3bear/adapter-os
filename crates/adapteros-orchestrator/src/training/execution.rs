@@ -41,8 +41,11 @@ use crate::training_dataset_integration::TrainingFramingPolicy;
 /// updates the shared job map with artifact metadata.
 ///
 /// The cancel_token is checked by the trainer at epoch boundaries - set it to true to
-/// request graceful cancellation. Metrics are persisted to the database after each epoch
-/// when db and job_id are provided to the trainer.
+/// request graceful cancellation. The pause_token is checked between epochs by the scheduler
+/// to temporarily pause training when inference is active.
+///
+/// Metrics are persisted to the database after each epoch when db and job_id are provided
+/// to the trainer.
 #[allow(clippy::too_many_arguments)]
 pub(crate) async fn run_training_job(
     jobs_ref: Arc<RwLock<HashMap<String, TrainingJob>>>,
@@ -61,6 +64,8 @@ pub(crate) async fn run_training_job(
     base_model_id: Option<String>,
     base_model_tenant_or_workspace_id: Option<String>,
     cancel_token: Arc<AtomicBool>,
+    pause_token: Arc<AtomicBool>,
+    scheduler: Arc<crate::training::scheduler::TrainingScheduler>,
 ) -> Result<()> {
     // Ensure seed registry is scoped to this training job to prevent cross-job seed reuse errors.
     // This mirrors the pattern used in inference_core.rs for determinism consistency.
@@ -995,6 +1000,8 @@ pub(crate) async fn run_training_job(
                 // Run with per-epoch callback to update progress (with checkpoint resume support)
                 let job_id_clone = job_id.clone();
                 let jobs_ref_clone = jobs_ref.clone();
+                let pause_token_clone = pause_token.clone();
+                let scheduler_clone = scheduler.clone();
                 let require_gpu = worker_cfg.require_gpu;
                 let result = async {
                     let plan_bytes = load_plan_bytes_for_training(require_gpu, &job_id)?;
@@ -1012,6 +1019,22 @@ pub(crate) async fn run_training_job(
                             &train_examples,
                             &validation_examples,
                             move |metrics: WorkerEpochMetrics| {
+                            // Check pause token at epoch boundary — block until resumed.
+                            // This runs synchronously inside the training loop, so blocking
+                            // here pauses training without burning GPU/memory resources.
+                            if pause_token_clone.load(std::sync::atomic::Ordering::SeqCst) {
+                                let pt = pause_token_clone.clone();
+                                let sc = scheduler_clone.clone();
+                                let jid = job_id_clone.clone();
+                                // Use tokio's block_in_place to run async wait without
+                                // starving the runtime (we're already in a spawned task)
+                                tokio::task::block_in_place(|| {
+                                    tokio::runtime::Handle::current().block_on(async {
+                                        sc.wait_if_paused(&pt, &jid).await;
+                                    });
+                                });
+                            }
+
                             // Emit per-epoch timing telemetry
                             let duration_ms = metrics.duration_us / 1000;
                             tracing::event!(

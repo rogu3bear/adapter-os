@@ -98,6 +98,7 @@ mod metrics;
 mod packaging;
 mod pipeline;
 mod report;
+pub(crate) mod scheduler;
 mod service;
 mod versioning;
 
@@ -111,6 +112,7 @@ pub use job::{
     TrainingBackendKind, TrainingBackendPolicy, TrainingConfig, TrainingJob, TrainingJobStatus,
     TrainingTemplate,
 };
+pub use scheduler::TrainingScheduler;
 pub use service::{OrphanedJobRecoveryReport, TrainingService};
 pub use versioning::{compute_combined_data_spec_hash, TrainingVersioningContext};
 
