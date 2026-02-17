@@ -10,7 +10,9 @@ use crate::components::{
     PageScaffold, PageScaffoldActions, SkeletonCard, SkeletonStatsGrid, SparklineMetric, Spinner,
     StatusColor, StatusIconBox, StatusIndicator, StatusVariant, TimeSeriesData, WorkerStatusBadge,
 };
-use crate::hooks::{use_cached_api_resource, use_sse_notifications, CacheTtl, LoadingState};
+use crate::hooks::{
+    use_cached_api_resource, use_sse_notifications, use_system_status, CacheTtl, LoadingState,
+};
 use crate::pages::training::utils::format_backend_or;
 use crate::pages::workers::is_terminal_worker_status;
 use crate::signals::use_auth;
@@ -157,11 +159,7 @@ pub fn Dashboard() -> impl IntoView {
     boot_log("route", "Dashboard rendered");
 
     // Fetch system status (SWR-cached to avoid spinner flash on re-navigation)
-    let (status, refetch) = use_cached_api_resource(
-        "system_status",
-        CacheTtl::STATUS,
-        |client: Arc<ApiClient>| async move { client.system_status().await },
-    );
+    let (status, refetch) = use_system_status();
 
     // Log first successful status fetch
     let logged_first_status = StoredValue::new(false);

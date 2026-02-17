@@ -14,6 +14,7 @@ use crate::components::{
     TableRow,
 };
 use crate::hooks::{use_api_resource, use_polling, LoadingState};
+use crate::signals::{use_refetch_signal, RefetchTopic};
 use crate::utils::humanize;
 use adapteros_api_types::HealthResponse;
 use leptos::prelude::*;
@@ -68,6 +69,22 @@ pub fn Monitoring() -> impl IntoView {
                 .get_with_status::<SystemReadyResponse>("/system/ready")
                 .await
         });
+
+    // SSE-driven refresh from Shell's health lifecycle stream.
+    let health_refetch_counter = use_refetch_signal(RefetchTopic::Health);
+    Effect::new(move || {
+        let Some(counter) = health_refetch_counter.try_get() else {
+            return;
+        };
+        if counter > 0 {
+            refetch_health.run(());
+            refetch_overview.run(());
+            refetch_healthz.run(());
+            refetch_readyz.run(());
+            refetch_healthz_all.run(());
+            refetch_system_ready.run(());
+        }
+    });
 
     // Set up polling (every 10 seconds)
     let _ = use_polling(10_000, move || async move {

@@ -135,7 +135,7 @@ pub fn CreateStackDialog(open: RwSignal<bool>, refetch: Refetch) -> impl IntoVie
 
                 // Adapter selection
                 <div class="space-y-2">
-                    <label class="text-sm font-medium">"Select Adapters"</label>
+                    <p class="text-sm font-medium">"Select Adapters"</p>
                     <AsyncBoundaryWithEmpty
                         state=adapters
                         is_empty={|list: &Vec<AdapterResponse>| list.is_empty()}
@@ -343,7 +343,7 @@ pub fn EditStackDialog(
 
                 // Adapter selection
                 <div class="space-y-2">
-                    <label class="text-sm font-medium">"Select Adapters"</label>
+                    <p class="text-sm font-medium">"Select Adapters"</p>
                     <p class="text-xs text-muted-foreground mb-2">
                         "Select adapters to include in this stack"
                     </p>

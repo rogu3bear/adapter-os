@@ -476,8 +476,11 @@ pub fn GenerateDatasetWizard(
 
                     // File upload
                     <div class="space-y-2">
-                        <label class="text-sm font-medium">"Upload File"</label>
+                        <label for="generate-wizard-upload-file" class="text-sm font-medium">
+                            "Upload File"
+                        </label>
                         <input
+                            id="generate-wizard-upload-file"
                             type="file"
                             accept=".txt,.md,.markdown"
                             class="block w-full text-sm text-muted-foreground file:mr-4 file:py-2 file:px-4 file:rounded-md file:border-0 file:text-sm file:font-medium file:bg-primary file:text-primary-foreground hover:file:bg-primary/90 cursor-pointer disabled:opacity-50 disabled:cursor-not-allowed"

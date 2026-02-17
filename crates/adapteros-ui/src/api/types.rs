@@ -1510,25 +1510,63 @@ pub struct RoutingDebugRequest {
 /// Response from routing debug
 #[derive(Debug, Clone, serde::Serialize, serde::Deserialize)]
 pub struct RoutingDebugResponse {
-    pub detected_features: DetectedFeaturesResponse,
+    #[serde(alias = "detected_features")]
+    pub features: DetectedFeaturesResponse,
     pub adapter_scores: Vec<AdapterScoreResponse>,
     pub selected_adapters: Vec<String>,
     pub entropy: f64,
     pub k_value: i32,
     pub explanation: String,
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub weights_used: Option<RouterWeightsResponse>,
+    #[serde(default, skip_serializing_if = "Vec::is_empty")]
+    pub feature_scores: Vec<FeatureScoreBreakdownResponse>,
 }
 
-/// Detected features from routing debug
+/// Feature vector from routing debug
 #[derive(Debug, Clone, serde::Serialize, serde::Deserialize)]
 pub struct DetectedFeaturesResponse {
     #[serde(skip_serializing_if = "Option::is_none")]
     pub language: Option<String>,
-    #[serde(skip_serializing_if = "Option::is_none")]
-    pub frameworks: Option<Vec<String>>,
-    #[serde(skip_serializing_if = "Option::is_none")]
-    pub verb: Option<String>,
+    #[serde(default)]
+    pub frameworks: Vec<String>,
+    #[serde(default)]
+    pub symbol_hits: i32,
+    #[serde(default)]
+    pub path_tokens: Vec<String>,
+    #[serde(default)]
+    pub verb: String,
     #[serde(skip_serializing_if = "Option::is_none")]
     pub domain: Option<String>,
+}
+
+/// Router weights used by routing debug
+#[derive(Debug, Clone, serde::Serialize, serde::Deserialize)]
+pub struct RouterWeightsResponse {
+    pub tenant_id: String,
+    pub language_weight: f64,
+    pub framework_weight: f64,
+    pub symbol_hits_weight: f64,
+    pub path_tokens_weight: f64,
+    pub prompt_verb_weight: f64,
+    pub orthogonal_weight: f64,
+    pub diversity_weight: f64,
+    pub similarity_penalty: f64,
+    pub total_weight: f64,
+    pub is_default: bool,
+}
+
+/// Prompt-global feature score breakdown
+#[derive(Debug, Clone, serde::Serialize, serde::Deserialize)]
+pub struct FeatureScoreBreakdownResponse {
+    pub adapter_id: String,
+    pub language_score: f64,
+    pub framework_score: f64,
+    pub symbol_hits_score: f64,
+    pub path_tokens_score: f64,
+    pub prompt_verb_score: f64,
+    pub tier_boost: f64,
+    pub total_score: f64,
 }
 
 /// Adapter score from routing debug
@@ -2283,4 +2321,70 @@ pub struct TimelineEvent {
     pub timestamp: String,
     pub event_type: String,
     pub description: String,
+}
+
+pub type FilesystemFileContentResponse = adapteros_api_types::filesystem::FileContentResponse;
+pub type FilesystemWriteFileRequest = adapteros_api_types::filesystem::WriteFileContentRequest;
+pub type FilesystemWriteFileResponse = adapteros_api_types::filesystem::WriteFileContentResponse;
+pub type GitWorkingTreeFileOperationRequest =
+    adapteros_api_types::git::WorkingTreeFileOperationRequest;
+pub type GitWorkingTreeOperationResponse = adapteros_api_types::git::WorkingTreeOperationResponse;
+pub type GitCommitRequest = adapteros_api_types::git::GitCommitRequest;
+pub type GitCommitResponse = adapteros_api_types::git::GitCommitResponse;
+pub type GitLogEntry = adapteros_api_types::git::GitLogEntry;
+
+/// UI-local git status response used by the Files page git panel.
+#[derive(Debug, Clone, serde::Serialize, serde::Deserialize, Default)]
+pub struct UiGitStatusResponse {
+    pub branch: String,
+    #[serde(default)]
+    pub modified_files: Vec<String>,
+    #[serde(default)]
+    pub untracked_files: Vec<String>,
+    #[serde(default)]
+    pub staged_files: Vec<String>,
+}
+
+/// UI-local branch listing item used by the Files page git panel.
+#[derive(Debug, Clone, serde::Serialize, serde::Deserialize)]
+pub struct UiGitBranchInfo {
+    pub adapter_id: String,
+    pub branch_name: String,
+    pub created_at: String,
+    pub commit_count: i64,
+}
+
+/// Commit inspector response item from `/v1/commits`.
+#[derive(Debug, Clone, serde::Serialize, serde::Deserialize)]
+pub struct UiCommitResponse {
+    pub id: String,
+    pub repo_id: String,
+    pub sha: String,
+    pub message: String,
+    pub author: String,
+    pub date: String,
+    #[serde(skip_serializing_if = "Option::is_none")]
+    pub branch: Option<String>,
+    #[serde(default)]
+    pub changed_files: Vec<String>,
+    #[serde(default)]
+    pub impacted_symbols: Vec<String>,
+    #[serde(skip_serializing_if = "Option::is_none")]
+    pub ephemeral_adapter_id: Option<String>,
+}
+
+/// Diff stats shape from `/v1/commits/{sha}/diff`.
+#[derive(Debug, Clone, serde::Serialize, serde::Deserialize)]
+pub struct UiCommitDiffStats {
+    pub files_changed: i32,
+    pub insertions: i32,
+    pub deletions: i32,
+}
+
+/// Commit diff response from `/v1/commits/{sha}/diff`.
+#[derive(Debug, Clone, serde::Serialize, serde::Deserialize)]
+pub struct UiCommitDiffResponse {
+    pub sha: String,
+    pub diff: String,
+    pub stats: UiCommitDiffStats,
 }

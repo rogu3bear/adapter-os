@@ -28,6 +28,7 @@ pub(crate) mod helpers {
 pub fn Repositories() -> impl IntoView {
     // Selected repository ID for detail panel
     let selected_repo_id = RwSignal::new(None::<String>);
+    let pending_repo_selection = RwSignal::new(None::<String>);
 
     // Status filter
     let status_filter = RwSignal::new(String::new());
@@ -53,6 +54,9 @@ pub fn Repositories() -> impl IntoView {
         let Some(selected_id) = selected_repo_id.get() else {
             return;
         };
+        if pending_repo_selection.get().as_deref() == Some(selected_id.as_str()) {
+            return;
+        }
 
         let LoadingState::Loaded(data) = repos.get() else {
             return;
@@ -61,6 +65,24 @@ pub fn Repositories() -> impl IntoView {
         if !data.repos.iter().any(|repo| repo.repo_id == selected_id) {
             selected_repo_id.set(None);
         }
+    });
+    Effect::new(move || {
+        let Some(pending_id) = pending_repo_selection.get() else {
+            return;
+        };
+        let LoadingState::Loaded(data) = repos.get() else {
+            return;
+        };
+        if data.repos.iter().any(|repo| repo.repo_id == pending_id) {
+            selected_repo_id.set(Some(pending_id));
+            pending_repo_selection.set(None);
+        }
+    });
+
+    let on_repository_registered = Callback::new(move |repo_id: String| {
+        selected_repo_id.set(Some(repo_id.clone()));
+        pending_repo_selection.set(Some(repo_id));
+        refetch_repos.run(());
     });
 
     view! {
@@ -151,6 +173,7 @@ pub fn Repositories() -> impl IntoView {
         // Register repository dialog
         <RegisterRepositoryDialog
             open=register_dialog_open
+            on_registered=on_repository_registered
         />
     }
 }

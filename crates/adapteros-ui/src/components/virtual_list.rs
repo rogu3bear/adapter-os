@@ -191,9 +191,10 @@ where
     }
 }
 
-/// Virtual table body component for use with existing Table components.
+/// Virtual table component that renders only visible rows.
 ///
-/// Renders only visible table rows while maintaining proper table structure.
+/// Renders a full table wrapper with caller-supplied header and a virtualized
+/// body to keep table styling/column alignment consistent.
 #[component]
 pub fn VirtualTableBody<T, V, F>(
     /// The items to render as rows.
@@ -208,6 +209,8 @@ pub fn VirtualTableBody<T, V, F>(
     /// Overscan count.
     #[prop(default = 3)]
     overscan: usize,
+    /// Table header (typically a `<TableHeader>` block).
+    header: AnyView,
     /// Render function for each row.
     render_row: F,
     /// Debug label for logging.
@@ -267,12 +270,13 @@ where
 
     view! {
         <div
-            class="virtual-table-scroll overflow-y-auto"
+            class="table-wrapper virtual-table-scroll overflow-y-auto"
             style:max-height={format!("{}px", container_height)}
             on:scroll=on_scroll
         >
-            <table class="w-full">
-                <tbody>
+            <table class="table table-hoverable w-full">
+                {header}
+                <tbody class="table-body">
                     {move || {
                         let range = virtual_range.try_get().unwrap_or(VirtualRange { start: 0, end: 0, padding_top: 0, padding_bottom: 0 });
                         let items_vec = items.try_get().unwrap_or_default();
@@ -281,8 +285,13 @@ where
                         view! {
                             // Top spacer row
                             {(range.padding_top > 0).then(|| view! {
-                                <tr style:height={format!("{}px", range.padding_top)}>
-                                    <td></td>
+                                <tr aria-hidden="true">
+                                    <td
+                                        colspan="999"
+                                        style:height={format!("{}px", range.padding_top)}
+                                        style:padding="0"
+                                        style:border="0"
+                                    ></td>
                                 </tr>
                             })}
 
@@ -297,8 +306,13 @@ where
 
                             // Bottom spacer row
                             {(range.padding_bottom > 0).then(|| view! {
-                                <tr style:height={format!("{}px", range.padding_bottom)}>
-                                    <td></td>
+                                <tr aria-hidden="true">
+                                    <td
+                                        colspan="999"
+                                        style:height={format!("{}px", range.padding_bottom)}
+                                        style:padding="0"
+                                        style:border="0"
+                                    ></td>
                                 </tr>
                             })}
                         }

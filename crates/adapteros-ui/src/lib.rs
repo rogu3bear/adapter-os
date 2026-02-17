@@ -177,7 +177,6 @@ pub fn App() -> impl IntoView {
                         // PRD-UI-003: Style audit (dev tool, no sensitive data)
                         <Route path=path!("/style-audit") view=pages::StyleAudit/>
                         // Backward compatibility redirects
-                        <Route path=path!("/dashboard") view=|| view! { <ProtectedRoute><Redirect path="/"/></ProtectedRoute> }/>
                         <Route path=path!("/flight-recorder") view=|| view! { <ProtectedRoute><Redirect path="/runs"/></ProtectedRoute> }/>
                         <Route path=path!("/flight-recorder/:id") view=|| view! { <ProtectedRoute><FlightRecorderIdRedirect/></ProtectedRoute> }/>
 
@@ -186,6 +185,7 @@ pub fn App() -> impl IntoView {
                         // disposed and recreated on every SPA navigation.
                         <ParentRoute path=path!("") view=|| view! { <ProtectedRoute><Shell/></ProtectedRoute> }>
                             <Route path=path!("/") view=pages::Dashboard/>
+                            <Route path=path!("/dashboard") view=pages::Dashboard/>
                             <Route path=path!("/adapters") view=pages::Adapters/>
                             <Route path=path!("/adapters/:id") view=pages::AdapterDetail/>
                             <Route path=path!("/chat") view=pages::Chat/>

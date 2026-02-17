@@ -10,11 +10,10 @@
 //! 1. SSE token -> `stream_inference_to_state` (signals/chat.rs)
 //! 2. Token appended via `push_str` (O(1) amortized)
 //! 3. Signal update triggers reactive subscribers
-//! 4. Message list re-renders (O(n) clone of messages Vec)
+//! 4. Message list updates use keyed iteration for efficient per-message diffs.
 //!
-//! The dock (`chat_dock.rs`) uses `<For>` with keyed iteration for O(1)
-//! per-message updates. The full chat page uses a simpler pattern that
-//! is acceptable for typical message counts (<100).
+//! Both the dock (`chat_dock.rs`) and full chat page use `<For>` with keyed
+//! iteration so unchanged messages stay stable during streaming.
 //!
 //! Enable `show_telemetry_overlay` in settings for perf timing.
 
@@ -27,8 +26,8 @@ use crate::components::status_center::use_status_center;
 use crate::components::{
     use_is_tablet_or_smaller, AdapterHeat, AdapterMagnet, Badge, BadgeVariant, Button, ButtonLink,
     ButtonSize, ButtonType, ButtonVariant, ChatAdaptersRegion, Checkbox, ConfirmationDialog,
-    ConfirmationSeverity, Dialog, Input, Markdown, Spinner, SuggestedAdapterView, Textarea,
-    TraceButton, TracePanel,
+    ConfirmationSeverity, Dialog, Input, Markdown, MarkdownStream, Spinner, SuggestedAdapterView,
+    Textarea, TraceButton, TracePanel,
 };
 use crate::hooks::{use_api_resource, LoadingState};
 use crate::signals::{
@@ -50,6 +49,7 @@ const MAX_URL_PROMPT_LENGTH: usize = 2000;
 const DOCUMENT_UPLOAD_MAX_FILE_SIZE: u64 = 100 * 1024 * 1024;
 const DOCUMENT_UPLOAD_SUPPORTED_EXTENSIONS: &[&str] = &[".pdf", ".txt", ".md", ".markdown"];
 const MAX_CHAT_DATASET_MESSAGES: usize = 10_000;
+const CHAT_SCROLL_BOTTOM_THRESHOLD_PX: i32 = 24;
 
 #[derive(Clone, Copy, PartialEq, Eq, Default)]
 enum AttachMode {
@@ -1445,6 +1445,8 @@ fn SessionListItem(
 
     // Overflow menu state
     let show_overflow = RwSignal::new(false);
+    let overflow_trigger_ref = NodeRef::<leptos::html::Button>::new();
+    let overflow_menu_ref = NodeRef::<leptos::html::Div>::new();
     let show_share_dialog = RwSignal::new(false);
     let show_tags_dialog = RwSignal::new(false);
     let show_fork_dialog = RwSignal::new(false);
@@ -1457,6 +1459,92 @@ fn SessionListItem(
     let hard_delete_session_id = id.clone();
 
     let navigate = use_navigate();
+
+    // Focus first menu item whenever overflow menu opens.
+    {
+        Effect::new(move |_| {
+            if !show_overflow.try_get().unwrap_or(false) {
+                return;
+            }
+            let overflow_menu_ref = overflow_menu_ref;
+            gloo_timers::callback::Timeout::new(0, move || {
+                if let Some(menu) = overflow_menu_ref.get() {
+                    if let Ok(Some(first_item)) = menu.query_selector(r#"[role="menuitem"]"#) {
+                        if let Ok(first_item) = first_item.dyn_into::<web_sys::HtmlElement>() {
+                            let _ = first_item.focus();
+                        }
+                    }
+                }
+            })
+            .forget();
+        });
+    }
+
+    let handle_overflow_keydown = Callback::new({
+        let overflow_menu_ref = overflow_menu_ref;
+        let overflow_trigger_ref = overflow_trigger_ref;
+        move |ev: web_sys::KeyboardEvent| match ev.key().as_str() {
+            "Escape" => {
+                ev.prevent_default();
+                ev.stop_propagation();
+                show_overflow.set(false);
+                if let Some(trigger) = overflow_trigger_ref.get() {
+                    let _ = trigger.focus();
+                }
+            }
+            "ArrowDown" | "ArrowUp" => {
+                ev.prevent_default();
+                ev.stop_propagation();
+                let Some(menu) = overflow_menu_ref.get() else {
+                    return;
+                };
+                let Ok(items) = menu.query_selector_all(r#"[role="menuitem"]"#) else {
+                    return;
+                };
+                let len = items.length();
+                if len == 0 {
+                    return;
+                }
+                let active = web_sys::window()
+                    .and_then(|w| w.document())
+                    .and_then(|d| d.active_element())
+                    .and_then(|el| el.dyn_into::<web_sys::Node>().ok());
+
+                let mut current_idx: i32 = -1;
+                for idx in 0..len {
+                    let Some(node) = items.item(idx) else {
+                        continue;
+                    };
+                    if active
+                        .as_ref()
+                        .is_some_and(|active_node| node.is_same_node(Some(active_node)))
+                    {
+                        current_idx = idx as i32;
+                        break;
+                    }
+                }
+
+                let next_idx = if ev.key() == "ArrowDown" {
+                    if current_idx < 0 {
+                        0
+                    } else {
+                        ((current_idx + 1) as u32) % len
+                    }
+                } else if current_idx < 0 {
+                    len - 1
+                } else {
+                    ((current_idx - 1 + len as i32) as u32) % len
+                };
+
+                if let Some(node) = items.item(next_idx) {
+                    if let Ok(item) = node.dyn_into::<web_sys::HtmlElement>() {
+                        let _ = item.focus();
+                    }
+                }
+            }
+            _ => {}
+        }
+    });
 
     view! {
         <div
@@ -1580,6 +1668,7 @@ fn SessionListItem(
                 // Overflow menu (kebab)
                 <div class="relative">
                     <button
+                        node_ref=overflow_trigger_ref
                         class="p-1 rounded hover:bg-muted/50 text-muted-foreground hover:text-foreground transition-colors"
                         on:click=move |ev: web_sys::MouseEvent| {
                             ev.prevent_default();
@@ -1605,11 +1694,18 @@ fn SessionListItem(
                         view! {
                             <div
                                 class="fixed inset-0 z-40"
-                                on:click=move |_| show_overflow.set(false)
+                                on:click=move |_| {
+                                    show_overflow.set(false);
+                                    if let Some(trigger) = overflow_trigger_ref.get() {
+                                        let _ = trigger.focus();
+                                    }
+                                }
                             />
                             <div
+                                node_ref=overflow_menu_ref
                                 class="absolute right-0 top-full z-50 mt-1 w-40 rounded-md border border-border bg-background shadow-lg py-1"
                                 role="menu"
+                                on:keydown=move |ev| handle_overflow_keydown.run(ev)
                             >
                                 <button
                                     class="w-full text-left px-3 py-1.5 text-xs hover:bg-muted/50 transition-colors"
@@ -1759,6 +1855,180 @@ use crate::utils::{format_relative_time, humanize};
 
 fn generate_readable_id(_prefix: &str, _slug_source: &str) -> String {
     adapteros_id::TypedId::new(adapteros_id::IdPrefix::Ses).to_string()
+}
+
+#[component]
+fn ChatConversationMessageItem(
+    msg_id: String,
+    active_trace: RwSignal<Option<String>>,
+) -> impl IntoView {
+    let (chat_state, _) = use_chat();
+    let lookup_id = msg_id.clone();
+
+    let message = Memo::new(move |_| {
+        chat_state
+            .try_get()
+            .unwrap_or_default()
+            .messages
+            .iter()
+            .find(|m| m.id == lookup_id)
+            .cloned()
+    });
+
+    let streaming_content = Signal::derive(move || {
+        message
+            .try_get()
+            .flatten()
+            .filter(|m| m.role == "assistant" && m.is_streaming)
+            .map(|m| m.content)
+            .unwrap_or_default()
+    });
+
+    view! {
+        {move || {
+            message.try_get().flatten().map(|msg| {
+                let is_user = msg.role == "user";
+                let is_streaming = msg.is_streaming;
+                let trace_id = msg.trace_id.clone();
+                let latency_ms = msg.latency_ms;
+                let token_count = msg.token_count;
+                let prompt_tokens = msg.prompt_tokens;
+                let completion_tokens = msg.completion_tokens;
+                let role_label = if is_user { "You" } else { "Assistant" };
+
+                view! {
+                    <div class=format!(
+                        "flex {}",
+                        if is_user { "justify-end" } else { "justify-start" }
+                    )>
+                        <div class=format!(
+                            "flex flex-col gap-1.5 max-w-[80%] {}",
+                            if is_user { "items-end" } else { "items-start" }
+                        )>
+                            <span class="text-2xs uppercase tracking-wider font-medium text-muted-foreground px-1">
+                                {role_label}
+                            </span>
+                            <div class=format!(
+                                "rounded-lg px-4 py-3 {} {}",
+                                if is_user {
+                                    "bg-primary text-primary-foreground shadow-sm"
+                                } else {
+                                    "bg-muted/50 border border-border"
+                                },
+                                // Add min-height during streaming to prevent layout jump
+                                if is_streaming { "min-h-[2.5rem]" } else { "" }
+                            )>
+                                {if is_user {
+                                    view! {
+                                        <p class="text-sm whitespace-pre-wrap break-words leading-relaxed">
+                                            {msg.content.clone()}
+                                        </p>
+                                    }.into_any()
+                                } else if is_streaming {
+                                    let has_content = !streaming_content.try_get().unwrap_or_default().is_empty();
+                                    view! {
+                                        <div class="text-sm break-words leading-relaxed">
+                                            <MarkdownStream
+                                                content=Signal::derive(move || streaming_content.try_get().unwrap_or_default())
+                                            />
+                                            {if has_content {
+                                                view! {
+                                                    <span class="inline-block animate-pulse text-primary/70 ml-0.5">"▍"</span>
+                                                }.into_any()
+                                            } else {
+                                                view! {
+                                                    <span class="inline-flex items-center gap-1.5 text-muted-foreground">
+                                                        <Spinner/>
+                                                        <span class="text-xs">"Routing..."</span>
+                                                    </span>
+                                                }.into_any()
+                                            }}
+                                        </div>
+                                    }.into_any()
+                                } else {
+                                    view! {
+                                        <div class="text-sm break-words leading-relaxed">
+                                            <Markdown content=msg.content.clone() />
+                                        </div>
+                                    }.into_any()
+                                }}
+                            </div>
+                            // Run/Receipt links for assistant messages (placeholder if trace unavailable)
+                            {if !is_user && !is_streaming {
+                                let latency = latency_ms.unwrap_or(0);
+                                let trace = trace_id.clone();
+                                let run_overview_url = trace.clone().map(|tid| format!("/runs/{}", tid));
+                                let run_receipt_url = trace.clone().map(|tid| format!("/runs/{}?tab=receipt", tid));
+                                Some(view! {
+                                    <div class="flex items-center gap-3 mt-1 px-1 flex-wrap" data-testid="chat-trace-links">
+                                        {trace.clone().map(|tid| view! {
+                                            <TraceButton
+                                                trace_id=tid.clone()
+                                                latency_ms=latency
+                                                on_click=Callback::new(move |id: String| {
+                                                    active_trace.set(Some(id));
+                                                })
+                                                data_testid="chat-trace-link".to_string()
+                                            />
+                                        })}
+                                        <div class="flex items-center gap-1">
+                                            {run_overview_url.map(|url| view! {
+                                                <a
+                                                    href=url
+                                                    class="text-xs text-muted-foreground hover:text-primary transition-colors px-1.5 py-0.5 rounded hover:bg-muted"
+                                                    title="View Run Detail"
+                                                    data-testid="chat-run-link"
+                                                >
+                                                    "Run"
+                                                </a>
+                                            }.into_any()).unwrap_or_else(|| view! {
+                                                <span
+                                                    class="text-xs text-muted-foreground/60 px-1.5 py-0.5 rounded"
+                                                    title="Run detail unavailable"
+                                                    data-testid="chat-run-link"
+                                                >
+                                                    "Run"
+                                                </span>
+                                            }.into_any())}
+                                            <span class="text-muted-foreground/50">"·"</span>
+                                            {run_receipt_url.map(|url| view! {
+                                                <a
+                                                    href=url
+                                                    class="text-xs text-muted-foreground hover:text-primary transition-colors px-1.5 py-0.5 rounded hover:bg-muted"
+                                                    title="View Receipt"
+                                                    data-testid="chat-receipt-link"
+                                                >
+                                                    "Receipt"
+                                                </a>
+                                            }.into_any()).unwrap_or_else(|| view! {
+                                                <span
+                                                    class="text-xs text-muted-foreground/60 px-1.5 py-0.5 rounded"
+                                                    title="Receipt unavailable"
+                                                    data-testid="chat-receipt-link"
+                                                >
+                                                    "Receipt"
+                                                </span>
+                                            }.into_any())}
+                                        </div>
+                                        {token_count.map(|tc| {
+                                            let display = format_token_display(tc, prompt_tokens, completion_tokens);
+                                            view! {
+                                                <span class="text-xs text-muted-foreground">
+                                                    {display}
+                                                </span>
+                                            }
+                                        })}
+                                    </div>
+                                })
+                            } else {
+                                None
+                            }}
+                        </div>
+                    </div>
+                }
+            })
+        }}
+    }
 }
 
 /// Chat conversation panel - renders the full conversation experience for a session.
@@ -2216,6 +2486,56 @@ fn ChatConversationPanel(
             })
             .collect::<Vec<_>>()
     });
+
+    // Message log scroll management
+    let message_log_ref = NodeRef::<leptos::html::Div>::new();
+    let is_at_bottom = RwSignal::new(true);
+
+    // Keyed message IDs for efficient message list updates.
+    let message_ids = Memo::new(move |_| {
+        chat_state
+            .try_get()
+            .unwrap_or_default()
+            .messages
+            .iter()
+            .map(|m| m.id.clone())
+            .collect::<Vec<_>>()
+    });
+
+    // Track tail updates so auto-scroll follows streaming token appends.
+    let message_tail_signature = Memo::new(move |_| {
+        let state = chat_state.try_get().unwrap_or_default();
+        let tail = state
+            .messages
+            .last()
+            .map(|m| (m.id.clone(), m.content.len(), m.is_streaming));
+        (state.messages.len(), tail)
+    });
+
+    let scroll_to_latest = Callback::new(move |_: ()| {
+        if let Some(el) = message_log_ref.get() {
+            el.set_scroll_top(el.scroll_height());
+            let _ = is_at_bottom.try_set(true);
+        }
+    });
+
+    {
+        let message_log_ref = message_log_ref;
+        Effect::new(move |_| {
+            let _ = message_tail_signature.try_get();
+            if !is_at_bottom.try_get().unwrap_or(true) {
+                return;
+            }
+            if let Some(el) = message_log_ref.get() {
+                let el_clone = el.clone();
+                gloo_timers::callback::Timeout::new(10, move || {
+                    el_clone.set_scroll_top(el_clone.scroll_height());
+                    let _ = is_at_bottom.try_set(true);
+                })
+                .forget();
+            }
+        });
+    }
 
     // Debounce version counter for preview calls
     let preview_version = RwSignal::new(0u64);
@@ -3005,12 +3325,20 @@ fn ChatConversationPanel(
             />
 
             // Messages
-            <div
-                class="flex-1 overflow-y-auto rounded-lg border border-border bg-card"
-                role="log"
-                aria-live="polite"
-                aria-label="Chat messages"
-            >
+            <div class="relative flex-1 min-h-0">
+                <div
+                    node_ref=message_log_ref
+                    class="flex-1 h-full overflow-y-auto rounded-lg border border-border bg-card"
+                    role="log"
+                    aria-live="polite"
+                    aria-label="Chat messages"
+                    on:scroll=move |_| {
+                        if let Some(el) = message_log_ref.get() {
+                            let distance = el.scroll_height() - el.scroll_top() - el.client_height();
+                            let _ = is_at_bottom.try_set(distance <= CHAT_SCROLL_BOTTOM_THRESHOLD_PX);
+                        }
+                    }
+                >
                 // Context overflow indicator
                 {
                     let dismiss_action = chat_action.clone();
@@ -3103,147 +3431,21 @@ fn ChatConversationPanel(
                         } else {
                             view! {
                                 <div class="space-y-6">
-                                    {msgs
-                                        .into_iter()
-                                        .map(|msg| {
-                                            let is_user = msg.role == "user";
-                                            let is_streaming = msg.is_streaming;
-                                            let trace_id = msg.trace_id.clone();
-                                            let latency_ms = msg.latency_ms;
-                                            let token_count = msg.token_count;
-                                            let prompt_tokens = msg.prompt_tokens;
-                                            let completion_tokens = msg.completion_tokens;
-                                            let role_label = if is_user { "You" } else { "Assistant" };
-                                            view! {
-                                                <div class=format!(
-                                                    "flex {}",
-                                                    if is_user { "justify-end" } else { "justify-start" }
-                                                )>
-                                                    <div class=format!(
-                                                        "flex flex-col gap-1.5 max-w-[80%] {}",
-                                                        if is_user { "items-end" } else { "items-start" }
-                                                    )>
-                                                        <span class="text-2xs uppercase tracking-wider font-medium text-muted-foreground px-1">
-                                                            {role_label}
-                                                        </span>
-                                                        <div class=format!(
-                                                            "rounded-lg px-4 py-3 {} {}",
-                                                            if is_user {
-                                                                "bg-primary text-primary-foreground shadow-sm"
-                                                            } else {
-                                                                "bg-muted/50 border border-border"
-                                                            },
-                                                            // Add min-height during streaming to prevent layout jump
-                                                            if is_streaming { "min-h-[2.5rem]" } else { "" }
-                                                        )>
-                                                            {if is_user {
-                                                                view! {
-                                                                    <p class="text-sm whitespace-pre-wrap break-words leading-relaxed">
-                                                                        {msg.content.clone()}
-                                                                    </p>
-                                                                }.into_any()
-                                                            } else if is_streaming {
-                                                                let content = msg.content.clone();
-                                                                view! {
-                                                                    <div class="text-sm break-words leading-relaxed">
-                                                                        <Markdown content=content.clone() />
-                                                                        {if !content.is_empty() {
-                                                                            view! {
-                                                                                <span class="inline-block animate-pulse text-primary/70 ml-0.5">"▍"</span>
-                                                                            }.into_any()
-                                                                        } else {
-                                                                            view! {
-                                                                                <span class="inline-flex items-center gap-1.5 text-muted-foreground">
-                                                                                    <Spinner/>
-                                                                                    <span class="text-xs">"Routing..."</span>
-                                                                                </span>
-                                                                            }.into_any()
-                                                                        }}
-                                                                    </div>
-                                                                }.into_any()
-                                                            } else {
-                                                                view! {
-                                                                    <div class="text-sm break-words leading-relaxed">
-                                                                        <Markdown content=msg.content.clone() />
-                                                                    </div>
-                                                                }.into_any()
-                                                            }}
-                                                        </div>
-                                                        // Run/Receipt links for assistant messages (placeholder if trace unavailable)
-                                                        {if !is_user && !is_streaming {
-                                                            let latency = latency_ms.unwrap_or(0);
-                                                            let trace = trace_id.clone();
-                                                            let run_overview_url = trace.clone().map(|tid| format!("/runs/{}", tid));
-                                                            let run_receipt_url = trace.clone().map(|tid| format!("/runs/{}?tab=receipt", tid));
-                                                            Some(view! {
-                                                                <div class="flex items-center gap-3 mt-1 px-1 flex-wrap" data-testid="chat-trace-links">
-                                                                    {trace.clone().map(|tid| view! {
-                                                                        <TraceButton
-                                                                            trace_id=tid.clone()
-                                                                            latency_ms=latency
-                                                                            on_click=Callback::new(move |id: String| {
-                                                                                active_trace.set(Some(id));
-                                                                            })
-                                                                            data_testid="chat-trace-link".to_string()
-                                                                        />
-                                                                    })}
-                                                                    <div class="flex items-center gap-1">
-                                                                        {run_overview_url.map(|url| view! {
-                                                                            <a
-                                                                                href=url
-                                                                                class="text-xs text-muted-foreground hover:text-primary transition-colors px-1.5 py-0.5 rounded hover:bg-muted"
-                                                                                title="View Run Detail"
-                                                                                data-testid="chat-run-link"
-                                                                            >
-                                                                                "Run"
-                                                                            </a>
-                                                                        }.into_any()).unwrap_or_else(|| view! {
-                                                                            <span
-                                                                                class="text-xs text-muted-foreground/60 px-1.5 py-0.5 rounded"
-                                                                                title="Run detail unavailable"
-                                                                                data-testid="chat-run-link"
-                                                                            >
-                                                                                "Run"
-                                                                            </span>
-                                                                        }.into_any())}
-                                                                        <span class="text-muted-foreground/50">"·"</span>
-                                                                        {run_receipt_url.map(|url| view! {
-                                                                            <a
-                                                                                href=url
-                                                                                class="text-xs text-muted-foreground hover:text-primary transition-colors px-1.5 py-0.5 rounded hover:bg-muted"
-                                                                                title="View Receipt"
-                                                                                data-testid="chat-receipt-link"
-                                                                            >
-                                                                                "Receipt"
-                                                                            </a>
-                                                                        }.into_any()).unwrap_or_else(|| view! {
-                                                                            <span
-                                                                                class="text-xs text-muted-foreground/60 px-1.5 py-0.5 rounded"
-                                                                                title="Receipt unavailable"
-                                                                                data-testid="chat-receipt-link"
-                                                                            >
-                                                                                "Receipt"
-                                                                            </span>
-                                                                        }.into_any())}
-                                                                    </div>
-                                                                    {token_count.map(|tc| {
-                                                                        let display = format_token_display(tc, prompt_tokens, completion_tokens);
-                                                                        view! {
-                                                                            <span class="text-xs text-muted-foreground">
-                                                                                {display}
-                                                                            </span>
-                                                                        }
-                                                                    })}
-                                                                </div>
-                                                            })
-                                                        } else {
-                                                            None
-                                                        }}
-                                                    </div>
-                                                </div>
+                                    <For
+                                        each=move || message_ids.try_get().unwrap_or_default()
+                                        key=|id| id.clone()
+                                        children={
+                                            let active_trace = active_trace;
+                                            move |msg_id| {
+                                                view! {
+                                                    <ChatConversationMessageItem
+                                                        msg_id=msg_id
+                                                        active_trace=active_trace
+                                                    />
+                                                }
                                             }
-                                        })
-                                        .collect::<Vec<_>>()}
+                                        }
+                                    />
 
                                     // Inline error indicator after messages (provides context)
                                     {move || {
@@ -3348,6 +3550,27 @@ fn ChatConversationPanel(
                         }
                     }}
                 </div>
+                </div>
+                {move || {
+                    let has_messages = !message_ids.try_get().unwrap_or_default().is_empty();
+                    if has_messages && !is_at_bottom.try_get().unwrap_or(true) {
+                        Some(view! {
+                            <button
+                                type="button"
+                                class="absolute bottom-4 right-4 inline-flex items-center gap-1.5 rounded-full border border-border bg-background/95 px-3 py-1.5 text-xs font-medium text-foreground shadow-sm hover:bg-muted/80 transition-colors"
+                                on:click=move |_| scroll_to_latest.run(())
+                                data-testid="chat-jump-to-latest"
+                            >
+                                <svg xmlns="http://www.w3.org/2000/svg" class="h-3.5 w-3.5" fill="none" viewBox="0 0 24 24" stroke="currentColor" stroke-width="2">
+                                    <path stroke-linecap="round" stroke-linejoin="round" d="M12 5v14m0 0l6-6m-6 6l-6-6"/>
+                                </svg>
+                                "Jump to latest"
+                            </button>
+                        })
+                    } else {
+                        None
+                    }
+                }}
             </div>
 
             // Trace panel (modal overlay)
@@ -3636,8 +3859,11 @@ fn ChatConversationPanel(
                     {move || match attach_mode.try_get().unwrap_or(AttachMode::Upload) {
                         AttachMode::Upload => view! {
                             <div class="space-y-2">
-                                <label class="text-xs text-muted-foreground">"Select a file"</label>
+                                <label for="chat-attach-upload-file" class="text-xs text-muted-foreground">
+                                    "Select a file"
+                                </label>
                                 <input
+                                    id="chat-attach-upload-file"
                                     type="file"
                                     class="block w-full text-xs text-muted-foreground file:mr-3 file:rounded-md file:border-0 file:bg-muted file:px-3 file:py-2 file:text-xs file:font-medium file:text-foreground hover:file:bg-muted/70"
                                     accept=".pdf,.txt,.md,.markdown"
@@ -3678,8 +3904,11 @@ fn ChatConversationPanel(
                         }.into_any(),
                         AttachMode::Paste => view! {
                             <div class="space-y-2">
-                                <label class="text-xs text-muted-foreground">"Paste text"</label>
+                                <label for="chat-attach-paste-text" class="text-xs text-muted-foreground">
+                                    "Paste text"
+                                </label>
                                 <Textarea
+                                    id="chat-attach-paste-text".to_string()
                                     value=pasted_text
                                     placeholder="Paste training examples or notes...".to_string()
                                     rows=5
@@ -3725,7 +3954,7 @@ fn ChatConversationPanel(
                             view! {
                                 <div class="space-y-3">
                                     <div class="flex items-center justify-between">
-                                        <label class="text-xs text-muted-foreground">"Select messages"</label>
+                                        <p class="text-xs text-muted-foreground">"Select messages"</p>
                                         <span class="text-xs text-muted-foreground">
                                             {move || format!("{} of {} selected", selected_count.try_get().unwrap_or(0), chat_state.try_get().unwrap_or_default().messages.len())}
                                         </span>
@@ -4014,14 +4243,17 @@ fn ShareSessionDialog(session_id: String, #[prop(into)] on_close: Callback<()>) 
         <Dialog open=open title="Share Session">
             <div class="space-y-4">
                 <div class="space-y-2">
-                    <label class="text-xs font-medium">"User IDs (comma-separated)"</label>
+                    <label for="chat-share-user-ids" class="text-xs font-medium">
+                        "User IDs (comma-separated)"
+                    </label>
                     <Input
+                        id="chat-share-user-ids".to_string()
                         value=user_ids_input
                         placeholder="user-1, user-2".to_string()
                     />
                 </div>
                 <div class="space-y-2">
-                    <label class="text-xs font-medium">"Permission"</label>
+                    <p class="text-xs font-medium">"Permission"</p>
                     <div class="flex items-center gap-2">
                         <button
                             class=move || format!(
@@ -4407,8 +4639,11 @@ fn ForkSessionDialog(
         <Dialog open=open title="Fork Session">
             <div class="space-y-4">
                 <div class="space-y-2">
-                    <label class="text-xs font-medium">"New session name (optional)"</label>
+                    <label for="chat-fork-session-name" class="text-xs font-medium">
+                        "New session name (optional)"
+                    </label>
                     <Input
+                        id="chat-fork-session-name".to_string()
                         value=fork_name
                         placeholder="Forked session name".to_string()
                     />

@@ -247,7 +247,7 @@ pub fn ApiKeysSection() -> impl IntoView {
                     </FormField>
 
                     <div>
-                        <label class="text-sm font-medium mb-2 block">"Permissions"</label>
+                        <p class="text-sm font-medium mb-2 block">"Permissions"</p>
                         <div class="flex flex-wrap gap-2">
                             {["admin", "operator", "viewer"].into_iter().map(|scope| {
                                 let scope_str = scope.to_string();

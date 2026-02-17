@@ -594,6 +594,7 @@ fn MessageItem(msg_id: String) -> impl IntoView {
     let is_streaming = Memo::new(move |_| message.get().is_some_and(|m| m.is_streaming));
 
     let content = Memo::new(move |_| message.get().map(|m| m.content).unwrap_or_default());
+    let stream_content = Signal::derive(move || content.get());
 
     let backend_used = Memo::new(move |_| message.get().and_then(|m| m.backend_used));
 
@@ -654,6 +655,12 @@ fn MessageItem(msg_id: String) -> impl IntoView {
                             {move || {
                                 if is_user.get() {
                                     view! { <p class="text-sm whitespace-pre-wrap break-words">{content.get()}</p> }.into_any()
+                                } else if is_streaming.get() {
+                                    view! {
+                                        <div class="text-sm break-words">
+                                            <crate::components::MarkdownStream content=stream_content/>
+                                        </div>
+                                    }.into_any()
                                 } else {
                                     let md = content.get();
                                     view! { <div class="text-sm break-words"><crate::components::Markdown content=md /></div> }.into_any()
@@ -730,17 +737,41 @@ fn MessageItem(msg_id: String) -> impl IntoView {
 fn MessageList() -> impl IntoView {
     let (chat_state, _) = use_chat();
     let container_ref = leptos::prelude::NodeRef::<leptos::html::Div>::new();
+    let is_pinned_to_bottom = RwSignal::new(true);
 
-    // Auto-scroll to bottom when messages change
+    let sync_pin_state = {
+        let is_pinned = is_pinned_to_bottom;
+        move || {
+            if let Some(el) = container_ref.get() {
+                let distance_from_bottom =
+                    el.scroll_height() - el.scroll_top() - el.client_height();
+                is_pinned.set(distance_from_bottom <= 24);
+            }
+        }
+    };
+
+    // Auto-scroll when list grows or streaming assistant content grows,
+    // but only while user is pinned near the bottom.
     // Uses Timeout instead of spawn_local to avoid RefCell re-entrancy panic
     // in wasm-bindgen-futures when called from within an Effect body
-    Effect::new(move |_| {
+    Effect::new(move |prev_signature: Option<(usize, usize)>| {
         let Some(state) = chat_state.try_get() else {
-            return;
+            return prev_signature.unwrap_or_default();
         };
+
         let msg_count = state.messages.len();
-        // Scroll to bottom when message count changes
-        if msg_count > 0 {
+        let assistant_content_len = state
+            .messages
+            .iter()
+            .filter(|m| m.role == "assistant")
+            .map(|m| m.content.len())
+            .sum::<usize>();
+        let next_signature = (msg_count, assistant_content_len);
+
+        if msg_count > 0
+            && prev_signature.is_none_or(|prev| prev != next_signature)
+            && is_pinned_to_bottom.get()
+        {
             if let Some(el) = container_ref.get() {
                 let el_clone = el.clone();
                 // Small delay to let content render, then scroll
@@ -750,6 +781,8 @@ fn MessageList() -> impl IntoView {
                 .forget();
             }
         }
+
+        next_signature
     });
 
     // Memoize message IDs for keyed iteration - only recomputes when message list changes
@@ -769,6 +802,7 @@ fn MessageList() -> impl IntoView {
         <div
             node_ref=container_ref
             class="flex-1 overflow-y-auto p-4 space-y-4"
+            on:scroll=move |_| sync_pin_state()
         >
             {move || {
                 if is_empty.get() {
@@ -1076,7 +1110,7 @@ fn ChatInput() -> impl IntoView {
     // Send handler - queue if not ready, send if ready
     let do_send = {
         let action = chat_action.clone();
-        move || {
+        Callback::new(move |_: ()| {
             let msg = message.get();
             if msg.trim().is_empty() {
                 return;
@@ -1092,7 +1126,17 @@ fn ChatInput() -> impl IntoView {
                 // Queue the message for later
                 action.queue_message(msg);
             }
-        }
+        })
+    };
+
+    let on_input_keydown = {
+        let send = do_send.clone();
+        Callback::new(move |ev: web_sys::KeyboardEvent| {
+            if ev.key() == "Enter" && !ev.shift_key() {
+                ev.prevent_default();
+                send.run(());
+            }
+        })
     };
 
     let do_cancel = {
@@ -1116,7 +1160,7 @@ fn ChatInput() -> impl IntoView {
                 on:submit=move |ev: web_sys::SubmitEvent| {
                     ev.prevent_default();
                     if can_send.get() {
-                        do_send();
+                        do_send.run(());
                     }
                 }
             >
@@ -1125,6 +1169,7 @@ fn ChatInput() -> impl IntoView {
                     placeholder="Type a message...".to_string()
                     rows=2
                     class="resize-none".to_string()
+                    on_keydown=on_input_keydown
                 />
                 <div class="flex justify-end gap-2">
                     {move || {

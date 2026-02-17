@@ -122,6 +122,10 @@ pub fn Adapters() -> impl IntoView {
         selected_id.set(None);
     });
 
+    let on_refetch_detail = Callback::new(move |_: ()| {
+        refetch.run(());
+    });
+
     view! {
         <PageScaffold
             title="Adapters"
@@ -179,6 +183,7 @@ pub fn Adapters() -> impl IntoView {
                                         adapter=selected_adapter
                                         loading=is_loading
                                         on_close=on_close_detail
+                                        on_refetch=on_refetch_detail
                                     />
                                 }
                             }

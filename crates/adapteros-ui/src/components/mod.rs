@@ -14,6 +14,7 @@ pub mod card;
 pub mod charts;
 pub mod chat_dock;
 pub mod checkbox;
+pub mod code_editor;
 pub mod combobox;
 pub mod command_palette;
 pub mod confirmation_dialog;
@@ -25,6 +26,7 @@ pub mod dialog;
 pub mod error_boundary;
 pub mod form_dialog;
 pub mod form_field;
+pub mod git_panel;
 pub mod glass_toggle;
 pub mod global_search;
 pub mod hash_display;
@@ -56,6 +58,7 @@ pub mod telemetry_overlay;
 pub mod toast;
 pub mod toggle;
 pub mod trace_viewer;
+pub mod tree_view;
 pub mod version_timeline;
 pub mod virtual_list;
 pub mod workspace;
@@ -77,6 +80,7 @@ pub use button::{Button, ButtonLink, ButtonSize, ButtonType, ButtonVariant};
 pub use card::Card;
 pub use chat_dock::{ChatDock, ChatDockPanel, MobileChatOverlay, NarrowChatDock};
 pub use checkbox::Checkbox;
+pub use code_editor::CodeEditor;
 pub use combobox::{Combobox, ComboboxOption, ModelCombobox};
 pub use command_palette::CommandPalette;
 pub use confirmation_dialog::{
@@ -90,6 +94,7 @@ pub use dialog::{Dialog, DialogSize};
 pub use error_boundary::{InlineErrorBoundary, RouteErrorBoundary};
 pub use form_dialog::{FormDialog, StepFormDialog};
 pub use form_field::{FormField, HelpTooltip, LabelWithHelp};
+pub use git_panel::GitPanel;
 pub use glass_toggle::GlassThemeToggle;
 pub use global_search::{GlobalSearchBox, SearchTriggerButton};
 pub use hash_display::HashDisplay;
@@ -134,6 +139,7 @@ pub use trace_viewer::{
     TokenDecisions, TokenDecisionsPaged, TraceButton, TraceDetailStandalone, TracePanel,
     TraceViewer, TraceViewerWithData,
 };
+pub use tree_view::TreeView;
 pub use version_timeline::VersionTimeline;
 pub use workspace::{
     TwoColumnRatio, Workspace, WorkspaceColumn, WorkspaceGrid, WorkspaceTwoColumn,

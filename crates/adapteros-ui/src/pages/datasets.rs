@@ -21,6 +21,7 @@ use crate::hooks::{
 };
 use crate::pages::training::dataset_wizard::{DatasetOutcome, DatasetUploadWizard};
 use crate::utils::{format_bytes, format_date, humanize};
+use crate::validation::{use_field_error, use_form_state, validate_on_blur, ValidationRule};
 #[cfg(target_arch = "wasm32")]
 use adapteros_api_types::TrainingJobResponse;
 use leptos::prelude::*;
@@ -2481,7 +2482,29 @@ fn DatasetDraftView(
     let dataset_id_state = RwSignal::new(dataset_id);
     let document_ids_store = StoredValue::new(document_ids);
     let client = use_api();
+    let query = use_query_map();
+    let navigate = use_navigate();
+    let navigate_store = StoredValue::new(navigate);
     let poll_nonce = RwSignal::new(0u64);
+    let on_dataset_created = Callback::new(move |new_dataset_id: String| {
+        let mut params: HashMap<String, String> = query
+            .try_get()
+            .unwrap_or_default()
+            .into_iter()
+            .map(|(k, v)| (k.to_string(), v))
+            .collect();
+        params.insert("dataset_id".to_string(), new_dataset_id);
+        let qs = build_query_string(&params);
+        navigate_store.with_value(|nav| {
+            nav(
+                &format!("/datasets/draft{}", qs),
+                leptos_router::NavigateOptions {
+                    replace: true,
+                    ..Default::default()
+                },
+            );
+        });
+    });
 
     // Statistics state
     let stats_state = RwSignal::new(LoadingState::<DatasetStatisticsResponse>::Idle);
@@ -2567,6 +2590,35 @@ fn DatasetDraftView(
     let batch_size = RwSignal::new("4".to_string());
     let rank = RwSignal::new("8".to_string());
     let alpha = RwSignal::new("16".to_string());
+    let training_form_state = use_form_state();
+    let epochs_error = use_field_error(training_form_state, "epochs");
+    let learning_rate_error = use_field_error(training_form_state, "learning_rate");
+    let on_epochs_blur = Callback::new(move |_| {
+        validate_on_blur(
+            "epochs",
+            &epochs.get(),
+            &[
+                ValidationRule::Required,
+                ValidationRule::IntRange { min: 1, max: 1000 },
+            ],
+            training_form_state,
+        );
+    });
+    let on_learning_rate_blur = Callback::new(move |_| {
+        validate_on_blur(
+            "learning_rate",
+            &learning_rate.get(),
+            &[
+                ValidationRule::Required,
+                ValidationRule::PositiveNumber,
+                ValidationRule::Range {
+                    min: 1e-10,
+                    max: 1.0,
+                },
+            ],
+            training_form_state,
+        );
+    });
 
     let source_label = match source.as_str() {
         "file" => "File upload",
@@ -2702,6 +2754,7 @@ fn DatasetDraftView(
                 let is_training = is_training;
                 let safety_check_result = safety_check_result;
                 let safety_warning_acknowledged = safety_warning_acknowledged;
+                let on_dataset_created = on_dataset_created;
 
                 wasm_bindgen_futures::spawn_local(async move {
                     let dataset_id = if let Some(id) = existing_dataset_id {
@@ -2714,6 +2767,7 @@ fn DatasetDraftView(
                         {
                             Ok(ds) => {
                                 dataset_id_state.set(Some(ds.id.clone()));
+                                on_dataset_created.run(ds.id.clone());
                                 ds.id
                             }
                             Err(e) => {
@@ -3307,8 +3361,12 @@ fn DatasetDraftView(
                                 value=epochs
                                 input_type="number".to_string()
                                 placeholder="10".to_string()
+                                on_blur=Some(on_epochs_blur)
                             />
                             <p class="text-xs text-muted-foreground">"Number of training epochs"</p>
+                            {move || epochs_error.try_get().flatten().map(|msg| view! {
+                                <p class="text-xs text-destructive">{msg}</p>
+                            })}
                         </div>
                         <div class="space-y-2">
                             <label class="text-xs text-muted-foreground">"Learning Rate"</label>
@@ -3316,8 +3374,12 @@ fn DatasetDraftView(
                                 value=learning_rate
                                 input_type="text".to_string()
                                 placeholder="0.0001".to_string()
+                                on_blur=Some(on_learning_rate_blur)
                             />
                             <p class="text-xs text-muted-foreground">"Learning rate for optimizer"</p>
+                            {move || learning_rate_error.try_get().flatten().map(|msg| view! {
+                                <p class="text-xs text-destructive">{msg}</p>
+                            })}
                         </div>
                     </div>
 

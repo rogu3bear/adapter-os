@@ -19,6 +19,7 @@ use crate::components::{
     Spinner,
 };
 use crate::hooks::{use_api_resource, use_polling, use_sse_notifications, LoadingState};
+use crate::signals::{use_refetch_signal, RefetchTopic};
 use adapteros_api_types::{
     workers::WorkerStatusUpdate, HealthResponse, SystemStateResponse, WorkerResponse,
 };
@@ -130,16 +131,23 @@ pub fn System() -> impl IntoView {
     // Bridge SSE connection state to user notifications
     use_sse_notifications(sse_status.read_only());
 
-    // Fallback: if SSE is disconnected for 30s, trigger a refetch to keep data warm
+    // SSE-driven refresh from global lifecycle streams wired in Shell.
+    let health_refetch_counter = use_refetch_signal(RefetchTopic::Health);
     Effect::new(move || {
-        if sse_status.try_get() == Some(SseState::Disconnected) {
-            #[cfg(target_arch = "wasm32")]
-            {
-                gloo_timers::callback::Timeout::new(30_000, move || {
-                    refetch_workers.run(());
-                })
-                .forget();
-            }
+        let Some(counter) = health_refetch_counter.try_get() else {
+            return;
+        };
+        if counter > 0 {
+            refetch_status.run(());
+            refetch_workers.run(());
+            refetch_nodes.run(());
+            refetch_metrics.run(());
+            refetch_state.run(());
+            refetch_models_status.run(());
+            refetch_healthz.run(());
+            refetch_readyz.run(());
+            refetch_healthz_all.run(());
+            refetch_system_ready.run(());
         }
     });
 
@@ -171,9 +179,8 @@ pub fn System() -> impl IntoView {
         refetch_readyz.run(());
         refetch_healthz_all.run(());
         refetch_system_ready.run(());
-        // Only refetch workers if SSE is not connected
-        // Use get_untracked since we're in an async context outside reactive tracking
-        if sse_status.get_untracked() != SseState::Connected {
+        // Worker polling is fallback-only while the worker stream is not connected.
+        if is_polling_fallback_active(sse_status.get_untracked()) {
             refetch_workers.run(());
         }
     });
@@ -277,4 +284,11 @@ pub fn System() -> impl IntoView {
 
         </PageScaffold>
     }
+}
+
+fn is_polling_fallback_active(state: SseState) -> bool {
+    matches!(
+        state,
+        SseState::Disconnected | SseState::Connecting | SseState::Error | SseState::CircuitOpen
+    )
 }

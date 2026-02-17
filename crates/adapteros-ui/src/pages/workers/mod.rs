@@ -25,7 +25,7 @@ use crate::components::{
 use crate::hooks::{
     use_api, use_api_resource, use_cached_api_resource, use_polling, CacheTtl, LoadingState,
 };
-use crate::signals::use_notifications;
+use crate::signals::{use_notifications, use_refetch_signal, RefetchTopic};
 use adapteros_api_types::SpawnWorkerRequest;
 use leptos::prelude::*;
 use std::collections::HashMap;
@@ -101,8 +101,20 @@ pub fn Workers() -> impl IntoView {
         }
     });
 
+    // SSE-driven refresh from Shell's health lifecycle stream.
+    let workers_refetch_counter = use_refetch_signal(RefetchTopic::Workers);
+    Effect::new(move || {
+        let Some(counter) = workers_refetch_counter.try_get() else {
+            return;
+        };
+        if counter > 0 {
+            refetch_workers.run(());
+            refetch_worker_health.run(());
+        }
+    });
+
     // Set up polling interval (every 10 seconds for workers)
-    // Using use_polling hook which properly cleans up on unmount
+    // Polling remains as keepalive fallback when SSE-driven updates are unavailable.
     let _ = use_polling(10_000, move || async move {
         refetch_workers.run(());
         refetch_worker_health.run(());

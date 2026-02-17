@@ -5,7 +5,7 @@
 use crate::api::ApiClient;
 use crate::components::status::{StatusColor, StatusIndicator};
 use crate::components::status_center::use_status_center;
-use crate::hooks::{use_api_resource, LoadingState};
+use crate::hooks::{use_api_resource, use_polling, LoadingState};
 use leptos::prelude::*;
 use std::sync::Arc;
 
@@ -30,22 +30,9 @@ pub fn SystemTray() -> impl IntoView {
     // Current time (updates every second)
     let (time, set_time) = signal(get_current_time());
 
-    // Track whether we've created the interval to prevent duplicates
-    let interval_created = StoredValue::new(false);
-
-    // Update time every second - Effect runs once on mount
-    // The interval is intentionally leaked (mem::forget) since Interval doesn't
-    // implement Send+Sync. Uses try_set to handle signal disposal gracefully
-    // during SPA navigation (Shell is recreated per-route).
-    Effect::new(move || {
-        if !interval_created.get_value() {
-            interval_created.set_value(true);
-            let interval = gloo_timers::callback::Interval::new(1000, move || {
-                let _ = set_time.try_set(get_current_time());
-            });
-            // Leak the interval - it lives for app lifetime anyway
-            std::mem::forget(interval);
-        }
+    // Update time every second using cleanup-safe polling.
+    let _ = use_polling(1_000, move || async move {
+        let _ = set_time.try_set(get_current_time());
     });
 
     view! {

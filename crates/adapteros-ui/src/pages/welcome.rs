@@ -6,9 +6,11 @@
 
 use crate::api::ApiClient;
 use crate::components::{Button, ButtonLink, ButtonSize, ButtonVariant, PageScaffold, Spinner};
-use crate::hooks::{use_api_resource, LoadingState};
+use crate::hooks::{use_api_resource, use_polling, LoadingState};
+use crate::signals::{use_refetch_signal, RefetchTopic};
 use adapteros_api_types::{
-    InferenceBlocker, InferenceReadyState, StatusIndicator, SystemStatusResponse,
+    InferenceBlocker, InferenceReadyState, SetupDiscoveredModel, SetupSeedModelsRequest,
+    StatusIndicator, SystemStatusResponse,
 };
 use leptos::prelude::*;
 use std::sync::Arc;
@@ -381,7 +383,24 @@ fn WorkerStep(worker_connected: bool) -> impl IntoView {
 }
 
 #[component]
-fn ModelsStep(models_seeded: bool, model_count: i64) -> impl IntoView {
+fn ModelsStep(
+    models_seeded: bool,
+    model_count: i64,
+    discovered_models: ReadSignal<Vec<SetupDiscoveredModel>>,
+    selected_model_paths: ReadSignal<Vec<String>>,
+    discovering: ReadSignal<bool>,
+    seeding: ReadSignal<bool>,
+    discover_error: ReadSignal<Option<String>>,
+    seed_error: ReadSignal<Option<String>>,
+    seed_message: ReadSignal<Option<String>>,
+    #[prop(into)] on_discover: Callback<()>,
+    #[prop(into)] on_toggle_model: Callback<String>,
+    #[prop(into)] on_seed_selected: Callback<()>,
+) -> impl IntoView {
+    let discover_error_msg = move || discover_error.try_get().flatten();
+    let seed_error_msg = move || seed_error.try_get().flatten();
+    let seed_message_msg = move || seed_message.try_get().flatten();
+
     view! {
         <div class="wizard-action-area">
             <h3 class="wizard-step-title">"Seed a Model"</h3>
@@ -389,13 +408,87 @@ fn ModelsStep(models_seeded: bool, model_count: i64) -> impl IntoView {
                 when=move || models_seeded
                 fallback=move || view! {
                     <p class="wizard-step-desc">
-                        "Register a base model so the system can run inference."
+                        "Discover model directories and seed selected models into the database."
                     </p>
-                    <code class="wizard-code-block">"./aosctl models seed"</code>
-                    <p class="wizard-step-hint">
-                        "Place model files in " <code>"var/models/"</code>
-                        " then run the seed command."
-                    </p>
+                    <div class="wizard-ready-actions">
+                        <Button
+                            variant=ButtonVariant::Outline
+                            size=ButtonSize::Sm
+                            loading=Signal::derive(move || discovering.try_get().unwrap_or(false))
+                            disabled=Signal::derive(move || seeding.try_get().unwrap_or(false))
+                            on_click=Callback::new(move |_| on_discover.run(()))
+                        >
+                            "Discover Models"
+                        </Button>
+                        <Button
+                            variant=ButtonVariant::Primary
+                            size=ButtonSize::Sm
+                            loading=Signal::derive(move || seeding.try_get().unwrap_or(false))
+                            disabled=Signal::derive(move || {
+                                discovering.try_get().unwrap_or(false)
+                                    || seeding.try_get().unwrap_or(false)
+                                    || selected_model_paths
+                                        .try_get()
+                                        .map(|paths| paths.is_empty())
+                                        .unwrap_or(true)
+                            })
+                            on_click=Callback::new(move |_| on_seed_selected.run(()))
+                        >
+                            "Seed Selected"
+                        </Button>
+                    </div>
+                    {move || discover_error_msg().map(|e| view! {
+                        <p class="wizard-error">{e}</p>
+                    })}
+                    {move || seed_error_msg().map(|e| view! {
+                        <p class="wizard-error">{e}</p>
+                    })}
+                    {move || seed_message_msg().map(|m| view! {
+                        <p class="wizard-step-hint">{m}</p>
+                    })}
+                    <Show
+                        when=move || {
+                            discovered_models
+                                .try_get()
+                                .map(|models| !models.is_empty())
+                                .unwrap_or(false)
+                        }
+                        fallback=move || view! {
+                            <p class="wizard-step-hint">"No model directories discovered yet."</p>
+                        }
+                    >
+                        <div class="wizard-model-list">
+                            {move || {
+                                let selected_paths = selected_model_paths.try_get().unwrap_or_default();
+                                discovered_models
+                                    .try_get()
+                                    .unwrap_or_default()
+                                    .into_iter()
+                                    .map(|model| {
+                                        let path = model.model_path;
+                                        let is_selected = selected_paths.iter().any(|p| p == &path);
+                                        let action_label = if is_selected { "Deselect" } else { "Select" };
+                                        view! {
+                                            <div class="wizard-model-item">
+                                                <div>
+                                                    <p class="text-sm font-semibold">{model.name}</p>
+                                                    <p class="text-xs text-muted-foreground">{path.clone()}</p>
+                                                    <p class="text-xs text-muted-foreground">{format!("{} / {}", model.format, model.backend)}</p>
+                                                </div>
+                                                <Button
+                                                    variant=ButtonVariant::Outline
+                                                    size=ButtonSize::Sm
+                                                    on_click=Callback::new(move |_| on_toggle_model.run(path.clone()))
+                                                >
+                                                    {action_label}
+                                                </Button>
+                                            </div>
+                                        }
+                                    })
+                                    .collect_view()
+                            }}
+                        </div>
+                    </Show>
                     <ButtonLink
                         href="/models"
                         variant=ButtonVariant::Outline
@@ -464,59 +557,146 @@ pub fn Welcome() -> impl IntoView {
     let (status, refetch) =
         use_api_resource(|client: Arc<ApiClient>| async move { client.system_status().await });
 
+    // SSE-driven refresh from Shell's health lifecycle stream.
+    let health_refetch_counter = use_refetch_signal(RefetchTopic::Health);
+    Effect::new(move || {
+        let Some(counter) = health_refetch_counter.try_get() else {
+            return;
+        };
+        if counter > 0 {
+            refetch.run(());
+        }
+    });
+
     let on_refresh = Callback::new(move |_| refetch.run(()));
 
     // Wizard action state
     let (migrating, set_migrating) = signal(false);
     let (migrate_error, set_migrate_error) = signal(Option::<String>::None);
+    let (discovering_models, set_discovering_models) = signal(false);
+    let (seeding_models, set_seeding_models) = signal(false);
+    let (discover_error, set_discover_error) = signal(Option::<String>::None);
+    let (seed_error, set_seed_error) = signal(Option::<String>::None);
+    let (seed_message, set_seed_message) = signal(Option::<String>::None);
+    let (discovered_models, set_discovered_models) = signal(Vec::<SetupDiscoveredModel>::new());
+    let (selected_model_paths, set_selected_model_paths) = signal(Vec::<String>::new());
 
     // Capture the API client in the component's reactive scope
     #[cfg(target_arch = "wasm32")]
     let client = crate::api::use_api_client();
-    let refetch_clone = refetch;
+    #[cfg(target_arch = "wasm32")]
+    let client_for_migrate = Arc::clone(&client);
+    #[cfg(target_arch = "wasm32")]
+    let client_for_discover = Arc::clone(&client);
+    #[cfg(target_arch = "wasm32")]
+    let client_for_seed = Arc::clone(&client);
+
+    let refetch_for_migrate = refetch.clone();
     let on_migrate = Callback::new(move |()| {
         set_migrating.set(true);
         set_migrate_error.set(None);
         #[cfg(target_arch = "wasm32")]
         {
-            let refetch = refetch_clone;
-            let client = Arc::clone(&client);
+            let refetch = refetch_for_migrate.clone();
+            let client = Arc::clone(&client_for_migrate);
             wasm_bindgen_futures::spawn_local(async move {
-                // The setup_migrate endpoint is not yet wired in the client,
-                // so we just refetch system status to detect if migrations resolved.
-                // Once the lead merges ws2-client-methods, this can call setup_migrate().
-                match client.system_status().await {
+                match client.setup_migrate().await {
                     Ok(_) => {
                         set_migrating.set(false);
                         refetch.run(());
                     }
                     Err(e) => {
                         set_migrating.set(false);
-                        set_migrate_error.set(Some(format!("Migration check failed: {}", e)));
+                        set_migrate_error.set(Some(format!("Migration failed: {}", e)));
                     }
                 }
             });
         }
     });
 
-    // Auto-poll: refetch system status every 10 seconds.
-    // The interval is leaked intentionally (same pattern as system_tray.rs).
-    // It calls try_set on internal signals which is safe after disposal.
-    #[cfg(target_arch = "wasm32")]
-    {
-        let refetch_poll = refetch.clone();
-        let started = StoredValue::new(false);
-        Effect::new(move || {
-            if !started.get_value() {
-                started.set_value(true);
-                let refetch_inner = refetch_poll.clone();
-                let interval = gloo_timers::callback::Interval::new(10_000, move || {
-                    refetch_inner.run(());
-                });
-                std::mem::forget(interval);
+    let on_toggle_model = Callback::new(move |model_path: String| {
+        set_selected_model_paths.update(|paths| {
+            if let Some(index) = paths.iter().position(|p| p == &model_path) {
+                paths.remove(index);
+            } else {
+                paths.push(model_path);
             }
         });
-    }
+    });
+
+    let on_discover = Callback::new(move |()| {
+        set_discovering_models.set(true);
+        set_discover_error.set(None);
+        set_seed_error.set(None);
+        set_seed_message.set(None);
+        #[cfg(target_arch = "wasm32")]
+        {
+            let client = Arc::clone(&client_for_discover);
+            wasm_bindgen_futures::spawn_local(async move {
+                match client.setup_discover_models().await {
+                    Ok(response) => {
+                        let selected = response
+                            .models
+                            .iter()
+                            .map(|m| m.model_path.clone())
+                            .collect::<Vec<_>>();
+                        set_discovering_models.set(false);
+                        set_discovered_models.set(response.models);
+                        set_selected_model_paths.set(selected);
+                    }
+                    Err(e) => {
+                        set_discovering_models.set(false);
+                        set_discover_error.set(Some(format!("Discovery failed: {}", e)));
+                    }
+                }
+            });
+        }
+    });
+
+    let refetch_for_seed = refetch.clone();
+    let on_seed_selected = Callback::new(move |()| {
+        let paths = selected_model_paths.get_untracked();
+        if paths.is_empty() {
+            set_seed_error.set(Some("Select at least one model to seed.".to_string()));
+            return;
+        }
+
+        set_seeding_models.set(true);
+        set_seed_error.set(None);
+        set_seed_message.set(None);
+        #[cfg(target_arch = "wasm32")]
+        {
+            let client = Arc::clone(&client_for_seed);
+            let refetch = refetch_for_seed.clone();
+            wasm_bindgen_futures::spawn_local(async move {
+                match client
+                    .setup_seed_models(&SetupSeedModelsRequest {
+                        model_paths: paths,
+                        force: false,
+                    })
+                    .await
+                {
+                    Ok(response) => {
+                        set_seeding_models.set(false);
+                        set_seed_message.set(Some(format!(
+                            "Seeded {}, skipped {}, failed {}.",
+                            response.seeded, response.skipped, response.failed
+                        )));
+                        refetch.run(());
+                    }
+                    Err(e) => {
+                        set_seeding_models.set(false);
+                        set_seed_error.set(Some(format!("Seed failed: {}", e)));
+                    }
+                }
+            });
+        }
+    });
+
+    // Polling fallback when SSE events are unavailable.
+    let _ = use_polling(10_000, move || async move {
+        refetch.run(());
+    });
 
     view! {
         <PageScaffold
@@ -610,7 +790,20 @@ pub fn Welcome() -> impl IntoView {
                                                 when=move || current_step == WizardStep::Models
                                                 fallback=move || view! {}.into_any()
                                             >
-                                                <ModelsStep models_seeded=models_ok model_count=model_count />
+                                                <ModelsStep
+                                                    models_seeded=models_ok
+                                                    model_count=model_count
+                                                    discovered_models=discovered_models
+                                                    selected_model_paths=selected_model_paths
+                                                    discovering=discovering_models
+                                                    seeding=seeding_models
+                                                    discover_error=discover_error
+                                                    seed_error=seed_error
+                                                    seed_message=seed_message
+                                                    on_discover=on_discover
+                                                    on_toggle_model=on_toggle_model
+                                                    on_seed_selected=on_seed_selected
+                                                />
                                             </Show>
                                             <Show
                                                 when=move || current_step == WizardStep::Ready

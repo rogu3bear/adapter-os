@@ -520,7 +520,7 @@ fn MfaEnrollVerify(
 
                 // Secret key
                 <div class="space-y-1">
-                    <label class="text-xs font-medium text-muted-foreground">"Secret Key"</label>
+                    <p class="text-xs font-medium text-muted-foreground">"Secret Key"</p>
                     <div class="rounded-md bg-muted/50 p-2 font-mono text-xs select-all break-all">
                         {secret}
                     </div>
@@ -528,7 +528,7 @@ fn MfaEnrollVerify(
 
                 // OTPAuth URL
                 <div class="space-y-1">
-                    <label class="text-xs font-medium text-muted-foreground">"OTPAuth URL"</label>
+                    <p class="text-xs font-medium text-muted-foreground">"OTPAuth URL"</p>
                     <div class="rounded-md bg-muted/50 p-2 font-mono text-xs select-all break-all">
                         {otpauth_url}
                     </div>
@@ -537,8 +537,11 @@ fn MfaEnrollVerify(
 
             // Verification code input
             <div class="space-y-2">
-                <label class="text-sm font-medium">"Verification Code"</label>
+                <label for="mfa-enroll-verification-code" class="text-sm font-medium">
+                    "Verification Code"
+                </label>
                 <input
+                    id="mfa-enroll-verification-code"
                     type="text"
                     inputmode="numeric"
                     maxlength="6"
@@ -672,8 +675,9 @@ fn MfaDisableFlow(open: RwSignal<bool>, refetch: Refetch) -> impl IntoView {
                     "Enter your current TOTP code or a backup code to disable multi-factor authentication."
                 </p>
                 <div class="space-y-2">
-                    <label class="text-sm font-medium">"Code"</label>
+                    <label for="mfa-disable-code" class="text-sm font-medium">"Code"</label>
                     <input
+                        id="mfa-disable-code"
                         type="text"
                         placeholder="TOTP or backup code"
                         class="w-full rounded-md border border-border bg-background px-3 py-2 font-mono"

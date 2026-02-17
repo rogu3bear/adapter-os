@@ -15,7 +15,7 @@ use crate::components::{
     Checkbox, CopyableId, Dialog, DiffResults, EmptyState, EmptyStateVariant, Link,
     PageBreadcrumbItem, PageScaffold, PageScaffoldActions, Select, SkeletonDetailSection, Spinner,
     SplitPanel, SplitRatio, Table, TableBody, TableCell, TableHead, TableHeader, TableRow,
-    TokenDecisionsPaged, TraceViewerWithData,
+    TokenDecisionsPaged, TraceViewerWithData, VirtualTableBody,
 };
 use crate::components::{ButtonSize, Input};
 use crate::constants::pagination::TOKEN_DECISIONS_PAGE_SIZE;
@@ -202,6 +202,8 @@ fn RunsTable(
         },
         RUNS_PAGE_SIZE,
     );
+    let visible_runs =
+        Signal::derive(move || controls.visible_items.try_get().unwrap_or_default());
 
     view! {
         <Card>
@@ -225,72 +227,89 @@ fn RunsTable(
                 </span>
             </div>
 
-            <Table>
-                <TableHeader>
-                    <TableRow>
-                        <TableHead>"Run ID"</TableHead>
-                        <TableHead>"Status"</TableHead>
-                        <TableHead>"Duration"</TableHead>
-                        <TableHead>"Events"</TableHead>
-                        <TableHead>"Started"</TableHead>
-                    </TableRow>
-                </TableHeader>
-                <TableBody>
-                    {move || {
-                        controls.visible_items.try_get().unwrap_or_default().into_iter().map(|run| {
-                            let run_id_for_row_click = run.id.clone();
-                            let run_id_for_link = run.id.clone();
-                            let run_id_for_display = truncate_id(&run.id);
-                            let rid = run.id.clone();
+            <VirtualTableBody
+                items=visible_runs
+                row_height=56
+                max_visible_rows=10
+                overscan=4
+                header={view! {
+                    <TableHeader>
+                        <TableRow>
+                            <TableHead>"Run ID"</TableHead>
+                            <TableHead>"Status"</TableHead>
+                            <TableHead>"Duration"</TableHead>
+                            <TableHead>"Events"</TableHead>
+                            <TableHead>"Started"</TableHead>
+                        </TableRow>
+                    </TableHeader>
+                }.into_any()}
+                render_row=move |run, _| {
+                    let run_id_for_row_click = run.id.clone();
+                    let run_id_for_row_keydown = run.id.clone();
+                    let run_id_for_link = run.id.clone();
+                    let run_id_for_display = truncate_id(&run.id);
+                    let row_label = format!("Open run {}", run.id);
+                    let rid = run.id.clone();
+                    let on_select_click = on_select.clone();
+                    let on_select_keydown = on_select.clone();
 
-                            view! {
-                                <tr
-                                    class="table-row cursor-pointer hover:bg-muted/50"
-                                    class:bg-accent=move || selected_id.try_get().flatten().as_ref() == Some(&rid)
-                                    on:click=move |_| on_select.run(run_id_for_row_click.clone())
-                                >
-                                    <TableCell>
-                                        <a
-                                            href=format!("/runs/{}", run_id_for_link)
-                                            class="font-mono text-sm text-primary hover:underline"
-                                            on:click=move |e: web_sys::MouseEvent| {
-                                                // Ctrl/Cmd+click or middle-click: let browser open link
-                                                if e.ctrl_key() || e.meta_key() || e.button() != 0 {
-                                                    e.stop_propagation();
-                                                } else {
-                                                    // Plain left click: prevent navigation, let row handler select
-                                                    e.prevent_default();
-                                                }
-                                            }
-                                        >
-                                            {run_id_for_display}
-                                        </a>
-                                    </TableCell>
-                                    <TableCell>
-                                        <StatusBadge status=run.status.clone()/>
-                                    </TableCell>
-                                    <TableCell>
-                                        {format_duration_ms(run.duration_ms)}
-                                    </TableCell>
-                                    <TableCell>
-                                        <span class="font-mono text-sm">
-                                            {run.total_events_count}
-                                            {if run.dropped_events_count > 0 {
-                                                format!(" ({} dropped)", run.dropped_events_count)
-                                            } else {
-                                                String::new()
-                                            }}
-                                        </span>
-                                    </TableCell>
-                                    <TableCell>
-                                        {format_timestamp_ms(run.started_at_unix_ms)}
-                                    </TableCell>
-                                </tr>
+                    view! {
+                        <tr
+                            class="table-row table-row-interactive cursor-pointer hover:bg-muted/50"
+                            role="button"
+                            tabindex=0
+                            aria-label=row_label
+                            class:bg-accent=move || selected_id.try_get().flatten().as_ref() == Some(&rid)
+                            on:click=move |_| on_select_click.run(run_id_for_row_click.clone())
+                            on:keydown=move |e: web_sys::KeyboardEvent| {
+                                let key = e.key();
+                                if key == "Enter" || key == " " || key == "Spacebar" {
+                                    e.prevent_default();
+                                    on_select_keydown.run(run_id_for_row_keydown.clone());
+                                }
                             }
-                        }).collect::<Vec<_>>()
-                    }}
-                </TableBody>
-            </Table>
+                        >
+                            <TableCell>
+                                <a
+                                    href=format!("/runs/{}", run_id_for_link)
+                                    class="font-mono text-sm text-primary hover:underline"
+                                    on:click=move |e: web_sys::MouseEvent| {
+                                        // Ctrl/Cmd+click or middle-click: let browser open link
+                                        if e.ctrl_key() || e.meta_key() || e.button() != 0 {
+                                            e.stop_propagation();
+                                        } else {
+                                            // Plain left click: prevent navigation, let row handler select
+                                            e.prevent_default();
+                                        }
+                                    }
+                                >
+                                    {run_id_for_display}
+                                </a>
+                            </TableCell>
+                            <TableCell>
+                                <StatusBadge status=run.status.clone()/>
+                            </TableCell>
+                            <TableCell>
+                                {format_duration_ms(run.duration_ms)}
+                            </TableCell>
+                            <TableCell>
+                                <span class="font-mono text-sm">
+                                    {run.total_events_count}
+                                    {if run.dropped_events_count > 0 {
+                                        format!(" ({} dropped)", run.dropped_events_count)
+                                    } else {
+                                        String::new()
+                                    }}
+                                </span>
+                            </TableCell>
+                            <TableCell>
+                                {format_timestamp_ms(run.started_at_unix_ms)}
+                            </TableCell>
+                        </tr>
+                    }
+                }
+                debug_label="runs-table".to_string()
+            />
 
             // Pagination
             {move || {

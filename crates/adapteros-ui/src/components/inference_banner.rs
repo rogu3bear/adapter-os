@@ -3,18 +3,15 @@
 //! Shown globally when inference is not ready. Terse and action-oriented:
 //! state the impact, name the cause, offer the fix. No mechanism explanations.
 
-use crate::api::ApiClient;
 use crate::components::inference_guidance::{guidance_for, primary_blocker};
 use crate::components::{Button, ButtonLink, ButtonSize, ButtonVariant};
-use crate::hooks::{use_api_resource, LoadingState};
+use crate::hooks::{use_system_status, LoadingState};
 use adapteros_api_types::InferenceReadyState;
 use leptos::prelude::*;
-use std::sync::Arc;
 
 #[component]
 pub fn InferenceBanner() -> impl IntoView {
-    let (status, refetch) =
-        use_api_resource(|client: Arc<ApiClient>| async move { client.system_status().await });
+    let (status, refetch) = use_system_status();
 
     let status_center = crate::components::status_center::use_status_center();
 

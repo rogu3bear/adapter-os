@@ -9,10 +9,10 @@ use crate::api::{
     UpdateErrorAlertRuleRequest,
 };
 use crate::components::{
-    loaded_signal, AsyncBoundary, Badge, BadgeVariant, Button, ButtonSize, ButtonVariant, Card,
-    Column, ConfirmationDialog, ConfirmationSeverity, DataTable, Dialog, EmptyState, Input,
+    AsyncBoundary, Badge, BadgeVariant, Button, ButtonSize, ButtonVariant, Card, Column,
+    ConfirmationDialog, ConfirmationSeverity, DataTable, Dialog, EmptyState, Input,
     PageBreadcrumbItem, PageScaffold, Select, SkeletonTable, TabNav, TabPanel, Table, TableBody,
-    TableCell, TableHead, TableHeader, TableRow,
+    TableCell, TableHead, TableHeader, TableRow, VirtualTableBody,
 };
 use crate::hooks::{use_api_resource, use_scope_alive, LoadingState};
 use crate::utils::humanize;
@@ -130,61 +130,44 @@ fn LiveFeedSection() -> impl IntoView {
                 let live_vec = Signal::derive(move || {
                     live_errors.try_get().unwrap_or_default().iter().cloned().collect::<Vec<_>>()
                 });
-                let live_data = loaded_signal(live_vec);
-
-                let columns: Vec<Column<ClientErrorItem>> = vec![
-                    Column::custom("Time", |e: &ClientErrorItem| {
-                        let ts = format_timestamp(&e.client_timestamp);
-                        view! {
-                            <span class="text-xs text-muted-foreground font-mono">{ts}</span>
-                        }
-                    }),
-                    Column::custom("Type", |e: &ClientErrorItem| {
-                        let variant = match e.error_type.as_str() {
-                            "Network" | "Server" | "Panic" => BadgeVariant::Destructive,
-                            "Http" | "JsBootError" => BadgeVariant::Warning,
-                            "Validation" => BadgeVariant::Secondary,
-                            _ => BadgeVariant::Outline,
-                        };
-                        let label = e.error_type.clone();
-                        view! { <Badge variant=variant>{label}</Badge> }
-                    }),
-                    Column::custom("Message", |e: &ClientErrorItem| {
-                        let title = e.message.clone();
-                        let display = truncate_message(&e.message, 80);
-                        view! {
-                            <span class="text-sm truncate max-w-md block" title=title>{display}</span>
-                        }
-                    }),
-                    Column::custom("Status", |e: &ClientErrorItem| {
-                        if let Some(status) = e.http_status {
-                            let variant = if status >= 500 {
-                                BadgeVariant::Destructive
-                            } else if status >= 400 {
-                                BadgeVariant::Warning
-                            } else {
-                                BadgeVariant::Secondary
-                            };
-                            view! { <Badge variant=variant>{status.to_string()}</Badge> }.into_any()
-                        } else {
-                            view! { <span /> }.into_any()
-                        }
-                    }),
-                    Column::custom("Page", |e: &ClientErrorItem| {
-                        let page = e.page.clone().unwrap_or_else(|| "-".to_string());
-                        view! {
-                            <span class="text-xs text-muted-foreground font-mono">{page}</span>
-                        }
-                    }),
-                ];
 
                 view! {
-                    <DataTable
-                        data=live_data
-                        columns=columns
-                        empty_title="No incidents detected"
-                        empty_description="Errors will appear here in real-time when they occur"
-                    />
+                    <Card>
+                        {move || {
+                            if live_vec.try_get().unwrap_or_default().is_empty() {
+                                view! {
+                                    <EmptyState
+                                        title="No incidents detected"
+                                        description="Errors will appear here in real-time when they occur"
+                                    />
+                                }.into_any()
+                            } else {
+                                view! {
+                                    <VirtualTableBody
+                                        items=live_vec
+                                        row_height=56
+                                        max_visible_rows=10
+                                        overscan=4
+                                        header={view! {
+                                            <TableHeader>
+                                                <TableRow>
+                                                    <TableHead>"Time"</TableHead>
+                                                    <TableHead>"Type"</TableHead>
+                                                    <TableHead>"Message"</TableHead>
+                                                    <TableHead>"Status"</TableHead>
+                                                    <TableHead>"Page"</TableHead>
+                                                </TableRow>
+                                            </TableHeader>
+                                        }.into_any()}
+                                        render_row=move |error, _| {
+                                            view! { <ErrorRow error=error/> }
+                                        }
+                                        debug_label="errors-live-feed".to_string()
+                                    />
+                                }.into_any()
+                            }
+                        }}
+                    </Card>
                 }
             }
         </div>
@@ -349,30 +332,42 @@ fn HistorySection() -> impl IntoView {
                                     <div class="px-4 py-2 text-sm text-muted-foreground border-b">
                                         {format!("Showing {} of {} errors", error_count, total)}
                                     </div>
-                                    <Table>
-                                        <TableHeader>
-                                            <TableRow>
-                                                <TableHead>"Time"</TableHead>
-                                                <TableHead>"Type"</TableHead>
-                                                <TableHead>"Message"</TableHead>
-                                                <TableHead>"Status"</TableHead>
-                                                <TableHead>"Page"</TableHead>
-                                            </TableRow>
-                                        </TableHeader>
-                                        <TableBody>
-                                            {move || {
-                                                let count = visible_count.try_get().unwrap_or(ERROR_HISTORY_PAGE_SIZE).min(error_count);
-                                                errors_data
-                                                    .iter()
-                                                    .take(count)
-                                                    .cloned()
-                                                    .map(|error| {
-                                                        view! { <ErrorRow error=error/> }
-                                                    })
-                                                    .collect::<Vec<_>>()
-                                            }}
-                                        </TableBody>
-                                    </Table>
+                                    {
+                                        let visible_errors = Signal::derive({
+                                            let errors_data = errors_data.clone();
+                                            move || {
+                                                let count = visible_count
+                                                    .try_get()
+                                                    .unwrap_or(ERROR_HISTORY_PAGE_SIZE)
+                                                    .min(error_count);
+                                                errors_data.iter().take(count).cloned().collect::<Vec<_>>()
+                                            }
+                                        });
+
+                                        view! {
+                                            <VirtualTableBody
+                                                items=visible_errors
+                                                row_height=56
+                                                max_visible_rows=12
+                                                overscan=4
+                                                header={view! {
+                                                    <TableHeader>
+                                                        <TableRow>
+                                                            <TableHead>"Time"</TableHead>
+                                                            <TableHead>"Type"</TableHead>
+                                                            <TableHead>"Message"</TableHead>
+                                                            <TableHead>"Status"</TableHead>
+                                                            <TableHead>"Page"</TableHead>
+                                                        </TableRow>
+                                                    </TableHeader>
+                                                }.into_any()}
+                                                render_row=move |error, _| {
+                                                    view! { <ErrorRow error=error/> }
+                                                }
+                                                debug_label="errors-history".to_string()
+                                            />
+                                        }
+                                    }
 
                                     // Show more button
                                     {move || {

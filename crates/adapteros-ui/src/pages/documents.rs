@@ -804,8 +804,9 @@ fn DocumentUploadDialog(open: RwSignal<bool>, on_success: Callback<String>) -> i
         >
             <div class="space-y-4 py-2">
                 <div class="space-y-2">
-                    <label class="text-sm font-medium">"File"</label>
+                    <label for="documents-upload-file" class="text-sm font-medium">"File"</label>
                     <input
+                        id="documents-upload-file"
                         type="file"
                         accept=".pdf,.txt,.md,.markdown"
                         class="block w-full text-sm"

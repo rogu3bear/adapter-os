@@ -8115,3 +8115,250 @@
   min-height: 400px;
   padding: 1.5rem;
 }
+
+/* ===== Filesystem Workspace ===== */
+.filesystem-workspace {
+  display: flex;
+  flex-direction: column;
+  gap: 0.75rem;
+}
+
+.filesystem-grid {
+  display: grid;
+  grid-template-columns: minmax(220px, 280px) minmax(0, 1fr) minmax(220px, 300px);
+  gap: 0.75rem;
+  min-height: 520px;
+}
+
+.files-tree,
+.files-editor,
+.files-git-panel {
+  border: 1px solid var(--color-border);
+  border-radius: 0.5rem;
+  background: var(--glass-bg-1);
+}
+
+.files-tree,
+.files-git-panel {
+  padding: 0.75rem;
+  overflow: auto;
+}
+
+.files-tree-header,
+.files-git-header {
+  font-size: 0.75rem;
+  font-weight: 600;
+  letter-spacing: 0.04em;
+  text-transform: uppercase;
+  color: var(--color-muted-foreground);
+  margin-bottom: 0.5rem;
+}
+
+.files-tree-list {
+  display: flex;
+  flex-direction: column;
+  gap: 0.125rem;
+}
+
+.files-tree-item {
+  display: flex;
+  align-items: center;
+  gap: 0.5rem;
+  width: 100%;
+  padding: 0.375rem 0.5rem;
+  border-radius: 0.375rem;
+  border: 0;
+  background: transparent;
+  text-align: left;
+  color: var(--color-foreground);
+  cursor: pointer;
+}
+
+.files-tree-item:hover,
+.files-tree-item.is-selected {
+  background: color-mix(in srgb, var(--color-primary) 12%, transparent);
+}
+
+.files-tree-name {
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+}
+
+.files-editor {
+  display: flex;
+  flex-direction: column;
+  min-width: 0;
+}
+
+.files-editor-toolbar {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  gap: 0.5rem;
+  padding: 0.625rem 0.75rem;
+  border-bottom: 1px solid var(--color-border);
+}
+
+.files-editor-path {
+  font-family: var(--font-mono, monospace);
+  font-size: 0.75rem;
+  color: var(--color-muted-foreground);
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+}
+
+.files-editor-body {
+  flex: 1;
+  min-height: 0;
+}
+
+.files-editor-codemirror,
+.files-editor-fallback {
+  width: 100%;
+  height: 100%;
+  min-height: 460px;
+}
+
+.files-editor-fallback {
+  border: 0;
+  background: transparent;
+  color: var(--color-foreground);
+  font-family: var(--font-mono, monospace);
+  font-size: 0.8125rem;
+  line-height: 1.45;
+  padding: 0.75rem;
+  resize: none;
+}
+
+.files-editor-fallback:focus {
+  outline: 2px solid var(--color-ring);
+  outline-offset: -2px;
+}
+
+.files-git-summary {
+  display: flex;
+  justify-content: space-between;
+  gap: 0.5rem;
+  margin-bottom: 0.75rem;
+  font-size: 0.8125rem;
+}
+
+.files-git-toolbar {
+  display: flex;
+  justify-content: flex-end;
+  margin-bottom: 0.5rem;
+}
+
+.files-git-note {
+  margin-bottom: 0.5rem;
+  padding: 0.375rem 0.5rem;
+  border-radius: 0.375rem;
+  font-size: 0.75rem;
+  color: var(--color-muted-foreground);
+  background: color-mix(in srgb, var(--color-muted) 60%, transparent);
+}
+
+.files-git-branch {
+  font-family: var(--font-mono, monospace);
+}
+
+.files-git-section {
+  margin-top: 0.625rem;
+}
+
+.files-git-section-title {
+  font-size: 0.75rem;
+  color: var(--color-muted-foreground);
+  margin-bottom: 0.375rem;
+}
+
+.files-git-list {
+  margin: 0;
+  padding-left: 1rem;
+  font-size: 0.75rem;
+}
+
+.files-git-list-item {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  gap: 0.5rem;
+  margin-bottom: 0.25rem;
+}
+
+.files-git-commit-input {
+  width: 100%;
+  min-height: 64px;
+  resize: vertical;
+  border: 1px solid var(--color-border);
+  border-radius: 0.375rem;
+  background: var(--glass-bg-1);
+  color: var(--color-foreground);
+  padding: 0.5rem;
+  font-size: 0.75rem;
+  margin-bottom: 0.375rem;
+}
+
+.files-git-commit-btn {
+  width: 100%;
+}
+
+.files-git-commit-row {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  gap: 0.5rem;
+  margin-bottom: 0.25rem;
+}
+
+.files-git-commit-link {
+  max-width: 100%;
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+  text-align: left;
+  justify-content: flex-start;
+}
+
+.files-git-diff {
+  margin-top: 0.375rem;
+  max-height: 180px;
+  overflow: auto;
+  background: color-mix(in srgb, var(--color-background) 90%, transparent);
+  border: 1px solid var(--color-border);
+  border-radius: 0.375rem;
+  padding: 0.5rem;
+  font-family: var(--font-mono, monospace);
+  font-size: 0.6875rem;
+  white-space: pre-wrap;
+  word-break: break-word;
+}
+
+.files-git-branches li {
+  display: flex;
+  justify-content: space-between;
+  gap: 0.5rem;
+}
+
+.files-git-meta {
+  color: var(--color-muted-foreground);
+  font-family: var(--font-mono, monospace);
+}
+
+.files-git-empty {
+  font-size: 0.75rem;
+  color: var(--color-muted-foreground);
+}
+
+@media (max-width: 1100px) {
+  .filesystem-grid {
+    grid-template-columns: 1fr;
+  }
+
+  .files-editor-codemirror,
+  .files-editor-fallback {
+    min-height: 320px;
+  }
+}

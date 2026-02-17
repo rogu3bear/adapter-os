@@ -3,7 +3,7 @@
 //! List view and row components for adapter stacks.
 
 use super::helpers::{lifecycle_badge_variant, workflow_type_label};
-use crate::api::StackResponse;
+use crate::api::{report_error_with_toast, StackResponse};
 use crate::components::{
     Badge, BadgeVariant, Card, ConfirmationDialog, ConfirmationSeverity, EmptyState, Table,
     TableBody, TableCell, TableHead, TableHeader, TableRow,
@@ -41,11 +41,13 @@ pub fn StacksList(stacks: Vec<StackResponse>, refetch: Refetch) -> impl IntoView
     let pending_activate_id = RwSignal::new(Option::<String>::None);
     let pending_activate_name = RwSignal::new(String::new());
     let activating = RwSignal::new(false);
+    let activate_error = RwSignal::new(Option::<String>::None);
 
     // Deactivate confirmation dialog state
     let show_deactivate_confirm = RwSignal::new(false);
     let pending_deactivate_name = RwSignal::new(String::new());
     let deactivating = RwSignal::new(false);
+    let deactivate_error = RwSignal::new(Option::<String>::None);
 
     // Reset dialog state
     let reset_delete_state = move || {
@@ -88,6 +90,7 @@ pub fn StacksList(stacks: Vec<StackResponse>, refetch: Refetch) -> impl IntoView
     let reset_activate_state = move || {
         pending_activate_id.set(None);
         pending_activate_name.set(String::new());
+        activate_error.set(None);
     };
 
     // Handle cancel/close of activate dialog
@@ -101,6 +104,7 @@ pub fn StacksList(stacks: Vec<StackResponse>, refetch: Refetch) -> impl IntoView
         Callback::new(move |_| {
             if let Some(id) = pending_activate_id.get() {
                 activating.set(true);
+                activate_error.set(None);
                 let client = Arc::clone(&client);
                 wasm_bindgen_futures::spawn_local(async move {
                     match client.activate_stack(&id).await {
@@ -110,7 +114,14 @@ pub fn StacksList(stacks: Vec<StackResponse>, refetch: Refetch) -> impl IntoView
                             reset_activate_state();
                         }
                         Err(e) => {
-                            tracing::error!("Failed to activate stack: {}", e);
+                            let _ = activate_error
+                                .try_set(Some(format!("Failed to activate: {}", e.user_message())));
+                            report_error_with_toast(
+                                &e,
+                                "Failed to activate stack",
+                                Some("/stacks"),
+                                true,
+                            );
                         }
                     }
                     let _ = activating.try_set(false);
@@ -124,15 +135,25 @@ pub fn StacksList(stacks: Vec<StackResponse>, refetch: Refetch) -> impl IntoView
         let client = Arc::clone(&client);
         Callback::new(move |_| {
             deactivating.set(true);
+            deactivate_error.set(None);
             let client = Arc::clone(&client);
             wasm_bindgen_futures::spawn_local(async move {
                 match client.deactivate_stack().await {
                     Ok(_) => {
                         refetch.run(());
                         let _ = show_deactivate_confirm.try_set(false);
+                        let _ = pending_deactivate_name.try_set(String::new());
+                        let _ = deactivate_error.try_set(None);
                     }
                     Err(e) => {
-                        tracing::error!("Failed to deactivate stack: {}", e);
+                        let _ = deactivate_error
+                            .try_set(Some(format!("Failed to deactivate: {}", e.user_message())));
+                        report_error_with_toast(
+                            &e,
+                            "Failed to deactivate stack",
+                            Some("/stacks"),
+                            true,
+                        );
                     }
                 }
                 let _ = deactivating.try_set(false);
@@ -142,6 +163,7 @@ pub fn StacksList(stacks: Vec<StackResponse>, refetch: Refetch) -> impl IntoView
 
     let on_cancel_deactivate = Callback::new(move |_| {
         pending_deactivate_name.set(String::new());
+        deactivate_error.set(None);
     });
 
     view! {
@@ -208,10 +230,18 @@ pub fn StacksList(stacks: Vec<StackResponse>, refetch: Refetch) -> impl IntoView
 
         {move || {
             let name = pending_activate_name.get();
-            let description = format!(
-                "Activating '{}' will route inference requests to this adapter stack. This may affect running workloads. Continue?",
-                name
-            );
+            let error = activate_error.get();
+            let description = if let Some(ref err) = error {
+                format!(
+                    "Activating '{}' will route inference requests to this adapter stack. This may affect running workloads. Continue?\n\nError: {}",
+                    name, err
+                )
+            } else {
+                format!(
+                    "Activating '{}' will route inference requests to this adapter stack. This may affect running workloads. Continue?",
+                    name
+                )
+            };
             view! {
                 <ConfirmationDialog
                     open=show_activate_confirm
@@ -228,10 +258,18 @@ pub fn StacksList(stacks: Vec<StackResponse>, refetch: Refetch) -> impl IntoView
 
         {move || {
             let name = pending_deactivate_name.get();
-            let description = format!(
-                "Deactivate '{}'? Inference requests will no longer route to this stack.",
-                name
-            );
+            let error = deactivate_error.get();
+            let description = if let Some(ref err) = error {
+                format!(
+                    "Deactivate '{}'? Inference requests will no longer route to this stack.\n\nError: {}",
+                    name, err
+                )
+            } else {
+                format!(
+                    "Deactivate '{}'? Inference requests will no longer route to this stack.",
+                    name
+                )
+            };
             view! {
                 <ConfirmationDialog
                     open=show_deactivate_confirm

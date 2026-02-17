@@ -30,8 +30,11 @@ pub fn FilterSection(
             <Card>
                 <div class="flex items-end gap-4">
                     <div class="flex-1">
-                        <label class="text-sm font-medium mb-2 block">"Action Type"</label>
+                        <label for="audit-action-filter" class="text-sm font-medium mb-2 block">
+                            "Action Type"
+                        </label>
                         <select
+                            id="audit-action-filter"
                             class="flex h-10 w-full rounded-md border border-input bg-background px-3 py-2 text-sm"
                             prop:value=move || action_filter.get()
                             on:change=move |ev| {
@@ -50,8 +53,11 @@ pub fn FilterSection(
                         </select>
                     </div>
                     <div class="flex-1">
-                        <label class="text-sm font-medium mb-2 block">"Status"</label>
+                        <label for="audit-status-filter" class="text-sm font-medium mb-2 block">
+                            "Status"
+                        </label>
                         <select
+                            id="audit-status-filter"
                             class="flex h-10 w-full rounded-md border border-input bg-background px-3 py-2 text-sm"
                             prop:value=move || status_filter.get()
                             on:change=move |ev| {
@@ -66,8 +72,11 @@ pub fn FilterSection(
                         </select>
                     </div>
                     <div class="flex-1">
-                        <label class="text-sm font-medium mb-2 block">"Resource Type"</label>
+                        <label for="audit-resource-filter" class="text-sm font-medium mb-2 block">
+                            "Resource Type"
+                        </label>
                         <select
+                            id="audit-resource-filter"
                             class="flex h-10 w-full rounded-md border border-input bg-background px-3 py-2 text-sm"
                             prop:value=move || resource_filter.get()
                             on:change=move |ev| {

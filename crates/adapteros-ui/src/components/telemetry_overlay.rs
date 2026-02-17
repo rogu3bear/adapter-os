@@ -9,13 +9,11 @@
 //! Follows Liquid Glass Tier 1 design (blur: 9.6px, alpha: 70%).
 //! Toggleable via user settings (off by default for clean UI).
 
-use crate::api::ApiClient;
 use crate::components::status::{StatusColor, StatusIndicator};
-use crate::hooks::{use_api_resource, LoadingState};
+use crate::hooks::{use_system_status, LoadingState};
 use crate::signals::{use_chat, use_settings};
 use adapteros_api_types::DataAvailability;
 use leptos::prelude::*;
-use std::sync::Arc;
 
 /// Streaming status for display
 #[derive(Debug, Clone, Copy, PartialEq, Eq)]
@@ -61,8 +59,7 @@ pub fn TelemetryOverlay() -> impl IntoView {
     let (chat_state, _) = use_chat();
 
     // Fetch system status for backend and adapter info
-    let (system_status, _refetch) =
-        use_api_resource(|client: Arc<ApiClient>| async move { client.system_status().await });
+    let (system_status, _refetch) = use_system_status();
 
     // Derive streaming status from chat state
     let streaming_status = Memo::new(move |_| {

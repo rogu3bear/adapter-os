@@ -9,14 +9,16 @@
 use crate::api::error::format_structured_details;
 use crate::api::{use_api_client, ApiClient, DatasetResponse, ModelListResponse};
 use crate::components::{
-    AsyncBoundary, Button, ButtonVariant, Card, Dialog, DialogSize, FormField, Input, Select,
+    AsyncBoundary, Card, DialogSize, FormField, Input, Select, StepFormDialog,
 };
 use crate::hooks::{use_api_resource, LoadingState, Refetch};
 use crate::pages::training::config_presets::{TrainingConfigPresets, TrainingPreset};
 use crate::pages::training::dataset_wizard::{DatasetOutcome, DatasetUploadWizard};
 use crate::pages::training::generate_wizard::GenerateDatasetWizard;
 use crate::signals::use_notifications;
-use crate::validation::{rules, use_form_errors, validate_field, FormErrors, ValidationRule};
+use crate::validation::{
+    rules, use_field_error, use_form_state, validate_on_blur, FormState, ValidationRule,
+};
 use adapteros_api_types::{TrainingJobResponse, TRAINING_DATA_CONTRACT_VERSION};
 use leptos::prelude::*;
 use serde_json::json;
@@ -75,58 +77,6 @@ const STEPS: [WizardStep; 4] = [
     WizardStep::Config,
     WizardStep::Review,
 ];
-
-/// Step indicator component
-#[component]
-fn StepIndicator(current: WizardStep) -> impl IntoView {
-    view! {
-        <div class="flex items-center justify-center gap-2 mb-6">
-            {STEPS.iter().enumerate().map(|(i, step)| {
-                let is_current = *step == current;
-                let is_complete = step.index() < current.index();
-                let is_last = i == STEPS.len() - 1;
-
-                view! {
-                    <div class="flex items-center">
-                        <div class=move || {
-                            let base = "flex items-center justify-center w-8 h-8 rounded-full text-sm font-medium transition-colors";
-                            if is_current {
-                                format!("{} bg-primary text-primary-foreground", base)
-                            } else if is_complete {
-                                format!("{} bg-primary/20 text-primary", base)
-                            } else {
-                                format!("{} bg-muted text-muted-foreground", base)
-                            }
-                        }>
-                            {if is_complete {
-                                view! {
-                                    <svg class="w-4 h-4" fill="none" viewBox="0 0 24 24" stroke="currentColor">
-                                        <path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M5 13l4 4L19 7"/>
-                                    </svg>
-                                }.into_any()
-                            } else {
-                                view! { <span>{i + 1}</span> }.into_any()
-                            }}
-                        </div>
-                        <span class=move || {
-                            let base = "ml-2 text-sm hidden sm:inline";
-                            if is_current {
-                                format!("{} font-medium text-foreground", base)
-                            } else {
-                                format!("{} text-muted-foreground", base)
-                            }
-                        }>
-                            {step.label()}
-                        </span>
-                        {(!is_last).then(|| view! {
-                            <div class="w-8 h-px bg-border mx-3"/>
-                        })}
-                    </div>
-                }
-            }).collect::<Vec<_>>()}
-        </div>
-    }
-}
 
 /// Training job creation wizard
 #[component]
@@ -314,7 +264,7 @@ pub fn CreateJobWizard(
     let generate_wizard_open = RwSignal::new(false);
     let submitting = RwSignal::new(false);
     let error = RwSignal::new(None::<String>);
-    let form_errors = use_form_errors();
+    let form_state = use_form_state();
     let notifications = use_notifications();
 
     let on_created_clone = on_created.clone();
@@ -338,34 +288,30 @@ pub fn CreateJobWizard(
 
     // Step validation
     let validate_dataset_step = move || -> bool {
-        form_errors.update(|e| e.clear_all());
-        if dataset_id.get().trim().is_empty() {
-            form_errors.update(|e| {
-                e.set(
-                    "dataset_id",
-                    "Select or generate a dataset before continuing".to_string(),
-                )
-            });
-            return false;
-        }
-        true
+        let dataset_rules = [ValidationRule::Pattern {
+            pattern: r"^\s*\S.*$",
+            message: "Select or generate a dataset before continuing",
+        }];
+        let dataset = dataset_id.get();
+        validate_on_blur("dataset_id", &dataset, &dataset_rules, form_state)
     };
 
     let validate_model_step = {
         move || -> bool {
-            form_errors.update(|e| e.clear_all());
             let mut valid = true;
 
             let name = adapter_name.get();
-            if let Some(err) = validate_field(&name, &rules::adapter_name()) {
-                form_errors.update(|e| e.set("adapter_name", err));
+            let adapter_name_rules = rules::adapter_name();
+            if !validate_on_blur("adapter_name", &name, &adapter_name_rules, form_state) {
                 valid = false;
             }
 
             let model = base_model_id.get();
-            if model.trim().is_empty() {
-                form_errors
-                    .update(|e| e.set("base_model_id", "Base model is required".to_string()));
+            let model_rules = [ValidationRule::Pattern {
+                pattern: r"^\s*\S.*$",
+                message: "Base model is required",
+            }];
+            if !validate_on_blur("base_model_id", &model, &model_rules, form_state) {
                 valid = false;
             }
 
@@ -375,68 +321,68 @@ pub fn CreateJobWizard(
 
     let validate_config_step = {
         move || -> bool {
-            form_errors.update(|e| e.clear_all());
             let mut valid = true;
 
-            if let Some(err) = validate_field(
-                &epochs.get(),
-                &[
-                    ValidationRule::Required,
-                    ValidationRule::IntRange { min: 1, max: 1000 },
-                ],
-            ) {
-                form_errors.update(|e| e.set("epochs", err));
+            let epochs_rules = [
+                ValidationRule::Required,
+                ValidationRule::IntRange { min: 1, max: 1000 },
+            ];
+            let epochs_value = epochs.get();
+            if !validate_on_blur("epochs", &epochs_value, &epochs_rules, form_state) {
                 valid = false;
             }
 
-            if let Some(err) = validate_field(&learning_rate.get(), &rules::learning_rate()) {
-                form_errors.update(|e| e.set("learning_rate", err));
+            let learning_rate_value = learning_rate.get();
+            let learning_rate_rules = rules::learning_rate();
+            if !validate_on_blur(
+                "learning_rate",
+                &learning_rate_value,
+                &learning_rate_rules,
+                form_state,
+            ) {
                 valid = false;
             }
 
-            // Validate validation_split is in range [0.0, 0.5]
-            if let Ok(split) = validation_split.get().parse::<f32>() {
-                if !(0.0..=0.5).contains(&split) {
-                    form_errors.update(|e| {
-                        e.set(
-                            "validation_split",
-                            "Validation split must be between 0 and 0.5".to_string(),
-                        )
-                    });
-                    valid = false;
-                }
-            }
-
-            if let Some(err) = validate_field(
-                &batch_size.get(),
-                &[
-                    ValidationRule::Required,
-                    ValidationRule::IntRange { min: 1, max: 256 },
-                ],
+            let validation_split_rules = [ValidationRule::Range { min: 0.0, max: 0.5 }];
+            let validation_split_value = validation_split.get();
+            if !validate_on_blur(
+                "validation_split",
+                &validation_split_value,
+                &validation_split_rules,
+                form_state,
             ) {
-                form_errors.update(|e| e.set("batch_size", err));
                 valid = false;
             }
 
-            if let Some(err) = validate_field(
-                &rank.get(),
-                &[
-                    ValidationRule::Required,
-                    ValidationRule::IntRange { min: 1, max: 256 },
-                ],
+            let batch_size_rules = [
+                ValidationRule::Required,
+                ValidationRule::IntRange { min: 1, max: 256 },
+            ];
+            let batch_size_value = batch_size.get();
+            if !validate_on_blur(
+                "batch_size",
+                &batch_size_value,
+                &batch_size_rules,
+                form_state,
             ) {
-                form_errors.update(|e| e.set("rank", err));
                 valid = false;
             }
 
-            if let Some(err) = validate_field(
-                &alpha.get(),
-                &[
-                    ValidationRule::Required,
-                    ValidationRule::IntRange { min: 1, max: 512 },
-                ],
-            ) {
-                form_errors.update(|e| e.set("alpha", err));
+            let rank_rules = [
+                ValidationRule::Required,
+                ValidationRule::IntRange { min: 1, max: 256 },
+            ];
+            let rank_value = rank.get();
+            if !validate_on_blur("rank", &rank_value, &rank_rules, form_state) {
+                valid = false;
+            }
+
+            let alpha_rules = [
+                ValidationRule::Required,
+                ValidationRule::IntRange { min: 1, max: 512 },
+            ];
+            let alpha_value = alpha.get();
+            if !validate_on_blur("alpha", &alpha_value, &alpha_rules, form_state) {
                 valid = false;
             }
 
@@ -464,7 +410,7 @@ pub fn CreateJobWizard(
     let go_back = move |_: ()| {
         if let Some(prev) = current_step.get().prev() {
             current_step.set(prev);
-            form_errors.update(|e| e.clear_all());
+            form_state.update(|state| state.clear_all());
         }
     };
 
@@ -554,7 +500,7 @@ pub fn CreateJobWizard(
     let reset_form = move || {
         current_step.set(WizardStep::default());
         error.set(None);
-        form_errors.update(|e| e.clear_all());
+        form_state.update(|state| state.clear_all());
         submitting.set(false);
         dataset_wizard_open.set(false);
         generate_wizard_open.set(false);
@@ -595,16 +541,25 @@ pub fn CreateJobWizard(
         }
     });
 
+    let step_labels = STEPS
+        .iter()
+        .map(|step| step.label().to_string())
+        .collect::<Vec<_>>();
+
     view! {
-        <Dialog
+        <StepFormDialog
             open=open
             title="New Training Job".to_string()
-            description=Signal::derive(move || current_step.try_get().unwrap_or_default().label().to_string()).get()
+            current_step=Signal::derive(move || current_step.try_get().unwrap_or_default().index())
+            total_steps=STEPS.len()
+            step_labels=step_labels
+            loading=Some(Signal::derive(move || submitting.try_get().unwrap_or(false)))
+            on_next=Callback::new(go_next)
+            on_back=Callback::new(go_back)
+            on_submit=Callback::new(submit.clone())
             size=DialogSize::Lg
             scrollable=true
         >
-            <StepIndicator current=current_step.get()/>
-
             // Error message
             {move || error.try_get().flatten().map(|e| view! {
                 <div class="mb-4 rounded-lg border border-destructive bg-destructive/10 p-3">
@@ -624,6 +579,7 @@ pub fn CreateJobWizard(
                             show_change_options=show_change_options
                             dataset_wizard_open=dataset_wizard_open
                             generate_wizard_open=generate_wizard_open
+                            form_state=form_state
                         />
                     }.into_any(),
                     WizardStep::Model => view! {
@@ -631,7 +587,7 @@ pub fn CreateJobWizard(
                             adapter_name=adapter_name
                             base_model_id=base_model_id
                             category=category
-                            form_errors=form_errors
+                            form_state=form_state
                             models=models
                             refetch_models=refetch_models
                             use_custom_model=use_custom_model
@@ -651,7 +607,7 @@ pub fn CreateJobWizard(
                             preferred_backend=preferred_backend
                             backend_policy=backend_policy
                             coreml_fallback=coreml_training_fallback
-                            form_errors=form_errors
+                            form_state=form_state
                             sample_count=dataset_sample_count.try_get().flatten()
                         />
                     }.into_any(),
@@ -684,48 +640,7 @@ pub fn CreateJobWizard(
                 open=generate_wizard_open
                 on_generated=Callback::new(on_dataset_ready.clone())
             />
-
-            // Footer navigation
-            <div class="flex justify-between mt-6 pt-4 border-t">
-                <div>
-                    {move || (current_step.try_get().unwrap_or_default() != WizardStep::Dataset).then(|| view! {
-                        <Button
-                            variant=ButtonVariant::Outline
-                            on_click=Callback::new(go_back)
-                        >
-                            "Back"
-                        </Button>
-                    })}
-                </div>
-                <div class="flex gap-2">
-                    <Button
-                        variant=ButtonVariant::Outline
-                        on_click=Callback::new(move |_| open.set(false))
-                    >
-                        "Cancel"
-                    </Button>
-                    <Show
-                        when=move || current_step.try_get().unwrap_or_default() == WizardStep::Review
-                        fallback=move || view! {
-                            <Button
-                                variant=ButtonVariant::Primary
-                                on_click=Callback::new(go_next)
-                            >
-                                "Next"
-                            </Button>
-                        }
-                    >
-                        <Button
-                            variant=ButtonVariant::Primary
-                            loading=submitting.try_get().unwrap_or(false)
-                            on_click=Callback::new(submit.clone())
-                        >
-                            "Start Training"
-                        </Button>
-                    </Show>
-                </div>
-            </div>
-        </Dialog>
+        </StepFormDialog>
     }
 }
 
@@ -745,6 +660,7 @@ fn DatasetStepContent(
     show_change_options: RwSignal<bool>,
     dataset_wizard_open: RwSignal<bool>,
     generate_wizard_open: RwSignal<bool>,
+    form_state: RwSignal<FormState>,
 ) -> impl IntoView {
     let has_dataset = Signal::derive(move || !dataset_id.get().trim().is_empty());
 
@@ -761,6 +677,7 @@ fn DatasetStepContent(
                             show_change_options=show_change_options
                             dataset_wizard_open=dataset_wizard_open
                             generate_wizard_open=generate_wizard_open
+                            form_state=form_state
                         />
                     }.into_any()
                 } else {
@@ -770,6 +687,7 @@ fn DatasetStepContent(
                             dataset_message=dataset_message
                             dataset_wizard_open=dataset_wizard_open
                             generate_wizard_open=generate_wizard_open
+                            form_state=form_state
                         />
                     }.into_any()
                 }
@@ -788,7 +706,10 @@ fn DatasetReadyView(
     show_change_options: RwSignal<bool>,
     dataset_wizard_open: RwSignal<bool>,
     generate_wizard_open: RwSignal<bool>,
+    form_state: RwSignal<FormState>,
 ) -> impl IntoView {
+    let dataset_error = use_field_error(form_state, "dataset_id");
+
     view! {
         <div class="space-y-4">
             <div class="text-center py-2">
@@ -956,10 +877,25 @@ fn DatasetReadyView(
                     </div>
                     <div>
                         <p class="text-xs text-muted-foreground mb-2">"Or enter a dataset ID manually:"</p>
-                        <Input
-                            value=dataset_id
-                            placeholder="ds-abc123".to_string()
-                        />
+                        <FormField
+                            label="Dataset ID"
+                            name="dataset_id"
+                            help="Use an existing dataset ID if you already have one"
+                            error=Some(dataset_error)
+                        >
+                            <Input
+                                value=dataset_id
+                                placeholder="ds-abc123".to_string()
+                                on_blur=Some(Callback::new(move |_| {
+                                    let dataset_rules = [ValidationRule::Pattern {
+                                        pattern: r"^\s*\S.*$",
+                                        message: "Select or generate a dataset before continuing",
+                                    }];
+                                    let dataset = dataset_id.get();
+                                    let _ = validate_on_blur("dataset_id", &dataset, &dataset_rules, form_state);
+                                }))
+                            />
+                        </FormField>
                     </div>
                 </div>
             </Show>
@@ -974,7 +910,10 @@ fn DatasetChooseView(
     dataset_message: RwSignal<Option<String>>,
     dataset_wizard_open: RwSignal<bool>,
     generate_wizard_open: RwSignal<bool>,
+    form_state: RwSignal<FormState>,
 ) -> impl IntoView {
+    let dataset_error = use_field_error(form_state, "dataset_id");
+
     view! {
         <div class="space-y-6">
             <div class="text-center py-4">
@@ -1042,10 +981,25 @@ fn DatasetChooseView(
             // Manual dataset ID
             <div class="pt-4 border-t">
                 <p class="text-sm text-muted-foreground mb-3">"Or enter an existing dataset ID:"</p>
-                <Input
-                    value=dataset_id
-                    placeholder="ds-abc123".to_string()
-                />
+                <FormField
+                    label="Dataset ID"
+                    name="dataset_id"
+                    help="Use an existing dataset ID if you already have one"
+                    error=Some(dataset_error)
+                >
+                    <Input
+                        value=dataset_id
+                        placeholder="ds-abc123".to_string()
+                        on_blur=Some(Callback::new(move |_| {
+                            let dataset_rules = [ValidationRule::Pattern {
+                                pattern: r"^\s*\S.*$",
+                                message: "Select or generate a dataset before continuing",
+                            }];
+                            let dataset = dataset_id.get();
+                            let _ = validate_on_blur("dataset_id", &dataset, &dataset_rules, form_state);
+                        }))
+                    />
+                </FormField>
             </div>
         </div>
     }
@@ -1067,7 +1021,7 @@ fn ModelStepContent(
     adapter_name: RwSignal<String>,
     base_model_id: RwSignal<String>,
     category: RwSignal<String>,
-    form_errors: RwSignal<FormErrors>,
+    form_state: RwSignal<FormState>,
     /// Models resource fetched by the parent — survives step transitions.
     models: ReadSignal<LoadingState<ModelListResponse>>,
     /// Refetch handle for the models resource.
@@ -1075,6 +1029,9 @@ fn ModelStepContent(
     /// "Enter model ID manually" toggle — survives step transitions.
     use_custom_model: RwSignal<bool>,
 ) -> impl IntoView {
+    let adapter_name_error = use_field_error(form_state, "adapter_name");
+    let base_model_error = use_field_error(form_state, "base_model_id");
+
     view! {
         <div class="space-y-6">
             <FormField
@@ -1082,11 +1039,16 @@ fn ModelStepContent(
                 name="adapter_name"
                 required=true
                 help="A unique name for your trained adapter (letters, numbers, hyphens)"
-                error=Signal::derive(move || form_errors.try_get().unwrap_or_default().get("adapter_name").cloned())
+                error=Some(adapter_name_error)
             >
                 <Input
                     value=adapter_name
                     placeholder="my-code-adapter".to_string()
+                    on_blur=Some(Callback::new(move |_| {
+                        let adapter_name_rules = rules::adapter_name();
+                        let value = adapter_name.get();
+                        let _ = validate_on_blur("adapter_name", &value, &adapter_name_rules, form_state);
+                    }))
                 />
             </FormField>
 
@@ -1095,7 +1057,7 @@ fn ModelStepContent(
                 name="base_model_id"
                 required=true
                 help="The foundation model to fine-tune"
-                error=Signal::derive(move || form_errors.try_get().unwrap_or_default().get("base_model_id").cloned())
+                error=Some(base_model_error)
             >
                 {move || {
                     if use_custom_model.try_get().unwrap_or(false) {
@@ -1104,6 +1066,14 @@ fn ModelStepContent(
                                 <Input
                                     value=base_model_id
                                     placeholder="model-id".to_string()
+                                    on_blur=Some(Callback::new(move |_| {
+                                        let model_rules = [ValidationRule::Pattern {
+                                            pattern: r"^\s*\S.*$",
+                                            message: "Base model is required",
+                                        }];
+                                        let value = base_model_id.get();
+                                        let _ = validate_on_blur("base_model_id", &value, &model_rules, form_state);
+                                    }))
                                 />
                                 <button
                                     class="text-xs text-primary hover:underline"
@@ -1141,6 +1111,13 @@ fn ModelStepContent(
                                             <Select
                                                 value=base_model_id
                                                 options=options
+                                                on_change=Some(Callback::new(move |selected: String| {
+                                                    let model_rules = [ValidationRule::Pattern {
+                                                        pattern: r"^\s*\S.*$",
+                                                        message: "Base model is required",
+                                                    }];
+                                                    let _ = validate_on_blur("base_model_id", &selected, &model_rules, form_state);
+                                                }))
                                             />
                                             {move || {
                                                 let selected = base_model_id.get();
@@ -1203,9 +1180,13 @@ fn ConfigStepContent(
     preferred_backend: RwSignal<String>,
     backend_policy: RwSignal<String>,
     coreml_fallback: RwSignal<String>,
-    form_errors: RwSignal<FormErrors>,
+    form_state: RwSignal<FormState>,
     sample_count: Option<usize>,
 ) -> impl IntoView {
+    let batch_size_error = use_field_error(form_state, "batch_size");
+    let rank_error = use_field_error(form_state, "rank");
+    let alpha_error = use_field_error(form_state, "alpha");
+
     view! {
         <div class="space-y-6">
             // Training preset selection with core parameters
@@ -1259,27 +1240,60 @@ fn ConfigStepContent(
                                     name="batch_size"
                                     required=true
                                     help="Examples per step (1-256)"
-                                    error=Signal::derive(move || form_errors.try_get().unwrap_or_default().get("batch_size").cloned())
+                                    error=Some(batch_size_error)
                                 >
-                                    <Input value=batch_size input_type="number".to_string()/>
+                                    <Input
+                                        value=batch_size
+                                        input_type="number".to_string()
+                                        on_blur=Some(Callback::new(move |_| {
+                                            let batch_size_rules = [
+                                                ValidationRule::Required,
+                                                ValidationRule::IntRange { min: 1, max: 256 },
+                                            ];
+                                            let value = batch_size.get();
+                                            let _ = validate_on_blur("batch_size", &value, &batch_size_rules, form_state);
+                                        }))
+                                    />
                                 </FormField>
                                 <FormField
                                     label="Rank"
                                     name="rank"
                                     required=true
                                     help="Adapter dimension (4, 8, 16 typical)"
-                                    error=Signal::derive(move || form_errors.try_get().unwrap_or_default().get("rank").cloned())
+                                    error=Some(rank_error)
                                 >
-                                    <Input value=rank input_type="number".to_string()/>
+                                    <Input
+                                        value=rank
+                                        input_type="number".to_string()
+                                        on_blur=Some(Callback::new(move |_| {
+                                            let rank_rules = [
+                                                ValidationRule::Required,
+                                                ValidationRule::IntRange { min: 1, max: 256 },
+                                            ];
+                                            let value = rank.get();
+                                            let _ = validate_on_blur("rank", &value, &rank_rules, form_state);
+                                        }))
+                                    />
                                 </FormField>
                                 <FormField
                                     label="Alpha"
                                     name="alpha"
                                     required=true
                                     help="Scaling factor (typically 2x rank)"
-                                    error=Signal::derive(move || form_errors.try_get().unwrap_or_default().get("alpha").cloned())
+                                    error=Some(alpha_error)
                                 >
-                                    <Input value=alpha input_type="number".to_string()/>
+                                    <Input
+                                        value=alpha
+                                        input_type="number".to_string()
+                                        on_blur=Some(Callback::new(move |_| {
+                                            let alpha_rules = [
+                                                ValidationRule::Required,
+                                                ValidationRule::IntRange { min: 1, max: 512 },
+                                            ];
+                                            let value = alpha.get();
+                                            let _ = validate_on_blur("alpha", &value, &alpha_rules, form_state);
+                                        }))
+                                    />
                                 </FormField>
                             </div>
                         </div>

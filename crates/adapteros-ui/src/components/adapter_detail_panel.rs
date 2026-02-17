@@ -55,6 +55,9 @@ pub fn AdapterDetailPanel(
     loading: Signal<bool>,
     /// Callback when close is requested
     on_close: Callback<()>,
+    /// Callback invoked to refresh adapter data after lifecycle transitions
+    #[prop(optional)]
+    on_refetch: Option<Callback<()>>,
     /// Callback for pin/unpin action (adapter_id)
     #[prop(optional)]
     on_toggle_pin: Option<Callback<String>>,
@@ -89,6 +92,7 @@ pub fn AdapterDetailPanel(
                                 adapter=data
                                 suggestion_context=ctx
                                 on_close=on_close
+                                on_refetch=on_refetch
                                 on_toggle_pin=on_toggle_pin
                                 on_load=on_load
                                 on_unload=on_unload
@@ -135,6 +139,7 @@ fn AdapterDetailContent(
     adapter: AdapterResponse,
     suggestion_context: AdapterSuggestionContext,
     on_close: Callback<()>,
+    on_refetch: Option<Callback<()>>,
     on_toggle_pin: Option<Callback<String>>,
     on_load: Option<Callback<String>>,
     on_unload: Option<Callback<String>>,
@@ -392,9 +397,9 @@ fn AdapterDetailContent(
                     adapter_name=adapter_name_for_lifecycle
                     current_state=lifecycle_state_for_controls
                     on_transition=Callback::new(move |()| {
-                        // After a lifecycle transition, the panel data is stale.
-                        // The user can close and reopen the panel to see updated state.
-                        // A future enhancement could add an on_refetch prop to AdapterDetailPanel.
+                        if let Some(refetch) = on_refetch.as_ref() {
+                            refetch.run(());
+                        }
                     })
                 />
             </Card>

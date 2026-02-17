@@ -260,7 +260,7 @@ pub fn TrainingConfigPresets(
         <div class="space-y-6">
             // Preset selector
             <div>
-                <label class="text-sm font-medium mb-3 block">"Training Preset"</label>
+                <p class="text-sm font-medium mb-3 block">"Training Preset"</p>
                 <div class="grid grid-cols-1 sm:grid-cols-3 gap-3">
                     <PresetCard
                         preset=TrainingPreset::Identity

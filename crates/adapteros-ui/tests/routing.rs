@@ -97,7 +97,7 @@ fn test_query_param_building() {
 #[wasm_bindgen_test]
 fn test_protected_routes_list() {
     // Routes that require authentication
-    let protected = vec!["/settings", "/training", "/admin"];
+    let protected = vec!["/dashboard", "/settings", "/training", "/admin"];
 
     for route in protected {
         assert!(route.starts_with('/'));
@@ -107,7 +107,7 @@ fn test_protected_routes_list() {
 #[wasm_bindgen_test]
 fn test_public_routes_list() {
     // Routes that don't require authentication
-    let public = vec!["/", "/dashboard"];
+    let public = vec!["/login", "/safe", "/style-audit"];
 
     for route in public {
         assert!(route.starts_with('/'));

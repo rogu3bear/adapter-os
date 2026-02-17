@@ -699,16 +699,30 @@ fn DebugResult(response: RoutingDebugResponse) -> impl IntoView {
     // Extract values before view! macro to avoid lifetime issues
     let entropy_str = format!("{:.4}", response.entropy);
     let k_value_str = response.k_value.to_string();
-    let lang_badge = response.detected_features.language.clone();
-    let domain_badge = response.detected_features.domain.clone();
-    let verb_badge = response.detected_features.verb.clone();
+    let lang_badge = response.features.language.clone();
+    let domain_badge = response.features.domain.clone();
+    let verb_badge = if response.features.verb.trim().is_empty() {
+        None
+    } else {
+        Some(response.features.verb.clone())
+    };
+    let symbol_hits = response.features.symbol_hits;
     let frameworks: Vec<_> = response
-        .detected_features
+        .features
         .frameworks
         .clone()
-        .unwrap_or_default()
         .into_iter()
         .map(|fw| view! { <Badge variant=BadgeVariant::Outline>{fw}</Badge> })
+        .collect();
+    let path_token_badges: Vec<_> = response
+        .features
+        .path_tokens
+        .clone()
+        .into_iter()
+        .take(6)
+        .map(|token| {
+            view! { <Badge variant=BadgeVariant::Outline>{"path: "}{truncate(&token, 18)}</Badge> }
+        })
         .collect();
     let selected_badges: Vec<_> = response
         .selected_adapters
@@ -723,9 +737,48 @@ fn DebugResult(response: RoutingDebugResponse) -> impl IntoView {
         .iter()
         .map(|s| view! { <AdapterScoreRow score=s.clone()/> })
         .collect();
-    // Feature breakdown and weights info will be rendered once RoutingDebugResponse
-    // gains the `feature_scores` and `weights_used` fields (see /tmp/claude/ws1-ui-types.rs).
-    // The FeatureBreakdownRow and FeatureBar components below are ready for use.
+
+    let prompt_feature_breakdown = response.feature_scores.first().cloned();
+    let feature_rows: Vec<_> = prompt_feature_breakdown
+        .as_ref()
+        .map(|scores| {
+            let contributions = vec![
+                ("Language", scores.language_score),
+                ("Framework", scores.framework_score),
+                ("Symbol Hits", scores.symbol_hits_score),
+                ("Path Tokens", scores.path_tokens_score),
+                ("Prompt Verb", scores.prompt_verb_score),
+                ("Tier Boost", scores.tier_boost),
+            ];
+            let max_abs = contributions
+                .iter()
+                .fold(0.0_f64, |acc, (_, value)| acc.max(value.abs()))
+                .max(1.0);
+            contributions
+                .into_iter()
+                .map(|(label, value)| {
+                    view! {
+                        <FeatureContributionRow
+                            label=label.to_string()
+                            value=value
+                            max_abs=max_abs
+                        />
+                    }
+                })
+                .collect()
+        })
+        .unwrap_or_default();
+    let total_feature_score = prompt_feature_breakdown
+        .as_ref()
+        .map(|scores| format!("{:.4}", scores.total_score));
+
+    let weights_source = response.weights_used.as_ref().map(|weights| {
+        if weights.is_default {
+            "System default weights"
+        } else {
+            "Tenant routing weights"
+        }
+    });
     let explanation = response.explanation.clone();
     let entropy_hint = if response.entropy > 2.0 {
         "High uncertainty. Consider tightening routing rules or adding higher-signal adapters."
@@ -773,9 +826,69 @@ fn DebugResult(response: RoutingDebugResponse) -> impl IntoView {
                     {verb_badge.map(|v| view! {
                         <Badge variant=BadgeVariant::Outline>{"verb: "}{v}</Badge>
                     })}
+                    <Badge variant=BadgeVariant::Outline>{"symbol_hits: "}{symbol_hits}</Badge>
                     {frameworks}
+                    {path_token_badges}
                 </div>
             </div>
+
+            // Global prompt-level feature contributions
+            <div>
+                <h4 class="text-sm font-medium mb-2">"Global Feature Contributions"</h4>
+                <p class="text-xs text-muted-foreground mb-2">
+                    "Prompt-level scoring signal from router feature extraction (not per-adapter attribution)."
+                </p>
+                {if feature_rows.is_empty() {
+                    view! {
+                        <p class="text-xs text-muted-foreground">"No feature contribution breakdown available."</p>
+                    }.into_any()
+                } else {
+                    view! {
+                        <div class="space-y-2">
+                            {feature_rows}
+                            {total_feature_score.map(|total| view! {
+                                <div class="pt-1 text-xs text-muted-foreground">
+                                    "Total feature score: "<span class="font-mono">{total}</span>
+                                </div>
+                            })}
+                        </div>
+                    }.into_any()
+                }}
+            </div>
+
+            // Weights used for scoring
+            {response.weights_used.as_ref().map(|weights| {
+                let tenant_id = weights.tenant_id.clone();
+                let weight_rows: Vec<_> = vec![
+                    ("Language", weights.language_weight),
+                    ("Framework", weights.framework_weight),
+                    ("Symbol Hits", weights.symbol_hits_weight),
+                    ("Path Tokens", weights.path_tokens_weight),
+                    ("Prompt Verb", weights.prompt_verb_weight),
+                    ("Orthogonal", weights.orthogonal_weight),
+                    ("Diversity", weights.diversity_weight),
+                    ("Similarity Penalty", weights.similarity_penalty),
+                    ("Total", weights.total_weight),
+                ]
+                .into_iter()
+                .map(|(label, value)| {
+                    view! { <WeightRow label=label.to_string() value=format!("{value:.4}")/> }
+                })
+                .collect();
+                view! {
+                    <div>
+                        <h4 class="text-sm font-medium mb-2">"Weights Used"</h4>
+                        <p class="text-xs text-muted-foreground mb-2">
+                            {weights_source.unwrap_or("Router weights")}
+                            " · tenant: "
+                            <span class="font-mono">{truncate(&tenant_id, 18)}</span>
+                        </p>
+                        <div class="space-y-1">
+                            {weight_rows}
+                        </div>
+                    </div>
+                }
+            })}
 
             // Selected adapters
             <div>
@@ -834,15 +947,45 @@ fn AdapterScoreRow(score: AdapterScoreResponse) -> impl IntoView {
     }
 }
 
-// ============================================================================
-// Feature Breakdown Components (ready for use once RoutingDebugResponse
-// gains feature_scores/weights_used fields — see /tmp/claude/ws1-ui-types.rs)
-//
-// When the lead adds the types, uncomment and wire up:
-// - FeatureBreakdownRow: renders per-adapter feature contribution bars
-// - FeatureBar: single horizontal bar for one feature dimension
-// The CSS for these is in /tmp/claude/ws1-css.css (.feature-breakdown-bars, etc.)
-// ============================================================================
+/// Single feature contribution row with horizontal bar
+#[component]
+fn FeatureContributionRow(label: String, value: f64, max_abs: f64) -> impl IntoView {
+    let width = if max_abs > 0.0 {
+        ((value.abs() / max_abs) * 100.0).clamp(0.0, 100.0)
+    } else {
+        0.0
+    };
+    let fill_class = if value >= 0.0 {
+        "h-full rounded bg-primary"
+    } else {
+        "h-full rounded bg-warning"
+    };
+    let width_style = format!("width: {width:.2}%;");
+    let value_text = format!("{value:.4}");
+
+    view! {
+        <div class="space-y-1">
+            <div class="flex items-center justify-between text-xs">
+                <span class="text-muted-foreground">{label}</span>
+                <span class="font-mono">{value_text}</span>
+            </div>
+            <div class="h-2 rounded bg-muted overflow-hidden">
+                <div class=fill_class style=width_style></div>
+            </div>
+        </div>
+    }
+}
+
+/// Routing weight row
+#[component]
+fn WeightRow(label: String, value: String) -> impl IntoView {
+    view! {
+        <div class="flex items-center justify-between text-xs">
+            <span class="text-muted-foreground">{label}</span>
+            <span class="font-mono">{value}</span>
+        </div>
+    }
+}
 
 // ============================================================================
 // Utility functions

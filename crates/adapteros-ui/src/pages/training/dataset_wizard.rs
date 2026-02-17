@@ -830,7 +830,7 @@ pub fn DatasetUploadWizard(
                             </div>
 
                             <div class="space-y-2">
-                                <label class="text-sm font-medium">"Format"</label>
+                                <p class="text-sm font-medium">"Format"</p>
                                 <div class="flex gap-2">
                                     {vec![
                                         (UploadMode::ManifestJsonl, "JSONL"),
@@ -884,8 +884,11 @@ pub fn DatasetUploadWizard(
                                             <Badge variant=BadgeVariant::Secondary>"Prompt / Response"</Badge>
                                         </div>
                                         <div>
-                                            <label class="text-sm font-medium">"Dataset (.jsonl or .ndjson)"</label>
+                                            <label for="dataset-wizard-jsonl-file" class="text-sm font-medium">
+                                                "Dataset (.jsonl or .ndjson)"
+                                            </label>
                                             <input
+                                                id="dataset-wizard-jsonl-file"
                                                 type="file"
                                                 accept=".jsonl,.ndjson"
                                                 class="mt-1 block w-full text-sm"

@@ -42,6 +42,10 @@ pub use adapteros_api_types::provenance::ChatProvenanceResponse;
 pub use adapteros_api_types::routing::{
     CreateRoutingRuleRequest, RoutingRuleResponse, RoutingRulesResponse,
 };
+pub use adapteros_api_types::setup::{
+    SetupDiscoverModelsResponse, SetupDiscoveredModel, SetupMigrateResponse,
+    SetupSeedModelsRequest, SetupSeedModelsResponse,
+};
 pub use adapteros_api_types::workers::WorkerMetricsResponse;
 
 /// Response for in-flight adapters endpoint
@@ -838,6 +842,24 @@ impl ApiClient {
         self.post("/v1/models/import", request).await
     }
 
+    /// Run setup migrations (admin only)
+    pub async fn setup_migrate(&self) -> ApiResult<SetupMigrateResponse> {
+        self.post_empty("/v1/setup/migrate").await
+    }
+
+    /// Discover model directories for setup seeding (admin only)
+    pub async fn setup_discover_models(&self) -> ApiResult<SetupDiscoverModelsResponse> {
+        self.get("/v1/setup/models/discover").await
+    }
+
+    /// Seed selected discovered model paths (admin only)
+    pub async fn setup_seed_models(
+        &self,
+        request: &SetupSeedModelsRequest,
+    ) -> ApiResult<SetupSeedModelsResponse> {
+        self.post("/v1/setup/models/seed", request).await
+    }
+
     /// Load a model into memory
     pub async fn load_model(&self, id: &str) -> ApiResult<ModelStatusResponse> {
         self.post_empty(&format!("/v1/models/{}/load", id)).await
@@ -1366,6 +1388,87 @@ impl ApiClient {
             format!("/v1/filesystem/browse?path={}", encoded_path)
         };
         self.get(&query).await
+    }
+
+    /// Read file content for editor view.
+    pub async fn read_filesystem_file(
+        &self,
+        path: &str,
+    ) -> ApiResult<FilesystemFileContentResponse> {
+        let encoded_path = encode(path);
+        self.get(&format!("/v1/filesystem/content?path={}", encoded_path))
+            .await
+    }
+
+    /// Save file content from editor view.
+    pub async fn write_filesystem_file(
+        &self,
+        request: &FilesystemWriteFileRequest,
+    ) -> ApiResult<FilesystemWriteFileResponse> {
+        self.put("/v1/filesystem/content", request).await
+    }
+
+    /// Retrieve git status for the Files page git panel.
+    pub async fn get_git_status(&self) -> ApiResult<UiGitStatusResponse> {
+        self.get("/v1/git/status").await
+    }
+
+    /// List tracked branches for the Files page git panel.
+    pub async fn list_git_branches_ui(&self) -> ApiResult<Vec<UiGitBranchInfo>> {
+        self.get("/v1/git/branches").await
+    }
+
+    /// Stage a working-tree file by path.
+    pub async fn stage_git_file(
+        &self,
+        file_path: &str,
+    ) -> ApiResult<GitWorkingTreeOperationResponse> {
+        self.post(
+            "/v1/git/working-tree/stage",
+            &GitWorkingTreeFileOperationRequest {
+                file_path: file_path.to_string(),
+            },
+        )
+        .await
+    }
+
+    /// Unstage a working-tree file by path.
+    pub async fn unstage_git_file(
+        &self,
+        file_path: &str,
+    ) -> ApiResult<GitWorkingTreeOperationResponse> {
+        self.post(
+            "/v1/git/working-tree/unstage",
+            &GitWorkingTreeFileOperationRequest {
+                file_path: file_path.to_string(),
+            },
+        )
+        .await
+    }
+
+    /// Commit staged changes.
+    ///
+    /// Note: this endpoint may be unavailable depending on backend version.
+    pub async fn commit_git_changes(&self, message: &str) -> ApiResult<GitCommitResponse> {
+        self.post(
+            "/v1/git/commit",
+            &GitCommitRequest {
+                message: message.to_string(),
+            },
+        )
+        .await
+    }
+
+    /// Fetch recent commit history for Files page Git panel.
+    pub async fn list_recent_commits(&self, limit: usize) -> ApiResult<Vec<UiCommitResponse>> {
+        self.get(&format!("/v1/commits?limit={}", limit.clamp(1, 50)))
+            .await
+    }
+
+    /// Fetch a commit diff by SHA (optional preview, backend-dependent).
+    pub async fn get_commit_diff_ui(&self, sha: &str) -> ApiResult<UiCommitDiffResponse> {
+        let encoded_sha = encode(sha);
+        self.get(&format!("/v1/commits/{}/diff", encoded_sha)).await
     }
 
     // --- Document Upload (multipart) ---

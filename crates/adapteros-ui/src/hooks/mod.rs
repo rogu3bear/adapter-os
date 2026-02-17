@@ -16,6 +16,7 @@ pub use use_sse_notifications::use_sse_notifications;
 #[cfg(target_arch = "wasm32")]
 use crate::api::report_error;
 use crate::api::{use_api_client, ApiClient, ApiError, ApiResult};
+use adapteros_api_types::SystemStatusResponse;
 use leptos::prelude::*;
 use std::sync::atomic::{AtomicBool, Ordering};
 use std::sync::Arc;
@@ -415,6 +416,15 @@ where
 
         (state, Refetch::new(refetch))
     }
+}
+
+/// Shared cached hook for `/v1/system/status`.
+pub fn use_system_status() -> (ReadSignal<LoadingState<SystemStatusResponse>>, Refetch) {
+    use_cached_api_resource(
+        "system_status",
+        CacheTtl::STATUS,
+        |client: Arc<ApiClient>| async move { client.system_status().await },
+    )
 }
 
 /// Simple polling hook with automatic cleanup

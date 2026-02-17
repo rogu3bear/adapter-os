@@ -2,8 +2,8 @@
 //!
 //! Custom hooks for keyboard shortcuts and data fetching.
 
-use crate::api::{use_api_client, ApiClient, ApiError};
-use crate::hooks::use_polling;
+use crate::api::{ApiClient, ApiError};
+use crate::hooks::{use_api_resource, use_polling, use_system_status, LoadingState};
 use adapteros_api_types::{SystemStateResponse, SystemStatusResponse};
 use leptos::prelude::*;
 use std::sync::atomic::{AtomicBool, Ordering};
@@ -146,48 +146,51 @@ impl StatusLoadingState {
 pub fn use_status_data() -> (ReadSignal<StatusLoadingState>, impl Fn() + Clone) {
     let (state, set_state) = signal(StatusLoadingState::Idle);
     let (cached_status, set_cached_status) = signal::<Option<CombinedStatus>>(None);
-    let client = use_api_client();
+    let (system_status, refetch_system_status) = use_system_status();
+    let (system_state, refetch_system_state) =
+        use_api_resource(|client: Arc<ApiClient>| async move { fetch_system_state(client).await });
 
-    let client_clone = Arc::clone(&client);
-    let cached_status_clone = cached_status;
+    // Combine status + state into one loading state while preserving the last
+    // known good payload for degraded-mode rendering.
+    Effect::new(move || {
+        let status_result = system_status.try_get().unwrap_or(LoadingState::Loading);
+        let state_result = system_state.try_get().unwrap_or(LoadingState::Loading);
+
+        match (status_result, state_result) {
+            (LoadingState::Loaded(status), LoadingState::Loaded(state_data)) => {
+                let combined = CombinedStatus {
+                    status,
+                    state: state_data,
+                };
+                let _ = set_cached_status.try_set(Some(combined.clone()));
+                let _ = set_state.try_set(StatusLoadingState::Loaded(Box::new(combined)));
+            }
+            (LoadingState::Error(e), _) | (_, LoadingState::Error(e)) => {
+                if let Some(last_success) = cached_status.try_get().flatten() {
+                    let _ = set_state.try_set(StatusLoadingState::LoadedWithError(
+                        Box::new(last_success),
+                        e,
+                    ));
+                } else {
+                    let _ = set_state.try_set(StatusLoadingState::Error(e));
+                }
+            }
+            _ => {
+                if cached_status.try_get().flatten().is_none() {
+                    let _ = set_state.try_set(StatusLoadingState::Loading);
+                }
+            }
+        }
+    });
 
     let refetch = move || {
-        let client = Arc::clone(&client_clone);
-        let cached_status = cached_status_clone;
-
         let should_show_spinner = cached_status.try_get().flatten().is_none();
         if should_show_spinner {
             let _ = set_state.try_set(StatusLoadingState::Loading);
         }
 
-        // Defer spawn_local via Timeout to avoid RefCell re-entrancy panic
-        // in wasm-bindgen-futures when called from within a reactive Effect body.
-        gloo_timers::callback::Timeout::new(0, move || {
-            wasm_bindgen_futures::spawn_local(async move {
-                // Fetch both endpoints concurrently
-                let status_future = client.system_status();
-                let state_future = fetch_system_state(&client);
-
-                match futures::future::join(status_future, state_future).await {
-                    (Ok(status), Ok(state)) => {
-                        let combined = CombinedStatus { status, state };
-                        let _ = set_cached_status.try_set(Some(combined.clone()));
-                        let _ = set_state.try_set(StatusLoadingState::Loaded(Box::new(combined)));
-                    }
-                    (Err(e), _) | (_, Err(e)) => {
-                        if let Some(last_success) = cached_status.try_get().flatten() {
-                            let _ = set_state.try_set(StatusLoadingState::LoadedWithError(
-                                Box::new(last_success),
-                                e,
-                            ));
-                        } else {
-                            let _ = set_state.try_set(StatusLoadingState::Error(e));
-                        }
-                    }
-                }
-            });
-        })
-        .forget();
+        refetch_system_status.run(());
+        refetch_system_state.run(());
     };
 
     // Periodic refresh while mounted to recover transient fetch failures.
@@ -199,16 +202,11 @@ pub fn use_status_data() -> (ReadSignal<StatusLoadingState>, impl Fn() + Clone) 
         }
     });
 
-    let refetch_init = refetch.clone();
-    Effect::new(move || {
-        refetch_init();
-    });
-
     (state, refetch)
 }
 
 /// Fetch system state from /v1/system/state
-async fn fetch_system_state(client: &ApiClient) -> Result<SystemStateResponse, ApiError> {
+async fn fetch_system_state(client: Arc<ApiClient>) -> Result<SystemStateResponse, ApiError> {
     client.get("/v1/system/state").await
 }
 

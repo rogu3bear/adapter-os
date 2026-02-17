@@ -45,6 +45,7 @@
     <link data-trunk rel="css" href="dist/glass.css">
     <!-- Liquid Glass Charts (PRD-UI-101) -->
     <link data-trunk rel="css" href="dist/charts.css">
+    <link data-trunk rel="js" href="js/codemirror-wrapper.js">
     <!-- wasm-opt disabled: Trunk's bundled wasm-opt lacks --enable-bulk-memory (PRD-UI-170) -->
     <!-- CI runs: wasm-opt -O4 --enable-bulk-memory, asserts <3.5MB -->
     <!-- PRD-UI-170: DNS prefetch for API endpoints -->
@@ -329,6 +330,7 @@
 </head>
 
 <body>
+    <script src="/js/codemirror-wrapper.js"></script>
     <!-- PRD-UI-000: Pre-hydration glass to prevent FOUC -->
     <script>
         (function() {

@@ -15,7 +15,12 @@ use crate::constants::pagination::{TOKEN_DECISIONS_DOM_CAP, TOKEN_DECISIONS_PAGE
 use crate::hooks::LoadingState;
 use crate::signals::{perf_logging_enabled, try_use_notifications};
 use leptos::task::spawn_local;
+use std::{cell::RefCell, rc::Rc};
+use wasm_bindgen::JsCast;
 use web_time::Instant;
+
+const TRACE_PANEL_FOCUSABLE_SELECTOR: &str =
+    "button:not([disabled]), [href], input:not([disabled]), select:not([disabled]), textarea:not([disabled]), [tabindex]:not([tabindex='-1']):not([disabled])";
 
 /// State for the trace viewer
 #[derive(Clone, Debug)]
@@ -820,13 +825,108 @@ pub fn TracePanel(
     #[prop(optional)] on_close: Option<Callback<()>>,
 ) -> impl IntoView {
     let full_page_url = format!("/runs/{}?tab=trace", trace_id);
+    let panel_ref = NodeRef::<leptos::html::Div>::new();
+    let close_button_ref = NodeRef::<leptos::html::Button>::new();
+    let focus_origin: Rc<RefCell<Option<web_sys::Element>>> = Rc::new(RefCell::new(None));
+    let focus_origin_for_cleanup = focus_origin.clone();
+
+    let panel_ref_for_focus = panel_ref.clone();
+    let close_button_ref_for_focus = close_button_ref.clone();
+    Effect::new(move |_| {
+        if let Some(document) = web_sys::window().and_then(|window| window.document()) {
+            *focus_origin.borrow_mut() = document.active_element();
+        }
+
+        let panel_ref = panel_ref_for_focus.clone();
+        let close_button_ref = close_button_ref_for_focus.clone();
+        gloo_timers::callback::Timeout::new(0, move || {
+            if let Some(close_button) = close_button_ref.get() {
+                let _ = close_button.focus();
+            } else if let Some(panel) = panel_ref.get() {
+                let _ = panel.focus();
+            }
+        })
+        .forget();
+    });
+
+    on_cleanup(move || {
+        if let Some(previous_focus) = focus_origin_for_cleanup.borrow_mut().take() {
+            if let Some(html_element) = previous_focus.dyn_ref::<web_sys::HtmlElement>() {
+                let _ = html_element.focus();
+            }
+        }
+    });
+
+    let panel_ref_for_keydown = panel_ref.clone();
+    let on_close_for_keydown = on_close.clone();
+    let on_panel_keydown = move |ev: web_sys::KeyboardEvent| match ev.key().as_str() {
+        "Escape" => {
+            ev.prevent_default();
+            if let Some(ref cb) = on_close_for_keydown {
+                cb.run(());
+            }
+        }
+        "Tab" => {
+            let Some(panel) = panel_ref_for_keydown.get() else {
+                return;
+            };
+            let Some(document) = web_sys::window().and_then(|window| window.document()) else {
+                return;
+            };
+
+            let Ok(node_list) = panel.query_selector_all(TRACE_PANEL_FOCUSABLE_SELECTOR) else {
+                return;
+            };
+            let mut focusable_elements = Vec::new();
+            for idx in 0..node_list.length() {
+                if let Some(node) = node_list.item(idx) {
+                    if let Ok(element) = node.dyn_into::<web_sys::HtmlElement>() {
+                        focusable_elements.push(element);
+                    }
+                }
+            }
+
+            if focusable_elements.is_empty() {
+                ev.prevent_default();
+                return;
+            }
+
+            let Some(active_element) = document.active_element() else {
+                return;
+            };
+            let first = &focusable_elements[0];
+            let last = &focusable_elements[focusable_elements.len() - 1];
+
+            if ev.shift_key() {
+                if active_element == *first.as_ref() || active_element == *panel.as_ref() {
+                    ev.prevent_default();
+                    let _ = last.focus();
+                }
+            } else if active_element == *last.as_ref() || active_element == *panel.as_ref() {
+                ev.prevent_default();
+                let _ = first.focus();
+            }
+        }
+        _ => {}
+    };
+
+    let on_close_for_button = on_close.clone();
 
     view! {
         <div class="fixed inset-0 z-50 flex items-center justify-center bg-background/80 backdrop-blur-sm">
-            <div class="bg-card border border-border rounded-xl shadow-xl w-full max-w-2xl max-h-[80vh] overflow-auto">
+            <div
+                node_ref=panel_ref
+                class="bg-card border border-border rounded-xl shadow-xl w-full max-w-2xl max-h-[80vh] overflow-auto"
+                role="dialog"
+                aria-modal="true"
+                aria-labelledby="trace-panel-title"
+                aria-describedby="trace-panel-description"
+                tabindex="-1"
+                on:keydown=on_panel_keydown
+            >
                 <div class="sticky top-0 bg-card border-b border-border p-4 flex items-center justify-between">
                     <div class="flex items-center gap-3">
-                        <h2 class="heading-4">"Trace Viewer"</h2>
+                        <h2 id="trace-panel-title" class="heading-4">"Trace Viewer"</h2>
                         <a
                             href=full_page_url
                             class="text-xs text-primary hover:underline flex items-center gap-1"
@@ -839,9 +939,12 @@ pub fn TracePanel(
                         </a>
                     </div>
                     <button
+                        node_ref=close_button_ref
                         class="p-2 rounded-lg hover:bg-muted transition-colors"
+                        type="button"
+                        aria-label="Close trace viewer"
                         on:click=move |_| {
-                            if let Some(ref cb) = on_close {
+                            if let Some(ref cb) = on_close_for_button {
                                 cb.run(());
                             }
                         }
@@ -851,6 +954,9 @@ pub fn TracePanel(
                         </svg>
                     </button>
                 </div>
+                <p id="trace-panel-description" class="sr-only">
+                    "Inspect inference trace details, timing, adapters, and token routing decisions."
+                </p>
                 <div class="p-4">
                     <TraceViewerInner trace_id=trace_id.clone() compact=false/>
                 </div>

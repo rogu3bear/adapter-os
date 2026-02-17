@@ -125,8 +125,11 @@ pub fn Diff() -> impl IntoView {
                     <div class="grid gap-4 md:grid-cols-2">
                         // Run A selector
                         <div>
-                            <label class="text-sm font-medium mb-2 block">"Run A (Baseline)"</label>
+                            <label for="diff-run-a" class="text-sm font-medium mb-2 block">
+                                "Run A (Baseline)"
+                            </label>
                             <RunSelector
+                                id="diff-run-a".to_string()
                                 runs=runs
                                 selected=run_a_id
                                 exclude=Signal::derive(move || run_b_id.try_get().unwrap_or_default())
@@ -134,8 +137,11 @@ pub fn Diff() -> impl IntoView {
                         </div>
                         // Run B selector
                         <div>
-                            <label class="text-sm font-medium mb-2 block">"Run B (Comparison)"</label>
+                            <label for="diff-run-b" class="text-sm font-medium mb-2 block">
+                                "Run B (Comparison)"
+                            </label>
                             <RunSelector
+                                id="diff-run-b".to_string()
                                 runs=runs
                                 selected=run_b_id
                                 exclude=Signal::derive(move || run_a_id.try_get().unwrap_or_default())
@@ -201,12 +207,14 @@ pub fn Diff() -> impl IntoView {
 
 #[component]
 pub(crate) fn RunSelector(
+    id: String,
     runs: ReadSignal<LoadingState<ListDiagRunsResponse>>,
     selected: RwSignal<String>,
     exclude: Signal<String>,
 ) -> impl IntoView {
     view! {
         <select
+            id=id
             class="flex h-10 w-full rounded-md border border-input bg-background px-3 py-2 text-sm"
             on:change=move |ev| selected.set(event_target_value(&ev))
             prop:value=move || selected.try_get().unwrap_or_default()
