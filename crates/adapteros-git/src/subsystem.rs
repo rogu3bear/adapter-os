@@ -7,10 +7,10 @@ use adapteros_core::{AosError, Result};
 use adapteros_db::{git_repositories::GitRepository, Db};
 use chrono::Duration as ChronoDuration;
 use chrono::{DateTime, Utc};
-use git2::{BranchType, DiffFormat, Oid};
+use git2::{BranchType, DiffFormat, Oid, Status, StatusOptions};
 use serde::{Deserialize, Serialize};
 use std::collections::HashSet;
-use std::path::PathBuf;
+use std::path::{Component, Path, PathBuf};
 use std::sync::Arc;
 use tokio::sync::mpsc;
 use tokio::sync::RwLock;
@@ -52,6 +52,15 @@ pub struct CommitDiff {
     pub files_changed: i32,
     pub insertions: i32,
     pub deletions: i32,
+}
+
+/// Working tree status payload used by API handlers.
+#[derive(Debug, Clone)]
+pub struct WorkingTreeStatus {
+    pub branch: String,
+    pub modified_files: Vec<String>,
+    pub untracked_files: Vec<String>,
+    pub staged_files: Vec<String>,
 }
 
 /// Git status response
@@ -422,6 +431,212 @@ impl GitSubsystem {
         })
     }
 
+    pub async fn get_working_tree_status(
+        &self,
+        repo_id: Option<&str>,
+    ) -> Result<WorkingTreeStatus> {
+        let repo = self.resolve_repository(repo_id).await?;
+        let repo_path = PathBuf::from(&repo.path);
+
+        task::spawn_blocking(move || -> Result<WorkingTreeStatus> {
+            let repo = git2::Repository::open(&repo_path).map_err(|e| {
+                AosError::Git(format!(
+                    "Failed to open repository {}: {}",
+                    repo_path.display(),
+                    e
+                ))
+            })?;
+
+            let branch = repo
+                .head()
+                .ok()
+                .and_then(|head| head.shorthand().map(|name| name.to_string()))
+                .unwrap_or_else(|| "HEAD".to_string());
+
+            let mut options = StatusOptions::new();
+            options.include_untracked(true).recurse_untracked_dirs(true);
+            let statuses = repo.statuses(Some(&mut options)).map_err(|e| {
+                AosError::Git(format!("Failed to compute repository status: {}", e))
+            })?;
+
+            let mut modified_files = Vec::new();
+            let mut untracked_files = Vec::new();
+            let mut staged_files = Vec::new();
+
+            for entry in statuses.iter() {
+                let status = entry.status();
+                let Some(path) = entry.path() else {
+                    continue;
+                };
+                let path = path.to_string();
+
+                if is_staged_status(status) {
+                    staged_files.push(path.clone());
+                }
+                if is_untracked_status(status) {
+                    untracked_files.push(path.clone());
+                } else if is_modified_status(status) {
+                    modified_files.push(path.clone());
+                }
+            }
+
+            modified_files.sort();
+            modified_files.dedup();
+            untracked_files.sort();
+            untracked_files.dedup();
+            staged_files.sort();
+            staged_files.dedup();
+
+            Ok(WorkingTreeStatus {
+                branch,
+                modified_files,
+                untracked_files,
+                staged_files,
+            })
+        })
+        .await
+        .map_err(|e| AosError::Git(format!("Git worker join error: {}", e)))?
+    }
+
+    pub async fn stage_file(&self, repo_id: Option<&str>, file_path: &str) -> Result<()> {
+        let repo = self.resolve_repository(repo_id).await?;
+        let repo_path = PathBuf::from(&repo.path);
+        let relative = normalize_repo_relative_path(file_path)?;
+
+        task::spawn_blocking(move || -> Result<()> {
+            let repo = git2::Repository::open(&repo_path).map_err(|e| {
+                AosError::Git(format!(
+                    "Failed to open repository {}: {}",
+                    repo_path.display(),
+                    e
+                ))
+            })?;
+            let mut index = repo
+                .index()
+                .map_err(|e| AosError::Git(format!("Failed to open repository index: {}", e)))?;
+            index
+                .add_path(&relative)
+                .map_err(|e| AosError::Git(format!("Failed to stage file: {}", e)))?;
+            index
+                .write()
+                .map_err(|e| AosError::Git(format!("Failed to write index: {}", e)))?;
+            Ok(())
+        })
+        .await
+        .map_err(|e| AosError::Git(format!("Git worker join error: {}", e)))?
+    }
+
+    pub async fn get_working_diff(
+        &self,
+        repo_id: Option<&str>,
+        file_path: Option<&str>,
+    ) -> Result<String> {
+        let repo = self.resolve_repository(repo_id).await?;
+        let repo_path = PathBuf::from(&repo.path);
+        let relative = if let Some(path) = file_path {
+            Some(normalize_repo_relative_path(path)?)
+        } else {
+            None
+        };
+        let relative_string = relative.map(|p| p.to_string_lossy().to_string());
+
+        task::spawn_blocking(move || -> Result<String> {
+            let repo = git2::Repository::open(&repo_path).map_err(|e| {
+                AosError::Git(format!(
+                    "Failed to open repository {}: {}",
+                    repo_path.display(),
+                    e
+                ))
+            })?;
+
+            let mut options = git2::DiffOptions::new();
+            if let Some(ref path) = relative_string {
+                options.pathspec(path);
+            }
+
+            let head_tree = repo.head().ok().and_then(|head| head.peel_to_tree().ok());
+            let diff = repo
+                .diff_tree_to_workdir_with_index(head_tree.as_ref(), Some(&mut options))
+                .map_err(|e| AosError::Git(format!("Failed to compute working diff: {}", e)))?;
+
+            let mut diff_text = String::new();
+            diff.print(DiffFormat::Patch, |_delta, _hunk, line| {
+                if let Ok(text) = std::str::from_utf8(line.content()) {
+                    diff_text.push_str(text);
+                }
+                true
+            })
+            .map_err(|e| AosError::Git(format!("Failed to render working diff: {}", e)))?;
+
+            Ok(diff_text)
+        })
+        .await
+        .map_err(|e| AosError::Git(format!("Git worker join error: {}", e)))?
+    }
+
+    pub async fn unstage_file(&self, repo_id: Option<&str>, file_path: &str) -> Result<()> {
+        let repo = self.resolve_repository(repo_id).await?;
+        let repo_path = PathBuf::from(&repo.path);
+        let relative = normalize_repo_relative_path(file_path)?;
+        let relative_string = relative.to_string_lossy().to_string();
+
+        task::spawn_blocking(move || -> Result<()> {
+            let repo = git2::Repository::open(&repo_path).map_err(|e| {
+                AosError::Git(format!(
+                    "Failed to open repository {}: {}",
+                    repo_path.display(),
+                    e
+                ))
+            })?;
+
+            repo.reset_default(None, [relative_string.as_str()])
+                .map_err(|e| AosError::Git(format!("Failed to unstage file: {}", e)))?;
+            Ok(())
+        })
+        .await
+        .map_err(|e| AosError::Git(format!("Git worker join error: {}", e)))?
+    }
+
+    pub async fn discard_file(&self, repo_id: Option<&str>, file_path: &str) -> Result<()> {
+        let repo = self.resolve_repository(repo_id).await?;
+        let repo_path = PathBuf::from(&repo.path);
+        let relative = normalize_repo_relative_path(file_path)?;
+        let relative_string = relative.to_string_lossy().to_string();
+
+        task::spawn_blocking(move || -> Result<()> {
+            let repo = git2::Repository::open(&repo_path).map_err(|e| {
+                AosError::Git(format!(
+                    "Failed to open repository {}: {}",
+                    repo_path.display(),
+                    e
+                ))
+            })?;
+
+            let full_path = repo_path.join(&relative);
+            if full_path.exists() {
+                let mut checkout = git2::build::CheckoutBuilder::new();
+                checkout.force().path(&relative_string);
+                let checkout_result = repo.checkout_head(Some(&mut checkout));
+                if checkout_result.is_err() {
+                    let metadata = std::fs::metadata(&full_path).map_err(|e| {
+                        AosError::Git(format!("Failed to inspect file for discard: {}", e))
+                    })?;
+                    if metadata.is_dir() {
+                        std::fs::remove_dir_all(&full_path).map_err(|e| {
+                            AosError::Git(format!("Failed to remove directory: {}", e))
+                        })?;
+                    } else {
+                        std::fs::remove_file(&full_path)
+                            .map_err(|e| AosError::Git(format!("Failed to remove file: {}", e)))?;
+                    }
+                }
+            }
+            Ok(())
+        })
+        .await
+        .map_err(|e| AosError::Git(format!("Git worker join error: {}", e)))?
+    }
+
     pub async fn list_branches(&self, repo_id: Option<&str>) -> Result<Vec<crate::GitBranchInfo>> {
         let repo = self.resolve_repository(repo_id).await?;
         let repo_path = PathBuf::from(&repo.path);
@@ -485,6 +700,102 @@ impl GitSubsystem {
         })
         .await
         .map_err(|e| AosError::Git(format!("Branch listing task join error: {}", e)))?
+    }
+
+    pub async fn create_commit(&self, repo_id: Option<&str>, message: &str) -> Result<String> {
+        let repo = self.resolve_repository(repo_id).await?;
+        let repo_path = PathBuf::from(&repo.path);
+        let message = message.trim().to_string();
+        if message.is_empty() {
+            return Err(AosError::Git("commit message cannot be empty".to_string()));
+        }
+
+        task::spawn_blocking(move || -> Result<String> {
+            let repo = git2::Repository::open(&repo_path).map_err(|e| {
+                AosError::Git(format!(
+                    "Failed to open repository {}: {}",
+                    repo_path.display(),
+                    e
+                ))
+            })?;
+
+            let mut index = repo
+                .index()
+                .map_err(|e| AosError::Git(format!("Failed to open repository index: {}", e)))?;
+            let tree_oid = index
+                .write_tree()
+                .map_err(|e| AosError::Git(format!("Failed to write index tree: {}", e)))?;
+            let tree = repo
+                .find_tree(tree_oid)
+                .map_err(|e| AosError::Git(format!("Failed to lookup commit tree: {}", e)))?;
+
+            let signature = repo
+                .signature()
+                .or_else(|_| git2::Signature::now("AdapterOS", "adapteros@localhost"))
+                .map_err(|e| AosError::Git(format!("Failed to build commit signature: {}", e)))?;
+
+            let commit_oid = if let Ok(head) = repo.head() {
+                let parent = head
+                    .peel_to_commit()
+                    .map_err(|e| AosError::Git(format!("Failed to resolve HEAD commit: {}", e)))?;
+                repo.commit(
+                    Some("HEAD"),
+                    &signature,
+                    &signature,
+                    &message,
+                    &tree,
+                    &[&parent],
+                )
+                .map_err(|e| AosError::Git(format!("Failed to create commit: {}", e)))?
+            } else {
+                repo.commit(Some("HEAD"), &signature, &signature, &message, &tree, &[])
+                    .map_err(|e| AosError::Git(format!("Failed to create initial commit: {}", e)))?
+            };
+
+            Ok(commit_oid.to_string())
+        })
+        .await
+        .map_err(|e| AosError::Git(format!("Git worker join error: {}", e)))?
+    }
+
+    pub async fn checkout_branch(&self, repo_id: Option<&str>, branch: &str) -> Result<()> {
+        let repo = self.resolve_repository(repo_id).await?;
+        let repo_path = PathBuf::from(&repo.path);
+        let branch = branch.trim().to_string();
+        if branch.is_empty() {
+            return Err(AosError::Git("branch cannot be empty".to_string()));
+        }
+
+        task::spawn_blocking(move || -> Result<()> {
+            let repo = git2::Repository::open(&repo_path).map_err(|e| {
+                AosError::Git(format!(
+                    "Failed to open repository {}: {}",
+                    repo_path.display(),
+                    e
+                ))
+            })?;
+
+            let branch_ref = if branch.starts_with("refs/heads/") {
+                branch.clone()
+            } else {
+                format!("refs/heads/{}", branch)
+            };
+
+            repo.find_reference(&branch_ref)
+                .map_err(|e| AosError::Git(format!("Branch '{}' not found: {}", branch, e)))?;
+
+            repo.set_head(&branch_ref)
+                .map_err(|e| AosError::Git(format!("Failed to set HEAD to '{}': {}", branch, e)))?;
+
+            let mut checkout = git2::build::CheckoutBuilder::new();
+            checkout.safe();
+            repo.checkout_head(Some(&mut checkout))
+                .map_err(|e| AosError::Git(format!("Failed to checkout '{}': {}", branch, e)))?;
+
+            Ok(())
+        })
+        .await
+        .map_err(|e| AosError::Git(format!("Git worker join error: {}", e)))?
     }
 
     /// Calculate ahead/behind counts for a branch compared to its upstream or default branch
@@ -677,6 +988,57 @@ fn resolve_branch_head(repo: &git2::Repository, branch: Option<&str>) -> Result<
         .map_err(|e| AosError::Git(format!("Failed to read HEAD: {}", e)))?
         .target()
         .ok_or_else(|| AosError::Git("HEAD reference has no target".to_string()))
+}
+
+fn normalize_repo_relative_path(file_path: &str) -> Result<PathBuf> {
+    let path = Path::new(file_path);
+    if path.is_absolute() {
+        return Err(AosError::Git(
+            "file_path must be repository-relative".to_string(),
+        ));
+    }
+    if file_path.is_empty() {
+        return Err(AosError::Git("file_path cannot be empty".to_string()));
+    }
+
+    let mut normalized = PathBuf::new();
+    for component in path.components() {
+        match component {
+            Component::Normal(part) => normalized.push(part),
+            Component::CurDir => {}
+            Component::ParentDir | Component::RootDir | Component::Prefix(_) => {
+                return Err(AosError::Git(
+                    "file_path cannot contain traversal segments".to_string(),
+                ));
+            }
+        }
+    }
+
+    if normalized.as_os_str().is_empty() {
+        return Err(AosError::Git("file_path cannot be empty".to_string()));
+    }
+
+    Ok(normalized)
+}
+
+fn is_staged_status(status: Status) -> bool {
+    status.intersects(
+        Status::INDEX_NEW
+            | Status::INDEX_MODIFIED
+            | Status::INDEX_DELETED
+            | Status::INDEX_RENAMED
+            | Status::INDEX_TYPECHANGE,
+    )
+}
+
+fn is_untracked_status(status: Status) -> bool {
+    status.contains(Status::WT_NEW)
+}
+
+fn is_modified_status(status: Status) -> bool {
+    status.intersects(
+        Status::WT_MODIFIED | Status::WT_DELETED | Status::WT_RENAMED | Status::WT_TYPECHANGE,
+    )
 }
 
 fn build_commit_info(

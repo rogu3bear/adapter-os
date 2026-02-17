@@ -448,6 +448,45 @@ fn absolute_range(parent: &[u8], slice: &[u8], parent_offset: usize) -> Result<R
     Ok(start..start + slice.len())
 }
 
+fn galaxy_header_slice<'a>(
+    bytes: &'a [u8],
+    start: usize,
+    len: usize,
+    field: &str,
+) -> Result<&'a [u8]> {
+    let end = start.checked_add(len).ok_or_else(|| {
+        AosError::Validation(format!(
+            "Galaxy header field '{field}' range overflow ({start} + {len})"
+        ))
+    })?;
+    bytes.get(start..end).ok_or_else(|| {
+        AosError::Validation(format!(
+            "Galaxy header truncated while reading field '{field}'"
+        ))
+    })
+}
+
+fn galaxy_header_u16(bytes: &[u8], start: usize, field: &str) -> Result<u16> {
+    let slice = galaxy_header_slice(bytes, start, std::mem::size_of::<u16>(), field)?;
+    let mut raw = [0u8; std::mem::size_of::<u16>()];
+    raw.copy_from_slice(slice);
+    Ok(u16::from_le_bytes(raw))
+}
+
+fn galaxy_header_u32(bytes: &[u8], start: usize, field: &str) -> Result<u32> {
+    let slice = galaxy_header_slice(bytes, start, std::mem::size_of::<u32>(), field)?;
+    let mut raw = [0u8; std::mem::size_of::<u32>()];
+    raw.copy_from_slice(slice);
+    Ok(u32::from_le_bytes(raw))
+}
+
+fn galaxy_header_u64(bytes: &[u8], start: usize, field: &str) -> Result<u64> {
+    let slice = galaxy_header_slice(bytes, start, std::mem::size_of::<u64>(), field)?;
+    let mut raw = [0u8; std::mem::size_of::<u64>()];
+    raw.copy_from_slice(slice);
+    Ok(u64::from_le_bytes(raw))
+}
+
 fn parse_galaxy_header(bytes: &[u8], page_size: usize) -> Result<ParsedGalaxyHeader> {
     if bytes.len() < GALAXY_HEADER_FIXED {
         return Err(AosError::Validation(
@@ -457,7 +496,7 @@ fn parse_galaxy_header(bytes: &[u8], page_size: usize) -> Result<ParsedGalaxyHea
     if &bytes[..8] != GALAXY_MAGIC {
         return Err(AosError::Validation("Invalid galaxy magic".to_string()));
     }
-    let version = u16::from_le_bytes(bytes[8..10].try_into().unwrap());
+    let version = galaxy_header_u16(bytes, 8, "version")?;
     if version != GALAXY_VERSION {
         return Err(AosError::Validation(format!(
             "Unsupported galaxy version {} (expected {})",
@@ -465,8 +504,8 @@ fn parse_galaxy_header(bytes: &[u8], page_size: usize) -> Result<ParsedGalaxyHea
         )));
     }
 
-    let entry_count = u16::from_le_bytes(bytes[10..12].try_into().unwrap()) as usize;
-    let header_size = u32::from_le_bytes(bytes[12..16].try_into().unwrap()) as usize;
+    let entry_count = galaxy_header_u16(bytes, 10, "entry_count")? as usize;
+    let header_size = galaxy_header_u32(bytes, 12, "header_size")? as usize;
 
     let mut cursor = GALAXY_HEADER_FIXED;
     let mut entries = Vec::with_capacity(entry_count);
@@ -476,10 +515,9 @@ fn parse_galaxy_header(bytes: &[u8], page_size: usize) -> Result<ParsedGalaxyHea
                 "Galaxy header truncated while reading entries".to_string(),
             ));
         }
-        let offset = u64::from_le_bytes(bytes[cursor..cursor + 8].try_into().unwrap()) as usize;
-        let len = u64::from_le_bytes(bytes[cursor + 8..cursor + 16].try_into().unwrap()) as usize;
-        let id_len =
-            u16::from_le_bytes(bytes[cursor + 16..cursor + 18].try_into().unwrap()) as usize;
+        let offset = galaxy_header_u64(bytes, cursor, "entry_offset")? as usize;
+        let len = galaxy_header_u64(bytes, cursor + 8, "entry_length")? as usize;
+        let id_len = galaxy_header_u16(bytes, cursor + 16, "adapter_id_length")? as usize;
         cursor += GALAXY_ENTRY_FIXED;
 
         let id_end = cursor

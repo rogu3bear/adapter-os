@@ -73,6 +73,8 @@ use utoipa_swagger_ui::SwaggerUi;
         handlers::worker_manifests::fetch_manifest_by_hash,
         handlers::workers::notify_worker_status,
         handlers::workers::worker_heartbeat,
+        handlers::admin::admin_status,
+        handlers::admin::admin_config,
         handlers::admin::list_users,
         handlers::admin::get_user,
         handlers::admin::create_user,
@@ -106,6 +108,9 @@ use utoipa_swagger_ui::SwaggerUi;
         handlers::models::get_model_status,
         handlers::models::validate_model,
         handlers::models::delete_model,
+        handlers::setup::setup_migrate,
+        handlers::setup::setup_discover_models,
+        handlers::setup::setup_seed_models,
         handlers::list_plans,
         handlers::build_plan,
         handlers::get_plan_details,
@@ -257,6 +262,8 @@ use utoipa_swagger_ui::SwaggerUi;
         handlers::training_datasets::get_training_dataset_manifest,
         handlers::training_datasets::stream_training_dataset_rows,
         handlers::filesystem::browse_filesystem,
+        handlers::filesystem::read_file_content,
+        handlers::filesystem::write_file_content,
         handlers::documents::upload_document,
         handlers::documents::list_documents,
         handlers::documents::get_document,
@@ -375,6 +382,16 @@ use utoipa_swagger_ui::SwaggerUi;
         handlers::repos::get_timeline,
         handlers::repos::list_training_jobs,
         handlers::git::git_status,
+        handlers::git::git_working_status,
+        handlers::git::git_working_diff,
+        handlers::git::stage_file,
+        handlers::git::unstage_file,
+        handlers::git::git_commit,
+        handlers::git::git_log,
+        handlers::git::git_checkout,
+        handlers::git::stage_working_tree_file,
+        handlers::git::unstage_working_tree_file,
+        handlers::git::discard_working_tree_file,
         handlers::git::start_git_session,
         handlers::git::end_git_session,
         handlers::git::list_git_branches,
@@ -826,13 +843,21 @@ use utoipa_swagger_ui::SwaggerUi;
         crate::types::BaseModelStatusResponse,
         // Git types
         handlers::git::GitBranchInfo,
-        handlers::git::GitStatusResponse,
         handlers::git::StartGitSessionRequest,
         handlers::git::StartGitSessionResponse,
         handlers::git::EndGitSessionRequest,
         handlers::git::EndGitSessionResponse,
         handlers::git::SessionAction,
         handlers::git::FileChangeEvent,
+        adapteros_api_types::git::WorkingTreeStatusResponse,
+        adapteros_api_types::git::WorkingTreeDiffResponse,
+        adapteros_api_types::git::WorkingTreeFileOperationRequest,
+        adapteros_api_types::git::WorkingTreeOperationResponse,
+        adapteros_api_types::git::GitCommitRequest,
+        adapteros_api_types::git::GitCommitResponse,
+        adapteros_api_types::git::GitCheckoutRequest,
+        adapteros_api_types::git::GitCheckoutResponse,
+        adapteros_api_types::git::GitLogEntry,
         // Promotion types
         crate::handlers::promotion::PromoteRequest,
         crate::handlers::promotion::ReleaseMetadata,
@@ -1219,6 +1244,8 @@ pub fn build(state: AppState) -> Router {
         // Auth routes (extracted to routes/auth_routes.rs)
         .merge(auth_routes::protected_auth_routes())
         // Admin routes
+        .route("/v1/admin/status", get(handlers::admin::admin_status))
+        .route("/v1/admin/config", get(handlers::admin::admin_config))
         .route(
             "/v1/admin/users",
             get(handlers::admin::list_users).post(handlers::admin::create_user),
@@ -1348,6 +1375,15 @@ pub fn build(state: AppState) -> Router {
         .route(
             "/v1/models/{model_id}",
             delete(handlers::models::delete_model),
+        )
+        .route("/v1/setup/migrate", post(handlers::setup::setup_migrate))
+        .route(
+            "/v1/setup/models/discover",
+            get(handlers::setup::setup_discover_models),
+        )
+        .route(
+            "/v1/setup/models/seed",
+            post(handlers::setup::setup_seed_models),
         )
         .route("/v1/plans", get(handlers::list_plans))
         .route("/v1/plans/build", post(handlers::build_plan))
@@ -1920,6 +1956,11 @@ pub fn build(state: AppState) -> Router {
             "/v1/filesystem/browse",
             get(handlers::filesystem::browse_filesystem),
         )
+        .route(
+            "/v1/filesystem/content",
+            get(handlers::filesystem::read_file_content)
+                .put(handlers::filesystem::write_file_content),
+        )
         // Document routes
         .route(
             "/v1/documents/upload",
@@ -2358,6 +2399,28 @@ pub fn build(state: AppState) -> Router {
         )
         // Git integration routes
         .route("/v1/git/status", get(handlers::git::git_status))
+        .route(
+            "/v1/git/working-status",
+            get(handlers::git::git_working_status),
+        )
+        .route("/v1/git/working-diff", get(handlers::git::git_working_diff))
+        .route("/v1/git/stage", post(handlers::git::stage_file))
+        .route("/v1/git/unstage", post(handlers::git::unstage_file))
+        .route("/v1/git/commit", post(handlers::git::git_commit))
+        .route("/v1/git/log", get(handlers::git::git_log))
+        .route("/v1/git/checkout", post(handlers::git::git_checkout))
+        .route(
+            "/v1/git/working-tree/stage",
+            post(handlers::git::stage_working_tree_file),
+        )
+        .route(
+            "/v1/git/working-tree/unstage",
+            post(handlers::git::unstage_working_tree_file),
+        )
+        .route(
+            "/v1/git/working-tree/discard",
+            post(handlers::git::discard_working_tree_file),
+        )
         .route(
             "/v1/git/sessions/start",
             post(handlers::git::start_git_session),

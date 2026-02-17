@@ -173,14 +173,28 @@ impl LoRAAdapter {
         let tensors = safetensors::SafeTensors::deserialize(&data)
             .map_err(|e| AosError::Validation(format!("Failed to parse safetensors: {}", e)))?;
 
-        // Extract LoRA weights for each target module
+        // Extract LoRA weights for each target module.
+        // Try prefix format first (lora_a.{module}), then suffix ({module}.lora_A).
         for module_name in &adapter.config().target_modules.clone() {
-            let lora_a_key = format!("{}.lora_A", module_name);
-            let lora_b_key = format!("{}.lora_B", module_name);
+            // Prefix format: "lora_a.q_proj" (canonical .aos format)
+            let a_prefix = format!("lora_a.{}", module_name);
+            let b_prefix = format!("lora_b.{}", module_name);
 
-            match (tensors.tensor(&lora_a_key), tensors.tensor(&lora_b_key)) {
-                (Ok(lora_a_tensor), Ok(lora_b_tensor)) => {
-                    // Convert tensors to Vec<Vec<f32>>
+            let result =
+                if let (Ok(a), Ok(b)) = (tensors.tensor(&a_prefix), tensors.tensor(&b_prefix)) {
+                    Some((a, b))
+                } else {
+                    // Suffix format: "q_proj.lora_A" (legacy format)
+                    let a_suffix = format!("{}.lora_A", module_name);
+                    let b_suffix = format!("{}.lora_B", module_name);
+                    tensors
+                        .tensor(&a_suffix)
+                        .ok()
+                        .zip(tensors.tensor(&b_suffix).ok())
+                };
+
+            match result {
+                Some((lora_a_tensor, lora_b_tensor)) => {
                     let lora_a = tensor_to_nested_vec(&lora_a_tensor)?;
                     let lora_b = tensor_to_nested_vec(&lora_b_tensor)?;
 
@@ -193,12 +207,10 @@ impl LoRAAdapter {
                         lora_b_tensor.shape()
                     );
                 }
-                _ => {
+                None => {
                     tracing::warn!(
-                        "LoRA weights not found for module {}: expected keys {}.lora_A, {}.lora_B",
+                        "LoRA weights not found for module {}: tried lora_a.{0}/{0}.lora_A",
                         module_name,
-                        module_name,
-                        module_name
                     );
                 }
             }

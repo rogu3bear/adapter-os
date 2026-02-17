@@ -1146,6 +1146,7 @@ dependencies = [
  "adapteros-retrieval",
  "adapteros-storage",
  "adapteros-telemetry",
+ "adapteros-transport-types",
  "adapteros-types",
  "anyhow",
  "async-trait",
@@ -1725,6 +1726,7 @@ dependencies = [
  "adapteros-storage",
  "adapteros-system-metrics",
  "adapteros-telemetry",
+ "adapteros-transport-types",
  "adapteros-types",
  "adapteros-verify",
  "anyhow",
@@ -2143,6 +2145,17 @@ dependencies = [
  "tracing",
  "uuid",
  "zstd",
+]
+
+[[package]]
+name = "adapteros-transport-types"
+version = "0.14.1"
+dependencies = [
+ "adapteros-api-types",
+ "adapteros-core",
+ "adapteros-types",
+ "serde",
+ "serde_json",
 ]
 
 [[package]]

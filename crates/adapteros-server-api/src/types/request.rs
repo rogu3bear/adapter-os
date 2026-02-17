@@ -1,12 +1,8 @@
 //! Request types for API endpoints.
 
 use adapteros_api_types::{CreateTrainingJobRequest, InferRequest, TrainingConfigRequest};
-use adapteros_core::{determinism::DeterminismContext, BackendKind, SeedMode};
-use adapteros_types::adapters::metadata::RoutingDeterminismMode;
 use serde::{Deserialize, Serialize};
 use utoipa::ToSchema;
-
-use super::sampling::PlacementReplay;
 
 /// Single request item within a batch inference call
 #[derive(Debug, Serialize, Deserialize, ToSchema)]
@@ -264,150 +260,14 @@ pub struct PatchProposalRequestType {
     pub description: String,
 }
 
-fn default_utf8_healing_worker() -> bool {
-    true
-}
+/// Canonical worker inference request shared by server and worker.
+pub type WorkerInferRequest = adapteros_transport_types::WorkerInferenceRequest;
 
-/// Worker inference request (for UDS communication)
-///
-/// Includes all sampling parameters required for deterministic replay.
-#[derive(Debug, Serialize, Deserialize, ToSchema)]
-pub struct WorkerInferRequest {
-    pub cpid: String,
-    pub prompt: String,
-    /// Structured chat messages for model-aware template formatting.
-    #[serde(default, skip_serializing_if = "Option::is_none")]
-    pub messages: Option<Vec<adapteros_types::inference::ChatMessage>>,
-    pub max_tokens: usize,
-    /// Optional request ID for worker-side tracing
-    #[serde(default, skip_serializing_if = "Option::is_none")]
-    pub request_id: Option<String>,
-    /// Canonical run envelope for worker observability
-    #[serde(default, skip_serializing_if = "Option::is_none")]
-    pub run_envelope: Option<adapteros_api_types::RunEnvelope>,
-    pub require_evidence: bool,
-    /// Admin override for cluster routing restrictions
-    #[serde(default)]
-    pub admin_override: bool,
-    /// Enable reasoning-aware routing mid-generation
-    #[serde(default)]
-    pub reasoning_mode: bool,
-    /// Stack identifier associated with this inference (if any)
-    #[serde(default, skip_serializing_if = "Option::is_none")]
-    pub stack_id: Option<String>,
-    /// Stack version for telemetry correlation
-    #[serde(default, skip_serializing_if = "Option::is_none")]
-    pub stack_version: Option<i64>,
-    /// Execution policy ID for audit/trace binding
-    #[serde(default, skip_serializing_if = "Option::is_none")]
-    pub policy_id: Option<String>,
-    /// Domain hint used for routing/package selection
-    #[serde(default, skip_serializing_if = "Option::is_none")]
-    pub domain_hint: Option<String>,
-    /// Sampling temperature (0.0 = deterministic, higher = more random)
-    #[serde(default)]
-    pub temperature: f32,
-    /// Top-K sampling (limits vocabulary to K most likely tokens)
-    #[serde(skip_serializing_if = "Option::is_none")]
-    pub top_k: Option<usize>,
-    /// Top-P (nucleus) sampling (limits vocabulary to tokens with cumulative prob <= P)
-    #[serde(skip_serializing_if = "Option::is_none")]
-    pub top_p: Option<f32>,
-    /// Random seed for deterministic sampling (critical for replay)
-    #[serde(skip_serializing_if = "Option::is_none")]
-    pub seed: Option<u64>,
-    /// Router seed for audit purposes
-    ///
-    /// **Note:** The router uses a deterministic algorithm (sorted by score,
-    /// then by stable_id for tie-breaking). This seed is stored for audit trail
-    /// purposes but does NOT currently affect routing decisions. Replays
-    /// produce identical routing given identical inputs.
-    #[serde(skip_serializing_if = "Option::is_none")]
-    pub router_seed: Option<String>,
-    /// Seed mode for request-scoped RNG derivation
-    #[serde(default, skip_serializing_if = "Option::is_none")]
-    pub seed_mode: Option<SeedMode>,
-    /// Request-scoped seed used by the worker (32 bytes)
-    #[serde(default, skip_serializing_if = "Option::is_none")]
-    pub request_seed: Option<[u8; 32]>,
-    /// Canonical determinism context for routing and replay
-    #[serde(default, skip_serializing_if = "Option::is_none")]
-    #[schema(value_type = Object)]
-    pub determinism: Option<DeterminismContext>,
-    /// Backend profile requested for execution
-    #[serde(default, skip_serializing_if = "Option::is_none")]
-    pub backend_profile: Option<BackendKind>,
-    /// CoreML mode for backend selection
-    #[serde(default, skip_serializing_if = "Option::is_none")]
-    pub coreml_mode: Option<super::CoreMLMode>,
-    /// Determinism mode to apply in the worker (strict, besteffort, relaxed)
-    #[serde(default, skip_serializing_if = "Option::is_none")]
-    pub determinism_mode: Option<String>,
-    /// Routing determinism mode for adapter selection (deterministic/adaptive)
-    #[serde(default, skip_serializing_if = "Option::is_none")]
-    #[schema(value_type = String)]
-    pub routing_determinism_mode: Option<RoutingDeterminismMode>,
-    /// Pinned adapter IDs that receive prior boost in routing (CHAT-PIN-02)
-    ///
-    /// These adapters receive PINNED_BOOST (0.3) added to their prior scores
-    /// before the router's scoring algorithm runs.
-    #[serde(skip_serializing_if = "Option::is_none")]
-    pub pinned_adapter_ids: Option<Vec<String>>,
-    /// Strict mode disables backend fallback in the worker
-    #[serde(default, skip_serializing_if = "Option::is_none")]
-    pub strict_mode: Option<bool>,
-    /// Effective adapter set resolved by the control plane
-    ///
-    /// When provided, the worker must restrict routing to this set and error
-    /// if adapters outside the set are requested.
-    #[serde(skip_serializing_if = "Option::is_none")]
-    pub effective_adapter_ids: Option<Vec<String>>,
+/// Worker request type (normal vs patch proposal).
+pub type WorkerRequestType = adapteros_transport_types::WorkerRequestType;
 
-    /// Per-adapter stable IDs for deterministic tie-breaking (score DESC, stable_id ASC).
-    ///
-    /// Keys may be either internal adapter UUIDs (`id`) or external adapter IDs (`adapter_id`).
-    /// Values are DB-issued, per-tenant monotonic sequences. A value of `0` indicates a
-    /// legacy adapter that predates stable_id assignment.
-    #[serde(default, skip_serializing_if = "Option::is_none")]
-    pub adapter_stable_ids: Option<std::collections::HashMap<String, u64>>,
-
-    /// Routing policy resolved for this tenant/request.
-    #[serde(skip_serializing_if = "Option::is_none")]
-    pub routing_policy: Option<adapteros_api_types::RoutingPolicy>,
-
-    /// Placement override for deterministic replay
-    #[serde(skip_serializing_if = "Option::is_none")]
-    pub placement: Option<PlacementReplay>,
-
-    /// Per-adapter strength overrides (session/request scoped)
-    ///
-    /// Values multiply the adapter's configured lora_strength (default 1.0).
-    #[serde(skip_serializing_if = "Option::is_none")]
-    pub adapter_strength_overrides: Option<std::collections::HashMap<String, f32>>,
-
-    /// Stop policy specification (PRD: Hard Deterministic Stop Controller)
-    #[serde(skip_serializing_if = "Option::is_none")]
-    pub stop_policy: Option<adapteros_api_types::inference::StopPolicySpec>,
-
-    /// BLAKE3 digest of policy decisions applied during request processing
-    #[serde(default, skip_serializing_if = "Option::is_none")]
-    pub policy_mask_digest_b3: Option<[u8; 32]>,
-
-    /// Enable UTF-8 token healing (default: true)
-    /// When enabled, incomplete multi-byte UTF-8 sequences are buffered until complete
-    #[serde(default = "default_utf8_healing_worker")]
-    pub utf8_healing: bool,
-
-    /// FIM prefix (code before cursor). When both `fim_prefix` and `fim_suffix`
-    /// are present, the worker builds a FIM token sequence instead of tokenizing
-    /// `prompt` directly.
-    #[serde(default, skip_serializing_if = "Option::is_none")]
-    pub fim_prefix: Option<String>,
-
-    /// FIM suffix (code after cursor).
-    #[serde(default, skip_serializing_if = "Option::is_none")]
-    pub fim_suffix: Option<String>,
-}
+/// Patch proposal request payload attached to `WorkerRequestType::PatchProposal`.
+pub type WorkerPatchProposalRequest = adapteros_transport_types::WorkerPatchProposalRequest;
 
 /// Compare policies request
 #[derive(Debug, Serialize, Deserialize, ToSchema)]

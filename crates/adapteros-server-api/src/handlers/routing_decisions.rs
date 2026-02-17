@@ -14,7 +14,7 @@ use crate::security::validate_tenant_isolation;
 use crate::state::AppState;
 use crate::types::{
     AdapterScore, ErrorResponse, FeatureScoreBreakdown, FeatureVector, RouterWeightsResponse,
-    RoutingDebugRequest, RoutingDebugResponse, RoutingHistoryQuery,
+    RoutingDebugRequest, RoutingDebugResponseV2, RoutingHistoryQuery,
 };
 use adapteros_core::Q15_GATE_DENOMINATOR;
 use adapteros_db::users::Role;
@@ -808,7 +808,7 @@ fn convert_decision_to_response(decision: DbRoutingDecision) -> RoutingDecisionR
     path = "/v1/routing/debug",
     request_body = RoutingDebugRequest,
     responses(
-        (status = 200, description = "Routing debug info", body = RoutingDebugResponse),
+        (status = 200, description = "Routing debug info", body = RoutingDebugResponseV2),
         (status = 500, description = "Internal server error", body = ErrorResponse)
     )
 )]
@@ -816,7 +816,7 @@ pub async fn debug_routing(
     State(state): State<AppState>,
     Extension(claims): Extension<Claims>,
     Json(req): Json<RoutingDebugRequest>,
-) -> ApiResult<RoutingDebugResponse> {
+) -> ApiResult<RoutingDebugResponseV2> {
     use adapteros_lora_router::{AdapterInfo, CodeFeatures, Router, RouterWeights};
 
     require_any_role(&claims, &[Role::Admin, Role::Operator, Role::Viewer])?;
@@ -867,7 +867,8 @@ pub async fn debug_routing(
         .collect();
 
     // Load tenant-specific weights (or system defaults)
-    let (tenant_weights, weights_is_default) = load_tenant_weights(&state, &claims.tenant_id).await;
+    let (tenant_weights, weights_is_default) =
+        load_tenant_weights(&state, &claims.tenant_id).await?;
 
     let mut router = Router::new_with_weights(tenant_weights.clone(), 3, 1.0, 0.02);
     let decision = router
@@ -879,7 +880,7 @@ pub async fn debug_routing(
                 .with_details(e.to_string())
         })?;
     let feature_vec = code_features.to_vector();
-    let explanation = router.explain_score(&feature_vec);
+    let score_explanation = router.explain_score(&feature_vec);
 
     let candidate_scores: HashMap<u16, f32> = decision
         .candidates
@@ -928,23 +929,17 @@ pub async fn debug_routing(
         .filter_map(|&idx| adapter_infos.get(idx as usize).map(|a| a.id.clone()))
         .collect();
 
-    // Build per-adapter feature score breakdowns
-    let feature_scores: Vec<FeatureScoreBreakdown> = adapter_infos
-        .iter()
-        .map(|adapter| {
-            let adapter_explanation = router.explain_score(&feature_vec);
-            FeatureScoreBreakdown {
-                adapter_id: adapter.id.clone(),
-                language_score: adapter_explanation.language_score as f64,
-                framework_score: adapter_explanation.framework_score as f64,
-                symbol_hits_score: adapter_explanation.symbol_hits_score as f64,
-                path_tokens_score: adapter_explanation.path_tokens_score as f64,
-                prompt_verb_score: adapter_explanation.prompt_verb_score as f64,
-                tier_boost: 0.0, // tier boost is applied during routing, not in explain_score
-                total_score: adapter_explanation.total_score as f64,
-            }
-        })
-        .collect();
+    // Feature attribution is prompt-global; keep list shape for backward compatibility.
+    let feature_scores = vec![FeatureScoreBreakdown {
+        adapter_id: "global_prompt".to_string(),
+        language_score: score_explanation.language_score as f64,
+        framework_score: score_explanation.framework_score as f64,
+        symbol_hits_score: score_explanation.symbol_hits_score as f64,
+        path_tokens_score: score_explanation.path_tokens_score as f64,
+        prompt_verb_score: score_explanation.prompt_verb_score as f64,
+        tier_boost: 0.0, // tier boost is applied during routing, not in explain_score
+        total_score: score_explanation.total_score as f64,
+    }];
 
     let weights_response = weights_to_response(
         claims.tenant_id.clone(),
@@ -952,7 +947,7 @@ pub async fn debug_routing(
         weights_is_default,
     );
 
-    Ok(Json(RoutingDebugResponse {
+    Ok(Json(RoutingDebugResponseV2 {
         features: FeatureVector {
             language,
             frameworks,
@@ -962,11 +957,13 @@ pub async fn debug_routing(
         },
         adapter_scores,
         selected_adapters,
+        entropy: decision.entropy as f64,
+        k_value: decision.indices.len() as i32,
         explanation: format!(
             "Router selected {} adapters with entropy {:.3}. {}",
             decision.indices.len(),
             decision.entropy,
-            explanation.format_with_weights(&tenant_weights)
+            score_explanation.format_with_weights(&tenant_weights)
         ),
         weights_used: Some(weights_response),
         feature_scores,

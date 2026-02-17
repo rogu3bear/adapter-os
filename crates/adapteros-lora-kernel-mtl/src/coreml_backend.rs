@@ -33,6 +33,7 @@
 //! - Buffer marshaling between Rust and Objective-C++
 //! - Error propagation and timeout handling
 
+use crate::AdapterLoadMetadata;
 use adapteros_core::{AosError, B3Hash, Result};
 use adapteros_lora_kernel_api::{attestation, FusedKernels, IoBuffers, RouterRing};
 use serde::{Deserialize, Serialize};
@@ -504,6 +505,123 @@ impl CoreMLBackend {
         self.loaded_adapters.len()
     }
 
+    /// Load adapter with optional metadata overrides.
+    ///
+    /// Precedence: metadata > embedded payload config > inferred/default.
+    pub fn load_adapter_with_metadata(
+        &mut self,
+        id: u16,
+        weights: &[u8],
+        metadata: Option<&AdapterLoadMetadata>,
+    ) -> Result<()> {
+        self.load_adapter_with_metadata_internal(id, weights, metadata)
+    }
+
+    fn load_adapter_with_metadata_internal(
+        &mut self,
+        id: u16,
+        weights: &[u8],
+        metadata: Option<&AdapterLoadMetadata>,
+    ) -> Result<()> {
+        let hash = B3Hash::hash(weights);
+        let load_start = Instant::now();
+
+        info!(
+            adapter_id = id,
+            weight_bytes = weights.len(),
+            hash = %hash.to_short_hex(),
+            has_metadata = metadata.is_some(),
+            "Loading adapter into CoreML backend with LoRA weight fusion"
+        );
+
+        let (payload_config, inferred_config, module_weights) =
+            if let Ok(payload) = serde_json::from_slice::<AdapterPayload>(weights) {
+                debug!(adapter_id = id, "Parsed AdapterPayload format");
+                let inferred = infer_config_from_module_weights(&payload.weights);
+                (payload.config, inferred, payload.weights)
+            } else if let Ok(payload) = serde_json::from_slice::<WeightPayload>(weights) {
+                debug!(adapter_id = id, "Parsed WeightPayload format");
+                let mut module_weights = HashMap::new();
+                module_weights.insert("combined".to_string(), payload);
+                let inferred = infer_config_from_module_weights(&module_weights);
+                (None, inferred, module_weights)
+            } else if weights.len() >= 8 && &weights[0..8] != b"{\n" && &weights[0..2] != b"{\"" {
+                debug!(adapter_id = id, "Attempting safetensors format parsing");
+                let (inferred, module_weights) = parse_safetensors_weights(id, weights)?;
+                (None, inferred, module_weights)
+            } else {
+                return Err(AosError::Parse(format!(
+                    "Adapter {}: unrecognized weight format (size: {} bytes)",
+                    id,
+                    weights.len()
+                )));
+            };
+
+        let config = resolve_loaded_lora_config(payload_config, inferred_config, metadata);
+        let module_order = resolve_modules_to_fuse(&module_weights, &config.target_modules);
+
+        let mut deltas = HashMap::new();
+        let mut total_memory = 0usize;
+
+        for module_name in module_order {
+            let Some(weight_payload) = module_weights.get(&module_name) else {
+                continue;
+            };
+
+            let delta = compute_lora_delta(
+                &weight_payload.lora_a,
+                &weight_payload.lora_b,
+                config.alpha,
+                config.rank,
+            )?;
+
+            let delta_memory = delta.delta.len() * std::mem::size_of::<f32>();
+            total_memory += delta_memory;
+
+            debug!(
+                adapter_id = id,
+                module = %module_name,
+                out_dim = delta.out_dim,
+                in_dim = delta.in_dim,
+                rank = delta.rank,
+                config_rank = config.rank,
+                config_alpha = config.alpha,
+                delta_size = delta.delta.len(),
+                memory_bytes = delta_memory,
+                "Pre-computed LoRA delta for module"
+            );
+
+            deltas.insert(module_name, delta);
+        }
+
+        let loaded_adapter = LoadedAdapter {
+            id,
+            hash,
+            config,
+            deltas,
+            memory_bytes: total_memory,
+            loaded_at: load_start,
+        };
+
+        let load_duration = load_start.elapsed();
+
+        info!(
+            adapter_id = id,
+            hash = %hash.to_short_hex(),
+            modules = loaded_adapter.deltas.len(),
+            rank = loaded_adapter.config.rank,
+            alpha = loaded_adapter.config.alpha,
+            memory_bytes = total_memory,
+            load_ms = load_duration.as_millis(),
+            "Successfully loaded adapter with pre-computed LoRA deltas"
+        );
+
+        self.loaded_adapters.insert(id, loaded_adapter);
+        self.adapter_hashes.insert(id, hash);
+
+        Ok(())
+    }
+
     pub fn is_ane_available(&self) -> bool {
         self.ane_available
     }
@@ -631,97 +749,7 @@ impl FusedKernels for CoreMLBackend {
     }
 
     fn load_adapter(&mut self, id: u16, weights: &[u8]) -> Result<()> {
-        let hash = B3Hash::hash(weights);
-        let load_start = Instant::now();
-
-        info!(
-            adapter_id = id,
-            weight_bytes = weights.len(),
-            hash = %hash.to_short_hex(),
-            "Loading adapter into CoreML backend with LoRA weight fusion"
-        );
-
-        // Try to deserialize as AdapterPayload first (full format with config)
-        let (config, module_weights) =
-            if let Ok(payload) = serde_json::from_slice::<AdapterPayload>(weights) {
-                debug!(adapter_id = id, "Parsed AdapterPayload format");
-                (payload.config.unwrap_or_default(), payload.weights)
-            }
-            // Try as simple WeightPayload (single module, typically "combined" or "default")
-            else if let Ok(payload) = serde_json::from_slice::<WeightPayload>(weights) {
-                debug!(adapter_id = id, "Parsed WeightPayload format");
-                let config = LoadedLoRAConfig::default();
-                let mut module_weights = HashMap::new();
-                module_weights.insert("combined".to_string(), payload);
-                (config, module_weights)
-            }
-            // Try safetensors format
-            else if weights.len() >= 8 && &weights[0..8] != b"{\n" && &weights[0..2] != b"{\"" {
-                debug!(adapter_id = id, "Attempting safetensors format parsing");
-                parse_safetensors_weights(id, weights)?
-            }
-            // Fallback: assume raw LoRA weights (JSON array of matrices)
-            else {
-                return Err(AosError::Parse(format!(
-                    "Adapter {}: unrecognized weight format (size: {} bytes)",
-                    id,
-                    weights.len()
-                )));
-            };
-
-        // Pre-compute LoRA deltas for each module
-        let mut deltas = HashMap::new();
-        let mut total_memory = 0usize;
-
-        for (module_name, weight_payload) in module_weights {
-            let delta = compute_lora_delta(
-                &weight_payload.lora_a,
-                &weight_payload.lora_b,
-                config.alpha,
-                config.rank,
-            )?;
-
-            let delta_memory = delta.delta.len() * std::mem::size_of::<f32>();
-            total_memory += delta_memory;
-
-            debug!(
-                adapter_id = id,
-                module = %module_name,
-                out_dim = delta.out_dim,
-                in_dim = delta.in_dim,
-                rank = delta.rank,
-                delta_size = delta.delta.len(),
-                memory_bytes = delta_memory,
-                "Pre-computed LoRA delta for module"
-            );
-
-            deltas.insert(module_name, delta);
-        }
-
-        let loaded_adapter = LoadedAdapter {
-            id,
-            hash,
-            config,
-            deltas,
-            memory_bytes: total_memory,
-            loaded_at: load_start,
-        };
-
-        let load_duration = load_start.elapsed();
-
-        info!(
-            adapter_id = id,
-            hash = %hash.to_short_hex(),
-            modules = loaded_adapter.deltas.len(),
-            memory_bytes = total_memory,
-            load_ms = load_duration.as_millis(),
-            "Successfully loaded adapter with pre-computed LoRA deltas"
-        );
-
-        self.loaded_adapters.insert(id, loaded_adapter);
-        self.adapter_hashes.insert(id, hash);
-
-        Ok(())
+        self.load_adapter_with_metadata_internal(id, weights, None)
     }
 
     fn unload_adapter(&mut self, id: u16) -> Result<()> {
@@ -853,6 +881,99 @@ fn compute_lora_delta(
         in_dim,
         rank: actual_rank,
     })
+}
+
+fn infer_config_from_module_weights(
+    module_weights: &HashMap<String, WeightPayload>,
+) -> LoadedLoRAConfig {
+    let default_cfg = LoadedLoRAConfig::default();
+
+    let inferred_rank = module_weights
+        .values()
+        .find_map(|payload| (!payload.lora_a.is_empty()).then_some(payload.lora_a.len()))
+        .filter(|rank| *rank > 0)
+        .unwrap_or(default_cfg.rank);
+
+    let mut target_modules: Vec<String> = module_weights.keys().cloned().collect();
+    target_modules.sort();
+    target_modules.dedup();
+    if target_modules.is_empty() {
+        target_modules = default_cfg.target_modules.clone();
+    }
+
+    LoadedLoRAConfig {
+        rank: inferred_rank,
+        alpha: default_cfg.alpha,
+        target_modules,
+    }
+}
+
+fn resolve_loaded_lora_config(
+    payload_config: Option<LoadedLoRAConfig>,
+    inferred_config: LoadedLoRAConfig,
+    metadata: Option<&AdapterLoadMetadata>,
+) -> LoadedLoRAConfig {
+    let default_cfg = LoadedLoRAConfig::default();
+    let mut resolved = payload_config.unwrap_or_else(|| inferred_config.clone());
+
+    if resolved.rank == 0 {
+        resolved.rank = if inferred_config.rank > 0 {
+            inferred_config.rank
+        } else {
+            default_cfg.rank
+        };
+    }
+
+    if !resolved.alpha.is_finite() || resolved.alpha <= 0.0 {
+        resolved.alpha = if inferred_config.alpha.is_finite() && inferred_config.alpha > 0.0 {
+            inferred_config.alpha
+        } else {
+            default_cfg.alpha
+        };
+    }
+
+    if resolved.target_modules.is_empty() {
+        resolved.target_modules = if inferred_config.target_modules.is_empty() {
+            default_cfg.target_modules.clone()
+        } else {
+            inferred_config.target_modules.clone()
+        };
+    }
+
+    if let Some(meta_rank) = metadata.and_then(AdapterLoadMetadata::validated_rank) {
+        resolved.rank = meta_rank;
+    }
+    if let Some(meta_alpha) = metadata.and_then(AdapterLoadMetadata::validated_alpha) {
+        resolved.alpha = meta_alpha;
+    }
+    if let Some(meta_modules) = metadata.and_then(AdapterLoadMetadata::validated_target_modules) {
+        resolved.target_modules = meta_modules;
+    }
+
+    resolved
+}
+
+fn resolve_modules_to_fuse(
+    module_weights: &HashMap<String, WeightPayload>,
+    target_modules: &[String],
+) -> Vec<String> {
+    let mut selected = Vec::new();
+    for module in target_modules {
+        if module_weights.contains_key(module)
+            && !selected.iter().any(|existing: &String| existing == module)
+        {
+            selected.push(module.clone());
+        }
+    }
+
+    if selected.is_empty() {
+        let mut fallback: Vec<String> = module_weights.keys().cloned().collect();
+        fallback.sort();
+        fallback.dedup();
+        fallback
+    } else {
+        selected
+    }
 }
 
 /// Parse safetensors format into module weights
@@ -1321,5 +1442,76 @@ mod tests {
         assert!((delta.delta[1] - 0.0).abs() < 1e-6);
         assert!((delta.delta[2] - 0.0).abs() < 1e-6);
         assert!((delta.delta[3] - 2.0).abs() < 1e-6);
+    }
+
+    #[test]
+    fn test_resolve_loaded_lora_config_metadata_precedence() {
+        let payload_cfg = LoadedLoRAConfig {
+            rank: 8,
+            alpha: 16.0,
+            target_modules: vec!["q_proj".to_string(), "k_proj".to_string()],
+        };
+        let inferred_cfg = LoadedLoRAConfig {
+            rank: 4,
+            alpha: 4.0,
+            target_modules: vec!["v_proj".to_string()],
+        };
+        let metadata = AdapterLoadMetadata {
+            rank: Some(2),
+            alpha: Some(6.0),
+            target_modules: Some(vec!["v_proj".to_string(), "o_proj".to_string()]),
+        };
+
+        let resolved = resolve_loaded_lora_config(Some(payload_cfg), inferred_cfg, Some(&metadata));
+
+        assert_eq!(resolved.rank, 2);
+        assert_eq!(resolved.alpha, 6.0);
+        assert_eq!(
+            resolved.target_modules,
+            vec!["v_proj".to_string(), "o_proj".to_string()]
+        );
+    }
+
+    #[test]
+    fn test_resolve_loaded_lora_config_missing_payload_uses_metadata_before_default() {
+        let inferred_cfg = LoadedLoRAConfig {
+            rank: 5,
+            alpha: 32.0,
+            target_modules: vec!["combined".to_string()],
+        };
+        let metadata = AdapterLoadMetadata {
+            rank: Some(3),
+            alpha: Some(9.0),
+            target_modules: Some(vec!["combined".to_string()]),
+        };
+
+        let resolved = resolve_loaded_lora_config(None, inferred_cfg, Some(&metadata));
+
+        assert_eq!(resolved.rank, 3);
+        assert_eq!(resolved.alpha, 9.0);
+        assert_eq!(resolved.target_modules, vec!["combined".to_string()]);
+    }
+
+    #[test]
+    fn test_metadata_alpha_override_changes_delta_scale() {
+        let inferred_cfg = LoadedLoRAConfig {
+            rank: 2,
+            alpha: 32.0,
+            target_modules: vec!["q_proj".to_string()],
+        };
+        let metadata = AdapterLoadMetadata {
+            rank: Some(2),
+            alpha: Some(8.0),
+            target_modules: Some(vec!["q_proj".to_string()]),
+        };
+        let config = resolve_loaded_lora_config(None, inferred_cfg, Some(&metadata));
+
+        let lora_a = vec![vec![1.0, 0.0], vec![0.0, 1.0]];
+        let lora_b = vec![vec![1.0, 0.0], vec![0.0, 1.0]];
+        let delta = compute_lora_delta(&lora_a, &lora_b, config.alpha, config.rank).unwrap();
+
+        // Effective scale = alpha / actual_rank = 8 / 2 = 4
+        assert!((delta.delta[0] - 4.0).abs() < 1e-6);
+        assert!((delta.delta[3] - 4.0).abs() < 1e-6);
     }
 }

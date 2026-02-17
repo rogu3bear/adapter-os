@@ -2496,6 +2496,9 @@ where
                 }
 
                 let mut observed_hash = hash;
+                let mut parsed_manifest: Option<
+                    adapteros_aos::single_file::format::AdapterManifest,
+                > = None;
 
                 if !integrity_mode.is_off() {
                     let Some(outcome) = load_outcome.as_ref() else {
@@ -2539,26 +2542,34 @@ where
                     }
                 } else if let Some(outcome) = load_outcome.as_ref() {
                     let manifest_bytes = outcome.backing.slice(&outcome.view.manifest_range);
-                    if let Err(e) = serde_json::from_slice::<serde_json::Value>(manifest_bytes) {
-                        let integrity_err = AdapterIntegrityError {
-                            adapter_id: adapter_id.clone(),
-                            reason: AdapterIntegrityReason::ManifestParseFailed,
-                            message: format!(
-                                "Adapter manifest parse failed for '{}': {e}",
-                                adapter_path.display()
-                            ),
-                            expected: None,
-                            actual: None,
-                        };
-                        self.emit_adapter_verify(
-                            &adapter_id,
-                            None,
-                            "reject",
-                            Some(integrity_err.reason),
-                            Duration::from_millis(0),
-                        );
-                        self.emit_adapter_reject(integrity_err.reason, Some(&adapter_id));
-                        return Ok(self.rejection_result(start, &integrity_err, None));
+                    match serde_json::from_slice::<
+                        adapteros_aos::single_file::format::AdapterManifest,
+                    >(manifest_bytes)
+                    {
+                        Ok(manifest) => {
+                            parsed_manifest = Some(manifest);
+                        }
+                        Err(e) => {
+                            let integrity_err = AdapterIntegrityError {
+                                adapter_id: adapter_id.clone(),
+                                reason: AdapterIntegrityReason::ManifestParseFailed,
+                                message: format!(
+                                    "Adapter manifest parse failed for '{}': {e}",
+                                    adapter_path.display()
+                                ),
+                                expected: None,
+                                actual: None,
+                            };
+                            self.emit_adapter_verify(
+                                &adapter_id,
+                                None,
+                                "reject",
+                                Some(integrity_err.reason),
+                                Duration::from_millis(0),
+                            );
+                            self.emit_adapter_reject(integrity_err.reason, Some(&adapter_id));
+                            return Ok(self.rejection_result(start, &integrity_err, None));
+                        }
                     }
                 }
 
@@ -2569,8 +2580,58 @@ where
                             "Adapter preload failed: missing adapter load outcome".to_string(),
                         )
                     })?;
+                    let adapter_manifest = if let Some(manifest) = parsed_manifest.take() {
+                        manifest
+                    } else {
+                        let manifest_bytes = load_outcome
+                            .backing
+                            .slice(&load_outcome.view.manifest_range);
+                        match serde_json::from_slice::<
+                            adapteros_aos::single_file::format::AdapterManifest,
+                        >(manifest_bytes)
+                        {
+                            Ok(manifest) => manifest,
+                            Err(e) => {
+                                let integrity_err = AdapterIntegrityError {
+                                    adapter_id: adapter_id.clone(),
+                                    reason: AdapterIntegrityReason::ManifestParseFailed,
+                                    message: format!(
+                                        "Adapter manifest parse failed for '{}': {e}",
+                                        adapter_path.display()
+                                    ),
+                                    expected: None,
+                                    actual: None,
+                                };
+                                self.emit_adapter_verify(
+                                    &adapter_id,
+                                    None,
+                                    "reject",
+                                    Some(integrity_err.reason),
+                                    Duration::from_millis(0),
+                                );
+                                self.emit_adapter_reject(integrity_err.reason, Some(&adapter_id));
+                                return Ok(self.rejection_result(start, &integrity_err, None));
+                            }
+                        }
+                    };
 
                     let weights = load_outcome.payload();
+                    let metadata = adapteros_lora_kernel_api::AdapterLoadMetadata {
+                        adapter_id: if adapter_manifest.adapter_id.is_empty() {
+                            adapter_id.clone()
+                        } else {
+                            adapter_manifest.adapter_id.clone()
+                        },
+                        rank: adapter_manifest.rank,
+                        alpha: adapter_manifest.alpha,
+                        target_modules: adapter_manifest.target_modules.clone(),
+                        base_model: if adapter_manifest.base_model.is_empty() {
+                            None
+                        } else {
+                            Some(adapter_manifest.base_model.clone())
+                        },
+                        base_model_id: adapter_manifest.base_model_id.clone(),
+                    };
 
                     // Workstream 6: VRAM validation before preload
                     // Estimate VRAM requirement from payload size
@@ -2620,7 +2681,9 @@ where
 
                     // Load weights into GPU
                     let mut kernels_lock = kernels.lock().await;
-                    if let Err(e) = kernels_lock.load_adapter(adapter_id_u16, weights) {
+                    if let Err(e) =
+                        kernels_lock.load_adapter_with_metadata(adapter_id_u16, weights, &metadata)
+                    {
                         if let Err(detach_err) = kernels_lock.detach_adapter(adapter_id_u16) {
                             tracing::warn!(
                                 adapter_id = %adapter_id,
@@ -3301,7 +3364,7 @@ mod tests {
     use adapteros_aos::writer::{parse_segments, INDEX_ENTRY_SIZE};
     use adapteros_aos::{AosWriter, BackendTag};
     use adapteros_core::constants::BYTES_PER_MB;
-    use adapteros_lora_kernel_api::{attestation, IoBuffers, RouterRing};
+    use adapteros_lora_kernel_api::{attestation, AdapterLoadMetadata, IoBuffers, RouterRing};
     use adapteros_model_hub::manifest::{AdapterScope, AdapterTier};
     use serde::Serialize;
     use std::collections::HashMap;
@@ -3441,6 +3504,76 @@ mod tests {
         }
     }
 
+    #[derive(Debug, Clone, PartialEq)]
+    struct CapturedMetadataLoad {
+        adapter_id: u16,
+        metadata: AdapterLoadMetadata,
+        payload_hash: B3Hash,
+    }
+
+    #[derive(Default, Debug)]
+    struct CapturingMetadataKernels {
+        captured_loads: Vec<CapturedMetadataLoad>,
+    }
+
+    impl adapteros_lora_kernel_api::FusedKernels for CapturingMetadataKernels {
+        fn load(&mut self, _plan_bytes: &[u8]) -> Result<()> {
+            Ok(())
+        }
+
+        fn run_step(&mut self, _ring: &RouterRing, _io: &mut IoBuffers) -> Result<()> {
+            Ok(())
+        }
+
+        fn device_name(&self) -> &str {
+            "capturing-metadata"
+        }
+
+        fn attest_determinism(&self) -> Result<attestation::DeterminismReport> {
+            Ok(attestation::DeterminismReport {
+                backend_type: attestation::BackendType::Mock,
+                metallib_hash: None,
+                metallib_verified: false,
+                manifest: None,
+                rng_seed_method: attestation::RngSeedingMethod::HkdfSeeded,
+                floating_point_mode: attestation::FloatingPointMode::Deterministic,
+                determinism_level: attestation::DeterminismLevel::BitExact,
+                compiler_flags: vec![],
+                deterministic: true,
+                runtime_version: None,
+                device_id: None,
+            })
+        }
+
+        fn load_adapter(&mut self, _id: u16, _weights: &[u8]) -> Result<()> {
+            Err(AosError::Kernel(
+                "legacy load_adapter should not be used in metadata path".to_string(),
+            ))
+        }
+
+        fn load_adapter_with_metadata(
+            &mut self,
+            id: u16,
+            weights: &[u8],
+            metadata: &AdapterLoadMetadata,
+        ) -> Result<()> {
+            self.captured_loads.push(CapturedMetadataLoad {
+                adapter_id: id,
+                metadata: metadata.clone(),
+                payload_hash: B3Hash::hash(weights),
+            });
+            Ok(())
+        }
+
+        fn unload_adapter(&mut self, _id: u16) -> Result<()> {
+            Ok(())
+        }
+
+        fn attach_adapter(&mut self, _id: u16) -> Result<()> {
+            Ok(())
+        }
+    }
+
     #[derive(Serialize)]
     struct TestManifest<'a> {
         adapter_id: &'a str,
@@ -3453,6 +3586,18 @@ mod tests {
     #[derive(Serialize)]
     struct TestManifestMetadata<'a> {
         scope_path: &'a str,
+    }
+
+    #[derive(Serialize)]
+    struct TestManifestWithLoadMetadata<'a> {
+        adapter_id: &'a str,
+        base_model: &'a str,
+        tier: &'a str,
+        scope: &'a str,
+        rank: u32,
+        alpha: f32,
+        target_modules: Vec<String>,
+        metadata: TestManifestMetadata<'a>,
     }
 
     fn make_payload(seed: &str, len: usize) -> Vec<u8> {
@@ -3490,6 +3635,41 @@ mod tests {
         writer
             .write_archive(path, &manifest)
             .expect("write test adapter");
+
+        B3Hash::hash(weights)
+    }
+
+    fn write_test_adapter_with_load_metadata(
+        path: &Path,
+        adapter_id: &str,
+        base_model: &str,
+        scope_path: &str,
+        rank: u32,
+        alpha: f32,
+        target_modules: &[&str],
+        weights: &[u8],
+    ) -> B3Hash {
+        let manifest = TestManifestWithLoadMetadata {
+            adapter_id,
+            base_model,
+            tier: "persistent",
+            scope: "tenant",
+            rank,
+            alpha,
+            target_modules: target_modules
+                .iter()
+                .map(|module| (*module).to_string())
+                .collect(),
+            metadata: TestManifestMetadata { scope_path },
+        };
+
+        let mut writer = AosWriter::new();
+        writer
+            .add_segment(BackendTag::Canonical, Some(scope_path.to_string()), weights)
+            .expect("add canonical segment");
+        writer
+            .write_archive(path, &manifest)
+            .expect("write test adapter with metadata");
 
         B3Hash::hash(weights)
     }
@@ -3789,6 +3969,75 @@ mod tests {
         assert!(
             kernels_guard.detach_calls > 0,
             "cleanup should detach staged"
+        );
+    }
+
+    #[tokio::test]
+    async fn preload_loads_with_manifest_metadata_and_payload_hash() {
+        let repo = tempdir().expect("tempdir");
+        let tenant = "tenant_metadata";
+        let tenant_dir = repo.path().join(tenant);
+        fs::create_dir_all(&tenant_dir).expect("tenant dir");
+
+        let adapter_id = "adapter_metadata";
+        let scope_path = "tenant/scope";
+        let base_model = "base-model-meta";
+        let rank = 48;
+        let alpha = 96.0;
+        let target_modules = ["q_proj", "v_proj", "o_proj"];
+        let weights = make_payload(adapter_id, 192);
+        let hash = write_test_adapter_with_load_metadata(
+            &tenant_dir.join(format!("{adapter_id}.aos")),
+            adapter_id,
+            base_model,
+            scope_path,
+            rank,
+            alpha,
+            &target_modules,
+            &weights,
+        );
+
+        let kernels = Arc::new(tokio::sync::Mutex::new(CapturingMetadataKernels::default()));
+        let integrity = Arc::new(AdapterIntegrityVerifier::disabled(tenant.to_string()));
+        let manager = HotSwapManager::new_with_kernels(
+            kernels.clone(),
+            repo.path().to_path_buf(),
+            tenant.to_string(),
+            integrity,
+            None,
+            None,
+        );
+
+        manager
+            .execute(AdapterCommand::Preload {
+                adapter_id: adapter_id.to_string(),
+                hash,
+            })
+            .await
+            .expect("preload with metadata");
+
+        let kernels_guard = kernels.lock().await;
+        assert_eq!(
+            kernels_guard.captured_loads.len(),
+            1,
+            "expected exactly one metadata load call"
+        );
+        let captured = &kernels_guard.captured_loads[0];
+        assert_eq!(captured.adapter_id, adapter_id_to_u16(adapter_id));
+        assert_eq!(captured.payload_hash, hash);
+        assert_eq!(
+            captured.metadata,
+            AdapterLoadMetadata {
+                adapter_id: adapter_id.to_string(),
+                rank,
+                alpha,
+                target_modules: target_modules
+                    .iter()
+                    .map(|module| (*module).to_string())
+                    .collect(),
+                base_model: Some(base_model.to_string()),
+                base_model_id: None,
+            }
         );
     }
 

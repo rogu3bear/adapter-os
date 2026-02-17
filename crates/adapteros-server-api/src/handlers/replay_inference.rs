@@ -667,57 +667,33 @@ pub async fn execute_replay(
         request_id: replay_id.clone(),
         cpid: claims.tenant_id.clone(),
         prompt: prompt.clone(),
-        messages: None,
         run_envelope: Some(run_envelope),
-        reasoning_mode: false,
-        admin_override: false,
-        stream: false,
-        require_step: false,
         require_determinism: true,
         allow_fallback: false,
-        batch_item_id: None,
         rag_enabled: rag_doc_ids.is_some() && !req.skip_rag,
-        rag_collection_id: None, // RAG context will be reconstructed from doc IDs if needed
+        rag_collection_id: None, // RAG context is reconstructed from doc IDs if needed
         dataset_version_id: metadata.dataset_version_id.clone(),
-        adapter_stack: None,
         adapters: adapter_ids.clone(),
-        stack_id: None,
-        stack_version: None,
-        stack_determinism_mode: None,
-        stack_routing_determinism_mode: None,
-        domain_hint: None,
         effective_adapter_ids: if base_only { Some(Vec::new()) } else { None },
         determinism_mode: metadata
             .determinism_mode
             .clone()
             .or_else(|| Some("strict".to_string())),
         routing_determinism_mode: Some(RoutingDeterminismMode::Deterministic),
-        adapter_strength_overrides: None,
         seed_mode: Some(sampling_params.seed_mode.unwrap_or(SeedMode::BestEffort)),
         request_seed: Some(determinism_ctx.request_seed()),
-        backend_profile: None,
-        coreml_mode: None,
         max_tokens: sampling_params.max_tokens,
         temperature: sampling_params.temperature,
         top_k: sampling_params.top_k,
         top_p: sampling_params.top_p,
+        fusion_interval: None,
         seed: Some(determinism_ctx.request_seed_low64()),
         router_seed: Some(determinism_ctx.router_seed_hex().to_string()),
-        require_evidence: false,
-        session_id: None,
-        pinned_adapter_ids: None, // Not used in replay
-        chat_context_hash: None,
         claims: Some(claims.clone()),
-        model: None,
         stop_policy, // Restored from original inference for deterministic replay
         created_at: std::time::Instant::now(),
-        worker_auth_token: None,
         policy_mask_digest_b3: stored_policy_mask_digest, // Restored from metadata for audit trail
-        utf8_healing: None,
-        abstention_threshold: None, // AARA lifecycle
-        citation_mode: None,        // AARA lifecycle
-        fim_prefix: None,
-        fim_suffix: None,
+        ..InferenceRequestInternal::default()
     };
 
     if base_only

@@ -16,6 +16,7 @@ use adapteros_boot::{KeyUpdateRequest, KeyUpdateResponse, KEY_UPDATE_MAX_AGE_SEC
 use adapteros_config::prepare_socket_path;
 use adapteros_core::{AosError, Result};
 use adapteros_storage::secure_fs::traversal::normalize_path;
+use adapteros_transport_types::WorkerInferenceRequest;
 use blake3::Hasher;
 use ed25519_dalek::VerifyingKey;
 use serde_json;
@@ -96,6 +97,39 @@ fn parse_json_with_limit<T: serde::de::DeserializeOwned>(body: &str) -> Result<T
         return Err(AosError::Worker("Request body too large".to_string()));
     }
     serde_json::from_str(body).map_err(|e| AosError::Worker(format!("JSON parse error: {}", e)))
+}
+
+/// Parse ingress inference payloads with one-release compatibility:
+/// 1. canonical transport shape (`WorkerInferenceRequest`, strict unknown-field rejection)
+/// 2. legacy runtime shape (`InferenceRequest`) fallback
+fn parse_inference_request_with_compat(
+    body: &str,
+    arrival_instant: std::time::Instant,
+) -> Result<InferenceRequest> {
+    match parse_json_with_limit::<WorkerInferenceRequest>(body) {
+        Ok(canonical_req) => {
+            let mut inference_req = InferenceRequest::from(canonical_req);
+            inference_req.arrival_instant = Some(arrival_instant);
+            Ok(inference_req)
+        }
+        Err(canonical_err) => {
+            let canonical_err_msg = canonical_err.to_string();
+            match parse_json_with_limit::<InferenceRequest>(body) {
+                Ok(mut legacy_req) => {
+                    warn!(
+                        canonical_parse_error = %canonical_err_msg,
+                        "Falling back to legacy runtime inference parse path (TODO(remove next release))"
+                    );
+                    legacy_req.arrival_instant = Some(arrival_instant);
+                    Ok(legacy_req)
+                }
+                Err(legacy_err) => Err(AosError::Worker(format!(
+                    "Inference request parse failed for canonical and legacy shapes: canonical={}, legacy={}",
+                    canonical_err_msg, legacy_err
+                ))),
+            }
+        }
+    }
 }
 
 pub struct UdsServer<K: adapteros_lora_kernel_api::FusedKernels + StrictnessControl + 'static> {
@@ -630,10 +664,7 @@ impl<K: adapteros_lora_kernel_api::FusedKernels + StrictnessControl + 'static> U
         // Route to appropriate handler
         match request.path.as_str() {
             "/inference" | "/api/v1/infer" => {
-                let mut inference_req: InferenceRequest = parse_json_with_limit(&request.body)?;
-
-                // Set arrival timestamp for queue/generation time tracking
-                inference_req.arrival_instant = Some(start);
+                let inference_req = parse_inference_request_with_compat(&request.body, start)?;
 
                 let auth_result = Self::authenticate_inference_request(
                     &request.headers,
@@ -817,6 +848,8 @@ impl<K: adapteros_lora_kernel_api::FusedKernels + StrictnessControl + 'static> U
                     stop_policy: None,
                     policy_mask_digest_b3: None,
                     utf8_healing: true,
+                    fim_prefix: None,
+                    fim_suffix: None,
                     admin_override: false,
                     // Set arrival timestamp for queue/generation time tracking
                     arrival_instant: Some(start),
@@ -1878,6 +1911,47 @@ mod tests {
             request.headers.get("Content-Type"),
             Some(&"application/json".to_string())
         );
+    }
+
+    #[test]
+    fn test_parse_inference_request_prefers_canonical_transport_shape() {
+        let payload = r#"{
+            "cpid": "cpid-canonical",
+            "prompt": "hello",
+            "max_tokens": 16,
+            "fim_prefix": "fn main() {",
+            "fim_suffix": "}"
+        }"#;
+
+        let request =
+            parse_inference_request_with_compat(payload, std::time::Instant::now()).expect(
+                "canonical worker transport payload should parse",
+            );
+
+        assert_eq!(request.cpid, "cpid-canonical");
+        assert_eq!(request.fim_prefix.as_deref(), Some("fn main() {"));
+        assert_eq!(request.fim_suffix.as_deref(), Some("}"));
+        assert!(request.arrival_instant.is_some());
+    }
+
+    #[test]
+    fn test_parse_inference_request_falls_back_to_legacy_runtime_shape() {
+        let payload = r#"{
+            "cpid": "cpid-legacy",
+            "prompt": "hello",
+            "max_tokens": 8,
+            "legacy_runtime_only_field": true
+        }"#;
+
+        let request =
+            parse_inference_request_with_compat(payload, std::time::Instant::now()).expect(
+                "legacy runtime payload should parse via fallback path",
+            );
+
+        assert_eq!(request.cpid, "cpid-legacy");
+        assert_eq!(request.prompt, "hello");
+        assert_eq!(request.max_tokens, 8);
+        assert!(request.arrival_instant.is_some());
     }
 
     #[test]

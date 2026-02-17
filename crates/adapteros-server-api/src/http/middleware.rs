@@ -52,10 +52,9 @@ where
     ServiceBuilder::new().layer(tower::layer_fn(|inner| {
         inner.map_err(|err| {
             error!("Caught error: {:?}", err);
-            http::Response::builder()
-                .status(StatusCode::INTERNAL_SERVER_ERROR)
-                .body(axum::body::Body::from("Internal server error"))
-                .unwrap()
+            let mut response = http::Response::new(axum::body::Body::from("Internal server error"));
+            *response.status_mut() = StatusCode::INTERNAL_SERVER_ERROR;
+            response
         })
     }))
 }

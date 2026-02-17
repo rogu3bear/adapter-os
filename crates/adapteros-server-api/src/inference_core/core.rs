@@ -138,8 +138,8 @@ use crate::types::{
     new_run_envelope, new_run_envelope_no_tick, set_policy_mask, set_router_seed,
     set_worker_context, ChunkReference, InferenceError, InferenceRequestInternal, InferenceResult,
     PlacementReplay, PlacementTraceEntry, RagEvidence, ReplayContext, RouterCandidateRecord,
-    RouterDecisionRecord, SamplingParams, TokenUsage, WorkerInferRequest, MAX_REPLAY_TEXT_SIZE,
-    SAMPLING_ALGORITHM_VERSION,
+    RouterDecisionRecord, SamplingParams, TokenUsage, WorkerInferRequest, WorkerRequestType,
+    MAX_REPLAY_TEXT_SIZE, SAMPLING_ALGORITHM_VERSION,
 };
 use crate::uds_client::{UdsClient, WorkerStreamEvent, WorkerStreamPaused, WorkerStreamToken};
 use crate::uds_metrics::record_uds_timings;
@@ -863,11 +863,13 @@ impl<'a> InferenceCore<'a> {
             require_evidence: request.require_evidence,
             admin_override: request.admin_override,
             reasoning_mode: request.reasoning_mode,
+            request_type: WorkerRequestType::Normal,
             stack_id: request.stack_id.clone(),
             stack_version: request.stack_version,
+            session_id: request.session_id.clone(),
             policy_id: Some(execution_policy.id.clone()),
             domain_hint: request.domain_hint.clone(),
-            temperature: request.temperature,
+            temperature: Some(request.temperature),
             top_k: request.top_k,
             top_p: request.top_p,
             seed: request.seed,
@@ -875,11 +877,15 @@ impl<'a> InferenceCore<'a> {
             seed_mode: request.seed_mode,
             request_seed: request.request_seed,
             determinism: Some(determinism_ctx.clone()),
+            fusion_interval: request.fusion_interval,
             backend_profile: request.backend_profile,
             coreml_mode: request.coreml_mode,
             pinned_adapter_ids: pinned_adapter_ids.clone(),
-            strict_mode: Some(strict_mode),
-            determinism_mode: request.determinism_mode.clone(),
+            strict_mode,
+            determinism_mode: request
+                .determinism_mode
+                .clone()
+                .unwrap_or_else(|| "strict".to_string()),
             routing_determinism_mode: request.routing_determinism_mode,
             effective_adapter_ids: request.effective_adapter_ids.clone(),
             adapter_stable_ids,

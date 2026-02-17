@@ -20,6 +20,7 @@ use adapteros_api_types::prefix_templates::{
     CreatePrefixTemplateRequest, ListPrefixTemplatesResponse, PrefixTemplateResponse,
     UpdatePrefixTemplateRequest,
 };
+use adapteros_core::error_codes;
 use axum::{extract::Extension, extract::Path, extract::State, http::StatusCode, response::Json};
 use tracing::info;
 
@@ -85,7 +86,8 @@ pub async fn get_prefix_template(
                 Json(ErrorResponse::new(format!(
                     "Prefix template not found: {}",
                     template_id
-                ))),
+                ))
+                .with_code(error_codes::NOT_FOUND)),
             )
         })?;
 
@@ -114,7 +116,8 @@ pub async fn update_prefix_template(
                 Json(ErrorResponse::new(format!(
                     "Prefix template not found: {}",
                     template_id
-                ))),
+                ))
+                .with_code(error_codes::NOT_FOUND)),
             )
         })?;
 
@@ -128,7 +131,10 @@ pub async fn update_prefix_template(
         .ok_or_else(|| {
             (
                 StatusCode::NOT_FOUND,
-                Json(ErrorResponse::new("Prefix template not found")),
+                Json(
+                    ErrorResponse::new("Prefix template not found")
+                        .with_code(error_codes::NOT_FOUND),
+                ),
             )
         })?;
 
@@ -159,7 +165,8 @@ pub async fn delete_prefix_template(
                 Json(ErrorResponse::new(format!(
                     "Prefix template not found: {}",
                     template_id
-                ))),
+                ))
+                .with_code(error_codes::NOT_FOUND)),
             )
         })?;
 
@@ -181,7 +188,9 @@ pub async fn delete_prefix_template(
     } else {
         Err((
             StatusCode::NOT_FOUND,
-            Json(ErrorResponse::new("Prefix template not found")),
+            Json(
+                ErrorResponse::new("Prefix template not found").with_code(error_codes::NOT_FOUND),
+            ),
         ))
     }
 }

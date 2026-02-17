@@ -44,6 +44,9 @@ pub mod fusion;
 /// Inference requests/responses and receipts
 pub mod inference;
 
+/// Prompt-injection detection utilities.
+pub mod prompt_injection;
+
 /// Manifest metadata shared between DB/API layers
 pub mod manifest;
 
@@ -116,6 +119,7 @@ pub use inference::{
 };
 pub use manifest::Manifest;
 pub use nodes::{Node, NodeDetail};
+pub use prompt_injection::{check_prompt_injection, PromptInjectionResult};
 pub use repository::RepoTier;
 pub use routing::{RouterCandidate, RouterDecision, RouterModelType};
 pub use telemetry::{EventType, LogLevel, TelemetryBundle, TelemetryEvent, TelemetryFilters};

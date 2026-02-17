@@ -19,14 +19,11 @@ impl From<(&InferRequest, &Claims)> for super::context::InferenceRequestInternal
             cpid: claims.tenant_id.clone(),
             prompt: req.prompt.clone(),
             messages: req.messages.clone(),
-            run_envelope: None,
             reasoning_mode: req.reasoning_mode.unwrap_or(false),
             admin_override: is_admin,
             stream: req.stream.unwrap_or(false),
             require_step: req.stream.unwrap_or(false),
-            require_determinism: false,
             allow_fallback: !matches!(req.backend, Some(backend) if backend != adapteros_core::BackendKind::Auto),
-            batch_item_id: None,
             rag_enabled: req.rag_enabled.unwrap_or(false),
             rag_collection_id: req.collection_id.clone(),
             dataset_version_id: req.dataset_version_id.clone(),
@@ -34,38 +31,22 @@ impl From<(&InferRequest, &Claims)> for super::context::InferenceRequestInternal
             adapters: req.adapters.clone(),
             stack_id: req.stack_id.clone(),
             domain_hint: req.domain.clone(),
-            stack_version: None,
-            stack_determinism_mode: None,
-            stack_routing_determinism_mode: None,
-            effective_adapter_ids: None, // Computed in InferenceCore
-            adapter_strength_overrides: None,
-            determinism_mode: None,
             routing_determinism_mode: req.routing_determinism_mode,
-            seed_mode: None,
-            request_seed: None,
             backend_profile: req.backend,
             coreml_mode: req.coreml_mode,
             max_tokens: req.max_tokens.unwrap_or(100),
             temperature: req.temperature.unwrap_or(0.0),
             top_k: req.top_k,
             top_p: Some(req.top_p.unwrap_or(1.0)),
+            fusion_interval: req.fusion_interval,
             seed: req.seed,
-            router_seed: None,
             require_evidence: req.require_evidence.unwrap_or(false),
             session_id: req.session_id.clone(),
-            pinned_adapter_ids: None, // Populated by InferenceCore from session
-            chat_context_hash: None,
             claims: Some(claims.clone()),
-            policy_mask_digest_b3: None, // Computed by handler from enforce_at_hook
             model: req.model.clone(),
             stop_policy: req.stop_policy.clone(),
             created_at: std::time::Instant::now(),
-            worker_auth_token: None,
-            utf8_healing: None,
-            abstention_threshold: None, // AARA lifecycle
-            citation_mode: None,        // AARA lifecycle
-            fim_prefix: None,
-            fim_suffix: None,
+            ..Self::default()
         }
     }
 }

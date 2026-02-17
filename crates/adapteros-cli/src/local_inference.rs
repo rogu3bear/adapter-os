@@ -3,6 +3,7 @@
 //! Provides direct model inference using MLX FFI backend,
 //! bypassing the full Worker infrastructure.
 
+use adapteros_chat::Message;
 use adapteros_core::{AosError, Result};
 use std::path::Path;
 
@@ -254,22 +255,31 @@ impl LocalInferenceEngine {
         ))
     }
 
-    /// Apply chat template to a prompt using model-aware template engine.
+    /// Apply chat template to structured messages with optional system prompt.
     ///
-    /// Wraps the raw prompt in a single user message and applies the model's
-    /// chat template. Detects model family from the model config environment.
-    pub fn apply_chat_template(&self, prompt: &str) -> String {
+    /// Does not inject a default system prompt. If `system_prompt` is `None`,
+    /// only the provided messages are templated.
+    pub fn apply_chat_template(&self, messages: &[Message], system_prompt: Option<&str>) -> String {
         let model_config = adapteros_config::ModelConfig::from_env().unwrap_or_default();
         let engine = adapteros_chat::ChatTemplateEngine::from_architecture(
             &model_config.architecture,
             model_config.vocab_size,
         );
-        let messages = vec![
-            adapteros_chat::Message::system("You are a helpful assistant."),
-            adapteros_chat::Message::user(prompt),
-        ];
-        engine.apply(&messages)
+        let templated_messages = build_templated_messages(messages, system_prompt);
+        engine.apply(&templated_messages)
     }
+}
+
+fn build_templated_messages(messages: &[Message], system_prompt: Option<&str>) -> Vec<Message> {
+    let mut templated_messages =
+        Vec::with_capacity(messages.len() + usize::from(system_prompt.is_some()));
+    if let Some(system_prompt) = system_prompt {
+        if !system_prompt.trim().is_empty() {
+            templated_messages.push(Message::system(system_prompt));
+        }
+    }
+    templated_messages.extend(messages.iter().cloned());
+    templated_messages
 }
 
 #[cfg(test)]
@@ -305,5 +315,25 @@ mod tests {
 
         // Cleanup
         let _ = std::fs::remove_dir_all(&temp_dir);
+    }
+
+    #[test]
+    fn template_messages_do_not_add_system_when_absent() {
+        let messages = vec![Message::user("hello")];
+        let templated = build_templated_messages(&messages, None);
+        assert_eq!(templated.len(), 1);
+        assert_eq!(templated[0].role, "user");
+        assert_eq!(templated[0].content, "hello");
+    }
+
+    #[test]
+    fn template_messages_include_system_when_provided() {
+        let messages = vec![Message::user("hello")];
+        let templated = build_templated_messages(&messages, Some("You are concise"));
+        assert_eq!(templated.len(), 2);
+        assert_eq!(templated[0].role, "system");
+        assert_eq!(templated[0].content, "You are concise");
+        assert_eq!(templated[1].role, "user");
+        assert_eq!(templated[1].content, "hello");
     }
 }

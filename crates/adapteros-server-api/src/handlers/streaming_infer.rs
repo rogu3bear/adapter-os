@@ -150,57 +150,38 @@ impl From<(&StreamingInferRequest, &Claims)> for InferenceRequestInternal {
             request_id: crate::id_generator::readable_request_id(),
             cpid: claims.tenant_id.clone(),
             prompt: req.prompt.clone(),
-            messages: None,
-            run_envelope: None,
             reasoning_mode: req.reasoning_mode,
             admin_override: is_admin,
             stream: true, // Always streaming for this endpoint
             require_step: true,
-            require_determinism: false,
             allow_fallback: !matches!(
                 req.backend,
                 Some(backend) if backend != adapteros_core::BackendKind::Auto
             ),
-            batch_item_id: None,
             rag_enabled: req.collection_id.is_some(), // Enable RAG if collection_id provided
             rag_collection_id: req.collection_id.clone(),
-            dataset_version_id: None,
             adapter_stack: req.adapter_stack.clone(),
             adapters: req.adapters.clone(),
             stack_id: req.stack_id.clone(),
-            stack_routing_determinism_mode: None,
             domain_hint: req.domain.clone(),
-            stack_version: None,
-            stack_determinism_mode: None,
-            effective_adapter_ids: None, // Computed inside InferenceCore
             adapter_strength_overrides: req.adapter_strength_overrides.clone(),
-            determinism_mode: None,
             routing_determinism_mode: req.routing_determinism_mode,
-            seed_mode: None,
-            request_seed: None,
             backend_profile: req.backend,
             coreml_mode: req.coreml_mode,
             max_tokens: req.max_tokens,
             temperature: req.temperature,
             top_k: req.top_k,
             top_p: Some(req.top_p.unwrap_or(1.0)),
+            fusion_interval: None,
             seed: req.seed,
             require_evidence: req.require_evidence,
             session_id: req.session_id.clone(),
-            pinned_adapter_ids: None, // Looked up from session in route_and_infer if session_id is set
-            chat_context_hash: None,  // Set later after build_chat_prompt
             claims: Some(claims.clone()),
             model: req.model.clone(),
             stop_policy: req.stop_policy.clone(),
             created_at: std::time::Instant::now(),
             router_seed: None, // Use default router behavior for streaming
-            worker_auth_token: None,
-            policy_mask_digest_b3: None, // Computed and set later in pre-flight policy enforcement
-            utf8_healing: None,
-            abstention_threshold: None, // AARA lifecycle
-            citation_mode: None,        // AARA lifecycle
-            fim_prefix: None,
-            fim_suffix: None,
+            ..Self::default()
         }
     }
 }

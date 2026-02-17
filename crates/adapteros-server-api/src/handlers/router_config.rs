@@ -8,6 +8,10 @@ use crate::types::response::RouterWeightsResponse;
 use crate::types::ErrorResponse;
 use adapteros_api_types::RoutingPolicy;
 use adapteros_db::adapters::Adapter;
+use adapteros_db::{
+    RouterWeightsSetting, TenantSettingsKnownKey, TenantSettingsRegistry,
+    TenantSettingsValidationError,
+};
 use adapteros_lora_router::RouterWeights;
 use adapteros_model_hub::manifest::{Adapter as ManifestAdapter, ManifestV3, RouterCfg};
 use axum::extract::{Extension, Path, State};
@@ -294,30 +298,64 @@ fn default_router_cfg() -> RouterCfg {
 // Router Weights endpoints
 // ============================================================================
 
+fn settings_validation_bad_request(
+    err: TenantSettingsValidationError,
+) -> (StatusCode, Json<ErrorResponse>) {
+    (
+        StatusCode::BAD_REQUEST,
+        Json(ErrorResponse::new(err.to_string()).with_code("BAD_REQUEST")),
+    )
+}
+
+fn router_weights_from_registry(weights: RouterWeightsSetting) -> RouterWeights {
+    RouterWeights::new_with_dir_weights(
+        weights.language_weight,
+        weights.framework_weight,
+        weights.symbol_hits_weight,
+        weights.path_tokens_weight,
+        weights.prompt_verb_weight,
+        weights.orthogonal_weight,
+        weights.diversity_weight,
+        weights.similarity_penalty,
+    )
+}
+
+fn registry_weights_from_router(weights: &RouterWeights) -> RouterWeightsSetting {
+    RouterWeightsSetting {
+        language_weight: weights.language_weight,
+        framework_weight: weights.framework_weight,
+        symbol_hits_weight: weights.symbol_hits_weight,
+        path_tokens_weight: weights.path_tokens_weight,
+        prompt_verb_weight: weights.prompt_verb_weight,
+        orthogonal_weight: weights.orthogonal_weight,
+        diversity_weight: weights.diversity_weight,
+        similarity_penalty: weights.similarity_penalty,
+    }
+}
+
 /// Load tenant-specific router weights from tenant settings JSON,
 /// falling back to RouterWeights::default().
 pub(crate) async fn load_tenant_weights(
     state: &AppState,
     tenant_id: &str,
-) -> (RouterWeights, bool) {
+) -> Result<(RouterWeights, bool), (StatusCode, Json<ErrorResponse>)> {
     let settings = match state.db.get_tenant_settings(tenant_id).await {
         Ok(s) => s,
         Err(e) => {
             warn!(tenant_id = %tenant_id, error = %e, "Failed to load tenant settings for weights");
-            return (RouterWeights::default(), true);
+            return Ok((RouterWeights::default(), true));
         }
     };
 
-    let parsed = settings
-        .settings_json
-        .as_ref()
-        .and_then(|json_str| serde_json::from_str::<serde_json::Value>(json_str).ok())
-        .and_then(|val| val.get("router_weights").cloned())
-        .and_then(|w| serde_json::from_value::<RouterWeights>(w).ok());
+    let registry = TenantSettingsRegistry::from_settings_json(settings.settings_json.as_deref())
+        .map_err(settings_validation_bad_request)?;
 
-    match parsed {
-        Some(weights) => (weights, false),
-        None => (RouterWeights::default(), true),
+    match registry
+        .get_router_weights()
+        .map_err(settings_validation_bad_request)?
+    {
+        Some(weights) => Ok((router_weights_from_registry(weights), false)),
+        None => Ok((RouterWeights::default(), true)),
     }
 }
 
@@ -370,7 +408,7 @@ pub async fn get_router_weights(
         .map_err(<(StatusCode, Json<ErrorResponse>)>::from)?;
     validate_tenant_isolation(&claims, &tenant_id)?;
 
-    let (weights, is_default) = load_tenant_weights(&state, &tenant_id).await;
+    let (weights, is_default) = load_tenant_weights(&state, &tenant_id).await?;
     Ok(Json(weights_to_response(tenant_id, &weights, is_default)))
 }
 
@@ -406,7 +444,7 @@ pub async fn update_router_weights(
     validate_tenant_isolation(&claims, &tenant_id)?;
 
     // Load current weights to merge partial updates
-    let (mut weights, _) = load_tenant_weights(&state, &tenant_id).await;
+    let (mut weights, _) = load_tenant_weights(&state, &tenant_id).await?;
 
     if let Some(v) = req.language_weight {
         weights.language_weight = v as f32;
@@ -476,22 +514,18 @@ pub async fn reset_router_weights(
         .await
         .map_err(ApiError::db_error)?;
 
-    let mut settings_obj: serde_json::Value = settings
-        .settings_json
-        .as_ref()
-        .and_then(|s| serde_json::from_str(s).ok())
-        .unwrap_or(serde_json::json!({}));
-
-    if let Some(obj) = settings_obj.as_object_mut() {
-        obj.remove("router_weights");
-    }
+    let mut registry =
+        TenantSettingsRegistry::from_settings_json(settings.settings_json.as_deref())
+            .map_err(settings_validation_bad_request)?;
+    registry.remove_known_key(TenantSettingsKnownKey::RouterWeights);
 
     let params = adapteros_db::UpdateTenantSettingsParams {
         use_default_stack_on_chat_create: None,
         use_default_stack_on_infer_session: None,
         settings_json: Some(
-            serde_json::to_string(&settings_obj)
-                .map_err(|e| ApiError::internal(&format!("Failed to serialize settings: {}", e)))?,
+            registry
+                .to_json_string()
+                .map_err(settings_validation_bad_request)?,
         ),
     };
 
@@ -519,25 +553,20 @@ async fn save_tenant_weights(
         .await
         .map_err(ApiError::db_error)?;
 
-    let mut settings_obj: serde_json::Value = settings
-        .settings_json
-        .as_ref()
-        .and_then(|s| serde_json::from_str(s).ok())
-        .unwrap_or(serde_json::json!({}));
-
-    let weights_value = serde_json::to_value(weights)
-        .map_err(|e| ApiError::internal(&format!("Failed to serialize weights: {}", e)))?;
-
-    if let Some(obj) = settings_obj.as_object_mut() {
-        obj.insert("router_weights".to_string(), weights_value);
-    }
+    let mut registry =
+        TenantSettingsRegistry::from_settings_json(settings.settings_json.as_deref())
+            .map_err(settings_validation_bad_request)?;
+    registry
+        .set_router_weights(registry_weights_from_router(weights))
+        .map_err(settings_validation_bad_request)?;
 
     let params = adapteros_db::UpdateTenantSettingsParams {
         use_default_stack_on_chat_create: None,
         use_default_stack_on_infer_session: None,
         settings_json: Some(
-            serde_json::to_string(&settings_obj)
-                .map_err(|e| ApiError::internal(&format!("Failed to serialize settings: {}", e)))?,
+            registry
+                .to_json_string()
+                .map_err(settings_validation_bad_request)?,
         ),
     };
 

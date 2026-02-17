@@ -61,3 +61,93 @@ pub struct FileChangeEvent {
     pub timestamp: String,
     pub session_id: String,
 }
+
+/// Working-tree status response for a repository
+#[derive(Debug, Clone, Serialize, Deserialize)]
+#[cfg_attr(feature = "server", derive(utoipa::ToSchema))]
+#[serde(rename_all = "snake_case")]
+pub struct WorkingTreeStatusResponse {
+    #[serde(default = "schema_version")]
+    pub schema_version: String,
+    pub branch: String,
+    pub modified_files: Vec<String>,
+    pub untracked_files: Vec<String>,
+    pub staged_files: Vec<String>,
+}
+
+/// Working-tree operation request for a single file path
+#[derive(Debug, Clone, Serialize, Deserialize)]
+#[cfg_attr(feature = "server", derive(utoipa::ToSchema))]
+#[serde(rename_all = "snake_case")]
+pub struct WorkingTreeFileOperationRequest {
+    pub file_path: String,
+}
+
+/// Generic working-tree operation response
+#[derive(Debug, Clone, Serialize, Deserialize)]
+#[cfg_attr(feature = "server", derive(utoipa::ToSchema))]
+#[serde(rename_all = "snake_case")]
+pub struct WorkingTreeOperationResponse {
+    #[serde(default = "schema_version")]
+    pub schema_version: String,
+    pub success: bool,
+}
+
+/// Working-tree diff response for repository/path
+#[derive(Debug, Clone, Serialize, Deserialize)]
+#[cfg_attr(feature = "server", derive(utoipa::ToSchema))]
+#[serde(rename_all = "snake_case")]
+pub struct WorkingTreeDiffResponse {
+    #[serde(default = "schema_version")]
+    pub schema_version: String,
+    pub diff: String,
+}
+
+/// Create commit request
+#[derive(Debug, Clone, Serialize, Deserialize)]
+#[cfg_attr(feature = "server", derive(utoipa::ToSchema))]
+#[serde(rename_all = "snake_case")]
+pub struct GitCommitRequest {
+    pub message: String,
+}
+
+/// Create commit response
+#[derive(Debug, Clone, Serialize, Deserialize)]
+#[cfg_attr(feature = "server", derive(utoipa::ToSchema))]
+#[serde(rename_all = "snake_case")]
+pub struct GitCommitResponse {
+    #[serde(default = "schema_version")]
+    pub schema_version: String,
+    pub success: bool,
+    pub commit_sha: String,
+}
+
+/// Checkout branch request
+#[derive(Debug, Clone, Serialize, Deserialize)]
+#[cfg_attr(feature = "server", derive(utoipa::ToSchema))]
+#[serde(rename_all = "snake_case")]
+pub struct GitCheckoutRequest {
+    pub branch: String,
+}
+
+/// Checkout branch response
+#[derive(Debug, Clone, Serialize, Deserialize)]
+#[cfg_attr(feature = "server", derive(utoipa::ToSchema))]
+#[serde(rename_all = "snake_case")]
+pub struct GitCheckoutResponse {
+    #[serde(default = "schema_version")]
+    pub schema_version: String,
+    pub success: bool,
+    pub branch: String,
+}
+
+/// Lightweight git log entry
+#[derive(Debug, Clone, Serialize, Deserialize)]
+#[cfg_attr(feature = "server", derive(utoipa::ToSchema))]
+#[serde(rename_all = "snake_case")]
+pub struct GitLogEntry {
+    pub sha: String,
+    pub message: String,
+    pub author: String,
+    pub date: String,
+}

@@ -490,7 +490,24 @@ pub struct RoutingDebugResponse {
     /// Router weights that were used for this debug evaluation
     #[serde(skip_serializing_if = "Option::is_none")]
     pub weights_used: Option<RouterWeightsResponse>,
-    /// Per-adapter feature score breakdown
+    /// Prompt-global feature score breakdown (list-shaped for compatibility)
+    #[serde(default, skip_serializing_if = "Vec::is_empty")]
+    pub feature_scores: Vec<FeatureScoreBreakdown>,
+}
+
+/// Routing debug response with explicit router diagnostics
+#[derive(Debug, Serialize, Deserialize, ToSchema)]
+pub struct RoutingDebugResponseV2 {
+    pub features: FeatureVector,
+    pub adapter_scores: Vec<AdapterScore>,
+    pub selected_adapters: Vec<String>,
+    pub entropy: f64,
+    pub k_value: i32,
+    pub explanation: String,
+    /// Router weights that were used for this debug evaluation
+    #[serde(skip_serializing_if = "Option::is_none")]
+    pub weights_used: Option<RouterWeightsResponse>,
+    /// Prompt-global feature score breakdown (list-shaped for compatibility)
     #[serde(default, skip_serializing_if = "Vec::is_empty")]
     pub feature_scores: Vec<FeatureScoreBreakdown>,
 }
@@ -530,7 +547,8 @@ pub struct RouterWeightsResponse {
     pub is_default: bool,
 }
 
-/// Per-feature score breakdown for a single adapter
+/// Per-feature score breakdown for prompt-global contributions
+/// (adapter_id remains for shape compatibility with older consumers).
 #[derive(Debug, Serialize, Deserialize, ToSchema)]
 pub struct FeatureScoreBreakdown {
     pub adapter_id: String,

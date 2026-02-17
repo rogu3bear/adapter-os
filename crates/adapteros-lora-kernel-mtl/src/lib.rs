@@ -19,7 +19,8 @@
 
 use adapteros_core::{AosError, B3Hash, Result};
 use adapteros_lora_kernel_api::{
-    attestation, FusedKernels, GpuBufferFingerprint, IoBuffers, RouterRing,
+    attestation, AdapterLoadMetadata as KernelAdapterLoadMetadata, FusedKernels,
+    GpuBufferFingerprint, IoBuffers, RouterRing,
 };
 
 #[cfg(target_os = "macos")]
@@ -173,6 +174,80 @@ impl AdapterWeights {
     pub fn scaling_factor(&self) -> f32 {
         self.alpha / (self.rank as f32)
     }
+}
+
+/// Optional adapter metadata used to override runtime load parameters.
+///
+/// Precedence for resolved values is:
+/// 1. Explicit metadata overrides
+/// 2. Embedded payload config (when supported by backend path)
+/// 3. Inferred/default values
+#[derive(Debug, Clone, Default, PartialEq)]
+pub struct AdapterLoadMetadata {
+    pub rank: Option<usize>,
+    pub alpha: Option<f32>,
+    pub target_modules: Option<Vec<String>>,
+}
+
+impl AdapterLoadMetadata {
+    pub(crate) fn validated_rank(&self) -> Option<usize> {
+        self.rank.filter(|rank| *rank > 0)
+    }
+
+    pub(crate) fn validated_alpha(&self) -> Option<f32> {
+        self.alpha.filter(|alpha| alpha.is_finite() && *alpha > 0.0)
+    }
+
+    pub(crate) fn validated_target_modules(&self) -> Option<Vec<String>> {
+        let mut sanitized = Vec::new();
+        for module in self.target_modules.as_ref().into_iter().flatten() {
+            let trimmed = module.trim();
+            if trimmed.is_empty() {
+                continue;
+            }
+            if !sanitized
+                .iter()
+                .any(|existing: &String| existing == trimmed)
+            {
+                sanitized.push(trimmed.to_string());
+            }
+        }
+        if sanitized.is_empty() {
+            None
+        } else {
+            Some(sanitized)
+        }
+    }
+}
+
+const DEFAULT_METAL_TARGET_MODULES: [&str; 5] =
+    ["q_proj", "k_proj", "v_proj", "down_proj", "up_proj"];
+
+fn default_metal_target_modules() -> Vec<String> {
+    DEFAULT_METAL_TARGET_MODULES
+        .iter()
+        .map(|module| (*module).to_string())
+        .collect()
+}
+
+fn resolve_metal_target_modules(metadata: Option<&AdapterLoadMetadata>) -> Vec<String> {
+    metadata
+        .and_then(AdapterLoadMetadata::validated_target_modules)
+        .unwrap_or_else(default_metal_target_modules)
+}
+
+fn resolve_metal_rank_alpha(
+    metadata: Option<&AdapterLoadMetadata>,
+    inferred_rank: Option<usize>,
+) -> (usize, f32) {
+    let fallback_rank = inferred_rank.filter(|rank| *rank > 0).unwrap_or(16);
+    let rank = metadata
+        .and_then(AdapterLoadMetadata::validated_rank)
+        .unwrap_or(fallback_rank);
+    let alpha = metadata
+        .and_then(AdapterLoadMetadata::validated_alpha)
+        .unwrap_or((rank * 2) as f32);
+    (rank, alpha)
 }
 
 /// Intermediate buffers for transformer computation
@@ -1614,120 +1689,22 @@ impl FusedKernels for MetalKernels {
     ///
     /// Target modules (in order): q_proj, k_proj, v_proj, down_proj, up_proj
     fn load_adapter(&mut self, id: u16, weights: &[u8]) -> Result<()> {
-        let tensors = SafeTensors::deserialize(weights)
-            .map_err(|e| AosError::Kernel(format!("Failed to parse adapter SafeTensors: {}", e)))?;
+        MetalKernels::load_adapter_with_metadata(self, id, weights, None)
+    }
 
-        let mut lora_a_buffers: Vec<Buffer> = Vec::new();
-        let mut lora_b_buffers: Vec<Buffer> = Vec::new();
-        let mut total_vram_bytes: u64 = 0;
-        let mut inferred_rank: Option<usize> = None;
-
-        // Collect all tensor names and sort to ensure deterministic order
-        let mut tensor_names: Vec<_> = tensors.names().into_iter().collect();
-        tensor_names.sort();
-
-        // Group tensors by target module, maintaining order: q_proj, k_proj, v_proj, down_proj, up_proj
-        let target_modules = ["q_proj", "k_proj", "v_proj", "down_proj", "up_proj"];
-
-        for module_name in &target_modules {
-            // Find lora_A tensor for this module
-            let lora_a_name = tensor_names
-                .iter()
-                .find(|n| n.contains(module_name) && n.contains("lora_A"))
-                .cloned();
-
-            // Find lora_B tensor for this module
-            let lora_b_name = tensor_names
-                .iter()
-                .find(|n| n.contains(module_name) && n.contains("lora_B"))
-                .cloned();
-
-            // Process lora_A if found
-            if let Some(name) = lora_a_name {
-                let tensor = tensors.tensor(name).map_err(|e| {
-                    AosError::Kernel(format!("Failed to get tensor {}: {}", name, e))
-                })?;
-
-                let shape = tensor.shape();
-                if shape.len() >= 2 && inferred_rank.is_none() {
-                    // LoRA A shape is [rank, in_features] - rank is first dimension
-                    inferred_rank = Some(shape[0]);
-                }
-
-                let floats = Self::tensor_to_f32(tensor)?;
-                let buffer_size = (floats.len() * std::mem::size_of::<f32>()) as u64;
-                total_vram_bytes += buffer_size;
-
-                let buffer = self.device.new_buffer_with_data(
-                    floats.as_ptr() as *const std::ffi::c_void,
-                    buffer_size,
-                    MTLResourceOptions::StorageModeShared,
-                );
-                lora_a_buffers.push(buffer);
-            }
-
-            // Process lora_B if found
-            if let Some(name) = lora_b_name {
-                let tensor = tensors.tensor(name).map_err(|e| {
-                    AosError::Kernel(format!("Failed to get tensor {}: {}", name, e))
-                })?;
-
-                let floats = Self::tensor_to_f32(tensor)?;
-                let buffer_size = (floats.len() * std::mem::size_of::<f32>()) as u64;
-                total_vram_bytes += buffer_size;
-
-                let buffer = self.device.new_buffer_with_data(
-                    floats.as_ptr() as *const std::ffi::c_void,
-                    buffer_size,
-                    MTLResourceOptions::StorageModeShared,
-                );
-                lora_b_buffers.push(buffer);
-            }
-        }
-
-        // Require at least some tensors were loaded
-        if lora_a_buffers.is_empty() && lora_b_buffers.is_empty() {
-            return Err(AosError::Kernel(format!(
-                "No LoRA tensors found in adapter {}. Available tensors: {:?}",
-                id, tensor_names
-            )));
-        }
-
-        // Default rank if not inferred (shouldn't happen with valid adapters)
-        let rank = inferred_rank.unwrap_or(16);
-
-        // Default alpha (commonly 2x rank or equal to rank)
-        let alpha = (rank * 2) as f32;
-
-        // Compute BLAKE3 hash for integrity verification
-        let hash_b3 = B3Hash::hash(weights);
-
-        let adapter_weights = AdapterWeights {
-            lora_a_buffers,
-            lora_b_buffers,
-            rank,
-            alpha,
-            vram_bytes: total_vram_bytes,
-            hash_b3,
+    fn load_adapter_with_metadata(
+        &mut self,
+        id: u16,
+        weights: &[u8],
+        metadata: &KernelAdapterLoadMetadata,
+    ) -> Result<()> {
+        let metadata_override = AdapterLoadMetadata {
+            rank: Some(metadata.rank as usize).filter(|rank| *rank > 0),
+            alpha: Some(metadata.alpha).filter(|alpha| alpha.is_finite() && *alpha > 0.0),
+            target_modules: (!metadata.target_modules.is_empty())
+                .then(|| metadata.target_modules.clone()),
         };
-
-        // Track VRAM attribution (adapter_id as u32, weights bytes, 0 for kv_cache estimate)
-        self.vram_tracker
-            .track_adapter(id as u32, total_vram_bytes, 0);
-
-        tracing::info!(
-            adapter_id = id,
-            rank = rank,
-            alpha = alpha,
-            vram_bytes = total_vram_bytes,
-            lora_a_count = adapter_weights.lora_a_buffers.len(),
-            lora_b_count = adapter_weights.lora_b_buffers.len(),
-            hash = %hash_b3.to_short_hex(),
-            "Loaded adapter into Metal GPU memory"
-        );
-
-        self.adapter_weights.insert(id, adapter_weights);
-        Ok(())
+        MetalKernels::load_adapter_with_metadata(self, id, weights, Some(&metadata_override))
     }
 
     /// Unload adapter weights from GPU memory
@@ -1914,6 +1891,164 @@ impl FusedKernels for MetalKernels {
 }
 
 impl MetalKernels {
+    /// Load adapter with optional metadata overrides.
+    ///
+    /// Metadata precedence: metadata > inferred/default.
+    pub fn load_adapter_with_metadata(
+        &mut self,
+        id: u16,
+        weights: &[u8],
+        metadata: Option<&AdapterLoadMetadata>,
+    ) -> Result<()> {
+        let tensors = SafeTensors::deserialize(weights)
+            .map_err(|e| AosError::Kernel(format!("Failed to parse adapter SafeTensors: {}", e)))?;
+
+        // Collect tensor names and sort to guarantee deterministic lookup order.
+        let mut tensor_names: Vec<&str> = tensors
+            .names()
+            .into_iter()
+            .map(|name| name.as_str())
+            .collect();
+        tensor_names.sort();
+
+        let requested_modules = resolve_metal_target_modules(metadata);
+        let has_metadata_targets = metadata
+            .and_then(AdapterLoadMetadata::validated_target_modules)
+            .is_some();
+
+        let mut selected_modules = requested_modules.clone();
+        let (mut lora_a_buffers, mut lora_b_buffers, mut total_vram_bytes, mut inferred_rank) =
+            self.collect_adapter_buffers(&tensors, &tensor_names, &selected_modules)?;
+
+        if lora_a_buffers.is_empty() && lora_b_buffers.is_empty() && has_metadata_targets {
+            let fallback_modules = default_metal_target_modules();
+            if fallback_modules != selected_modules {
+                tracing::warn!(
+                    adapter_id = id,
+                    metadata_modules = ?requested_modules,
+                    fallback_modules = ?fallback_modules,
+                    "Metadata target_modules matched no tensors; falling back to default module set"
+                );
+                selected_modules = fallback_modules;
+                (
+                    lora_a_buffers,
+                    lora_b_buffers,
+                    total_vram_bytes,
+                    inferred_rank,
+                ) = self.collect_adapter_buffers(&tensors, &tensor_names, &selected_modules)?;
+            }
+        }
+
+        if lora_a_buffers.is_empty() && lora_b_buffers.is_empty() {
+            return Err(AosError::Kernel(format!(
+                "No LoRA tensors found in adapter {}. Available tensors: {:?}",
+                id, tensor_names
+            )));
+        }
+
+        let (rank, alpha) = resolve_metal_rank_alpha(metadata, inferred_rank);
+
+        let hash_b3 = B3Hash::hash(weights);
+        let adapter_weights = AdapterWeights {
+            lora_a_buffers,
+            lora_b_buffers,
+            rank,
+            alpha,
+            vram_bytes: total_vram_bytes,
+            hash_b3,
+        };
+
+        self.vram_tracker
+            .track_adapter(id as u32, total_vram_bytes, 0);
+
+        tracing::info!(
+            adapter_id = id,
+            rank = rank,
+            alpha = alpha,
+            target_modules = ?selected_modules,
+            vram_bytes = total_vram_bytes,
+            lora_a_count = adapter_weights.lora_a_buffers.len(),
+            lora_b_count = adapter_weights.lora_b_buffers.len(),
+            hash = %hash_b3.to_short_hex(),
+            "Loaded adapter into Metal GPU memory"
+        );
+
+        self.adapter_weights.insert(id, adapter_weights);
+        Ok(())
+    }
+
+    fn collect_adapter_buffers(
+        &self,
+        tensors: &SafeTensors,
+        tensor_names: &[&str],
+        target_modules: &[String],
+    ) -> Result<(Vec<Buffer>, Vec<Buffer>, u64, Option<usize>)> {
+        let mut lora_a_buffers: Vec<Buffer> = Vec::new();
+        let mut lora_b_buffers: Vec<Buffer> = Vec::new();
+        let mut total_vram_bytes: u64 = 0;
+        let mut inferred_rank: Option<usize> = None;
+
+        for module_name in target_modules {
+            let module_name = module_name.as_str();
+
+            let lora_a_name = tensor_names
+                .iter()
+                .find(|name| name.contains(module_name) && name.contains("lora_A"))
+                .copied();
+
+            let lora_b_name = tensor_names
+                .iter()
+                .find(|name| name.contains(module_name) && name.contains("lora_B"))
+                .copied();
+
+            if let Some(name) = lora_a_name {
+                let tensor = tensors.tensor(name).map_err(|e| {
+                    AosError::Kernel(format!("Failed to get tensor {}: {}", name, e))
+                })?;
+
+                let shape = tensor.shape();
+                if shape.len() >= 2 && inferred_rank.is_none() {
+                    inferred_rank = Some(shape[0]);
+                }
+
+                let floats = Self::tensor_to_f32(tensor)?;
+                let buffer_size = (floats.len() * std::mem::size_of::<f32>()) as u64;
+                total_vram_bytes += buffer_size;
+
+                let buffer = self.device.new_buffer_with_data(
+                    floats.as_ptr() as *const std::ffi::c_void,
+                    buffer_size,
+                    MTLResourceOptions::StorageModeShared,
+                );
+                lora_a_buffers.push(buffer);
+            }
+
+            if let Some(name) = lora_b_name {
+                let tensor = tensors.tensor(name).map_err(|e| {
+                    AosError::Kernel(format!("Failed to get tensor {}: {}", name, e))
+                })?;
+
+                let floats = Self::tensor_to_f32(tensor)?;
+                let buffer_size = (floats.len() * std::mem::size_of::<f32>()) as u64;
+                total_vram_bytes += buffer_size;
+
+                let buffer = self.device.new_buffer_with_data(
+                    floats.as_ptr() as *const std::ffi::c_void,
+                    buffer_size,
+                    MTLResourceOptions::StorageModeShared,
+                );
+                lora_b_buffers.push(buffer);
+            }
+        }
+
+        Ok((
+            lora_a_buffers,
+            lora_b_buffers,
+            total_vram_bytes,
+            inferred_rank,
+        ))
+    }
+
     /// 【2025-11-19†safety†metal-kernel-wrappers】
     /// Safe wrapper for reading float values from Metal buffer with bounds checking
     ///
@@ -1979,5 +2114,50 @@ impl MetalKernels {
         let slice = unsafe { std::slice::from_raw_parts(buffer.contents() as *const u8, safe_len) };
 
         Ok(slice)
+    }
+}
+
+#[cfg(test)]
+mod metadata_tests {
+    use super::*;
+
+    #[test]
+    fn test_resolve_metal_rank_alpha_prefers_metadata() {
+        let metadata = AdapterLoadMetadata {
+            rank: Some(4),
+            alpha: Some(12.0),
+            target_modules: None,
+        };
+        let (rank, alpha) = resolve_metal_rank_alpha(Some(&metadata), Some(8));
+        assert_eq!(rank, 4);
+        assert_eq!(alpha, 12.0);
+    }
+
+    #[test]
+    fn test_resolve_metal_rank_alpha_falls_back_when_metadata_invalid() {
+        let metadata = AdapterLoadMetadata {
+            rank: Some(0),
+            alpha: Some(f32::NAN),
+            target_modules: None,
+        };
+        let (rank, alpha) = resolve_metal_rank_alpha(Some(&metadata), Some(6));
+        assert_eq!(rank, 6);
+        assert_eq!(alpha, 12.0);
+    }
+
+    #[test]
+    fn test_resolve_metal_target_modules_sanitizes_metadata() {
+        let metadata = AdapterLoadMetadata {
+            rank: None,
+            alpha: None,
+            target_modules: Some(vec![
+                " q_proj ".to_string(),
+                "".to_string(),
+                "q_proj".to_string(),
+                "v_proj".to_string(),
+            ]),
+        };
+        let modules = resolve_metal_target_modules(Some(&metadata));
+        assert_eq!(modules, vec!["q_proj".to_string(), "v_proj".to_string()]);
     }
 }

@@ -15,9 +15,20 @@ use crate::types::*;
 use adapteros_api_types::{
     DeterminismPolicyKnobs, TenantSettingsResponse, UpdateTenantSettingsRequest,
 };
-use adapteros_db::UpdateTenantSettingsParams;
+use adapteros_db::{
+    TenantSettingsRegistry, TenantSettingsValidationError, UpdateTenantSettingsParams,
+};
 use axum::{extract::Extension, extract::Path, extract::State, http::StatusCode, response::Json};
 use tracing::{info, warn};
+
+fn settings_validation_bad_request(
+    err: TenantSettingsValidationError,
+) -> (StatusCode, Json<ErrorResponse>) {
+    (
+        StatusCode::BAD_REQUEST,
+        Json(ErrorResponse::new(err.to_string()).with_code("BAD_REQUEST")),
+    )
+}
 
 /// Get tenant settings
 ///
@@ -118,18 +129,18 @@ pub async fn update_tenant_settings(
     // Validate tenant isolation
     validate_tenant_isolation(&claims, &tenant_id)?;
 
-    // Convert settings_json Value to String if present
+    // Validate known settings keys and serialize for DB persistence.
     let settings_json = req
         .settings_json
         .as_ref()
-        .map(|v| serde_json::to_string(v))
-        .transpose()
-        .map_err(|e| {
-            (
-                StatusCode::BAD_REQUEST,
-                Json(ErrorResponse::new(format!("Invalid settings_json: {}", e))),
-            )
-        })?;
+        .map(|v| {
+            let registry =
+                TenantSettingsRegistry::from_value(v).map_err(settings_validation_bad_request)?;
+            registry
+                .to_json_string()
+                .map_err(settings_validation_bad_request)
+        })
+        .transpose()?;
 
     let params = UpdateTenantSettingsParams {
         use_default_stack_on_chat_create: req.use_default_stack_on_chat_create,

@@ -85,6 +85,9 @@ pub struct MLXFFIBackend {
     pub performance_metrics: Arc<RwLock<PerformanceMetrics>>,
     /// Manifest hash for determinism attestation
     manifest_hash: Option<B3Hash>,
+    /// Test hook: count FFI set_module population attempts.
+    #[cfg(test)]
+    ffi_set_module_attempts: usize,
 }
 
 /// Performance metrics for optimization
@@ -236,6 +239,8 @@ impl MLXFFIBackend {
             memory_pool_size: Arc::new(RwLock::new(0)),
             performance_metrics: Arc::new(RwLock::new(PerformanceMetrics::default())),
             manifest_hash,
+            #[cfg(test)]
+            ffi_set_module_attempts: 0,
         }
     }
 
@@ -454,31 +459,47 @@ impl MLXFFIBackend {
         let num_layers = self.model.config.num_hidden_layers;
         let scale = adapter.config().alpha / adapter.config().rank as f32;
 
-        match FFILoraAdapter::new(adapter_id as i32, num_layers, scale) {
-            Ok(mut ffi_adapter) => {
-                // Populate LoRA weights for each target module
-                // The adapter stores weights as Vec<Vec<f32>> per module name (e.g., "q_proj").
-                // The FFI layer expects per-layer weights, but the adapter doesn't distinguish
-                // layers — modules are shared across all layers. We set them for layer 0
-                // and the C++ side broadcasts across layers during fused forward.
-                for module_name in &adapter.config().target_modules {
-                    if let Some((a_matrix, b_matrix)) = adapter.get_module_weights(module_name) {
-                        // Flatten nested Vec<Vec<f32>> to contiguous &[f32]
-                        let a_flat: Vec<f32> = a_matrix
-                            .iter()
-                            .flat_map(|row| row.iter().copied())
-                            .collect();
-                        let b_flat: Vec<f32> = b_matrix
-                            .iter()
-                            .flat_map(|row| row.iter().copied())
-                            .collect();
-                        let a_rows = a_matrix.len();
-                        let a_cols = if a_rows > 0 { a_matrix[0].len() } else { 0 };
-                        let b_rows = b_matrix.len();
-                        let b_cols = if b_rows > 0 { b_matrix[0].len() } else { 0 };
+        let mut ffi_adapter = match FFILoraAdapter::new(adapter_id as i32, num_layers, scale) {
+            Ok(ffi_adapter) => Some(ffi_adapter),
+            Err(e) => {
+                tracing::warn!(
+                    adapter_id = adapter_id,
+                    error = %e,
+                    "Failed to create FFI adapter handle, falling back to Rust-side LoRA"
+                );
+                None
+            }
+        };
 
+        // Populate LoRA weights for each target module
+        // The adapter stores weights as Vec<Vec<f32>> per module name (e.g., "q_proj"),
+        // shared across transformer layers. Populate every layer explicitly to avoid
+        // silently missing modules on deeper layers.
+        for module_name in &adapter.config().target_modules {
+            if let Some((a_matrix, b_matrix)) = adapter.get_module_weights(module_name) {
+                // Flatten nested Vec<Vec<f32>> to contiguous &[f32]
+                let a_flat: Vec<f32> = a_matrix
+                    .iter()
+                    .flat_map(|row| row.iter().copied())
+                    .collect();
+                let b_flat: Vec<f32> = b_matrix
+                    .iter()
+                    .flat_map(|row| row.iter().copied())
+                    .collect();
+                let a_rows = a_matrix.len();
+                let a_cols = if a_rows > 0 { a_matrix[0].len() } else { 0 };
+                let b_rows = b_matrix.len();
+                let b_cols = if b_rows > 0 { b_matrix[0].len() } else { 0 };
+
+                for layer_idx in 0..num_layers {
+                    #[cfg(test)]
+                    {
+                        self.ffi_set_module_attempts += 1;
+                    }
+
+                    if let Some(ffi_adapter) = ffi_adapter.as_mut() {
                         if let Err(e) = ffi_adapter.set_module(
-                            0, // layer 0 — C++ broadcasts to all layers
+                            layer_idx,
                             module_name,
                             &a_flat,
                             &b_flat,
@@ -488,21 +509,18 @@ impl MLXFFIBackend {
                             tracing::warn!(
                                 adapter_id = adapter_id,
                                 module = module_name,
+                                layer = layer_idx,
                                 error = %e,
-                                "Failed to set FFI LoRA module, skipping"
+                                "Failed to set FFI LoRA module, skipping layer"
                             );
                         }
                     }
                 }
-                self.ffi_adapters.insert(adapter_id, ffi_adapter);
             }
-            Err(e) => {
-                tracing::warn!(
-                    adapter_id = adapter_id,
-                    error = %e,
-                    "Failed to create FFI adapter handle, falling back to Rust-side LoRA"
-                );
-            }
+        }
+
+        if let Some(ffi_adapter) = ffi_adapter {
+            self.ffi_adapters.insert(adapter_id, ffi_adapter);
         }
 
         // Copy-on-write update
@@ -901,48 +919,8 @@ impl FusedKernels for MLXFFIBackend {
     }
 
     fn load_adapter(&mut self, id: u16, weights: &[u8]) -> Result<()> {
-        // Parse adapter weights from safetensors format
-        let tensors = safetensors::SafeTensors::deserialize(weights).map_err(|e| {
-            adapteros_core::AosError::Parse(format!("Failed to parse adapter weights: {}", e))
-        })?;
-
-        // Create LoRA config from default (can be customized via metadata)
-        let config = crate::lora::LoRAConfig::default();
-        let adapter_id_str = format!("adapter_{}", id);
-        let mut adapter = LoRAAdapter::new(adapter_id_str.clone(), config.clone());
-
-        // Extract LoRA weights for each target module
-        for module_name in &config.target_modules {
-            let lora_a_key = format!("{}.lora_A", module_name);
-            let lora_b_key = format!("{}.lora_B", module_name);
-
-            if let (Ok(lora_a_tensor), Ok(lora_b_tensor)) =
-                (tensors.tensor(&lora_a_key), tensors.tensor(&lora_b_key))
-            {
-                // Convert tensors to Vec<Vec<f32>>
-                let lora_a = Self::tensor_to_nested_vec(&lora_a_tensor)?;
-                let lora_b = Self::tensor_to_nested_vec(&lora_b_tensor)?;
-
-                adapter.add_module_weights(module_name, lora_a, lora_b);
-
-                tracing::debug!(
-                    adapter_id = id,
-                    module = %module_name,
-                    "Loaded LoRA weights for hot-swap"
-                );
-            }
-        }
-
-        // Register adapter with memory tracking
-        self.register_adapter(id, adapter)?;
-
-        tracing::info!(
-            adapter_id = id,
-            adapter_name = %adapter_id_str,
-            "Hot-swap loaded adapter via FusedKernels trait"
-        );
-
-        Ok(())
+        // Preserve legacy behavior: metadata-free load path.
+        self.load_adapter_with_metadata(id, weights, None)
     }
 
     fn unload_adapter(&mut self, id: u16) -> Result<()> {
@@ -1035,6 +1013,8 @@ impl Clone for MLXFFIBackend {
             memory_pool_size: self.memory_pool_size.clone(),
             performance_metrics: self.performance_metrics.clone(),
             manifest_hash: self.manifest_hash,
+            #[cfg(test)]
+            ffi_set_module_attempts: self.ffi_set_module_attempts,
         }
     }
 }
@@ -1056,6 +1036,205 @@ impl MLXFFIBackend {
     /// num_attention_heads, num_key_value_heads, rope_theta, etc.
     pub fn model_config(&self) -> &crate::ModelConfig {
         &self.model.config
+    }
+
+    /// Load adapter weights with optional metadata overrides.
+    ///
+    /// Precedence:
+    /// 1) Explicit metadata values
+    /// 2) Values inferred from safetensors keys
+    /// 3) LoRA defaults
+    pub fn load_adapter_with_metadata(
+        &mut self,
+        id: u16,
+        weights: &[u8],
+        metadata: Option<&serde_json::Value>,
+    ) -> Result<()> {
+        // Parse adapter weights from safetensors format
+        let tensors = safetensors::SafeTensors::deserialize(weights).map_err(|e| {
+            adapteros_core::AosError::Parse(format!("Failed to parse adapter weights: {}", e))
+        })?;
+
+        // Discover target modules from tensor keys.
+        // The .aos packager writes keys as "lora_a.{module}" (prefix format).
+        // Legacy paths may use "{module}.lora_A" (suffix format).
+        // Detect which format is present and extract module names.
+        let mut discovered_modules = Vec::new();
+        for (name, _) in tensors.tensors() {
+            if let Some(module) = name.strip_prefix("lora_a.") {
+                discovered_modules.push(module.to_string());
+            } else if let Some(rest) = name.strip_suffix(".lora_A") {
+                discovered_modules.push(rest.to_string());
+            }
+        }
+        discovered_modules.sort();
+        discovered_modules.dedup();
+
+        let mut config = if discovered_modules.is_empty() {
+            crate::lora::LoRAConfig::default()
+        } else {
+            let mut cfg = crate::lora::LoRAConfig::default();
+            cfg.target_modules = discovered_modules;
+            cfg
+        };
+
+        // Metadata overrides inferred/default values when present and valid.
+        if let Some(metadata) = metadata {
+            if let Some(rank) = Self::metadata_rank_override(metadata) {
+                config.rank = rank;
+            }
+            if let Some(alpha) = Self::metadata_alpha_override(metadata) {
+                config.alpha = alpha;
+            }
+            if let Some(target_modules) = Self::metadata_target_modules_override(metadata) {
+                config.target_modules = target_modules;
+            }
+        }
+
+        let adapter_id_str = format!("adapter_{}", id);
+        let mut adapter = LoRAAdapter::new(adapter_id_str.clone(), config.clone());
+
+        // Extract LoRA weights for each target module.
+        // Try prefix format first (lora_a.{module}), then suffix ({module}.lora_A).
+        for module_name in &config.target_modules {
+            let (a_tensor, b_tensor) = {
+                // Prefix format: "lora_a.q_proj" (canonical .aos format)
+                let a_prefix = format!("lora_a.{}", module_name);
+                let b_prefix = format!("lora_b.{}", module_name);
+                if let (Ok(a), Ok(b)) = (tensors.tensor(&a_prefix), tensors.tensor(&b_prefix)) {
+                    (a, b)
+                } else {
+                    // Suffix format: "q_proj.lora_A" (legacy format)
+                    let a_suffix = format!("{}.lora_A", module_name);
+                    let b_suffix = format!("{}.lora_B", module_name);
+                    match (tensors.tensor(&a_suffix), tensors.tensor(&b_suffix)) {
+                        (Ok(a), Ok(b)) => (a, b),
+                        _ => continue,
+                    }
+                }
+            };
+
+            let lora_a = Self::tensor_to_nested_vec(&a_tensor)?;
+            let lora_b = Self::tensor_to_nested_vec(&b_tensor)?;
+
+            adapter.add_module_weights(module_name, lora_a, lora_b);
+
+            tracing::debug!(
+                adapter_id = id,
+                module = %module_name,
+                "Loaded LoRA weights for hot-swap"
+            );
+        }
+
+        // Register adapter with memory tracking
+        self.register_adapter(id, adapter)?;
+
+        tracing::info!(
+            adapter_id = id,
+            adapter_name = %adapter_id_str,
+            "Hot-swap loaded adapter via metadata-aware loader"
+        );
+
+        Ok(())
+    }
+
+    fn metadata_rank_override(metadata: &serde_json::Value) -> Option<usize> {
+        Self::metadata_value_any(metadata, &["rank", "lora_rank"]).and_then(Self::parse_rank)
+    }
+
+    fn metadata_alpha_override(metadata: &serde_json::Value) -> Option<f32> {
+        Self::metadata_value_any(metadata, &["alpha", "lora_alpha"]).and_then(Self::parse_alpha)
+    }
+
+    fn metadata_target_modules_override(metadata: &serde_json::Value) -> Option<Vec<String>> {
+        let value = Self::metadata_value_any(metadata, &["target_modules"])?;
+        let modules = match value {
+            serde_json::Value::Array(items) => items
+                .iter()
+                .filter_map(|item| item.as_str())
+                .map(str::trim)
+                .filter(|m| !m.is_empty())
+                .map(ToOwned::to_owned)
+                .collect::<Vec<_>>(),
+            serde_json::Value::String(s) => {
+                let trimmed = s.trim();
+                if trimmed.starts_with('[') {
+                    serde_json::from_str::<Vec<String>>(trimmed)
+                        .ok()?
+                        .into_iter()
+                        .map(|m| m.trim().to_string())
+                        .filter(|m| !m.is_empty())
+                        .collect()
+                } else {
+                    trimmed
+                        .split(',')
+                        .map(str::trim)
+                        .filter(|m| !m.is_empty())
+                        .map(ToOwned::to_owned)
+                        .collect()
+                }
+            }
+            _ => return None,
+        };
+
+        if modules.is_empty() {
+            return None;
+        }
+
+        // Preserve order while removing duplicates.
+        let mut deduped = Vec::with_capacity(modules.len());
+        for module in modules {
+            if !deduped.contains(&module) {
+                deduped.push(module);
+            }
+        }
+
+        Some(deduped)
+    }
+
+    fn metadata_value_any<'a>(
+        metadata: &'a serde_json::Value,
+        keys: &[&str],
+    ) -> Option<&'a serde_json::Value> {
+        for key in keys {
+            if let Some(value) = metadata.get(*key) {
+                return Some(value);
+            }
+            if let Some(value) = metadata.get("metadata").and_then(|m| m.get(*key)) {
+                return Some(value);
+            }
+        }
+        None
+    }
+
+    fn parse_rank(value: &serde_json::Value) -> Option<usize> {
+        match value {
+            serde_json::Value::Number(n) => n.as_u64().and_then(|v| {
+                let rank = v as usize;
+                (rank > 0).then_some(rank)
+            }),
+            serde_json::Value::String(s) => s.trim().parse::<usize>().ok().filter(|v| *v > 0),
+            _ => None,
+        }
+    }
+
+    fn parse_alpha(value: &serde_json::Value) -> Option<f32> {
+        match value {
+            serde_json::Value::Number(n) => n.as_f64().and_then(|v| {
+                let alpha = v as f32;
+                (alpha.is_finite() && alpha > 0.0).then_some(alpha)
+            }),
+            serde_json::Value::String(s) => s.trim().parse::<f32>().ok().filter(|v| {
+                let alpha = *v;
+                alpha.is_finite() && alpha > 0.0
+            }),
+            _ => None,
+        }
+    }
+
+    #[cfg(test)]
+    fn ffi_set_module_attempts(&self) -> usize {
+        self.ffi_set_module_attempts
     }
 
     /// Run inference step using fused MLX FFI forward pass with KV cache and LoRA
@@ -1309,6 +1488,7 @@ mod tests {
     use super::*;
     use crate::lora::{LoRAAdapter, LoRAConfig};
     use adapteros_core::B3Hash;
+    use serde_json::json;
 
     fn create_dummy_adapter(id: &str) -> LoRAAdapter {
         LoRAAdapter {
@@ -1319,6 +1499,72 @@ mod tests {
             shapes: HashMap::new(),
             hash: B3Hash::hash(id.as_bytes()),
         }
+    }
+
+    fn create_test_model(num_hidden_layers: usize) -> crate::MLXFFIModel {
+        crate::MLXFFIModel::new_null(crate::ModelConfig {
+            hidden_size: 8,
+            num_hidden_layers,
+            num_attention_heads: 2,
+            num_key_value_heads: 2,
+            intermediate_size: 16,
+            vocab_size: 64,
+            max_position_embeddings: 128,
+            rope_theta: 10_000.0,
+        })
+    }
+
+    fn create_test_adapter_with_modules(
+        id: &str,
+        module_names: &[&str],
+        rank: usize,
+        hidden_size: usize,
+    ) -> LoRAAdapter {
+        let mut config = LoRAConfig::default();
+        config.rank = rank;
+        config.alpha = (rank as f32) * 2.0;
+        config.target_modules = module_names.iter().map(|m| (*m).to_string()).collect();
+
+        let mut adapter = LoRAAdapter::new(id.to_string(), config);
+        let lora_a = vec![vec![1.0; hidden_size]; rank];
+        let lora_b = vec![vec![1.0; rank]; hidden_size];
+        for module_name in module_names {
+            adapter.add_module_weights(module_name, lora_a.clone(), lora_b.clone());
+        }
+        adapter
+    }
+
+    fn build_test_safetensors(modules: &[&str], rank: usize, hidden_size: usize) -> Vec<u8> {
+        use safetensors::tensor::TensorView;
+        use safetensors::Dtype;
+
+        let mut backing = Vec::new();
+        for module in modules {
+            let a_values = vec![1.0f32; rank * hidden_size];
+            let b_values = vec![1.0f32; hidden_size * rank];
+            let a_bytes: Vec<u8> = a_values.iter().flat_map(|f| f.to_le_bytes()).collect();
+            let b_bytes: Vec<u8> = b_values.iter().flat_map(|f| f.to_le_bytes()).collect();
+
+            backing.push((
+                format!("lora_a.{}", module),
+                a_bytes,
+                vec![rank, hidden_size],
+            ));
+            backing.push((
+                format!("lora_b.{}", module),
+                b_bytes,
+                vec![hidden_size, rank],
+            ));
+        }
+
+        let mut tensors = HashMap::new();
+        for (name, bytes, shape) in &backing {
+            let view =
+                TensorView::new(Dtype::F32, shape.clone(), bytes).expect("valid test tensor view");
+            tensors.insert(name.clone(), view);
+        }
+
+        safetensors::serialize(&tensors, &None).expect("serialize test safetensors")
     }
 
     #[test]
@@ -1341,6 +1587,48 @@ mod tests {
         assert_eq!(ring.gates_q15.len(), 8); // Fixed-size arrays
         assert_eq!(ring.k, 3); // Active count
         assert_eq!(ring.position, 0);
+    }
+
+    #[test]
+    fn test_load_adapter_with_metadata_overrides_inferred_defaults() {
+        let mut backend = MLXFFIBackend::new(create_test_model(2));
+        let weights = build_test_safetensors(&["q_proj", "k_proj"], 2, 4);
+        let metadata = json!({
+            "rank": 8,
+            "alpha": 32.0,
+            "target_modules": ["k_proj"],
+        });
+
+        backend
+            .load_adapter_with_metadata(7, &weights, Some(&metadata))
+            .expect("metadata-aware load succeeds");
+
+        let adapters = backend.adapters.load();
+        let adapter = adapters.get(&7).expect("adapter present");
+        assert_eq!(adapter.config().rank, 8);
+        assert!((adapter.config().alpha - 32.0).abs() < f32::EPSILON);
+        assert_eq!(adapter.config().target_modules, vec!["k_proj".to_string()]);
+        assert!(adapter.has_module("k_proj"));
+        assert!(!adapter.has_module("q_proj"));
+    }
+
+    #[test]
+    fn test_all_layers_are_populated_per_module() {
+        let num_layers = 3;
+        let modules = ["q_proj", "v_proj"];
+
+        let mut backend = MLXFFIBackend::new(create_test_model(num_layers));
+        let adapter = create_test_adapter_with_modules("layer-population", &modules, 2, 4);
+
+        backend
+            .register_adapter(42, adapter)
+            .expect("register adapter succeeds");
+
+        assert_eq!(
+            backend.ffi_set_module_attempts(),
+            num_layers * modules.len(),
+            "set_module attempts must cover every (layer, module) pair",
+        );
     }
 
     // =========================================================================

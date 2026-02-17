@@ -23,7 +23,7 @@
 //! - Axum Web Framework: https://docs.rs/axum/latest/axum/
 
 use adapteros_api_types::ErrorResponse;
-use adapteros_core::AosError;
+use adapteros_core::{error_codes, AosError};
 use adapteros_deterministic_exec::spawn_deterministic;
 use adapteros_lora_worker::{InferenceRequest, InferenceResponse};
 use adapteros_telemetry::middleware::api_error_only_middleware;
@@ -322,24 +322,36 @@ enum ApiError {
 
 impl IntoResponse for ApiError {
     fn into_response(self) -> Response {
-        let (status, error, details) = match self {
+        let (status, code, error, details) = match self {
             ApiError::Internal(msg) => (
                 StatusCode::INTERNAL_SERVER_ERROR,
+                error_codes::INTERNAL_ERROR,
                 "internal error".to_string(),
                 msg,
             ),
-            ApiError::BadRequest(msg) => (StatusCode::BAD_REQUEST, "bad request".to_string(), msg),
-            ApiError::PolicyViolation(msg) => {
-                (StatusCode::FORBIDDEN, "policy violation".to_string(), msg)
-            }
+            ApiError::BadRequest(msg) => (
+                StatusCode::BAD_REQUEST,
+                error_codes::BAD_REQUEST,
+                "bad request".to_string(),
+                msg,
+            ),
+            ApiError::PolicyViolation(msg) => (
+                StatusCode::FORBIDDEN,
+                error_codes::POLICY_VIOLATION,
+                "policy violation".to_string(),
+                msg,
+            ),
             ApiError::WorkerError(msg) => (
                 StatusCode::INTERNAL_SERVER_ERROR,
+                error_codes::INTERNAL_ERROR,
                 "worker error".to_string(),
                 msg,
             ),
         };
 
-        let response = ErrorResponse::new(error).with_details(serde_json::json!(details));
+        let response = ErrorResponse::new(error)
+            .with_code(code)
+            .with_details(serde_json::json!(details));
         (status, Json(response)).into_response()
     }
 }

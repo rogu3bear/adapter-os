@@ -78,6 +78,7 @@ adapteros-memory = { path = "../adapteros-memory" }
 adapteros-types = { path = "../adapteros-types" }
 adapteros-chat = { path = "../adapteros-chat" }
 adapteros-api-types = { path = "../adapteros-api-types" }
+adapteros-transport-types = { path = "../adapteros-transport-types" }
 adapteros-boot = { path = "../adapteros-boot" }
 adapteros-model-server = { path = "../adapteros-model-server", optional = true }
 lru = "0.16"

@@ -126,6 +126,7 @@ impl CacheWarmupManager {
                 request_type: RequestType::Normal,
                 stack_id: None,
                 stack_version: None,
+                session_id: None,
                 policy_id: None,
                 domain_hint: None,
                 temperature: None,
@@ -151,6 +152,8 @@ impl CacheWarmupManager {
                 stop_policy: None,
                 policy_mask_digest_b3: None,
                 utf8_healing: true,
+                fim_prefix: None,
+                fim_suffix: None,
                 admin_override: false,
                 arrival_instant: None, // Internal warmup, no queue timing needed
             };
@@ -211,6 +214,7 @@ impl CacheWarmupManager {
                 request_type: RequestType::Normal,
                 stack_id: None,
                 stack_version: None,
+                session_id: None,
                 policy_id: None,
                 domain_hint: None,
                 temperature: None,
@@ -236,6 +240,8 @@ impl CacheWarmupManager {
                 stop_policy: None,
                 policy_mask_digest_b3: None,
                 utf8_healing: true,
+                fim_prefix: None,
+                fim_suffix: None,
                 admin_override: false,
                 arrival_instant: None, // Internal warmup, no queue timing needed
             };
@@ -433,6 +439,7 @@ where
             request_type: RequestType::Normal,
             stack_id: None,
             stack_version: None,
+            session_id: None,
             policy_id: None,
             domain_hint: None,
             temperature: None,
@@ -458,6 +465,8 @@ where
             stop_policy: None,
             policy_mask_digest_b3: None,
             utf8_healing: true,
+            fim_prefix: None,
+            fim_suffix: None,
             admin_override: false,
             arrival_instant: None, // Internal health check, no queue timing needed
         };

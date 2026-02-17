@@ -14,6 +14,15 @@ pub struct FileBrowseRequest {
     pub show_hidden: bool,
 }
 
+/// Request to read file content
+#[derive(Debug, Clone, Serialize, Deserialize)]
+#[cfg_attr(feature = "server", derive(utoipa::ToSchema))]
+#[serde(rename_all = "snake_case")]
+pub struct FileContentRequest {
+    /// Absolute file path to read
+    pub path: String,
+}
+
 /// Response from browsing a filesystem directory
 #[derive(Debug, Clone, Serialize, Deserialize)]
 #[cfg_attr(feature = "server", derive(utoipa::ToSchema))]
@@ -30,6 +39,60 @@ pub struct FileBrowseResponse {
     pub entries: Vec<FileBrowseEntry>,
     /// Allowed root directories the user can browse
     pub allowed_roots: Vec<String>,
+}
+
+/// Response with file content payload
+#[derive(Debug, Clone, Serialize, Deserialize)]
+#[cfg_attr(feature = "server", derive(utoipa::ToSchema))]
+#[serde(rename_all = "snake_case")]
+pub struct FileContentResponse {
+    /// Schema version
+    #[serde(default = "crate::schema_version")]
+    pub schema_version: String,
+    /// Canonical path that was read
+    pub path: String,
+    /// UTF-8 file content
+    pub content: String,
+    /// File size in bytes
+    pub size_bytes: u64,
+    /// Last modified time (ISO 8601)
+    pub modified_at: Option<String>,
+    /// MIME type guess
+    pub mime_type: Option<String>,
+    /// Language hint for editors
+    pub language: Option<String>,
+    /// Total line count
+    pub line_count: u32,
+    /// Whether file is readonly in editor
+    #[serde(default)]
+    pub readonly: bool,
+}
+
+/// Request to write file content
+#[derive(Debug, Clone, Serialize, Deserialize)]
+#[cfg_attr(feature = "server", derive(utoipa::ToSchema))]
+#[serde(rename_all = "snake_case")]
+pub struct WriteFileContentRequest {
+    /// Absolute file path to write
+    pub path: String,
+    /// UTF-8 content to write
+    pub content: String,
+}
+
+/// Response after writing file content
+#[derive(Debug, Clone, Serialize, Deserialize)]
+#[cfg_attr(feature = "server", derive(utoipa::ToSchema))]
+#[serde(rename_all = "snake_case")]
+pub struct WriteFileContentResponse {
+    /// Schema version
+    #[serde(default = "crate::schema_version")]
+    pub schema_version: String,
+    /// Canonical path that was written
+    pub path: String,
+    /// Written byte size
+    pub size_bytes: u64,
+    /// Last modified time (ISO 8601)
+    pub modified_at: Option<String>,
 }
 
 /// A single filesystem entry

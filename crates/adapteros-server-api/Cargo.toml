@@ -21,6 +21,7 @@ adapteros-git = { path = "../adapteros-git" }
 adapteros-lora-kernel-api = { path = "../adapteros-lora-kernel-api" }
 adapteros-lora-lifecycle = { path = "../adapteros-lora-lifecycle" }
 adapteros-lora-worker = { path = "../adapteros-lora-worker", default-features = false }
+adapteros-transport-types = { path = "../adapteros-transport-types" }
 adapteros-model-hub = { path = "../adapteros-model-hub" }
 adapteros-orchestrator = { path = "../adapteros-orchestrator" }
 adapteros-policy = { path = "../adapteros-policy" }

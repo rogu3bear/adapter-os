@@ -1,6 +1,6 @@
 //! Model seeding utilities for populating the database from local cache.
 
-use adapteros_db::Db;
+use adapteros_db::{Db, SetupSeedOptions};
 use adapteros_model_hub::{ModelHubClient, ModelHubConfig};
 use adapteros_server_api::boot_state::BootStateManager;
 use anyhow::Result;
@@ -226,52 +226,35 @@ pub async fn seed_models_from_cache_if_empty(db: &Db) -> Result<()> {
         return Ok(());
     }
 
-    let mut seeded = 0usize;
-    let mut errors = 0usize;
-
+    let mut selected_paths = Vec::new();
     for root in model_dirs {
-        let entries = adapteros_core::discover_model_dirs(&root);
-
-        for path in entries {
-            let Some(path_str) = path.to_str() else {
-                errors += 1;
-                warn!(path = ?path, "Skipping model dir with non-UTF8 path");
-                continue;
-            };
-
-            let name = path
-                .file_name()
-                .map(|n| n.to_string_lossy().to_string())
-                .unwrap_or_else(|| "model".to_string());
-            let format = adapteros_core::ModelFormat::detect_from_dir(&path);
-            let backend = format.default_backend();
-
-            match db
-                .import_model_from_path(
-                    &name,
-                    path_str,
-                    format.as_str(),
-                    backend.as_str(),
-                    "system",
-                    "system",
-                    adapteros_core::ModelImportStatus::Available,
-                )
-                .await
-            {
-                Ok(_model_id) => {
-                    seeded += 1;
-                }
-                Err(e) => {
-                    warn!(model = %name, error = %e, "Failed to seed cached model");
-                    errors += 1;
-                }
-            }
-        }
+        selected_paths.extend(Db::setup_discover_models(&root).into_iter().map(|m| m.path));
     }
 
+    if selected_paths.is_empty() {
+        info!(
+            path = %primary_models_dir.display(),
+            fallback = %fallback_dir.display(),
+            "No discoverable cached models found, skipping seed"
+        );
+        return Ok(());
+    }
+
+    let summary = db
+        .setup_seed_models(
+            &selected_paths,
+            SetupSeedOptions {
+                force: false,
+                tenant_id: "system",
+                imported_by: "system",
+            },
+        )
+        .await?;
+
     info!(
-        seeded,
-        errors,
+        seeded = summary.seeded,
+        skipped = summary.skipped,
+        errors = summary.failed,
         path = %primary_models_dir.display(),
         "Seeded cached base models into database"
     );

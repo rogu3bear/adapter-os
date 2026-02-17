@@ -13,6 +13,7 @@ use adapteros_config::PlacementWeights;
 use adapteros_core::{
     determinism::DeterminismContext, AosError, BackendKind, FusionInterval, Result, SeedMode,
 };
+use adapteros_transport_types::WorkerInferenceRequest;
 use adapteros_types::adapters::metadata::RoutingDeterminismMode;
 use adapteros_types::coreml::CoreMLMode;
 use adapteros_types::inference::ChatMessage;
@@ -144,6 +145,16 @@ pub struct InferenceRequest {
     #[serde(default = "default_utf8_healing")]
     pub utf8_healing: bool,
 
+    /// FIM prefix (code before cursor). When both `fim_prefix` and `fim_suffix`
+    /// are present, the worker builds a FIM token sequence instead of tokenizing
+    /// `prompt` directly.
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub fim_prefix: Option<String>,
+
+    /// FIM suffix (code after cursor).
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub fim_suffix: Option<String>,
+
     /// Admin override flag to bypass cluster routing restrictions (debug only)
     #[serde(default)]
     pub admin_override: bool,
@@ -160,6 +171,78 @@ fn default_determinism_mode() -> String {
 
 fn default_utf8_healing() -> bool {
     true
+}
+
+impl From<adapteros_transport_types::PlacementReplay> for PlacementReplay {
+    fn from(value: adapteros_transport_types::PlacementReplay) -> Self {
+        Self {
+            mode: value.mode,
+            weights: PlacementWeights {
+                latency: value.weights.latency,
+                energy: value.weights.energy,
+                thermal: value.weights.thermal,
+            },
+            trace: value
+                .trace
+                .into_iter()
+                .map(|entry| PlacementTraceEntry {
+                    step: entry.step,
+                    lane: entry.lane,
+                    score: entry.score,
+                    temperature_c: entry.temperature_c,
+                    utilization: entry.utilization,
+                })
+                .collect(),
+        }
+    }
+}
+
+impl From<WorkerInferenceRequest> for InferenceRequest {
+    fn from(req: WorkerInferenceRequest) -> Self {
+        Self {
+            cpid: req.cpid,
+            prompt: req.prompt,
+            messages: req.messages,
+            max_tokens: req.max_tokens,
+            request_id: req.request_id,
+            run_envelope: req.run_envelope,
+            require_evidence: req.require_evidence,
+            reasoning_mode: req.reasoning_mode,
+            request_type: req.request_type,
+            stack_id: req.stack_id,
+            stack_version: req.stack_version,
+            session_id: req.session_id,
+            policy_id: req.policy_id,
+            domain_hint: req.domain_hint,
+            temperature: req.temperature,
+            top_k: req.top_k,
+            top_p: req.top_p,
+            seed: req.seed,
+            router_seed: req.router_seed,
+            seed_mode: req.seed_mode,
+            request_seed: req.request_seed,
+            determinism: req.determinism,
+            fusion_interval: req.fusion_interval,
+            backend_profile: req.backend_profile,
+            coreml_mode: req.coreml_mode,
+            pinned_adapter_ids: req.pinned_adapter_ids,
+            determinism_mode: req.determinism_mode,
+            routing_determinism_mode: req.routing_determinism_mode,
+            strict_mode: req.strict_mode,
+            adapter_strength_overrides: req.adapter_strength_overrides,
+            effective_adapter_ids: req.effective_adapter_ids,
+            adapter_stable_ids: req.adapter_stable_ids,
+            placement: req.placement.map(PlacementReplay::from),
+            routing_policy: req.routing_policy,
+            policy_mask_digest_b3: req.policy_mask_digest_b3,
+            stop_policy: req.stop_policy,
+            utf8_healing: req.utf8_healing,
+            fim_prefix: req.fim_prefix,
+            fim_suffix: req.fim_suffix,
+            admin_override: req.admin_override,
+            arrival_instant: None,
+        }
+    }
 }
 
 /// Returns true when strict determinism protections should be enforced.
@@ -195,27 +278,11 @@ pub(crate) fn enforce_strict_router_chain(
     Ok(())
 }
 
-/// Request type for different inference modes
-#[derive(Debug, Clone, Serialize, Deserialize, Default)]
-#[serde(rename_all = "snake_case")]
-pub enum RequestType {
-    #[default]
-    Normal,
-    PatchProposal(PatchProposalRequest),
-}
+/// Request type for different inference modes.
+pub type RequestType = adapteros_transport_types::WorkerRequestType;
 
-/// Patch proposal request parameters
-#[derive(Debug, Clone, Serialize, Deserialize)]
-pub struct PatchProposalRequest {
-    /// Repository ID for context
-    pub repo_id: String,
-    /// Commit SHA for context (optional)
-    pub commit_sha: Option<String>,
-    /// Files to focus on
-    pub target_files: Vec<String>,
-    /// Issue description or prompt
-    pub description: String,
-}
+/// Patch proposal request parameters.
+pub type PatchProposalRequest = adapteros_transport_types::WorkerPatchProposalRequest;
 
 // Forward declaration - PlacementTraceEntry is defined in response_types
 // to avoid circular dependency, we re-export it here for convenience

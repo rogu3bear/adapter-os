@@ -1,0 +1,17 @@
+[package]
+name = "adapteros-transport-types"
+version.workspace = true
+edition.workspace = true
+authors.workspace = true
+license.workspace = true
+repository.workspace = true
+description = "Shared transport contracts for server <-> worker communication"
+
+[dependencies]
+adapteros-api-types = { path = "../adapteros-api-types" }
+adapteros-core = { path = "../adapteros-core" }
+adapteros-types = { path = "../adapteros-types" }
+serde = { workspace = true }
+
+[dev-dependencies]
+serde_json = { workspace = true }

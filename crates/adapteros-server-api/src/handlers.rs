@@ -110,6 +110,7 @@ pub mod runtime;
 pub mod search;
 pub mod services;
 pub mod settings;
+pub mod setup;
 pub mod sse_diag;
 pub mod storage;
 pub mod streaming;

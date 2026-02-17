@@ -6,8 +6,8 @@ use std::path::PathBuf;
 
 use crate::commands::check_tokenizer::CheckTokenizerArgs;
 use crate::output::OutputWriter;
-use adapteros_db::{sqlx, Db};
-use tracing::{info, warn};
+use adapteros_db::{Db, SetupSeedOptions, SetupSeedStatus};
+use tracing::info;
 
 #[derive(Debug, Clone, Subcommand)]
 pub enum ModelsCommand {
@@ -86,7 +86,7 @@ fn get_models_command_name(cmd: &ModelsCommand) -> String {
     match cmd {
         ModelsCommand::Seed { .. } => "models_seed".to_string(),
         ModelsCommand::List { .. } => "models_list".to_string(),
-        ModelsCommand::CheckTokenizer { .. } => "models_check_tokenizer".to_string(),
+        ModelsCommand::CheckTokenizer(..) => "models_check_tokenizer".to_string(),
     }
 }
 
@@ -125,9 +125,9 @@ async fn run_seed(
     let db = Db::connect(&db_url).await?;
 
     // Collect model directories to seed
-    let model_dirs = adapteros_core::discover_model_dirs(&model_path);
+    let discovered = Db::setup_discover_models(&model_path);
 
-    if model_dirs.is_empty() {
+    if discovered.is_empty() {
         output.warning(format!(
             "No valid model directories found at: {} (must contain config.json)",
             model_path.display()
@@ -136,81 +136,51 @@ async fn run_seed(
     }
 
     output.section("Seeding Models");
-    let mut seeded = 0usize;
-    let mut errors = 0usize;
+    let selected_paths: Vec<PathBuf> = discovered.into_iter().map(|m| m.path).collect();
+    let summary = db
+        .setup_seed_models(
+            &selected_paths,
+            SetupSeedOptions {
+                force,
+                tenant_id: "system",
+                imported_by: "system",
+            },
+        )
+        .await?;
 
-    for path in model_dirs {
-        let Some(path_str) = path.to_str() else {
-            warn!(path = ?path, "Skipping model dir with non-UTF8 path");
-            errors += 1;
-            continue;
-        };
-
-        let name = path
-            .file_name()
-            .map(|n| n.to_string_lossy().to_string())
-            .unwrap_or_else(|| "model".to_string());
-
-        // Check if model with this name already exists
-        if !force {
-            let exists: i64 = sqlx::query_scalar("SELECT COUNT(*) FROM models WHERE name = ?")
-                .bind(&name)
-                .fetch_one(db.pool())
-                .await?;
-            if exists > 0 {
-                output.info(format!("  {} - already exists, skipping", name));
-                continue;
+    for item in summary.items {
+        match item.status {
+            SetupSeedStatus::Seeded => {
+                output.kv(
+                    "  Seeded",
+                    &format!(
+                        "{} (id: {})",
+                        item.name,
+                        item.model_id.as_deref().unwrap_or("unknown")
+                    ),
+                );
             }
-        }
-
-        let format = adapteros_core::ModelFormat::detect_from_dir(&path);
-        let backend = format.default_backend();
-        output.progress(format!(
-            "  {} (format: {}, backend: {})",
-            name, format, backend
-        ));
-
-        let result = if force {
-            db.upsert_model_from_path(
-                &name,
-                path_str,
-                format.as_str(),
-                backend.as_str(),
-                "system",
-                "system",
-                adapteros_core::ModelImportStatus::Available,
-            )
-            .await
-        } else {
-            db.import_model_from_path(
-                &name,
-                path_str,
-                format.as_str(),
-                backend.as_str(),
-                "system",
-                "system",
-                adapteros_core::ModelImportStatus::Available,
-            )
-            .await
-        };
-        match result {
-            Ok(model_id) => {
-                output.kv("  Seeded", &format!("{} (id: {})", name, model_id));
-                seeded += 1;
+            SetupSeedStatus::Skipped => {
+                output.info(format!("  {} - already exists, skipping", item.name));
             }
-            Err(e) => {
-                warn!(model = %name, error = %e, "Failed to seed model");
-                output.error(format!("  {} - failed: {}", name, e));
-                errors += 1;
+            SetupSeedStatus::Failed => {
+                output.error(format!(
+                    "  {} - failed: {}",
+                    item.name,
+                    item.message.unwrap_or_else(|| "unknown error".to_string())
+                ));
             }
         }
     }
 
     output.blank();
-    if seeded > 0 {
-        output.result(format!("Seeded {} model(s) ({} errors)", seeded, errors));
-    } else if errors > 0 {
-        output.error(format!("No models seeded ({} errors)", errors));
+    if summary.seeded > 0 {
+        output.result(format!(
+            "Seeded {} model(s) ({} errors)",
+            summary.seeded, summary.failed
+        ));
+    } else if summary.failed > 0 {
+        output.error(format!("No models seeded ({} errors)", summary.failed));
     } else {
         output.info("No new models to seed");
     }

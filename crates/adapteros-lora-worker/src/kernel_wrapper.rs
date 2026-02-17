@@ -10,8 +10,8 @@
 
 use adapteros_core::{AosError, Result};
 use adapteros_lora_kernel_api::{
-    blend_and_forward_reference, FusedKernels, IoBuffers, LiquidBlendRequest, LiquidBlendStats,
-    LiquidKernel, RouterRing,
+    blend_and_forward_reference, AdapterLoadMetadata, FusedKernels, IoBuffers, LiquidBlendRequest,
+    LiquidBlendStats, LiquidKernel, RouterRing,
 };
 
 /// Strictness control for backend execution (strict mode disables fallback)
@@ -352,6 +352,25 @@ impl FusedKernels for KernelWrapper {
                 k.primary.load_adapter(id, weights)?;
                 if let Some(fallback) = k.fallback.as_mut() {
                     fallback.load_adapter(id, weights)?;
+                }
+                Ok(())
+            }
+        }
+    }
+
+    fn load_adapter_with_metadata(
+        &mut self,
+        id: u16,
+        weights: &[u8],
+        metadata: &AdapterLoadMetadata,
+    ) -> Result<()> {
+        match self {
+            KernelWrapper::Direct(k) => k.inner.load_adapter_with_metadata(id, weights, metadata),
+            KernelWrapper::Coordinated(k) => {
+                k.primary
+                    .load_adapter_with_metadata(id, weights, metadata)?;
+                if let Some(fallback) = k.fallback.as_mut() {
+                    fallback.load_adapter_with_metadata(id, weights, metadata)?;
                 }
                 Ok(())
             }

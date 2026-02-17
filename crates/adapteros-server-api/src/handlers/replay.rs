@@ -687,54 +687,18 @@ pub async fn execute_replay_session(
         request_id: run_id,
         cpid: session.cpid.clone(),
         prompt: final_prompt,
-        messages: None,
         run_envelope: Some(run_envelope),
-        reasoning_mode: false,
-        admin_override: false,
-        stream: false,
-        require_step: false,
-        require_determinism: false,
-        allow_fallback: true,
-        batch_item_id: None,
-        rag_enabled: false, // Already handled RAG above
-        rag_collection_id: None,
-        dataset_version_id: None,
-        adapter_stack: None,
-        adapters: None,
-        stack_id: None,
-        stack_version: None,
-        stack_determinism_mode: None,
-        stack_routing_determinism_mode: None,
-        domain_hint: None,
-        effective_adapter_ids: None,
-        determinism_mode: None,
-        routing_determinism_mode: None,
-        adapter_strength_overrides: None,
-        seed_mode: None,
-        request_seed: None,
-        backend_profile: None,
-        coreml_mode: None,
         max_tokens: req.max_tokens,
         temperature: 0.0, // Default, could be stored in session
-        top_k: None,
         top_p: Some(1.0),
+        fusion_interval: None,
         seed,        // Restored from session.rng_state_json for determinism
         router_seed, // From session's global seed for deterministic routing
         require_evidence: true,
-        session_id: None,
-        pinned_adapter_ids: None, // Not used in replay
-        chat_context_hash: None,
-        claims: None,
-        model: None,
-        stop_policy: None, // Replay uses original generation's stop behavior
         created_at: std::time::Instant::now(),
-        worker_auth_token: None,
-        policy_mask_digest_b3: None, // Not tracked for session-based replay
         utf8_healing: Some(true),
-        abstention_threshold: None, // AARA lifecycle
-        citation_mode: None,        // AARA lifecycle
-        fim_prefix: None,
-        fim_suffix: None,
+        rag_enabled: false, // Already handled RAG above
+        ..InferenceRequestInternal::default()
     };
 
     // Execute inference through the unified pipeline with replay context (PRD-02)

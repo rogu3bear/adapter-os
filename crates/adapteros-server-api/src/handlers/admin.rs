@@ -10,7 +10,8 @@ use crate::middleware::require_role;
 use crate::state::AppState;
 use crate::types::*;
 pub use adapteros_api_types::admin::{
-    CreateUserRequest, ListUsersParams, ListUsersResponse, UpdateUserRequest, UserResponse,
+    AdminConfigResponse, AdminStatusResponse, CreateUserRequest, ListUsersParams,
+    ListUsersResponse, UpdateUserRequest, UserResponse,
 };
 use adapteros_db::users::{Role, User};
 use axum::{
@@ -18,6 +19,7 @@ use axum::{
     http::StatusCode,
     Json,
 };
+use std::sync::atomic::Ordering;
 
 /// Convert a database User to an API UserResponse
 fn user_to_response(user: User) -> UserResponse {
@@ -33,6 +35,135 @@ fn user_to_response(user: User) -> UserResponse {
         mfa_enabled: Some(user.mfa_enabled),
         permissions: None, // Requires role-based computation
     }
+}
+
+fn admin_lifecycle(state: &AppState) -> String {
+    state
+        .boot_state
+        .as_ref()
+        .map(|boot| boot.current_state().as_str().to_string())
+        .unwrap_or_else(|| "unknown".to_string())
+}
+
+/// Get high-level admin status
+#[utoipa::path(
+    tag = "admin",
+    get,
+    path = "/v1/admin/status",
+    responses(
+        (status = 200, description = "Admin status summary", body = AdminStatusResponse),
+        (status = 401, description = "Unauthorized"),
+        (status = 403, description = "Forbidden - Admin role required")
+    )
+)]
+pub async fn admin_status(
+    State(state): State<AppState>,
+    Extension(claims): Extension<Claims>,
+) -> ApiResult<AdminStatusResponse> {
+    require_role(&claims, Role::Admin)?;
+
+    let lifecycle = admin_lifecycle(&state);
+    let runtime_mode = state
+        .runtime_mode
+        .map(|mode| mode.as_str().to_string())
+        .unwrap_or_else(|| "dev".to_string());
+    let maintenance_mode = state
+        .boot_state
+        .as_ref()
+        .map(|boot| boot.is_maintenance())
+        .unwrap_or(false);
+    let draining_mode = state
+        .boot_state
+        .as_ref()
+        .map(|boot| boot.is_draining())
+        .unwrap_or(false);
+
+    let status = match lifecycle.as_str() {
+        "failed" => "error",
+        "degraded" => "degraded",
+        "maintenance" => "maintenance",
+        "draining" => "draining",
+        _ => "ok",
+    }
+    .to_string();
+
+    let rag_enabled = matches!(
+        state.rag_status.as_ref(),
+        Some(crate::state::RagStatus::Enabled { .. })
+    );
+
+    Ok(Json(AdminStatusResponse {
+        schema_version: adapteros_api_types::API_SCHEMA_VERSION.to_string(),
+        status,
+        version: env!("CARGO_PKG_VERSION").to_string(),
+        runtime_mode,
+        lifecycle,
+        strict_mode: state.strict_mode,
+        maintenance_mode,
+        draining_mode,
+        in_flight_requests: state.in_flight_requests.load(Ordering::Relaxed) as u64,
+        registered_workers: state.worker_runtime.len(),
+        rag_enabled,
+    }))
+}
+
+/// Get sanitized admin configuration summary
+#[utoipa::path(
+    tag = "admin",
+    get,
+    path = "/v1/admin/config",
+    responses(
+        (status = 200, description = "Sanitized admin configuration", body = AdminConfigResponse),
+        (status = 401, description = "Unauthorized"),
+        (status = 403, description = "Forbidden - Admin role required"),
+        (status = 500, description = "Internal server error")
+    )
+)]
+pub async fn admin_config(
+    State(state): State<AppState>,
+    Extension(claims): Extension<Claims>,
+) -> ApiResult<AdminConfigResponse> {
+    require_role(&claims, Role::Admin)?;
+
+    let config = state
+        .config
+        .read()
+        .map_err(|_| ApiError::internal("Configuration lock poisoned"))?;
+
+    let review_webhook_configured = config
+        .server
+        .review_webhook_url
+        .as_deref()
+        .map(|value| !value.trim().is_empty())
+        .unwrap_or(false);
+
+    Ok(Json(AdminConfigResponse {
+        schema_version: adapteros_api_types::API_SCHEMA_VERSION.to_string(),
+        environment: config
+            .general
+            .as_ref()
+            .and_then(|general| general.environment.clone()),
+        production_mode: config.server.production_mode,
+        dev_bypass_enabled: config.security.dev_bypass,
+        require_mfa: config.security.require_mfa.unwrap_or(false),
+        allow_registration: config.security.allow_registration.unwrap_or(false),
+        jwt_mode: config.security.jwt_mode.clone(),
+        token_ttl_seconds: config.security.token_ttl_seconds,
+        access_token_ttl_seconds: config.security.access_token_ttl_seconds,
+        session_ttl_seconds: config.security.session_ttl_seconds,
+        ssrf_protection: config.server.ssrf_protection,
+        metrics_enabled: config.metrics.enabled,
+        review_webhook_configured,
+        max_adapters: config.performance.max_adapters,
+        max_workers: config.performance.max_workers,
+        concurrent_requests: config.capacity_limits.concurrent_requests,
+        max_concurrent_training_jobs: config.capacity_limits.max_concurrent_training_jobs,
+        worker_heartbeat_interval_secs: config.server.worker_heartbeat_interval_secs,
+        streaming_heartbeat_interval_secs: config.streaming.inference_heartbeat_interval_secs,
+        streaming_idle_timeout_secs: config.streaming.inference_idle_timeout_secs,
+        self_hosting_mode: config.self_hosting.mode.clone(),
+        self_hosting_repo_allowlist_count: config.self_hosting.repo_allowlist.len(),
+    }))
 }
 
 /// List users with pagination and filtering

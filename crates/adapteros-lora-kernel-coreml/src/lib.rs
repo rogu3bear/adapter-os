@@ -1039,6 +1039,106 @@ pub enum CoreMLAdapterSource {
     CoremlSegment,
 }
 
+/// Optional adapter metadata used to override runtime adapter-load parameters.
+///
+/// Precedence for resolved values:
+/// 1. Metadata overrides
+/// 2. Embedded payload config (backend-specific, if available)
+/// 3. Inferred/default values
+#[derive(Debug, Clone, Default, PartialEq)]
+pub struct AdapterLoadMetadata {
+    pub rank: Option<usize>,
+    pub alpha: Option<f32>,
+    pub target_modules: Option<Vec<String>>,
+}
+
+impl AdapterLoadMetadata {
+    pub(crate) fn validated_rank(&self) -> Option<usize> {
+        self.rank.filter(|rank| *rank > 0)
+    }
+
+    pub(crate) fn validated_alpha(&self) -> Option<f32> {
+        self.alpha.filter(|alpha| alpha.is_finite() && *alpha > 0.0)
+    }
+
+    pub(crate) fn validated_target_modules(&self) -> Option<Vec<String>> {
+        let mut sanitized = Vec::new();
+        for module in self.target_modules.as_ref().into_iter().flatten() {
+            let trimmed = module.trim();
+            if trimmed.is_empty() {
+                continue;
+            }
+            if !sanitized
+                .iter()
+                .any(|existing: &String| existing == trimmed)
+            {
+                sanitized.push(trimmed.to_string());
+            }
+        }
+        if sanitized.is_empty() {
+            None
+        } else {
+            Some(sanitized)
+        }
+    }
+}
+
+#[derive(Debug, Clone, Copy)]
+struct ResolvedAdapterScale {
+    rank: usize,
+    alpha: f32,
+    scale: f32,
+}
+
+fn infer_sidecar_rank(tensors: &safetensors::SafeTensors) -> Option<usize> {
+    let mut tensor_names: Vec<&str> = tensors.names().into_iter().collect();
+    tensor_names.sort();
+
+    for name in &tensor_names {
+        let lower = name.to_ascii_lowercase();
+        if !(lower.contains("lora_a") || lower.contains("lora.a")) {
+            continue;
+        }
+        if let Ok(tensor) = tensors.tensor(name) {
+            let shape = tensor.shape();
+            if shape.len() >= 2 && shape[0] > 0 {
+                return Some(shape[0]);
+            }
+        }
+    }
+
+    for name in tensor_names {
+        if let Ok(tensor) = tensors.tensor(name) {
+            let shape = tensor.shape();
+            if shape.len() >= 2 && shape[0] > 0 {
+                return Some(shape[0]);
+            }
+        }
+    }
+
+    None
+}
+
+fn resolve_sidecar_scale(
+    metadata: Option<&AdapterLoadMetadata>,
+    inferred_rank: Option<usize>,
+) -> ResolvedAdapterScale {
+    let rank = metadata
+        .and_then(AdapterLoadMetadata::validated_rank)
+        .or_else(|| inferred_rank.filter(|rank| *rank > 0))
+        .unwrap_or(1);
+
+    let alpha = metadata
+        .and_then(AdapterLoadMetadata::validated_alpha)
+        .unwrap_or(rank as f32);
+
+    ResolvedAdapterScale {
+        rank,
+        alpha,
+        scale: alpha / rank as f32,
+    }
+}
+
 /// CoreML backend for Neural Engine acceleration.
 ///
 /// Hot-swap semantics:
@@ -1987,6 +2087,66 @@ impl CoreMLBackend {
         Ok(result)
     }
 
+    /// Load adapter with optional metadata overrides.
+    ///
+    /// Sidecar path pre-scales cached weights by resolved LoRA scale.
+    /// Precedence: metadata > inferred/default.
+    pub fn load_adapter_with_metadata(
+        &mut self,
+        id: u16,
+        weights: &[u8],
+        metadata: Option<&AdapterLoadMetadata>,
+    ) -> Result<()> {
+        let tensors = safetensors::SafeTensors::deserialize(weights)
+            .map_err(|e| AosError::Kernel(format!("Failed to parse adapter weights: {}", e)))?;
+
+        let inferred_rank = infer_sidecar_rank(&tensors);
+        let resolved_scale = resolve_sidecar_scale(metadata, inferred_rank);
+
+        // Keep deterministic tensor traversal by sorting names.
+        let mut tensor_names: Vec<&str> = tensors.names().into_iter().collect();
+        tensor_names.sort();
+
+        let mut adapter_weights = Vec::new();
+        for name in tensor_names {
+            let tensor = tensors
+                .tensor(name)
+                .map_err(|e| AosError::Kernel(format!("Failed to get tensor {}: {}", name, e)))?;
+
+            let data = tensor.data();
+            let floats = data
+                .chunks_exact(4)
+                .map(|b| f32::from_le_bytes([b[0], b[1], b[2], b[3]]));
+
+            if resolved_scale.scale == 1.0 {
+                adapter_weights.extend(floats);
+            } else {
+                adapter_weights.extend(floats.map(|value| value * resolved_scale.scale));
+            }
+        }
+
+        let len = adapter_weights.len();
+        self.adapter_cache.insert(id, adapter_weights);
+        self.adapter_artifacts.insert(
+            id,
+            CoreMLAdapterArtifact::SidecarDelta {
+                len,
+                source: CoreMLAdapterSource::CanonicalSidecar,
+            },
+        );
+        self.attached_adapters.insert(id);
+
+        tracing::debug!(
+            adapter_id = id,
+            weights_len = len,
+            rank = resolved_scale.rank,
+            alpha = resolved_scale.alpha,
+            scale = resolved_scale.scale,
+            "Loaded adapter into CoreML cache (sidecar)"
+        );
+        Ok(())
+    }
+
     /// Stub mode execution path for development/testing
     ///
     /// Generates deterministic logits and applies LoRA adapter fusion
@@ -2276,37 +2436,7 @@ impl FusedKernels for CoreMLBackend {
     }
 
     fn load_adapter(&mut self, id: u16, weights: &[u8]) -> Result<()> {
-        let tensors = safetensors::SafeTensors::deserialize(weights)
-            .map_err(|e| AosError::Kernel(format!("Failed to parse adapter weights: {}", e)))?;
-
-        let mut adapter_weights = Vec::new();
-        for (_name, tensor) in tensors.tensors() {
-            let data = tensor.data();
-            let floats: Vec<f32> = data
-                .chunks_exact(4)
-                .map(|b| f32::from_le_bytes([b[0], b[1], b[2], b[3]]))
-                .collect();
-            adapter_weights.extend(floats);
-        }
-
-        let len = adapter_weights.len();
-        self.adapter_cache.insert(id, adapter_weights);
-        self.adapter_artifacts.insert(
-            id,
-            CoreMLAdapterArtifact::SidecarDelta {
-                len,
-                source: CoreMLAdapterSource::CanonicalSidecar,
-            },
-        );
-        // Default behavior: attach immediately so router can see the adapter.
-        self.attached_adapters.insert(id);
-
-        tracing::debug!(
-            adapter_id = id,
-            weights_len = len,
-            "Loaded adapter into CoreML cache (sidecar)"
-        );
-        Ok(())
+        self.load_adapter_with_metadata(id, weights, None)
     }
 
     /// Mark a previously loaded adapter as active for routing.
@@ -2504,6 +2634,57 @@ pub fn is_neural_engine_available() -> bool {
 
     #[cfg(not(target_os = "macos"))]
     false
+}
+
+#[cfg(test)]
+mod metadata_override_tests {
+    use super::*;
+    use std::collections::HashMap;
+
+    fn single_tensor_safetensors(name: &str, shape: Vec<usize>, values: &[f32]) -> Vec<u8> {
+        let bytes: Vec<u8> = values
+            .iter()
+            .flat_map(|value| value.to_le_bytes())
+            .collect();
+        let mut tensors = HashMap::new();
+        tensors.insert(
+            name.to_string(),
+            safetensors::tensor::TensorView::new(safetensors::Dtype::F32, shape, &bytes).unwrap(),
+        );
+        safetensors::serialize(&tensors, &None).unwrap()
+    }
+
+    #[test]
+    fn test_load_adapter_without_metadata_keeps_unity_scale() {
+        let mut backend = CoreMLBackend::new_stub(ComputeUnits::CpuOnly).unwrap();
+        let weights =
+            single_tensor_safetensors("lm_head.lora_A", vec![2, 2], &[1.0, 2.0, 3.0, 4.0]);
+
+        backend.load_adapter(7, &weights).unwrap();
+
+        let cached = backend.adapter_cache.get(&7).unwrap();
+        assert_eq!(cached, &vec![1.0, 2.0, 3.0, 4.0]);
+    }
+
+    #[test]
+    fn test_load_adapter_with_metadata_prescales_cached_weights() {
+        let mut backend = CoreMLBackend::new_stub(ComputeUnits::CpuOnly).unwrap();
+        let weights =
+            single_tensor_safetensors("lm_head.lora_A", vec![2, 2], &[1.0, 2.0, 3.0, 4.0]);
+        let metadata = AdapterLoadMetadata {
+            rank: Some(4),
+            alpha: Some(8.0),
+            target_modules: None,
+        };
+
+        backend
+            .load_adapter_with_metadata(9, &weights, Some(&metadata))
+            .unwrap();
+
+        // Metadata scale = alpha / rank = 8 / 4 = 2
+        let cached = backend.adapter_cache.get(&9).unwrap();
+        assert_eq!(cached, &vec![2.0, 4.0, 6.0, 8.0]);
+    }
 }
 
 #[cfg(test)]

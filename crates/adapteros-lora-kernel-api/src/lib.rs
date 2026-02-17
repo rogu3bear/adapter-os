@@ -217,6 +217,7 @@ impl RouterRing {
 ///
 /// [source: crates/adapteros-lora-kernel-api/src/lib.rs L178-182]
 /// [source: crates/adapteros-lora-worker/src/inference_pipeline.rs L45-67]
+#[derive(Debug, Clone, Default)]
 pub struct IoBuffers {
     pub input_ids: Vec<u32>,
     pub output_logits: Vec<f32>,
@@ -242,6 +243,17 @@ impl IoBuffers {
             session_id: None,
         }
     }
+}
+
+/// Optional metadata provided alongside adapter weights during hot-swap loads.
+#[derive(Debug, Clone, Default, PartialEq, Serialize, Deserialize)]
+pub struct AdapterLoadMetadata {
+    pub adapter_id: String,
+    pub rank: u32,
+    pub alpha: f32,
+    pub target_modules: Vec<String>,
+    pub base_model: Option<String>,
+    pub base_model_id: Option<String>,
 }
 
 /// Trait for fused kernel implementations
@@ -377,6 +389,19 @@ pub trait FusedKernels: Send + Sync {
         Err(adapteros_core::AosError::Kernel(
             "Hot-swap not supported by this backend".to_string(),
         ))
+    }
+
+    /// Load adapter at runtime (hot-swap) with manifest metadata.
+    ///
+    /// Default implementation preserves legacy behavior by delegating to
+    /// `load_adapter`.
+    fn load_adapter_with_metadata(
+        &mut self,
+        id: u16,
+        weights: &[u8],
+        _metadata: &AdapterLoadMetadata,
+    ) -> Result<()> {
+        self.load_adapter(id, weights)
     }
 
     /// Attach a preloaded adapter for hot-swap backends.
@@ -904,6 +929,15 @@ macro_rules! impl_fused_kernels_for_box {
                 (**self).load_adapter(id, weights)
             }
 
+            fn load_adapter_with_metadata(
+                &mut self,
+                id: u16,
+                weights: &[u8],
+                metadata: &AdapterLoadMetadata,
+            ) -> Result<()> {
+                (**self).load_adapter_with_metadata(id, weights, metadata)
+            }
+
             fn unload_adapter(&mut self, id: u16) -> Result<()> {
                 (**self).unload_adapter(id)
             }
@@ -1264,7 +1298,50 @@ pub trait MploraKernels: FusedKernels {
 #[cfg(test)]
 mod tests {
     use super::*;
+    use std::sync::{Arc, Mutex};
     use std::time::Duration;
+
+    #[derive(Debug, Default)]
+    struct LegacyLoadOnlyKernel {
+        load_calls: Arc<Mutex<Vec<(u16, Vec<u8>)>>>,
+    }
+
+    impl FusedKernels for LegacyLoadOnlyKernel {
+        fn load(&mut self, _plan_bytes: &[u8]) -> Result<()> {
+            Ok(())
+        }
+
+        fn run_step(&mut self, _ring: &RouterRing, _io: &mut IoBuffers) -> Result<()> {
+            Ok(())
+        }
+
+        fn device_name(&self) -> &str {
+            "LegacyLoadOnlyKernel (Test)"
+        }
+
+        fn attest_determinism(&self) -> Result<attestation::DeterminismReport> {
+            Ok(attestation::DeterminismReport::for_mock())
+        }
+
+        fn load_adapter(&mut self, id: u16, weights: &[u8]) -> Result<()> {
+            self.load_calls
+                .lock()
+                .expect("load_calls mutex poisoned")
+                .push((id, weights.to_vec()));
+            Ok(())
+        }
+    }
+
+    fn sample_adapter_load_metadata() -> AdapterLoadMetadata {
+        AdapterLoadMetadata {
+            adapter_id: "adapter/test".to_string(),
+            rank: 16,
+            alpha: 32.0,
+            target_modules: vec!["q_proj".to_string(), "v_proj".to_string()],
+            base_model: Some("qwen2.5-7b".to_string()),
+            base_model_id: Some("model-123".to_string()),
+        }
+    }
 
     // =========================================================================
     // BackendHealth Tests
@@ -1810,6 +1887,40 @@ mod tests {
         let mut kernel = FailingKernel::new("test");
         let result = kernel.load_adapter(0, &[]);
         assert!(result.is_err());
+    }
+
+    #[test]
+    fn fused_kernels_legacy_load_adapter_override_still_works() {
+        let mut kernel = LegacyLoadOnlyKernel::default();
+        kernel
+            .load_adapter(7, &[0xAB, 0xCD])
+            .expect("legacy load_adapter should succeed");
+        let calls = kernel.load_calls.lock().expect("load_calls mutex poisoned");
+        assert_eq!(&*calls, &[(7, vec![0xAB, 0xCD])]);
+    }
+
+    #[test]
+    fn fused_kernels_load_adapter_with_metadata_defaults_to_legacy_override() {
+        let mut kernel = LegacyLoadOnlyKernel::default();
+        let metadata = sample_adapter_load_metadata();
+        kernel
+            .load_adapter_with_metadata(11, &[0x42], &metadata)
+            .expect("metadata load should fall back to legacy load_adapter");
+        let calls = kernel.load_calls.lock().expect("load_calls mutex poisoned");
+        assert_eq!(&*calls, &[(11, vec![0x42])]);
+    }
+
+    #[test]
+    fn fused_kernels_box_forwards_load_adapter_with_metadata() {
+        let kernel = LegacyLoadOnlyKernel::default();
+        let calls = Arc::clone(&kernel.load_calls);
+        let metadata = sample_adapter_load_metadata();
+        let mut boxed: Box<dyn FusedKernels> = Box::new(kernel);
+        boxed
+            .load_adapter_with_metadata(12, &[0x99, 0x01], &metadata)
+            .expect("boxed forwarding should preserve default compatibility");
+        let calls = calls.lock().expect("load_calls mutex poisoned");
+        assert_eq!(&*calls, &[(12, vec![0x99, 0x01])]);
     }
 
     #[test]

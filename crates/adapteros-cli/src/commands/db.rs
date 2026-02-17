@@ -342,7 +342,7 @@ async fn run_migrate(
 
     // Connect to database and run migrations
     let db = Db::connect(&db_url).await?;
-    db.migrate().await?;
+    db.setup_run_migrations().await?;
 
     output.success("Database migrations completed successfully");
     Ok(())

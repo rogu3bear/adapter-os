@@ -22,6 +22,7 @@ members = [
     "crates/adapteros-lora-kernel-api",
     "crates/adapteros-lora-kernel-coreml",
     "crates/adapteros-types",
+    "crates/adapteros-transport-types",
     "crates/adapteros-lora-kernel-mtl",  # Metal kernels - re-enabled for MVP
     "crates/adapteros-system-metrics",
 

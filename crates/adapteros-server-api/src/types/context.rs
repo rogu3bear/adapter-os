@@ -2,7 +2,7 @@
 
 use adapteros_api_types::inference::RunReceipt;
 use adapteros_api_types::ReplayGuarantee;
-use adapteros_core::{BackendKind, SeedMode};
+use adapteros_core::{BackendKind, FusionInterval, SeedMode};
 use adapteros_types::adapters::metadata::RoutingDeterminismMode;
 use serde::{Deserialize, Serialize};
 use utoipa::ToSchema;
@@ -124,6 +124,8 @@ pub struct InferenceRequestInternal {
     pub top_k: Option<usize>,
     /// Top-P (nucleus) sampling
     pub top_p: Option<f32>,
+    /// Fusion interval policy for gate/weight refresh cadence
+    pub fusion_interval: Option<FusionInterval>,
     /// Random seed for reproducibility (PRD-02: deterministic sampling)
     pub seed: Option<u64>,
     /// Router seed for audit purposes (PRD-02: replay)
@@ -201,26 +203,12 @@ pub struct InferenceRequestInternal {
     pub fim_suffix: Option<String>,
 }
 
-/// Citation mode for inference responses (AARA lifecycle)
-#[derive(Debug, Clone, Copy, PartialEq, Eq, Default, serde::Serialize, serde::Deserialize)]
-#[serde(rename_all = "snake_case")]
-pub enum CitationMode {
-    /// No citations in responses
-    #[default]
-    None,
-    /// Include citations only when requested
-    OnRequest,
-    /// Always include citations
-    Always,
-}
-
-impl InferenceRequestInternal {
-    /// Create a new internal request with generated ID
-    pub fn new(cpid: String, prompt: String) -> Self {
+impl Default for InferenceRequestInternal {
+    fn default() -> Self {
         Self {
-            request_id: crate::id_generator::readable_request_id(),
-            cpid,
-            prompt,
+            request_id: String::new(),
+            cpid: String::new(),
+            prompt: String::new(),
             messages: None,
             run_envelope: None,
             reasoning_mode: false,
@@ -252,6 +240,7 @@ impl InferenceRequestInternal {
             temperature: 0.0,
             top_k: None,
             top_p: Some(1.0),
+            fusion_interval: None,
             seed: None,
             router_seed: None,
             require_evidence: false,
@@ -269,6 +258,31 @@ impl InferenceRequestInternal {
             citation_mode: None,
             fim_prefix: None,
             fim_suffix: None,
+        }
+    }
+}
+
+/// Citation mode for inference responses (AARA lifecycle)
+#[derive(Debug, Clone, Copy, PartialEq, Eq, Default, serde::Serialize, serde::Deserialize)]
+#[serde(rename_all = "snake_case")]
+pub enum CitationMode {
+    /// No citations in responses
+    #[default]
+    None,
+    /// Include citations only when requested
+    OnRequest,
+    /// Always include citations
+    Always,
+}
+
+impl InferenceRequestInternal {
+    /// Create a new internal request with generated ID
+    pub fn new(cpid: String, prompt: String) -> Self {
+        Self {
+            request_id: crate::id_generator::readable_request_id(),
+            cpid,
+            prompt,
+            ..Self::default()
         }
     }
 

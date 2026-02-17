@@ -8,7 +8,7 @@
 //! CoreML/ANE acceleration for the heavy transformer computation.
 
 use crate::matmul::{axpy, matvec_accelerate};
-use crate::ComputeUnits;
+use crate::{AdapterLoadMetadata, ComputeUnits};
 use adapteros_core::io_utils::get_directory_size;
 use adapteros_core::{AosError, Result, Q15_GATE_DENOMINATOR};
 use adapteros_lora_kernel_api::{
@@ -208,6 +208,19 @@ impl HybridCoreMLBackend {
     /// - `lm_head.lora_A`: [rank, hidden_size]
     /// - `lm_head.lora_B`: [vocab_size, rank]
     pub fn load_lora_adapter(&mut self, slot: u16, weights_bytes: &[u8]) -> Result<Duration> {
+        self.load_lora_adapter_with_metadata(slot, weights_bytes, None)
+    }
+
+    /// Load a LoRA adapter with optional metadata overrides.
+    ///
+    /// Metadata precedence for scale terms:
+    /// metadata(alpha/rank) > embedded metadata alpha > inferred/default.
+    pub fn load_lora_adapter_with_metadata(
+        &mut self,
+        slot: u16,
+        weights_bytes: &[u8],
+        metadata: Option<&AdapterLoadMetadata>,
+    ) -> Result<Duration> {
         let start = Instant::now();
 
         let tensors = SafeTensors::deserialize(weights_bytes)
@@ -255,9 +268,8 @@ impl HybridCoreMLBackend {
             )));
         }
 
-        // Get alpha from metadata or default
-        let alpha = get_alpha_from_metadata(&tensors).unwrap_or(rank as f32);
-        let scale = alpha / rank as f32;
+        let metadata_alpha = get_alpha_from_metadata(&tensors);
+        let (scale_rank, alpha, scale) = resolve_hybrid_scale(rank, metadata_alpha, metadata);
 
         let lora = LmHeadLoRA {
             lora_a: lora_a_data,
@@ -266,11 +278,29 @@ impl HybridCoreMLBackend {
             rank,
         };
 
-        tracing::debug!(slot, rank, alpha, scale, "Loaded LM head LoRA adapter");
+        tracing::debug!(
+            slot,
+            rank,
+            scale_rank,
+            alpha,
+            scale,
+            "Loaded LM head LoRA adapter"
+        );
 
         self.adapters.insert(slot, lora);
 
         Ok(start.elapsed())
+    }
+
+    /// Convenience adapter-loading entrypoint with metadata semantics aligned to worker hot-swap.
+    pub fn load_adapter_with_metadata(
+        &mut self,
+        slot: u16,
+        weights_bytes: &[u8],
+        metadata: Option<&AdapterLoadMetadata>,
+    ) -> Result<()> {
+        self.load_lora_adapter_with_metadata(slot, weights_bytes, metadata)?;
+        Ok(())
     }
 
     /// Unload an adapter from the given slot
@@ -648,6 +678,24 @@ fn get_tensor_any_name(tensors: &SafeTensors, names: &[&str]) -> Result<(Vec<f32
     )))
 }
 
+fn resolve_hybrid_scale(
+    inferred_rank: usize,
+    embedded_alpha: Option<f32>,
+    metadata: Option<&AdapterLoadMetadata>,
+) -> (usize, f32, f32) {
+    let scale_rank = metadata
+        .and_then(AdapterLoadMetadata::validated_rank)
+        .unwrap_or(inferred_rank.max(1));
+
+    let alpha = metadata
+        .and_then(AdapterLoadMetadata::validated_alpha)
+        .or_else(|| embedded_alpha.filter(|alpha| alpha.is_finite() && *alpha > 0.0))
+        .unwrap_or(scale_rank as f32);
+
+    let scale = alpha / scale_rank as f32;
+    (scale_rank, alpha, scale)
+}
+
 /// Extract LoRA alpha from safetensors metadata
 ///
 /// Returns None, using default alpha = rank (scale = 1.0).
@@ -674,6 +722,47 @@ fn chrono_lite_timestamp() -> String {
 #[cfg(test)]
 mod tests {
     use super::*;
+    use std::collections::HashMap;
+
+    fn build_lora_safetensors() -> Vec<u8> {
+        let lora_a: Vec<f32> = vec![1.0, 0.0, 0.0, 1.0]; // [2, 2]
+        let lora_b: Vec<f32> = vec![
+            1.0, 0.0, // row 0
+            0.0, 1.0, // row 1
+            1.0, 1.0, // row 2
+        ]; // [3, 2]
+
+        let lora_a_bytes: Vec<u8> = lora_a
+            .iter()
+            .flat_map(|value| value.to_le_bytes())
+            .collect();
+        let lora_b_bytes: Vec<u8> = lora_b
+            .iter()
+            .flat_map(|value| value.to_le_bytes())
+            .collect();
+
+        let mut tensors = HashMap::new();
+        tensors.insert(
+            "lm_head.lora_A".to_string(),
+            safetensors::tensor::TensorView::new(
+                safetensors::Dtype::F32,
+                vec![2, 2],
+                &lora_a_bytes,
+            )
+            .unwrap(),
+        );
+        tensors.insert(
+            "lm_head.lora_B".to_string(),
+            safetensors::tensor::TensorView::new(
+                safetensors::Dtype::F32,
+                vec![3, 2],
+                &lora_b_bytes,
+            )
+            .unwrap(),
+        );
+
+        safetensors::serialize(&tensors, &None).unwrap()
+    }
 
     #[test]
     fn test_hybrid_backend_new() {
@@ -709,8 +798,6 @@ mod tests {
 
     #[test]
     fn test_get_alpha_from_metadata_returns_none() {
-        use std::collections::HashMap;
-
         // Create a simple safetensors file
         let tensor_data: Vec<f32> = vec![1.0, 2.0, 3.0, 4.0];
         let tensor_bytes: Vec<u8> = tensor_data.iter().flat_map(|f| f.to_le_bytes()).collect();
@@ -733,5 +820,43 @@ mod tests {
         // Alpha is stored in .aos manifest instead
         let alpha = get_alpha_from_metadata(&st);
         assert_eq!(alpha, None);
+    }
+
+    #[test]
+    fn test_resolve_hybrid_scale_prefers_metadata() {
+        let metadata = AdapterLoadMetadata {
+            rank: Some(4),
+            alpha: Some(10.0),
+            target_modules: None,
+        };
+
+        let (scale_rank, alpha, scale) = resolve_hybrid_scale(2, None, Some(&metadata));
+        assert_eq!(scale_rank, 4);
+        assert_eq!(alpha, 10.0);
+        assert_eq!(scale, 2.5);
+    }
+
+    #[test]
+    fn test_load_lora_adapter_with_metadata_overrides_scale() {
+        let mut backend = HybridCoreMLBackend::new();
+        backend.hidden_size = 2;
+        backend.vocab_size = 3;
+
+        let weights = build_lora_safetensors();
+        let metadata = AdapterLoadMetadata {
+            rank: Some(4),
+            alpha: Some(8.0),
+            target_modules: None,
+        };
+
+        backend
+            .load_lora_adapter_with_metadata(11, &weights, Some(&metadata))
+            .unwrap();
+
+        let adapter = backend.adapters.get(&11).unwrap();
+        // Scale override should use metadata alpha/rank => 8/4 = 2.0.
+        assert_eq!(adapter.scale, 2.0);
+        // Runtime matvec rank must remain tensor-derived for shape safety.
+        assert_eq!(adapter.rank, 2);
     }
 }

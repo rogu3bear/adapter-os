@@ -17,6 +17,7 @@ use std::sync::Arc;
 use std::time::Instant;
 
 use parking_lot::RwLock;
+use serde_json::Value;
 use tokio::runtime::Handle;
 use tracing::{debug, error, info, warn};
 
@@ -228,6 +229,141 @@ impl ModelServerKernels {
 
         (hot_ids, hot_gates, cold_ids, cold_gates)
     }
+
+    /// Load a cold adapter with optional metadata overrides.
+    ///
+    /// Metadata precedence: explicit metadata values > legacy defaults.
+    pub fn load_adapter_with_metadata(
+        &mut self,
+        id: u16,
+        weights: &[u8],
+        metadata: Option<&Value>,
+    ) -> Result<()> {
+        use safetensors::SafeTensors;
+
+        if weights.is_empty() {
+            return Err(AosError::Kernel("Empty adapter weights".to_string()));
+        }
+
+        let metadata_scale = Self::metadata_scale(metadata);
+
+        // Try SafeTensors format first
+        let (lora_a, lora_b, default_scale) = match SafeTensors::deserialize(weights) {
+            Ok(tensors) => {
+                // Extract lora_a tensor (try multiple naming conventions)
+                let lora_a_tensor = tensors
+                    .tensor("lora_a")
+                    .or_else(|_| tensors.tensor("lora.a"))
+                    .map_err(|_| {
+                        AosError::Kernel("Missing lora_a tensor in SafeTensors".to_string())
+                    })?;
+
+                // Extract lora_b tensor
+                let lora_b_tensor = tensors
+                    .tensor("lora_b")
+                    .or_else(|_| tensors.tensor("lora.b"))
+                    .map_err(|_| {
+                        AosError::Kernel("Missing lora_b tensor in SafeTensors".to_string())
+                    })?;
+
+                // Convert to f32
+                let lora_a = tensor_to_f32_vec(&lora_a_tensor)?;
+                let lora_b = tensor_to_f32_vec(&lora_b_tensor)?;
+
+                debug!(
+                    adapter_id = id,
+                    lora_a_shape = ?lora_a_tensor.shape(),
+                    lora_b_shape = ?lora_b_tensor.shape(),
+                    "Parsed SafeTensors cold adapter"
+                );
+
+                (lora_a, lora_b, 1.0)
+            }
+            Err(_) => {
+                // Fallback to raw f32 format
+                if weights.len() % 4 != 0 {
+                    return Err(AosError::Kernel(format!(
+                        "Invalid adapter weights length: {} (not multiple of 4)",
+                        weights.len()
+                    )));
+                }
+
+                let floats: Vec<f32> = weights
+                    .chunks_exact(4)
+                    .map(|chunk| f32::from_le_bytes([chunk[0], chunk[1], chunk[2], chunk[3]]))
+                    .collect();
+
+                let mid = floats.len() / 2;
+                (floats[..mid].to_vec(), floats[mid..].to_vec(), 1.0)
+            }
+        };
+
+        let scale = metadata_scale.unwrap_or(default_scale);
+
+        let adapter = ColdAdapter {
+            id,
+            lora_a,
+            lora_b,
+            scale,
+        };
+
+        self.cold_adapters.write().insert(id, adapter);
+
+        info!(
+            adapter_id = id,
+            scale = scale,
+            metadata_override = metadata_scale.is_some(),
+            "Loaded cold adapter locally"
+        );
+        Ok(())
+    }
+
+    fn metadata_scale(metadata: Option<&Value>) -> Option<f32> {
+        let metadata = metadata?;
+        let rank = Self::metadata_value_any(metadata, &["rank", "lora_rank"])
+            .and_then(Self::parse_rank)?;
+        let alpha = Self::metadata_value_any(metadata, &["alpha", "lora_alpha"])
+            .and_then(Self::parse_alpha)?;
+        let scale = alpha / rank as f32;
+        (scale.is_finite() && scale > 0.0).then_some(scale)
+    }
+
+    fn metadata_value_any<'a>(metadata: &'a Value, keys: &[&str]) -> Option<&'a Value> {
+        for key in keys {
+            if let Some(value) = metadata.get(*key) {
+                return Some(value);
+            }
+            if let Some(value) = metadata.get("metadata").and_then(|m| m.get(*key)) {
+                return Some(value);
+            }
+        }
+        None
+    }
+
+    fn parse_rank(value: &Value) -> Option<usize> {
+        match value {
+            Value::Number(n) => n.as_u64().and_then(|v| {
+                let rank = v as usize;
+                (rank > 0).then_some(rank)
+            }),
+            Value::String(s) => s.trim().parse::<usize>().ok().filter(|v| *v > 0),
+            _ => None,
+        }
+    }
+
+    fn parse_alpha(value: &Value) -> Option<f32> {
+        match value {
+            Value::Number(n) => n.as_f64().and_then(|v| {
+                let alpha = v as f32;
+                (alpha.is_finite() && alpha > 0.0).then_some(alpha)
+            }),
+            Value::String(s) => s.trim().parse::<f32>().ok().filter(|v| {
+                let alpha = *v;
+                alpha.is_finite() && alpha > 0.0
+            }),
+            _ => None,
+        }
+    }
 }
 
 impl FusedKernels for ModelServerKernels {
@@ -340,74 +476,8 @@ impl FusedKernels for ModelServerKernels {
     }
 
     fn load_adapter(&mut self, id: u16, weights: &[u8]) -> Result<()> {
-        use safetensors::SafeTensors;
-
-        if weights.is_empty() {
-            return Err(AosError::Kernel("Empty adapter weights".to_string()));
-        }
-
-        // Try SafeTensors format first
-        let (lora_a, lora_b, scale) = match SafeTensors::deserialize(weights) {
-            Ok(tensors) => {
-                // Extract lora_a tensor (try multiple naming conventions)
-                let lora_a_tensor = tensors
-                    .tensor("lora_a")
-                    .or_else(|_| tensors.tensor("lora.a"))
-                    .map_err(|_| {
-                        AosError::Kernel("Missing lora_a tensor in SafeTensors".to_string())
-                    })?;
-
-                // Extract lora_b tensor
-                let lora_b_tensor = tensors
-                    .tensor("lora_b")
-                    .or_else(|_| tensors.tensor("lora.b"))
-                    .map_err(|_| {
-                        AosError::Kernel("Missing lora_b tensor in SafeTensors".to_string())
-                    })?;
-
-                // Convert to f32
-                let lora_a = tensor_to_f32_vec(&lora_a_tensor)?;
-                let lora_b = tensor_to_f32_vec(&lora_b_tensor)?;
-
-                debug!(
-                    adapter_id = id,
-                    lora_a_shape = ?lora_a_tensor.shape(),
-                    lora_b_shape = ?lora_b_tensor.shape(),
-                    "Parsed SafeTensors cold adapter"
-                );
-
-                (lora_a, lora_b, 1.0)
-            }
-            Err(_) => {
-                // Fallback to raw f32 format
-                if weights.len() % 4 != 0 {
-                    return Err(AosError::Kernel(format!(
-                        "Invalid adapter weights length: {} (not multiple of 4)",
-                        weights.len()
-                    )));
-                }
-
-                let floats: Vec<f32> = weights
-                    .chunks_exact(4)
-                    .map(|chunk| f32::from_le_bytes([chunk[0], chunk[1], chunk[2], chunk[3]]))
-                    .collect();
-
-                let mid = floats.len() / 2;
-                (floats[..mid].to_vec(), floats[mid..].to_vec(), 1.0)
-            }
-        };
-
-        let adapter = ColdAdapter {
-            id,
-            lora_a,
-            lora_b,
-            scale,
-        };
-
-        self.cold_adapters.write().insert(id, adapter);
-
-        info!(adapter_id = id, "Loaded cold adapter locally");
-        Ok(())
+        // Preserve legacy behavior: metadata-free load path.
+        self.load_adapter_with_metadata(id, weights, None)
     }
 
     fn unload_adapter(&mut self, id: u16) -> Result<()> {
@@ -535,6 +605,7 @@ fn compute_lora_delta(
 #[cfg(test)]
 mod tests {
     use super::*;
+    use serde_json::json;
 
     #[tokio::test]
     async fn test_partition_empty_ring() {
@@ -565,6 +636,50 @@ mod tests {
 
         assert!(kernels.unload_adapter(1).is_ok());
         assert!(!kernels.cold_adapters.read().contains_key(&1));
+    }
+
+    #[tokio::test]
+    async fn test_cold_adapter_scale_uses_metadata_when_valid() {
+        let config = ModelServerClientConfig::default();
+        let mut kernels = ModelServerKernels::new(config, "test".to_string(), 32000);
+
+        let weights: Vec<u8> = (0..8u32)
+            .flat_map(|i| (i as f32).to_le_bytes().to_vec())
+            .collect();
+
+        let metadata = json!({
+            "lora_rank": 8,
+            "lora_alpha": 24.0
+        });
+
+        assert!(kernels
+            .load_adapter_with_metadata(2, &weights, Some(&metadata))
+            .is_ok());
+        let adapters = kernels.cold_adapters.read();
+        let adapter = adapters.get(&2).unwrap();
+        assert!((adapter.scale - 3.0).abs() < f32::EPSILON);
+    }
+
+    #[tokio::test]
+    async fn test_cold_adapter_scale_falls_back_for_invalid_metadata() {
+        let config = ModelServerClientConfig::default();
+        let mut kernels = ModelServerKernels::new(config, "test".to_string(), 32000);
+
+        let weights: Vec<u8> = (0..8u32)
+            .flat_map(|i| (i as f32).to_le_bytes().to_vec())
+            .collect();
+
+        let metadata = json!({
+            "rank": 0,
+            "alpha": 24.0
+        });
+
+        assert!(kernels
+            .load_adapter_with_metadata(3, &weights, Some(&metadata))
+            .is_ok());
+        let adapters = kernels.cold_adapters.read();
+        let adapter = adapters.get(&3).unwrap();
+        assert!((adapter.scale - 1.0).abs() < f32::EPSILON);
     }
 
     #[test]

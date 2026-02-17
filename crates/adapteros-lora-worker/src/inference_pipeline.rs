@@ -2339,6 +2339,7 @@ mod tests {
             require_evidence: false,
             stack_id: None,
             stack_version: None,
+            session_id: None,
             policy_id: None,
             domain_hint: None,
             temperature: None,
@@ -2364,6 +2365,8 @@ mod tests {
             stop_policy: None,
             policy_mask_digest_b3: None,
             utf8_healing: true,
+            fim_prefix: None,
+            fim_suffix: None,
             admin_override: false,
             arrival_instant: None,
         };

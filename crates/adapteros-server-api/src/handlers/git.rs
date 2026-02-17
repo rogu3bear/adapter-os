@@ -19,15 +19,11 @@ use crate::auth::Claims;
 use crate::permissions::{require_permission, Permission};
 use crate::state::AppState;
 use crate::types::ErrorResponse;
-
-/// Git status response
-#[derive(Debug, Serialize, Deserialize, ToSchema)]
-pub struct GitStatusResponse {
-    pub branch: String,
-    pub modified_files: Vec<String>,
-    pub untracked_files: Vec<String>,
-    pub staged_files: Vec<String>,
-}
+use adapteros_api_types::git::{
+    GitCheckoutRequest, GitCheckoutResponse, GitCommitRequest, GitCommitResponse, GitLogEntry,
+    WorkingTreeDiffResponse, WorkingTreeFileOperationRequest, WorkingTreeOperationResponse,
+    WorkingTreeStatusResponse,
+};
 
 /// Start Git session request
 #[derive(Debug, Serialize, Deserialize, ToSchema)]
@@ -89,12 +85,33 @@ pub struct FileChangeStreamQuery {
     pub repo_id: Option<String>,
 }
 
+/// Query parameters for working-tree endpoints
+#[derive(Debug, Deserialize, ToSchema)]
+pub struct WorkingTreeQuery {
+    pub repo_id: Option<String>,
+}
+
+/// Query parameters for working-tree diff endpoint
+#[derive(Debug, Deserialize, ToSchema)]
+pub struct WorkingTreeDiffQuery {
+    pub repo_id: Option<String>,
+    pub path: Option<String>,
+}
+
+/// Query parameters for git log endpoint
+#[derive(Debug, Deserialize, ToSchema)]
+pub struct GitLogQuery {
+    pub repo_id: Option<String>,
+    pub branch: Option<String>,
+    pub limit: Option<usize>,
+}
+
 /// Get Git status
 #[utoipa::path(
     get,
     path = "/v1/git/status",
     responses(
-        (status = 200, description = "Git status", body = GitStatusResponse),
+        (status = 200, description = "Git status", body = WorkingTreeStatusResponse),
         (status = 500, description = "Internal server error", body = ErrorResponse)
     ),
     tag = "git"
@@ -102,10 +119,27 @@ pub struct FileChangeStreamQuery {
 pub async fn git_status(
     State(state): State<AppState>,
     Extension(claims): Extension<Claims>,
-) -> Result<Json<GitStatusResponse>, (StatusCode, Json<ErrorResponse>)> {
-    require_permission(&claims, Permission::GitView)?;
+    Query(query): Query<WorkingTreeQuery>,
+) -> Result<Json<WorkingTreeStatusResponse>, (StatusCode, Json<ErrorResponse>)> {
+    git_working_status(State(state), Extension(claims), Query(query)).await
+}
 
-    // Citation: crates/adapteros-server-api/src/handlers/git.rs L131-L139
+/// Get working-tree status
+#[utoipa::path(
+    get,
+    path = "/v1/git/working-status",
+    responses(
+        (status = 200, description = "Working-tree status", body = WorkingTreeStatusResponse),
+        (status = 500, description = "Internal server error", body = ErrorResponse)
+    ),
+    tag = "git"
+)]
+pub async fn git_working_status(
+    State(state): State<AppState>,
+    Extension(claims): Extension<Claims>,
+    Query(query): Query<WorkingTreeQuery>,
+) -> Result<Json<WorkingTreeStatusResponse>, (StatusCode, Json<ErrorResponse>)> {
+    require_permission(&claims, Permission::GitView)?;
     let git_subsystem = state.git_subsystem.as_ref().ok_or_else(|| {
         (
             StatusCode::SERVICE_UNAVAILABLE,
@@ -113,29 +147,417 @@ pub async fn git_status(
         )
     })?;
 
-    let status = git_subsystem.get_status().await.map_err(|e| {
-        tracing::error!("Failed to get git status: {}", e);
+    let status = git_subsystem
+        .get_working_tree_status(query.repo_id.as_deref())
+        .await
+        .map_err(|e| {
+            tracing::error!("Failed to get git status: {}", e);
+            (
+                StatusCode::INTERNAL_SERVER_ERROR,
+                Json(
+                    ErrorResponse::new("Failed to get git status")
+                        .with_code("INTERNAL_ERROR")
+                        .with_string_details(e.to_string()),
+                ),
+            )
+        })?;
+
+    Ok(Json(WorkingTreeStatusResponse {
+        schema_version: adapteros_api_types::schema_version(),
+        branch: status.branch,
+        modified_files: status.modified_files,
+        staged_files: status.staged_files,
+        untracked_files: status.untracked_files,
+    }))
+}
+
+/// Get working-tree diff (optionally filtered by repository-relative path)
+#[utoipa::path(
+    get,
+    path = "/v1/git/working-diff",
+    params(
+        ("repo_id" = Option<String>, Query, description = "Repository ID; defaults to first registered repository"),
+        ("path" = Option<String>, Query, description = "Repository-relative path to filter diff")
+    ),
+    responses(
+        (status = 200, description = "Working-tree diff", body = WorkingTreeDiffResponse),
+        (status = 500, description = "Internal server error", body = ErrorResponse)
+    ),
+    tag = "git"
+)]
+pub async fn git_working_diff(
+    State(state): State<AppState>,
+    Extension(claims): Extension<Claims>,
+    Query(query): Query<WorkingTreeDiffQuery>,
+) -> Result<Json<WorkingTreeDiffResponse>, (StatusCode, Json<ErrorResponse>)> {
+    require_permission(&claims, Permission::GitView)?;
+    let git_subsystem = state.git_subsystem.as_ref().ok_or_else(|| {
         (
-            StatusCode::INTERNAL_SERVER_ERROR,
-            Json(
-                ErrorResponse::new("Failed to get git status")
-                    .with_code("INTERNAL_ERROR")
-                    .with_string_details(e.to_string()),
-            ),
+            StatusCode::SERVICE_UNAVAILABLE,
+            Json(ErrorResponse::new("Git subsystem not available").with_code("INTERNAL_ERROR")),
         )
     })?;
 
-    // Convert from adapteros_git::GitStatusResponse to handler GitStatusResponse
-    // Note: The handler expects a different format focused on file status,
-    // while the subsystem returns session/repository metadata
-    let response = GitStatusResponse {
-        branch: "main".to_string(), // Default branch
-        modified_files: vec![],
-        staged_files: vec![],
-        untracked_files: vec![],
-    };
+    let diff = git_subsystem
+        .get_working_diff(query.repo_id.as_deref(), query.path.as_deref())
+        .await
+        .map_err(|e| {
+            (
+                StatusCode::INTERNAL_SERVER_ERROR,
+                Json(
+                    ErrorResponse::new("Failed to get working diff")
+                        .with_code("INTERNAL_ERROR")
+                        .with_string_details(e.to_string()),
+                ),
+            )
+        })?;
 
-    Ok(Json(response))
+    Ok(Json(WorkingTreeDiffResponse {
+        schema_version: adapteros_api_types::schema_version(),
+        diff,
+    }))
+}
+
+#[utoipa::path(
+    post,
+    path = "/v1/git/working-tree/stage",
+    params(
+        ("repo_id" = Option<String>, Query, description = "Repository ID; defaults to first registered repository")
+    ),
+    request_body = WorkingTreeFileOperationRequest,
+    responses(
+        (status = 200, description = "File staged", body = WorkingTreeOperationResponse),
+        (status = 500, description = "Internal server error", body = ErrorResponse)
+    ),
+    tag = "git"
+)]
+pub async fn stage_working_tree_file(
+    State(state): State<AppState>,
+    Extension(claims): Extension<Claims>,
+    Query(query): Query<WorkingTreeQuery>,
+    Json(request): Json<WorkingTreeFileOperationRequest>,
+) -> Result<Json<WorkingTreeOperationResponse>, (StatusCode, Json<ErrorResponse>)> {
+    require_permission(&claims, Permission::GitManage)?;
+    let git_subsystem = state.git_subsystem.as_ref().ok_or_else(|| {
+        (
+            StatusCode::SERVICE_UNAVAILABLE,
+            Json(ErrorResponse::new("Git subsystem not available").with_code("INTERNAL_ERROR")),
+        )
+    })?;
+
+    git_subsystem
+        .stage_file(query.repo_id.as_deref(), &request.file_path)
+        .await
+        .map_err(|e| {
+            (
+                StatusCode::INTERNAL_SERVER_ERROR,
+                Json(
+                    ErrorResponse::new("Failed to stage file")
+                        .with_code("INTERNAL_ERROR")
+                        .with_string_details(e.to_string()),
+                ),
+            )
+        })?;
+
+    Ok(Json(WorkingTreeOperationResponse {
+        schema_version: adapteros_api_types::schema_version(),
+        success: true,
+    }))
+}
+
+#[utoipa::path(
+    post,
+    path = "/v1/git/stage",
+    params(
+        ("repo_id" = Option<String>, Query, description = "Repository ID; defaults to first registered repository")
+    ),
+    request_body = WorkingTreeFileOperationRequest,
+    responses(
+        (status = 200, description = "File staged", body = WorkingTreeOperationResponse),
+        (status = 500, description = "Internal server error", body = ErrorResponse)
+    ),
+    tag = "git"
+)]
+pub async fn stage_file(
+    State(state): State<AppState>,
+    Extension(claims): Extension<Claims>,
+    Query(query): Query<WorkingTreeQuery>,
+    Json(request): Json<WorkingTreeFileOperationRequest>,
+) -> Result<Json<WorkingTreeOperationResponse>, (StatusCode, Json<ErrorResponse>)> {
+    stage_working_tree_file(State(state), Extension(claims), Query(query), Json(request)).await
+}
+
+#[utoipa::path(
+    post,
+    path = "/v1/git/working-tree/unstage",
+    params(
+        ("repo_id" = Option<String>, Query, description = "Repository ID; defaults to first registered repository")
+    ),
+    request_body = WorkingTreeFileOperationRequest,
+    responses(
+        (status = 200, description = "File unstaged", body = WorkingTreeOperationResponse),
+        (status = 500, description = "Internal server error", body = ErrorResponse)
+    ),
+    tag = "git"
+)]
+pub async fn unstage_working_tree_file(
+    State(state): State<AppState>,
+    Extension(claims): Extension<Claims>,
+    Query(query): Query<WorkingTreeQuery>,
+    Json(request): Json<WorkingTreeFileOperationRequest>,
+) -> Result<Json<WorkingTreeOperationResponse>, (StatusCode, Json<ErrorResponse>)> {
+    require_permission(&claims, Permission::GitManage)?;
+    let git_subsystem = state.git_subsystem.as_ref().ok_or_else(|| {
+        (
+            StatusCode::SERVICE_UNAVAILABLE,
+            Json(ErrorResponse::new("Git subsystem not available").with_code("INTERNAL_ERROR")),
+        )
+    })?;
+
+    git_subsystem
+        .unstage_file(query.repo_id.as_deref(), &request.file_path)
+        .await
+        .map_err(|e| {
+            (
+                StatusCode::INTERNAL_SERVER_ERROR,
+                Json(
+                    ErrorResponse::new("Failed to unstage file")
+                        .with_code("INTERNAL_ERROR")
+                        .with_string_details(e.to_string()),
+                ),
+            )
+        })?;
+
+    Ok(Json(WorkingTreeOperationResponse {
+        schema_version: adapteros_api_types::schema_version(),
+        success: true,
+    }))
+}
+
+#[utoipa::path(
+    post,
+    path = "/v1/git/unstage",
+    params(
+        ("repo_id" = Option<String>, Query, description = "Repository ID; defaults to first registered repository")
+    ),
+    request_body = WorkingTreeFileOperationRequest,
+    responses(
+        (status = 200, description = "File unstaged", body = WorkingTreeOperationResponse),
+        (status = 500, description = "Internal server error", body = ErrorResponse)
+    ),
+    tag = "git"
+)]
+pub async fn unstage_file(
+    State(state): State<AppState>,
+    Extension(claims): Extension<Claims>,
+    Query(query): Query<WorkingTreeQuery>,
+    Json(request): Json<WorkingTreeFileOperationRequest>,
+) -> Result<Json<WorkingTreeOperationResponse>, (StatusCode, Json<ErrorResponse>)> {
+    unstage_working_tree_file(State(state), Extension(claims), Query(query), Json(request)).await
+}
+
+/// Commit currently staged changes
+#[utoipa::path(
+    post,
+    path = "/v1/git/commit",
+    params(
+        ("repo_id" = Option<String>, Query, description = "Repository ID; defaults to first registered repository")
+    ),
+    request_body = GitCommitRequest,
+    responses(
+        (status = 200, description = "Commit created", body = GitCommitResponse),
+        (status = 500, description = "Internal server error", body = ErrorResponse)
+    ),
+    tag = "git"
+)]
+pub async fn git_commit(
+    State(state): State<AppState>,
+    Extension(claims): Extension<Claims>,
+    Query(query): Query<WorkingTreeQuery>,
+    Json(request): Json<GitCommitRequest>,
+) -> Result<Json<GitCommitResponse>, (StatusCode, Json<ErrorResponse>)> {
+    require_permission(&claims, Permission::GitManage)?;
+    let git_subsystem = state.git_subsystem.as_ref().ok_or_else(|| {
+        (
+            StatusCode::SERVICE_UNAVAILABLE,
+            Json(ErrorResponse::new("Git subsystem not available").with_code("INTERNAL_ERROR")),
+        )
+    })?;
+
+    let commit_sha = git_subsystem
+        .create_commit(query.repo_id.as_deref(), &request.message)
+        .await
+        .map_err(|e| {
+            (
+                StatusCode::INTERNAL_SERVER_ERROR,
+                Json(
+                    ErrorResponse::new("Failed to create commit")
+                        .with_code("INTERNAL_ERROR")
+                        .with_string_details(e.to_string()),
+                ),
+            )
+        })?;
+
+    Ok(Json(GitCommitResponse {
+        schema_version: adapteros_api_types::schema_version(),
+        success: true,
+        commit_sha,
+    }))
+}
+
+/// Get git commit log for repository/branch
+#[utoipa::path(
+    get,
+    path = "/v1/git/log",
+    params(
+        ("repo_id" = Option<String>, Query, description = "Repository ID; defaults to first registered repository"),
+        ("branch" = Option<String>, Query, description = "Branch name; defaults to repo default branch"),
+        ("limit" = Option<usize>, Query, description = "Maximum commits (default 50, max 200)")
+    ),
+    responses(
+        (status = 200, description = "Git log", body = Vec<GitLogEntry>),
+        (status = 500, description = "Internal server error", body = ErrorResponse)
+    ),
+    tag = "git"
+)]
+pub async fn git_log(
+    State(state): State<AppState>,
+    Extension(claims): Extension<Claims>,
+    Query(query): Query<GitLogQuery>,
+) -> Result<Json<Vec<GitLogEntry>>, (StatusCode, Json<ErrorResponse>)> {
+    require_permission(&claims, Permission::GitView)?;
+    let git_subsystem = state.git_subsystem.as_ref().ok_or_else(|| {
+        (
+            StatusCode::SERVICE_UNAVAILABLE,
+            Json(ErrorResponse::new("Git subsystem not available").with_code("INTERNAL_ERROR")),
+        )
+    })?;
+
+    let commits = git_subsystem
+        .list_commits(
+            query.repo_id.as_deref(),
+            query.branch.as_deref(),
+            query.limit.unwrap_or(50),
+        )
+        .await
+        .map_err(|e| {
+            (
+                StatusCode::INTERNAL_SERVER_ERROR,
+                Json(
+                    ErrorResponse::new("Failed to get git log")
+                        .with_code("INTERNAL_ERROR")
+                        .with_string_details(e.to_string()),
+                ),
+            )
+        })?;
+
+    let entries = commits
+        .into_iter()
+        .map(|commit| GitLogEntry {
+            sha: commit.sha,
+            message: commit.message,
+            author: commit.author,
+            date: commit.date.to_rfc3339(),
+        })
+        .collect();
+
+    Ok(Json(entries))
+}
+
+/// Checkout a branch
+#[utoipa::path(
+    post,
+    path = "/v1/git/checkout",
+    params(
+        ("repo_id" = Option<String>, Query, description = "Repository ID; defaults to first registered repository")
+    ),
+    request_body = GitCheckoutRequest,
+    responses(
+        (status = 200, description = "Checked out branch", body = GitCheckoutResponse),
+        (status = 500, description = "Internal server error", body = ErrorResponse)
+    ),
+    tag = "git"
+)]
+pub async fn git_checkout(
+    State(state): State<AppState>,
+    Extension(claims): Extension<Claims>,
+    Query(query): Query<WorkingTreeQuery>,
+    Json(request): Json<GitCheckoutRequest>,
+) -> Result<Json<GitCheckoutResponse>, (StatusCode, Json<ErrorResponse>)> {
+    require_permission(&claims, Permission::GitManage)?;
+    let git_subsystem = state.git_subsystem.as_ref().ok_or_else(|| {
+        (
+            StatusCode::SERVICE_UNAVAILABLE,
+            Json(ErrorResponse::new("Git subsystem not available").with_code("INTERNAL_ERROR")),
+        )
+    })?;
+
+    git_subsystem
+        .checkout_branch(query.repo_id.as_deref(), &request.branch)
+        .await
+        .map_err(|e| {
+            (
+                StatusCode::INTERNAL_SERVER_ERROR,
+                Json(
+                    ErrorResponse::new("Failed to checkout branch")
+                        .with_code("INTERNAL_ERROR")
+                        .with_string_details(e.to_string()),
+                ),
+            )
+        })?;
+
+    Ok(Json(GitCheckoutResponse {
+        schema_version: adapteros_api_types::schema_version(),
+        success: true,
+        branch: request.branch,
+    }))
+}
+
+#[utoipa::path(
+    post,
+    path = "/v1/git/working-tree/discard",
+    params(
+        ("repo_id" = Option<String>, Query, description = "Repository ID; defaults to first registered repository")
+    ),
+    request_body = WorkingTreeFileOperationRequest,
+    responses(
+        (status = 200, description = "File changes discarded", body = WorkingTreeOperationResponse),
+        (status = 500, description = "Internal server error", body = ErrorResponse)
+    ),
+    tag = "git"
+)]
+pub async fn discard_working_tree_file(
+    State(state): State<AppState>,
+    Extension(claims): Extension<Claims>,
+    Query(query): Query<WorkingTreeQuery>,
+    Json(request): Json<WorkingTreeFileOperationRequest>,
+) -> Result<Json<WorkingTreeOperationResponse>, (StatusCode, Json<ErrorResponse>)> {
+    require_permission(&claims, Permission::GitManage)?;
+    let git_subsystem = state.git_subsystem.as_ref().ok_or_else(|| {
+        (
+            StatusCode::SERVICE_UNAVAILABLE,
+            Json(ErrorResponse::new("Git subsystem not available").with_code("INTERNAL_ERROR")),
+        )
+    })?;
+
+    git_subsystem
+        .discard_file(query.repo_id.as_deref(), &request.file_path)
+        .await
+        .map_err(|e| {
+            (
+                StatusCode::INTERNAL_SERVER_ERROR,
+                Json(
+                    ErrorResponse::new("Failed to discard file changes")
+                        .with_code("INTERNAL_ERROR")
+                        .with_string_details(e.to_string()),
+                ),
+            )
+        })?;
+
+    Ok(Json(WorkingTreeOperationResponse {
+        schema_version: adapteros_api_types::schema_version(),
+        success: true,
+    }))
 }
 
 /// Start a new Git session for an adapter

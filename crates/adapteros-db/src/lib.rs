@@ -149,6 +149,7 @@ pub mod replay_kv;
 pub mod repository_training_policies;
 pub mod retry;
 pub mod routing_rules;
+pub mod setup;
 pub mod sqlite_backend;
 pub mod storage_issues;
 pub mod storage_reconciliation;
@@ -158,6 +159,7 @@ pub mod tenant_metrics; // Tenant resource metrics
 pub mod tenant_policies;
 pub mod tenant_policy_bindings_kv;
 pub mod tenant_settings;
+pub mod tenant_settings_registry;
 pub mod topology;
 pub mod traits;
 
@@ -196,6 +198,9 @@ pub use kv_isolation_scan::{
     KvIsolationFinding, KvIsolationIssue, KvIsolationScanConfig, KvIsolationScanReport,
     KvIsolationTenantSummary,
 };
+pub use setup::{
+    SetupDiscoveredModel, SetupSeedItem, SetupSeedOptions, SetupSeedResult, SetupSeedStatus,
+};
 pub use storage_issues::{NewStorageIssue, StorageIssue};
 pub use storage_reconciliation::{StorageIssueParams, StorageReconciliationIssue};
 pub use topology::{AdapterTopology, AdjacencyEdge, ClusterDefinition, TopologyGraph};
@@ -229,6 +234,10 @@ pub use tenant_policies::{
 
 // Re-export tenant settings types
 pub use tenant_settings::{TenantSettings, UpdateTenantSettingsParams};
+pub use tenant_settings_registry::{
+    RouterWeightsSetting, TenantSettingsKnownKey, TenantSettingsRegistry,
+    TenantSettingsValidationError,
+};
 
 // Re-export tenant policy binding types
 pub mod tenant_policy_bindings;

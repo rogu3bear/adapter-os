@@ -163,19 +163,29 @@ pub fn load_vision_lora(
     let bias = extract_tensor(&tensors, "vision_lora.bias")?;
 
     let rank = weight.shape().first().copied().unwrap_or(1) as usize;
-    let weights: Vec<f32> = weight
-        .data()
-        .chunks_exact(std::mem::size_of::<f32>())
-        .map(|chunk| f32::from_le_bytes(chunk.try_into().unwrap()))
-        .collect();
-
-    let biases: Vec<f32> = bias
-        .data()
-        .chunks_exact(std::mem::size_of::<f32>())
-        .map(|chunk| f32::from_le_bytes(chunk.try_into().unwrap()))
-        .collect();
+    let weights = decode_f32_tensor(weight.data(), "vision_lora.weight")?;
+    let biases = decode_f32_tensor(bias.data(), "vision_lora.bias")?;
 
     VisionLoraWeights::new(task, rank, channels, weights, biases)
+}
+
+fn decode_f32_tensor(bytes: &[u8], tensor_name: &str) -> Result<Vec<f32>> {
+    let mut chunks = bytes.chunks_exact(std::mem::size_of::<f32>());
+    if !chunks.remainder().is_empty() {
+        return Err(AosError::Validation(format!(
+            "tensor '{tensor_name}' byte length {} is not a multiple of {}",
+            bytes.len(),
+            std::mem::size_of::<f32>()
+        )));
+    }
+
+    let mut values = Vec::with_capacity(bytes.len() / std::mem::size_of::<f32>());
+    for chunk in chunks {
+        let mut raw = [0u8; std::mem::size_of::<f32>()];
+        raw.copy_from_slice(chunk);
+        values.push(f32::from_le_bytes(raw));
+    }
+    Ok(values)
 }
 
 fn extract_tensor<'a>(tensors: &'a SafeTensors<'a>, name: &str) -> Result<TensorView<'a>> {
