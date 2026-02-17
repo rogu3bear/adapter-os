@@ -6,13 +6,15 @@
 //! - Direct CSV with column mapping
 //! - Direct text/markdown with simple pairing strategies
 
+use crate::api::error::format_structured_details;
 #[cfg(target_arch = "wasm32")]
 use crate::api::ApiClient;
 use crate::components::spinner::SpinnerSize;
 use crate::components::{
-    Badge, BadgeVariant, Button, ButtonSize, ButtonVariant, Dialog, DialogSize, FormField, Input,
-    Spinner,
+    Badge, BadgeVariant, Button, ButtonSize, ButtonVariant, Card, Dialog, DialogSize, FormField,
+    Input, Select, Spinner,
 };
+use crate::validation::{rules, use_form_errors, validate_field};
 #[cfg(target_arch = "wasm32")]
 use gloo_file::futures::read_as_text;
 #[cfg(target_arch = "wasm32")]
@@ -379,11 +381,16 @@ pub fn DatasetUploadWizard(
     let text_strategy = RwSignal::new(TextStrategy::Echo);
     let csv_headers = RwSignal::new(Vec::<String>::new());
     let csv_mapping = RwSignal::new(None::<CsvMapping>);
+    // Individual signals for CSV column Select components
+    let csv_input_col = RwSignal::new(String::new());
+    let csv_target_col = RwSignal::new(String::new());
+    let csv_weight_col = RwSignal::new(String::new());
     let preview_rows = RwSignal::new(Vec::<ParsedRow>::new());
     let parse_errors = RwSignal::new(Vec::<String>::new());
     let submitting = RwSignal::new(false);
     let status = RwSignal::new(String::new());
     let upload_error = RwSignal::new(None::<String>);
+    let form_errors = use_form_errors();
     let upload_limits = (
         DEFAULT_LIMIT_MAX_FILES,
         DEFAULT_LIMIT_MAX_BYTES,
@@ -402,14 +409,41 @@ pub fn DatasetUploadWizard(
         move || is_active.store(false, Ordering::Relaxed)
     });
 
-    let close: Callback<()> = Callback::new(move |_| {
-        open.set(false);
+    // Reset form when dialog closes (Effect-based, matches CreateJobWizard pattern)
+    let reset_form = move || {
         submitting.set(false);
         parse_errors.set(Vec::new());
         preview_rows.set(Vec::new());
         upload_error.set(None);
         status.set(String::new());
         idempotency_key.set(String::new());
+        name.set(String::new());
+        description.set(String::new());
+        mode.set(UploadMode::ManifestJsonl);
+        text_strategy.set(TextStrategy::Echo);
+        csv_headers.set(Vec::new());
+        csv_mapping.set(None);
+        csv_input_col.set(String::new());
+        csv_target_col.set(String::new());
+        csv_weight_col.set(String::new());
+        form_errors.update(|e| e.clear_all());
+        #[cfg(target_arch = "wasm32")]
+        {
+            data_file.set(None);
+            data_preview.set(None);
+        }
+    };
+
+    let was_open = StoredValue::new(open.get_untracked());
+    Effect::new(move || {
+        let Some(is_open) = open.try_get() else {
+            return;
+        };
+        let prev = was_open.get_value();
+        was_open.set_value(is_open);
+        if prev && !is_open {
+            reset_form();
+        }
     });
 
     let refresh_preview: Callback<()> = {
@@ -451,6 +485,10 @@ pub fn DatasetUploadWizard(
                                         headers.iter().map(ToString::to_string).collect();
                                     csv_headers.set(header_names.clone());
                                     if header_names.len() >= 2 {
+                                        csv_input_col.set(header_names[0].clone());
+                                        csv_target_col.set(header_names[1].clone());
+                                        csv_weight_col
+                                            .set(header_names.get(2).cloned().unwrap_or_default());
                                         csv_mapping.set(Some(CsvMapping {
                                             input_col: header_names[0].clone(),
                                             target_col: header_names[1].clone(),
@@ -558,12 +596,35 @@ pub fn DatasetUploadWizard(
         handle_data_file(ev);
     });
 
+    // Form-level validation before upload
+    let validate_upload = move || -> bool {
+        form_errors.update(|e| e.clear_all());
+        let mut valid = true;
+
+        if let Some(err) = validate_field(&name.get(), &rules::description()) {
+            form_errors.update(|e| e.set("dataset_name", err));
+            valid = false;
+        }
+
+        if preview_rows.get().is_empty() {
+            form_errors.update(|e| {
+                e.set(
+                    "file",
+                    "Add at least one valid sample before uploading".to_string(),
+                )
+            });
+            valid = false;
+        }
+
+        valid
+    };
+
     let on_upload: Callback<()> = {
         Callback::new(move |_| {
             upload_error.set(None);
             status.set(String::new());
-            if preview_rows.get().is_empty() {
-                parse_errors.set(vec!["Add at least one valid sample before uploading".into()]);
+
+            if !validate_upload() {
                 return;
             }
 
@@ -663,7 +724,7 @@ pub fn DatasetUploadWizard(
                             if !is_active.load(Ordering::Relaxed) {
                                 return;
                             }
-                            let _ = upload_error.try_set(Some(e.user_message()));
+                            let _ = upload_error.try_set(Some(format_structured_details(&e)));
                             let _ = submitting.try_set(false);
                         }
                     }
@@ -674,6 +735,43 @@ pub fn DatasetUploadWizard(
 
     let generate_idempotency_key = Callback::new(move |_| {
         idempotency_key.set(readable_id("idem", "dataset"));
+    });
+
+    // CSV column change callbacks that sync individual signals → CsvMapping + refresh
+    let on_csv_input_change = Callback::new(move |val: String| {
+        csv_input_col.set(val.clone());
+        let target = csv_target_col.get();
+        let weight = trim_opt(Some(&csv_weight_col.get()));
+        csv_mapping.set(Some(CsvMapping {
+            input_col: val,
+            target_col: target,
+            weight_col: weight,
+        }));
+        refresh_preview.run(());
+    });
+
+    let on_csv_target_change = Callback::new(move |val: String| {
+        csv_target_col.set(val.clone());
+        let input = csv_input_col.get();
+        let weight = trim_opt(Some(&csv_weight_col.get()));
+        csv_mapping.set(Some(CsvMapping {
+            input_col: input,
+            target_col: val,
+            weight_col: weight,
+        }));
+        refresh_preview.run(());
+    });
+
+    let on_csv_weight_change = Callback::new(move |val: String| {
+        csv_weight_col.set(val.clone());
+        let input = csv_input_col.get();
+        let target = csv_target_col.get();
+        csv_mapping.set(Some(CsvMapping {
+            input_col: input,
+            target_col: target,
+            weight_col: trim_opt(Some(&val)),
+        }));
+        refresh_preview.run(());
     });
 
     let dialog = move || -> AnyView {
@@ -690,12 +788,17 @@ pub fn DatasetUploadWizard(
                 >
                     <div class="grid gap-6 grid-cols-1 md:grid-cols-3">
                         <div class="space-y-4 md:col-span-1">
-                            <FormField label="Dataset Name" name="dataset_name" required=false>
+                            <FormField
+                                label="Dataset Name"
+                                name="dataset_name"
+                                required=false
+                                error=Signal::derive(move || form_errors.try_get().unwrap_or_default().get("dataset_name").cloned())
+                            >
                                 <Input value=name placeholder="my-training-data".to_string()/>
                             </FormField>
                             <FormField label="Description" name="description" required=false>
                                 <textarea
-                                    class="flex min-h-[80px] w-full rounded-md border border-input bg-background px-3 py-2 text-sm"
+                                    class="input min-h-[80px] w-full"
                                     prop:value=move || description.try_get().unwrap_or_default()
                                     on:input=move |ev| description.set(event_target_value(&ev))
                                     placeholder="What is in this dataset?"
@@ -761,165 +864,138 @@ pub fn DatasetUploadWizard(
                         <div class="space-y-4 md:col-span-2">
                             {move || match mode.try_get().unwrap_or(UploadMode::ManifestJsonl) {
                             UploadMode::ManifestJsonl => view! {
-                                <div class="rounded-lg border p-4 space-y-3">
-                                    <div class="flex items-center justify-between">
-                                        <div>
-                                            <div class="text-sm font-medium">"JSONL"</div>
-                                            <p class="text-xs text-muted-foreground">
-                                                "Each line must be a JSON object with prompt/response (or input/target)."
-                                            </p>
+                                <Card>
+                                    <div class="p-4 space-y-3">
+                                        <div class="flex items-center justify-between">
+                                            <div>
+                                                <div class="text-sm font-medium">"JSONL"</div>
+                                                <p class="text-xs text-muted-foreground">
+                                                    "Each line must be a JSON object with prompt/response (or input/target)."
+                                                </p>
+                                            </div>
+                                            <Badge variant=BadgeVariant::Secondary>"Prompt / Response"</Badge>
                                         </div>
-                                        <Badge variant=BadgeVariant::Secondary>"Prompt / Response"</Badge>
+                                        <div>
+                                            <label class="text-sm font-medium">"Dataset (.jsonl or .ndjson)"</label>
+                                            <input
+                                                type="file"
+                                                accept=".jsonl,.ndjson"
+                                                class="mt-1 block w-full text-sm"
+                                                on:change=move |ev| data_handler.run(ev)
+                                            />
+                                        </div>
                                     </div>
-                                    <div>
-                                        <label class="text-sm font-medium">"Dataset (.jsonl or .ndjson)"</label>
-                                        <input
-                                            type="file"
-                                            accept=".jsonl,.ndjson"
-                                            class="mt-1 block w-full text-sm"
-                                            on:change=move |ev| data_handler.run(ev)
-                                        />
-                                    </div>
-                                </div>
+                                </Card>
                             }.into_any(),
                             UploadMode::Csv => view! {
-                                    <div class="rounded-lg border p-4 space-y-3">
+                                <Card>
+                                    <div class="p-4 space-y-3">
                                         <div class="flex items-center justify-between">
                                             <div>
                                                 <div class="text-sm font-medium">"CSV with column mapping"</div>
-                                            <p class="text-xs text-muted-foreground">
-                                                "Map your columns to input and target; optional weight column must be > 0."
-                                            </p>
+                                                <p class="text-xs text-muted-foreground">
+                                                    "Map your columns to input and target; optional weight column must be > 0."
+                                                </p>
+                                            </div>
+                                            <Badge variant=BadgeVariant::Secondary>"Input / Target"</Badge>
                                         </div>
-                                        <Badge variant=BadgeVariant::Secondary>"Input / Target"</Badge>
-                                    </div>
                                         <input
                                             type="file"
                                             accept=".csv"
                                             class="mt-1 block w-full text-sm"
                                             on:change=move |ev| data_handler.run(ev)
                                         />
-                                    {move || {
-                                        let headers = csv_headers.try_get().unwrap_or_default();
-                                        if headers.is_empty() {
-                                            view! {}.into_any()
-                                        } else {
-                                            let mapping = csv_mapping.try_get().flatten().unwrap_or_else(|| CsvMapping {
-                                                input_col: headers[0].clone(),
-                                                target_col: headers.get(1).cloned().unwrap_or_default(),
-                                                weight_col: headers.get(2).cloned(),
-                                            });
-                                            let mapping_for_input = mapping.clone();
-                                            let mapping_for_target = mapping.clone();
-                                            let mapping_for_weight = mapping.clone();
-                                            let mapping_for_options = mapping.clone();
-                                            let set_mapping = csv_mapping;
-                                            let refresh = refresh_preview;
-                                            view! {
-                                                <div class="grid gap-3 md:grid-cols-3">
-                                                    <div class="space-y-1">
-                                                        <label class="text-sm font-medium">"Input column"</label>
-                                                        <select
-                                                            class="w-full rounded-md border px-2 py-2 text-sm"
-                                                            on:change=move |ev| {
-                                                                let value = event_target_value(&ev);
-                                                                let mut m = mapping_for_input.clone();
-                                                                m.input_col = value;
-                                                                set_mapping.set(Some(m.clone()));
-                                                                refresh.run(());
-                                                            }
-                                                        >
-                                                            {headers.iter().map(|h| view! {
-                                                                <option value=h.clone() selected={*h == mapping_for_options.input_col}>{h.clone()}</option>
-                                                            }).collect_view()}
-                                                        </select>
+                                        {move || {
+                                            let headers = csv_headers.try_get().unwrap_or_default();
+                                            if headers.is_empty() {
+                                                view! {}.into_any()
+                                            } else {
+                                                let input_options: Vec<(String, String)> = headers.iter()
+                                                    .map(|h| (h.clone(), h.clone()))
+                                                    .collect();
+                                                let target_options = input_options.clone();
+                                                let mut weight_options: Vec<(String, String)> = vec![
+                                                    (String::new(), "None".to_string()),
+                                                ];
+                                                weight_options.extend(headers.iter().map(|h| (h.clone(), h.clone())));
+                                                view! {
+                                                    <div class="grid gap-3 md:grid-cols-3">
+                                                        <FormField label="Input column" name="csv_input_col">
+                                                            <Select
+                                                                value=csv_input_col
+                                                                options=input_options
+                                                                on_change=on_csv_input_change
+                                                            />
+                                                        </FormField>
+                                                        <FormField label="Target column" name="csv_target_col">
+                                                            <Select
+                                                                value=csv_target_col
+                                                                options=target_options
+                                                                on_change=on_csv_target_change
+                                                            />
+                                                        </FormField>
+                                                        <FormField label="Weight column (optional)" name="csv_weight_col">
+                                                            <Select
+                                                                value=csv_weight_col
+                                                                options=weight_options
+                                                                on_change=on_csv_weight_change
+                                                            />
+                                                        </FormField>
                                                     </div>
-                                                    <div class="space-y-1">
-                                                        <label class="text-sm font-medium">"Target column"</label>
-                                                        <select
-                                                            class="w-full rounded-md border px-2 py-2 text-sm"
-                                                            on:change=move |ev| {
-                                                                let value = event_target_value(&ev);
-                                                                let mut m = mapping_for_target.clone();
-                                                                m.target_col = value;
-                                                                set_mapping.set(Some(m.clone()));
-                                                                refresh.run(());
-                                                            }
-                                                        >
-                                                            {headers.iter().map(|h| view! {
-                                                                <option value=h.clone() selected={*h == mapping_for_options.target_col}>{h.clone()}</option>
-                                                            }).collect_view()}
-                                                        </select>
-                                                    </div>
-                                                    <div class="space-y-1">
-                                                        <label class="text-sm font-medium">"Weight column (optional)"</label>
-                                                        <select
-                                                            class="w-full rounded-md border px-2 py-2 text-sm"
-                                                            on:change=move |ev| {
-                                                                let value = event_target_value(&ev);
-                                                                let mut m = mapping_for_weight.clone();
-                                                                m.weight_col = trim_opt(Some(&value));
-                                                                set_mapping.set(Some(m.clone()));
-                                                                refresh.run(());
-                                                            }
-                                                        >
-                                                            <option value="">"None"</option>
-                                                            {headers.iter().map(|h| view! {
-                                                                <option value=h.clone() selected={Some(h) == mapping_for_options.weight_col.as_ref()}>{h.clone()}</option>
-                                                            }).collect_view()}
-                                                        </select>
-                                                    </div>
-                                                </div>
-                                            }.into_any()
-                                        }
-                                    }}
-                                </div>
+                                                }.into_any()
+                                            }
+                                        }}
+                                    </div>
+                                </Card>
                             }.into_any(),
                             UploadMode::Text => view! {
-                                    <div class="rounded-lg border p-4 space-y-3">
+                                <Card>
+                                    <div class="p-4 space-y-3">
                                         <div class="flex items-center justify-between">
                                             <div>
                                                 <div class="text-sm font-medium">"Text / Markdown"</div>
-                                            <p class="text-xs text-muted-foreground">
-                                                "Choose how to pair blocks: echo uses the same text for input and target; pairing consumes adjacent blocks."
-                                            </p>
+                                                <p class="text-xs text-muted-foreground">
+                                                    "Choose how to pair blocks: echo uses the same text for input and target; pairing consumes adjacent blocks."
+                                                </p>
+                                            </div>
+                                            <Badge variant=BadgeVariant::Secondary>"Input / Target"</Badge>
                                         </div>
-                                        <Badge variant=BadgeVariant::Secondary>"Input / Target"</Badge>
-                                    </div>
-                                    <input
-                                        type="file"
-                                        accept=".txt,.md,.markdown"
-                                        class="mt-1 block w-full text-sm"
-                                        on:change=move |ev| data_handler.run(ev)
-                                    />
-                                    <div class="flex gap-2">
-                                        {vec![
-                                            (TextStrategy::Echo, "Echo input as target"),
-                                            (TextStrategy::PairAdjacent, "Pair adjacent blocks"),
-                                        ].into_iter().map(|(value, label)| {
-                                            view! {
-                                                <button
-                                                    class=move || {
-                                                        if text_strategy.try_get().unwrap_or(TextStrategy::Echo) == value {
-                                                            "px-3 py-2 rounded-md bg-primary text-primary-foreground text-xs"
-                                                        } else {
-                                                            "px-3 py-2 rounded-md border text-xs"
+                                        <input
+                                            type="file"
+                                            accept=".txt,.md,.markdown"
+                                            class="mt-1 block w-full text-sm"
+                                            on:change=move |ev| data_handler.run(ev)
+                                        />
+                                        <div class="flex gap-2">
+                                            {vec![
+                                                (TextStrategy::Echo, "Echo input as target"),
+                                                (TextStrategy::PairAdjacent, "Pair adjacent blocks"),
+                                            ].into_iter().map(|(value, label)| {
+                                                view! {
+                                                    <button
+                                                        class=move || {
+                                                            if text_strategy.try_get().unwrap_or(TextStrategy::Echo) == value {
+                                                                "px-3 py-2 rounded-md bg-primary text-primary-foreground text-xs"
+                                                            } else {
+                                                                "px-3 py-2 rounded-md border text-xs"
+                                                            }
                                                         }
-                                                    }
-                                                    on:click=move |_| {
-                                                        text_strategy.set(value);
-                                                        refresh_preview.run(());
-                                                    }
-                                                >
-                                                    {label}
-                                                </button>
-                                            }
-                                        }).collect_view()}
+                                                        on:click=move |_| {
+                                                            text_strategy.set(value);
+                                                            refresh_preview.run(());
+                                                        }
+                                                    >
+                                                        {label}
+                                                    </button>
+                                                }
+                                            }).collect_view()}
+                                        </div>
                                     </div>
-                                </div>
+                                </Card>
                             }.into_any(),
                         }}
 
+                        // Parse errors (file-level)
                         {move || {
                             let errors = parse_errors.try_get().unwrap_or_default();
                             if errors.is_empty() {
@@ -928,6 +1004,21 @@ pub fn DatasetUploadWizard(
                                 view! {
                                     <div class="rounded-md border border-destructive bg-destructive/10 p-3 text-sm text-destructive space-y-1">
                                         {errors.into_iter().map(|e| view! { <div>{e}</div> }).collect_view()}
+                                    </div>
+                                }.into_any()
+                            }
+                        }}
+
+                        // Form validation errors
+                        {move || {
+                            let fe = form_errors.try_get().unwrap_or_default();
+                            if !fe.has_any() {
+                                view! {}.into_any()
+                            } else {
+                                let items: Vec<String> = fe.all().values().cloned().collect();
+                                view! {
+                                    <div class="rounded-md border border-destructive bg-destructive/10 p-3 text-sm text-destructive space-y-1">
+                                        {items.into_iter().map(|e| view! { <div>{e}</div> }).collect_view()}
                                     </div>
                                 }.into_any()
                             }
@@ -975,6 +1066,7 @@ pub fn DatasetUploadWizard(
                             }
                         }}
 
+                        // Upload error (inline banner)
                         {move || upload_error.try_get().flatten().map(|err| view! {
                             <div class="rounded-md border border-destructive bg-destructive/10 p-3 text-sm text-destructive">
                                 {err}
@@ -994,7 +1086,7 @@ pub fn DatasetUploadWizard(
                         }}
 
                         <div class="flex justify-end gap-2">
-                            <Button variant=ButtonVariant::Ghost on_click=Callback::new(move |_| close.run(()))>"Cancel"</Button>
+                            <Button variant=ButtonVariant::Ghost on_click=Callback::new(move |_| open.set(false))>"Cancel"</Button>
                             <Button
                                 variant=ButtonVariant::Primary
                                 disabled=submitting

@@ -12,11 +12,19 @@
 //! - Fixed seed for deterministic generation
 //! - Provenance tracking (source model hash, generation receipts)
 
+use crate::api::error::format_structured_details;
 #[cfg(target_arch = "wasm32")]
-use crate::api::{report_error_with_toast, ApiClient};
-use crate::components::{Button, ButtonVariant, Dialog, DialogSize, FormField, Input, Spinner};
+use crate::api::ApiClient;
+use crate::components::{
+    Button, ButtonVariant, Dialog, DialogSize, FormField, Input, Select, Spinner,
+};
+use crate::validation::{use_form_errors, validate_field, ValidationRule};
 use adapteros_api_types::training::{GenerateDatasetResponse, GeneratedSample};
 use leptos::prelude::*;
+use std::sync::{
+    atomic::{AtomicBool, Ordering},
+    Arc,
+};
 
 /// Outcome returned when a dataset is successfully generated
 #[derive(Clone, Debug)]
@@ -46,11 +54,17 @@ pub enum GenerateStrategy {
 }
 
 impl GenerateStrategy {
-    #[allow(dead_code)]
     fn as_str(&self) -> &'static str {
         match self {
             GenerateStrategy::Qa => "qa",
             GenerateStrategy::Summary => "summary",
+        }
+    }
+
+    fn from_value(v: &str) -> Self {
+        match v {
+            "summary" => GenerateStrategy::Summary,
+            _ => GenerateStrategy::Qa,
         }
     }
 }
@@ -67,6 +81,7 @@ pub fn GenerateDatasetWizard(
     // Form state
     let name = RwSignal::new(String::new());
     let strategy = RwSignal::new(GenerateStrategy::Qa);
+    let strategy_value = RwSignal::new("qa".to_string());
     let chunk_size = RwSignal::new("2000".to_string());
     let max_tokens = RwSignal::new("512".to_string());
     let target_volume = RwSignal::new(String::new()); // empty = all chunks
@@ -83,28 +98,106 @@ pub fn GenerateDatasetWizard(
     // File selection tracking
     let file_name = RwSignal::new(None::<String>);
 
-    // Reset state when dialog opens
+    // Validation
+    let form_errors = use_form_errors();
+
+    // Async safety: guard against setting signals after component unmount
+    let is_active = Arc::new(AtomicBool::new(true));
+    on_cleanup({
+        let is_active = Arc::clone(&is_active);
+        move || is_active.store(false, Ordering::Relaxed)
+    });
+
+    // Sync strategy string signal → strategy enum
     Effect::new(move || {
-        if open.try_get().unwrap_or(false) {
-            let _ = name.try_set(String::new());
-            let _ = strategy.try_set(GenerateStrategy::Qa);
-            let _ = chunk_size.try_set("2000".to_string());
-            let _ = max_tokens.try_set("512".to_string());
-            let _ = target_volume.try_set(String::new());
-            let _ = generation_seed.try_set(String::new());
-            let _ = seed_prompts.try_set(String::new());
-            let _ = show_advanced.try_set(false);
-            let _ = generating.try_set(false);
-            let _ = error.try_set(None);
-            let _ = preview.try_set(Vec::new());
-            let _ = result.try_set(None);
-            let _ = file_name.try_set(None);
+        let val = strategy_value.try_get().unwrap_or_default();
+        let _ = strategy.try_set(GenerateStrategy::from_value(&val));
+    });
+
+    let reset_form = move || {
+        name.set(String::new());
+        strategy.set(GenerateStrategy::Qa);
+        strategy_value.set("qa".to_string());
+        chunk_size.set("2000".to_string());
+        max_tokens.set("512".to_string());
+        target_volume.set(String::new());
+        generation_seed.set(String::new());
+        seed_prompts.set(String::new());
+        show_advanced.set(false);
+        generating.set(false);
+        error.set(None);
+        preview.set(Vec::new());
+        result.set(None);
+        file_name.set(None);
+        form_errors.update(|e| e.clear_all());
+    };
+
+    // Reset state on open→close transition (matches CreateJobWizard StoredValue pattern)
+    let was_open = StoredValue::new(open.get_untracked());
+    Effect::new(move || {
+        let Some(is_open) = open.try_get() else {
+            return;
+        };
+        let prev = was_open.get_value();
+        was_open.set_value(is_open);
+        // Reset when dialog closes (was open, now closed)
+        if prev && !is_open {
+            reset_form();
         }
     });
+
+    // Validate fields before generation
+    let validate_form = move || -> bool {
+        form_errors.update(|e| e.clear_all());
+        let mut valid = true;
+
+        if let Some(err) = validate_field(
+            &chunk_size.get(),
+            &[
+                ValidationRule::Required,
+                ValidationRule::IntRange {
+                    min: 500,
+                    max: 10000,
+                },
+            ],
+        ) {
+            form_errors.update(|e| e.set("chunk_size", err));
+            valid = false;
+        }
+
+        if let Some(err) = validate_field(
+            &max_tokens.get(),
+            &[
+                ValidationRule::Required,
+                ValidationRule::IntRange { min: 1, max: 4096 },
+            ],
+        ) {
+            form_errors.update(|e| e.set("max_tokens", err));
+            valid = false;
+        }
+
+        // target_volume is optional, but if present validate range
+        let tv = target_volume.get();
+        if !tv.trim().is_empty() {
+            if let Some(err) = validate_field(
+                &tv,
+                &[ValidationRule::IntRange {
+                    min: 1,
+                    max: 100000,
+                }],
+            ) {
+                form_errors.update(|e| e.set("target_volume", err));
+                valid = false;
+            }
+        }
+
+        valid
+    };
 
     // File upload handler (WASM only)
     #[cfg(target_arch = "wasm32")]
     let handle_file_select = {
+        let is_active = Arc::clone(&is_active);
         move |ev: web_sys::Event| {
             use wasm_bindgen::JsCast;
 
@@ -116,6 +209,12 @@ pub fn GenerateDatasetWizard(
                 tracing::error!("handle_file_select: target is not an HtmlInputElement");
                 return;
             };
+
+            // Validate form before starting generation
+            if !validate_form() {
+                input.set_value("");
+                return;
+            }
 
             if let Some(files) = input.files() {
                 if let Some(file) = files.get(0) {
@@ -133,23 +232,35 @@ pub fn GenerateDatasetWizard(
                     let target_volume_val = target_volume.get_untracked();
                     let generation_seed_val = generation_seed.get_untracked();
                     let seed_prompts_val = seed_prompts.get_untracked();
+                    let is_active = Arc::clone(&is_active);
 
                     wasm_bindgen_futures::spawn_local(async move {
+                        if !is_active.load(Ordering::Relaxed) {
+                            return;
+                        }
+
                         let client = ApiClient::new();
 
                         // Build FormData
                         let form_data = match web_sys::FormData::new() {
                             Ok(fd) => fd,
                             Err(_) => {
-                                error.set(Some("Failed to create form data".to_string()));
-                                generating.set(false);
+                                if !is_active.load(Ordering::Relaxed) {
+                                    return;
+                                }
+                                let _ =
+                                    error.try_set(Some("Failed to create form data".to_string()));
+                                let _ = generating.try_set(false);
                                 return;
                             }
                         };
 
-                        if let Err(_) = form_data.append_with_blob("file", &file) {
-                            error.set(Some("Failed to attach file".to_string()));
-                            generating.set(false);
+                        if form_data.append_with_blob("file", &file).is_err() {
+                            if !is_active.load(Ordering::Relaxed) {
+                                return;
+                            }
+                            let _ = error.try_set(Some("Failed to attach file".to_string()));
+                            let _ = generating.try_set(false);
                             return;
                         }
 
@@ -160,7 +271,7 @@ pub fn GenerateDatasetWizard(
                         let _ = form_data.append_with_str("chunk_size", &chunk_size_val);
                         let _ = form_data.append_with_str("max_tokens", &max_tokens_val);
 
-                        // Add new fields
+                        // Add optional fields
                         if !target_volume_val.is_empty() {
                             let _ = form_data.append_with_str("target_volume", &target_volume_val);
                         }
@@ -172,22 +283,25 @@ pub fn GenerateDatasetWizard(
                             let _ = form_data.append_with_str("seed_prompts", &seed_prompts_val);
                         }
 
+                        if !is_active.load(Ordering::Relaxed) {
+                            return;
+                        }
+
                         match client.generate_dataset(&form_data).await {
                             Ok(resp) => {
-                                preview.set(resp.preview.clone());
-                                result.set(Some(resp.clone()));
-                                generating.set(false);
-                                // Don't auto-inject - let user review and click "Use this dataset"
+                                if !is_active.load(Ordering::Relaxed) {
+                                    return;
+                                }
+                                let _ = preview.try_set(resp.preview.clone());
+                                let _ = result.try_set(Some(resp.clone()));
+                                let _ = generating.try_set(false);
                             }
                             Err(e) => {
-                                report_error_with_toast(
-                                    &e,
-                                    "Dataset generation failed",
-                                    Some("/training"),
-                                    true,
-                                );
-                                error.set(Some(format!("Generation failed: {}", e)));
-                                generating.set(false);
+                                if !is_active.load(Ordering::Relaxed) {
+                                    return;
+                                }
+                                let _ = error.try_set(Some(format_structured_details(&e)));
+                                let _ = generating.try_set(false);
                             }
                         }
                     });
@@ -215,6 +329,8 @@ pub fn GenerateDatasetWizard(
             seed_prompts,
             show_advanced,
             on_generated,
+            form_errors,
+            strategy_value,
         );
     };
 
@@ -232,9 +348,9 @@ pub fn GenerateDatasetWizard(
         >
                 <div class="space-y-4">
 
-                    // Error message
-                    {move || error.get().map(|e| view! {
-                        <div class="rounded-lg border border-destructive bg-destructive/10 p-3">
+                    // Error banner (inline, matching CreateJobWizard pattern)
+                    {move || error.try_get().flatten().map(|e| view! {
+                        <div class="mb-4 rounded-lg border border-destructive bg-destructive/10 p-3">
                             <p class="text-sm text-destructive">{e}</p>
                         </div>
                     })}
@@ -254,38 +370,29 @@ pub fn GenerateDatasetWizard(
                         </FormField>
 
                         <div class="grid grid-cols-1 gap-4 sm:grid-cols-3">
-                            <div class="space-y-2">
-                                <label class="text-sm font-medium">"Strategy"</label>
-                                <select
-                                    class="flex h-10 w-full rounded-md border border-input bg-background px-3 py-2 text-sm disabled:opacity-50"
-                                    disabled=move || generating.get()
-                                    on:change=move |ev| {
-                                        let value = event_target_value(&ev);
-                                        strategy.set(match value.as_str() {
-                                            "summary" => GenerateStrategy::Summary,
-                                            _ => GenerateStrategy::Qa,
-                                        });
-                                    }
-                                >
-                                    <option value="qa" selected=move || strategy.get() == GenerateStrategy::Qa>
-                                        "Q&A Pairs"
-                                    </option>
-                                    <option value="summary" selected=move || strategy.get() == GenerateStrategy::Summary>
-                                        "Summaries"
-                                    </option>
-                                </select>
-                                <p class="text-xs text-muted-foreground">
-                                    {move || match strategy.get() {
-                                        GenerateStrategy::Qa => "Generate question-answer pairs from text",
-                                        GenerateStrategy::Summary => "Generate summary instruction-response pairs",
-                                    }}
-                                </p>
-                            </div>
+                            <FormField
+                                label="Strategy"
+                                name="strategy"
+                                help=Signal::derive(move || match strategy.try_get().unwrap_or_default() {
+                                    GenerateStrategy::Qa => "Generate question-answer pairs from text".to_string(),
+                                    GenerateStrategy::Summary => "Generate summary instruction-response pairs".to_string(),
+                                }).get()
+                            >
+                                <Select
+                                    value=strategy_value
+                                    options=vec![
+                                        ("qa".to_string(), "Q&A Pairs".to_string()),
+                                        ("summary".to_string(), "Summaries".to_string()),
+                                    ]
+                                    disabled=Signal::derive(move || generating.try_get().unwrap_or(false))
+                                />
+                            </FormField>
 
                             <FormField
                                 label="Chunk Size"
                                 name="chunk_size"
                                 help="Characters per chunk (500-10000)"
+                                error=Signal::derive(move || form_errors.try_get().unwrap_or_default().get("chunk_size").cloned())
                             >
                                 <Input
                                     value=chunk_size
@@ -297,7 +404,8 @@ pub fn GenerateDatasetWizard(
                             <FormField
                                 label="Max Tokens"
                                 name="max_tokens"
-                                help="Max tokens per generation"
+                                help="Max tokens per generation (1-4096)"
+                                error=Signal::derive(move || form_errors.try_get().unwrap_or_default().get("max_tokens").cloned())
                             >
                                 <Input
                                     value=max_tokens
@@ -313,6 +421,7 @@ pub fn GenerateDatasetWizard(
                                 label="Target Volume"
                                 name="target_volume"
                                 help="Number of examples to generate (empty = all chunks)"
+                                error=Signal::derive(move || form_errors.try_get().unwrap_or_default().get("target_volume").cloned())
                             >
                                 <Input
                                     value=target_volume
@@ -361,17 +470,19 @@ pub fn GenerateDatasetWizard(
 
                             <Show when=move || show_advanced.get()>
                                 <div class="space-y-2 pl-6">
-                                    <label class="text-sm font-medium">"Seed Prompts"</label>
-                                    <textarea
-                                        class="flex min-h-24 w-full rounded-md border border-input bg-background px-3 py-2 text-sm ring-offset-background placeholder:text-muted-foreground focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-ring focus-visible:ring-offset-2 disabled:cursor-not-allowed disabled:opacity-50"
-                                        placeholder="Enter seed prompts (one per line) to guide generation..."
-                                        disabled=move || generating.get()
-                                        prop:value=move || seed_prompts.get()
-                                        on:input=move |ev| seed_prompts.set(event_target_value(&ev))
-                                    />
-                                    <p class="text-xs text-muted-foreground">
-                                        "Each line provides context for one chunk's generation"
-                                    </p>
+                                    <FormField
+                                        label="Seed Prompts"
+                                        name="seed_prompts"
+                                        help="Each line provides context for one chunk's generation"
+                                    >
+                                        <textarea
+                                            class="flex min-h-24 w-full rounded-md border border-input bg-background px-3 py-2 text-sm ring-offset-background placeholder:text-muted-foreground focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-ring focus-visible:ring-offset-2 disabled:cursor-not-allowed disabled:opacity-50"
+                                            placeholder="Enter seed prompts (one per line) to guide generation..."
+                                            disabled=move || generating.get()
+                                            prop:value=move || seed_prompts.get()
+                                            on:input=move |ev| seed_prompts.set(event_target_value(&ev))
+                                        />
+                                    </FormField>
                                 </div>
                             </Show>
                         </div>
@@ -400,7 +511,9 @@ pub fn GenerateDatasetWizard(
                                 <div>
                                     <p class="text-sm font-medium">"Generating samples..."</p>
                                     <p class="text-xs text-muted-foreground">
-                                        "This may take a few minutes depending on file size"
+                                        {move || file_name.try_get().flatten().map(|f|
+                                            format!("Processing {} - this may take a few minutes depending on file size", f)
+                                        ).unwrap_or_else(|| "This may take a few minutes depending on file size".to_string())}
                                     </p>
                                 </div>
                             </div>
