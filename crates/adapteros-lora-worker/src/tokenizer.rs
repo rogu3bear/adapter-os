@@ -88,23 +88,6 @@ impl QwenTokenizer {
             .map_err(|e| AosError::Worker(format!("Decoding failed: {}", e)))
     }
 
-    /// Apply chat template based on model's special tokens
-    pub fn apply_chat_template(&self, prompt: &str) -> String {
-        if self.special_tokens.im_start_id.is_some() {
-            // ChatML format (Qwen, Yi, etc.)
-            format!(
-                "<|im_start|>system\nYou are a helpful assistant.<|im_end|>\n<|im_start|>user\n{}<|im_end|>\n<|im_start|>assistant\n",
-                prompt
-            )
-        } else if self.special_tokens.bos_token_id.is_some() {
-            // Mistral/Llama instruct format
-            format!("<s> [INST] {} [/INST]", prompt)
-        } else {
-            // Fallback: raw prompt
-            prompt.to_string()
-        }
-    }
-
     /// Get EOS token ID
     pub fn eos_token_id(&self) -> u32 {
         self.special_tokens.eos_token_id
@@ -176,27 +159,14 @@ mod tests {
     }
 
     #[test]
-    fn test_chat_template() {
-        // Create a mock tokenizer for testing since we don't have actual tokenizer files
-        // Uses explicit SpecialTokenMap instead of hardcoded values
-        let special_tokens = SpecialTokenMap {
-            eos_token_id: 151645,
-            bos_token_id: None,
-            pad_token_id: None,
-            unk_token_id: None,
-            im_start_id: Some(151644),
-            im_end_id: Some(151645),
-            fim_prefix_id: None,
-            fim_suffix_id: None,
-            fim_middle_id: None,
-            source: TokenMapSource::Unknown,
-        };
-        let tokenizer = QwenTokenizer::from_tokenizer_with_tokens(
-            Tokenizer::new(tokenizers::models::bpe::BPE::default()),
-            special_tokens,
-        );
-
-        let formatted = tokenizer.apply_chat_template("What is 2+2?");
+    fn test_chat_template_via_engine() {
+        // Chat template formatting is now handled by adapteros_chat::ChatTemplateEngine
+        let engine = adapteros_chat::ChatTemplateEngine::from_architecture("qwen2", 151_936);
+        let messages = vec![
+            adapteros_chat::Message::system("You are a helpful assistant."),
+            adapteros_chat::Message::user("What is 2+2?"),
+        ];
+        let formatted = engine.apply(&messages);
         assert!(formatted.contains("system"));
         assert!(formatted.contains("user"));
         assert!(formatted.contains("assistant"));

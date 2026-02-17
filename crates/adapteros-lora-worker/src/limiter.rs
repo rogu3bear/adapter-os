@@ -11,10 +11,27 @@ use std::time::{Duration, Instant};
 use tokio::sync::Semaphore;
 use tracing::warn;
 
+/// Workload type for resource limiting
+///
+/// Training and inference have different resource profiles: training is long-running
+/// and memory-heavy, while inference is latency-sensitive. Splitting permits prevents
+/// a burst of training jobs from starving inference requests.
+#[derive(Debug, Clone, Copy, PartialEq, Eq)]
+pub enum WorkloadType {
+    /// Inference requests (latency-sensitive, higher concurrency)
+    Inference,
+    /// Training jobs (long-running, lower concurrency)
+    Training,
+}
+
 /// Resource limits configuration
 #[derive(Debug, Clone)]
 pub struct ResourceLimits {
     pub max_concurrent_requests: usize,
+    /// Maximum concurrent inference requests (defaults to 8)
+    pub max_concurrent_inference: usize,
+    /// Maximum concurrent training jobs (defaults to 2)
+    pub max_concurrent_training: usize,
     pub max_tokens_per_second: usize,
     pub max_memory_per_request: u64,
     pub max_cpu_time_per_request: Duration,
@@ -35,6 +52,8 @@ impl Default for ResourceLimits {
 
         Self {
             max_concurrent_requests: 10,
+            max_concurrent_inference: 8,
+            max_concurrent_training: 2,
             max_tokens_per_second: 1000, // Increased default from 40 to avoid choking 30B models
             max_memory_per_request: 50 * 1024 * 1024, // 50MB
             max_cpu_time_per_request: Duration::from_secs(300), // Increased from 30s to 5m for long gens
@@ -55,6 +74,14 @@ impl ResourceLimits {
                 .ok()
                 .and_then(|v| v.parse().ok())
                 .unwrap_or(defaults.max_concurrent_requests),
+            max_concurrent_inference: std::env::var("AOS_LIMIT_MAX_CONCURRENT_INFERENCE")
+                .ok()
+                .and_then(|v| v.parse().ok())
+                .unwrap_or(defaults.max_concurrent_inference),
+            max_concurrent_training: std::env::var("AOS_LIMIT_MAX_CONCURRENT_TRAINING")
+                .ok()
+                .and_then(|v| v.parse().ok())
+                .unwrap_or(defaults.max_concurrent_training),
             max_tokens_per_second: std::env::var("AOS_LIMIT_MAX_TOKENS_PER_SEC")
                 .ok()
                 .and_then(|v| v.parse().ok())
@@ -77,6 +104,22 @@ impl ResourceLimits {
         if self.max_concurrent_requests == 0 {
             return Err(AosError::InvalidRateLimitConfig {
                 parameter: "max_concurrent_requests".to_string(),
+                value: "0".to_string(),
+                reason: "must be greater than 0".to_string(),
+            });
+        }
+
+        if self.max_concurrent_inference == 0 {
+            return Err(AosError::InvalidRateLimitConfig {
+                parameter: "max_concurrent_inference".to_string(),
+                value: "0".to_string(),
+                reason: "must be greater than 0".to_string(),
+            });
+        }
+
+        if self.max_concurrent_training == 0 {
+            return Err(AosError::InvalidRateLimitConfig {
+                parameter: "max_concurrent_training".to_string(),
                 value: "0".to_string(),
                 reason: "must be greater than 0".to_string(),
             });
@@ -207,6 +250,8 @@ impl ThunderingHerdConfig {
 pub struct ResourceLimiter {
     limits: ResourceLimits,
     request_semaphore: Semaphore,
+    inference_semaphore: Semaphore,
+    training_semaphore: Semaphore,
     token_rate_limiter: TokenRateLimiter,
     memory_tracker: MemoryTracker,
     cpu_tracker: CpuTracker,
@@ -219,6 +264,8 @@ impl ResourceLimiter {
     pub fn new(limits: ResourceLimits) -> Self {
         Self {
             request_semaphore: Semaphore::new(limits.max_concurrent_requests),
+            inference_semaphore: Semaphore::new(limits.max_concurrent_inference),
+            training_semaphore: Semaphore::new(limits.max_concurrent_training),
             token_rate_limiter: TokenRateLimiter::new(limits.max_tokens_per_second),
             memory_tracker: MemoryTracker::new(limits.max_memory_per_request),
             cpu_tracker: CpuTracker::new(limits.max_cpu_time_per_request),
@@ -268,6 +315,70 @@ impl ResourceLimiter {
             cpu_tracker: &self.cpu_tracker,
             thread_tracker: &self.thread_tracker,
         })
+    }
+
+    /// Acquire a permit for an inference workload
+    ///
+    /// Uses the inference-specific semaphore with a higher concurrency limit,
+    /// tuned for latency-sensitive requests.
+    pub async fn acquire_inference(&self) -> Result<ResourceGuard<'_>> {
+        self.acquire_typed(&self.inference_semaphore).await
+    }
+
+    /// Acquire a permit for a training workload
+    ///
+    /// Uses the training-specific semaphore with a lower concurrency limit,
+    /// since training jobs are long-running and memory-heavy.
+    pub async fn acquire_training(&self) -> Result<ResourceGuard<'_>> {
+        self.acquire_typed(&self.training_semaphore).await
+    }
+
+    /// Shared acquisition logic for typed semaphores
+    async fn acquire_typed<'a>(&'a self, semaphore: &'a Semaphore) -> Result<ResourceGuard<'a>> {
+        // Check request rate limit first
+        self.request_rate_limiter.check_rate()?;
+
+        // Check file descriptor limits
+        self.fd_tracker.check_limit()?;
+
+        // Check thread pool saturation
+        self.thread_tracker.check_limit()?;
+
+        let permit = semaphore
+            .acquire()
+            .await
+            .map_err(|_| AosError::Worker("Resource limiter closed".to_string()))?;
+
+        // Check if we can handle another request
+        if self.memory_tracker.would_exceed_limit() {
+            drop(permit);
+            return Err(AosError::MemoryPressure(
+                "Memory limit would be exceeded".to_string(),
+            ));
+        }
+
+        self.memory_tracker.acquire();
+
+        // Record task as queued (will be marked as started when actually processing)
+        self.thread_tracker.record_task_queued();
+
+        Ok(ResourceGuard {
+            _permit: permit,
+            start_time: Instant::now(),
+            memory_tracker: &self.memory_tracker,
+            cpu_tracker: &self.cpu_tracker,
+            thread_tracker: &self.thread_tracker,
+        })
+    }
+
+    /// Number of inference requests currently holding permits
+    pub fn active_inference_count(&self) -> usize {
+        self.limits.max_concurrent_inference - self.inference_semaphore.available_permits()
+    }
+
+    /// Number of training jobs currently holding permits
+    pub fn active_training_count(&self) -> usize {
+        self.limits.max_concurrent_training - self.training_semaphore.available_permits()
     }
 
     pub fn check_token_rate(&self) -> Result<()> {
@@ -815,6 +926,8 @@ mod tests {
     fn test_resource_limits_valid_custom_configuration() {
         let limits = ResourceLimits {
             max_concurrent_requests: 50,
+            max_concurrent_inference: 40,
+            max_concurrent_training: 10,
             max_tokens_per_second: 5000,
             max_memory_per_request: 100 * 1024 * 1024, // 100MB
             max_cpu_time_per_request: Duration::from_secs(600),
@@ -932,6 +1045,8 @@ mod tests {
     fn test_resource_limits_minimum_valid_values() {
         let limits = ResourceLimits {
             max_concurrent_requests: 1,
+            max_concurrent_inference: 1,
+            max_concurrent_training: 1,
             max_tokens_per_second: 1,
             max_memory_per_request: 1,
             max_cpu_time_per_request: Duration::from_millis(1),
@@ -947,6 +1062,8 @@ mod tests {
     fn test_resource_limits_large_values() {
         let limits = ResourceLimits {
             max_concurrent_requests: usize::MAX,
+            max_concurrent_inference: usize::MAX,
+            max_concurrent_training: usize::MAX,
             max_tokens_per_second: usize::MAX,
             max_memory_per_request: u64::MAX,
             max_cpu_time_per_request: Duration::from_secs(u64::MAX / 1_000_000_000),
@@ -1219,7 +1336,9 @@ mod tests {
         // When multiple fields are invalid, validation returns first error
         let limits = ResourceLimits {
             max_concurrent_requests: 0, // Invalid - checked first
-            max_tokens_per_second: 0,   // Invalid - checked second
+            max_concurrent_inference: 0,
+            max_concurrent_training: 0,
+            max_tokens_per_second: 0, // Invalid - checked second
             max_memory_per_request: 0,
             max_cpu_time_per_request: Duration::ZERO,
             max_requests_per_minute: 0,
@@ -1329,6 +1448,8 @@ mod tests {
         let limits = ResourceLimits::default();
 
         assert_eq!(limits.max_concurrent_requests, 10);
+        assert_eq!(limits.max_concurrent_inference, 8);
+        assert_eq!(limits.max_concurrent_training, 2);
         assert_eq!(limits.max_tokens_per_second, 1000);
         assert_eq!(limits.max_memory_per_request, 50 * 1024 * 1024);
         assert_eq!(limits.max_cpu_time_per_request, Duration::from_secs(300));

@@ -22,6 +22,7 @@
 //! let request = InferenceRequest {
 //!     cpid: "test-cpid".to_string(),
 //!     prompt: "Hello, world!".to_string(),
+//!     messages: None,
 //!     max_tokens: 100,
 //!     request_id: None,
 //!     run_envelope: None,
@@ -446,7 +447,7 @@ pub use inference_metrics::{
 };
 pub use kv_quota::{KvQuotaUsage, KvReservation, TenantKvQuotaManager};
 pub use kvcache::{KvCache, SequenceGuard};
-pub use limiter::{ResourceGuard, ResourceLimiter, ResourceLimits};
+pub use limiter::{ResourceGuard, ResourceLimiter, ResourceLimits, WorkloadType};
 pub use linter_runner::{
     LintIssue, LintSeverity, LinterConfig, LinterResult, LinterRunner, LinterType,
 };
@@ -721,20 +722,33 @@ struct ValidatedPrompt {
 struct RequestValidator<'a> {
     tokenizer: &'a QwenTokenizer,
     max_seq_len: usize,
+    model_arch: &'a str,
+    vocab_size: usize,
 }
 
 impl<'a> RequestValidator<'a> {
-    fn new(tokenizer: &'a QwenTokenizer, max_seq_len: usize) -> Self {
+    fn new(
+        tokenizer: &'a QwenTokenizer,
+        max_seq_len: usize,
+        model_arch: &'a str,
+        vocab_size: usize,
+    ) -> Self {
         Self {
             tokenizer,
             max_seq_len,
+            model_arch,
+            vocab_size,
         }
     }
 
-    fn validate(&self, prompt: &str) -> Result<ValidatedPrompt> {
+    fn validate(
+        &self,
+        prompt: &str,
+        messages: Option<&[adapteros_types::inference::ChatMessage]>,
+    ) -> Result<ValidatedPrompt> {
         const MAX_PROMPT_BYTES: usize = 1_000_000;
 
-        if prompt.trim().is_empty() {
+        if prompt.trim().is_empty() && messages.is_none() {
             return Err(AosError::Validation("Prompt cannot be empty".to_string()));
         }
 
@@ -742,7 +756,22 @@ impl<'a> RequestValidator<'a> {
             return Err(AosError::Validation("Prompt exceeds 1MB limit".to_string()));
         }
 
-        let formatted_prompt = self.tokenizer.apply_chat_template(prompt);
+        let formatted_prompt = if let Some(msgs) = messages {
+            let engine = adapteros_chat::ChatTemplateEngine::from_architecture(
+                self.model_arch,
+                self.vocab_size,
+            );
+            let chat_messages: Vec<adapteros_chat::Message> = msgs
+                .iter()
+                .map(|m| adapteros_chat::Message {
+                    role: m.role.clone(),
+                    content: m.content.clone(),
+                })
+                .collect();
+            engine.apply(&chat_messages)
+        } else {
+            prompt.to_string()
+        };
         let token_ids = self
             .tokenizer
             .encode(&formatted_prompt)
@@ -2188,9 +2217,9 @@ impl<K: FusedKernels + StrictnessControl + Send + Sync + 'static> Worker<K> {
         request: InferenceRequest,
         stream_tx: Option<mpsc::Sender<WorkerStreamEvent>>,
     ) -> Result<InferenceResponse> {
-        // Guardrail: Acquire resource permit (limits concurrency and checks quotas)
+        // Guardrail: Acquire inference-specific resource permit
         let limiter = self.resource_limiter.clone();
-        let _permit = limiter.acquire_request().await?;
+        let _permit = limiter.acquire_inference().await?;
 
         let start_time = Instant::now();
 
@@ -2660,8 +2689,13 @@ impl<K: FusedKernels + StrictnessControl + Send + Sync + 'static> Worker<K> {
                 _ => None,
             };
 
-        let validator = RequestValidator::new(self.tokenizer.as_ref(), self.max_seq_len);
-        let validated_prompt = validator.validate(&request.prompt)?;
+        let validator = RequestValidator::new(
+            self.tokenizer.as_ref(),
+            self.max_seq_len,
+            &self.manifest.base.arch,
+            self.manifest.base.vocab_size as usize,
+        );
+        let validated_prompt = validator.validate(&request.prompt, request.messages.as_deref())?;
 
         // Retrieve evidence if required
         let mut evidence = Vec::new();
@@ -4252,6 +4286,7 @@ impl<K: FusedKernels + StrictnessControl + Send + Sync + 'static> Worker<K> {
                 position: step_with_free,
                 attention_entropy: None,
                 activations: None,
+                session_id: None,
             };
 
             let kernel_start = Instant::now();

@@ -15,6 +15,7 @@ use adapteros_core::{
 };
 use adapteros_types::adapters::metadata::RoutingDeterminismMode;
 use adapteros_types::coreml::CoreMLMode;
+use adapteros_types::inference::ChatMessage;
 use serde::{Deserialize, Serialize};
 
 /// Main inference request structure
@@ -22,6 +23,11 @@ use serde::{Deserialize, Serialize};
 pub struct InferenceRequest {
     pub cpid: String,
     pub prompt: String,
+    /// Structured chat messages for model-aware template formatting.
+    /// When present, the worker uses `ChatTemplateEngine` to format these
+    /// instead of applying the legacy tokenizer-based chat template to `prompt`.
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub messages: Option<Vec<ChatMessage>>,
     pub max_tokens: usize,
     /// Optional request identifier for tracing
     #[serde(default)]
@@ -43,6 +49,11 @@ pub struct InferenceRequest {
     /// Stack version for telemetry correlation
     #[serde(default)]
     pub stack_version: Option<i64>,
+    /// Chat session ID for KV cache persistence across turns.
+    /// When present, the worker uses a persistent per-session KV cache
+    /// for O(1) token generation instead of reprocessing the full context.
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub session_id: Option<String>,
     /// Execution policy ID for audit/trace binding
     #[serde(default, skip_serializing_if = "Option::is_none")]
     pub policy_id: Option<String>,

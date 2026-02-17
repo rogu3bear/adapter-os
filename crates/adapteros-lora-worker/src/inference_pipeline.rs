@@ -836,7 +836,22 @@ impl InferencePipeline {
         let _ = self.evaluate_policies_or_fail(&request, &prompt_hash, "pre_inference_stream")?;
 
         // 1. Apply chat template and tokenize
-        let formatted_prompt = self.tokenizer.apply_chat_template(&request.prompt);
+        let formatted_prompt = if let Some(messages) = &request.messages {
+            let engine = adapteros_chat::ChatTemplateEngine::from_architecture(
+                &self.config.model_name,
+                self.config.vocab_size,
+            );
+            let chat_messages: Vec<adapteros_chat::Message> = messages
+                .iter()
+                .map(|m| adapteros_chat::Message {
+                    role: m.role.clone(),
+                    content: m.content.clone(),
+                })
+                .collect();
+            engine.apply(&chat_messages)
+        } else {
+            request.prompt.clone()
+        };
         let input_tokens = self.tokenizer.encode(&formatted_prompt)?;
 
         debug!(
@@ -1110,6 +1125,7 @@ impl InferencePipeline {
                 position: current_tokens.len() - 1,
                 attention_entropy: None,
                 activations: None,
+                session_id: request.session_id.clone(),
             };
             let mut router_ring = decision_to_router_ring(&decision, self.max_adapter_count)?;
             router_ring.position = step;
@@ -1412,7 +1428,22 @@ impl InferencePipeline {
         let _ = self.evaluate_policies_or_fail(&request, &prompt_hash, "pre_inference")?;
 
         // 1. Apply chat template and tokenize
-        let formatted_prompt = self.tokenizer.apply_chat_template(&request.prompt);
+        let formatted_prompt = if let Some(messages) = &request.messages {
+            let engine = adapteros_chat::ChatTemplateEngine::from_architecture(
+                &self.config.model_name,
+                self.config.vocab_size,
+            );
+            let chat_messages: Vec<adapteros_chat::Message> = messages
+                .iter()
+                .map(|m| adapteros_chat::Message {
+                    role: m.role.clone(),
+                    content: m.content.clone(),
+                })
+                .collect();
+            engine.apply(&chat_messages)
+        } else {
+            request.prompt.clone()
+        };
         let input_tokens = self.tokenizer.encode(&formatted_prompt)?;
 
         debug!("Tokenized prompt: {} tokens", input_tokens.len());
@@ -1657,6 +1688,7 @@ impl InferencePipeline {
                 position: current_tokens.len() - 1,
                 attention_entropy: None,
                 activations: None,
+                session_id: request.session_id.clone(),
             };
 
             // Convert router decision to RouterRing using explicit bridge (PRD-02)
@@ -2297,6 +2329,7 @@ mod tests {
     fn test_inference_request() {
         let request = InferenceRequest {
             prompt: "What is 2+2?".to_string(),
+            messages: None,
             max_tokens: 100,
             request_id: None,
             run_envelope: None,

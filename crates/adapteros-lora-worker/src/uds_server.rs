@@ -781,6 +781,7 @@ impl<K: adapteros_lora_kernel_api::FusedKernels + StrictnessControl + 'static> U
                 let inference_req = InferenceRequest {
                     cpid: "patch-proposal".to_string(),
                     prompt: "patch proposal".to_string(),
+                    messages: None,
                     max_tokens: 100,
                     request_id: None,
                     run_envelope: None,
@@ -789,6 +790,7 @@ impl<K: adapteros_lora_kernel_api::FusedKernels + StrictnessControl + 'static> U
                     request_type: RequestType::PatchProposal(patch_req.clone()),
                     stack_id: None,
                     stack_version: None,
+                    session_id: None,
                     policy_id: None,
                     domain_hint: None,
                     // Sampling params (use defaults for patch proposal)

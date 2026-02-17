@@ -117,6 +117,7 @@ impl CacheWarmupManager {
             let request = InferenceRequest {
                 cpid: "warmup".to_string(),
                 prompt: query.clone(),
+                messages: None,
                 max_tokens: 50,
                 request_id: None,
                 run_envelope: None,
@@ -201,6 +202,7 @@ impl CacheWarmupManager {
             let request = InferenceRequest {
                 cpid: format!("warmup-{}", adapter_id),
                 prompt: format!("Test query for adapter {}", adapter_id),
+                messages: None,
                 max_tokens: 20,
                 request_id: None,
                 run_envelope: None,
@@ -422,6 +424,7 @@ where
                 .map(|id| format!("health-check-{}", id))
                 .unwrap_or_else(|| "health-check-base".to_string()),
             prompt: config.test_prompt.clone(),
+            messages: None,
             max_tokens: config.max_tokens,
             request_id: None,
             run_envelope: None,

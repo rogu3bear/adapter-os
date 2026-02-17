@@ -76,6 +76,7 @@ adapteros-crypto = { path = "../adapteros-crypto" }
 adapteros-deterministic-exec = { path = "../adapteros-deterministic-exec" }
 adapteros-memory = { path = "../adapteros-memory" }
 adapteros-types = { path = "../adapteros-types" }
+adapteros-chat = { path = "../adapteros-chat" }
 adapteros-api-types = { path = "../adapteros-api-types" }
 adapteros-boot = { path = "../adapteros-boot" }
 adapteros-model-server = { path = "../adapteros-model-server", optional = true }

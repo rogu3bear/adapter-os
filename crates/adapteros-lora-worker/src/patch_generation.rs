@@ -150,9 +150,9 @@ impl<K: FusedKernels + crate::StrictnessControl + Send + Sync + 'static> Worker<
         };
         use crate::patch_validator::{CodePolicy, PatchValidator};
 
-        // Guardrail: Acquire resource permit
+        // Guardrail: Acquire inference-specific resource permit
         let limiter = self.resource_limiter.clone();
-        let _permit = limiter.acquire_request().await?;
+        let _permit = limiter.acquire_inference().await?;
 
         info!(
             "Generating patch proposal for: {}",
