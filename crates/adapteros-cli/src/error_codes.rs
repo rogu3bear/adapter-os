@@ -1106,6 +1106,45 @@ impl From<&adapteros_core::AosError> for ExitCode {
             AosError::Platform(_) => ExitCode::Platform,
             AosError::AdapterNotInManifest { .. } => ExitCode::Validation,
             AosError::AdapterNotInEffectiveSet { .. } => ExitCode::Validation,
+
+            // Resource exhaustion errors
+            AosError::OutOfMemory { .. } => ExitCode::ResourceExhaustion,
+            AosError::DiskFull { .. } => ExitCode::ResourceExhaustion,
+            AosError::FileDescriptorExhausted { .. } => ExitCode::ResourceExhaustion,
+            AosError::ThreadPoolSaturated { .. } => ExitCode::ResourceExhaustion,
+            AosError::CpuThrottled { .. } => ExitCode::ResourceExhaustion,
+            AosError::QuotaExceeded { .. } => ExitCode::ResourceExhaustion,
+            AosError::GpuUnavailable { .. } => ExitCode::Unavailable,
+
+            // Cache errors
+            AosError::CacheBudgetExceeded { .. } => ExitCode::Memory,
+            AosError::CacheEntryPinned { .. } => ExitCode::Memory,
+            AosError::CacheEntryActive { .. } => ExitCode::Memory,
+            AosError::CacheEntryNotFound { .. } => ExitCode::NotFound,
+
+            // Integrity errors
+            AosError::IntegrityViolation(_) => ExitCode::Verification,
+            AosError::CheckpointIntegrity(_) => ExitCode::Verification,
+            AosError::DualWriteInconsistency { .. } => ExitCode::Database,
+
+            // Permission/Conflict
+            AosError::PermissionDenied { .. } => ExitCode::Auth,
+            AosError::Conflict(_) => ExitCode::Validation,
+
+            // CoreML-specific errors
+            AosError::CoreMLUnsupportedOps { .. } => ExitCode::CoreML,
+            AosError::CoreMLMissingWeights { .. } => ExitCode::CoreML,
+            AosError::CoreMLExportPathExists { .. } => ExitCode::CoreML,
+            AosError::CoreMLExportTimeout { .. } => ExitCode::Timeout,
+
+            // Other specific errors
+            AosError::LoraShapeMismatch { .. } => ExitCode::Validation,
+            AosError::PreflightFailed(_) => ExitCode::Validation,
+            AosError::ReasoningLoop(_) => ExitCode::InternalError,
+            AosError::InvalidPathCharacters { .. } => ExitCode::Validation,
+            AosError::TempDirUnavailable { .. } => ExitCode::Io,
+            AosError::WatcherEventsDropped { .. } => ExitCode::InternalError,
+
             _ => ExitCode::Other,
         }
     }

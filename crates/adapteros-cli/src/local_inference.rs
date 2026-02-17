@@ -254,19 +254,21 @@ impl LocalInferenceEngine {
         ))
     }
 
-    /// Apply chat template to a prompt
-    #[cfg(feature = "multi-backend")]
+    /// Apply chat template to a prompt using model-aware template engine.
+    ///
+    /// Wraps the raw prompt in a single user message and applies the model's
+    /// chat template. Detects model family from the model config environment.
     pub fn apply_chat_template(&self, prompt: &str) -> String {
-        self.tokenizer.apply_chat_template(prompt)
-    }
-
-    #[cfg(not(feature = "multi-backend"))]
-    pub fn apply_chat_template(&self, prompt: &str) -> String {
-        // Simple fallback template when MLX is not available
-        format!(
-            "<|im_start|>system\nYou are a helpful assistant.<|im_end|>\n<|im_start|>user\n{}<|im_end|>\n<|im_start|>assistant\n",
-            prompt
-        )
+        let model_config = adapteros_config::ModelConfig::from_env().unwrap_or_default();
+        let engine = adapteros_chat::ChatTemplateEngine::from_architecture(
+            &model_config.architecture,
+            model_config.vocab_size,
+        );
+        let messages = vec![
+            adapteros_chat::Message::system("You are a helpful assistant."),
+            adapteros_chat::Message::user(prompt),
+        ];
+        engine.apply(&messages)
     }
 }
 

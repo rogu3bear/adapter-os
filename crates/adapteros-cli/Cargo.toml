@@ -26,6 +26,7 @@ adapteros-policy = { path = "../adapteros-policy" }
 adapteros-db = { path = "../adapteros-db" }
 adapteros-client = { path = "../adapteros-client" }
 adapteros-types = { path = "../adapteros-types" }
+adapteros-chat = { path = "../adapteros-chat" }
 # adapteros-server = { path = "../adapteros-server" }  # Temporarily disabled
 adapteros-api-types = { path = "../adapteros-api-types" }
 adapteros-api = { path = "../adapteros-api" }
