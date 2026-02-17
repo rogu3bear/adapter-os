@@ -1,7 +1,6 @@
 //! UI profile configuration state.
 
 use super::settings::use_settings;
-use crate::api::ApiClient;
 use crate::boot_log;
 use adapteros_api_types::UiProfile;
 use leptos::prelude::*;
@@ -30,8 +29,8 @@ pub fn provide_ui_profile_context() {
     let state = RwSignal::new(UiProfileState::new());
     provide_context(state);
 
+    let client = crate::api::use_api_client();
     wasm_bindgen_futures::spawn_local(async move {
-        let client = ApiClient::new();
         match client.get_ui_config().await {
             Ok(resp) => {
                 crate::constants::urls::set_runtime_docs_url(&resp.docs_url);
@@ -49,12 +48,9 @@ pub fn provide_ui_profile_context() {
     });
 }
 
-/// Access UI profile context (creates it if missing).
+/// Access UI profile context.
 pub fn use_ui_profile_state() -> UiProfileContext {
-    use_context::<UiProfileContext>().unwrap_or_else(|| {
-        provide_ui_profile_context();
-        use_context::<UiProfileContext>().unwrap_or_else(|| RwSignal::new(UiProfileState::new()))
-    })
+    expect_context::<UiProfileContext>()
 }
 
 /// Effective UI profile (runtime config overridden by local settings when set).

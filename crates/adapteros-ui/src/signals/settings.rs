@@ -251,11 +251,7 @@ pub fn provide_settings_context() {
 
 /// Use settings context
 pub fn use_settings() -> SettingsContext {
-    use_context::<SettingsContext>().unwrap_or_else(|| {
-        let settings = RwSignal::new(UserSettings::load());
-        provide_context(settings);
-        settings
-    })
+    expect_context::<SettingsContext>()
 }
 
 /// Whether perf logging is enabled for UI-only diagnostics.

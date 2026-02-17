@@ -24,7 +24,7 @@
 //! />
 //! ```
 
-use crate::api::ApiClient;
+use crate::api::use_api_client;
 use crate::components::{
     Button, ButtonSize, ButtonVariant, LifecycleTransitionDialog, LifecycleTransitionInfo,
 };
@@ -85,7 +85,7 @@ pub fn AdapterLifecycleControls(
     let notifications = use_notifications();
 
     // Create API client
-    let client = Arc::new(ApiClient::new());
+    let client = use_api_client();
 
     // Get valid transitions for current state
     let transitions = valid_transitions(&current_state);

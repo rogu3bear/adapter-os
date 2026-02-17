@@ -15,7 +15,7 @@ pub use use_sse_notifications::use_sse_notifications;
 
 #[cfg(target_arch = "wasm32")]
 use crate::api::report_error;
-use crate::api::{ApiClient, ApiError, ApiResult};
+use crate::api::{use_api_client, ApiClient, ApiError, ApiResult};
 use leptos::prelude::*;
 use std::sync::atomic::{AtomicBool, Ordering};
 use std::sync::Arc;
@@ -79,6 +79,10 @@ pub fn cache_invalidate(key: &str) {
         cache.borrow_mut().remove(key);
     });
 }
+
+/// No-op stub for non-WASM targets so callers can use `cache_invalidate` unconditionally.
+#[cfg(not(target_arch = "wasm32"))]
+pub fn cache_invalidate(_key: &str) {}
 
 // ---------------------------------------------------------------------------
 // Refetch — a scope-safe handle for re-triggering API resource fetches
@@ -207,7 +211,7 @@ where
     Fut: std::future::Future<Output = ApiResult<T>> + 'static,
 {
     let (state, set_state) = signal(LoadingState::<T>::Idle);
-    let client = Arc::new(ApiClient::new());
+    let client = use_api_client();
     let is_authenticated = client.is_authenticated();
     let fetch_version = Arc::new(std::sync::atomic::AtomicU64::new(0));
 
@@ -342,7 +346,7 @@ where
         };
 
         let (state, set_state) = signal(initial_state);
-        let client = Arc::new(ApiClient::new());
+        let client = use_api_client();
         let is_authenticated = client.is_authenticated();
         let fetch_version = Arc::new(std::sync::atomic::AtomicU64::new(0));
 
@@ -647,9 +651,9 @@ pub fn use_navigate() -> impl Fn(&str) {
     }
 }
 
-/// Get an API client for making requests
+/// Get the shared API client from context, falling back to a fresh instance.
 pub fn use_api() -> Arc<ApiClient> {
-    Arc::new(ApiClient::new())
+    use_context::<Arc<ApiClient>>().unwrap_or_else(|| Arc::new(ApiClient::new()))
 }
 
 /// State for optimistic updates with rollback capability

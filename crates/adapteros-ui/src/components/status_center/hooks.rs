@@ -2,7 +2,7 @@
 //!
 //! Custom hooks for keyboard shortcuts and data fetching.
 
-use crate::api::{ApiClient, ApiError};
+use crate::api::{use_api_client, ApiClient, ApiError};
 use crate::hooks::use_polling;
 use adapteros_api_types::{SystemStateResponse, SystemStatusResponse};
 use leptos::prelude::*;
@@ -146,7 +146,7 @@ impl StatusLoadingState {
 pub fn use_status_data() -> (ReadSignal<StatusLoadingState>, impl Fn() + Clone) {
     let (state, set_state) = signal(StatusLoadingState::Idle);
     let (cached_status, set_cached_status) = signal::<Option<CombinedStatus>>(None);
-    let client = Arc::new(ApiClient::new());
+    let client = use_api_client();
 
     let client_clone = Arc::clone(&client);
     let cached_status_clone = cached_status;
