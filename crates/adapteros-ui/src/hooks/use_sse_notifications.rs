@@ -33,8 +33,11 @@ pub fn use_sse_notifications(state: ReadSignal<SseState>) {
         let mut did_notify = false;
         match current {
             SseState::Connected => {
-                notifications.success("Live updates", "Streaming connection established.");
-                did_notify = true;
+                // Only notify recovery, not initial connection
+                if matches!(previous, SseState::Error | SseState::CircuitOpen) {
+                    notifications.success("Live updates", "Connection recovered.");
+                    did_notify = true;
+                }
             }
             SseState::Error => {
                 notifications.warning("Live updates", "Connection interrupted. Retrying...");

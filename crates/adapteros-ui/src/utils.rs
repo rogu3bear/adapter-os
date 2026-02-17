@@ -258,6 +258,50 @@ pub fn slugify(input: &str) -> String {
     }
 }
 
+/// Title-case a single word: capitalize the first character, lowercase the rest.
+///
+/// # Examples
+///
+/// ```
+/// use adapteros_ui::utils::title_case;
+///
+/// assert_eq!(title_case("running"), "Running");
+/// assert_eq!(title_case("OOM"), "Oom");
+/// assert_eq!(title_case(""), "");
+/// ```
+pub fn title_case(s: &str) -> String {
+    let mut chars = s.chars();
+    match chars.next() {
+        None => String::new(),
+        Some(first) => {
+            let upper: String = first.to_uppercase().collect();
+            let rest: String = chars.flat_map(|c| c.to_lowercase()).collect();
+            format!("{}{}", upper, rest)
+        }
+    }
+}
+
+/// Convert an underscore/hyphen-separated string to human-readable Title Case.
+///
+/// Splits on `_` and `-`, title-cases each word, and joins with spaces.
+///
+/// # Examples
+///
+/// ```
+/// use adapteros_ui::utils::humanize;
+///
+/// assert_eq!(humanize("training_job"), "Training Job");
+/// assert_eq!(humanize("memory_spike"), "Memory Spike");
+/// assert_eq!(humanize("active"), "Active");
+/// assert_eq!(humanize(""), "");
+/// ```
+pub fn humanize(s: &str) -> String {
+    s.split(['_', '-'])
+        .map(title_case)
+        .collect::<Vec<_>>()
+        .join(" ")
+}
+
 /// Generate a random alphanumeric suffix of the specified length.
 ///
 /// Uses a base32-like alphabet (lowercase letters and digits 2-7) to generate
@@ -415,6 +459,44 @@ mod tests {
     fn slugify_preserves_numbers() {
         assert_eq!(slugify("Model v2.1"), "model-v2-1");
         assert_eq!(slugify("test123"), "test123");
+    }
+
+    #[test]
+    fn title_case_basic() {
+        assert_eq!(title_case("running"), "Running");
+        assert_eq!(title_case("active"), "Active");
+        assert_eq!(title_case("OOM"), "Oom");
+    }
+
+    #[test]
+    fn title_case_edge_cases() {
+        assert_eq!(title_case(""), "");
+        assert_eq!(title_case("a"), "A");
+        assert_eq!(title_case("A"), "A");
+    }
+
+    #[test]
+    fn humanize_underscore_separated() {
+        assert_eq!(humanize("training_job"), "Training Job");
+        assert_eq!(humanize("memory_spike"), "Memory Spike");
+        assert_eq!(humanize("latency_degradation"), "Latency Degradation");
+    }
+
+    #[test]
+    fn humanize_single_word() {
+        assert_eq!(humanize("active"), "Active");
+        assert_eq!(humanize("admin"), "Admin");
+    }
+
+    #[test]
+    fn humanize_hyphenated() {
+        assert_eq!(humanize("api-keys"), "Api Keys");
+        assert_eq!(humanize("needs-approval"), "Needs Approval");
+    }
+
+    #[test]
+    fn humanize_empty() {
+        assert_eq!(humanize(""), "");
     }
 
     // Note: format_relative_time, random_suffix, generate_readable_id, and copy_to_clipboard

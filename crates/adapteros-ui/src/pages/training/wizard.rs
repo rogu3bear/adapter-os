@@ -1069,7 +1069,7 @@ fn ModelStepContent(
     category: RwSignal<String>,
     form_errors: RwSignal<FormErrors>,
     /// Models resource fetched by the parent — survives step transitions.
-    models: Signal<LoadingState<ModelListResponse>>,
+    models: ReadSignal<LoadingState<ModelListResponse>>,
     /// Refetch handle for the models resource.
     refetch_models: Refetch,
     /// "Enter model ID manually" toggle — survives step transitions.
