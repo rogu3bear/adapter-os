@@ -27,13 +27,16 @@ pub fn Reviews() -> impl IntoView {
         "/v1/stream/reviews",
         &["reviews"],
         move |event| {
-            stream_queue.set(Some(event.paused));
+            let _ = stream_queue.try_set(Some(event.paused));
         },
     );
 
     // Polling fallback: only refetch when SSE is not healthy/connected.
     let _cancel_polling = use_polling(10_000, move || async move {
-        if is_polling_fallback_active(sse_status.get_untracked()) {
+        let Some(state) = sse_status.try_get_untracked() else {
+            return;
+        };
+        if is_polling_fallback_active(state) {
             refetch.run(());
         }
     });

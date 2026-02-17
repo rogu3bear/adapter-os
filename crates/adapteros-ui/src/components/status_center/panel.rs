@@ -436,7 +436,7 @@ fn StatusCenterSections(
                     <StatusItem
                         label="Active Model"
                         value=m.model_id.clone().unwrap_or_else(|| "None".to_string())
-                        severity=if m.status == "loaded" { StatusItemSeverity::Success } else { StatusItemSeverity::Warning }
+                        severity=if m.status == "ready" || m.status == "loaded" { StatusItemSeverity::Success } else { StatusItemSeverity::Warning }
                         detail=format!("Status: {}", m.status)
                     />
                 }
