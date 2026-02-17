@@ -15,7 +15,7 @@
 //! - **Metrics**: Live training metrics and loss curve (running jobs only)
 //! - **Logs**: Live log viewer (running jobs only)
 
-use crate::api::ApiClient;
+use crate::api::use_api_client;
 use crate::components::{
     Button, ButtonLink, ButtonSize, ButtonVariant, Card, ConfirmationDialog, ConfirmationSeverity,
     DetailRow, ErrorDisplay, Link, Spinner, TabButton, TabPanel,
@@ -25,7 +25,6 @@ use crate::signals::{use_notifications, use_refetch};
 use crate::utils::chat_path_with_adapter;
 use adapteros_api_types::TrainingJobResponse;
 use leptos::prelude::*;
-use std::sync::Arc;
 
 use super::components::{CoremlBadges, JobStatusBadge, ProgressBar};
 use super::state::CoremlState;
@@ -51,6 +50,7 @@ pub fn TrainingJobDetail(
     return_to: Option<String>,
 ) -> impl IntoView {
     let job_id_for_fetch = job_id.clone();
+    let client = use_api_client();
 
     // Global refetch context for triggering adapter/stack list refresh
     let refetch_action = use_refetch();
@@ -133,13 +133,14 @@ pub fn TrainingJobDetail(
     // Create the cancel callback outside the reactive closure
     let cancel_callback = {
         let notifications = notifications.clone();
+        let client = client.clone();
         Callback::new(move |_| {
             let job_id = job_id_for_cancel.clone();
             let notifications = notifications.clone();
+            let client = client.clone();
             cancelling.set(true);
 
             wasm_bindgen_futures::spawn_local(async move {
-                let client = ApiClient::new();
                 match client.cancel_training_job(&job_id).await {
                     Ok(_) => {
                         show_cancel_confirm.set(false);
@@ -390,29 +391,21 @@ pub fn JobDetailContent(
                         </div>
                     })}
 
-                    // Retry banner for failed/cancelled jobs
+                    // Retry / resume banner for failed/cancelled jobs
                     {is_failed.then(|| {
                         let retry_href = if let Some(ref ds_id) = job.dataset_id {
                             format!("/training?dataset_id={}&open_wizard=1", ds_id)
                         } else {
                             "/training?open_wizard=1".to_string()
                         };
+                        let job_id_for_resume = job.id.clone();
+                        let checkpoint_epoch = job.current_epoch.unwrap_or(0);
                         view! {
-                            <div class="rounded-lg border border-muted bg-muted/30 p-4 mt-4">
-                                <div class="flex items-center justify-between">
-                                    <div>
-                                        <p class="text-sm font-medium">"Retry this training?"</p>
-                                        <p class="text-xs text-muted-foreground">"Create a new job with the same dataset."</p>
-                                    </div>
-                                    <ButtonLink
-                                        href=retry_href
-                                        variant=ButtonVariant::Primary
-                                        size=ButtonSize::Sm
-                                    >
-                                        "Retry with same config"
-                                    </ButtonLink>
-                                </div>
-                            </div>
+                            <FailedJobActions
+                                job_id=job_id_for_resume
+                                checkpoint_epoch=checkpoint_epoch
+                                retry_href=retry_href
+                            />
                         }
                     })}
 
@@ -578,6 +571,134 @@ pub fn JobDetailContent(
             on_cancel=on_cancel_dismiss
             loading=Signal::derive(move || cancelling.try_get().unwrap_or(false))
         />
+    }
+}
+
+// =============================================================================
+// Failed Job Actions (Retry / Resume from Checkpoint)
+// =============================================================================
+
+/// Actions banner for failed/cancelled jobs with checkpoint awareness.
+///
+/// Probes the checkpoint verify endpoint to determine if a checkpoint exists
+/// for the given job. If found, shows "Resume from Checkpoint" alongside
+/// the regular "Retry" link.
+#[component]
+fn FailedJobActions(job_id: String, checkpoint_epoch: u32, retry_href: String) -> impl IntoView {
+    let has_checkpoint = RwSignal::new(false);
+    let resuming = RwSignal::new(false);
+    let notifications = use_notifications();
+    let client = use_api_client();
+
+    // Probe for checkpoint if the job made progress (epoch > 0)
+    if checkpoint_epoch > 0 {
+        let job_id_probe = job_id.clone();
+        let probe_epoch = checkpoint_epoch.saturating_sub(1);
+        let client = client.clone();
+        Effect::new(move |_| {
+            let job_id = job_id_probe.clone();
+            let client = client.clone();
+            gloo_timers::callback::Timeout::new(0, move || {
+                wasm_bindgen_futures::spawn_local(async move {
+                    if let Ok(Some(_)) = client.check_job_checkpoint(&job_id, probe_epoch).await {
+                        let _ = has_checkpoint.try_set(true);
+                    }
+                });
+            })
+            .forget();
+        });
+    }
+
+    // Resume handler: calls the retry endpoint (which reuses config + existing checkpoints)
+    let job_id_for_resume = job_id.clone();
+    let resume_callback = {
+        let notifications = notifications.clone();
+        let client = client.clone();
+        Callback::new(move |_: ()| {
+            let job_id = job_id_for_resume.clone();
+            let notifications = notifications.clone();
+            let client = client.clone();
+            resuming.set(true);
+
+            wasm_bindgen_futures::spawn_local(async move {
+                match client.retry_training_job(&job_id).await {
+                    Ok(new_job) => {
+                        notifications.success(
+                            "Resuming training",
+                            &format!("New job {} created from checkpoint", new_job.id),
+                        );
+                        // Navigate to the new job
+                        let href = format!("/training/{}", new_job.id);
+                        if let Some(window) = web_sys::window() {
+                            let _ = window.location().set_href(&href);
+                        }
+                    }
+                    Err(e) => {
+                        notifications.error("Resume failed", &e.user_message());
+                    }
+                }
+                let _ = resuming.try_set(false);
+            });
+        })
+    };
+
+    let is_resuming = Signal::derive(move || resuming.try_get().unwrap_or(false));
+
+    view! {
+        <div class="rounded-lg border border-muted bg-muted/30 p-4 mt-4">
+            <div class="flex items-start justify-between gap-4">
+                <div>
+                    <p class="text-sm font-medium">"Retry this training?"</p>
+                    <Show
+                        when=move || has_checkpoint.try_get().unwrap_or(false)
+                        fallback=|| view! {
+                            <p class="text-xs text-muted-foreground">"Create a new job with the same dataset."</p>
+                        }
+                    >
+                        <p class="text-xs text-muted-foreground">
+                            {format!("Checkpoint available at epoch {}. Resume to continue from where training stopped.", checkpoint_epoch.saturating_sub(1))}
+                        </p>
+                    </Show>
+                </div>
+                <div class="flex items-center gap-2 shrink-0">
+                    <Show
+                        when=move || has_checkpoint.try_get().unwrap_or(false)
+                        fallback=|| ()
+                    >
+                        <Button
+                            variant=ButtonVariant::Primary
+                            size=ButtonSize::Sm
+                            on_click=Callback::new(move |_| resume_callback.run(()))
+                            loading=is_resuming
+                            disabled=is_resuming
+                        >
+                            <svg
+                                xmlns="http://www.w3.org/2000/svg"
+                                width="14"
+                                height="14"
+                                viewBox="0 0 24 24"
+                                fill="none"
+                                stroke="currentColor"
+                                stroke-width="2"
+                                stroke-linecap="round"
+                                stroke-linejoin="round"
+                                class="mr-1.5"
+                            >
+                                <polygon points="5 3 19 12 5 21 5 3"/>
+                            </svg>
+                            {move || if resuming.try_get().unwrap_or(false) { "Resuming..." } else { "Resume from checkpoint" }}
+                        </Button>
+                    </Show>
+                    <ButtonLink
+                        href=retry_href.clone()
+                        variant=ButtonVariant::Secondary
+                        size=ButtonSize::Sm
+                    >
+                        "Retry from scratch"
+                    </ButtonLink>
+                </div>
+            </div>
+        </div>
     }
 }
 
@@ -857,46 +978,52 @@ fn MetricsTabContent(
 /// Log viewer component - fetches real training logs from API
 #[component]
 pub fn LogViewer(job_id: String) -> impl IntoView {
-    use crate::api::ApiClient;
     use crate::hooks::use_polling;
 
+    let client = use_api_client();
     let logs: RwSignal<Vec<String>> = RwSignal::new(vec![]);
     let loading = RwSignal::new(true);
     let error: RwSignal<Option<String>> = RwSignal::new(None);
 
     // Initial fetch
     let job_id_clone = job_id.clone();
-    Effect::new(move |_| {
-        let job_id = job_id_clone.clone();
-        gloo_timers::callback::Timeout::new(0, move || {
-            wasm_bindgen_futures::spawn_local(async move {
-                let client = ApiClient::new();
-                match client.get_training_logs(&job_id).await {
-                    Ok(log_lines) => {
-                        let _ = logs.try_set(log_lines);
-                        let _ = error.try_set(None);
+    {
+        let client = client.clone();
+        Effect::new(move |_| {
+            let job_id = job_id_clone.clone();
+            let client = client.clone();
+            gloo_timers::callback::Timeout::new(0, move || {
+                wasm_bindgen_futures::spawn_local(async move {
+                    match client.get_training_logs(&job_id).await {
+                        Ok(log_lines) => {
+                            let _ = logs.try_set(log_lines);
+                            let _ = error.try_set(None);
+                        }
+                        Err(e) => {
+                            let _ = error.try_set(Some(e.user_message()));
+                        }
                     }
-                    Err(e) => {
-                        let _ = error.try_set(Some(e.user_message()));
-                    }
-                }
-                let _ = loading.try_set(false);
-            });
-        })
-        .forget();
-    });
+                    let _ = loading.try_set(false);
+                });
+            })
+            .forget();
+        });
+    }
 
     // Poll for updates every 3 seconds
     let job_id_poll = job_id.clone();
-    let _ = use_polling(3_000, move || {
-        let job_id = job_id_poll.clone();
-        async move {
-            let client = ApiClient::new();
-            if let Ok(log_lines) = client.get_training_logs(&job_id).await {
-                let _ = logs.try_set(log_lines);
+    {
+        let client = client.clone();
+        let _ = use_polling(3_000, move || {
+            let job_id = job_id_poll.clone();
+            let client = client.clone();
+            async move {
+                if let Ok(log_lines) = client.get_training_logs(&job_id).await {
+                    let _ = logs.try_set(log_lines);
+                }
             }
-        }
-    });
+        });
+    }
 
     view! {
         <div class="h-48 overflow-auto bg-muted rounded-md p-3 font-mono text-xs text-status-success">
@@ -933,47 +1060,53 @@ pub fn LogViewer(job_id: String) -> impl IntoView {
 /// Metrics chart component - displays training loss curve
 #[component]
 pub fn MetricsChart(job_id: String) -> impl IntoView {
-    use crate::api::ApiClient;
     use crate::hooks::use_polling;
     use adapteros_api_types::TrainingMetricEntry;
 
+    let client = use_api_client();
     let metrics: RwSignal<Vec<TrainingMetricEntry>> = RwSignal::new(vec![]);
     let loading = RwSignal::new(true);
     let error: RwSignal<Option<String>> = RwSignal::new(None);
 
     // Initial fetch
     let job_id_clone = job_id.clone();
-    Effect::new(move |_| {
-        let job_id = job_id_clone.clone();
-        gloo_timers::callback::Timeout::new(0, move || {
-            wasm_bindgen_futures::spawn_local(async move {
-                let client = ApiClient::new();
-                match client.get_training_metrics(&job_id).await {
-                    Ok(response) => {
-                        let _ = metrics.try_set(response.metrics);
-                        let _ = error.try_set(None);
+    {
+        let client = client.clone();
+        Effect::new(move |_| {
+            let job_id = job_id_clone.clone();
+            let client = client.clone();
+            gloo_timers::callback::Timeout::new(0, move || {
+                wasm_bindgen_futures::spawn_local(async move {
+                    match client.get_training_metrics(&job_id).await {
+                        Ok(response) => {
+                            let _ = metrics.try_set(response.metrics);
+                            let _ = error.try_set(None);
+                        }
+                        Err(e) => {
+                            let _ = error.try_set(Some(e.user_message()));
+                        }
                     }
-                    Err(e) => {
-                        let _ = error.try_set(Some(e.user_message()));
-                    }
-                }
-                let _ = loading.try_set(false);
-            });
-        })
-        .forget();
-    });
+                    let _ = loading.try_set(false);
+                });
+            })
+            .forget();
+        });
+    }
 
     // Poll for updates every 3 seconds
     let job_id_poll = job_id.clone();
-    let _ = use_polling(3_000, move || {
-        let job_id = job_id_poll.clone();
-        async move {
-            let client = ApiClient::new();
-            if let Ok(response) = client.get_training_metrics(&job_id).await {
-                let _ = metrics.try_set(response.metrics);
+    {
+        let client = client.clone();
+        let _ = use_polling(3_000, move || {
+            let job_id = job_id_poll.clone();
+            let client = client.clone();
+            async move {
+                if let Ok(response) = client.get_training_metrics(&job_id).await {
+                    let _ = metrics.try_set(response.metrics);
+                }
             }
-        }
-    });
+        });
+    }
 
     view! {
         <div class="space-y-4">
