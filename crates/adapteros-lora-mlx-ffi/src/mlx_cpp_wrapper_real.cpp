@@ -6,6 +6,7 @@
 #include <cstring>
 #include <fstream>
 #include <iostream>
+#include <optional>
 
 // Only compile with real MLX if MLX_REAL is defined (set by build.rs)
 #ifdef MLX_REAL
@@ -2649,9 +2650,10 @@ extern "C" void mlx_zero_grad(mlx_array_t **grads, int num_grads) {
 // ============================================================================
 
 /// Per-layer KV cache storing key and value tensors
+/// Uses std::optional to allow delayed initialization (MLX arrays have no default constructor)
 struct KVCacheLayer {
-  mx::array keys;    // Cached keys: [batch, heads, seq_len, head_dim]
-  mx::array values;  // Cached values: [batch, heads, seq_len, head_dim]
+  std::optional<mx::array> keys;    // Cached keys: [batch, heads, seq_len, head_dim]
+  std::optional<mx::array> values;  // Cached values: [batch, heads, seq_len, head_dim]
   bool has_cache = false;
 };
 
@@ -2663,10 +2665,9 @@ struct mlx_kv_cache {
   int head_dim;
   int max_seq_len;
   int current_seq_len;
-  
+
   mlx_kv_cache(int nl, int nh, int hd, int max_len)
-    : num_layers(nl), num_heads(nh), head_dim(hd), max_seq_len(max_len), current_seq_len(0) {
-    layers.resize(nl);
+    : layers(nl), num_layers(nl), num_heads(nh), head_dim(hd), max_seq_len(max_len), current_seq_len(0) {
   }
 };
 
@@ -2699,28 +2700,28 @@ extern "C" int mlx_kv_cache_update(mlx_kv_cache_t* cache, int layer_idx, mlx_arr
     auto* values_wrapper = reinterpret_cast<MLXArrayWrapper*>(values);
     
     auto& layer = kv_cache->layers[layer_idx];
-    
-    if (layer.has_cache) {
+
+    if (layer.has_cache && layer.keys.has_value() && layer.values.has_value()) {
       // Concatenate with existing cache along sequence dimension (dim 2)
-      layer.keys = mx::concatenate({layer.keys, keys_wrapper->arr}, 2);
-      layer.values = mx::concatenate({layer.values, values_wrapper->arr}, 2);
+      layer.keys = mx::concatenate({*layer.keys, keys_wrapper->arr}, 2);
+      layer.values = mx::concatenate({*layer.values, values_wrapper->arr}, 2);
     } else {
       // First time - store directly
-      layer.keys = keys_wrapper->arr;
-      layer.values = values_wrapper->arr;
+      layer.keys = std::optional<mx::array>(keys_wrapper->arr);
+      layer.values = std::optional<mx::array>(values_wrapper->arr);
       layer.has_cache = true;
     }
-    
+
     // Update sequence length tracking
-    kv_cache->current_seq_len = layer.keys.shape(2);
-    
+    kv_cache->current_seq_len = layer.keys->shape(2);
+
     // Trim if exceeds max sequence length
     if (kv_cache->current_seq_len > kv_cache->max_seq_len) {
       int trim_amount = kv_cache->current_seq_len - kv_cache->max_seq_len;
-      layer.keys = mx::slice(layer.keys, {0, 0, trim_amount, 0}, 
-                             {layer.keys.shape(0), layer.keys.shape(1), kv_cache->current_seq_len, layer.keys.shape(3)});
-      layer.values = mx::slice(layer.values, {0, 0, trim_amount, 0},
-                               {layer.values.shape(0), layer.values.shape(1), kv_cache->current_seq_len, layer.values.shape(3)});
+      layer.keys = mx::slice(*layer.keys, {0, 0, trim_amount, 0},
+                             {layer.keys->shape(0), layer.keys->shape(1), kv_cache->current_seq_len, layer.keys->shape(3)});
+      layer.values = mx::slice(*layer.values, {0, 0, trim_amount, 0},
+                               {layer.values->shape(0), layer.values->shape(1), kv_cache->current_seq_len, layer.values->shape(3)});
       kv_cache->current_seq_len = kv_cache->max_seq_len;
     }
     
@@ -2740,9 +2741,9 @@ extern "C" mlx_array_t* mlx_kv_cache_get_keys(mlx_kv_cache_t* cache, int layer_i
     if (layer_idx < 0 || layer_idx >= kv_cache->num_layers) return nullptr;
     
     auto& layer = kv_cache->layers[layer_idx];
-    if (!layer.has_cache) return nullptr;
-    
-    return reinterpret_cast<mlx_array_t*>(new MLXArrayWrapper(layer.keys));
+    if (!layer.has_cache || !layer.keys.has_value()) return nullptr;
+
+    return reinterpret_cast<mlx_array_t*>(new MLXArrayWrapper(*layer.keys));
   } catch (const std::exception& e) {
     g_last_error = std::string("Failed to get cached keys: ") + e.what();
     return nullptr;
@@ -2752,15 +2753,15 @@ extern "C" mlx_array_t* mlx_kv_cache_get_keys(mlx_kv_cache_t* cache, int layer_i
 /// Get cached values for a layer
 extern "C" mlx_array_t* mlx_kv_cache_get_values(mlx_kv_cache_t* cache, int layer_idx) {
   if (!cache) return nullptr;
-  
+
   try {
     auto* kv_cache = reinterpret_cast<mlx_kv_cache*>(cache);
     if (layer_idx < 0 || layer_idx >= kv_cache->num_layers) return nullptr;
-    
+
     auto& layer = kv_cache->layers[layer_idx];
-    if (!layer.has_cache) return nullptr;
-    
-    return reinterpret_cast<mlx_array_t*>(new MLXArrayWrapper(layer.values));
+    if (!layer.has_cache || !layer.values.has_value()) return nullptr;
+
+    return reinterpret_cast<mlx_array_t*>(new MLXArrayWrapper(*layer.values));
   } catch (const std::exception& e) {
     g_last_error = std::string("Failed to get cached values: ") + e.what();
     return nullptr;
@@ -2988,43 +2989,44 @@ extern "C" mlx_array_t* mlx_model_forward_with_cache(
       }();
       
       // Self-attention with optional KV cache
-      mx::array attn_output;
-      if (use_cache) {
-        mx::array cached_k, cached_v;
-        mx::array* cached_k_ptr = nullptr;
-        mx::array* cached_v_ptr = nullptr;
-        
-        // Retrieve cached K/V if available
-        auto* cache = reinterpret_cast<mlx_kv_cache*>(kv_cache);
-        if (layer_idx < cache->num_layers && cache->layers[layer_idx].has_cache) {
-          cached_k = cache->layers[layer_idx].keys;
-          cached_v = cache->layers[layer_idx].values;
-          cached_k_ptr = &cached_k;
-          cached_v_ptr = &cached_v;
+      mx::array attn_output = [&]() -> mx::array {
+        if (use_cache) {
+          // Retrieve cached K/V if available
+          auto* cache = reinterpret_cast<mlx_kv_cache*>(kv_cache);
+          bool has_cached = (layer_idx < cache->num_layers && cache->layers[layer_idx].has_cache);
+          
+          mx::array new_k = mx::zeros({1});
+          mx::array new_v = mx::zeros({1});
+          mx::array result = self_attention_with_cache(
+            normed, prefix, position_offset,
+            has_cached ? &*cache->layers[layer_idx].keys : nullptr,
+            has_cached ? &*cache->layers[layer_idx].values : nullptr,
+            &new_k, &new_v,
+            model_wrapper->num_attention_heads,
+            model_wrapper->num_key_value_heads,
+            model_wrapper->head_dim,
+            model_wrapper->weights
+          );
+
+          // Update cache with new K/V
+          if (layer_idx < cache->num_layers) {
+            cache->layers[layer_idx].keys = std::optional<mx::array>(new_k);
+            cache->layers[layer_idx].values = std::optional<mx::array>(new_v);
+            cache->layers[layer_idx].has_cache = true;
+            cache->current_seq_len = new_k.shape(2);
+          }
+          return result;
+        } else {
+          // No cache - use regular attention (recompute from scratch)
+          // This is the original path for backward compatibility
+          auto it = model_wrapper->weights.find(prefix + ".self_attn.o_proj.weight");
+          if (it != model_wrapper->weights.end()) {
+            return mx::matmul(normed, mx::transpose(it->second));
+          }
+          // If weight not found, return zeros (shouldn't happen in practice)
+          return mx::zeros_like(normed);
         }
-        
-        mx::array new_k, new_v;
-        attn_output = self_attention_with_cache(
-          normed, prefix, position_offset,
-          cached_k_ptr, cached_v_ptr, &new_k, &new_v,
-          model_wrapper->num_attention_heads,
-          model_wrapper->num_key_value_heads,
-          model_wrapper->head_dim,
-          model_wrapper->weights
-        );
-        
-        // Update cache with new K/V
-        if (layer_idx < cache->num_layers) {
-          cache->layers[layer_idx].keys = new_k;
-          cache->layers[layer_idx].values = new_v;
-          cache->layers[layer_idx].has_cache = true;
-          cache->current_seq_len = new_k.shape(2);
-        }
-      } else {
-        // No cache - use regular attention (recompute from scratch)
-        // This is the original path for backward compatibility
-        attn_output = mx::matmul(normed, mx::transpose(model_wrapper->weights[prefix + ".self_attn.o_proj.weight"]));
-      }
+      }();
       
       // Residual
       hidden = hidden + attn_output;
@@ -3038,10 +3040,14 @@ extern "C" mlx_array_t* mlx_model_forward_with_cache(
         }();
         
         // MLP forward
-        mx::array mlp_output = mx::matmul(post_normed, mx::transpose(model_wrapper->weights[prefix + ".mlp.up_proj.weight"]));
-        mlp_output = mx::multiply(mlp_output, mx::sigmoid(mlp_output));  // SwiGLU approx
-        mlp_output = mx::matmul(mlp_output, mx::transpose(model_wrapper->weights[prefix + ".mlp.down_proj.weight"]));
-        hidden = hidden + mlp_output;
+        auto up_it = model_wrapper->weights.find(prefix + ".mlp.up_proj.weight");
+        auto down_it = model_wrapper->weights.find(prefix + ".mlp.down_proj.weight");
+        if (up_it != model_wrapper->weights.end() && down_it != model_wrapper->weights.end()) {
+          mx::array mlp_output = mx::matmul(post_normed, mx::transpose(up_it->second));
+          mlp_output = mx::multiply(mlp_output, mx::sigmoid(mlp_output));  // SwiGLU approx
+          mlp_output = mx::matmul(mlp_output, mx::transpose(down_it->second));
+          hidden = hidden + mlp_output;
+        }
       }
     }
     
@@ -3056,7 +3062,9 @@ extern "C" mlx_array_t* mlx_model_forward_with_cache(
     mx::array lm_head = [&]() -> mx::array {
       auto it = model_wrapper->weights.find("lm_head.weight");
       if (it != model_wrapper->weights.end()) return it->second;
-      return model_wrapper->weights["model.embed_tokens.weight"];
+      auto embed_it = model_wrapper->weights.find("model.embed_tokens.weight");
+      if (embed_it != model_wrapper->weights.end()) return embed_it->second;
+      throw std::runtime_error("LM head weights not found");
     }();
     
     mx::array logits = mx::matmul(hidden, mx::transpose(lm_head));

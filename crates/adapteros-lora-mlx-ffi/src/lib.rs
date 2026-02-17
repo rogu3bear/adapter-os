@@ -1079,30 +1079,118 @@ impl MLXFFIModel {
     /// # Returns
     /// Logits for next token prediction
     pub fn forward_with_kv_cache(
-        &self,
+        &mut self,
         token_ids: &[u32],
         position: usize,
-        cache: Option<&crate::kv_cache::MLXKVCache>,
+        _cache: Option<&crate::kv_cache::MLXKVCache>,
     ) -> Result<Vec<f32>> {
-        // If no cache or cache is empty, do full forward pass
-        if cache.is_none() || position == 0 {
-            return self.forward(token_ids, position);
+        // Acquire inference lock for thread safety
+        let _guard = self.inference_lock.lock();
+
+        // Initialize KV cache on first call if needed
+        if self.kv_cache.is_none() {
+            // Create C++ KV cache with model dimensions
+            let kv_cache_ptr = unsafe {
+                mlx_kv_cache_new(
+                    self.config.num_hidden_layers as i32,
+                    self.config.num_attention_heads as i32,
+                    (self.config.hidden_size / self.config.num_attention_heads) as i32,
+                    self.config.max_position_embeddings as i32,
+                )
+            };
+
+            if kv_cache_ptr.is_null() {
+                return Err(AosError::Mlx("Failed to create KV cache".to_string()));
+            }
+
+            self.kv_cache = Some(kv_cache_ptr);
+            tracing::debug!(
+                num_layers = self.config.num_hidden_layers,
+                num_heads = self.config.num_attention_heads,
+                head_dim = self.config.hidden_size / self.config.num_attention_heads,
+                "Created C++ KV cache for efficient generation"
+            );
         }
 
-        // For cached generation: only process last token
-        // The KV cache contains previous keys/values
-        let last_token = token_ids.last().copied().unwrap_or(0);
+        // Determine which tokens to process
+        // On first call (position == 0), process full sequence
+        // On subsequent calls, only process new tokens
+        let tokens_to_process: Vec<u32> = if position == 0 {
+            token_ids.to_vec()
+        } else {
+            // For incremental generation, process only the new token(s)
+            // Calculate which tokens haven't been processed yet based on position
+            if position < token_ids.len() {
+                token_ids[position..].to_vec()
+            } else {
+                // All tokens already processed, just return last logits
+                return self.forward(&[token_ids.last().copied().unwrap_or(0)], position);
+            }
+        };
 
-        // Forward with just the last token
-        let logits = self.forward(&[last_token], position)?;
+        if tokens_to_process.is_empty() {
+            return Err(AosError::Validation("No tokens to process".to_string()));
+        }
 
-        // Note: Full KV cache integration would require:
-        // 1. Modifying C++ mlx_model_forward to accept cache
-        // 2. Extracting K/V tensors from each layer
-        // 3. Updating cache with new K/V
-        // For now, this provides the interface; full impl needs C++ changes
+        // Create input array from token IDs
+        let input_array = unsafe {
+            mlx_array_from_uints(tokens_to_process.as_ptr(), tokens_to_process.len() as i32)
+        };
+
+        if input_array.is_null() {
+            return Err(AosError::Mlx("Failed to create input array".to_string()));
+        }
+
+        // Run forward pass with KV cache
+        let output_array = unsafe {
+            mlx_model_forward_with_cache(
+                self.model,
+                input_array,
+                position as i32,
+                self.kv_cache.unwrap(),
+            )
+        };
+
+        // Clean up input array
+        unsafe { mlx_array_free(input_array) };
+
+        if output_array.is_null() {
+            let error = unsafe {
+                std::ffi::CStr::from_ptr(mlx_get_last_error())
+                    .to_string_lossy()
+                    .to_string()
+            };
+            return Err(AosError::Mlx(format!(
+                "Forward with cache failed: {}",
+                error
+            )));
+        }
+
+        // Extract output data
+        let output_size = unsafe { mlx_array_size(output_array) };
+        let output_data = unsafe { mlx_array_data(output_array) };
+
+        if output_data.is_null() || output_size == 0 {
+            unsafe { mlx_array_free(output_array) };
+            return Err(AosError::Mlx("Model returned empty output".to_string()));
+        }
+
+        // Copy logits to Vec
+        let logits: Vec<f32> =
+            unsafe { std::slice::from_raw_parts(output_data, output_size as usize).to_vec() };
+
+        // Clean up output array
+        unsafe { mlx_array_free(output_array) };
 
         Ok(logits)
+    }
+
+    /// Clear the KV cache to free memory
+    pub fn clear_kv_cache(&mut self) {
+        if let Some(cache_ptr) = self.kv_cache.take() {
+            unsafe { mlx_kv_cache_free(cache_ptr) };
+            tracing::debug!("Cleared KV cache");
+        }
     }
 
     /// Generate text from a prompt using FFI
@@ -1259,6 +1347,11 @@ impl Drop for MLXFFIModel {
         if !self.model.is_null() {
             unsafe {
                 mlx_model_free(self.model);
+            }
+        }
+        if let Some(cache_ptr) = self.kv_cache {
+            unsafe {
+                mlx_kv_cache_free(cache_ptr);
             }
         }
     }

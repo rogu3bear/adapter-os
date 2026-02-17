@@ -822,7 +822,7 @@ impl MLXGenerator {
     /// Generated token sequence including prompt
     pub fn generate_with_cache(
         &mut self,
-        model: &crate::MLXFFIModel,
+        model: &mut crate::MLXFFIModel,
         prompt_tokens: Vec<u32>,
     ) -> Result<Vec<u32>> {
         let mut tokens = prompt_tokens.clone();
@@ -978,7 +978,7 @@ impl MLXGenerator {
     /// GenerationResult with tokens and prefix cache metrics
     pub fn generate_with_prefix_cache(
         &mut self,
-        model: &MLXFFIModel,
+        model: &mut MLXFFIModel,
         prompt_tokens: Vec<u32>,
         prefix_tensors: Option<&PrefixKvTensors>,
         prefix_token_count: u32,
