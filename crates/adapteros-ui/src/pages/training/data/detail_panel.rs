@@ -327,7 +327,7 @@ fn DatasetDetail(
                                 </div>
                                 <div class="data-detail-metadata-item">
                                     <dt>"Format"</dt>
-                                    <dd>{ds_format}</dd>
+                                    <dd>{ds_format.to_uppercase()}</dd>
                                 </div>
                                 <div class="data-detail-metadata-item">
                                     <dt>"Size"</dt>

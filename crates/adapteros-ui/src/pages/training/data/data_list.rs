@@ -421,7 +421,7 @@ pub fn DataList(
                                                     {item_format.as_ref().map(|fmt| {
                                                         let f = fmt.clone();
                                                         view! {
-                                                            <span class="data-list-item-format">{f}</span>
+                                                            <span class="data-list-item-format">{f.to_uppercase()}</span>
                                                         }
                                                     })}
                                                     <span class="data-list-item-size">{item_size.clone()}</span>

@@ -1166,6 +1166,16 @@ fn DatasetsTable(
                                     >
                                         {name.clone()}
                                     </button>
+                                    {dataset.description.as_ref().filter(|d| !d.is_empty()).map(|desc| {
+                                        let truncated = if desc.len() > 80 {
+                                            format!("{}...", &desc[..80])
+                                        } else {
+                                            desc.clone()
+                                        };
+                                        view! {
+                                            <div class="text-xs text-muted-foreground truncate max-w-xs">{truncated}</div>
+                                        }
+                                    })}
                                     <div class="text-xs text-muted-foreground font-mono truncate max-w-xs">
                                         {adapteros_id::short_id(&dataset.id)}
                                     </div>
@@ -1195,7 +1205,7 @@ fn DatasetsTable(
                                     }}
                                 </TableCell>
                                 <TableCell>
-                                    <span class="text-sm text-muted-foreground">{dataset.format.clone()}</span>
+                                    <span class="text-sm text-muted-foreground">{dataset.format.to_uppercase()}</span>
                                 </TableCell>
                                 <TableCell>
                                     <span class="text-sm">{size_display}</span>
@@ -1281,6 +1291,7 @@ fn DatasetsCardGrid(
                 let inline_reason = gating.inline_reason.clone();
 
                 let name = dataset.name.clone();
+                let card_description = dataset.description.clone();
                 let created_at = dataset.created_at.clone();
                 let format = dataset.format.clone();
                 let status = dataset.status.clone();
@@ -1323,6 +1334,16 @@ fn DatasetsCardGrid(
                                     >
                                         {name.clone()}
                                     </button>
+                                    {card_description.as_ref().filter(|d| !d.is_empty()).map(|desc| {
+                                        let truncated = if desc.len() > 80 {
+                                            format!("{}...", &desc[..80])
+                                        } else {
+                                            desc.clone()
+                                        };
+                                        view! {
+                                            <div class="text-xs text-muted-foreground truncate">{truncated}</div>
+                                        }
+                                    })}
                                     <div class="text-xs text-muted-foreground">
                                         {format_date(&created_at)} " · " {size_display}
                                     </div>
@@ -1343,7 +1364,7 @@ fn DatasetsCardGrid(
                                     let v = trust_variant.unwrap_or(BadgeVariant::Secondary);
                                     view! { <Badge variant=v>{format!("trust: {}", s)}</Badge> }
                                 })}
-                                <Badge variant=BadgeVariant::Outline>{format.clone()}</Badge>
+                                <Badge variant=BadgeVariant::Outline>{format.to_uppercase()}</Badge>
                             </div>
 
                             <div class="text-xs text-muted-foreground">
@@ -1397,6 +1418,7 @@ enum DatasetDetailTab {
     Preview,
     Issues,
     Versions,
+    Files,
     Details,
 }
 
@@ -1406,6 +1428,7 @@ impl DatasetDetailTab {
             "preview" => Some(Self::Preview),
             "issues" => Some(Self::Issues),
             "versions" => Some(Self::Versions),
+            "files" => Some(Self::Files),
             "details" => Some(Self::Details),
             _ => None,
         }
@@ -1416,6 +1439,7 @@ impl DatasetDetailTab {
             Self::Preview => "preview",
             Self::Issues => "issues",
             Self::Versions => "versions",
+            Self::Files => "files",
             Self::Details => "details",
         }
     }
@@ -1569,6 +1593,17 @@ pub fn DatasetDetail() -> impl IntoView {
         }
     });
 
+    // Files list
+    let (files, files_refetch) = use_api_resource(move |client: Arc<ApiClient>| {
+        let id = dataset_id();
+        async move { client.list_dataset_files(&id).await }
+    });
+
+    // File content preview (loaded on demand when user clicks a file row)
+    let expanded_file_id = RwSignal::new(Option::<String>::None);
+    let file_content = RwSignal::new(Option::<Result<String, String>>::None);
+    let file_content_truncated = RwSignal::new(false);
+
     // If no explicit tab is requested, pick a default based on trainability.
     Effect::new(move |_| {
         if tab_initialized.try_get().unwrap_or(true) {
@@ -1591,6 +1626,7 @@ pub fn DatasetDetail() -> impl IntoView {
     let stats_refetch_stored = StoredValue::new(stats_refetch);
     let versions_refetch_stored = StoredValue::new(versions_refetch);
     let preview_refetch_stored = StoredValue::new(preview_refetch);
+    let files_refetch_stored = StoredValue::new(files_refetch);
 
     Effect::new(move |_| {
         let Some(_) = refetch_trigger.try_get() else {
@@ -1600,6 +1636,7 @@ pub fn DatasetDetail() -> impl IntoView {
         stats_refetch_stored.with_value(|f| f.run(()));
         versions_refetch_stored.with_value(|f| f.run(()));
         preview_refetch_stored.with_value(|f| f.run(()));
+        files_refetch_stored.with_value(|f| f.run(()));
     });
 
     // Refetch preview when the limit changes
@@ -1646,6 +1683,7 @@ pub fn DatasetDetail() -> impl IntoView {
     };
     let detail_delete_for_loading = detail_delete_state;
     let detail_delete_for_button = detail_delete_state;
+    let client_for_files = StoredValue::new(client.clone());
 
     view! {
         <div class="space-y-6">
@@ -1809,6 +1847,7 @@ pub fn DatasetDetail() -> impl IntoView {
                                                 (DatasetDetailTab::Preview, "Preview"),
                                                 (DatasetDetailTab::Issues, "Issues"),
                                                 (DatasetDetailTab::Versions, "Versions"),
+                                                (DatasetDetailTab::Files, "Files"),
                                                 (DatasetDetailTab::Details, "Details"),
                                             ]
                                             active=active_tab
@@ -2087,6 +2126,166 @@ pub fn DatasetDetail() -> impl IntoView {
                                                 _ => None,
                                             }
                                         }}
+                                    </TabPanel>
+
+                                    <TabPanel tab=DatasetDetailTab::Files active=active_tab tab_id="files".to_string() class="pt-4 space-y-4">
+                                        <Card>
+                                            <div class="p-4 space-y-3">
+                                                <div>
+                                                    <h3 class="heading-4">"Files"</h3>
+                                                    <p class="text-sm text-muted-foreground">
+                                                        "Individual files within this dataset. Click a row to preview content."
+                                                    </p>
+                                                </div>
+                                                {move || match files.try_get().unwrap_or(LoadingState::Idle) {
+                                                    LoadingState::Idle | LoadingState::Loading => {
+                                                        view! { <SkeletonTable rows=3 columns=5/> }.into_any()
+                                                    }
+                                                    LoadingState::Loaded(file_list) => {
+                                                        if file_list.is_empty() {
+                                                            view! {
+                                                                <EmptyState
+                                                                    title="No files"
+                                                                    description="This dataset has no individual files, or files are not tracked separately."
+                                                                />
+                                                            }.into_any()
+                                                        } else {
+                                                            let dataset_id_for_files = dataset_id();
+                                                            view! {
+                                                                <Table>
+                                                                    <TableHeader>
+                                                                        <TableRow>
+                                                                            <TableHead>"Name"</TableHead>
+                                                                            <TableHead>"Size"</TableHead>
+                                                                            <TableHead>"MIME Type"</TableHead>
+                                                                            <TableHead>"Created"</TableHead>
+                                                                            <TableHead>"Hash"</TableHead>
+                                                                        </TableRow>
+                                                                    </TableHeader>
+                                                                    <TableBody>
+                                                                        {file_list.into_iter().map(|file| {
+                                                                            let fid = file.file_id.clone();
+                                                                            let fid_for_click = fid.clone();
+                                                                            let fid_for_expand = fid.clone();
+                                                                            let ds_id = dataset_id_for_files.clone();
+                                                                            let hash_short = if file.hash.len() > 10 {
+                                                                                format!("{}...", &file.hash[..10])
+                                                                            } else {
+                                                                                file.hash.clone()
+                                                                            };
+                                                                            let mime = file.mime_type.clone().unwrap_or_else(|| "—".to_string());
+                                                                            let size = format_bytes(file.size_bytes);
+                                                                            let client_for_fetch = client_for_files.get_value();
+                                                                            view! {
+                                                                                <TableRow
+                                                                                    class="cursor-pointer hover:bg-muted/50"
+                                                                                    on:click=move |_| {
+                                                                                        let current = expanded_file_id.get_untracked();
+                                                                                        if current.as_deref() == Some(fid_for_click.as_str()) {
+                                                                                            expanded_file_id.set(None);
+                                                                                            file_content.set(None);
+                                                                                            file_content_truncated.set(false);
+                                                                                        } else {
+                                                                                            expanded_file_id.set(Some(fid_for_click.clone()));
+                                                                                            file_content.set(None);
+                                                                                            file_content_truncated.set(false);
+                                                                                            #[cfg(target_arch = "wasm32")]
+                                                                                            {
+                                                                                            let fid = fid_for_click.clone();
+                                                                                            let ds_id = ds_id.clone();
+                                                                                            let client = Arc::clone(&client_for_fetch);
+                                                                                            wasm_bindgen_futures::spawn_local(async move {
+                                                                                                match client.get_dataset_file_content(&ds_id, &fid).await {
+                                                                                                    Ok(content) => {
+                                                                                                        let lines: Vec<&str> = content.lines().collect();
+                                                                                                        let truncated = lines.len() > 200;
+                                                                                                        let display = if truncated {
+                                                                                                            lines[..200].join("\n")
+                                                                                                        } else {
+                                                                                                            content.clone()
+                                                                                                        };
+                                                                                                        let _ = file_content.try_set(Some(Ok(display)));
+                                                                                                        let _ = file_content_truncated.try_set(truncated);
+                                                                                                    }
+                                                                                                    Err(e) => {
+                                                                                                        let _ = file_content.try_set(Some(Err(e.to_string())));
+                                                                                                    }
+                                                                                                }
+                                                                                            });
+                                                                                            }
+                                                                                        }
+                                                                                    }
+                                                                                >
+                                                                                    <TableCell>
+                                                                                        <span class="font-medium">{file.file_name.clone()}</span>
+                                                                                    </TableCell>
+                                                                                    <TableCell>
+                                                                                        <span class="text-sm">{size}</span>
+                                                                                    </TableCell>
+                                                                                    <TableCell>
+                                                                                        <span class="text-sm text-muted-foreground">{mime}</span>
+                                                                                    </TableCell>
+                                                                                    <TableCell>
+                                                                                        <span class="text-sm text-muted-foreground">{format_date(&file.created_at)}</span>
+                                                                                    </TableCell>
+                                                                                    <TableCell>
+                                                                                        <span class="font-mono text-xs text-muted-foreground" title=file.hash.clone()>{hash_short}</span>
+                                                                                    </TableCell>
+                                                                                </TableRow>
+                                                                                {move || {
+                                                                                    let is_expanded = expanded_file_id.try_get().flatten().as_deref() == Some(fid_for_expand.as_str());
+                                                                                    is_expanded.then(|| {
+                                                                                        let content_view = match file_content.try_get().flatten() {
+                                                                                            None => view! {
+                                                                                                <div class="flex items-center gap-2 text-sm text-muted-foreground">
+                                                                                                    <span class="inline-block h-4 w-4 animate-spin rounded-full border-2 border-current border-t-transparent"></span>
+                                                                                                    "Loading content..."
+                                                                                                </div>
+                                                                                            }.into_any(),
+                                                                                            Some(Ok(text)) => {
+                                                                                                let truncated = file_content_truncated.get_untracked();
+                                                                                                view! {
+                                                                                                    <div>
+                                                                                                        <pre class="text-sm bg-muted/30 rounded-lg p-3 overflow-x-auto whitespace-pre-wrap max-h-64 overflow-y-auto font-mono">{text}</pre>
+                                                                                                        {truncated.then(|| view! {
+                                                                                                            <p class="text-xs text-muted-foreground mt-2">
+                                                                                                                "Showing first 200 lines. Download the file for full content."
+                                                                                                            </p>
+                                                                                                        })}
+                                                                                                    </div>
+                                                                                                }.into_any()
+                                                                                            }
+                                                                                            Some(Err(e)) => view! {
+                                                                                                <p class="text-sm text-destructive">{format!("Failed to load content: {}", e)}</p>
+                                                                                            }.into_any(),
+                                                                                        };
+                                                                                        view! {
+                                                                                            <tr>
+                                                                                                <td colspan="5" class="p-3 border-t border-border bg-muted/10">
+                                                                                                    {content_view}
+                                                                                                </td>
+                                                                                            </tr>
+                                                                                        }
+                                                                                    })
+                                                                                }}
+                                                                            }
+                                                                        }).collect::<Vec<_>>()}
+                                                                    </TableBody>
+                                                                </Table>
+                                                            }.into_any()
+                                                        }
+                                                    }
+                                                    LoadingState::Error(e) => {
+                                                        view! {
+                                                            <ErrorDisplay
+                                                                error=e
+                                                                on_retry=Callback::new(move |_| trigger_refresh())
+                                                            />
+                                                        }.into_any()
+                                                    }
+                                                }}
+                                            </div>
+                                        </Card>
                                     </TabPanel>
 
                                     <TabPanel tab=DatasetDetailTab::Details active=active_tab tab_id="details".to_string() class="pt-4 space-y-4">
