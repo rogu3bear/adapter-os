@@ -5,8 +5,8 @@
 
 use crate::api::{ApiClient, ApiError};
 use crate::components::{
-    Card, Column, DataTable, EmptyState, EmptyStateVariant, PageBreadcrumbItem, PageScaffold,
-    PageScaffoldActions, RefreshButton,
+    Badge, BadgeVariant, Card, Column, DataTable, EmptyState, EmptyStateVariant,
+    PageBreadcrumbItem, PageScaffold, PageScaffoldActions, RefreshButton,
 };
 use crate::hooks::{use_api_resource, LoadingState};
 use crate::utils::format_relative_time;
@@ -72,19 +72,22 @@ pub fn Agents() -> impl IntoView {
     view! {
         <PageScaffold
             title="Agent Orchestration"
-            subtitle="Monitor active sessions and orchestration settings"
+            subtitle="Read-only beta dashboard for orchestration settings and active sessions"
             breadcrumbs=vec![
                 PageBreadcrumbItem::label("Org"),
                 PageBreadcrumbItem::current("Agents"),
             ]
         >
             <PageScaffoldActions slot>
-                <span
-                    class="text-xs text-muted-foreground"
-                    title="Session creation is API-only for now. Use POST /v1/orchestration/sessions."
-                >
-                    "Read-only beta · Create via API: /v1/orchestration/sessions"
-                </span>
+                <div class="flex items-center gap-2">
+                    <Badge variant=BadgeVariant::Warning>"Beta"</Badge>
+                    <span
+                        class="text-xs text-muted-foreground"
+                        title="This beta UI is read-only for session lifecycle. Create sessions via POST /v1/orchestration/sessions."
+                    >
+                        "Read-only · Create sessions via API: POST /v1/orchestration/sessions"
+                    </span>
+                </div>
                 <RefreshButton on_click=refetch_all/>
             </PageScaffoldActions>
 
@@ -238,7 +241,7 @@ pub fn Agents() -> impl IntoView {
                             LoadingState::Error(ApiError::NotFound(_)) => view! {
                                 <EmptyState
                                     title="Sessions Unavailable"
-                                    description="Orchestration sessions endpoint is not available on this backend."
+                                    description="This backend does not expose /v1/orchestration/sessions. Session listing is unavailable in this beta UI."
                                     variant=EmptyStateVariant::Unavailable
                                     action_label="Retry"
                                     on_action=refetch_sessions.as_callback()
@@ -247,7 +250,7 @@ pub fn Agents() -> impl IntoView {
                             LoadingState::Error(ApiError::Structured { ref code, .. }) if code == "NOT_FOUND" => view! {
                                 <EmptyState
                                     title="Sessions Unavailable"
-                                    description="Orchestration sessions endpoint is not available on this backend."
+                                    description="This backend does not expose /v1/orchestration/sessions. Session listing is unavailable in this beta UI."
                                     variant=EmptyStateVariant::Unavailable
                                     action_label="Retry"
                                     on_action=refetch_sessions.as_callback()

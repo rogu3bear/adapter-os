@@ -9,7 +9,7 @@ use crate::components::{
     Button, ButtonSize, ButtonVariant, Card, DetailRow, ErrorDisplay, NotFoundSurface, Spinner,
 };
 use crate::hooks::{use_api_resource, LoadingState};
-use crate::signals::use_auth;
+use crate::signals::{use_auth, use_notifications};
 use leptos::prelude::*;
 use std::sync::Arc;
 
@@ -183,6 +183,9 @@ fn RepositoryContent(
     repo_id_sync: String,
 ) -> impl IntoView {
     let (auth_state, _) = use_auth();
+    let notifications = use_notifications();
+    let auth_state_for_sync_button = auth_state;
+    let auth_state_for_sync_hint = auth_state;
     let tenant_id = move || {
         auth_state
             .try_get()
@@ -199,15 +202,27 @@ fn RepositoryContent(
                         <Button
                             variant=ButtonVariant::Secondary
                             size=ButtonSize::Sm
-                            disabled=Signal::derive(move || syncing.try_get().unwrap_or(false) || is_scanning)
+                            disabled=Signal::derive(move || {
+                                let has_tenant_access = auth_state_for_sync_button
+                                    .try_get()
+                                    .and_then(|s| s.user().map(|u| !u.tenant_id.is_empty()))
+                                    .unwrap_or(false);
+                                syncing.try_get().unwrap_or(false) || is_scanning || !has_tenant_access
+                            })
                             on_click=Callback::new({
                                 let repo_id = repo_id_sync.clone();
+                                let notifications = notifications.clone();
                                 move |_| {
                                     let repo_id = repo_id.clone();
+                                    let notifications = notifications.clone();
                                     syncing.set(true);
                                     wasm_bindgen_futures::spawn_local(async move {
                                         let client = ApiClient::new();
                                         let Some(tenant_id) = tenant_id() else {
+                                            notifications.error(
+                                                "Sync unavailable",
+                                                "Log in with workspace access to run repository sync.",
+                                            );
                                             syncing.set(false);
                                             return;
                                         };
@@ -230,6 +245,21 @@ fn RepositoryContent(
                         </Button>
                     </div>
                 </div>
+                {move || {
+                    let has_tenant_access = auth_state_for_sync_hint
+                        .try_get()
+                        .and_then(|s| s.user().map(|u| !u.tenant_id.is_empty()))
+                        .unwrap_or(false);
+                    if has_tenant_access {
+                        None
+                    } else {
+                        Some(view! {
+                            <p class="text-xs text-muted-foreground">
+                                "Sync unavailable: log in with workspace access to run repository sync."
+                            </p>
+                        })
+                    }
+                }}
             </div>
         </Card>
 

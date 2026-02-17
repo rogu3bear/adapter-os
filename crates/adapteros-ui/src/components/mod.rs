@@ -95,9 +95,9 @@ pub use hash_display::HashDisplay;
 pub use inference_banner::InferenceBanner;
 pub use input::{Input, Textarea};
 pub use layout::{
-    BreadcrumbItem, BreadcrumbItem as PageBreadcrumbItem, Header, PageScaffold,
-    PageScaffoldActions, PageScaffoldInspector, Shell, Sidebar, SidebarNav, SidebarState, Taskbar,
-    TopBar,
+    BreadcrumbItem, BreadcrumbItem as PageBreadcrumbItem, DetailEntityId, DetailPageShell, Header,
+    PageScaffold, PageScaffoldActions, PageScaffoldInspector, Shell, Sidebar, SidebarNav,
+    SidebarState, Taskbar, TopBar,
 };
 pub use lifecycle_transition_dialog::{LifecycleTransitionDialog, LifecycleTransitionInfo};
 pub use link::{Link, LinkVariant};

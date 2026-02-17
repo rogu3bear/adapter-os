@@ -30,7 +30,7 @@ use adapteros_api_types::errors::ErrorInstance;
 use adapteros_api_types::UiProfile;
 use leptos::prelude::*;
 use leptos::task::spawn_local;
-use leptos_router::hooks::{use_navigate, use_params_map, use_query_map};
+use leptos_router::hooks::use_query_map;
 use std::sync::Arc;
 use web_time::Instant;
 
@@ -153,50 +153,28 @@ pub fn FlightRecorder() -> impl IntoView {
 /// This is the canonical Run Detail hub for provenance
 #[component]
 pub fn FlightRecorderDetail() -> impl IntoView {
-    let params = use_params_map();
-    let navigate = use_navigate();
-    let run_id = move || params.get().get("id").unwrap_or_default();
-
     view! {
-        <PageScaffold
+        <crate::components::DetailPageShell
             title="Run Detail"
-            breadcrumbs=vec![
-                PageBreadcrumbItem::new("Observe", "/runs"),
-                PageBreadcrumbItem::new("Runs", "/runs"),
-                PageBreadcrumbItem::current(run_id()),
-            ]
+            section="Observe"
+            section_href="/runs"
+            entity_plural="Runs"
+            list_href="/runs"
         >
-            <PageScaffoldActions slot>
-                <Button
-                    variant=ButtonVariant::Secondary
-                    on_click=Callback::new({
-                        let navigate = navigate.clone();
-                        move |_| navigate("/runs", Default::default())
-                    })
-                >
-                    "Back to Runs"
-                </Button>
-            </PageScaffoldActions>
             {move || {
-                let id = run_id();
-                if id.is_empty() {
-                    view! {
-                        <crate::components::ErrorDisplay error=crate::api::ApiError::Validation("Missing run ID in URL".to_string())/>
-                    }.into_any()
-                } else {
-                    view! {
-                        <RunDetailHub
-                            run_id=id
-                            on_close=Callback::new(|_| {
-                                if let Some(window) = web_sys::window() {
-                                    let _ = window.history().and_then(|h| h.back());
-                                }
-                            })
-                        />
-                    }.into_any()
+                let id = expect_context::<crate::components::DetailEntityId>().get();
+                view! {
+                    <RunDetailHub
+                        run_id=id
+                        on_close=Callback::new(|_| {
+                            if let Some(window) = web_sys::window() {
+                                let _ = window.history().and_then(|h| h.back());
+                            }
+                        })
+                    />
                 }
             }}
-        </PageScaffold>
+        </crate::components::DetailPageShell>
     }
 }
 

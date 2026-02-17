@@ -21,6 +21,8 @@ fn test_route_paths_exist() {
         "/dashboard",
         "/chat",
         "/adapters",
+        "/runs",
+        "/repositories",
         "/training",
         "/workers",
         "/system",
@@ -38,7 +40,9 @@ fn test_nested_route_patterns() {
     // Verify nested route patterns are valid
     let nested_routes = vec![
         "/adapters/:id",
-        "/training/:job_id",
+        "/training/:id",
+        "/runs/:id",
+        "/repositories/:id",
         "/workers/:worker_id",
         "/reviews/:pause_id",
     ];
@@ -59,6 +63,14 @@ fn test_path_building() {
     let path = format!("/adapters/{}", adapter_id);
     assert_eq!(path, "/adapters/my-adapter-123");
 
+    let run_id = "trace-fixture";
+    let run_path = format!("/runs/{}", run_id);
+    assert_eq!(run_path, "/runs/trace-fixture");
+
+    let repo_id = "repo-e2e";
+    let repo_path = format!("/repositories/{}", repo_id);
+    assert_eq!(repo_path, "/repositories/repo-e2e");
+
     let review_pause_id = "newer";
     let review_path = format!("/reviews/{}", review_pause_id);
     assert_eq!(review_path, "/reviews/newer");
@@ -71,6 +83,11 @@ fn test_query_param_building() {
     let per_page = 20;
     let query = format!("?page={}&per_page={}", page, per_page);
     assert_eq!(query, "?page=2&per_page=20");
+
+    // /training/:id redirects to /training?job_id=:id
+    let training_job_id = "job-stub";
+    let training_query = format!("/training?job_id={}", training_job_id);
+    assert_eq!(training_query, "/training?job_id=job-stub");
 }
 
 // ============================================================================

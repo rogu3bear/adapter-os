@@ -444,10 +444,10 @@ static NAV_GROUPS_PRIMARY: &[NavGroup] = &[
         show_in_mobile: true,
         scope: NavScope::PrimaryOnly,
     },
-    // 5. Route (Alt+5) — Adapters
+    // 5. Adapters (Alt+5)
     NavGroup {
         id: "adapters",
-        label: "Route",
+        label: "Adapters",
         icon: ICON_BRANCH,
         alt_shortcut: Some(5),
         items: &[

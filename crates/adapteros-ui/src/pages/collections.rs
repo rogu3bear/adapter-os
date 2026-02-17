@@ -423,7 +423,6 @@ pub fn CollectionDetail() -> impl IntoView {
                                 <CollectionDetailContent
                                     collection=data.clone()
                                     remove_document=handler
-                                    on_add_documents=Callback::new(move |_| show_add_dialog.set(true))
                                 />
                                 <AddDocumentsDialog
                                     open=show_add_dialog
@@ -486,7 +485,6 @@ pub fn CollectionDetail() -> impl IntoView {
 fn CollectionDetailContent<F>(
     collection: CollectionDetailResponse,
     remove_document: F,
-    on_add_documents: Callback<()>,
 ) -> impl IntoView
 where
     F: Fn(String) + Clone + Send + Sync + 'static,
@@ -573,16 +571,8 @@ where
                         </svg>
                         <p class="text-muted-foreground">"No documents in this collection"</p>
                         <p class="text-sm text-muted-foreground mt-1">
-                            "Add documents to enable RAG-enabled inference."
+                            "Use Add Documents above to enable RAG-enabled inference."
                         </p>
-                        <div class="mt-4 flex justify-center">
-                            <Button
-                                variant=ButtonVariant::Primary
-                                on_click=Callback::new(move |_| on_add_documents.run(()))
-                            >
-                                "Add Documents"
-                            </Button>
-                        </div>
                     </div>
                 }.into_any()
             } else {

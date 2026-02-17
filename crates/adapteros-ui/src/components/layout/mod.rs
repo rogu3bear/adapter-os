@@ -6,6 +6,7 @@
 //! Navigation follows the workflow spine:
 //! Data → Train → Deploy → Route → Infer → Observe → Govern → Org
 
+mod detail_page_shell;
 pub mod nav_registry;
 mod page_scaffold;
 mod shell;
@@ -16,6 +17,7 @@ mod taskbar;
 mod topbar;
 
 // Main exports
+pub use detail_page_shell::{DetailEntityId, DetailPageShell};
 pub use page_scaffold::{BreadcrumbItem, PageScaffold, PageScaffoldActions, PageScaffoldInspector};
 pub use shell::Shell;
 pub use sidebar::{provide_sidebar_context, use_sidebar, SidebarNav, SidebarState};
