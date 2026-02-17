@@ -21,6 +21,66 @@ use std::sync::atomic::{AtomicBool, Ordering};
 use std::sync::Arc;
 
 // ---------------------------------------------------------------------------
+// SWR cache — thread_local HashMap for stale-while-revalidate
+// ---------------------------------------------------------------------------
+
+/// TTL constants for cached API resources.
+pub struct CacheTtl;
+
+impl CacheTtl {
+    /// 5 seconds — for lists that change frequently (workers, adapters, jobs).
+    pub const LIST: f64 = 5_000.0;
+    /// 30 seconds — for status endpoints that change slowly.
+    pub const STATUS: f64 = 30_000.0;
+    /// 10 seconds — for single-entity detail views.
+    pub const DETAIL: f64 = 10_000.0;
+}
+
+#[cfg(target_arch = "wasm32")]
+struct ApiCacheEntry {
+    timestamp_ms: f64,
+    data: Box<dyn std::any::Any>,
+}
+
+#[cfg(target_arch = "wasm32")]
+thread_local! {
+    static API_CACHE: std::cell::RefCell<std::collections::HashMap<String, ApiCacheEntry>> =
+        std::cell::RefCell::new(std::collections::HashMap::new());
+}
+
+#[cfg(target_arch = "wasm32")]
+fn cache_get<T: Clone + 'static>(key: &str) -> Option<(T, f64)> {
+    API_CACHE.with(|cache| {
+        let map = cache.borrow();
+        let entry = map.get(key)?;
+        let data = entry.data.downcast_ref::<T>()?;
+        Some((data.clone(), entry.timestamp_ms))
+    })
+}
+
+#[cfg(target_arch = "wasm32")]
+fn cache_set<T: Clone + 'static>(key: &str, data: &T) {
+    API_CACHE.with(|cache| {
+        let mut map = cache.borrow_mut();
+        map.insert(
+            key.to_string(),
+            ApiCacheEntry {
+                timestamp_ms: js_sys::Date::now(),
+                data: Box::new(data.clone()),
+            },
+        );
+    });
+}
+
+/// Invalidate a specific cache entry.
+#[cfg(target_arch = "wasm32")]
+pub fn cache_invalidate(key: &str) {
+    API_CACHE.with(|cache| {
+        cache.borrow_mut().remove(key);
+    });
+}
+
+// ---------------------------------------------------------------------------
 // Refetch — a scope-safe handle for re-triggering API resource fetches
 // ---------------------------------------------------------------------------
 
@@ -237,6 +297,120 @@ where
     });
 
     (state, Refetch::new(refetch))
+}
+
+/// Create a resource that fetches data from the API with stale-while-revalidate caching.
+///
+/// On mount, returns cached data immediately (avoiding spinner flash on re-navigation),
+/// then revalidates in the background if the cache entry is stale (older than `ttl_ms`).
+/// Fresh cache hits skip the network request entirely.
+///
+/// Falls back to `use_api_resource` on non-WASM targets.
+pub fn use_cached_api_resource<T, F, Fut>(
+    cache_key: &str,
+    ttl_ms: f64,
+    fetch: F,
+) -> (ReadSignal<LoadingState<T>>, Refetch)
+where
+    T: Clone + Send + Sync + 'static,
+    F: Fn(Arc<ApiClient>) -> Fut + Clone + Send + Sync + 'static,
+    Fut: std::future::Future<Output = ApiResult<T>> + 'static,
+{
+    #[cfg(not(target_arch = "wasm32"))]
+    {
+        let _ = (cache_key, ttl_ms);
+        use_api_resource(fetch)
+    }
+
+    #[cfg(target_arch = "wasm32")]
+    {
+        let cache_key = cache_key.to_string();
+
+        // Check cache for initial state
+        let (initial_state, needs_fetch) = match cache_get::<T>(&cache_key) {
+            Some((data, ts)) => {
+                let age = js_sys::Date::now() - ts;
+                if age < ttl_ms {
+                    // Fresh hit — skip fetch entirely
+                    (LoadingState::Loaded(data), false)
+                } else {
+                    // Stale hit — show cached data, revalidate in background
+                    (LoadingState::Loaded(data), true)
+                }
+            }
+            None => (LoadingState::Idle, true),
+        };
+
+        let (state, set_state) = signal(initial_state);
+        let client = Arc::new(ApiClient::new());
+        let is_authenticated = client.is_authenticated();
+        let fetch_version = Arc::new(std::sync::atomic::AtomicU64::new(0));
+
+        let fetch_version_for_cleanup = Arc::clone(&fetch_version);
+        on_cleanup(move || {
+            fetch_version_for_cleanup.fetch_add(1, std::sync::atomic::Ordering::SeqCst);
+        });
+
+        let cache_key_for_refetch = cache_key.clone();
+        let fetch_clone = fetch.clone();
+        let client_clone = Arc::clone(&client);
+        let fetch_version_clone = Arc::clone(&fetch_version);
+        let state_for_refetch = state;
+        let refetch = move || {
+            let client = Arc::clone(&client_clone);
+            let fetch = fetch_clone.clone();
+            let fetch_version = Arc::clone(&fetch_version_clone);
+            let version = fetch_version.fetch_add(1, std::sync::atomic::Ordering::SeqCst) + 1;
+            let cache_key = cache_key_for_refetch.clone();
+
+            let set_state_result = set_state;
+            let fetch_version_check = Arc::clone(&fetch_version);
+
+            gloo_timers::callback::Timeout::new(0, move || {
+                // Only show loading spinner if we don't have cached data displayed
+                if !matches!(state_for_refetch.try_get(), Some(LoadingState::Loaded(_))) {
+                    let _ = set_state_result.try_set(LoadingState::Loading);
+                }
+
+                wasm_bindgen_futures::spawn_local(async move {
+                    match fetch(client).await {
+                        Ok(data) => {
+                            if fetch_version_check.load(std::sync::atomic::Ordering::SeqCst)
+                                == version
+                            {
+                                cache_set(&cache_key, &data);
+                                let _ = set_state_result.try_set(LoadingState::Loaded(data));
+                            }
+                        }
+                        Err(e) => {
+                            if e.is_aborted() {
+                                return;
+                            }
+                            if fetch_version_check.load(std::sync::atomic::Ordering::SeqCst)
+                                == version
+                            {
+                                let page = get_current_path();
+                                report_error(&e, page.as_deref(), is_authenticated);
+                                let _ = set_state_result.try_set(LoadingState::Error(e));
+                            }
+                        }
+                    }
+                });
+            })
+            .forget();
+        };
+
+        if needs_fetch {
+            let refetch_init = refetch.clone();
+            Effect::new(move || {
+                untrack(|| {
+                    refetch_init();
+                });
+            });
+        }
+
+        (state, Refetch::new(refetch))
+    }
 }
 
 /// Simple polling hook with automatic cleanup
