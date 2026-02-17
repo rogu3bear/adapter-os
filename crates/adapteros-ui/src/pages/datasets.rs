@@ -19,7 +19,7 @@ use crate::components::{
 use crate::hooks::{
     use_api, use_api_resource, use_delete_dialog, DeleteDialogState, LoadingState, Refetch,
 };
-use crate::pages::training::dataset_wizard::{DatasetUploadOutcome, DatasetUploadWizard};
+use crate::pages::training::dataset_wizard::{DatasetOutcome, DatasetUploadWizard};
 use crate::utils::{format_bytes, format_date, humanize};
 #[cfg(target_arch = "wasm32")]
 use adapteros_api_types::TrainingJobResponse;
@@ -254,7 +254,7 @@ pub fn Datasets() -> impl IntoView {
         }
     });
 
-    let on_dataset_uploaded = Callback::new(move |outcome: DatasetUploadOutcome| {
+    let on_dataset_uploaded = Callback::new(move |outcome: DatasetOutcome| {
         refetch.run(());
         navigate(
             &format!("/datasets/{}", outcome.dataset_id),

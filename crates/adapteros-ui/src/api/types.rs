@@ -2201,7 +2201,7 @@ pub enum AdapterVersionEvent {
     },
 }
 
-/// Training lifecycle events from SSE stream `/v1/streams/training`.
+/// Training lifecycle events from SSE stream `/v1/stream/training`.
 #[derive(Debug, Clone, serde::Serialize, serde::Deserialize)]
 #[serde(tag = "event", rename_all = "snake_case")]
 pub enum TrainingLifecycleEvent {

@@ -15,7 +15,7 @@
 //! - **Metrics**: Live training metrics and loss curve (running jobs only)
 //! - **Logs**: Live log viewer (running jobs only)
 
-use crate::api::use_api_client;
+use crate::api::{use_api_client, ApiClient};
 use crate::components::{
     Button, ButtonLink, ButtonSize, ButtonVariant, Card, ConfirmationDialog, ConfirmationSeverity,
     DetailRow, ErrorDisplay, Link, Spinner, TabButton, TabPanel,
@@ -25,6 +25,7 @@ use crate::signals::{use_notifications, use_refetch};
 use crate::utils::chat_path_with_adapter;
 use adapteros_api_types::TrainingJobResponse;
 use leptos::prelude::*;
+use std::sync::Arc;
 
 use super::components::{CoremlBadges, JobStatusBadge, ProgressBar};
 use super::state::CoremlState;

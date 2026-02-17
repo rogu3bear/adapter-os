@@ -2,7 +2,7 @@
 //!
 //! Shows deterministic anchor comparison and first divergence point.
 
-use crate::api::ApiClient;
+use crate::api::{use_api_client, ApiClient};
 use crate::components::{
     Button, ButtonVariant, Card, DiffResults, EmptyState, EmptyStateVariant, Link,
     PageBreadcrumbItem, PageScaffold, PageScaffoldActions, Spinner,
@@ -46,6 +46,9 @@ pub fn Diff() -> impl IntoView {
         return view! { <Redirect path=path/> }.into_any();
     }
 
+    // Shared API client for action handlers
+    let client = use_api_client();
+
     // State for selected runs
     let run_a_id = RwSignal::new(String::new());
     let run_b_id = RwSignal::new(String::new());
@@ -77,8 +80,8 @@ pub fn Diff() -> impl IntoView {
         diff_error.set(None);
         diff_result.set(None);
 
+        let client = client.clone();
         spawn_local(async move {
-            let client = ApiClient::new();
             let request = DiagDiffRequest {
                 trace_id_a: trace_a,
                 trace_id_b: trace_b,

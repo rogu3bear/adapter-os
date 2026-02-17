@@ -8,6 +8,7 @@ use crate::api::client::{
     VerifyPolicyResponse,
 };
 use crate::api::report_error_with_toast;
+use crate::api::use_api_client;
 use crate::components::{
     Badge, BadgeVariant, Button, ButtonVariant, Card, Column, DataTable, Dialog, ErrorDisplay,
     Input, Link, PageBreadcrumbItem, PageScaffold, PageScaffoldActions, Spinner, SplitPanel,
@@ -462,22 +463,26 @@ fn PolicyActionsCard(
     on_applied: Callback<()>,
 ) -> impl IntoView {
     let alive = use_scope_alive();
+    let client = use_api_client();
     let (validating, set_validating) = signal(false);
     let (validation_result, set_validation_result) =
         signal(None::<Result<PolicyValidationResponse, String>>);
 
     // Validate handler
-    let on_validate = move |_| {
-        let content = content.try_get().unwrap_or_default();
-        let _ = set_validating.try_set(true);
-        let _ = set_validation_result.try_set(None);
+    let on_validate = {
+        let client = client.clone();
+        move |_| {
+            let content = content.try_get().unwrap_or_default();
+            let _ = set_validating.try_set(true);
+            let _ = set_validation_result.try_set(None);
 
-        wasm_bindgen_futures::spawn_local(async move {
-            let client = ApiClient::new();
-            let result = client.validate_policy(&content).await;
-            let _ = set_validation_result.try_set(Some(result.map_err(|e| e.user_message())));
-            let _ = set_validating.try_set(false);
-        });
+            let client = client.clone();
+            wasm_bindgen_futures::spawn_local(async move {
+                let result = client.validate_policy(&content).await;
+                let _ = set_validation_result.try_set(Some(result.map_err(|e| e.user_message())));
+                let _ = set_validating.try_set(false);
+            });
+        }
     };
 
     // Apply handler (reapply with current content)
@@ -508,8 +513,8 @@ fn PolicyActionsCard(
         let _ = set_applying.try_set(true);
         let _ = set_apply_result.try_set(None);
 
+        let client = client.clone();
         wasm_bindgen_futures::spawn_local(async move {
-            let client = ApiClient::new();
             let description = if description_value.trim().is_empty() {
                 None
             } else {
@@ -638,52 +643,67 @@ fn PolicyGovernanceCard(cpid: String) -> impl IntoView {
 
     // Compare dialog
     let show_compare = RwSignal::new(false);
+    let client = use_api_client();
 
-    let on_sign = move |_| {
-        let cpid = cpid_sign.clone();
-        signing.set(true);
-        sign_result.set(None);
-        wasm_bindgen_futures::spawn_local(async move {
-            let client = ApiClient::new();
-            let result = client.sign_policy(&cpid).await;
-            if let Err(ref e) = result {
-                report_error_with_toast(e, "Failed to sign policy", Some("/policies"), false);
-            }
-            let _ = sign_result.try_set(Some(result.map_err(|e| e.user_message())));
-            let _ = signing.try_set(false);
-        });
+    let on_sign = {
+        let client = client.clone();
+        move |_| {
+            let cpid = cpid_sign.clone();
+            signing.set(true);
+            sign_result.set(None);
+            let client = client.clone();
+            wasm_bindgen_futures::spawn_local(async move {
+                let result = client.sign_policy(&cpid).await;
+                if let Err(ref e) = result {
+                    report_error_with_toast(e, "Failed to sign policy", Some("/policies"), false);
+                }
+                let _ = sign_result.try_set(Some(result.map_err(|e| e.user_message())));
+                let _ = signing.try_set(false);
+            });
+        }
     };
 
-    let on_verify = move |_| {
-        let cpid = cpid_verify.clone();
-        verifying.set(true);
-        verify_result.set(None);
-        wasm_bindgen_futures::spawn_local(async move {
-            let client = ApiClient::new();
-            let result = client.verify_policy_signature(&cpid).await;
-            if let Err(ref e) = result {
-                report_error_with_toast(e, "Failed to verify policy", Some("/policies"), false);
-            }
-            let _ = verify_result.try_set(Some(result.map_err(|e| e.user_message())));
-            let _ = verifying.try_set(false);
-        });
+    let on_verify = {
+        let client = client.clone();
+        move |_| {
+            let cpid = cpid_verify.clone();
+            verifying.set(true);
+            verify_result.set(None);
+            let client = client.clone();
+            wasm_bindgen_futures::spawn_local(async move {
+                let result = client.verify_policy_signature(&cpid).await;
+                if let Err(ref e) = result {
+                    report_error_with_toast(e, "Failed to verify policy", Some("/policies"), false);
+                }
+                let _ = verify_result.try_set(Some(result.map_err(|e| e.user_message())));
+                let _ = verifying.try_set(false);
+            });
+        }
     };
 
-    let on_export = move |_| {
-        let cpid = cpid_export.clone();
-        exporting.set(true);
-        wasm_bindgen_futures::spawn_local(async move {
-            let client = ApiClient::new();
-            match client.export_policy(&cpid).await {
-                Ok(resp) => {
-                    trigger_json_download(&resp.cpid, &resp.policy_json);
+    let on_export = {
+        let client = client.clone();
+        move |_| {
+            let cpid = cpid_export.clone();
+            exporting.set(true);
+            let client = client.clone();
+            wasm_bindgen_futures::spawn_local(async move {
+                match client.export_policy(&cpid).await {
+                    Ok(resp) => {
+                        trigger_json_download(&resp.cpid, &resp.policy_json);
+                    }
+                    Err(e) => {
+                        report_error_with_toast(
+                            &e,
+                            "Failed to export policy",
+                            Some("/policies"),
+                            true,
+                        );
+                    }
                 }
-                Err(e) => {
-                    report_error_with_toast(&e, "Failed to export policy", Some("/policies"), true);
-                }
-            }
-            let _ = exporting.try_set(false);
-        });
+                let _ = exporting.try_set(false);
+            });
+        }
     };
 
     view! {
@@ -845,6 +865,7 @@ fn PolicyCompareDialog(cpid: String, #[prop(into)] on_close: Callback<()>) -> im
     let dialog_open = RwSignal::new(true);
 
     let cpid_for_compare = cpid.clone();
+    let client = use_api_client();
 
     // Sync dialog_open -> on_close (handles Escape key and backdrop click)
     Effect::new(move || {
@@ -865,8 +886,8 @@ fn PolicyCompareDialog(cpid: String, #[prop(into)] on_close: Callback<()>) -> im
         }
         comparing.set(true);
         result.set(None);
+        let client = client.clone();
         wasm_bindgen_futures::spawn_local(async move {
-            let client = ApiClient::new();
             let request = PolicyComparisonRequest { cpid_1, cpid_2 };
             let res = client.compare_policies(&request).await;
             let _ = result.try_set(Some(res.map_err(|e| e.user_message())));

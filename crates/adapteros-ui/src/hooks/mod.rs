@@ -651,9 +651,9 @@ pub fn use_navigate() -> impl Fn(&str) {
     }
 }
 
-/// Get the shared API client from context, falling back to a fresh instance.
+/// Get the shared API client from context.
 pub fn use_api() -> Arc<ApiClient> {
-    use_context::<Arc<ApiClient>>().unwrap_or_else(|| Arc::new(ApiClient::new()))
+    expect_context::<Arc<ApiClient>>()
 }
 
 /// State for optimistic updates with rollback capability

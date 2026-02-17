@@ -3,7 +3,7 @@
 //! Provides document list, detail, and management functionality.
 
 use crate::api::client::{ChunkListResponse, DocumentListParams, DocumentResponse};
-use crate::api::{report_error_with_toast, ApiClient};
+use crate::api::{report_error_with_toast, use_api_client, ApiClient};
 use crate::components::{
     Badge, BadgeVariant, Button, ButtonLink, ButtonSize, ButtonVariant, Card, ConfirmationDialog,
     ConfirmationSeverity, CopyableId, Dialog, EmptyState, EmptyStateVariant, ErrorDisplay,
@@ -664,6 +664,7 @@ mod tests {
 /// Document upload dialog with validation and progress.
 #[component]
 fn DocumentUploadDialog(open: RwSignal<bool>, on_success: Callback<String>) -> impl IntoView {
+    let client = use_api_client();
     const MAX_FILE_SIZE: u64 = 100 * 1024 * 1024;
 
     #[cfg(target_arch = "wasm32")]
@@ -770,8 +771,8 @@ fn DocumentUploadDialog(open: RwSignal<bool>, on_success: Callback<String>) -> i
             let on_success = on_success;
             let open = open;
 
+            let client = client.clone();
             wasm_bindgen_futures::spawn_local(async move {
-                let client = ApiClient::new();
                 match client.upload_document(&file).await {
                     Ok(response) => {
                         let _ = upload_status

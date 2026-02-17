@@ -3,7 +3,8 @@
 use super::helpers::format_datetime;
 use super::list::RepoStatusBadge;
 use crate::api::{
-    report_error_with_toast, ApiClient, RepositoryDetailResponse, ScanRepositoryRequest,
+    report_error_with_toast, use_api_client, ApiClient, RepositoryDetailResponse,
+    ScanRepositoryRequest,
 };
 use crate::components::{
     Button, ButtonSize, ButtonVariant, Card, DetailRow, ErrorDisplay, NotFoundSurface, Spinner,
@@ -182,6 +183,7 @@ fn RepositoryContent(
     syncing: RwSignal<bool>,
     repo_id_sync: String,
 ) -> impl IntoView {
+    let client = use_api_client();
     let (auth_state, _) = use_auth();
     let notifications = use_notifications();
     let auth_state_for_sync_button = auth_state;
@@ -215,9 +217,9 @@ fn RepositoryContent(
                                 move |_| {
                                     let repo_id = repo_id.clone();
                                     let notifications = notifications.clone();
+                                    let client = client.clone();
                                     syncing.set(true);
                                     wasm_bindgen_futures::spawn_local(async move {
-                                        let client = ApiClient::new();
                                         let Some(tenant_id) = tenant_id() else {
                                             notifications.error(
                                                 "Sync unavailable",

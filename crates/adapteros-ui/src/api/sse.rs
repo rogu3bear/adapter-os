@@ -1117,7 +1117,7 @@ pub fn use_adapter_lifecycle_sse() -> (RwSignal<SseState>, impl Fn()) {
 
 /// Subscribe to training lifecycle events via SSE.
 ///
-/// Connects to `/v1/streams/training` and dispatches incoming
+/// Connects to `/v1/stream/training` and dispatches incoming
 /// [`TrainingLifecycleEvent`] to the refetch system.
 ///
 /// Returns `(sse_state, reconnect_fn)`.
@@ -1127,7 +1127,7 @@ pub fn use_training_lifecycle_sse() -> (RwSignal<SseState>, impl Fn()) {
 
     let refetch = use_refetch();
 
-    use_sse("/v1/streams/training", move |event: SseEvent| {
+    use_sse("/v1/stream/training", move |event: SseEvent| {
         let data = event.data.trim();
         if data.is_empty() || data == "[DONE]" {
             return;

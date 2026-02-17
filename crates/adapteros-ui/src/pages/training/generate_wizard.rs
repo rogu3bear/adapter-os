@@ -13,11 +13,11 @@
 //! - Provenance tracking (source model hash, generation receipts)
 
 use crate::api::error::format_structured_details;
-#[cfg(target_arch = "wasm32")]
-use crate::api::ApiClient;
+use crate::api::use_api_client;
 use crate::components::{
     Button, ButtonVariant, Dialog, DialogSize, FormField, Input, Select, Spinner,
 };
+use crate::pages::training::dataset_wizard::DatasetOutcome;
 use crate::validation::{use_form_errors, validate_field, ValidationRule};
 use adapteros_api_types::training::{GenerateDatasetResponse, GeneratedSample};
 use leptos::prelude::*;
@@ -25,23 +25,6 @@ use std::sync::{
     atomic::{AtomicBool, Ordering},
     Arc,
 };
-
-/// Outcome returned when a dataset is successfully generated
-#[derive(Clone, Debug)]
-pub struct GenerateDatasetOutcome {
-    /// ID of the created dataset
-    pub dataset_id: String,
-    /// Dataset version ID
-    pub dataset_version_id: Option<String>,
-    /// Number of samples generated
-    pub sample_count: usize,
-    /// Indicates this is a synthetic dataset
-    pub is_synthetic: bool,
-    /// BLAKE3 hash of the source model (for provenance)
-    pub source_model_hash: Option<String>,
-    /// Number of generation receipts collected
-    pub receipt_count: usize,
-}
 
 /// Generation strategy selection
 #[derive(Clone, Copy, Debug, PartialEq, Eq, Default)]
@@ -76,7 +59,7 @@ pub fn GenerateDatasetWizard(
     open: RwSignal<bool>,
     /// Callback when dataset generation completes successfully
     #[prop(into)]
-    on_generated: Callback<GenerateDatasetOutcome>,
+    on_generated: Callback<DatasetOutcome>,
 ) -> impl IntoView {
     // Form state
     let name = RwSignal::new(String::new());
@@ -146,6 +129,9 @@ pub fn GenerateDatasetWizard(
         }
     });
 
+    // Shared API client
+    let client = use_api_client();
+
     // Validate fields before generation
     let validate_form = move || -> bool {
         form_errors.update(|e| e.clear_all());
@@ -198,6 +184,7 @@ pub fn GenerateDatasetWizard(
     #[cfg(target_arch = "wasm32")]
     let handle_file_select = {
         let is_active = Arc::clone(&is_active);
+        let client = client.clone();
         move |ev: web_sys::Event| {
             use wasm_bindgen::JsCast;
 
@@ -233,13 +220,12 @@ pub fn GenerateDatasetWizard(
                     let generation_seed_val = generation_seed.get_untracked();
                     let seed_prompts_val = seed_prompts.get_untracked();
                     let is_active = Arc::clone(&is_active);
+                    let client = client.clone();
 
                     wasm_bindgen_futures::spawn_local(async move {
                         if !is_active.load(Ordering::Relaxed) {
                             return;
                         }
-
-                        let client = ApiClient::new();
 
                         // Build FormData
                         let form_data = match web_sys::FormData::new() {
@@ -631,12 +617,12 @@ pub fn GenerateDatasetWizard(
                                 on_click=Callback::new({
                                     move |_: ()| {
                                         if let Some(r) = result.get() {
-                                            on_generated.run(GenerateDatasetOutcome {
+                                            on_generated.run(DatasetOutcome {
                                                 dataset_id: r.dataset_id.clone(),
                                                 dataset_version_id: r.dataset_version_id.clone(),
                                                 sample_count: r.sample_count,
-                                                is_synthetic: r.is_synthetic,
-                                                source_model_hash: r.source_model_hash.clone(),
+                                                is_synthetic: true,
+                                                source_hash: r.source_model_hash.clone(),
                                                 receipt_count: r.generation_receipt_digests.len(),
                                             });
                                             open.set(false);

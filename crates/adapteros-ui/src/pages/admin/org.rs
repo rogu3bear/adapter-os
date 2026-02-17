@@ -1,6 +1,6 @@
 //! Organization section component
 
-use crate::api::{report_error_with_toast, ApiClient, ApiError, TenantSummary};
+use crate::api::{report_error_with_toast, use_api_client, ApiClient, ApiError, TenantSummary};
 use crate::components::{
     Button, ButtonVariant, Card, ConfirmationDialog, ConfirmationSeverity, EmptyState,
     EmptyStateVariant, ErrorDisplay, SkeletonCard,
@@ -17,6 +17,7 @@ use wasm_bindgen_futures::spawn_local;
 pub fn OrgSection() -> impl IntoView {
     let (auth_state, _) = use_auth();
     let notifications = use_notifications();
+    let client = use_api_client();
     let (tenants, refetch) =
         use_api_resource(|client: Arc<ApiClient>| async move { client.list_user_tenants().await });
 
@@ -62,8 +63,8 @@ pub fn OrgSection() -> impl IntoView {
             revoking.set(true);
             show_revoke_confirm.set(false);
             let notifications = notifications.clone();
+            let client = client.clone();
             spawn_local(async move {
-                let client = ApiClient::new();
                 let url = format!("/v1/tenants/{}/revoke-all-tokens", tid);
                 match client.post_empty::<serde_json::Value>(&url).await {
                     Ok(_) => {

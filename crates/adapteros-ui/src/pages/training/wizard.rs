@@ -7,14 +7,14 @@
 //! 4. Review - Summary and submit
 
 use crate::api::error::format_structured_details;
-use crate::api::{ApiClient, DatasetResponse, ModelListResponse};
+use crate::api::{use_api_client, ApiClient, DatasetResponse, ModelListResponse};
 use crate::components::{
     AsyncBoundary, Button, ButtonVariant, Card, Dialog, DialogSize, FormField, Input, Select,
 };
 use crate::hooks::{use_api_resource, LoadingState, Refetch};
 use crate::pages::training::config_presets::{TrainingConfigPresets, TrainingPreset};
-use crate::pages::training::dataset_wizard::{DatasetUploadOutcome, DatasetUploadWizard};
-use crate::pages::training::generate_wizard::{GenerateDatasetOutcome, GenerateDatasetWizard};
+use crate::pages::training::dataset_wizard::{DatasetOutcome, DatasetUploadWizard};
+use crate::pages::training::generate_wizard::GenerateDatasetWizard;
 use crate::signals::use_notifications;
 use crate::validation::{rules, use_form_errors, validate_field, FormErrors, ValidationRule};
 use adapteros_api_types::{TrainingJobResponse, TRAINING_DATA_CONTRACT_VERSION};
@@ -233,24 +233,30 @@ pub fn CreateJobWizard(
     let dataset_info = RwSignal::new(None::<DatasetResponse>);
     let show_change_options = RwSignal::new(false);
 
+    // Shared API client for closures and handlers
+    let client = use_api_client();
+
     // Fetch dataset details reactively when dataset_id changes
-    Effect::new(move || {
-        let id = dataset_id.get();
-        if id.trim().is_empty() {
-            dataset_info.set(None);
-            return;
-        }
-        #[cfg(target_arch = "wasm32")]
-        {
-            wasm_bindgen_futures::spawn_local(async move {
-                let client = ApiClient::new();
-                match client.get_dataset(&id).await {
-                    Ok(resp) => dataset_info.set(Some(resp)),
-                    Err(_) => dataset_info.set(None),
-                }
-            });
-        }
-    });
+    {
+        let client = client.clone();
+        Effect::new(move || {
+            let id = dataset_id.get();
+            if id.trim().is_empty() {
+                dataset_info.set(None);
+                return;
+            }
+            #[cfg(target_arch = "wasm32")]
+            {
+                let client = client.clone();
+                wasm_bindgen_futures::spawn_local(async move {
+                    match client.get_dataset(&id).await {
+                        Ok(resp) => dataset_info.set(Some(resp)),
+                        Err(_) => dataset_info.set(None),
+                    }
+                });
+            }
+        });
+    }
 
     // Initialize training parameters from deep-link props
     if let Some(init_epochs) = initial_epochs {
@@ -313,25 +319,19 @@ pub fn CreateJobWizard(
 
     let on_created_clone = on_created.clone();
 
-    // Dataset callbacks
-    let on_dataset_uploaded = {
-        move |outcome: DatasetUploadOutcome| {
+    // Dataset callback — unified for both upload and generation
+    let on_dataset_ready = {
+        move |outcome: DatasetOutcome| {
+            let label = if outcome.is_synthetic {
+                "Generated"
+            } else {
+                "Uploaded"
+            };
             dataset_id.set(outcome.dataset_id.clone());
             dataset_sample_count.set(Some(outcome.sample_count));
             dataset_message.set(Some(format!(
-                "Dataset ready: {} ({} samples)",
-                outcome.dataset_id, outcome.sample_count
-            )));
-        }
-    };
-
-    let on_dataset_generated = {
-        move |outcome: GenerateDatasetOutcome| {
-            dataset_id.set(outcome.dataset_id.clone());
-            dataset_sample_count.set(Some(outcome.sample_count));
-            dataset_message.set(Some(format!(
-                "Generated dataset: {} ({} samples)",
-                outcome.dataset_id, outcome.sample_count
+                "{} dataset: {} ({} samples)",
+                label, outcome.dataset_id, outcome.sample_count
             )));
         }
     };
@@ -472,6 +472,7 @@ pub fn CreateJobWizard(
     let submit = {
         let on_created = on_created_clone.clone();
         let notifications = notifications.clone();
+        let client = client.clone();
         move |_: ()| {
             submitting.set(true);
             error.set(None);
@@ -493,10 +494,9 @@ pub fn CreateJobWizard(
 
             let on_created = on_created.clone();
             let notifications = notifications.clone();
+            let client = client.clone();
 
             wasm_bindgen_futures::spawn_local(async move {
-                let client = ApiClient::new();
-
                 let dataset_id = ds_id.trim().to_string();
                 if dataset_id.is_empty() {
                     error.set(Some("Dataset is required to start training".to_string()));
@@ -678,11 +678,11 @@ pub fn CreateJobWizard(
             // Embedded wizards (modals inside modal)
             <DatasetUploadWizard
                 open=dataset_wizard_open
-                on_complete=Callback::new(on_dataset_uploaded)
+                on_complete=Callback::new(on_dataset_ready.clone())
             />
             <GenerateDatasetWizard
                 open=generate_wizard_open
-                on_generated=Callback::new(on_dataset_generated)
+                on_generated=Callback::new(on_dataset_ready.clone())
             />
 
             // Footer navigation

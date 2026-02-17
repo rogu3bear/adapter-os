@@ -2,7 +2,7 @@
 //!
 //! Uses canonical Dialog component for ARIA compliance and keyboard handling.
 
-use crate::api::{ApiClient, RegisterRepositoryRequest};
+use crate::api::{use_api_client, RegisterRepositoryRequest};
 use crate::components::{Button, ButtonVariant, Dialog, FormField, Input};
 use crate::signals::{use_auth, use_notifications};
 use leptos::prelude::*;
@@ -10,6 +10,7 @@ use leptos::prelude::*;
 /// Register repository dialog
 #[component]
 pub fn RegisterRepositoryDialog(open: RwSignal<bool>) -> impl IntoView {
+    let client = use_api_client();
     let (auth_state, _) = use_auth();
     let notifications = use_notifications();
     // Form state
@@ -55,9 +56,8 @@ pub fn RegisterRepositoryDialog(open: RwSignal<bool>) -> impl IntoView {
         let branch = default_branch.get();
         let notifications = notifications.clone();
 
+        let client = client.clone();
         wasm_bindgen_futures::spawn_local(async move {
-            let client = ApiClient::new();
-
             let request = RegisterRepositoryRequest {
                 tenant_id: user.tenant_id,
                 repo_id: rid,

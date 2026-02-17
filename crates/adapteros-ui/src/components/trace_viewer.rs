@@ -6,7 +6,7 @@
 use leptos::prelude::*;
 
 use crate::api::{
-    ApiClient, InferenceTraceResponse, TimingBreakdown, TokenDecision,
+    use_api_client, InferenceTraceResponse, TimingBreakdown, TokenDecision,
     UiInferenceTraceDetailResponse, UiTraceReceiptSummary,
 };
 use crate::components::async_state::ErrorDisplay;
@@ -48,7 +48,7 @@ pub fn TraceViewer(
     let initial_request_id = request_id.clone();
 
     // Load traces on mount or when request_id/trace_id changes
-    let api = ApiClient::new();
+    let api = use_api_client();
 
     // Effect to load trace list or detail
     Effect::new(move |_prev| {
@@ -564,6 +564,7 @@ pub fn TokenDecisionsPaged(
     let loading_more = RwSignal::new(false);
     let notifications = try_use_notifications();
     let perf_enabled = perf_logging_enabled();
+    let client = use_api_client();
 
     let on_load_more = Callback::new(move |_| {
         if loading_more.try_get().unwrap_or(true) || !has_more.try_get().unwrap_or(false) {
@@ -576,10 +577,10 @@ pub fn TokenDecisionsPaged(
         let trace_id = trace_id.clone();
         let notifications = notifications.clone();
         let perf_enabled = perf_enabled;
+        let client = client.clone();
 
         spawn_local(async move {
             let started_at = Instant::now();
-            let client = ApiClient::new();
             match client
                 .get_inference_trace_detail(&trace_id, Some(TOKEN_DECISIONS_PAGE_SIZE), Some(after))
                 .await
@@ -865,7 +866,7 @@ fn TraceViewerInner(trace_id: String, #[prop(optional)] compact: bool) -> impl I
     let (expanded_tokens, set_expanded_tokens) = signal(false);
 
     // Load trace on mount
-    let api = ApiClient::new();
+    let api = use_api_client();
     let tid = trace_id.clone();
 
     Effect::new(move |_prev| {

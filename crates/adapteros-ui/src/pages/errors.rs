@@ -4,7 +4,7 @@
 //! Uses SSE for real-time error streaming via `/v1/stream/client-errors`.
 
 use crate::api::{
-    report_error_with_toast, use_sse_json, ApiClient, CreateErrorAlertRuleRequest,
+    report_error_with_toast, use_api_client, use_sse_json, ApiClient, CreateErrorAlertRuleRequest,
     ErrorAlertHistoryResponse, ErrorAlertRuleResponse, ProcessCrashDumpResponse, SseState,
     UpdateErrorAlertRuleRequest,
 };
@@ -1049,6 +1049,7 @@ fn AlertRuleRow(rule: ErrorAlertRuleResponse, on_update: Callback<()>) -> impl I
     let rule_id_for_toggle = rule.id.clone();
     let rule_id_for_delete = rule.id.clone();
     let is_active = rule.is_active;
+    let client = use_api_client();
 
     let (toggling, set_toggling) = signal(false);
     let (deleting, set_deleting) = signal(false);
@@ -1056,12 +1057,13 @@ fn AlertRuleRow(rule: ErrorAlertRuleResponse, on_update: Callback<()>) -> impl I
 
     // Toggle active state
     let alive_for_toggle = alive.clone();
+    let client_for_toggle = client.clone();
     let on_toggle = move |_| {
         let id = rule_id_for_toggle.clone();
         let alive = alive_for_toggle.clone();
+        let client = client_for_toggle.clone();
         set_toggling.set(true);
         wasm_bindgen_futures::spawn_local(async move {
-            let client = ApiClient::new();
             let request = UpdateErrorAlertRuleRequest {
                 is_active: Some(!is_active),
                 ..Default::default()
@@ -1089,12 +1091,13 @@ fn AlertRuleRow(rule: ErrorAlertRuleResponse, on_update: Callback<()>) -> impl I
     let on_confirm_delete = {
         let rule_id = rule_id_for_delete.clone();
         let alive = alive.clone();
+        let client = client.clone();
         Callback::new(move |_| {
             let id = rule_id.clone();
             let alive = alive.clone();
+            let client = client.clone();
             set_deleting.set(true);
             wasm_bindgen_futures::spawn_local(async move {
-                let client = ApiClient::new();
                 match client.delete_error_alert_rule(&id).await {
                     Ok(_) => {
                         if alive.load(std::sync::atomic::Ordering::SeqCst) {
@@ -1198,6 +1201,7 @@ fn AlertRuleRow(rule: ErrorAlertRuleResponse, on_update: Callback<()>) -> impl I
 #[component]
 fn CreateAlertRuleDialog(open: RwSignal<bool>, on_created: Callback<()>) -> impl IntoView {
     let alive = use_scope_alive();
+    let client = use_api_client();
     let name = RwSignal::new(String::new());
     let description = RwSignal::new(String::new());
     let error_pattern = RwSignal::new(String::new());
@@ -1258,8 +1262,8 @@ fn CreateAlertRuleDialog(open: RwSignal<bool>, on_created: Callback<()>) -> impl
         };
 
         let alive = alive.clone();
+        let client = client.clone();
         wasm_bindgen_futures::spawn_local(async move {
-            let client = ApiClient::new();
             match client.create_error_alert_rule(&request).await {
                 Ok(_) => {
                     if alive.load(std::sync::atomic::Ordering::SeqCst) {

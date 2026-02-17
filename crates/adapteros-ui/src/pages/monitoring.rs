@@ -3,7 +3,7 @@
 //! Real-time process monitoring with alerts, anomalies, and health metrics.
 
 use crate::api::{
-    report_error_with_toast, ApiClient, ComponentStatus, ProcessAlertResponse,
+    report_error_with_toast, use_api_client, ApiClient, ComponentStatus, ProcessAlertResponse,
     ProcessAnomalyResponse, ProcessHealthMetricResponse, ReadyzCheck, ReadyzChecks, ReadyzResponse,
     SystemHealthResponse, SystemReadyResponse,
 };
@@ -22,6 +22,9 @@ use std::sync::Arc;
 /// Process Monitoring page with tabs for alerts, anomalies, and health metrics
 #[component]
 pub fn Monitoring() -> impl IntoView {
+    // Shared API client for action handlers
+    let client = use_api_client();
+
     // Active tab state
     let active_tab = RwSignal::new("alerts");
 
@@ -238,9 +241,9 @@ pub fn Monitoring() -> impl IntoView {
                                                                             loading=acknowledging.try_get().unwrap_or(false)
                                                                             on_click=Callback::new(move |_| {
                                                                                 let alert_id = alert_id.clone();
+                                                                                let client = client.clone();
                                                                                 let _ = acknowledging.try_set(true);
                                                                                 wasm_bindgen_futures::spawn_local(async move {
-                                                                                    let client = ApiClient::new();
                                                                                     match client.acknowledge_alert(&alert_id).await {
                                                                                         Ok(_) => {
                                                                                             refetch_alerts.run(());

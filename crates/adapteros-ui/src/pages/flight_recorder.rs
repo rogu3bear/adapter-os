@@ -9,7 +9,7 @@
 //! - Diff (compare with another run)
 
 use crate::api::types::{ExecuteReplayRequest, ExecuteReplayResponse, ReceiptVerificationResult};
-use crate::api::{ApiClient, UiInferenceTraceDetailResponse};
+use crate::api::{use_api_client, ApiClient, UiInferenceTraceDetailResponse};
 use crate::components::{
     ActionCard, ActionCardVariant, AsyncBoundary, Badge, BadgeVariant, Button, ButtonVariant, Card,
     Checkbox, CopyableId, Dialog, DiffResults, EmptyState, EmptyStateVariant, Link,
@@ -762,6 +762,7 @@ fn QuickActionButton(
 ) -> impl IntoView {
     let (copied, set_copied) = signal(false);
     let notifications = use_notifications();
+    let client = use_api_client();
 
     let on_click = move |_| {
         match action.clone() {
@@ -781,8 +782,8 @@ fn QuickActionButton(
             QuickAction::Export(run_id) => {
                 // Export diagnostic run as JSON (API is mounted at root, not /api).
                 let notifs = notifications.clone();
+                let client = client.clone();
                 spawn_local(async move {
-                    let client = ApiClient::new();
                     match client.export_diag_run(&run_id).await {
                         Ok(export) => match serde_json::to_string_pretty(&export) {
                             Ok(json_content) => {
@@ -816,9 +817,8 @@ fn QuickActionButton(
             QuickAction::DownloadSignature(trace_id) => {
                 // Create bundle and download signature
                 let notifs = notifications.clone();
+                let client = client.clone();
                 spawn_local(async move {
-                    let client = ApiClient::new();
-
                     // Create bundle export (this generates the signature)
                     match client.create_bundle_export(&trace_id).await {
                         Ok(bundle) => {
@@ -848,8 +848,8 @@ fn QuickActionButton(
                     return;
                 };
                 let notifs = notifications.clone();
+                let client = client.clone();
                 spawn_local(async move {
-                    let client = ApiClient::new();
                     match client.get_receipt_json(&digest).await {
                         Ok(json_content) => {
                             let filename =
@@ -1489,6 +1489,7 @@ fn ReceiptsTab(
     let receipt_digest = RwSignal::new(Option::<String>::None);
     let notifications = use_notifications();
     let verifying = RwSignal::new(false);
+    let client = use_api_client();
 
     Effect::new(move |_| {
         let Some(LoadingState::Loaded(detail)) = trace_detail.try_get() else {
@@ -1586,6 +1587,7 @@ fn ReceiptsTab(
 
             {move || {
                 // Clone captured variables for each reactive call to allow FnMut
+                let client = client.clone();
                 let run_id = run_id.clone();
                 let trace_id = trace_id.clone();
                 let request_hash = request_hash.clone();
@@ -1639,6 +1641,7 @@ fn ReceiptsTab(
                                                                     let trace_id = trace_id.clone();
                                                                     let notifications = notifications.clone();
                                                                     let refetch = refetch_trace_detail;
+                                                                    let client = client.clone();
                                                                     move |_| {
                                                                         if verifying.get_untracked() {
                                                                             return;
@@ -1648,8 +1651,8 @@ fn ReceiptsTab(
                                                                             trace_id.clone();
                                                                         let notifications =
                                                                             notifications.clone();
+                                                                        let client = client.clone();
                                                                         spawn_local(async move {
-                                                                            let client = ApiClient::new();
                                                                             let req = TraceVerifyRequest { trace_id };
                                                                             let res: Result<TraceVerifyResponse, _> =
                                                                                 client.post("/v1/replay/verify/trace", &req).await;
@@ -2137,6 +2140,7 @@ fn DiffTab(export: DiagExportResponse, compare_trace: Option<String>) -> impl In
     let diff_loading = RwSignal::new(false);
     let diff_error: RwSignal<Option<String>> = RwSignal::new(None);
     let auto_compare_done = RwSignal::new(false);
+    let client = use_api_client();
 
     let (runs, refetch_runs) = use_api_resource(|client: Arc<ApiClient>| async move {
         client
@@ -2149,6 +2153,7 @@ fn DiffTab(export: DiagExportResponse, compare_trace: Option<String>) -> impl In
 
     let start_compare = {
         let run_a_trace_id = run_a_trace_id.clone();
+        let client = client.clone();
         Callback::new(move |trace_b: String| {
             if trace_b.is_empty() {
                 let _ = diff_error.try_set(Some("Select a run to compare".to_string()));
@@ -2160,8 +2165,8 @@ fn DiffTab(export: DiagExportResponse, compare_trace: Option<String>) -> impl In
             let _ = diff_result.try_set(None);
 
             let trace_a = run_a_trace_id.clone();
+            let client = client.clone();
             spawn_local(async move {
-                let client = ApiClient::new();
                 let request = DiagDiffRequest {
                     trace_id_a: trace_a,
                     trace_id_b: trace_b,
@@ -2585,6 +2590,7 @@ fn ExecuteReplayDialog(session_id: String, open: RwSignal<bool>) -> impl IntoVie
     let result = RwSignal::new(None::<ExecuteReplayResponse>);
     let error = RwSignal::new(None::<String>);
     let notifications = use_notifications();
+    let client = use_api_client();
 
     // Reset form state when dialog opens
     Effect::new(move || {
@@ -2599,6 +2605,7 @@ fn ExecuteReplayDialog(session_id: String, open: RwSignal<bool>) -> impl IntoVie
 
     let on_submit = {
         let session_id = session_id.clone();
+        let client = client.clone();
         move |_| {
             if executing.get_untracked() {
                 return;
@@ -2620,8 +2627,8 @@ fn ExecuteReplayDialog(session_id: String, open: RwSignal<bool>) -> impl IntoVie
                 max_tokens: max_tokens.get_untracked(),
             };
             let notifications = notifications.clone();
+            let client = client.clone();
             spawn_local(async move {
-                let client = ApiClient::new();
                 match client.execute_replay_session(&session_id, &request).await {
                     Ok(resp) => {
                         let _ = result.try_set(Some(resp));
@@ -2749,6 +2756,7 @@ fn BundleVerifySection() -> impl IntoView {
     let result = RwSignal::new(None::<ReceiptVerificationResult>);
     let error = RwSignal::new(None::<String>);
     let notifications = use_notifications();
+    let client = use_api_client();
 
     let on_file_change = move |_ev: web_sys::Event| {
         let Some(input) = file_ref.get() else {
@@ -2770,9 +2778,9 @@ fn BundleVerifySection() -> impl IntoView {
         let _ = result.try_set(None);
 
         let notifications = notifications.clone();
+        let client = client.clone();
         #[cfg(target_arch = "wasm32")]
         spawn_local(async move {
-            let client = ApiClient::new();
             match client.verify_bundle_receipt(&file).await {
                 Ok(verification) => {
                     if verification.pass {

@@ -2,7 +2,7 @@
 //!
 //! Active sessions management and MFA enrollment/management.
 
-use crate::api::{report_error_with_toast, ApiClient};
+use crate::api::{report_error_with_toast, use_api_client, ApiClient};
 use crate::api::{
     MfaDisableRequest, MfaEnrollStartResponse, MfaEnrollVerifyRequest, MfaStatusResponse,
     SessionInfo, SessionsResponse,
@@ -148,6 +148,8 @@ fn SessionRow(
     let created = format_compact_ts(&session.created_at);
     let last_active = format_compact_ts(&session.last_activity);
 
+    let client = use_api_client();
+
     let is_revoking = {
         let jti = jti.clone();
         Signal::derive(move || revoking.try_get().flatten().as_deref() == Some(&jti))
@@ -155,11 +157,12 @@ fn SessionRow(
 
     let handle_revoke = {
         let jti = jti.clone();
+        let client = client.clone();
         Callback::new(move |_| {
             let jti = jti.clone();
             revoking.set(Some(jti.clone()));
+            let client = client.clone();
             wasm_bindgen_futures::spawn_local(async move {
-                let client = ApiClient::new();
                 match client.revoke_auth_session(&jti).await {
                     Ok(_) => {
                         revoking.set(None);
@@ -215,12 +218,14 @@ fn SessionRow(
 fn RevokeAllButton(refetch: Refetch) -> impl IntoView {
     let show_confirm = RwSignal::new(false);
     let loading = RwSignal::new(false);
+    let client = use_api_client();
 
     let handle_revoke_all = {
+        let client = client.clone();
         Callback::new(move |_| {
             loading.set(true);
+            let client = client.clone();
             wasm_bindgen_futures::spawn_local(async move {
-                let client = ApiClient::new();
                 // Fetch current sessions, then revoke all except the first (current)
                 match client.list_auth_sessions().await {
                     Ok(resp) => {
@@ -423,28 +428,32 @@ fn MfaManager(status: MfaStatusResponse, refetch: Refetch) -> impl IntoView {
 #[component]
 fn MfaEnrollStart(on_started: Callback<MfaEnrollStartResponse>) -> impl IntoView {
     let loading = RwSignal::new(false);
+    let client = use_api_client();
 
-    let handle_start = Callback::new(move |_| {
-        loading.set(true);
-        wasm_bindgen_futures::spawn_local(async move {
-            let client = ApiClient::new();
-            match client.mfa_start().await {
-                Ok(resp) => {
-                    let _ = loading.try_set(false);
-                    on_started.run(resp);
+    let handle_start = {
+        let client = client.clone();
+        Callback::new(move |_| {
+            loading.set(true);
+            let client = client.clone();
+            wasm_bindgen_futures::spawn_local(async move {
+                match client.mfa_start().await {
+                    Ok(resp) => {
+                        let _ = loading.try_set(false);
+                        on_started.run(resp);
+                    }
+                    Err(e) => {
+                        let _ = loading.try_set(false);
+                        report_error_with_toast(
+                            &e,
+                            "Failed to start MFA enrollment",
+                            Some("settings"),
+                            true,
+                        );
+                    }
                 }
-                Err(e) => {
-                    let _ = loading.try_set(false);
-                    report_error_with_toast(
-                        &e,
-                        "Failed to start MFA enrollment",
-                        Some("settings"),
-                        true,
-                    );
-                }
-            }
-        });
-    });
+            });
+        })
+    };
 
     view! {
         <Button
@@ -470,31 +479,35 @@ fn MfaEnrollVerify(
 
     let secret = enroll.secret.clone();
     let otpauth_url = enroll.otpauth_url.clone();
+    let client = use_api_client();
 
-    let handle_verify = Callback::new(move |_| {
-        let code = totp_code.get_untracked();
-        if code.len() != 6 {
-            error_msg.set(Some("Enter a 6-digit code.".to_string()));
-            return;
-        }
-        verifying.set(true);
-        error_msg.set(None);
-        let code = code.clone();
-        wasm_bindgen_futures::spawn_local(async move {
-            let client = ApiClient::new();
-            let req = MfaEnrollVerifyRequest { totp_code: code };
-            match client.mfa_verify(&req).await {
-                Ok(resp) => {
-                    let _ = verifying.try_set(false);
-                    on_success.run(resp.backup_codes);
-                }
-                Err(e) => {
-                    let _ = verifying.try_set(false);
-                    error_msg.set(Some(e.user_message()));
-                }
+    let handle_verify = {
+        let client = client.clone();
+        Callback::new(move |_| {
+            let code = totp_code.get_untracked();
+            if code.len() != 6 {
+                error_msg.set(Some("Enter a 6-digit code.".to_string()));
+                return;
             }
-        });
-    });
+            verifying.set(true);
+            error_msg.set(None);
+            let code = code.clone();
+            let client = client.clone();
+            wasm_bindgen_futures::spawn_local(async move {
+                let req = MfaEnrollVerifyRequest { totp_code: code };
+                match client.mfa_verify(&req).await {
+                    Ok(resp) => {
+                        let _ = verifying.try_set(false);
+                        on_success.run(resp.backup_codes);
+                    }
+                    Err(e) => {
+                        let _ = verifying.try_set(false);
+                        error_msg.set(Some(e.user_message()));
+                    }
+                }
+            });
+        })
+    };
 
     view! {
         <div class="space-y-4 rounded-lg border border-border p-4">
@@ -599,20 +612,23 @@ fn MfaDisableFlow(open: RwSignal<bool>, refetch: Refetch) -> impl IntoView {
     let totp_code = RwSignal::new(String::new());
     let disabling = RwSignal::new(false);
     let error_msg = RwSignal::new(Option::<String>::None);
+    let client = use_api_client();
 
-    let handle_disable = Callback::new(move |_| {
-        let code = totp_code.get_untracked();
-        if code.is_empty() {
-            error_msg.set(Some("Enter your TOTP code or a backup code.".to_string()));
-            return;
-        }
-        disabling.set(true);
-        error_msg.set(None);
+    let handle_disable = {
+        let client = client.clone();
+        Callback::new(move |_| {
+            let code = totp_code.get_untracked();
+            if code.is_empty() {
+                error_msg.set(Some("Enter your TOTP code or a backup code.".to_string()));
+                return;
+            }
+            disabling.set(true);
+            error_msg.set(None);
 
-        let refetch = refetch;
-        let code = code.clone();
-        wasm_bindgen_futures::spawn_local(async move {
-            let client = ApiClient::new();
+            let refetch = refetch;
+            let code = code.clone();
+            let client = client.clone();
+            wasm_bindgen_futures::spawn_local(async move {
             // Determine if code looks like a TOTP (6 digits) or backup code
             let req = if code.len() == 6 && code.chars().all(|c| c.is_ascii_digit()) {
                 MfaDisableRequest {

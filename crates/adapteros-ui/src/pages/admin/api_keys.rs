@@ -2,7 +2,9 @@
 //!
 //! LM Studio-style API key management.
 
-use crate::api::{report_error_with_toast, ApiClient, ApiKeyInfo, CreateApiKeyRequest};
+use crate::api::{
+    report_error_with_toast, use_api_client, ApiClient, ApiKeyInfo, CreateApiKeyRequest,
+};
 use crate::components::{
     use_split_panel_selection_state, Badge, BadgeVariant, Button, ButtonVariant, Card,
     ConfirmationDialog, ConfirmationSeverity, ErrorDisplay, FormDialog, FormField, Input,
@@ -20,6 +22,7 @@ use wasm_bindgen_futures::spawn_local;
 #[component]
 pub fn ApiKeysSection() -> impl IntoView {
     let notifications = use_notifications();
+    let client = use_api_client();
     let sel = use_split_panel_selection_state();
     let selected_id = sel.selected_id;
 
@@ -71,6 +74,8 @@ pub fn ApiKeysSection() -> impl IntoView {
     });
 
     // Create key handler
+    let client_for_create = client.clone();
+    let client_for_revoke = client.clone();
     let on_create = Callback::new(move |_| {
         let name = new_key_name.try_get().unwrap_or_default();
         if name.trim().is_empty() {
@@ -87,8 +92,8 @@ pub fn ApiKeysSection() -> impl IntoView {
             scopes,
         };
 
+        let client = client_for_create.clone();
         spawn_local(async move {
-            let client = ApiClient::new();
             match client.create_api_key(&request).await {
                 Ok(response) => {
                     created_key_token.set(Some(response.token));
@@ -138,8 +143,8 @@ pub fn ApiKeysSection() -> impl IntoView {
             show_revoke_confirm.set(false);
 
             let notifications = notifications.clone();
+            let client = client_for_revoke.clone();
             spawn_local(async move {
-                let client = ApiClient::new();
                 match client.revoke_api_key(&id).await {
                     Ok(_) => {
                         notifications.success("API key revoked", "The API key has been revoked.");

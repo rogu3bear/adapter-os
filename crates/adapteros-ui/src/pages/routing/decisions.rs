@@ -3,7 +3,7 @@
 //! View and inspect K-sparse routing decisions with filtering and chain visualization.
 
 use crate::api::{
-    AdapterScoreResponse, ApiClient, RoutingCandidateResponse, RoutingDebugRequest,
+    use_api_client, AdapterScoreResponse, ApiClient, RoutingCandidateResponse, RoutingDebugRequest,
     RoutingDebugResponse, RoutingDecisionResponse, RoutingDecisionsQuery, RoutingDecisionsResponse,
 };
 use crate::components::{
@@ -596,6 +596,7 @@ fn CandidateRow(candidate: RoutingCandidateResponse) -> impl IntoView {
 /// Debug panel for testing routing
 #[component]
 fn DebugPanel() -> impl IntoView {
+    let client = use_api_client();
     let prompt = RwSignal::new(String::new());
     let context = RwSignal::new(String::new());
     let loading = RwSignal::new(false);
@@ -623,8 +624,8 @@ fn DebugPanel() -> impl IntoView {
             stack_id: None,
         };
 
+        let client = client.clone();
         wasm_bindgen_futures::spawn_local(async move {
-            let client = ApiClient::new();
             match client.debug_routing(&request).await {
                 Ok(response) => {
                     result.set(Some(response));

@@ -3,7 +3,7 @@
 //! Displays full pause context and provides a structured form to submit
 //! a human review (assessment, issues, suggestions, comments, confidence).
 
-use crate::api::{report_error_with_toast, ApiClient};
+use crate::api::{report_error_with_toast, use_api_client, ApiClient};
 use crate::components::{
     Badge, BadgeVariant, Button, ButtonSize, ButtonVariant, Card, ErrorDisplay, FormField, Input,
     LoadingDisplay, NotFoundSurface, PageBreadcrumbItem, PageScaffold, PageScaffoldActions,
@@ -101,6 +101,7 @@ fn ReviewDetailBody(pause: InferenceStateResponse) -> impl IntoView {
     };
 
     let alive = use_scope_alive();
+    let client = use_api_client();
 
     // Form state
     let reviewer = RwSignal::new("human".to_string());
@@ -195,7 +196,7 @@ fn ReviewDetailBody(pause: InferenceStateResponse) -> impl IntoView {
             reviewer: reviewer.try_get().unwrap_or_default().trim().to_string(),
         };
 
-        let client = Arc::new(ApiClient::new());
+        let client = client.clone();
         let alive = alive.clone();
         wasm_bindgen_futures::spawn_local(async move {
             match client.submit_review(&request).await {
