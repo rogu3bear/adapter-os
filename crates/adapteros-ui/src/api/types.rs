@@ -5,6 +5,21 @@
 
 pub use adapteros_api_types::training::JsonlValidationDiagnostic;
 
+/// Checkpoint verification response (mirrors server-side `CheckpointVerifyResponse`)
+#[derive(Debug, Clone, serde::Serialize, serde::Deserialize)]
+pub struct CheckpointVerifyResponse {
+    /// BLAKE3 hash of the checkpoint content (hex)
+    pub blake3_hash: String,
+    /// Key ID of the signer
+    pub signer_key_id: String,
+    /// ISO 8601 timestamp when the checkpoint was signed
+    pub signed_at: String,
+    /// Schema version of the sidecar
+    pub schema_version: u8,
+    /// Whether verification passed
+    pub verified: bool,
+}
+
 /// Simple inference request for chat
 #[derive(Debug, Clone, serde::Serialize)]
 pub struct InferenceRequest {
@@ -2116,6 +2131,35 @@ pub struct TenantStorageUsageResponse {
     pub soft_exceeded: bool,
     #[serde(default)]
     pub hard_exceeded: bool,
+}
+
+/// WASM-friendly adapter version summary for the version list UI.
+///
+/// This mirrors the server-only `AdapterVersionResponse` but omits fields
+/// that pull in server-only dependencies (e.g., `DatasetVersionTrustSnapshot`).
+/// Unknown fields are silently dropped via `#[serde(default)]`.
+#[derive(Debug, Clone, serde::Serialize, serde::Deserialize)]
+#[serde(rename_all = "snake_case")]
+pub struct AdapterVersionSummary {
+    pub id: String,
+    pub repo_id: String,
+    pub version: String,
+    pub branch: String,
+    #[serde(default)]
+    pub release_state: String,
+    #[serde(default)]
+    pub adapter_trust_state: String,
+    #[serde(default)]
+    pub serveable: bool,
+    #[serde(default)]
+    pub serveable_reason: Option<String>,
+    #[serde(default)]
+    pub training_backend: Option<String>,
+    #[serde(default)]
+    pub coreml_used: Option<bool>,
+    pub created_at: String,
+    #[serde(default)]
+    pub display_name: Option<String>,
 }
 
 /// Adapter lifecycle events from SSE stream `/v1/stream/adapters`.

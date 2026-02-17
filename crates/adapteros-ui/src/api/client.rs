@@ -511,6 +511,30 @@ impl ApiClient {
         .await
     }
 
+    // --- Adapter Versions ---
+
+    /// List adapter versions for a repository
+    pub async fn list_adapter_versions(
+        &self,
+        repo_id: &str,
+    ) -> ApiResult<Vec<super::types::AdapterVersionSummary>> {
+        self.get(&format!(
+            "/v1/adapter-repositories/{}/versions",
+            encode(repo_id)
+        ))
+        .await
+    }
+
+    /// Promote an adapter version (activates it for serving on its branch).
+    /// Returns `Ok(())` on success (HTTP 204).
+    pub async fn promote_adapter_version(&self, version_id: &str, repo_id: &str) -> ApiResult<()> {
+        self.post_no_response(
+            &format!("/v1/adapter-versions/{}/promote", encode(version_id)),
+            &serde_json::json!({"repo_id": repo_id}),
+        )
+        .await
+    }
+
     // --- System ---
 
     /// Get system status
@@ -644,6 +668,42 @@ impl ApiClient {
         id: &str,
     ) -> ApiResult<adapteros_api_types::TrainingJobResponse> {
         self.get(&format!("/v1/training/jobs/{}", id)).await
+    }
+
+    /// Retry a failed training job (creates a new job with same config)
+    pub async fn retry_training_job(
+        &self,
+        id: &str,
+    ) -> ApiResult<adapteros_api_types::TrainingJobResponse> {
+        self.post(
+            &format!("/v1/training/jobs/{}/retry", id),
+            &serde_json::json!({}),
+        )
+        .await
+    }
+
+    /// Check if a checkpoint exists for a training job at the given epoch.
+    ///
+    /// Returns the verification response if the checkpoint exists and is valid,
+    /// or `None` if the checkpoint doesn't exist (404).
+    pub async fn check_job_checkpoint(
+        &self,
+        job_id: &str,
+        epoch: u32,
+    ) -> ApiResult<Option<CheckpointVerifyResponse>> {
+        let path = format!("/v1/training/jobs/{}/checkpoints/{}/verify", job_id, epoch);
+        let response = self.request("GET", &path).send().await?;
+        if response.status() == 404 {
+            return Ok(None);
+        }
+        if response.ok() {
+            let json = response.json().await?;
+            Ok(Some(json))
+        } else {
+            let status = response.status();
+            let text = response.text().await.unwrap_or_default();
+            Err(ApiError::from_response(status, &text, None))
+        }
     }
 
     /// Cancel a training job

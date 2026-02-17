@@ -12,12 +12,16 @@
 
 use adapteros_api_types::{AdapterResponse, LifecycleState};
 use leptos::prelude::*;
+use leptos::task::spawn_local;
+use std::sync::Arc;
 
+use crate::api::use_api_client;
 use crate::components::{
-    AdapterLifecycleControls, Badge, BadgeVariant, Button, ButtonVariant, Card, CopyableId,
-    HashDisplay, ProvenanceBadge, Spinner,
+    AdapterLifecycleControls, Badge, BadgeVariant, Button, ButtonSize, ButtonVariant, Card,
+    ConfirmationDialog, ConfirmationSeverity, CopyableId, HashDisplay, ProvenanceBadge, Spinner,
 };
 use crate::contexts::use_in_flight;
+use crate::signals::notifications::use_notifications;
 use crate::utils::format_bytes;
 
 /// Suggestion context explaining why an adapter was suggested.
@@ -198,6 +202,7 @@ fn AdapterDetailContent(
     let intent = adapter.intent.clone();
     let memory_bytes = adapter.memory_bytes;
     let is_pinned = adapter.pinned.unwrap_or(false);
+    let repo_id = adapter.repo_id.clone();
 
     // Suggestion context values
     let has_suggestion = suggestion_context.reason.is_some()
@@ -392,6 +397,11 @@ fn AdapterDetailContent(
                 />
             </Card>
 
+            // Version Promotion (shown when repo_id is available)
+            {repo_id.map(|rid| view! {
+                <AdapterVersionPromotionSection repo_id=rid />
+            })}
+
             // Actions
             <Card title="Actions">
                 <div class="adapter-detail-actions">
@@ -456,5 +466,186 @@ fn AdapterDetailContent(
                 </div>
             </Card>
         </div>
+    }
+}
+
+/// Adapter version promotion section.
+///
+/// Fetches versions for a repository and allows promoting a version
+/// to make it the active serving version on its branch.
+#[component]
+fn AdapterVersionPromotionSection(
+    /// Repository ID to fetch versions for
+    #[prop(into)]
+    repo_id: String,
+) -> impl IntoView {
+    let client = use_api_client();
+    let notifications = use_notifications();
+
+    // Versions list signal, loaded on mount
+    let versions = RwSignal::new(Vec::<crate::api::types::AdapterVersionSummary>::new());
+    let versions_loading = RwSignal::new(true);
+    let versions_error = RwSignal::new(None::<String>);
+
+    // Promotion dialog state
+    let show_promote_dialog = RwSignal::new(false);
+    let promote_target = RwSignal::new(None::<(String, String, String)>); // (version_id, repo_id, version_label)
+    let promote_loading = RwSignal::new(false);
+
+    // Fetch versions on mount
+    {
+        let client = Arc::clone(&client);
+        let repo_id = repo_id.clone();
+        spawn_local(async move {
+            match client.list_adapter_versions(&repo_id).await {
+                Ok(v) => {
+                    versions.set(v);
+                    versions_loading.set(false);
+                }
+                Err(e) => {
+                    versions_error.set(Some(e.to_string()));
+                    versions_loading.set(false);
+                }
+            }
+        });
+    }
+
+    // Handle promote confirmation
+    let handle_promote = {
+        let client = Arc::clone(&client);
+        let notifications = notifications.clone();
+        Callback::new(move |()| {
+            let Some((version_id, rid, label)) = promote_target.try_get_untracked().flatten()
+            else {
+                return;
+            };
+            let client = Arc::clone(&client);
+            let notifications = notifications.clone();
+            promote_loading.set(true);
+            spawn_local(async move {
+                match client.promote_adapter_version(&version_id, &rid).await {
+                    Ok(()) => {
+                        notifications.success(
+                            "Version Promoted",
+                            &format!("Version {} is now active for serving", label),
+                        );
+                        show_promote_dialog.set(false);
+                        promote_loading.set(false);
+                        promote_target.set(None);
+
+                        // Refresh the version list
+                        match client.list_adapter_versions(&rid).await {
+                            Ok(v) => versions.set(v),
+                            Err(_) => {} // stale list is acceptable
+                        }
+                    }
+                    Err(err) => {
+                        notifications.error("Promotion Failed", &err.to_string());
+                        promote_loading.set(false);
+                    }
+                }
+            });
+        })
+    };
+
+    view! {
+        <Card title="Versions">
+            {move || {
+                if versions_loading.try_get().unwrap_or(true) {
+                    return view! {
+                        <div class="flex items-center gap-2 py-2">
+                            <Spinner />
+                            <span class="text-sm text-muted-foreground">"Loading versions..."</span>
+                        </div>
+                    }.into_any();
+                }
+
+                if let Some(err) = versions_error.try_get().flatten() {
+                    return view! {
+                        <p class="text-sm text-muted-foreground">{format!("Could not load versions: {}", err)}</p>
+                    }.into_any();
+                }
+
+                let vers = versions.try_get().unwrap_or_default();
+                if vers.is_empty() {
+                    return view! {
+                        <p class="text-sm text-muted-foreground">"No versions found for this adapter."</p>
+                    }.into_any();
+                }
+
+                view! {
+                    <div class="space-y-2">
+                        {vers.into_iter().map(|v| {
+                            let version_label = v.display_name.clone()
+                                .unwrap_or_else(|| v.version.clone());
+                            let is_promoted = v.release_state == "promoted";
+                            let is_serveable = v.serveable;
+                            let state_variant = match v.release_state.as_str() {
+                                "promoted" => BadgeVariant::Success,
+                                "draft" => BadgeVariant::Secondary,
+                                "candidate" => BadgeVariant::Warning,
+                                _ => BadgeVariant::Default,
+                            };
+
+                            let vid = v.id.clone();
+                            let rid = v.repo_id.clone();
+                            let label_for_dialog = version_label.clone();
+                            let release_state = v.release_state.clone();
+                            let branch = v.branch.clone();
+
+                            view! {
+                                <div class="flex items-center justify-between py-1.5 border-b border-border/30 last:border-b-0">
+                                    <div class="flex items-center gap-2 min-w-0">
+                                        <span class="text-sm font-medium truncate">{version_label.clone()}</span>
+                                        <Badge variant=state_variant>{release_state}</Badge>
+                                        <span class="text-xs text-muted-foreground">{branch}</span>
+                                    </div>
+                                    {(!is_promoted && is_serveable).then(|| {
+                                        let vid = vid.clone();
+                                        let rid = rid.clone();
+                                        let label = label_for_dialog.clone();
+                                        view! {
+                                            <Button
+                                                variant=ButtonVariant::Outline
+                                                size=ButtonSize::Sm
+                                                on_click=Callback::new(move |_| {
+                                                    promote_target.set(Some((vid.clone(), rid.clone(), label.clone())));
+                                                    show_promote_dialog.set(true);
+                                                })
+                                            >
+                                                "Promote"
+                                            </Button>
+                                        }
+                                    })}
+                                    {(!is_promoted && !is_serveable).then(|| {
+                                        let reason = v.serveable_reason.clone()
+                                            .unwrap_or_else(|| "not serveable".to_string());
+                                        view! {
+                                            <span class="text-xs text-muted-foreground italic" title=reason>
+                                                "Not serveable"
+                                            </span>
+                                        }
+                                    })}
+                                    {is_promoted.then(|| view! {
+                                        <span class="text-xs text-success font-medium">"Active"</span>
+                                    })}
+                                </div>
+                            }
+                        }).collect_view()}
+                    </div>
+                }.into_any()
+            }}
+
+            // Promotion confirmation dialog
+            <ConfirmationDialog
+                open=show_promote_dialog
+                title="Promote Version"
+                description="Promoting this version will make it the active serving version on its branch. The previously active version will be superseded.".to_string()
+                severity=ConfirmationSeverity::Normal
+                confirm_text="Promote"
+                on_confirm=handle_promote
+                loading=Signal::derive(move || promote_loading.try_get().unwrap_or(false))
+            />
+        </Card>
     }
 }
