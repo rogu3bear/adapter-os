@@ -112,6 +112,19 @@ jobs:
       - name: Verify all benchmark targets compile
         run: bash scripts/ci/bench_compile_smoke.sh
 
+  worker-ui-compile-check:
+    name: "Tier 1: Worker/UI Compile Check"
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+      - uses: dtolnay/rust-toolchain@stable
+        with:
+          targets: wasm32-unknown-unknown
+      - name: Check worker (mlx feature)
+        run: RUSTC_WRAPPER= cargo check -p adapteros-lora-worker --features mlx
+      - name: Check UI (wasm target)
+        run: RUSTC_WRAPPER= cargo check -p adapteros-ui --target wasm32-unknown-unknown
+
   crate-version-patch-roll:
     name: "Tier 1: Crate Version Patch Roll"
     runs-on: ubuntu-latest
@@ -199,6 +212,7 @@ jobs:
       - rectification-contracts
       - test-artifact-hygiene
       - bench-compile-smoke
+      - worker-ui-compile-check
       - crate-version-patch-roll
     if: always()
     steps:

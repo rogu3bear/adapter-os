@@ -13,6 +13,7 @@ scripts/contracts/check_determinism_contract.sh
 scripts/contracts/check_docs_claims.sh
 scripts/ci/check_route_inventory_openapi_coverage.sh
 scripts/contracts/check_error_code_coverage.sh
+scripts/contracts/check_handler_error_response_with_code.sh
 scripts/ci/check_handler_annotations.sh
 
 echo "=== Rectification Contract Suite: PASSED ==="
