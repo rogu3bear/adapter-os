@@ -29,11 +29,11 @@ pub fn readable_message_id(_slug_source: &str) -> String {
 /// OpenAI chat-completion ID with underscore separator (API contract).
 pub fn readable_openai_chatcmpl_id() -> String {
     let id = TypedId::new(IdPrefix::Req);
-    format!("chatcmpl_{}", id.short())
+    format!("chatcmpl_{}", id.short_hex())
 }
 
 /// OpenAI chat-completion ID with dash separator (API contract).
 pub fn readable_openai_chatcmpl_dash_id() -> String {
     let id = TypedId::new(IdPrefix::Req);
-    format!("chatcmpl-{}", id.short())
+    format!("chatcmpl-{}", id.short_hex())
 }

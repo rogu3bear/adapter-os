@@ -26,7 +26,7 @@ fn stack_name() -> String {
     // Stacks are semantically named and validated as `stack.{namespace}[.{identifier}]`.
     // Use a fixed namespace with a unique identifier for test isolation.
     let id = TypedId::new(IdPrefix::Stk);
-    format!("stack.test.{}", id.short())
+    format!("stack.test.{}", id.short_hex())
 }
 
 async fn build_test_state(use_session_stack: bool) -> AppState {
@@ -185,7 +185,7 @@ async fn register_worker_with_caps(
     let uds_path = format!(
         "var/run/test-uds/{}-{}/worker.sock",
         worker_id,
-        TypedId::new(IdPrefix::Req).short()
+        TypedId::new(IdPrefix::Req).short_hex()
     );
     let uds_parent = std::path::Path::new(&uds_path)
         .parent()
@@ -300,7 +300,7 @@ async fn test_base_model_readiness_prefers_active_model_over_latest_status() {
     let uds_path = format!(
         "var/run/test-uds/{}-{}/worker.sock",
         worker_id,
-        TypedId::new(IdPrefix::Req).short()
+        TypedId::new(IdPrefix::Req).short_hex()
     );
     let uds_parent = std::path::Path::new(&uds_path)
         .parent()

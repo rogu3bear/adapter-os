@@ -40,13 +40,28 @@ pub fn format_hash_short(hash: &str) -> String {
     }
 }
 
-/// Truncate any ID string for display.
+/// Truncate any ID string for human display, preferring word aliases.
 ///
-/// - If the input is a valid `TypedId`, returns `TypedId::short()` (prefix + 8 hex).
-/// - Otherwise, truncates to the first 12 characters with an ellipsis.
+/// - For typed IDs with word aliases (workers, adapters, models, jobs, datasets,
+///   collections, repositories, batches, stacks): returns the word alias (e.g. `wrk-brave-falcon`).
+/// - For typed IDs without aliases (traces, requests, etc.): returns `{prefix}-{8 hex chars}`.
+/// - For non-typed ID strings: truncates to 12 characters with ellipsis.
+///
+/// Use [`short_hex`] when you need the deterministic hex form (socket paths, log correlation).
 pub fn short_id(id: &str) -> String {
+    display_name_for(id).unwrap_or_else(|| short_hex(id))
+}
+
+/// Truncate any ID string to its hex form for technical contexts.
+///
+/// - If the input is a valid `TypedId`, returns `{prefix}-{first 8 hex chars}`.
+/// - Otherwise, truncates to the first 12 characters with an ellipsis.
+///
+/// Prefer [`short_id`] for human-facing display. Use this for socket paths,
+/// log correlation, and other contexts where the deterministic hex prefix matters.
+pub fn short_hex(id: &str) -> String {
     if let Some(tid) = TypedId::parse(id) {
-        tid.short().to_string()
+        tid.short_hex().to_string()
     } else {
         let trimmed = id.trim();
         if trimmed.len() > 12 {
@@ -271,8 +286,11 @@ impl TypedId {
         Uuid::parse_str(&self.0[dash + 1..]).expect("TypedId always has valid UUID")
     }
 
-    /// Short form for logs: `{prefix}-{first 8 hex chars}`.
-    pub fn short(&self) -> &str {
+    /// Short hex form: `{prefix}-{first 8 hex chars}`.
+    ///
+    /// For human-readable display, prefer the free function [`short_id`] which
+    /// returns word aliases when available.
+    pub fn short_hex(&self) -> &str {
         // prefix (2-3 chars) + dash (1) + 8 hex = 12 chars max
         let dash = self.0.find('-').expect("TypedId always contains dash");
         let end = (dash + 1 + 8).min(self.0.len());
@@ -378,12 +396,41 @@ mod tests {
     }
 
     #[test]
-    fn short_form() {
+    fn short_hex_form() {
         let id = TypedId::new(IdPrefix::Wrk);
-        let short = id.short();
+        let short = id.short_hex();
         assert!(short.starts_with("wrk-"));
         // 3 + 1 + 8 = 12
         assert_eq!(short.len(), 12);
+    }
+
+    #[test]
+    fn short_id_prefers_word_alias() {
+        let id = TypedId::new(IdPrefix::Wrk);
+        let display = short_id(id.as_str());
+        // Should be word alias: wrk-{adj}-{noun}
+        assert!(display.starts_with("wrk-"));
+        assert_eq!(display.matches('-').count(), 2);
+    }
+
+    #[test]
+    fn short_id_falls_back_to_hex_for_non_aliased() {
+        let id = TypedId::new(IdPrefix::Trc);
+        let display = short_id(id.as_str());
+        // No word alias for traces, should be hex truncation: trc-{8hex}
+        assert!(display.starts_with("trc-"));
+        assert_eq!(display.len(), 12); // 3 + 1 + 8
+    }
+
+    #[test]
+    fn short_hex_matches_old_short_id_behavior() {
+        let id = TypedId::new(IdPrefix::Wrk);
+        let hex = short_hex(id.as_str());
+        // Should be hex truncation, not word alias
+        assert!(hex.starts_with("wrk-"));
+        assert_eq!(hex.len(), 12); // 3 + 1 + 8
+                                   // Must not contain a second dash (word aliases have 2 dashes)
+        assert_eq!(hex.matches('-').count(), 1);
     }
 
     #[test]
