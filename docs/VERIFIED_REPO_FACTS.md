@@ -1,6 +1,6 @@
 # Verified Repo Facts
 
-**Date**: 2026-02-04
+**Date**: 2026-02-17
 **Auditor**: Principal Engineer (Precision Mode)
 **Commit**: See `git log -1` at time of audit
 
@@ -38,14 +38,16 @@ This document records verified facts about the AdapterOS codebase. Each claim is
 | `inference_trace_receipts` table exists | ✅ YES | `migrations/0192_inference_trace_v2.sql:98-112` | PK: `trace_id`, FK: `trace_id → inference_traces` |
 | Receipt schema version | ✅ YES | `crates/adapteros-core/src/receipt_digest.rs:30-42` | V1-V7 defined, current = V7 |
 | **E) Replay Endpoints** | | | |
-| Session-based: `GET /v1/replay/sessions` | ✅ YES | `crates/adapteros-server-api/src/routes/mod.rs:1437` + `handlers/replay.rs:146` | `list_replay_sessions` handler |
-| Session-based: `GET /v1/replay/sessions/{id}` | ✅ YES | `crates/adapteros-server-api/src/routes/mod.rs:1441-1442` | `get_replay_session` handler |
-| Session-based: `POST /v1/replay/sessions/{id}/verify` | ✅ YES | `crates/adapteros-server-api/src/routes/mod.rs:1445-1446` | `verify_replay_session` handler |
-| Session-based: `POST /v1/replay/sessions/{id}/execute` | ✅ YES | `crates/adapteros-server-api/src/routes/mod.rs:1449-1450` | `execute_replay_session` handler |
-| Inference-based: `GET /v1/replay/check/{inference_id}` | ✅ YES | `crates/adapteros-server-api/src/routes/mod.rs:1454-1455` | `check_availability` handler |
-| Inference-based: `POST /v1/replay` | ✅ YES | `crates/adapteros-server-api/src/routes/mod.rs:1458-1459` | `execute_replay` handler |
-| Inference-based: `GET /v1/replay/history/{inference_id}` | ✅ YES | `crates/adapteros-server-api/src/routes/mod.rs:1462-1463` | `get_replay_history` handler |
-| AdapterOS: `POST /v1/adapteros/replay` | ✅ YES | `crates/adapteros-server-api/src/routes/mod.rs:1470-1471` | `adapteros_replay` handler |
+| Session-based: `GET /v1/replay/sessions` | ✅ YES | `crates/adapteros-server-api/src/routes/mod.rs:1497` + `handlers/replay.rs:146` | `list_replay_sessions` handler |
+| Session-based: `GET /v1/replay/sessions/{id}` | ✅ YES | `crates/adapteros-server-api/src/routes/mod.rs:1505` | `get_replay_session` handler |
+| Session-based: `POST /v1/replay/sessions/{id}/verify` | ✅ YES | `crates/adapteros-server-api/src/routes/mod.rs:1509` | `verify_replay_session` handler |
+| Session-based: `POST /v1/replay/sessions/{id}/execute` | ✅ YES | `crates/adapteros-server-api/src/routes/mod.rs:1513` | `execute_replay_session` handler |
+| Verification: `POST /v1/replay/verify/trace` | ✅ YES | `crates/adapteros-server-api/src/routes/mod.rs:1518` | `verify_trace` handler |
+| Verification: `POST /v1/replay/verify/bundle` | ✅ YES | `crates/adapteros-server-api/src/routes/mod.rs:1522` | `verify_bundle` handler |
+| Inference-based: `GET /v1/replay/check/{inference_id}` | ✅ YES | `crates/adapteros-server-api/src/routes/mod.rs:1527` | `check_availability` handler |
+| Inference-based: `POST /v1/replay` | ✅ YES | `crates/adapteros-server-api/src/routes/mod.rs:1531` | `execute_replay` handler |
+| Inference-based: `GET /v1/replay/history/{inference_id}` | ✅ YES | `crates/adapteros-server-api/src/routes/mod.rs:1535` | `get_replay_history` handler |
+| AdapterOS: `POST /v1/adapteros/replay` | ✅ YES | `crates/adapteros-server-api/src/routes/mod.rs:1543` | `adapteros_replay` handler |
 | `replay_sessions` table exists | ✅ YES | `migrations/0016_replay_sessions.sql:4-21` | PK: `id TEXT`, FK: `tenant_id → tenants`, `plan_id → plans` |
 | `replay_executions` table exists | ✅ YES | `migrations/0127_replay_executions.sql:5-39` | PK: `id TEXT`, FK: `original_inference_id → inference_replay_metadata` |
 | `ReplayMatchStatus` enum | ✅ YES | `crates/adapteros-server-api/src/types/replay.rs:74-85` | `Exact`, `Semantic`, `Divergent`, `Error` |
@@ -74,7 +76,7 @@ This document records verified facts about the AdapterOS codebase. Each claim is
 
 ## Replay Endpoint Consolidation Required
 
-**Problem**: Three separate replay endpoint families exist:
+**Problem**: Four replay endpoint families exist:
 
 1. **Session-based** (`handlers/replay.rs`):
    - `GET/POST /v1/replay/sessions`
@@ -82,12 +84,16 @@ This document records verified facts about the AdapterOS codebase. Each claim is
    - `POST /v1/replay/sessions/{id}/verify`
    - `POST /v1/replay/sessions/{id}/execute`
 
-2. **Inference-based** (`handlers/replay_inference.rs`):
+2. **Verification-based** (`handlers/replay_verify.rs`):
+   - `POST /v1/replay/verify/trace`
+   - `POST /v1/replay/verify/bundle`
+
+3. **Inference-based** (`handlers/replay_inference.rs`):
    - `GET /v1/replay/check/{inference_id}`
    - `POST /v1/replay`
    - `GET /v1/replay/history/{inference_id}`
 
-3. **AdapterOS** (`handlers/adapteros_receipts.rs`):
+4. **AdapterOS** (`handlers/adapteros_receipts.rs`):
    - `POST /v1/adapteros/replay`
 
 **Decision**: Canonical = Session-based family. Inference-based routes will be deprecated and internally redirect.

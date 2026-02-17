@@ -375,7 +375,7 @@ json_output = "/var/log/adapteros/telemetry.jsonl"
 prometheus_port = 9090
 
 [policies]
-# Enable all 25 policy packs
+# Enable all 31 policy packs
 egress = true
 determinism = true
 router = true
@@ -1464,7 +1464,7 @@ k_sparse = 5  # Activate more adapters simultaneously
 
 ### Policies
 
-- [ ] All 25 policy packs enabled
+- [ ] All 31 policy packs enabled
 - [ ] Compliance reports generated weekly
 - [ ] Audit trail retention configured (90 days)
 - [ ] Incident freeze procedures tested
@@ -1702,7 +1702,7 @@ curl http://localhost:8080/healthz
 - [AGENTS.md](../AGENTS.md) - Developer quick reference (commands + invariants index)
 - [CLAUDE.md](../CLAUDE.md) - Extended developer guide
 - [docs/AUTHENTICATION.md](AUTHENTICATION.md) - Authentication details
-- [docs/POLICIES.md](POLICIES.md) - 25 policy packs
+- [docs/POLICIES.md](POLICIES.md) - 31 policy packs
 - [docs/DETERMINISM.md](DETERMINISM.md) - Determinism and replay guarantees
 
 ---

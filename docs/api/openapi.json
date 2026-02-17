@@ -20404,6 +20404,35 @@
         ],
         "type": "object"
       },
+      "ProcessDocumentResponse": {
+        "description": "Process document response",
+        "properties": {
+          "chunk_count": {
+            "format": "int32",
+            "type": "integer"
+          },
+          "document_id": {
+            "type": "string"
+          },
+          "indexed_at": {
+            "type": "string"
+          },
+          "schema_version": {
+            "type": "string"
+          },
+          "status": {
+            "type": "string"
+          }
+        },
+        "required": [
+          "schema_version",
+          "document_id",
+          "status",
+          "chunk_count",
+          "indexed_at"
+        ],
+        "type": "object"
+      },
       "ProcessHealthMetricResponse": {
         "description": "Process health metric",
         "properties": {
@@ -29373,6 +29402,17 @@
         ],
         "type": "object"
       },
+      "TraceVerifyRequest": {
+        "properties": {
+          "trace_id": {
+            "type": "string"
+          }
+        },
+        "required": [
+          "trace_id"
+        ],
+        "type": "object"
+      },
       "TrainRepositoryRequest": {
         "description": "Repository training request",
         "properties": {
@@ -36133,7 +36173,7 @@
     },
     "/v1/adapters/directory/upsert": {
       "post": {
-        "description": "This handler performs directory analysis and adapter registration with proper async/blocking separation.\n\n# Blocking Operations\n\nAll blocking operations (filesystem I/O and CPU-intensive analysis) are executed in a dedicated\nblocking thread pool via `tokio::task::spawn_blocking` to prevent head-of-line blocking on the\nasync runtime. The handler combines three phases into a single blocking call:\n\n1. **Path Validation**: Validates root path exists and relative path is safe (no `..`)\n2. **Directory Analysis**: CPU-intensive codebase analysis with `adapteros_codegraph`\n3. **Artifact Creation**: Creates placeholder `.safetensors` file for adapter\n\n# Timeout Protection\n\nThe combined blocking operation is wrapped in `tokio::time::timeout` with a configurable duration\n(default: 120 seconds, configured via `ApiConfig::directory_analysis_timeout_secs`). This prevents\nmalicious or extremely large directories from tying up blocking threads indefinitely.\n\n# Error Handling\n\nErrors are returned with appropriate HTTP status codes:\n- `400 BAD_REQUEST`: Invalid paths, path traversal attempts, or analysis failures\n- `408 REQUEST_TIMEOUT`: Operation exceeded configured timeout\n- `500 INTERNAL_SERVER_ERROR`: Filesystem errors or task panics\n\n# Observability\n\nThe handler includes structured tracing spans for each phase:\n- `directory_adapter_blocking_ops`: Top-level span for entire blocking operation\n- `path_validation`: Path validation phase\n- `directory_analysis`: Directory analysis phase (includes root and path fields)\n- `artifact_creation`: Artifact file creation phase (includes hash field)\n\n# Permissions\n\nRequires `Admin` or `Operator` role via RBAC.\n\n# Example\n\n```no_run\nPOST /v1/adapters/directory/upsert\n{\n  \"root\": \"/workspace/my-project\",\n  \"path\": \"src\",\n  \"tenant_id\": \"tenant-a\",\n  \"activate\": false\n}\n```",
+        "description": "This handler performs directory analysis and adapter registration with proper async/blocking separation.\n\n# Blocking Operations\n\nAll blocking operations (filesystem I/O and CPU-intensive analysis) are executed in a dedicated\nblocking thread pool via `tokio::task::spawn_blocking` to prevent head-of-line blocking on the\nasync runtime. The handler combines three phases into a single blocking call:\n\n1. **Path Validation**: Validates root path exists and relative path is safe (no `..`)\n2. **Directory Analysis**: CPU-intensive codebase analysis with `adapteros_codegraph`\n3. **Artifact Creation**: Generates deterministic `.safetensors` bytes and persists artifact\n\n# Timeout Protection\n\nThe combined blocking operation is wrapped in `tokio::time::timeout` with a configurable duration\n(default: 120 seconds, configured via `ApiConfig::directory_analysis_timeout_secs`). This prevents\nmalicious or extremely large directories from tying up blocking threads indefinitely.\n\n# Error Handling\n\nErrors are returned with appropriate HTTP status codes:\n- `400 BAD_REQUEST`: Invalid paths, path traversal attempts, or analysis failures\n- `408 REQUEST_TIMEOUT`: Operation exceeded configured timeout\n- `500 INTERNAL_SERVER_ERROR`: Filesystem errors or task panics\n\n# Observability\n\nThe handler includes structured tracing spans for each phase:\n- `directory_adapter_blocking_ops`: Top-level span for entire blocking operation\n- `path_validation`: Path validation phase\n- `directory_analysis`: Directory analysis phase (includes root and path fields)\n- `artifact_creation`: Artifact write phase (includes content hash field)\n\n# Permissions\n\nRequires `Admin` or `Operator` role via RBAC.\n\n# Example\n\n```no_run\nPOST /v1/adapters/directory/upsert\n{\n  \"root\": \"/workspace/my-project\",\n  \"path\": \"src\",\n  \"tenant_id\": \"tenant-a\",\n  \"activate\": false\n}\n```",
         "operationId": "upsert_directory_adapter",
         "requestBody": {
           "content": {
@@ -36177,7 +36217,7 @@
             "description": "Failed to upsert directory adapter"
           }
         },
-        "summary": "Upsert a synthetic directory adapter and optionally activate it.",
+        "summary": "Upsert a directory adapter and optionally activate it.",
         "tags": [
           "adapters"
         ]
@@ -44937,6 +44977,7 @@
     },
     "/v1/documents/{id}/process": {
       "post": {
+        "description": "This endpoint takes an uploaded document and:\n1. Parses the document content (PDF/Markdown)\n2. Chunks the content with configurable parameters\n3. Generates embeddings for each chunk\n4. Stores chunks in document_chunks table (for evidence tracking)\n5. Indexes chunks in rag_documents table (for vector search)\n6. Updates document status to \"indexed\"\n\n**IMPORTANT**: This establishes the unified ID format where:\n- `document_chunks.id` is a UUID (used for FK in inference_evidence)\n- `rag_documents.doc_id` is `{document_id}__chunk_{index}` using the document's UUID\n- This allows collection filtering to work correctly with UUID-based document_ids",
         "operationId": "process_document",
         "parameters": [
           {
@@ -44950,11 +44991,30 @@
           }
         ],
         "responses": {
-          "501": {
-            "description": "Embeddings feature not enabled"
+          "200": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ProcessDocumentResponse"
+                }
+              }
+            },
+            "description": "Document processed successfully"
+          },
+          "400": {
+            "description": "Document already processed or invalid"
+          },
+          "403": {
+            "description": "Tenant isolation violation"
+          },
+          "404": {
+            "description": "Document not found"
+          },
+          "500": {
+            "description": "Processing failed"
           }
         },
-        "summary": "Stub for process_document when embeddings feature is disabled",
+        "summary": "Process a document: parse, chunk, generate embeddings, and index for RAG",
         "tags": [
           "documents"
         ]
@@ -51828,6 +51888,76 @@
         ]
       }
     },
+    "/v1/replay/verify/bundle": {
+      "post": {
+        "operationId": "verify_bundle_receipt",
+        "responses": {
+          "200": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ReceiptVerificationResult"
+                }
+              }
+            },
+            "description": "Bundle verification result"
+          },
+          "400": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ErrorResponse"
+                }
+              }
+            },
+            "description": "Invalid bundle"
+          }
+        },
+        "tags": [
+          "replay"
+        ]
+      }
+    },
+    "/v1/replay/verify/trace": {
+      "post": {
+        "operationId": "verify_trace_receipt",
+        "requestBody": {
+          "content": {
+            "application/json": {
+              "schema": {
+                "$ref": "#/components/schemas/TraceVerifyRequest"
+              }
+            }
+          },
+          "required": true
+        },
+        "responses": {
+          "200": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ReceiptVerificationResult"
+                }
+              }
+            },
+            "description": "Receipt verification result"
+          },
+          "404": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ErrorResponse"
+                }
+              }
+            },
+            "description": "Trace not found"
+          }
+        },
+        "tags": [
+          "replay"
+        ]
+      }
+    },
     "/v1/repos": {
       "get": {
         "operationId": "list_repos",
@@ -56882,18 +57012,30 @@
       "post": {
         "operationId": "create_training_dataset_from_upload",
         "responses": {
-          "501": {
+          "200": {
             "content": {
               "application/json": {
                 "schema": {
-                  "$ref": "#/components/schemas/ErrorResponse"
+                  "$ref": "#/components/schemas/DatasetResponse"
                 }
               }
             },
-            "description": "Embeddings feature disabled"
+            "description": "Dataset created successfully"
+          },
+          "400": {
+            "description": "Invalid request"
+          },
+          "403": {
+            "description": "Tenant isolation violation"
+          },
+          "413": {
+            "description": "Document too large"
+          },
+          "500": {
+            "description": "Internal server error"
           }
         },
-        "summary": "Stub when embeddings feature is disabled.",
+        "summary": "Create a training dataset directly from a single uploaded document.\nThis wraps upload -> process -> dataset creation to produce a dataset_id\nsuitable for downstream training flows.",
         "tags": [
           "datasets"
         ]

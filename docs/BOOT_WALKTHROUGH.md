@@ -287,7 +287,7 @@ WARN Worker signing keypair not available, CP->Worker auth disabled (dev mode)
 
 **What happens:**
 1. **Policy loading** (line 1304)
-   - 25 policy packs loaded from DB
+   - 31 policy packs loaded from DB
 
 2. **Backend initialization** (line 1307)
    - MLX/CoreML/Metal backend prepared

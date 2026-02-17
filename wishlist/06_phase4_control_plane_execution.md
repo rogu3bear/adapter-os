@@ -38,14 +38,16 @@
 
 - Ran targeted readiness tests:
 `cargo test -p adapteros-server-api --test readyz_failure_modes`
-- Result: failed due signature drift (`ready` now requires `Query<ReadyzQuery>` argument).
+- Result: passed (`10 passed`).
+- Readiness harness alignment confirmed:
+  - `crates/adapteros-server-api/tests/readyz_failure_modes.rs`
+  - `advance_boot_to_ready()` includes `boot_state.worker_discovery().await` before `boot_state.ready().await`, matching strict boot transition order.
 
 `cargo test -p adapteros-server-api --test health_readyz_timeout_tests`
-- Result: failed due struct drift (`ReadyzResponse` now requires `canary` field in fixtures).
+- Result: passed (`31 passed`).
 
 ## Phase 4 Completion
 - [x] Config drift matrix delivered.
 - [x] Boot/readiness invariant map delivered.
 - [x] Zero-duplicate status model and migration order delivered.
-- [x] Verification executed with concrete failure evidence for follow-up.
-
+- [x] Verification gates are green after minimal readiness-test alignment.

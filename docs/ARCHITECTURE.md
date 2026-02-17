@@ -440,7 +440,7 @@ The control plane (`adapteros-server`) is the orchestration hub for adapterOS.
 **Responsibilities:**
 - HTTP API server (port 8080)
 - Authentication and authorization (JWT + RBAC)
-- Policy enforcement (25 policy packs)
+- Policy enforcement (31 policy packs)
 - Training orchestration
 - Worker management
 - Telemetry indexing

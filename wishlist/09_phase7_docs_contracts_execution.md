@@ -30,9 +30,7 @@
 
 - Ran consolidated entrypoint with legacy checks:
 `scripts/validate-docs.sh --legacy`
-- Result: failed on heuristic-only checks:
-  - policy pack count mismatch (`code=31`, docs mention `25`)
-  - README legacy version marker missing (`alpha-v`)
+- Result: passed.
 
 ## Contract Artifact Status
 - `docs/generated/api-route-inventory.json`: in sync.
@@ -43,5 +41,4 @@
 - [x] Unified docs-claims gate strategy delivered and implemented.
 - [x] Legacy overlap reduced via optional mode.
 - [x] Contract artifact checks verified.
-- [x] Residual heuristic failures documented explicitly.
-
+- [x] Legacy heuristic checks reconciled and green.

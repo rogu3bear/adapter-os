@@ -24,7 +24,7 @@
 
 ## Overview
 
-adapterOS implements a comprehensive policy enforcement system with 25 canonical policy packs that govern all aspects of system behavior. Policy enforcement happens at multiple layers throughout the request lifecycle, ensuring security, performance, and operational compliance.
+adapterOS implements a comprehensive policy enforcement system with 31 canonical policy packs that govern all aspects of system behavior. Policy enforcement happens at multiple layers throughout the request lifecycle, ensuring security, performance, and operational compliance.
 
 ### Policy Enforcement Layers
 
@@ -56,7 +56,7 @@ graph TD
 
 ## Policy Registry
 
-The policy registry contains exactly 25 policy packs, each with:
+The policy registry contains exactly 31 policy packs, each with:
 
 - **ID**: Unique identifier (`PolicyId`, legacy `PolicyPackId` in pack manager)
 - **Name**: Human-readable name

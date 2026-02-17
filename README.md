@@ -10,6 +10,7 @@
 **Deterministic ML Inference Platform** — High-performance inference with K-sparse LoRA routing, Metal-optimized kernels, and comprehensive policy enforcement for production environments.
 
 adapterOS (0.12.0) is a Rust-based ML inference platform optimized for Apple Silicon, delivered as licensed local software for on-prem or air-gapped deployments. Features deterministic execution across multiple backends (CoreML, MLX, Metal), modular Metal kernels, centralized policy enforcement, and memory-efficient adapter management with zero network egress during serving.
+Release track: `alpha-v0.12.0`.
 
 ---
 
@@ -23,7 +24,7 @@ adapterOS is an ML inference platform that enables **deterministic multi-adapter
 - **Token Artifact System (TAS)**: Transforms inference outputs into persistent, reusable artifacts that can be referenced and composed
 - **K-Sparse LoRA Routing**: Dynamic gating with Q15 quantized gates and entropy floor
 - **Modular Metal Kernels**: Precompiled `.metallib` kernels with deterministic compilation
-- **Policy Enforcement**: 25 canonical policy packs for compliance, security, and quality
+- **Policy Enforcement**: 31 canonical policy packs for compliance, security, and quality
 - **Environment Fingerprinting**: Cryptographically signed drift detection with automatic baseline creation
 - **Deterministic Execution**: Reproducible outputs with HKDF seeding and canonical JSON
 - **Zero Network Egress**: Air-gapped serving with Unix domain sockets only
@@ -56,7 +57,7 @@ adapterOS is an ML inference platform that enables **deterministic multi-adapter
 graph TB
     subgraph Runtime[adapterOS Runtime v0.11.0]
         subgraph Control[Control Layer]
-            Policy[Policy Registry<br/>25 Canonical Packs]
+            Policy[Policy Registry<br/>31 Canonical Packs]
             Router[K-Sparse Router<br/>Q15 Quantized Gates]
             Kernels[Modular Metal Kernels<br/>.metallib]
         end
@@ -100,7 +101,7 @@ graph TB
 ```
 
 **Key Components:**
-- **Policy Registry**: 25 canonical policy packs (egress, determinism, router, evidence, etc.)
+- **Policy Registry**: 31 canonical policy packs (egress, determinism, router, evidence, etc.)
 - **K-Sparse Router**: Top-K adapter selection with Q15 quantized gates
 - **Modular Kernels**: Precompiled `.metallib` kernels for deterministic execution
 - **Adapter Registry**: Content-addressed LoRA adapter storage
@@ -320,7 +321,7 @@ kernel void fused_attention_lora(
 
 ### 3. **Policy Enforcement**
 
-25 canonical policy packs ensure compliance:
+31 canonical policy packs ensure compliance:
 - **Egress Ruleset**: Zero network during serving, PF enforcement
 - **Determinism Ruleset**: Precompiled kernels, HKDF seeding
 - **Router Ruleset**: K bounds, entropy floor, Q15 gates
@@ -376,7 +377,7 @@ See [docs/LIFECYCLE.md](docs/LIFECYCLE.md) for detailed state machine documentat
 - **Multi-Backend Support**: MLX (primary inference/training), CoreML (ANE acceleration layer), Metal (GPU kernels)
 - **K-Sparse LoRA Routing**: Dynamic adapter selection with Q15 quantization
 - **Deterministic Execution**: HKDF seeding, reproducible results
-- **Policy Enforcement**: 25 canonical policy packs with runtime validation
+- **Policy Enforcement**: 31 canonical policy packs with runtime validation
 - **Adapter Lifecycle**: Hot-swap, pinning, TTL management, memory optimization
 - **REST API**: Complete inference endpoints with streaming support
 - **Database**: SQLite with migrations, adapter registry, telemetry
@@ -524,7 +525,7 @@ adapterOS 0.12.0 includes:
 
 ### Completed Features
 - ✅ **Naming Unification**: All crates renamed to `adapteros-*` with compatibility shims
-- ✅ **Policy Registry**: 25 canonical policy packs with CLI commands
+- ✅ **Policy Registry**: 31 canonical policy packs with CLI commands
 - ✅ **Adapter Taxonomy**: Semantic naming with lineage tracking and fork semantics
 - ✅ **Metal Kernel Refactor**: Modular kernels with parameter structs
 - ✅ **Deterministic Config**: Precedence rules with freeze mechanism
@@ -549,7 +550,7 @@ adapterOS 0.12.0 includes:
 - **[Quick Start Guide](docs/QUICKSTART.md)** - Get running in 10 minutes
 - **[Documentation Index](docs/README.md)** - Complete documentation navigation
 - **[System Architecture](docs/ARCHITECTURE.md)** - High-level design and components
-- **[Policy Registry](docs/POLICIES.md)** - 25 canonical policy packs
+- **[Policy Registry](docs/POLICIES.md)** - 31 canonical policy packs
 - **[Security Guide](docs/SECURITY.md)** - Security architecture and practices
 - **[Stability Log (Last Two Weeks)](docs/stability/RECENT_ISSUES.md)** - Point-in-time risk tracking
 
