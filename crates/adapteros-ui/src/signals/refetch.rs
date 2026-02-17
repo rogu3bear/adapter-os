@@ -9,6 +9,7 @@
 use crate::api::types::{
     AdapterLifecycleEvent, AdapterVersionEvent, SystemHealthTransitionEvent, TrainingLifecycleEvent,
 };
+use crate::hooks::cache_invalidate;
 use leptos::prelude::*;
 use std::collections::HashMap;
 
@@ -90,6 +91,7 @@ impl RefetchAction {
         self.state.update(|state| {
             let counter = state.counters.entry(topic).or_insert(0);
             *counter = counter.wrapping_add(1);
+            invalidate_cache_for_topic(topic);
 
             // If All is triggered, also increment all individual topics
             if topic == RefetchTopic::All {
@@ -106,6 +108,7 @@ impl RefetchAction {
                 ] {
                     let counter = state.counters.entry(t).or_insert(0);
                     *counter = counter.wrapping_add(1);
+                    invalidate_cache_for_topic(t);
                 }
             }
         });
@@ -203,6 +206,30 @@ impl RefetchAction {
                 self.health();
             }
         }
+    }
+}
+
+/// Invalidate SWR cache entries associated with a refetch topic so that
+/// re-navigation shows fresh data instead of a stale cache hit.
+fn invalidate_cache_for_topic(topic: RefetchTopic) {
+    match topic {
+        RefetchTopic::Adapters => cache_invalidate("adapters_list"),
+        RefetchTopic::TrainingJobs => cache_invalidate("training_jobs_list"),
+        RefetchTopic::Workers => {
+            cache_invalidate("workers_detail");
+            cache_invalidate("workers_list");
+            cache_invalidate("nodes_list");
+        }
+        RefetchTopic::Models => {
+            cache_invalidate("models_status");
+            cache_invalidate("models_list");
+        }
+        RefetchTopic::Health => {
+            cache_invalidate("system_status");
+            cache_invalidate("system_metrics");
+        }
+        // Stacks, Repositories, ApiKeys, Users, All — no cached keys yet
+        _ => {}
     }
 }
 
