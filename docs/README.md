@@ -101,7 +101,7 @@ graph TB
 - **Deterministic Replay**: HKDF-SHA256 seed derivation, reproducible outputs
 - **Zero Network Egress**: All serving happens locally via Unix Domain Sockets
 - **Hot-Swap Adapters**: Load/unload adapters without restarting workers
-- **Policy Enforcement**: 31 policy packs with audit trails and Merkle chains
+- **Policy Enforcement**: 30 policy packs with audit trails and Merkle chains
 - **Multi-Tenant**: Full tenant isolation with JWT authentication
 
 ---
@@ -288,7 +288,7 @@ open http://localhost:3200
 
 | Document | Description |
 |----------|-------------|
-| [**POLICIES.md**](POLICIES.md) | Policy system overview (31 policy packs) |
+| [**POLICIES.md**](POLICIES.md) | Policy system overview (30 policy packs) |
 
 ---
 

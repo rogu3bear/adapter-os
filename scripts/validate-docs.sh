@@ -57,10 +57,15 @@ report_success() {
 }
 
 echo "1. Policy pack count consistency"
-CODE_POLICY_COUNT=$(ls crates/adapteros-policy/src/packs/ | grep -v mod.rs | wc -l | tr -d ' ')
+# Canonical count lives in PolicyId::all() in registry.rs, not file-count in
+# packs/ (which can include helper modules).
+CODE_POLICY_COUNT=$(rg -o 'pub fn all\(\) -> .*\[PolicyId; ([0-9]+)\]' \
+    crates/adapteros-policy/src/registry.rs -r '$1' | head -1 || true)
 DOCS_POLICY_COUNT=$(grep -r "policy packs" docs/ | grep -v archive/ | grep -o "[0-9]\+ policy packs" | head -1 | cut -d' ' -f1 || true)
 
-if [[ -z "$DOCS_POLICY_COUNT" ]]; then
+if [[ -z "$CODE_POLICY_COUNT" ]]; then
+    report_error "Could not determine canonical policy pack count from registry.rs"
+elif [[ -z "$DOCS_POLICY_COUNT" ]]; then
     report_error "Could not find docs policy pack count"
 elif [[ "$CODE_POLICY_COUNT" != "$DOCS_POLICY_COUNT" ]]; then
     report_error "Policy pack count mismatch: code=$CODE_POLICY_COUNT docs=$DOCS_POLICY_COUNT"

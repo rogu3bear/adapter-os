@@ -1,6 +1,6 @@
-//! Policy Registry - Canonical 25 Policy Packs
+//! Policy Registry - Canonical 30 Policy Packs
 //!
-//! This module defines the complete set of 25 policy packs enforced by adapterOS.
+//! This module defines the complete set of 30 policy packs enforced by adapterOS.
 //! Each policy pack has a unique ID, name, and enforcement logic.
 
 use adapteros_core::{AosError, Result};

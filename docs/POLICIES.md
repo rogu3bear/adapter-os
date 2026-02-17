@@ -11,7 +11,7 @@
 
 1. [Overview](#overview)
 2. [Policy Registry](#policy-registry)
-3. [The 28 Canonical Policy Packs](#the-28-canonical-policy-packs)
+3. [The 30 Canonical Policy Packs](#the-30-canonical-policy-packs)
 4. [Policy Enforcement Architecture](#policy-enforcement-architecture)
 5. [Policy Enforcement Middleware](#policy-enforcement-middleware)
 6. [Development Bypass Policy](#development-bypass-policy)
@@ -24,7 +24,7 @@
 
 ## Overview
 
-adapterOS implements a comprehensive policy enforcement system with 31 canonical policy packs that govern all aspects of system behavior. Policy enforcement happens at multiple layers throughout the request lifecycle, ensuring security, performance, and operational compliance.
+adapterOS implements a comprehensive policy enforcement system with 30 canonical policy packs that govern all aspects of system behavior. Policy enforcement happens at multiple layers throughout the request lifecycle, ensuring security, performance, and operational compliance.
 
 ### Policy Enforcement Layers
 
@@ -56,7 +56,7 @@ graph TD
 
 ## Policy Registry
 
-The policy registry contains exactly 31 policy packs, each with:
+The policy registry contains exactly 30 policy packs, each with:
 
 - **ID**: Unique identifier (`PolicyId`, legacy `PolicyPackId` in pack manager)
 - **Name**: Human-readable name
@@ -68,7 +68,7 @@ Canonical registry definitions live in `crates/adapteros-policy/src/registry.rs`
 
 ---
 
-## The 28 Canonical Policy Packs
+## The 30 Canonical Policy Packs
 
 ### Core Security Policies (Critical Severity)
 

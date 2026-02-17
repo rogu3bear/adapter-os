@@ -14,7 +14,7 @@
   - `scripts/contracts/check_docs_claims.sh`
   - `scripts/contracts/generate_contract_artifacts.py --check`
 - Legacy heuristic gate (non-authoritative, optional):
-  - old policy-pack count grep
+  - policy-pack count derived from `PolicyId::all()` in `crates/adapteros-policy/src/registry.rs`
   - sampled source citation checks
   - lightweight README/CLI marker checks
 - Net effect: default docs validation no longer fails on heuristic drift when canonical contract artifacts are valid.
