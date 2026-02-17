@@ -4,7 +4,7 @@
 //! for inference. Components can check this to show "In Use" badges
 //! and disable modification controls.
 
-use crate::api::ApiClient;
+use crate::api::use_api_client;
 use crate::hooks::use_polling;
 use leptos::prelude::*;
 use std::collections::HashSet;
@@ -54,7 +54,7 @@ pub fn InFlightProvider(children: Children) -> impl IntoView {
     let adapter_ids = RwSignal::new(HashSet::<String>::new());
     let inference_count = RwSignal::new(0usize);
 
-    let client = Arc::new(ApiClient::new());
+    let client = use_api_client();
 
     // Use the existing use_polling hook which handles cleanup properly
     let _cancel = use_polling(POLL_INTERVAL_MS, {

@@ -3039,3 +3039,11 @@ impl ApiClient {
         self.get("/v1/storage/tenant-usage").await
     }
 }
+
+/// Get the shared API client from context.
+///
+/// The client is provided as `Arc<ApiClient>` in `AppProviders` at boot.
+/// Prefer this over `ApiClient::new()` to share a single HTTP client.
+pub fn use_api_client() -> Arc<ApiClient> {
+    leptos::prelude::expect_context::<Arc<ApiClient>>()
+}

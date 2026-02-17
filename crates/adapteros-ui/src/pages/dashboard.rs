@@ -11,6 +11,7 @@ use crate::components::{
     StatusColor, StatusIconBox, StatusIndicator, StatusVariant, TimeSeriesData, WorkerStatusBadge,
 };
 use crate::hooks::{use_cached_api_resource, use_sse_notifications, CacheTtl, LoadingState};
+use crate::pages::training::utils::format_backend_or;
 use crate::pages::workers::is_terminal_worker_status;
 use crate::signals::use_auth;
 use crate::utils::format_relative_time;
@@ -595,7 +596,7 @@ fn DashboardContent(
                                                 <div>
                                                     <p class="font-medium text-sm">{worker.display_name.clone().unwrap_or_else(|| adapteros_id::short_id(&worker.id))}</p>
                                                     <p class="text-xs text-muted-foreground">
-                                                        {worker.backend.clone().unwrap_or_else(|| "Unknown backend".to_string())}
+                                                        {format_backend_or(worker.backend.as_deref(), "Unknown backend")}
                                                     </p>
                                                 </div>
                                             </div>

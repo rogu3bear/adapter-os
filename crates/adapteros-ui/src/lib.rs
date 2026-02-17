@@ -276,7 +276,7 @@ fn AppProviders(children: Children) -> impl IntoView {
 
 #[component]
 fn SearchProvider(children: Children) -> impl IntoView {
-    let client = Arc::new(ApiClient::new());
+    let client = crate::api::use_api_client();
     provide_search_context(client);
     children()
 }
