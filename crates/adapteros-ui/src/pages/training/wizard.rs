@@ -7,11 +7,11 @@
 //! 4. Review - Summary and submit
 
 use crate::api::error::format_structured_details;
-use crate::api::ApiClient;
+use crate::api::{ApiClient, DatasetResponse, ModelListResponse};
 use crate::components::{
     AsyncBoundary, Button, ButtonVariant, Card, Dialog, DialogSize, FormField, Input, Select,
 };
-use crate::hooks::use_api_resource;
+use crate::hooks::{use_api_resource, LoadingState, Refetch};
 use crate::pages::training::config_presets::{TrainingConfigPresets, TrainingPreset};
 use crate::pages::training::dataset_wizard::{DatasetUploadOutcome, DatasetUploadWizard};
 use crate::pages::training::generate_wizard::{GenerateDatasetOutcome, GenerateDatasetWizard};
@@ -223,6 +223,34 @@ pub fn CreateJobWizard(
     let preferred_backend = RwSignal::new("auto".to_string());
     let backend_policy = RwSignal::new("auto".to_string());
     let coreml_training_fallback = RwSignal::new("mlx".to_string());
+
+    // Lifted state: survives step transitions so data isn't re-fetched
+    // and UI toggles aren't lost when navigating between steps.
+    let (models, refetch_models) = use_api_resource(
+        |client: std::sync::Arc<ApiClient>| async move { client.list_models().await },
+    );
+    let use_custom_model = RwSignal::new(false);
+    let dataset_info = RwSignal::new(None::<DatasetResponse>);
+    let show_change_options = RwSignal::new(false);
+
+    // Fetch dataset details reactively when dataset_id changes
+    Effect::new(move || {
+        let id = dataset_id.get();
+        if id.trim().is_empty() {
+            dataset_info.set(None);
+            return;
+        }
+        #[cfg(target_arch = "wasm32")]
+        {
+            wasm_bindgen_futures::spawn_local(async move {
+                let client = ApiClient::new();
+                match client.get_dataset(&id).await {
+                    Ok(resp) => dataset_info.set(Some(resp)),
+                    Err(_) => dataset_info.set(None),
+                }
+            });
+        }
+    });
 
     // Initialize training parameters from deep-link props
     if let Some(init_epochs) = initial_epochs {
@@ -548,6 +576,10 @@ pub fn CreateJobWizard(
         preferred_backend.set("auto".to_string());
         backend_policy.set("auto".to_string());
         show_advanced_backend.set(false);
+        // Reset lifted step state
+        use_custom_model.set(false);
+        dataset_info.set(None);
+        show_change_options.set(false);
     };
 
     // Reset form when dialog closes
@@ -587,6 +619,9 @@ pub fn CreateJobWizard(
                         <DatasetStepContent
                             dataset_id=dataset_id
                             dataset_message=dataset_message
+                            dataset_sample_count=dataset_sample_count
+                            dataset_info=dataset_info
+                            show_change_options=show_change_options
                             dataset_wizard_open=dataset_wizard_open
                             generate_wizard_open=generate_wizard_open
                         />
@@ -597,6 +632,9 @@ pub fn CreateJobWizard(
                             base_model_id=base_model_id
                             category=category
                             form_errors=form_errors
+                            models=models
+                            refetch_models=refetch_models
+                            use_custom_model=use_custom_model
                         />
                     }.into_any(),
                     WizardStep::Config => view! {
@@ -691,9 +729,247 @@ pub fn CreateJobWizard(
     }
 }
 
-/// Step 1: Dataset selection
+/// Step 1: Dataset selection — context-aware
+///
+/// When a dataset is pre-selected (e.g., from chat-to-training or dataset detail),
+/// shows the dataset info and offers to continue, synthesize more, or change.
+/// When no dataset is set, shows the original upload/generate flow.
 #[component]
 fn DatasetStepContent(
+    dataset_id: RwSignal<String>,
+    dataset_message: RwSignal<Option<String>>,
+    dataset_sample_count: RwSignal<Option<usize>>,
+    /// Dataset details fetched by the parent — survives step transitions.
+    dataset_info: RwSignal<Option<DatasetResponse>>,
+    /// "Change dataset" toggle — survives step transitions.
+    show_change_options: RwSignal<bool>,
+    dataset_wizard_open: RwSignal<bool>,
+    generate_wizard_open: RwSignal<bool>,
+) -> impl IntoView {
+    let has_dataset = Signal::derive(move || !dataset_id.get().trim().is_empty());
+
+    view! {
+        <div class="space-y-6">
+            {move || {
+                if has_dataset.get() {
+                    view! {
+                        <DatasetReadyView
+                            dataset_id=dataset_id
+                            dataset_info=dataset_info
+                            dataset_message=dataset_message
+                            dataset_sample_count=dataset_sample_count
+                            show_change_options=show_change_options
+                            dataset_wizard_open=dataset_wizard_open
+                            generate_wizard_open=generate_wizard_open
+                        />
+                    }.into_any()
+                } else {
+                    view! {
+                        <DatasetChooseView
+                            dataset_id=dataset_id
+                            dataset_message=dataset_message
+                            dataset_wizard_open=dataset_wizard_open
+                            generate_wizard_open=generate_wizard_open
+                        />
+                    }.into_any()
+                }
+            }}
+        </div>
+    }
+}
+
+/// Shown when a dataset is already selected — contextual "ready" state
+#[component]
+fn DatasetReadyView(
+    dataset_id: RwSignal<String>,
+    dataset_info: RwSignal<Option<DatasetResponse>>,
+    dataset_message: RwSignal<Option<String>>,
+    dataset_sample_count: RwSignal<Option<usize>>,
+    show_change_options: RwSignal<bool>,
+    dataset_wizard_open: RwSignal<bool>,
+    generate_wizard_open: RwSignal<bool>,
+) -> impl IntoView {
+    view! {
+        <div class="space-y-4">
+            <div class="text-center py-2">
+                <h3 class="heading-4 mb-1">"Dataset ready"</h3>
+                <p class="text-sm text-muted-foreground">
+                    "Your training data is selected. Click Next to choose a model."
+                </p>
+            </div>
+
+            // Dataset info card
+            {move || {
+                if let Some(info) = dataset_info.get() {
+                    let display_name = info.display_name.clone().unwrap_or_else(|| info.name.clone());
+                    let format_label = info.format.to_uppercase();
+                    let size = info.total_size_bytes.map(format_bytes).unwrap_or_default();
+                    let file_count = info.file_count.unwrap_or(0);
+                    let status = info.status.clone();
+                    let ds_type = info.dataset_type.clone().unwrap_or_default();
+
+                    view! {
+                        <div class="rounded-lg border border-status-success/50 bg-status-success/5 p-4">
+                            <div class="flex items-start gap-4">
+                                <div class="rounded-full bg-status-success/10 p-2.5 shrink-0">
+                                    <svg class="w-5 h-5 text-status-success" fill="none" viewBox="0 0 24 24" stroke="currentColor">
+                                        <path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M5 13l4 4L19 7"/>
+                                    </svg>
+                                </div>
+                                <div class="min-w-0 flex-1">
+                                    <p class="font-medium truncate">{display_name}</p>
+                                    <div class="flex flex-wrap items-center gap-x-3 gap-y-1 mt-1 text-xs text-muted-foreground">
+                                        <span class="font-medium text-foreground/70">{format_label}</span>
+                                        {(file_count > 0).then(|| view! {
+                                            <span>{format!("{} file{}", file_count, if file_count == 1 { "" } else { "s" })}</span>
+                                        })}
+                                        {(!size.is_empty()).then(|| view! {
+                                            <span>{size}</span>
+                                        })}
+                                        {(!ds_type.is_empty()).then(|| view! {
+                                            <span class="inline-flex items-center rounded bg-muted px-1.5 py-0.5 text-xs">{ds_type}</span>
+                                        })}
+                                        {(status == "synthesized").then(|| view! {
+                                            <span class="inline-flex items-center rounded bg-purple-100 px-1.5 py-0.5 text-xs text-purple-700">"synthetic"</span>
+                                        })}
+                                    </div>
+                                    {move || dataset_sample_count.get().map(|count| view! {
+                                        <p class="text-xs text-muted-foreground mt-1">{format!("{} training samples", count)}</p>
+                                    })}
+                                </div>
+                            </div>
+                        </div>
+                    }.into_any()
+                } else {
+                    // Fallback: show dataset_message while info loads
+                    let msg = dataset_message.get().unwrap_or_else(|| {
+                        format!("Dataset: {}", dataset_id.get())
+                    });
+                    view! {
+                        <div class="rounded-lg border border-status-success/50 bg-status-success/5 p-4 text-center">
+                            <svg class="w-5 h-5 mx-auto mb-1.5 text-status-success" fill="none" viewBox="0 0 24 24" stroke="currentColor">
+                                <path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M5 13l4 4L19 7"/>
+                            </svg>
+                            <p class="text-sm font-medium">{msg}</p>
+                        </div>
+                    }.into_any()
+                }
+            }}
+
+            // Secondary actions
+            <div class="grid gap-3 sm:grid-cols-2">
+                <Card>
+                    <button
+                        class="w-full p-4 text-left hover:bg-muted/50 transition-colors rounded-lg"
+                        on:click=move |_| generate_wizard_open.set(true)
+                    >
+                        <div class="flex items-start gap-3">
+                            <div class="rounded-full bg-primary/10 p-2 shrink-0">
+                                <svg class="w-4 h-4 text-primary" fill="none" viewBox="0 0 24 24" stroke="currentColor">
+                                    <path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M13 10V3L4 14h7v7l9-11h-7z"/>
+                                </svg>
+                            </div>
+                            <div>
+                                <h4 class="text-sm font-medium">"Synthesize More Data"</h4>
+                                <p class="text-xs text-muted-foreground mt-0.5">
+                                    "Generate additional Q&A pairs from a document to augment this dataset"
+                                </p>
+                            </div>
+                        </div>
+                    </button>
+                </Card>
+
+                <Card>
+                    <button
+                        class="w-full p-4 text-left hover:bg-muted/50 transition-colors rounded-lg"
+                        on:click=move |_| show_change_options.update(|v| *v = !*v)
+                    >
+                        <div class="flex items-start gap-3">
+                            <div class="rounded-full bg-muted p-2 shrink-0">
+                                <svg class="w-4 h-4 text-muted-foreground" fill="none" viewBox="0 0 24 24" stroke="currentColor">
+                                    <path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M4 4v5h.582m15.356 2A8.001 8.001 0 004.582 9m0 0H9m11 11v-5h-.581m0 0a8.003 8.003 0 01-15.357-2m15.357 2H15"/>
+                                </svg>
+                            </div>
+                            <div>
+                                <h4 class="text-sm font-medium">"Change Dataset"</h4>
+                                <p class="text-xs text-muted-foreground mt-0.5">
+                                    "Upload or generate a different dataset instead"
+                                </p>
+                            </div>
+                        </div>
+                    </button>
+                </Card>
+            </div>
+
+            // Expandable: change dataset options
+            <Show when=move || show_change_options.try_get().unwrap_or(false)>
+                <div class="border-t pt-4 space-y-4">
+                    <div class="grid gap-4 sm:grid-cols-2">
+                        <Card>
+                            <button
+                                class="w-full p-4 text-left hover:bg-muted/50 transition-colors rounded-lg"
+                                on:click=move |_| {
+                                    dataset_id.set(String::new());
+                                    dataset_message.set(None);
+                                    dataset_sample_count.set(None);
+                                    dataset_wizard_open.set(true);
+                                    show_change_options.set(false);
+                                }
+                            >
+                                <div class="flex items-start gap-3">
+                                    <div class="rounded-full bg-primary/10 p-2 shrink-0">
+                                        <svg class="w-4 h-4 text-primary" fill="none" viewBox="0 0 24 24" stroke="currentColor">
+                                            <path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M4 16v1a3 3 0 003 3h10a3 3 0 003-3v-1m-4-8l-4-4m0 0L8 8m4-4v12"/>
+                                        </svg>
+                                    </div>
+                                    <div>
+                                        <h4 class="text-sm font-medium">"Upload Dataset"</h4>
+                                        <p class="text-xs text-muted-foreground mt-0.5">"JSONL, CSV, or text files"</p>
+                                    </div>
+                                </div>
+                            </button>
+                        </Card>
+                        <Card>
+                            <button
+                                class="w-full p-4 text-left hover:bg-muted/50 transition-colors rounded-lg"
+                                on:click=move |_| {
+                                    dataset_id.set(String::new());
+                                    dataset_message.set(None);
+                                    dataset_sample_count.set(None);
+                                    generate_wizard_open.set(true);
+                                    show_change_options.set(false);
+                                }
+                            >
+                                <div class="flex items-start gap-3">
+                                    <div class="rounded-full bg-primary/10 p-2 shrink-0">
+                                        <svg class="w-4 h-4 text-primary" fill="none" viewBox="0 0 24 24" stroke="currentColor">
+                                            <path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M13 10V3L4 14h7v7l9-11h-7z"/>
+                                        </svg>
+                                    </div>
+                                    <div>
+                                        <h4 class="text-sm font-medium">"Generate from Document"</h4>
+                                        <p class="text-xs text-muted-foreground mt-0.5">"Create Q&A pairs from text files"</p>
+                                    </div>
+                                </div>
+                            </button>
+                        </Card>
+                    </div>
+                    <div>
+                        <p class="text-xs text-muted-foreground mb-2">"Or enter a dataset ID manually:"</p>
+                        <Input
+                            value=dataset_id
+                            placeholder="ds-abc123".to_string()
+                        />
+                    </div>
+                </div>
+            </Show>
+        </div>
+    }
+}
+
+/// Shown when no dataset is selected — original upload/generate flow
+#[component]
+fn DatasetChooseView(
     dataset_id: RwSignal<String>,
     dataset_message: RwSignal<Option<String>>,
     dataset_wizard_open: RwSignal<bool>,
@@ -704,11 +980,11 @@ fn DatasetStepContent(
             <div class="text-center py-4">
                 <h3 class="heading-4 mb-2">"Choose your training data"</h3>
                 <p class="text-sm text-muted-foreground">
-                    "Select how you want to provide training data. You can also skip this step to use synthetic data."
+                    "Select how you want to provide training data."
                 </p>
             </div>
 
-            // Dataset ready message
+            // Dataset ready message (from a just-completed sub-wizard)
             {move || dataset_message.try_get().flatten().map(|msg| view! {
                 <div class="rounded-lg border border-status-success/50 bg-status-success/10 p-4 text-center">
                     <svg class="w-6 h-6 mx-auto mb-2 text-status-success" fill="none" viewBox="0 0 24 24" stroke="currentColor">
@@ -775,6 +1051,16 @@ fn DatasetStepContent(
     }
 }
 
+fn format_bytes(bytes: i64) -> String {
+    if bytes < 1024 {
+        format!("{} B", bytes)
+    } else if bytes < 1024 * 1024 {
+        format!("{:.1} KB", bytes as f64 / 1024.0)
+    } else {
+        format!("{:.1} MB", bytes as f64 / (1024.0 * 1024.0))
+    }
+}
+
 /// Step 2: Model selection
 #[component]
 fn ModelStepContent(
@@ -782,12 +1068,13 @@ fn ModelStepContent(
     base_model_id: RwSignal<String>,
     category: RwSignal<String>,
     form_errors: RwSignal<FormErrors>,
+    /// Models resource fetched by the parent — survives step transitions.
+    models: Signal<LoadingState<ModelListResponse>>,
+    /// Refetch handle for the models resource.
+    refetch_models: Refetch,
+    /// "Enter model ID manually" toggle — survives step transitions.
+    use_custom_model: RwSignal<bool>,
 ) -> impl IntoView {
-    let (models, refetch_models) = use_api_resource(
-        |client: std::sync::Arc<ApiClient>| async move { client.list_models().await },
-    );
-    let use_custom_model = RwSignal::new(false);
-
     view! {
         <div class="space-y-6">
             <FormField
@@ -834,11 +1121,18 @@ fn ModelStepContent(
                                 on_retry=Callback::new(move |_| refetch_models.run(()))
                                 loading_message="Loading models...".to_string()
                                 render=move |resp| {
+                                    // Track which model IDs use CoreML backend
+                                    let coreml_ids: Vec<String> = resp.models.iter()
+                                        .filter(|m| m.backend.as_deref() == Some("coreml"))
+                                        .map(|m| m.id.clone())
+                                        .collect();
                                     let options: Vec<(String, String)> = resp.models.iter().map(|m| {
-                                        let label = if let Some(q) = &m.quantization {
-                                            format!("{} ({})", m.name, q)
-                                        } else {
-                                            m.name.clone()
+                                        let is_coreml = m.backend.as_deref() == Some("coreml");
+                                        let label = match (&m.quantization, is_coreml) {
+                                            (Some(q), true) => format!("{} ({}) — CoreML, no adapter support", m.name, q),
+                                            (Some(q), false) => format!("{} ({})", m.name, q),
+                                            (None, true) => format!("{} — CoreML, no adapter support", m.name),
+                                            (None, false) => m.name.clone(),
                                         };
                                         (m.id.clone(), label)
                                     }).collect();
@@ -848,6 +1142,16 @@ fn ModelStepContent(
                                                 value=base_model_id
                                                 options=options
                                             />
+                                            {move || {
+                                                let selected = base_model_id.get();
+                                                coreml_ids.contains(&selected).then(|| view! {
+                                                    <div class="rounded-md border border-warning/40 bg-warning/10 p-3">
+                                                        <p class="text-xs text-warning-foreground">
+                                                            "CoreML models do not support LoRA adapter training. Select an MLX model instead."
+                                                        </p>
+                                                    </div>
+                                                })
+                                            }}
                                             <button
                                                 class="text-xs text-primary hover:underline"
                                                 type="button"

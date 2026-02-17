@@ -467,10 +467,15 @@ fn ModelList(
                                 .unwrap_or_else(|| "-".to_string());
 
                             // Adapters column
-                            let adapters_display = row
-                                .adapter_count
-                                .map(|c| c.to_string())
-                                .unwrap_or_else(|| "-".to_string());
+                            let is_coreml = row.backend.as_deref() == Some("coreml");
+                            let adapters_display = if is_coreml {
+                                None
+                            } else {
+                                Some(row
+                                    .adapter_count
+                                    .map(|c| c.to_string())
+                                    .unwrap_or_else(|| "-".to_string()))
+                            };
 
                             let model_id_for_key = model_id_for_click.clone();
 
@@ -506,7 +511,15 @@ fn ModelList(
                                         <span class="text-sm text-muted-foreground">{size_display}</span>
                                     </TableCell>
                                     <TableCell>
-                                        <span class="text-sm text-muted-foreground">{adapters_display}</span>
+                                        {if let Some(display) = adapters_display {
+                                            view! {
+                                                <span class="text-sm text-muted-foreground">{display}</span>
+                                            }.into_any()
+                                        } else {
+                                            view! {
+                                                <Badge variant=BadgeVariant::Secondary>"Not supported"</Badge>
+                                            }.into_any()
+                                        }}
                                     </TableCell>
                                     <TableCell>
                                         <span class="text-sm text-muted-foreground">
@@ -966,6 +979,18 @@ fn ModelDetailContent(
             </div>
         </Card>
 
+        // CoreML adapter incompatibility notice
+        {merged_row.as_ref().and_then(|row| {
+            (row.backend.as_deref() == Some("coreml")).then(|| view! {
+                <div class="rounded-lg border border-warning/40 bg-warning/10 p-4 mt-4">
+                    <p class="text-sm font-medium text-warning-foreground mb-1">"No Adapter Support"</p>
+                    <p class="text-xs text-warning-foreground/80">
+                        "CoreML models run on the Apple Neural Engine for fast inference but do not support LoRA adapter attachment. Use an MLX model for adapter-based workflows."
+                    </p>
+                </div>
+            })
+        })}
+
         // Details
         <Card title="Details".to_string() class="mt-4".to_string()>
             <div class="grid gap-3 text-sm">
@@ -1037,11 +1062,19 @@ fn ModelDetailContent(
                                 <span class="font-medium">{fmt}</span>
                             </div>
                         })}
-                        {row.backend.clone().map(|be| view! {
-                            <div class="flex justify-between">
-                                <span class="text-muted-foreground">"Backend"</span>
-                                <span class="font-medium">{be}</span>
-                            </div>
+                        {row.backend.clone().map(|be| {
+                            let is_coreml = be == "coreml";
+                            view! {
+                                <div class="flex justify-between">
+                                    <span class="text-muted-foreground">"Backend"</span>
+                                    <span class="font-medium flex items-center gap-2">
+                                        {be}
+                                        {is_coreml.then(|| view! {
+                                            <Badge variant=BadgeVariant::Secondary>"No Adapter Support"</Badge>
+                                        })}
+                                    </span>
+                                </div>
+                            }
                         })}
                         {row.quantization.clone().map(|q| view! {
                             <div class="flex justify-between">
@@ -1102,13 +1135,20 @@ fn ModelDetailContent(
             let has_stats = row.adapter_count.is_some() || row.training_job_count.is_some();
             if !has_stats { return None; }
             let row = row.clone();
+            let is_coreml = row.backend.as_deref() == Some("coreml");
             Some(view! {
                 <Card title="Statistics".to_string() class="mt-4".to_string()>
                     <div class="grid gap-3 text-sm">
                         {row.adapter_count.map(|c| view! {
                             <div class="flex justify-between">
                                 <span class="text-muted-foreground">"Adapters"</span>
-                                <span class="font-medium">{c.to_string()}</span>
+                                <span class="font-medium">{
+                                    if is_coreml {
+                                        "N/A (CoreML)".to_string()
+                                    } else {
+                                        c.to_string()
+                                    }
+                                }</span>
                             </div>
                         })}
                         {row.training_job_count.map(|c| view! {
@@ -1382,6 +1422,14 @@ fn SeedModelDialog(open: RwSignal<bool>, on_imported: Callback<()>) -> impl Into
                         options=backend_options
                     />
                 </FormField>
+
+                {move || (backend.get() == "coreml").then(|| view! {
+                    <div class="rounded-md border border-warning/40 bg-warning/10 p-3">
+                        <p class="text-xs text-warning-foreground">
+                            "CoreML models do not support LoRA adapter attachment. Choose MLX if you plan to use adapters."
+                        </p>
+                    </div>
+                })}
 
                 <div class="flex justify-end gap-2 pt-4">
                     <Button
