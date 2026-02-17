@@ -548,6 +548,7 @@ mod tests {
             })),
             model_path: std::path::PathBuf::new(),
             tokenizer: None,
+            kv_cache: None,
         }));
 
         let config = MonitoringConfig {

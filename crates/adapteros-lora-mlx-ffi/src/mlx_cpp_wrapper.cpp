@@ -598,6 +598,14 @@ extern "C" mlx_array_t* mlx_scaled_dot_product_attention(
 }
 extern "C" mlx_array_t* mlx_create_causal_mask(int) { return nullptr; }
 
+// LoRA adapter for fused forward - stubs
+extern "C" mlx_lora_adapter_t* mlx_lora_adapter_new(int, int, float) { return nullptr; }
+extern "C" int mlx_lora_adapter_set_module(mlx_lora_adapter_t*, int, const char*, mlx_array_t*, mlx_array_t*) { return -1; }
+extern "C" void mlx_lora_adapter_free(mlx_lora_adapter_t*) {}
+extern "C" mlx_array_t* mlx_model_forward_with_cache_and_lora(
+    mlx_model_t*, mlx_array_t*, int, mlx_kv_cache_t*,
+    mlx_lora_adapter_t**, const float*, int) { return nullptr; }
+
 // KV cache - unsupported in stub
 extern "C" mlx_kv_cache_t* mlx_kv_cache_new(int, int, int, int) { return nullptr; }
 extern "C" int mlx_kv_cache_update(

@@ -368,6 +368,56 @@ void mlx_kv_cache_free(mlx_kv_cache_t* cache);
 mlx_array_t* mlx_model_forward_with_cache(mlx_model_t* model, mlx_array_t* input, int position_offset, mlx_kv_cache_t* kv_cache);
 
 // ============================================================================
+// LoRA Adapter for Fused Forward Pass
+// ============================================================================
+
+// Opaque handle for a LoRA adapter loaded for fused inference
+typedef struct mlx_lora_adapter mlx_lora_adapter_t;
+
+// Create a new LoRA adapter handle
+// Parameters:
+//   adapter_id: unique identifier for this adapter
+//   num_layers: number of transformer layers this adapter covers
+//   scale: global LoRA scale factor (alpha / rank)
+// Returns: adapter handle (must be freed with mlx_lora_adapter_free)
+mlx_lora_adapter_t* mlx_lora_adapter_new(int adapter_id, int num_layers, float scale);
+
+// Set LoRA weights for a specific module in a specific layer
+// Parameters:
+//   adapter: adapter handle
+//   layer_idx: transformer layer index (0-based)
+//   module_name: projection name ("q_proj", "k_proj", "v_proj", "o_proj", "gate_proj", "up_proj", "down_proj")
+//   lora_a: LoRA A matrix [rank, in_features]
+//   lora_b: LoRA B matrix [out_features, rank]
+// Returns: 0 on success, -1 on error
+int mlx_lora_adapter_set_module(mlx_lora_adapter_t* adapter, int layer_idx,
+    const char* module_name, mlx_array_t* lora_a, mlx_array_t* lora_b);
+
+// Free a LoRA adapter handle and all associated weights
+void mlx_lora_adapter_free(mlx_lora_adapter_t* adapter);
+
+// Forward pass with KV cache AND per-layer LoRA fusion
+// This is the primary inference function that processes ALL transformer layers
+// with per-layer LoRA application and KV caching.
+// Parameters:
+//   model: loaded model handle
+//   input: input token IDs
+//   position_offset: starting position for RoPE
+//   kv_cache: KV cache handle (NULL for no caching)
+//   adapters: array of LoRA adapter handles (NULL for base model only)
+//   blend_weights: per-adapter blend weight from router (length = num_active_adapters)
+//   num_active_adapters: number of active adapters (0 for base model only)
+// Returns: logits tensor, NULL on error
+mlx_array_t* mlx_model_forward_with_cache_and_lora(
+    mlx_model_t* model,
+    mlx_array_t* input,
+    int position_offset,
+    mlx_kv_cache_t* kv_cache,
+    mlx_lora_adapter_t** adapters,
+    const float* blend_weights,
+    int num_active_adapters);
+
+// ============================================================================
 // SafeTensors weight loading
 // ============================================================================
 

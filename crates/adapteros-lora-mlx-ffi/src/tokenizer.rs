@@ -214,49 +214,6 @@ impl MLXTokenizer {
         self.tokenizer.get_vocab_size(false)
     }
 
-    /// Apply chat template for instruction-following models
-    ///
-    /// Selects template based on available special tokens:
-    /// - ChatML (`<|im_start|>` / `<|im_end|>`) for Qwen, Yi, etc.
-    /// - Mistral (`[INST]` / `[/INST]`) when BOS is available but no im_start
-    ///
-    /// # Arguments
-    /// * `prompt` - User prompt text
-    ///
-    /// # Returns
-    /// Formatted prompt ready for encoding
-    pub fn apply_chat_template(&self, prompt: &str) -> String {
-        if self.special_tokens.im_start_id.is_some() {
-            // ChatML format (Qwen, Yi, etc.)
-            format!(
-                "<|im_start|>system\nYou are a helpful assistant.<|im_end|>\n<|im_start|>user\n{}<|im_end|>\n<|im_start|>assistant\n",
-                prompt
-            )
-        } else if self.special_tokens.bos_token_id.is_some() {
-            // Mistral/Llama instruct format
-            format!("<s> [INST] {} [/INST]", prompt)
-        } else {
-            // Fallback: raw prompt
-            prompt.to_string()
-        }
-    }
-
-    /// Apply chat template for models using chat_template in tokenizer.json
-    ///
-    /// This attempts to use the model's official chat template if available.
-    /// Falls back to manual template if not available.
-    ///
-    /// # Arguments
-    /// * `prompt` - User prompt text
-    ///
-    /// # Returns
-    /// Formatted prompt ready for encoding
-    pub fn apply_chat_template_auto(&self, prompt: &str) -> String {
-        // Try to apply template through tokenizers library
-        // For now, fall back to Qwen format
-        self.apply_chat_template(prompt)
-    }
-
     /// Get underlying tokenizers library instance
     ///
     /// Useful for creating specialized decoders or advanced tokenization operations.
@@ -362,29 +319,14 @@ mod tests {
     }
 
     #[test]
-    fn test_chat_template_formatting() {
-        use adapteros_core::tokenizer_config::TokenMapSource;
-
-        let tokenizer = Tokenizer::new(tokenizers::models::bpe::BPE::default());
-        // Provide ChatML markers so apply_chat_template() selects the ChatML format.
-        // new_with_eos() intentionally leaves these unset and would fall back to the raw prompt.
-        let mlx_tokenizer = MLXTokenizer::new(
-            tokenizer,
-            SpecialTokenMap {
-                eos_token_id: 151645,
-                bos_token_id: None,
-                pad_token_id: None,
-                unk_token_id: None,
-                im_start_id: Some(151644),
-                im_end_id: Some(151645),
-                fim_prefix_id: None,
-                fim_suffix_id: None,
-                fim_middle_id: None,
-                source: TokenMapSource::Unknown,
-            },
-        );
-
-        let formatted = mlx_tokenizer.apply_chat_template("What is 2+2?");
+    fn test_chat_template_via_engine() {
+        // Chat template formatting is now handled by adapteros_chat::ChatTemplateEngine
+        let engine = adapteros_chat::ChatTemplateEngine::from_architecture("qwen2", 151_936);
+        let messages = vec![
+            adapteros_chat::Message::system("You are a helpful assistant."),
+            adapteros_chat::Message::user("What is 2+2?"),
+        ];
+        let formatted = engine.apply(&messages);
         assert!(formatted.contains("<|im_start|>system"));
         assert!(formatted.contains("user"));
         assert!(formatted.contains("What is 2+2?"));

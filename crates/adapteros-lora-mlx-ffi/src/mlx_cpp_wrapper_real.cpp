@@ -1214,6 +1214,47 @@ struct MLXModelWrapper {
   }
 };
 
+// ============================================================================
+// LoRA Adapter Structures for Fused Forward Pass
+// ============================================================================
+
+// LoRA weight pair for a single projection module
+struct MLXLoraModule {
+    mx::array lora_a;   // [rank, in_features]
+    mx::array lora_b;   // [out_features, rank]
+    float scale;         // alpha / rank
+    bool valid = false;
+};
+
+// Per-layer LoRA weights
+struct MLXLoraLayer {
+    std::optional<MLXLoraModule> q_proj;
+    std::optional<MLXLoraModule> k_proj;
+    std::optional<MLXLoraModule> v_proj;
+    std::optional<MLXLoraModule> o_proj;
+    std::optional<MLXLoraModule> gate_proj;
+    std::optional<MLXLoraModule> up_proj;
+    std::optional<MLXLoraModule> down_proj;
+
+    std::optional<MLXLoraModule>* get_module(const std::string& name) {
+        if (name == "q_proj") return &q_proj;
+        if (name == "k_proj") return &k_proj;
+        if (name == "v_proj") return &v_proj;
+        if (name == "o_proj") return &o_proj;
+        if (name == "gate_proj") return &gate_proj;
+        if (name == "up_proj") return &up_proj;
+        if (name == "down_proj") return &down_proj;
+        return nullptr;
+    }
+};
+
+// Complete LoRA adapter spanning all layers
+struct mlx_lora_adapter {
+    int adapter_id;
+    std::vector<MLXLoraLayer> layers;
+    float scale;  // global scale factor
+};
+
 // Array creation (only from_ints is actually used)
 extern "C" mlx_array_t *mlx_array_from_ints(const int *data, int size) {
   try {
@@ -3083,6 +3124,390 @@ extern "C" mlx_array_t* mlx_model_forward_with_cache(
     
   } catch (const std::exception& e) {
     g_last_error = std::string("Forward with cache failed: ") + e.what();
+    return nullptr;
+  }
+}
+
+// ============================================================================
+// LoRA Adapter Lifecycle
+// ============================================================================
+
+extern "C" mlx_lora_adapter_t* mlx_lora_adapter_new(int adapter_id, int num_layers, float scale) {
+    try {
+        auto* adapter = new mlx_lora_adapter();
+        adapter->adapter_id = adapter_id;
+        adapter->layers.resize(num_layers);
+        adapter->scale = scale;
+        return reinterpret_cast<mlx_lora_adapter_t*>(adapter);
+    } catch (const std::exception& e) {
+        g_last_error = std::string("Failed to create LoRA adapter: ") + e.what();
+        return nullptr;
+    }
+}
+
+extern "C" int mlx_lora_adapter_set_module(mlx_lora_adapter_t* adapter_handle, int layer_idx,
+    const char* module_name, mlx_array_t* lora_a, mlx_array_t* lora_b) {
+    if (!adapter_handle || !module_name || !lora_a || !lora_b) {
+        g_last_error = "Null parameter in mlx_lora_adapter_set_module";
+        return -1;
+    }
+    try {
+        auto* adapter = reinterpret_cast<mlx_lora_adapter*>(adapter_handle);
+        if (layer_idx < 0 || layer_idx >= static_cast<int>(adapter->layers.size())) {
+            g_last_error = "Layer index out of range: " + std::to_string(layer_idx);
+            return -1;
+        }
+        auto* a_wrapper = reinterpret_cast<MLXArrayWrapper*>(lora_a);
+        auto* b_wrapper = reinterpret_cast<MLXArrayWrapper*>(lora_b);
+
+        auto* slot = adapter->layers[layer_idx].get_module(module_name);
+        if (!slot) {
+            g_last_error = std::string("Unknown module name: ") + module_name;
+            return -1;
+        }
+
+        MLXLoraModule mod{a_wrapper->arr, b_wrapper->arr, adapter->scale, true};
+        *slot = std::move(mod);
+        return 0;
+    } catch (const std::exception& e) {
+        g_last_error = std::string("Failed to set LoRA module: ") + e.what();
+        return -1;
+    }
+}
+
+extern "C" void mlx_lora_adapter_free(mlx_lora_adapter_t* adapter_handle) {
+    if (adapter_handle) {
+        delete reinterpret_cast<mlx_lora_adapter*>(adapter_handle);
+    }
+}
+
+// ============================================================================
+// Self-attention with pre-computed QKV (for LoRA-fused forward pass)
+// ============================================================================
+
+/// Self-attention that accepts pre-computed Q, K, V tensors.
+/// Returns the attention output BEFORE o_proj so LoRA can be applied externally.
+/// Q: [batch, seq_len, n_heads * head_dim]
+/// K: [batch, seq_len, n_kv_heads * head_dim]
+/// V: [batch, seq_len, n_kv_heads * head_dim]
+mx::array self_attention_with_cache_qkv(
+    const mx::array& q_in,
+    const mx::array& k_in,
+    const mx::array& v_in,
+    int position_offset,
+    mx::array* cached_keys,
+    mx::array* cached_values,
+    mx::array* out_keys,
+    mx::array* out_values,
+    int num_attention_heads,
+    int num_key_value_heads,
+    int head_dim,
+    float rope_theta) {
+
+  int batch_size = q_in.shape(0);
+  int seq_len = q_in.shape(1);
+  int n_heads = num_attention_heads;
+  int n_kv_heads = num_key_value_heads;
+  int hd = head_dim;
+  int n_rep = n_heads / n_kv_heads;
+
+  // Reshape for multi-head attention: [batch, seq, heads, head_dim]
+  mx::array q = mx::reshape(q_in, {batch_size, seq_len, n_heads, hd});
+  mx::array k = mx::reshape(k_in, {batch_size, seq_len, n_kv_heads, hd});
+  mx::array v = mx::reshape(v_in, {batch_size, seq_len, n_kv_heads, hd});
+
+  // Apply RoPE to Q and K
+  auto apply_rope = [&](const mx::array& x, int x_seq_len, int offset, int x_heads) -> mx::array {
+    int half_hd = hd / 2;
+
+    std::vector<float> inv_freq_data(half_hd);
+    for (int i = 0; i < half_hd; ++i) {
+      float exp_val = -2.0f * static_cast<float>(i) / static_cast<float>(hd);
+      inv_freq_data[i] = 1.0f / std::pow(rope_theta, exp_val);
+    }
+    mx::array inv_freq = mx::array(inv_freq_data.data(), {half_hd}, mx::float32);
+
+    std::vector<float> pos_data(x_seq_len);
+    for (int i = 0; i < x_seq_len; ++i) {
+      pos_data[i] = static_cast<float>(offset + i);
+    }
+    mx::array positions = mx::array(pos_data.data(), {x_seq_len}, mx::float32);
+
+    mx::array positions_col = mx::reshape(positions, {x_seq_len, 1});
+    mx::array inv_freq_row = mx::reshape(inv_freq, {1, half_hd});
+    mx::array angles = mx::matmul(positions_col, inv_freq_row);
+
+    mx::array cos_vals = mx::reshape(mx::cos(angles), {1, x_seq_len, 1, half_hd});
+    mx::array sin_vals = mx::reshape(mx::sin(angles), {1, x_seq_len, 1, half_hd});
+
+    mx::array x1 = mx::slice(x, {0, 0, 0, 0}, {batch_size, x_seq_len, x_heads, half_hd});
+    mx::array x2 = mx::slice(x, {0, 0, 0, half_hd}, {batch_size, x_seq_len, x_heads, hd});
+
+    mx::array rotated_x1 = mx::subtract(mx::multiply(x1, cos_vals), mx::multiply(x2, sin_vals));
+    mx::array rotated_x2 = mx::add(mx::multiply(x1, sin_vals), mx::multiply(x2, cos_vals));
+
+    return mx::concatenate({rotated_x1, rotated_x2}, 3);
+  };
+
+  q = apply_rope(q, seq_len, position_offset, n_heads);
+  k = apply_rope(k, seq_len, position_offset, n_kv_heads);
+
+  // GQA: Repeat K,V heads to match Q heads if needed
+  if (n_rep > 1) {
+    k = mx::reshape(mx::repeat(mx::expand_dims(k, 3), n_rep, 3),
+                    {batch_size, seq_len, n_heads, hd});
+    v = mx::reshape(mx::repeat(mx::expand_dims(v, 3), n_rep, 3),
+                    {batch_size, seq_len, n_heads, hd});
+  }
+
+  // Transpose for attention: [batch, heads, seq, head_dim]
+  q = mx::transpose(q, {0, 2, 1, 3});
+  k = mx::transpose(k, {0, 2, 1, 3});
+  v = mx::transpose(v, {0, 2, 1, 3});
+
+  // Concatenate with cached K/V if provided
+  int cached_len = 0;
+  if (cached_keys && cached_values && cached_keys->ndim() > 0) {
+    cached_len = cached_keys->shape(2);
+    k = mx::concatenate({*cached_keys, k}, 2);
+    v = mx::concatenate({*cached_values, v}, 2);
+  }
+
+  // Store new K/V for cache update
+  if (out_keys) *out_keys = k;
+  if (out_values) *out_values = v;
+
+  // Create causal mask
+  int total_len = cached_len + seq_len;
+  std::vector<float> mask_data(seq_len * total_len, 0.0f);
+  for (int i = 0; i < seq_len; ++i) {
+    for (int j = cached_len + i + 1; j < total_len; ++j) {
+      mask_data[i * total_len + j] = -1e9f;
+    }
+  }
+  mx::array causal_mask = mx::array(mask_data.data(), {seq_len, total_len}, mx::float32);
+
+  // Scaled dot-product attention
+  float scale = 1.0f / std::sqrt(static_cast<float>(hd));
+  mx::array scores = mx::multiply(mx::matmul(q, mx::transpose(k, {0, 1, 3, 2})), mx::array(scale));
+
+  mx::array expanded_mask = mx::reshape(causal_mask, {1, 1, seq_len, total_len});
+  mx::array attn_output = mx::matmul(mx::softmax(mx::add(scores, expanded_mask), -1), v);
+
+  // Reshape back: [batch, heads, seq, head_dim] -> [batch, seq, n_heads * head_dim]
+  attn_output = mx::reshape(mx::transpose(attn_output, {0, 2, 1, 3}),
+                            {batch_size, seq_len, n_heads * hd});
+
+  // Return BEFORE o_proj -- caller applies o_proj + LoRA externally
+  return attn_output;
+}
+
+// ============================================================================
+// Fused forward pass with KV cache and per-layer LoRA
+// ============================================================================
+
+extern "C" mlx_array_t* mlx_model_forward_with_cache_and_lora(
+    mlx_model_t* model,
+    mlx_array_t* input,
+    int position_offset,
+    mlx_kv_cache_t* kv_cache,
+    mlx_lora_adapter_t** adapters,
+    const float* blend_weights,
+    int num_active_adapters) {
+
+  if (!model || !input) return nullptr;
+
+  try {
+    auto* model_wrapper = reinterpret_cast<MLXModelWrapper*>(model);
+    auto* input_wrapper = reinterpret_cast<MLXArrayWrapper*>(input);
+    auto& weights = model_wrapper->weights;
+
+    mx::array input_ids = input_wrapper->arr;
+    bool use_cache = (kv_cache != nullptr);
+
+    // Linear projection helper
+    auto linear = [&](const mx::array& x, const std::string& weight_key) -> mx::array {
+      auto it = weights.find(weight_key + ".weight");
+      if (it == weights.end()) {
+        throw std::runtime_error("Weight not found: " + weight_key + ".weight");
+      }
+      return mx::matmul(x, mx::transpose(it->second));
+    };
+
+    // RMSNorm helper
+    auto rms_norm = [&](const mx::array& x, const std::string& weight_key) -> mx::array {
+      auto it = weights.find(weight_key);
+      if (it == weights.end()) return x;
+      auto mean_sq = mx::mean(mx::multiply(x, x), -1, true);
+      return mx::multiply(x, mx::divide(it->second,
+          mx::sqrt(mx::add(mean_sq, mx::array(model_wrapper->rms_norm_eps)))));
+    };
+
+    // LoRA application: computes sum of (input @ A^T @ B^T) * scale * blend_weight
+    // for all active adapters that have weights for this module/layer
+    auto apply_lora = [&](const mx::array& x, const std::string& module_name,
+                          int layer_idx) -> std::optional<mx::array> {
+      if (num_active_adapters <= 0 || !adapters || !blend_weights) return std::nullopt;
+
+      std::optional<mx::array> delta;
+      for (int i = 0; i < num_active_adapters; ++i) {
+        auto* adapter = reinterpret_cast<mlx_lora_adapter*>(adapters[i]);
+        if (layer_idx >= static_cast<int>(adapter->layers.size())) continue;
+        auto* slot = adapter->layers[layer_idx].get_module(module_name);
+        if (!slot || !slot->has_value()) continue;
+        auto& mod = slot->value();
+        if (!mod.valid) continue;
+
+        // LoRA: input @ A^T @ B^T * scale * blend_weight
+        mx::array lora_out = mx::matmul(mx::matmul(x, mx::transpose(mod.lora_a)),
+                                         mx::transpose(mod.lora_b));
+        lora_out = mx::multiply(lora_out, mx::array(mod.scale * blend_weights[i]));
+
+        if (!delta.has_value()) {
+          delta = lora_out;
+        } else {
+          delta = mx::add(*delta, lora_out);
+        }
+      }
+      return delta;
+    };
+
+    // Embedding lookup
+    mx::array embed_weights = [&]() -> mx::array {
+      auto it = weights.find("model.embed_tokens.weight");
+      if (it != weights.end()) return it->second;
+      auto lm_it = weights.find("lm_head.weight");
+      if (lm_it != weights.end()) return lm_it->second;
+      throw std::runtime_error("Embedding weights not found");
+    }();
+
+    mx::array hidden = mx::take(embed_weights, input_ids, 0);
+    if (hidden.ndim() == 2) {
+      hidden = mx::expand_dims(hidden, 0);
+    }
+
+    int num_layers = model_wrapper->num_hidden_layers;
+
+    for (int layer_idx = 0; layer_idx < num_layers; ++layer_idx) {
+      std::string prefix = "model.layers." + std::to_string(layer_idx);
+      std::string attn_prefix = prefix + ".self_attn";
+
+      // Pre-attention RMSNorm
+      mx::array normed = rms_norm(hidden, prefix + ".input_layernorm.weight");
+
+      // QKV projections (base model)
+      mx::array q = linear(normed, attn_prefix + ".q_proj");
+      mx::array k = linear(normed, attn_prefix + ".k_proj");
+      mx::array v = linear(normed, attn_prefix + ".v_proj");
+
+      // Apply LoRA to Q, K, V
+      auto lora_q = apply_lora(normed, "q_proj", layer_idx);
+      if (lora_q.has_value()) q = mx::add(q, *lora_q);
+      auto lora_k = apply_lora(normed, "k_proj", layer_idx);
+      if (lora_k.has_value()) k = mx::add(k, *lora_k);
+      auto lora_v = apply_lora(normed, "v_proj", layer_idx);
+      if (lora_v.has_value()) v = mx::add(v, *lora_v);
+
+      // Self-attention with cache (using pre-computed QKV, returns pre-o_proj)
+      mx::array attn_raw = mx::zeros({1});
+      if (use_cache) {
+        auto* cache = reinterpret_cast<mlx_kv_cache*>(kv_cache);
+        bool has_cached = (layer_idx < cache->num_layers && cache->layers[layer_idx].has_cache);
+
+        mx::array new_k = mx::zeros({1});
+        mx::array new_v = mx::zeros({1});
+        attn_raw = self_attention_with_cache_qkv(
+            q, k, v,
+            position_offset,
+            has_cached ? &*cache->layers[layer_idx].keys : nullptr,
+            has_cached ? &*cache->layers[layer_idx].values : nullptr,
+            &new_k, &new_v,
+            model_wrapper->num_attention_heads,
+            model_wrapper->num_key_value_heads,
+            model_wrapper->head_dim,
+            model_wrapper->rope_theta
+        );
+
+        // Update cache
+        if (layer_idx < cache->num_layers) {
+          cache->layers[layer_idx].keys = std::optional<mx::array>(new_k);
+          cache->layers[layer_idx].values = std::optional<mx::array>(new_v);
+          cache->layers[layer_idx].has_cache = true;
+          cache->current_seq_len = new_k.shape(2);
+        }
+      } else {
+        // No cache -- still use the QKV path for correct LoRA-fused attention
+        attn_raw = self_attention_with_cache_qkv(
+            q, k, v,
+            position_offset,
+            nullptr, nullptr,
+            nullptr, nullptr,
+            model_wrapper->num_attention_heads,
+            model_wrapper->num_key_value_heads,
+            model_wrapper->head_dim,
+            model_wrapper->rope_theta
+        );
+      }
+
+      // o_proj + LoRA on o_proj
+      mx::array attn_output = linear(attn_raw, attn_prefix + ".o_proj");
+      auto lora_o = apply_lora(attn_raw, "o_proj", layer_idx);
+      if (lora_o.has_value()) attn_output = mx::add(attn_output, *lora_o);
+
+      // Residual connection
+      hidden = mx::add(hidden, attn_output);
+
+      // Post-attention RMSNorm
+      mx::array post_normed = rms_norm(hidden, prefix + ".post_attention_layernorm.weight");
+
+      // MLP with SwiGLU: silu(gate_proj(x)) * up_proj(x), then down_proj
+      std::string mlp_prefix = prefix + ".mlp";
+
+      mx::array gate = linear(post_normed, mlp_prefix + ".gate_proj");
+      mx::array up = linear(post_normed, mlp_prefix + ".up_proj");
+
+      // LoRA on gate_proj and up_proj
+      auto lora_gate = apply_lora(post_normed, "gate_proj", layer_idx);
+      if (lora_gate.has_value()) gate = mx::add(gate, *lora_gate);
+      auto lora_up = apply_lora(post_normed, "up_proj", layer_idx);
+      if (lora_up.has_value()) up = mx::add(up, *lora_up);
+
+      // SiLU(gate) * up
+      mx::array activated = mx::multiply(mx::multiply(gate, mx::sigmoid(gate)), up);
+
+      // down_proj + LoRA on down_proj
+      mx::array mlp_output = linear(activated, mlp_prefix + ".down_proj");
+      auto lora_down = apply_lora(activated, "down_proj", layer_idx);
+      if (lora_down.has_value()) mlp_output = mx::add(mlp_output, *lora_down);
+
+      // Residual connection
+      hidden = mx::add(hidden, mlp_output);
+    }
+
+    // Final RMSNorm
+    hidden = rms_norm(hidden, "model.norm.weight");
+
+    // LM head
+    mx::array lm_head = [&]() -> mx::array {
+      auto it = weights.find("lm_head.weight");
+      if (it != weights.end()) return it->second;
+      auto embed_it = weights.find("model.embed_tokens.weight");
+      if (embed_it != weights.end()) return embed_it->second;
+      throw std::runtime_error("LM head weights not found");
+    }();
+
+    mx::array logits = mx::matmul(hidden, mx::transpose(lm_head));
+
+    // Select last token logits
+    logits = select_last_token_logits(logits);
+
+    mx::eval(logits);
+
+    auto* result_wrapper = new MLXArrayWrapper(logits);
+    return reinterpret_cast<mlx_array_t*>(result_wrapper);
+
+  } catch (const std::exception& e) {
+    g_last_error = std::string("Forward with cache and LoRA failed: ") + e.what();
     return nullptr;
   }
 }

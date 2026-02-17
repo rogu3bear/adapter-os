@@ -944,8 +944,8 @@ impl MLXGenerator {
     ///
     /// # Arguments
     /// * `model` - MLX model for inference
-    /// * `prompt` - User prompt (will be formatted with chat template)
-    /// * `tokenizer` - Tokenizer with chat template support
+    /// * `prompt` - Pre-formatted prompt (caller is responsible for chat template application)
+    /// * `tokenizer` - Tokenizer for encoding/decoding
     ///
     /// # Returns
     /// Generated text or error
@@ -955,11 +955,7 @@ impl MLXGenerator {
         prompt: &str,
         tokenizer: &crate::tokenizer::MLXTokenizer,
     ) -> Result<String> {
-        // Apply chat template
-        let formatted_prompt = tokenizer.apply_chat_template(prompt);
-
-        // Generate text
-        self.generate_text(model, &formatted_prompt, tokenizer)
+        self.generate_text(model, prompt, tokenizer)
     }
 
     /// Generate tokens with prefix KV cache support.

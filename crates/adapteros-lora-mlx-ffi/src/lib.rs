@@ -42,6 +42,10 @@ pub mod unified_loader;
 // Adapter cache for efficient LoRA weight management
 pub mod adapter_cache;
 
+// LoRA fusion FFI wrappers
+pub mod lora_ffi;
+pub mod session_cache;
+
 // Mock module for testing - always available since integration tests need it
 pub mod mock;
 
@@ -74,6 +78,10 @@ pub use training::{
     MlxOptimizerType,
 };
 pub use unified_loader::{LoadStrategy, TensorMetadata, UnifiedSafeTensorsLoader};
+
+// LoRA fusion FFI re-exports
+pub use lora_ffi::FFILoraAdapter;
+pub use session_cache::SessionCacheManager;
 
 // Re-export FFI error utilities for external use
 pub use ffi_error::{
@@ -1193,6 +1201,98 @@ impl MLXFFIModel {
         }
     }
 
+    /// Forward pass with KV cache and fused LoRA adapters.
+    ///
+    /// This is the primary inference path for production use. It processes
+    /// ALL transformer layers with per-layer LoRA application and KV caching.
+    ///
+    /// # Arguments
+    /// * `token_ids` - Input token IDs
+    /// * `position` - Position offset for RoPE
+    /// * `cache_ptr` - KV cache pointer (null for no caching)
+    /// * `adapter_ptrs` - Slice of FFI LoRA adapter raw pointers
+    /// * `blend_weights` - Per-adapter blend weights from router
+    ///
+    /// # Returns
+    /// Logits as Vec<f32>
+    pub fn forward_with_cache_and_lora(
+        &self,
+        token_ids: &[u32],
+        position: usize,
+        cache_ptr: *mut mlx_kv_cache_t,
+        adapter_ptrs: &[*mut mlx_lora_adapter_t],
+        blend_weights: &[f32],
+    ) -> Result<Vec<f32>> {
+        if token_ids.is_empty() {
+            return Err(AosError::Validation("Empty token IDs".to_string()));
+        }
+
+        if adapter_ptrs.len() != blend_weights.len() {
+            return Err(AosError::Validation(format!(
+                "Adapter count ({}) does not match blend weight count ({})",
+                adapter_ptrs.len(),
+                blend_weights.len()
+            )));
+        }
+
+        let _guard = self.inference_lock.lock();
+
+        ffi_error::clear_ffi_error();
+
+        // Create input array from token IDs
+        let input = unsafe { mlx_array_from_uints(token_ids.as_ptr(), token_ids.len() as i32) };
+        if input.is_null() {
+            return Err(AosError::Mlx("Failed to create input array".to_string()));
+        }
+
+        let result = unsafe {
+            mlx_model_forward_with_cache_and_lora(
+                self.model,
+                input,
+                position as i32,
+                cache_ptr,
+                if adapter_ptrs.is_empty() {
+                    std::ptr::null()
+                } else {
+                    adapter_ptrs.as_ptr()
+                },
+                if blend_weights.is_empty() {
+                    std::ptr::null()
+                } else {
+                    blend_weights.as_ptr()
+                },
+                adapter_ptrs.len() as i32,
+            )
+        };
+
+        // Free input array
+        unsafe { mlx_array_free(input) };
+
+        if result.is_null() {
+            let error = ffi_error::get_ffi_error_or("Forward with cache and LoRA failed");
+            return Err(AosError::Mlx(error));
+        }
+
+        // Extract logits data
+        let size = unsafe { mlx_array_size(result) };
+        if size == 0 {
+            unsafe { mlx_array_free(result) };
+            return Err(AosError::Mlx("Empty logits from forward pass".to_string()));
+        }
+
+        let data_ptr = unsafe { mlx_array_data(result) };
+        if data_ptr.is_null() {
+            unsafe { mlx_array_free(result) };
+            return Err(AosError::Mlx("Null logits data pointer".to_string()));
+        }
+
+        let logits = unsafe { std::slice::from_raw_parts(data_ptr, size) }.to_vec();
+
+        unsafe { mlx_array_free(result) };
+
+        Ok(logits)
+    }
+
     /// Generate text from a prompt using FFI
     ///
     /// # Arguments
@@ -1617,6 +1717,57 @@ extern "C" {
     pub fn mlx_kv_cache_free(cache: *mut mlx_kv_cache_t);
 
     // ========================================================================
+    // LoRA fusion forward pass
+    // ========================================================================
+
+    /// Create a new LoRA adapter handle.
+    /// Returns null on failure (check mlx_get_last_error).
+    pub fn mlx_lora_adapter_new(
+        adapter_id: i32,
+        num_layers: i32,
+        scale: f32,
+    ) -> *mut mlx_lora_adapter_t;
+
+    /// Set LoRA weights for a specific module in a specific layer.
+    /// Returns 0 on success, non-zero on error.
+    pub fn mlx_lora_adapter_set_module(
+        adapter: *mut mlx_lora_adapter_t,
+        layer_idx: i32,
+        module_name: *const std::os::raw::c_char,
+        lora_a: *mut mlx_array_t,
+        lora_b: *mut mlx_array_t,
+    ) -> i32;
+
+    /// Free a LoRA adapter handle.
+    pub fn mlx_lora_adapter_free(adapter: *mut mlx_lora_adapter_t);
+
+    /// Forward pass with KV cache AND fused LoRA adapters.
+    ///
+    /// This is the primary production inference path. It processes all
+    /// transformer layers with per-layer LoRA application and KV caching.
+    ///
+    /// # Arguments
+    /// * `model` - Model handle
+    /// * `input` - Input token array
+    /// * `position_offset` - RoPE position offset
+    /// * `kv_cache` - KV cache (null for no caching)
+    /// * `adapters` - Array of LoRA adapter pointers
+    /// * `blend_weights` - Per-adapter blend weights from router
+    /// * `num_active_adapters` - Number of active adapters
+    ///
+    /// # Returns
+    /// Logits array, or null on error
+    pub fn mlx_model_forward_with_cache_and_lora(
+        model: *mut mlx_model_t,
+        input: *mut mlx_array_t,
+        position_offset: i32,
+        kv_cache: *mut mlx_kv_cache_t,
+        adapters: *const *mut mlx_lora_adapter_t,
+        blend_weights: *const f32,
+        num_active_adapters: i32,
+    ) -> *mut mlx_array_t;
+
+    // ========================================================================
     // SafeTensors weight loading
     // ========================================================================
 
@@ -1698,6 +1849,7 @@ define_opaque_ffi_type!(mlx_model_t);
 define_opaque_ffi_type!(mlx_array_t);
 define_opaque_ffi_type!(mlx_kv_cache_t);
 define_opaque_ffi_type!(mlx_weights_t);
+define_opaque_ffi_type!(mlx_lora_adapter_t);
 
 /// Sampler configuration for token generation
 #[repr(C)]

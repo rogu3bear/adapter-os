@@ -26,6 +26,7 @@ parking_lot.workspace = true
 rand.workspace = true
 arc-swap = "1.7"  # Lock-free atomic pointer swapping for adapter lookup
 zeroize = { version = "1.7", features = ["derive"] }
+adapteros-chat = { path = "../adapteros-chat" }
 tokenizers.workspace = true
 memmap2.workspace = true
 # Async runtime and streaming

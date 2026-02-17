@@ -1,13 +1,16 @@
 //! MLX FFI backend implementation for FusedKernels trait
 
-use crate::{LoRAAdapter, MLXFFIModel, MLXMemoryPool, MLXMemoryPoolConfig};
+use crate::{
+    FFILoraAdapter, LoRAAdapter, MLXFFIModel, MLXMemoryPool, MLXMemoryPoolConfig,
+    SessionCacheManager,
+};
 use adapteros_core::{derive_seed, B3Hash, Result, Q15_GATE_DENOMINATOR};
 use adapteros_lora_kernel_api::{
     FusedKernels, IoBuffers, LiquidBlendRequest, LiquidBlendStats, LiquidKernel, RouterRing,
 };
 use arc_swap::ArcSwap;
 use parking_lot::RwLock;
-use std::collections::{HashMap, HashSet};
+use std::collections::HashMap;
 use std::sync::Arc;
 
 const IS_REAL_MLX: bool = cfg!(feature = "mlx") && !cfg!(mlx_stub);
@@ -60,6 +63,12 @@ pub struct MLXFFIBackend {
     /// semantics for adapter registration/unregistration. This eliminates
     /// contention on the hot path (inference) while keeping writes atomic.
     pub adapters: ArcSwap<HashMap<u16, Arc<LoRAAdapter>>>,
+    /// C++ FFI LoRA adapter handles for fused forward pass
+    ffi_adapters: HashMap<u16, FFILoraAdapter>,
+    /// Per-session KV cache manager for multi-turn chat
+    session_cache: SessionCacheManager,
+    /// Temporary KV cache for non-session requests
+    temp_cache_ptr: Option<*mut crate::mlx_kv_cache_t>,
     /// Device name
     device: String,
     /// Resilience configuration
@@ -173,25 +182,6 @@ impl MLXFFIBackend {
         );
     }
 
-    /// Log multi-adapter LoRA application telemetry with standardized format
-    fn log_lora_application(
-        &self,
-        active_adapters: &[&LoRAAdapter],
-        modules_applied: usize,
-        total_gate_weight: f32,
-        gates: &[u16],
-    ) {
-        tracing::info!(
-            target: "mlx.router.lora_applied",
-            active_adapters = active_adapters.len(),
-            modules_applied = modules_applied,
-            total_gate_weight = %format!("{:.4}", total_gate_weight),
-            gates_q15 = ?&gates[..gates.len().min(8)],
-            adapter_ids = ?active_adapters.iter().map(|a| a.id()).collect::<Vec<_>>(),
-            "Multi-adapter LoRA routing applied"
-        );
-    }
-
     /// Create new MLX FFI backend with loaded model and default resilience
     pub fn new(model: MLXFFIModel) -> Self {
         // Ensure MLX runtime is initialized
@@ -232,6 +222,12 @@ impl MLXFFIBackend {
         Self {
             model,
             adapters: ArcSwap::from_pointee(HashMap::new()),
+            ffi_adapters: HashMap::new(),
+            session_cache: SessionCacheManager::new(
+                16,            // max 16 concurrent sessions
+                4_294_967_296, // 4 GB max cache memory
+            ),
+            temp_cache_ptr: None,
             device: backend_device_label(),
             resilience_config: config,
             health_status: Arc::new(RwLock::new(BackendHealth::default())),
@@ -342,6 +338,9 @@ impl MLXFFIBackend {
         MLXFFIBackend {
             model: self.model.clone(),
             adapters: ArcSwap::from_pointee((**self.adapters.load()).clone()),
+            ffi_adapters: HashMap::new(), // Don't clone FFI handles
+            session_cache: SessionCacheManager::new(16, 4_294_967_296),
+            temp_cache_ptr: None,
             device: self.device.clone(),
             resilience_config: self.resilience_config.clone(),
             health_status: self.health_status.clone(),
@@ -386,6 +385,41 @@ impl MLXFFIBackend {
         }
     }
 
+    /// Prepare FFI adapter pointers and blend weights from a RouterRing.
+    ///
+    /// Returns (adapter_ptrs, blend_weights) ready for the C++ forward pass.
+    fn prepare_lora_for_ring(
+        &self,
+        ring: &RouterRing,
+    ) -> Result<(Vec<*mut crate::mlx_lora_adapter_t>, Vec<f32>)> {
+        let mut adapter_ptrs = Vec::with_capacity(ring.k);
+        let mut blend_weights = Vec::with_capacity(ring.k);
+
+        for i in 0..ring.k {
+            let adapter_id = ring.indices[i];
+            let gate_q15 = ring.gates_q15[i];
+
+            // Skip zero/negative gates
+            if gate_q15 <= 0 {
+                continue;
+            }
+
+            if let Some(ffi_adapter) = self.ffi_adapters.get(&adapter_id) {
+                adapter_ptrs.push(ffi_adapter.as_ptr());
+                // Dequantize Q15 gate to f32 blend weight
+                blend_weights.push(gate_q15 as f32 / Q15_GATE_DENOMINATOR);
+            } else {
+                tracing::warn!(
+                    adapter_id = adapter_id,
+                    "RouterRing references adapter {} which has no FFI handle",
+                    adapter_id
+                );
+            }
+        }
+
+        Ok((adapter_ptrs, blend_weights))
+    }
+
     /// Check if backend is healthy
     pub fn is_healthy(&self) -> bool {
         let health = self.health_status.read();
@@ -405,7 +439,7 @@ impl MLXFFIBackend {
 
     /// Internal helper for adapter registration
     fn add_adapter_internal(
-        &self,
+        &mut self,
         adapter_id: u16,
         adapter: LoRAAdapter,
         operation: &str,
@@ -416,9 +450,65 @@ impl MLXFFIBackend {
         // Track adapter memory in pool
         self.memory_pool.track_adapter(adapter_id, estimated_bytes);
 
+        // Create FFI adapter handle for fused forward pass
+        let num_layers = self.model.config.num_hidden_layers;
+        let scale = adapter.config().alpha / adapter.config().rank as f32;
+
+        match FFILoraAdapter::new(adapter_id as i32, num_layers, scale) {
+            Ok(mut ffi_adapter) => {
+                // Populate LoRA weights for each target module
+                // The adapter stores weights as Vec<Vec<f32>> per module name (e.g., "q_proj").
+                // The FFI layer expects per-layer weights, but the adapter doesn't distinguish
+                // layers — modules are shared across all layers. We set them for layer 0
+                // and the C++ side broadcasts across layers during fused forward.
+                for module_name in &adapter.config().target_modules {
+                    if let Some((a_matrix, b_matrix)) = adapter.get_module_weights(module_name) {
+                        // Flatten nested Vec<Vec<f32>> to contiguous &[f32]
+                        let a_flat: Vec<f32> = a_matrix
+                            .iter()
+                            .flat_map(|row| row.iter().copied())
+                            .collect();
+                        let b_flat: Vec<f32> = b_matrix
+                            .iter()
+                            .flat_map(|row| row.iter().copied())
+                            .collect();
+                        let a_rows = a_matrix.len();
+                        let a_cols = if a_rows > 0 { a_matrix[0].len() } else { 0 };
+                        let b_rows = b_matrix.len();
+                        let b_cols = if b_rows > 0 { b_matrix[0].len() } else { 0 };
+
+                        if let Err(e) = ffi_adapter.set_module(
+                            0, // layer 0 — C++ broadcasts to all layers
+                            module_name,
+                            &a_flat,
+                            &b_flat,
+                            [a_rows, a_cols],
+                            [b_rows, b_cols],
+                        ) {
+                            tracing::warn!(
+                                adapter_id = adapter_id,
+                                module = module_name,
+                                error = %e,
+                                "Failed to set FFI LoRA module, skipping"
+                            );
+                        }
+                    }
+                }
+                self.ffi_adapters.insert(adapter_id, ffi_adapter);
+            }
+            Err(e) => {
+                tracing::warn!(
+                    adapter_id = adapter_id,
+                    error = %e,
+                    "Failed to create FFI adapter handle, falling back to Rust-side LoRA"
+                );
+            }
+        }
+
         // Copy-on-write update
+        let arc_adapter = Arc::new(adapter);
         let mut new_adapters = (**self.adapters.load()).clone();
-        new_adapters.insert(adapter_id, Arc::new(adapter));
+        new_adapters.insert(adapter_id, arc_adapter);
         self.adapters.store(Arc::new(new_adapters));
 
         // Update memory pool size atomically
@@ -436,7 +526,7 @@ impl MLXFFIBackend {
     }
 
     /// Register a LoRA adapter
-    pub fn register_adapter(&self, adapter_id: u16, adapter: LoRAAdapter) -> Result<()> {
+    pub fn register_adapter(&mut self, adapter_id: u16, adapter: LoRAAdapter) -> Result<()> {
         self.add_adapter_internal(adapter_id, adapter, "Registered")
     }
 
@@ -446,12 +536,12 @@ impl MLXFFIBackend {
     }
 
     /// Load adapter at runtime (hot-swap)
-    pub fn load_adapter_runtime(&self, adapter_id: u16, adapter: LoRAAdapter) -> Result<()> {
+    pub fn load_adapter_runtime(&mut self, adapter_id: u16, adapter: LoRAAdapter) -> Result<()> {
         self.add_adapter_internal(adapter_id, adapter, "Hot-loaded")
     }
 
     /// Unload adapter at runtime (hot-swap)
-    pub fn unload_adapter_runtime(&self, adapter_id: u16) -> Result<()> {
+    pub fn unload_adapter_runtime(&mut self, adapter_id: u16) -> Result<()> {
         // Check if adapter exists and get info before removal
         let current_adapters = self.adapters.load();
         let adapter = current_adapters.get(&adapter_id).cloned().ok_or_else(|| {
@@ -462,6 +552,9 @@ impl MLXFFIBackend {
         let mut new_adapters = (**current_adapters).clone();
         new_adapters.remove(&adapter_id);
         self.adapters.store(Arc::new(new_adapters));
+
+        // Remove FFI adapter handle (freed on drop)
+        self.ffi_adapters.remove(&adapter_id);
 
         // Get the memory usage for cleanup
         let memory_usage = Self::estimate_adapter_memory(adapter.as_ref());
@@ -904,6 +997,26 @@ impl FusedKernels for MLXFFIBackend {
 
         Ok(adapteros_lora_kernel_api::BackendHealth::Healthy)
     }
+
+    fn supports_kv_cache(&self) -> bool {
+        true
+    }
+
+    fn clear_session_cache(&mut self, session_id: &str) {
+        self.session_cache.clear(session_id);
+    }
+
+    fn clear_all_caches(&mut self) {
+        self.session_cache.clear_all();
+        // Also clear temporary cache
+        if let Some(ptr) = self.temp_cache_ptr.take() {
+            unsafe { crate::mlx_kv_cache_free(ptr) };
+        }
+    }
+
+    fn cache_memory_bytes(&self) -> usize {
+        self.session_cache.total_memory()
+    }
 }
 
 impl Clone for MLXFFIBackend {
@@ -911,6 +1024,9 @@ impl Clone for MLXFFIBackend {
         Self {
             model: self.model.clone(),
             adapters: ArcSwap::from_pointee((**self.adapters.load()).clone()),
+            ffi_adapters: HashMap::new(), // Don't clone FFI handles
+            session_cache: SessionCacheManager::new(16, 4_294_967_296),
+            temp_cache_ptr: None,
             device: self.device.clone(),
             resilience_config: self.resilience_config.clone(),
             health_status: self.health_status.clone(),
@@ -942,10 +1058,9 @@ impl MLXFFIBackend {
         &self.model.config
     }
 
-    /// Run inference step using real MLX FFI
-    fn run_step_mlx(&self, ring: &RouterRing, io: &mut IoBuffers) -> Result<()> {
+    /// Run inference step using fused MLX FFI forward pass with KV cache and LoRA
+    fn run_step_mlx(&mut self, ring: &RouterRing, io: &mut IoBuffers) -> Result<()> {
         let inference_start = std::time::Instant::now();
-        let config_snapshot = self.model.config.clone();
 
         // Validate input
         if io.input_ids.is_empty() {
@@ -961,58 +1076,69 @@ impl MLXFFIBackend {
             ));
         }
 
-        // Run forward pass with hidden states through the model
-        // io.position is passed to ensure correct RoPE positions during incremental generation
-        // Step 0 (prompt): position=0, tokens get positions [0, 1, ..., N-1]
-        // Step 1+ (generation): position=N, single token gets position N
-        let (base_logits, hidden_states) = self
-            .model
-            .forward_with_hidden_states(&io.input_ids, io.position)?;
+        // Get or create KV cache based on session
+        let cache_ptr = match &io.session_id {
+            Some(session_id) => {
+                let config = &self.model.config;
+                self.session_cache.get_or_create(
+                    session_id,
+                    config.num_hidden_layers as i32,
+                    config.num_key_value_heads as i32,
+                    (config.hidden_size / config.num_attention_heads) as i32,
+                    config.max_position_embeddings as i32,
+                )?
+            }
+            None => {
+                // Create or reuse temporary cache for non-session requests
+                if self.temp_cache_ptr.is_none() {
+                    let config = &self.model.config;
+                    let ptr = unsafe {
+                        crate::mlx_kv_cache_new(
+                            config.num_hidden_layers as i32,
+                            config.num_key_value_heads as i32,
+                            (config.hidden_size / config.num_attention_heads) as i32,
+                            config.max_position_embeddings as i32,
+                        )
+                    };
+                    if !ptr.is_null() {
+                        self.temp_cache_ptr = Some(ptr);
+                    }
+                }
+                self.temp_cache_ptr.unwrap_or(std::ptr::null_mut())
+            }
+        };
 
-        // Validate base logits
-        if base_logits.is_empty() {
+        // Prepare LoRA adapter pointers and blend weights from RouterRing
+        let (adapter_ptrs, blend_weights) = if ring.k > 0 && !self.ffi_adapters.is_empty() {
+            self.prepare_lora_for_ring(ring)?
+        } else {
+            (Vec::new(), Vec::new())
+        };
+
+        // Call unified forward with cache and LoRA
+        let logits = self.model.forward_with_cache_and_lora(
+            &io.input_ids,
+            io.position,
+            cache_ptr,
+            &adapter_ptrs,
+            &blend_weights,
+        )?;
+
+        // Validate output
+        if logits.is_empty() {
             return Err(adapteros_core::AosError::Mlx(
                 "Model returned empty logits".to_string(),
             ));
         }
 
-        // Apply LoRA adapters using RouterRing decisions
-        let final_logits = if ring.k > 0 && !self.adapters.load().is_empty() {
-            self.apply_router_ring_loras(ring, &base_logits, &hidden_states)?
-        } else {
-            if ring.k > 0 {
-                tracing::debug!(
-                    k = ring.k,
-                    "RouterRing specifies {} adapters but no adapters are loaded, using base model",
-                    ring.k
-                );
-            }
-            base_logits
-        };
-
-        assert!(
-            self.model.config.hidden_size == config_snapshot.hidden_size
-                && self.model.config.num_hidden_layers == config_snapshot.num_hidden_layers
-                && self.model.config.num_attention_heads == config_snapshot.num_attention_heads
-                && self.model.config.num_key_value_heads == config_snapshot.num_key_value_heads
-                && self.model.config.intermediate_size == config_snapshot.intermediate_size
-                && self.model.config.vocab_size == config_snapshot.vocab_size
-                && self.model.config.max_position_embeddings
-                    == config_snapshot.max_position_embeddings
-                && (self.model.config.rope_theta - config_snapshot.rope_theta).abs() < f32::EPSILON,
-            "MLX base model config mutated during inference; base parameters must remain immutable"
-        );
-
-        // Update output buffer with proper size handling
-        let output_len = final_logits.len().min(io.output_logits.len());
+        // Update output buffer
+        let output_len = logits.len().min(io.output_logits.len());
         if output_len == 0 {
             return Err(adapteros_core::AosError::Mlx(
-                "Output buffer size mismatch - cannot copy logits".to_string(),
+                "Output buffer size mismatch".to_string(),
             ));
         }
-        io.output_logits[..output_len].copy_from_slice(&final_logits[..output_len]);
-        // Advance position by number of tokens processed (not just 1)
-        // This ensures correct RoPE positions during incremental generation
+        io.output_logits[..output_len].copy_from_slice(&logits[..output_len]);
         io.position += io.input_ids.len();
 
         // Update performance metrics
@@ -1021,152 +1147,16 @@ impl MLXFFIBackend {
             let mut metrics = self.performance_metrics.write();
             metrics.total_requests += 1;
             metrics.total_inference_time_ms += inference_time;
-
             if metrics.total_requests > 0 {
                 metrics.average_latency_ms =
                     metrics.total_inference_time_ms as f32 / metrics.total_requests as f32;
             }
-
-            // Update peak memory based on actual tensor sizes
-            let logits_memory =
-                (final_logits.len() * std::mem::size_of::<f32>()) as f32 / Self::BYTES_PER_MB;
-            let hidden_memory: f32 = hidden_states
-                .values()
-                .map(|v| (v.len() * std::mem::size_of::<f32>()) as f32)
-                .sum::<f32>()
-                / Self::BYTES_PER_MB;
-            let current_memory = logits_memory + hidden_memory;
-
-            if current_memory > metrics.peak_memory_usage_mb {
-                metrics.peak_memory_usage_mb = current_memory;
-            }
         }
 
-        // Emit router decision telemetry (structured event for monitoring)
+        // Emit telemetry
         self.log_router_decision(io, ring, inference_time);
 
         Ok(())
-    }
-
-    /// Apply LoRA adapters based on RouterRing decisions
-    ///
-    /// This method implements the multi-adapter routing pipeline:
-    /// 1. Collects active adapters based on RouterRing indices
-    /// 2. Applies Q15 quantized gate weights for each adapter
-    /// 3. Routes hidden states through LoRA transformations
-    /// 4. Blends LoRA outputs with base model logits
-    fn apply_router_ring_loras(
-        &self,
-        ring: &RouterRing,
-        base_logits: &[f32],
-        hidden_states: &std::collections::HashMap<String, Vec<f32>>,
-    ) -> Result<Vec<f32>> {
-        let adapters = self.adapters.load();
-
-        // Collect active adapters and their gates from RouterRing
-        let mut active_adapters: Vec<&LoRAAdapter> = Vec::with_capacity(ring.k);
-        let mut gates: Vec<u16> = Vec::with_capacity(ring.k);
-        let mut total_gate_weight: f32 = 0.0;
-
-        for i in 0..ring.k {
-            let adapter_id = ring.indices[i];
-            let gate_q15 = ring.gates_q15[i];
-
-            if let Some(adapter) = adapters.get(&adapter_id) {
-                // Skip adapters with zero or negative gates
-                if gate_q15 <= 0 {
-                    tracing::trace!(
-                        adapter_id = adapter_id,
-                        gate_q15 = gate_q15,
-                        "Skipping adapter with non-positive gate"
-                    );
-                    continue;
-                }
-
-                active_adapters.push(adapter.as_ref());
-                let gate_u16 = gate_q15 as u16;
-                gates.push(gate_u16);
-                total_gate_weight += gate_u16 as f32 / Q15_GATE_DENOMINATOR; // Q15 dequantization
-            } else {
-                tracing::warn!(
-                    adapter_id = adapter_id,
-                    "RouterRing references adapter ID {} which is not loaded",
-                    adapter_id
-                );
-            }
-        }
-
-        if active_adapters.is_empty() {
-            tracing::debug!(
-                ring_k = ring.k,
-                "No active adapters qualified for routing, using base model output"
-            );
-            return Ok(base_logits.to_vec());
-        }
-
-        // Collect all unique target modules from active adapters
-        let mut target_modules: HashSet<&str> = HashSet::new();
-        for adapter in &active_adapters {
-            for module in &adapter.config().target_modules {
-                target_modules.insert(module.as_str());
-            }
-        }
-
-        // Start with base logits
-        let mut result = base_logits.to_vec();
-        let mut modules_applied = 0;
-
-        // Apply LoRA to each target module's hidden state
-        for module_name in target_modules {
-            if let Some(hidden) = hidden_states.get(module_name) {
-                // Apply multi-LoRA routing with Q15 gates
-                let lora_output = crate::routing::apply_multi_lora(
-                    &active_adapters,
-                    &gates,
-                    module_name,
-                    hidden,
-                    &result,
-                )?;
-
-                // Calculate adaptive blend factor based on total gate weight
-                // Higher total gate weight = stronger LoRA influence
-                // Clamped to [0.05, 0.5] for stability
-                let blend_factor =
-                    (total_gate_weight / active_adapters.len() as f32).clamp(0.05, 0.5);
-
-                // Blend LoRA output with result
-                for (i, &lora_val) in lora_output.iter().enumerate() {
-                    if i < result.len() {
-                        // Linear interpolation: result = base * (1 - blend) + lora * blend
-                        result[i] = result[i] * (1.0 - blend_factor) + lora_val * blend_factor;
-                    }
-                }
-
-                modules_applied += 1;
-
-                tracing::trace!(
-                    module = module_name,
-                    blend_factor = blend_factor,
-                    "Applied LoRA to module"
-                );
-            } else {
-                tracing::trace!(
-                    module = module_name,
-                    "Hidden state not available for module, skipping"
-                );
-            }
-        }
-
-        // Update adapter count in health status
-        {
-            let mut health = self.health_status.write();
-            health.active_adapters = active_adapters.len();
-        }
-
-        // Emit multi-adapter routing telemetry
-        self.log_lora_application(&active_adapters, modules_applied, total_gate_weight, &gates);
-
-        Ok(result)
     }
 
     /// Run inference step using stub fallback (for circuit breaker or testing)
@@ -1290,6 +1280,27 @@ impl MLXFFIBackend {
 impl LiquidKernel for MLXFFIBackend {
     fn blend_and_forward(&mut self, request: LiquidBlendRequest<'_>) -> Result<LiquidBlendStats> {
         crate::liquid::blend_and_forward_mlx(request)
+    }
+}
+
+// SAFETY: MLXFFIBackend contains raw pointers (temp_cache_ptr, and transitively
+// through FFILoraAdapter and SessionCacheManager). All access to these pointers
+// is serialized through:
+// 1. The FusedKernels trait requiring &mut self on run_step
+// 2. The MLXFFIModel's inference_lock for C++ FFI calls
+// This matches the pattern used by MLXFFIModel (lib.rs:1474-1492).
+unsafe impl Send for MLXFFIBackend {}
+unsafe impl Sync for MLXFFIBackend {}
+
+impl Drop for MLXFFIBackend {
+    fn drop(&mut self) {
+        // Clear session caches
+        self.session_cache.clear_all();
+        // Free temporary cache
+        if let Some(ptr) = self.temp_cache_ptr.take() {
+            unsafe { crate::mlx_kv_cache_free(ptr) };
+        }
+        // FFI adapters are dropped automatically via their Drop impl
     }
 }
 

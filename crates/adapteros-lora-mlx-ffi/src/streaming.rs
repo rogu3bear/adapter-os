@@ -783,11 +783,8 @@ impl MLXStreamingGenerator {
     where
         F: FnMut(usize, &B3Hash) -> Result<TokenGenerationOutput>,
     {
-        // Apply chat template
-        let formatted_prompt = tokenizer.apply_chat_template(prompt);
-
-        // Generate with formatted prompt
-        self.generate_from_text(&formatted_prompt, tokenizer, generate_fn, tx)
+        // Caller is responsible for chat template application via ChatTemplateEngine
+        self.generate_from_text(prompt, tokenizer, generate_fn, tx)
             .await
     }
 }
