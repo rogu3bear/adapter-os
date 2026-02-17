@@ -7533,7 +7533,7 @@
 }
 
 .error-history-item-error {
-  border-color: hsla(0, 84%, 60%, 0.3);
+  border-color: hsla(0, 84%, 60%, 0.45);
 }
 
 .error-history-item-error .error-history-item-icon {
@@ -7541,7 +7541,7 @@
 }
 
 .error-history-item-warning {
-  border-color: hsla(38, 92%, 50%, 0.3);
+  border-color: hsla(38, 92%, 50%, 0.45);
 }
 
 .error-history-item-warning .error-history-item-icon {
@@ -7983,7 +7983,7 @@
     font-weight: 500;
     cursor: pointer;
     transition: opacity 0.15s ease;
-    border: 1px solid hsla(0, 0%, 100%, 0.15);
+    border: 1px solid hsla(0, 0%, 100%, 0.30);
     user-select: none;
 }
 .provenance-badge:hover { opacity: 0.85; }

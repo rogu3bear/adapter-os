@@ -118,6 +118,13 @@ pub struct UserSettings {
     /// Optional UI profile override (primary/full)
     #[serde(default)]
     pub ui_profile: Option<UiProfile>,
+    /// Glass theme enabled (Liquid Glass morphism)
+    #[serde(default = "default_glass_enabled")]
+    pub glass_enabled: bool,
+}
+
+fn default_glass_enabled() -> bool {
+    true
 }
 
 impl Default for UserSettings {
@@ -130,6 +137,7 @@ impl Default for UserSettings {
             api_endpoint: None,
             show_telemetry_overlay: false,
             ui_profile: None,
+            glass_enabled: true,
         }
     }
 }
