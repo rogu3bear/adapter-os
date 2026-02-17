@@ -332,6 +332,7 @@ dependencies = [
  "adapteros-api",
  "adapteros-api-types",
  "adapteros-artifacts",
+ "adapteros-chat",
  "adapteros-client",
  "adapteros-config",
  "adapteros-core",
@@ -1020,6 +1021,7 @@ dependencies = [
 name = "adapteros-lora-mlx-ffi"
 version = "0.14.1"
 dependencies = [
+ "adapteros-chat",
  "adapteros-core",
  "adapteros-deterministic-exec",
  "adapteros-lora-kernel-api",
@@ -1123,6 +1125,7 @@ dependencies = [
  "adapteros-aos",
  "adapteros-api-types",
  "adapteros-boot",
+ "adapteros-chat",
  "adapteros-config",
  "adapteros-core",
  "adapteros-crypto",

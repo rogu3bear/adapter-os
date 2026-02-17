@@ -20,3 +20,16 @@
 /v1/jobs/{job_id}
 /v1/training/datasets/from-upload/async
 /v1/training/jobs/{job_id}/priority
+
+# New routes pending OpenAPI annotation (added in route rectification phase 1+2).
+# Remove once handlers have #[utoipa::path] and openapi.json is regenerated.
+/v1/admin/users/{user_id}
+/v1/fim/completions
+/v1/models/{model_id}
+/v1/prefix-templates
+/v1/prefix-templates/{template_id}
+/v1/provenance/{certificate_id}/verify
+/v1/stream/contacts
+/v1/stream/discovery
+/v1/stream/file-changes
+/v1/stream/training
