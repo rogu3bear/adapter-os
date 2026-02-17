@@ -46,7 +46,7 @@ use components::{
 };
 use signals::{
     provide_chat_context, provide_notifications_context, provide_refetch_context,
-    provide_search_context,
+    provide_search_context, provide_settings_context, provide_ui_profile_context,
 };
 use std::sync::Arc;
 
@@ -265,6 +265,7 @@ fn BaseUrlError(reason: String) -> impl IntoView {
 
 #[component]
 fn AppProviders(children: Children) -> impl IntoView {
+    provide_settings_context();
     provide_notifications_context();
     provide_chat_context();
     provide_refetch_context();

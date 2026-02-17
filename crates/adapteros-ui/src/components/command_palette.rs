@@ -456,17 +456,15 @@ fn execute_command(command: &str) {
             }
         }
         "toggle-theme" => {
-            // Toggle between light/dark
-            if let Some(document) = web_sys::window().and_then(|w| w.document()) {
-                if let Some(html) = document.document_element() {
-                    let current = html.class_list();
-                    if current.contains("dark") {
-                        let _ = current.remove_1("dark");
-                    } else {
-                        let _ = current.add_1("dark");
-                    }
-                }
-            }
+            use crate::signals::settings::{update_setting, use_settings, Theme};
+            let settings = use_settings();
+            let next = match settings.get_untracked().theme {
+                Theme::Light => Theme::Dark,
+                Theme::Dark => Theme::System,
+                Theme::System => Theme::Light,
+            };
+            update_setting(settings, |s| s.theme = next);
+            settings.get_untracked().apply_theme();
         }
         "new-chat" => {
             if let Some((_state, action)) = use_context::<ChatContext>() {

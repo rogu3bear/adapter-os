@@ -4,13 +4,39 @@
 <head>
     <meta charset="UTF-8">
     <meta name="viewport" content="width=device-width, initial-scale=1.0">
-    <link data-trunk rel="css" href="dist/fonts.css">
     <title>adapterOS</title>
+    <!-- PRD-UI-000: Pre-hydration theme to prevent FOUC -->
+    <script>
+        (function() {
+            try {
+                var raw = localStorage.getItem('adapteros_settings');
+                if (!raw) return;
+                var settings = JSON.parse(raw);
+                var theme = settings && settings.theme;
+                if (theme === 'dark') {
+                    document.documentElement.classList.add('dark');
+                } else if (theme === 'light') {
+                    document.documentElement.classList.add('light');
+                } else {
+                    // system or missing — check OS preference
+                    if (window.matchMedia && window.matchMedia('(prefers-color-scheme: dark)').matches) {
+                        document.documentElement.classList.add('dark');
+                    } else {
+                        document.documentElement.classList.add('light');
+                    }
+                }
+            } catch(e) {
+                // Silently fail — WASM will apply theme later
+            }
+        })();
+    </script>
     <!-- PRD-UI-000: Build metadata for diagnostics -->
     <meta name="aos-build-hash" content="__TRUNK_HASH__">
     <meta name="aos-build-time" content="__BUILD_TIME__">
     <!-- PRD-UI-170: Preload critical resources for faster perceived load -->
     <link rel="preconnect" href="/" crossorigin>
+    <!-- Fonts -->
+    <link data-trunk rel="css" href="dist/fonts.css">
     <!-- Base styles with CSS variables and reset -->
     <link data-trunk rel="css" href="dist/base.css">
     <!-- Component styles -->

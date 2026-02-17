@@ -206,6 +206,24 @@ pub fn provide_settings_context() {
     settings.get_untracked().apply_theme();
 
     provide_context(settings);
+
+    // Listen for OS color scheme changes when theme is System
+    #[cfg(target_arch = "wasm32")]
+    {
+        use wasm_bindgen::prelude::*;
+        if let Some(mql) = web_sys::window()
+            .and_then(|w| w.match_media("(prefers-color-scheme: dark)").ok().flatten())
+        {
+            let cb = Closure::<dyn Fn()>::new(move || {
+                let current = settings.get_untracked();
+                if current.theme == Theme::System {
+                    current.apply_theme();
+                }
+            });
+            let _ = mql.add_event_listener_with_callback("change", cb.as_ref().unchecked_ref());
+            cb.forget(); // intentional leak — lives for app lifetime
+        }
+    }
 }
 
 /// Use settings context
