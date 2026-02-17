@@ -14,7 +14,7 @@ NC='\033[0m' # No Color
 
 # Configuration
 TENANT_ID="${AOS_TENANT_ID:-default}"
-DB_PATH="${AOS_DB_PATH:-var/aos.db}"
+DB_PATH="${AOS_DB_PATH:-var/aos-cp.sqlite3}"
 UDS_SOCKET="/var/run/aos/${TENANT_ID}/metrics.sock"
 
 echo "🔍 Verifying Determinism Loop Deployment"
@@ -179,26 +179,33 @@ fi
 
 # Check 13: Documentation
 echo "📚 Checking documentation..."
-if file_exists "docs/secure-enclave-integration.md"; then
-    echo -e "${GREEN}✅ Secure Enclave integration guide exists${NC}"
+if file_exists "docs/DEPLOYMENT.md"; then
+    echo -e "${GREEN}✅ Deployment guide exists${NC}"
 else
-    echo -e "${RED}❌ Secure Enclave integration guide missing${NC}"
+    echo -e "${RED}❌ Deployment guide missing${NC}"
     exit 1
 fi
 
-if file_exists "DETERMINISM_LOOP_IMPLEMENTATION_SUMMARY.md"; then
-    echo -e "${GREEN}✅ Implementation summary exists${NC}"
+if file_exists "docs/OPERATIONS.md"; then
+    echo -e "${GREEN}✅ Operations runbook exists${NC}"
 else
-    echo -e "${RED}❌ Implementation summary missing${NC}"
+    echo -e "${RED}❌ Operations runbook missing${NC}"
     exit 1
 fi
 
 # Check 14: Test files
 echo "🧪 Checking test files..."
-if file_exists "tests/federation_signature_exchange.rs"; then
-    echo -e "${GREEN}✅ Federation signature exchange test exists${NC}"
+if file_exists "crates/adapteros-federation/tests/signature_chain_tests.rs"; then
+    echo -e "${GREEN}✅ Federation signature chain test exists${NC}"
 else
-    echo -e "${RED}❌ Federation signature exchange test missing${NC}"
+    echo -e "${RED}❌ Federation signature chain test missing${NC}"
+    exit 1
+fi
+
+if file_exists "crates/adapteros-server-api/tests/replay_determinism_tests.rs"; then
+    echo -e "${GREEN}✅ Replay determinism test exists${NC}"
+else
+    echo -e "${RED}❌ Replay determinism test missing${NC}"
     exit 1
 fi
 
@@ -225,7 +232,7 @@ echo ""
 echo "Next steps:"
 echo "  1. Start the supervisor daemon: sudo systemctl start aos-supervisor"
 echo "  2. Deploy UDS metrics: sudo ./scripts/deploy-uds-metrics.sh"
-echo "  3. Test federation: cargo test federation_signature_exchange"
+echo "  3. Test federation: cargo test -p adapteros-federation --test signature_chain_tests"
 echo "  4. Monitor logs: sudo journalctl -u aos-supervisor -f"
 echo ""
 echo "The determinism loop is ready for production deployment! 🚀"

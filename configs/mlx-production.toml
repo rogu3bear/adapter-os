@@ -4,7 +4,25 @@
 [server]
 backend = "mlx"
 production_mode = true
+port = 8080
+bind = "127.0.0.1"
 uds_socket = "/var/run/adapteros.sock"
+
+[db]
+path = "sqlite://var/aos-cp.sqlite3"
+
+[paths]
+artifacts_root = "var/artifacts"
+bundles_root = "var/bundles"
+adapters_root = "var/adapters"
+plan_dir = "plan"
+datasets_root = "var/datasets"
+documents_root = "var/documents"
+
+[rate_limits]
+requests_per_minute = 600
+burst_size = 120
+inference_per_minute = 300
 
 [mlx]
 enabled = true
@@ -20,4 +38,17 @@ canonical_json = true
 
 [security]
 jwt_mode = "eddsa"
+jwt_secret = "q9X7m2K4p8V1n6T3r5Y0u2I4o8P1a6S9d3F5h7J0k2L4m6N8"
 require_pf_deny = true
+
+[metrics]
+enabled = true
+bearer_token = "CHANGE_ME_METRICS_TOKEN_32_CHARS_MIN"
+include_histogram = true
+histogram_buckets = [0.001, 0.005, 0.01, 0.05, 0.1, 0.5, 1.0, 5.0]
+
+[alerting]
+enabled = true
+alert_dir = "var/alerts"
+max_alerts_per_file = 10000
+rotate_size_mb = 50

@@ -15,15 +15,54 @@ NC='\033[0m' # No Color
 # Configuration
 CONFIG_FILE="${AOS_CONFIG:-configs/production-multinode.toml}"
 UDS_SOCKET="${AOS_UDS_SOCKET:-/var/run/adapteros/control-plane.sock}"
+UDS_DIR=$(dirname "$UDS_SOCKET")
 SERVICE_NAME="adapteros-cp"
+DRY_RUN=0
+ALLOW_NON_ROOT_DEPLOY="${AOS_ALLOW_NON_ROOT_DEPLOY:-0}"
+SKIP_SYSTEMCTL="${AOS_SKIP_SYSTEMCTL:-0}"
+NON_ROOT_FAST_RELEASE="${AOS_NON_ROOT_FAST_RELEASE:-1}"
+SYSTEMCTL_AVAILABLE=0
+if command -v systemctl >/dev/null 2>&1; then
+    SYSTEMCTL_AVAILABLE=1
+fi
+
+while [[ $# -gt 0 ]]; do
+    case "$1" in
+        --dry-run)
+            DRY_RUN=1
+            shift
+            ;;
+        *)
+            echo -e "${RED}❌ Unknown argument: $1${NC}"
+            echo "Usage: $0 [--dry-run]"
+            exit 1
+            ;;
+    esac
+done
 
 echo "🚀 adapterOS Production Deployment"
 echo "==================================="
+if [ "$DRY_RUN" -eq 1 ]; then
+    echo "Mode: DRY RUN (no system paths or systemctl changes)"
+fi
+if [ "$SYSTEMCTL_AVAILABLE" -eq 0 ]; then
+    SKIP_SYSTEMCTL=1
+fi
+if [ "$EUID" -ne 0 ]; then
+    SKIP_SYSTEMCTL=1
+fi
 
 # Check if running as root (required for UDS socket creation)
-if [ "$EUID" -ne 0 ]; then
-    echo -e "${RED}❌ This script must be run as root for UDS socket creation${NC}"
+if [ "$EUID" -ne 0 ] && [ "$DRY_RUN" -eq 0 ] && [ "$ALLOW_NON_ROOT_DEPLOY" != "1" ]; then
+    echo -e "${RED}❌ Non-root deploy blocked.${NC}"
+    echo "Run as root for full production apply, or set AOS_ALLOW_NON_ROOT_DEPLOY=1 for a local non-systemd deploy."
     exit 1
+fi
+if [ "$EUID" -ne 0 ] && [ "$DRY_RUN" -eq 1 ]; then
+    echo -e "${YELLOW}⚠️  Running dry-run as non-root${NC}"
+fi
+if [ "$EUID" -ne 0 ] && [ "$DRY_RUN" -eq 0 ] && [ "$ALLOW_NON_ROOT_DEPLOY" = "1" ]; then
+    echo -e "${YELLOW}⚠️  Running non-root deploy mode (systemctl integration disabled).${NC}"
 fi
 
 # Step 1: Validate production configuration
@@ -53,15 +92,29 @@ echo -e "${GREEN}✅ Production configuration validated${NC}"
 
 # Step 2: Create UDS socket directory
 echo "🔌 Creating UDS socket directory..."
-UDS_DIR=$(dirname "$UDS_SOCKET")
-mkdir -p "$UDS_DIR"
-chmod 700 "$UDS_DIR"
+if [ "$DRY_RUN" -eq 1 ]; then
+    echo "Would run: mkdir -p \"$UDS_DIR\""
+    echo "Would run: chmod 700 \"$UDS_DIR\""
+else
+    if ! mkdir -p "$UDS_DIR"; then
+        echo -e "${RED}❌ Failed to create UDS socket directory: $UDS_DIR${NC}"
+        echo "Set AOS_UDS_SOCKET to a writable path (e.g. $PWD/var/run/adapteros/control-plane.sock) or run as root."
+        exit 1
+    fi
+    if ! chmod 700 "$UDS_DIR"; then
+        echo -e "${RED}❌ Failed to set permissions on UDS socket directory: $UDS_DIR${NC}"
+        exit 1
+    fi
+fi
 echo -e "${GREEN}✅ UDS socket directory created: $UDS_DIR${NC}"
 
 # Step 3: Verify JWT keys exist
 echo "🔐 Verifying JWT keys..."
-JWT_PUBLIC_KEY=$(grep 'jwt_public_key_pem_file' "$CONFIG_FILE" | cut -d'"' -f2 || grep 'jwt_public_key_pem' "$CONFIG_FILE" | cut -d'"' -f2)
-JWT_SIGNING_KEY=$(grep 'jwt_signing_key_path' "$CONFIG_FILE" | cut -d'"' -f2)
+JWT_PUBLIC_KEY=$(grep -m1 'jwt_public_key_pem_file' "$CONFIG_FILE" | cut -d'"' -f2 || true)
+if [ -z "$JWT_PUBLIC_KEY" ]; then
+    JWT_PUBLIC_KEY=$(grep -m1 'jwt_public_key_pem' "$CONFIG_FILE" | cut -d'"' -f2 || true)
+fi
+JWT_SIGNING_KEY=$(grep -m1 'jwt_signing_key_path' "$CONFIG_FILE" | cut -d'"' -f2 || true)
 
 if [ -n "$JWT_PUBLIC_KEY" ] && [ ! -f "$JWT_PUBLIC_KEY" ]; then
     echo -e "${RED}❌ JWT public key file not found: $JWT_PUBLIC_KEY${NC}"
@@ -89,14 +142,35 @@ if grep -q "require_pf_deny = true" "$CONFIG_FILE"; then
     fi
 fi
 
-# Step 5: Build release binary
-echo "🔨 Building release binary..."
+# Step 5: Compile gate
 mkdir -p var/log
-if ! cargo build --release --locked 2>&1 | tee var/log/aos-build.log; then
-    echo -e "${RED}❌ Build failed${NC}"
-    exit 1
+BUILD_LOG="var/log/aos-build.log"
+if [ "$DRY_RUN" -eq 1 ]; then
+    echo "🔨 Running dry-run compile gate (cargo check)..."
+    if ! RUSTC_WRAPPER= cargo check --locked -p adapteros-server --bin aos-server >"$BUILD_LOG" 2>&1; then
+        cat "$BUILD_LOG"
+        echo -e "${RED}❌ Dry-run compile gate failed${NC}"
+        exit 1
+    fi
+    echo "Build log: $BUILD_LOG"
+    echo -e "${GREEN}✅ Dry-run compile gate passed${NC}"
+else
+    echo "🔨 Building release binary..."
+    if [ "$ALLOW_NON_ROOT_DEPLOY" = "1" ] && [ "$NON_ROOT_FAST_RELEASE" = "1" ]; then
+        echo "Using fast-release overrides for non-root deploy mode (LTO off, codegen-units=16)."
+        if ! CARGO_PROFILE_RELEASE_LTO=false CARGO_PROFILE_RELEASE_CODEGEN_UNITS=16 RUSTC_WRAPPER= cargo build --release --locked -p adapteros-server --bin aos-server >"$BUILD_LOG" 2>&1; then
+            cat "$BUILD_LOG"
+            echo -e "${RED}❌ Build failed${NC}"
+            exit 1
+        fi
+    elif ! RUSTC_WRAPPER= cargo build --release --locked -p adapteros-server --bin aos-server >"$BUILD_LOG" 2>&1; then
+        cat "$BUILD_LOG"
+        echo -e "${RED}❌ Build failed${NC}"
+        exit 1
+    fi
+    echo "Build log: $BUILD_LOG"
+    echo -e "${GREEN}✅ Release binary built${NC}"
 fi
-echo -e "${GREEN}✅ Release binary built${NC}"
 
 # Step 6: Run database migrations
 echo "📊 Running database migrations..."
@@ -121,13 +195,22 @@ else
 fi
 
 # Run migrations via binary
-./target/release/aos-server --config "$CONFIG_FILE" --migrate-only || {
-    echo -e "${YELLOW}⚠️  Migration check completed (may be no-op)${NC}"
-}
+if [ "$DRY_RUN" -eq 1 ] || { [ "$ALLOW_NON_ROOT_DEPLOY" = "1" ] && [ "$EUID" -ne 0 ]; }; then
+    echo "Would run: ./target/release/aos-server --config \"$CONFIG_FILE\" --migrate-only"
+else
+    ./target/release/aos-server --config "$CONFIG_FILE" --migrate-only || {
+        echo -e "${YELLOW}⚠️  Migration check completed (may be no-op)${NC}"
+    }
+fi
 
 # Step 7: Create systemd service file
 echo "⚙️  Creating systemd service..."
-SERVICE_FILE="/etc/systemd/system/${SERVICE_NAME}.service"
+if [ "$DRY_RUN" -eq 1 ] || [ "$SKIP_SYSTEMCTL" = "1" ]; then
+    mkdir -p var
+    SERVICE_FILE="var/${SERVICE_NAME}.service.preview"
+else
+    SERVICE_FILE="/etc/systemd/system/${SERVICE_NAME}.service"
+fi
 cat > "$SERVICE_FILE" <<EOF
 [Unit]
 Description=adapterOS Control Plane
@@ -156,11 +239,21 @@ WantedBy=multi-user.target
 EOF
 
 echo -e "${GREEN}✅ Systemd service file created${NC}"
+if [ "$DRY_RUN" -eq 1 ] || [ "$SKIP_SYSTEMCTL" = "1" ]; then
+    echo "Preview service file written to: $SERVICE_FILE"
+fi
 
 # Step 8: Reload systemd and enable service
 echo "🔄 Reloading systemd..."
-systemctl daemon-reload
-systemctl enable "$SERVICE_NAME"
+if [ "$DRY_RUN" -eq 1 ]; then
+    echo "Would run: systemctl daemon-reload"
+    echo "Would run: systemctl enable $SERVICE_NAME"
+elif [ "$SKIP_SYSTEMCTL" = "1" ]; then
+    echo -e "${YELLOW}⚠️  Skipping systemctl integration (systemctl unavailable or non-root).${NC}"
+else
+    systemctl daemon-reload
+    systemctl enable "$SERVICE_NAME"
+fi
 
 echo ""
 echo "🎉 Production Deployment Ready!"
@@ -170,10 +263,24 @@ echo "Configuration: $CONFIG_FILE"
 echo "UDS Socket: $UDS_SOCKET"
 echo "Service: $SERVICE_NAME"
 echo ""
+if [ "$DRY_RUN" -eq 1 ]; then
+    echo "Dry-run complete. To apply in production, rerun without --dry-run as root."
+    echo ""
+elif [ "$SKIP_SYSTEMCTL" = "1" ]; then
+    echo "Deployment steps complete without systemctl integration."
+    echo ""
+fi
 echo "Next steps:"
-echo "  1. Create adapteros user: sudo useradd -r -s /bin/false adapteros"
-echo "  2. Set ownership: sudo chown -R adapteros:adapteros /var/lib/adapteros /var/log/adapteros /var/run/adapteros"
-echo "  3. Start service: sudo systemctl start $SERVICE_NAME"
-echo "  4. Check status: sudo systemctl status $SERVICE_NAME"
-echo "  5. View logs: sudo journalctl -u $SERVICE_NAME -f"
+if [ "$SKIP_SYSTEMCTL" = "1" ]; then
+    echo "  1. Export signing key: export AOS_SIGNING_KEY=<64+ char signing key>"
+    echo "  2. Start service with root for PF checks: sudo ./target/release/aos-server --config $CONFIG_FILE"
+    echo "  3. Validate readiness: curl http://127.0.0.1:8080/readyz"
+    echo "  4. Integrate with your host supervisor using: $SERVICE_FILE"
+else
+    echo "  1. Create adapteros user: sudo useradd -r -s /bin/false adapteros"
+    echo "  2. Set ownership: sudo chown -R adapteros:adapteros /var/lib/adapteros /var/log/adapteros /var/run/adapteros"
+    echo "  3. Start service: sudo systemctl start $SERVICE_NAME"
+    echo "  4. Check status: sudo systemctl status $SERVICE_NAME"
+    echo "  5. View logs: sudo journalctl -u $SERVICE_NAME -f"
+fi
 echo ""
