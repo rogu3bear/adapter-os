@@ -344,13 +344,7 @@ impl PredictiveScheduler {
             return Trend::Stable;
         }
 
-        let recent: Vec<f64> = self
-            .history
-            .iter()
-            .rev()
-            .take(5)
-            .map(|s| extract(s))
-            .collect();
+        let recent: Vec<f64> = self.history.iter().rev().take(5).map(extract).collect();
 
         // Compare newer half average to older half average.
         let mid = recent.len() / 2;
@@ -373,10 +367,10 @@ impl PredictiveScheduler {
     /// Linear extrapolation of a metric N steps into the future.
     fn linear_extrapolate(&self, extract: impl Fn(&SystemSnapshot) -> f64, steps: usize) -> f64 {
         if self.history.len() < 2 {
-            return self.history.back().map(|s| extract(s)).unwrap_or(0.0);
+            return self.history.back().map(&extract).unwrap_or(0.0);
         }
 
-        let values: Vec<f64> = self.history.iter().map(|s| extract(s)).collect();
+        let values: Vec<f64> = self.history.iter().map(extract).collect();
         let n = values.len() as f64;
         let sum_x: f64 = (0..values.len()).map(|i| i as f64).sum();
         let sum_y: f64 = values.iter().sum();

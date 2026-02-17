@@ -57,7 +57,6 @@ pub fn Workers() -> impl IntoView {
 
     // Fetch workers list (terminal entries hidden unless history is explicitly enabled)
     let (workers, refetch_workers) = use_api_resource({
-        let show_history = show_history;
         move |client: Arc<ApiClient>| {
             let include_history = show_history.get_untracked();
             async move {
@@ -110,9 +109,8 @@ pub fn Workers() -> impl IntoView {
     });
 
     let api_client = use_api();
-    let notifications_for_spawn = notifications.clone();
     let spawn_worker_request = Callback::new({
-        let notifications = notifications_for_spawn.clone();
+        let notifications = notifications.clone();
         let api_client = api_client.clone();
         move |request: SpawnWorkerRequest| {
             action_loading.set(true);
@@ -146,7 +144,6 @@ pub fn Workers() -> impl IntoView {
         }
     });
     let quick_spawn_from_defaults = Callback::new({
-        let spawn_worker_request = spawn_worker_request.clone();
         move |_| {
             if action_loading.get_untracked() {
                 return;
@@ -316,7 +313,7 @@ pub fn Workers() -> impl IntoView {
             })}
 
             // Main content
-            {let notifications = notifications_for_spawn.clone();
+            {let notifications = notifications.clone();
             move || {
                 let workers_state = workers.get();
                 let nodes_list = match nodes.get() {

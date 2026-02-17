@@ -110,8 +110,6 @@ pub fn SpawnWorkerDialog(
 
     // Inline readiness checks for both modes.
     let quick_missing = Memo::new({
-        let quick_node = quick_node;
-        let quick_plan = quick_plan;
         move |_| {
             let mut missing = Vec::new();
             let node = quick_node.get_value();
@@ -133,7 +131,6 @@ pub fn SpawnWorkerDialog(
     });
 
     let advanced_missing = Memo::new({
-        let tenant_id = tenant_id;
         move |_| {
             let mut missing = Vec::new();
             let selected_node = node_id.get();
@@ -212,8 +209,6 @@ pub fn SpawnWorkerDialog(
 
     // If user switches to Advanced with empty fields, seed controls from quick defaults.
     Effect::new({
-        let quick_node = quick_node;
-        let quick_plan = quick_plan;
         move || {
             let Some(current_mode) = mode.try_get() else {
                 return;

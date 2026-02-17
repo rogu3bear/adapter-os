@@ -404,19 +404,19 @@ fn DocumentsList(
     let delete_state = use_delete_dialog();
     let reprocessing_id = RwSignal::new(Option::<String>::None);
 
-    let delete_state_for_cancel = delete_state.clone();
+    let delete_state_for_cancel = delete_state;
     let on_cancel_delete = Callback::new(move |_| {
         delete_state_for_cancel.cancel();
     });
 
-    let delete_state_for_confirm = delete_state.clone();
+    let delete_state_for_confirm = delete_state;
     let on_confirm_delete = {
         let client = Arc::clone(&client);
         Callback::new(move |_| {
             if let Some(id) = delete_state_for_confirm.get_pending_id() {
                 delete_state_for_confirm.start_delete();
                 let client = Arc::clone(&client);
-                let delete_state = delete_state_for_confirm.clone();
+                let delete_state = delete_state_for_confirm;
                 wasm_bindgen_futures::spawn_local(async move {
                     match client.delete_document(&id).await {
                         Ok(_) => {
@@ -433,8 +433,8 @@ fn DocumentsList(
         })
     };
 
-    let delete_state_for_rows = delete_state.clone();
-    let delete_state_for_loading = delete_state.clone();
+    let delete_state_for_rows = delete_state;
+    let delete_state_for_loading = delete_state;
 
     view! {
         <Card>
@@ -467,7 +467,7 @@ fn DocumentsList(
                             let mime = doc.mime_type.clone();
                             let created = format_relative_time(&doc.created_at);
                             let error = doc.error_message.clone();
-                            let delete_state = delete_state_for_rows.clone();
+                            let delete_state = delete_state_for_rows;
                             let client = Arc::clone(&client);
                             let is_terminal_ready = matches!(status.as_str(), "indexed" | "ready");
                             let is_failed = status == "failed";
@@ -607,7 +607,7 @@ fn DocumentsList(
                                                 size=ButtonSize::Sm
                                                 aria_label="Delete document"
                                                 on_click=Callback::new({
-                                                    let delete_state = delete_state.clone();
+                                                    let delete_state = delete_state;
                                                     move |_| {
                                                         delete_state.confirm(id_delete.clone(), name_for_delete.clone());
                                                     }
@@ -1417,15 +1417,15 @@ fn DocumentDetailContent(
                 </div>
                 <div>
                     <p class="text-sm text-muted-foreground">"Updated At"</p>
-                    <p class="font-medium">{document.updated_at.as_deref().map(|t| format_datetime(t)).unwrap_or_else(|| "-".to_string())}</p>
+                    <p class="font-medium">{document.updated_at.as_deref().map(format_datetime).unwrap_or_else(|| "-".to_string())}</p>
                 </div>
                 <div>
                     <p class="text-sm text-muted-foreground">"Processing Started"</p>
-                    <p class="font-medium">{document.processing_started_at.as_deref().map(|t| format_datetime(t)).unwrap_or_else(|| "-".to_string())}</p>
+                    <p class="font-medium">{document.processing_started_at.as_deref().map(format_datetime).unwrap_or_else(|| "-".to_string())}</p>
                 </div>
                 <div>
                     <p class="text-sm text-muted-foreground">"Processing Completed"</p>
-                    <p class="font-medium">{document.processing_completed_at.as_deref().map(|t| format_datetime(t)).unwrap_or_else(|| "-".to_string())}</p>
+                    <p class="font-medium">{document.processing_completed_at.as_deref().map(format_datetime).unwrap_or_else(|| "-".to_string())}</p>
                 </div>
             </div>
         </Card>

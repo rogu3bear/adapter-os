@@ -1096,9 +1096,7 @@ pub(crate) async fn start_training_from_dataset(
         }
     }
 
-    let dataset_id = crate::id_resolver::resolve_any_id(&state.db, dataset_id)
-        .await
-        .map_err(ApiError::from)?;
+    let dataset_id = crate::id_resolver::resolve_any_id(&state.db, dataset_id).await?;
 
     let dataset = state
         .db
@@ -1137,9 +1135,7 @@ pub(crate) async fn start_training_from_dataset(
 
     let resolved_dataset_version_id = match dataset_version_id {
         Some(version_id) => {
-            let version_id = crate::id_resolver::resolve_any_id(&state.db, &version_id)
-                .await
-                .map_err(ApiError::from)?;
+            let version_id = crate::id_resolver::resolve_any_id(&state.db, &version_id).await?;
             let version = state
                 .db
                 .get_training_dataset_version_for_tenant(&version_id, &claims.tenant_id)

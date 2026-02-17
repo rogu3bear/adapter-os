@@ -108,8 +108,6 @@ fn derive_checklist(status: &SystemStatusResponse) -> Vec<CheckItem> {
             label: "Models",
             status: if models_ok {
                 CheckStatus::Ready
-            } else if model_count > 0 {
-                CheckStatus::Issue
             } else {
                 CheckStatus::Issue
             },

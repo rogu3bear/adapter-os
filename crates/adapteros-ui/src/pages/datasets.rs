@@ -435,16 +435,16 @@ fn DatasetsList(
     // Delete confirmation dialog state using reusable hook
     let client = use_api();
     let delete_state = use_delete_dialog();
-    let delete_state_for_cancel = delete_state.clone();
+    let delete_state_for_cancel = delete_state;
     let on_cancel_delete = Callback::new(move |_| delete_state_for_cancel.cancel());
-    let delete_state_for_confirm = delete_state.clone();
+    let delete_state_for_confirm = delete_state;
     let on_confirm_delete = {
         let client = Arc::clone(&client);
         Callback::new(move |_| {
             if let Some(id) = delete_state_for_confirm.get_pending_id() {
                 delete_state_for_confirm.start_delete();
                 let client = Arc::clone(&client);
-                let delete_state = delete_state_for_confirm.clone();
+                let delete_state = delete_state_for_confirm;
                 wasm_bindgen_futures::spawn_local(async move {
                     match client.delete_dataset(&id).await {
                         Ok(_) => {
@@ -459,7 +459,7 @@ fn DatasetsList(
             }
         })
     };
-    let delete_state_for_loading = delete_state.clone();
+    let delete_state_for_loading = delete_state;
 
     // Readiness counts (computed on full list, not filtered list)
     let trainable_count = Signal::derive(move || {
@@ -781,13 +781,13 @@ fn DatasetsList(
 
     let dataset_count_total = datasets.total;
     let show_empty = Signal::derive(move || all_datasets.get_value().is_empty());
-    let delete_state_for_views = delete_state.clone();
+    let delete_state_for_views = delete_state;
 
     view! {
         <Show
             when=move || show_empty.try_get().unwrap_or(false)
             fallback=move || {
-                let delete_state = delete_state_for_views.clone();
+                let delete_state = delete_state_for_views;
                 view! {
                     <div class="space-y-4">
                         // Readiness strip
@@ -1047,9 +1047,9 @@ fn DatasetsList(
                                     </Card>
                                 }.into_any()
                             } else if view_mode.try_get().unwrap_or(DatasetViewMode::Table) == DatasetViewMode::Cards {
-                                view! { <DatasetsCardGrid datasets=items delete_state=delete_state.clone()/> }.into_any()
+                                view! { <DatasetsCardGrid datasets=items delete_state=delete_state/> }.into_any()
                             } else {
-                                view! { <DatasetsTable datasets=items delete_state=delete_state.clone()/> }.into_any()
+                                view! { <DatasetsTable datasets=items delete_state=delete_state/> }.into_any()
                             }
                         }}
                     </div>
@@ -1147,8 +1147,6 @@ fn DatasetsTable(
 
                         let nav = navigate.clone();
                         let nav_for_train = navigate.clone();
-                        let delete_state = delete_state.clone();
-
                         let train_tooltip: String = if is_trainable {
                             "Train an adapter from this dataset".to_string()
                         } else {
@@ -1307,7 +1305,6 @@ fn DatasetsCardGrid(
                 let nav_to_detail = navigate.clone();
                 let nav_to_issues = navigate.clone();
                 let nav_for_train = navigate.clone();
-                let delete_state = delete_state.clone();
 
                 let size_display = dataset
                     .total_size_bytes
@@ -1620,10 +1617,10 @@ pub fn DatasetDetail() -> impl IntoView {
     // Delete state (using standard hook)
     let client = use_api();
     let detail_delete_state = use_delete_dialog();
-    let detail_delete_for_cancel = detail_delete_state.clone();
+    let detail_delete_for_cancel = detail_delete_state;
     let on_cancel_delete = Callback::new(move |_| detail_delete_for_cancel.cancel());
 
-    let detail_delete_for_confirm = detail_delete_state.clone();
+    let detail_delete_for_confirm = detail_delete_state;
     let on_confirm_delete = {
         let client = Arc::clone(&client);
         let nav_store = navigate_store;
@@ -1631,7 +1628,7 @@ pub fn DatasetDetail() -> impl IntoView {
             if let Some(id) = detail_delete_for_confirm.get_pending_id() {
                 detail_delete_for_confirm.start_delete();
                 let client = Arc::clone(&client);
-                let delete_state = detail_delete_for_confirm.clone();
+                let delete_state = detail_delete_for_confirm;
                 let nav_store = nav_store;
                 wasm_bindgen_futures::spawn_local(async move {
                     match client.delete_dataset(&id).await {
@@ -1647,8 +1644,8 @@ pub fn DatasetDetail() -> impl IntoView {
             }
         })
     };
-    let detail_delete_for_loading = detail_delete_state.clone();
-    let detail_delete_for_button = detail_delete_state.clone();
+    let detail_delete_for_loading = detail_delete_state;
+    let detail_delete_for_button = detail_delete_state;
 
     view! {
         <div class="space-y-6">
@@ -1717,7 +1714,7 @@ pub fn DatasetDetail() -> impl IntoView {
                                         <Button
                                             variant=ButtonVariant::Destructive
                                             on_click=Callback::new({
-                                                let ds = detail_delete_for_button.clone();
+                                                let ds = detail_delete_for_button;
                                                 move |_| ds.confirm(dataset_id(), dataset_id())
                                             })
                                         >

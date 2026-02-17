@@ -100,22 +100,17 @@ fn get_current_path() -> Option<String> {
 }
 
 /// Resource loading state
-#[derive(Debug, Clone)]
+#[derive(Debug, Clone, Default)]
 pub enum LoadingState<T> {
     /// Not started
     Idle,
     /// Loading
+    #[default]
     Loading,
     /// Loaded with data
     Loaded(T),
     /// Error occurred
     Error(ApiError),
-}
-
-impl<T> Default for LoadingState<T> {
-    fn default() -> Self {
-        Self::Loading
-    }
 }
 
 impl<T> LoadingState<T> {

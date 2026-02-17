@@ -65,7 +65,7 @@ pub fn validate_seed_bytes(seed: &[u8]) -> Result<()> {
     // Audit log if determinism debugging enabled
     if std::env::var("AOS_DEBUG_DETERMINISM")
         .ok()
-        .map_or(false, |v| matches!(v.as_str(), "1" | "true" | "yes"))
+        .is_some_and(|v| matches!(v.as_str(), "1" | "true" | "yes"))
     {
         let checksum = &seed[..4];
         tracing::debug!(

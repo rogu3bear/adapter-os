@@ -153,7 +153,7 @@ pub fn Chat() -> impl IntoView {
                                         reason=guidance.reason.to_string()
                                         action_label=guidance.action.label.to_string()
                                         action_href=guidance.action.href.to_string()
-                                        on_retry=retry_status.clone()
+                                        on_retry=retry_status
                                     />
                                 }.into_any()
                             }
@@ -164,7 +164,7 @@ pub fn Chat() -> impl IntoView {
                                     reason="System status unavailable".to_string()
                                     action_label="View system status".to_string()
                                     action_href="/system".to_string()
-                                    on_retry=retry_status.clone()
+                                    on_retry=retry_status
                                 />
                             }.into_any()
                         }
@@ -1230,7 +1230,7 @@ fn SessionListPanel(
                             }.into_any();
                         }
                         if items.is_empty() {
-                            let create_session_shared = create_session.clone();
+                            let create_session_shared = create_session;
                             return view! {
                                 <div class="p-6 text-center space-y-2">
                                     <p class="text-xs text-muted-foreground">"No sessions shared with you yet"</p>
@@ -1278,7 +1278,7 @@ fn SessionListPanel(
                     let showing_archived = show_archived.try_get().unwrap_or(false);
                     let list = filtered_sessions.try_get().unwrap_or_default();
                     if list.is_empty() {
-                        let create_session_empty = create_session.clone();
+                        let create_session_empty = create_session;
                         let has_search = !search_query.try_get().unwrap_or_default().is_empty();
                         let message = if has_search {
                             "No matching sessions"
@@ -1344,10 +1344,10 @@ fn SessionListPanel(
                                                 .contains(&id)
                                         })
                                     };
-                                    let delete_handler = request_delete.clone();
-                                    let archive_handler = on_archive.clone();
-                                    let unarchive_handler = on_unarchive.clone();
-                                    let training_toggle_handler = toggle_training_session.clone();
+                                    let delete_handler = request_delete;
+                                    let archive_handler = on_archive;
+                                    let unarchive_handler = on_unarchive;
+                                    let training_toggle_handler = toggle_training_session;
                                     let archive_id = id.clone();
                                     let unarchive_id = id.clone();
                                     let delete_id = id.clone();
@@ -1440,8 +1440,8 @@ fn SessionListItem(
     let session_title = session.title.clone();
     let session_preview = session.preview.clone();
     let training_aria_label = format!("Select '{}' for adapter learning", session_title.clone());
-    let archive_action = on_archive.clone();
-    let unarchive_action = on_unarchive.clone();
+    let archive_action = on_archive;
+    let unarchive_action = on_unarchive;
 
     // Overflow menu state
     let show_overflow = RwSignal::new(false);
@@ -1734,7 +1734,7 @@ fn SessionListItem(
                             confirm_text="Permanently Delete"
                             on_confirm=Callback::new(move |_| {
                                 let id = delete_id.clone();
-                                let on_delete = on_delete.clone();
+                                let on_delete = on_delete;
                                 show_permanent_delete_confirm.set(false);
                                 wasm_bindgen_futures::spawn_local(async move {
                                     let client = ApiClient::with_base_url(api_base_url());
@@ -3707,9 +3707,9 @@ fn ChatConversationPanel(
                                     (start..total).collect();
                                 selected_msg_indices_for_quick_select.set(indices);
                             });
-                            let select_last_5 = select_last_n.clone();
-                            let select_last_10 = select_last_n.clone();
-                            let select_last_20 = select_last_n.clone();
+                            let select_last_5 = select_last_n;
+                            let select_last_10 = select_last_n;
+                            let select_last_20 = select_last_n;
 
                             // Toggle all
                             let toggle_all = move |_| {
@@ -4003,7 +4003,7 @@ fn ShareSessionDialog(session_id: String, #[prop(into)] on_close: Callback<()>) 
     };
 
     let open = RwSignal::new(true);
-    let close_cb = on_close.clone();
+    let close_cb = on_close;
     Effect::new(move |_| {
         if !open.try_get().unwrap_or(true) {
             close_cb.run(());
@@ -4080,7 +4080,7 @@ fn ShareSessionDialog(session_id: String, #[prop(into)] on_close: Callback<()>) 
                             <div class="border-t border-border pt-3 space-y-2">
                                 <h4 class="text-xs font-medium">"Current Shares"</h4>
                                 {shares.into_iter().map(|share| {
-                                    let revoke = do_revoke.clone();
+                                    let revoke = do_revoke;
                                     let sid = share.share_id.clone();
                                     view! {
                                         <div class="flex items-center justify-between text-xs">
@@ -4223,7 +4223,7 @@ fn TagsDialog(session_id: String, #[prop(into)] on_close: Callback<()>) -> impl 
     });
 
     let open = RwSignal::new(true);
-    let close_cb = on_close.clone();
+    let close_cb = on_close;
     Effect::new(move |_| {
         if !open.try_get().unwrap_or(true) {
             close_cb.run(());
@@ -4253,7 +4253,7 @@ fn TagsDialog(session_id: String, #[prop(into)] on_close: Callback<()>) -> impl 
                                     view! {
                                         <div class="flex flex-wrap gap-1">
                                             {current.into_iter().map(|tag| {
-                                                let remove = remove_tag.clone();
+                                                let remove = remove_tag;
                                                 let tid = tag.id.clone();
                                                 let style = tag.color.as_deref()
                                                     .map(|c| format!("border-color: {}; color: {}", c, c))
@@ -4292,7 +4292,7 @@ fn TagsDialog(session_id: String, #[prop(into)] on_close: Callback<()>) -> impl 
                                         view! {
                                             <div class="flex flex-wrap gap-1">
                                                 {unassigned.into_iter().map(|tag| {
-                                                    let assign = assign_tag.clone();
+                                                    let assign = assign_tag;
                                                     let tid = tag.id.clone();
                                                     let style = tag.color.as_deref()
                                                         .map(|c| format!("border-color: {}; color: {}", c, c))
@@ -4363,7 +4363,6 @@ fn ForkSessionDialog(
 
     let do_fork = {
         let sid = session_id.clone();
-        let on_forked = on_forked.clone();
         Callback::new(move |_: ()| {
             forking.set(true);
             fork_error.set(None);
@@ -4375,7 +4374,7 @@ fn ForkSessionDialog(
             };
             let msgs = include_messages.try_get().unwrap_or(true);
             let sid = sid.clone();
-            let on_forked = on_forked.clone();
+            let on_forked = on_forked;
             wasm_bindgen_futures::spawn_local(async move {
                 let client = ApiClient::with_base_url(api_base_url());
                 let req = ForkSessionRequest {
@@ -4397,7 +4396,7 @@ fn ForkSessionDialog(
     };
 
     let open = RwSignal::new(true);
-    let close_cb = on_close.clone();
+    let close_cb = on_close;
     Effect::new(move |_| {
         if !open.try_get().unwrap_or(true) {
             close_cb.run(());
@@ -4466,7 +4465,7 @@ fn ProvenancePanel(session_id: String, #[prop(into)] on_close: Callback<()>) -> 
     }
 
     let open = RwSignal::new(true);
-    let close_cb = on_close.clone();
+    let close_cb = on_close;
     Effect::new(move |_| {
         if !open.try_get().unwrap_or(true) {
             close_cb.run(());

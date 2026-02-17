@@ -1572,10 +1572,11 @@ impl UdsClient {
 
                 if line_trimmed.is_empty() {
                     // Event boundary - process accumulated event
-                    if !event_type.is_empty() && !event_data.is_empty() {
-                        if process_event(&event_type, &event_data)? {
-                            break;
-                        }
+                    if !event_type.is_empty()
+                        && !event_data.is_empty()
+                        && process_event(&event_type, &event_data)?
+                    {
+                        break;
                     }
 
                     // Reset for next event

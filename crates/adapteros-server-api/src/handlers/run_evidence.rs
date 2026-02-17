@@ -553,18 +553,19 @@ pub async fn download_run_evidence(
                 DateTime::default()
             }),
         );
-    let mut files: Vec<(String, Vec<u8>)> = Vec::new();
-    files.push(("replay_metadata.json".to_string(), replay_metadata_json));
-    files.push(("manifest_ref.json".to_string(), manifest_ref_json));
-    files.push(("policy_digest.json".to_string(), policy_digest_json));
-    files.push(("model_status.json".to_string(), model_status_json));
-    files.push((
-        "pinned_degradation_evidence.json".to_string(),
-        pinned_degradation_evidence_json,
-    ));
-    files.push(("boot_state.json".to_string(), boot_state_json));
     let has_envelope = true;
-    files.push(("run_envelope.json".to_string(), run_envelope_bytes));
+    let mut files: Vec<(String, Vec<u8>)> = vec![
+        ("replay_metadata.json".to_string(), replay_metadata_json),
+        ("manifest_ref.json".to_string(), manifest_ref_json),
+        ("policy_digest.json".to_string(), policy_digest_json),
+        ("model_status.json".to_string(), model_status_json),
+        (
+            "pinned_degradation_evidence.json".to_string(),
+            pinned_degradation_evidence_json,
+        ),
+        ("boot_state.json".to_string(), boot_state_json),
+        ("run_envelope.json".to_string(), run_envelope_bytes),
+    ];
     files.push(("README.txt".to_string(), readme_bytes));
     files.sort_by(|a, b| a.0.cmp(&b.0));
 

@@ -54,13 +54,13 @@ fn SessionsCard() -> impl IntoView {
                         }.into_any()
                     }
                     LoadingState::Loaded(data) => {
-                        let refetch = refetch.clone();
+                        let refetch = refetch;
                         view! {
                             <SessionsTable sessions=data revoking=revoking refetch=refetch/>
                         }.into_any()
                     }
                     LoadingState::Error(e) => {
-                        let refetch = refetch.clone();
+                        let refetch = refetch;
                         view! {
                             <ErrorDisplay error=e on_retry=Callback::new(move |_| refetch.run(()))/>
                         }.into_any()
@@ -88,7 +88,6 @@ fn SessionsTable(
                     {format!("{} active session{}", count, if count == 1 { "" } else { "s" })}
                 </span>
                 {(count > 1).then(|| {
-                    let refetch = refetch.clone();
                     view! {
                         <RevokeAllButton refetch=refetch/>
                     }
@@ -100,7 +99,6 @@ fn SessionsTable(
                     <p class="text-sm text-muted-foreground">"No active sessions found."</p>
                 }.into_any()
             } else {
-                let refetch = refetch.clone();
                 view! {
                     <Table>
                         <TableHeader>
@@ -115,8 +113,7 @@ fn SessionsTable(
                         </TableHeader>
                         <TableBody>
                             {items.into_iter().map(|session| {
-                                let refetch = refetch.clone();
-                                view! {
+                                    view! {
                                     <SessionRow session=session revoking=revoking refetch=refetch/>
                                 }
                             }).collect_view()}
@@ -160,7 +157,6 @@ fn SessionRow(
         let jti = jti.clone();
         Callback::new(move |_| {
             let jti = jti.clone();
-            let refetch = refetch.clone();
             revoking.set(Some(jti.clone()));
             wasm_bindgen_futures::spawn_local(async move {
                 let client = ApiClient::new();
@@ -221,10 +217,8 @@ fn RevokeAllButton(refetch: Refetch) -> impl IntoView {
     let loading = RwSignal::new(false);
 
     let handle_revoke_all = {
-        let refetch = refetch.clone();
         Callback::new(move |_| {
             loading.set(true);
-            let refetch = refetch.clone();
             wasm_bindgen_futures::spawn_local(async move {
                 let client = ApiClient::new();
                 // Fetch current sessions, then revoke all except the first (current)
@@ -311,7 +305,7 @@ fn MfaCard() -> impl IntoView {
                         }.into_any()
                     }
                     LoadingState::Loaded(status) => {
-                        let refetch = refetch.clone();
+                        let refetch = refetch;
                         view! {
                             <MfaManager status=status refetch=refetch/>
                         }.into_any()
@@ -328,7 +322,7 @@ fn MfaCard() -> impl IntoView {
                                 </div>
                             }.into_any()
                         } else {
-                            let refetch = refetch.clone();
+                            let refetch = refetch;
                             view! {
                                 <ErrorDisplay error=e on_retry=Callback::new(move |_| refetch.run(()))/>
                             }.into_any()
@@ -388,7 +382,7 @@ fn MfaManager(status: MfaStatusResponse, refetch: Refetch) -> impl IntoView {
                     </Button>
                     <MfaDisableFlow
                         open=show_disable
-                        refetch=refetch.clone()
+                        refetch=refetch
                     />
                 }.into_any()
             } else {
@@ -615,7 +609,7 @@ fn MfaDisableFlow(open: RwSignal<bool>, refetch: Refetch) -> impl IntoView {
         disabling.set(true);
         error_msg.set(None);
 
-        let refetch = refetch.clone();
+        let refetch = refetch;
         let code = code.clone();
         wasm_bindgen_futures::spawn_local(async move {
             let client = ApiClient::new();

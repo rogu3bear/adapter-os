@@ -273,7 +273,7 @@ fn TraceDetailView(
             // Header
             <div class="flex items-center justify-between">
                 <div class=left_header_class>
-                    {on_back.clone().map(|back| {
+                    {on_back.map(|back| {
                         view! {
                             <button
                                 class="p-1 rounded hover:bg-accent transition-colors"

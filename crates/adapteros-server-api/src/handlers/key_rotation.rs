@@ -120,7 +120,7 @@ pub async fn list_key_rotations(
 ) -> ApiResult<KeyRotationListResponse> {
     require_permission(&claims, Permission::TenantManage)?;
 
-    let limit = query.limit.min(100).max(1);
+    let limit = query.limit.clamp(1, 100);
     let offset = query.offset.max(0);
 
     let rows = state

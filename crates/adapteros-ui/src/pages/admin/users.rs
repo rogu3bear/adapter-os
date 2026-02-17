@@ -251,7 +251,7 @@ fn UserDetailPanel(user: UserResponse, on_close: impl Fn() + Copy + 'static) -> 
     let last_login = user
         .last_login_at
         .as_deref()
-        .map(|ts| format_datetime(ts))
+        .map(format_datetime)
         .unwrap_or_else(|| "Never".to_string());
 
     let created = format_datetime(&user.created_at);

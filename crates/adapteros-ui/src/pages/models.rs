@@ -874,7 +874,7 @@ fn ModelDetailContent(
                                         <Button
                                             variant=ButtonVariant::Outline
                                             disabled=action_disabled
-                                            on_click=Callback::new(on_unload.clone())
+                                            on_click=Callback::new(on_unload)
                                         >
                                             "Unload"
                                         </Button>

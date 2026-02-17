@@ -33,7 +33,6 @@ pub fn RoutingRules() -> impl IntoView {
         }
     });
     let select_first_identity_set = {
-        let selected_dataset_id = selected_dataset_id;
         Callback::new(move |_| {
             if let LoadingState::Loaded(data) = identity_datasets.get_untracked() {
                 if let Some(first) = data.datasets.first() {
@@ -107,7 +106,7 @@ pub fn RoutingRules() -> impl IntoView {
                                     title="No identity set selected"
                                     description="Select an identity set from the left to manage its routing rules."
                                     action_label="Select first identity set"
-                                    on_action=select_first_identity_set.clone()
+                                    on_action=select_first_identity_set
                                     secondary_label="Manage identity sets"
                                     secondary_href="/datasets".to_string()
                                 />

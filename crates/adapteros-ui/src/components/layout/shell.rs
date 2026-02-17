@@ -97,13 +97,12 @@ pub fn Shell() -> impl IntoView {
         route_context.clear_selected();
 
         // Auto-narrow dock on dashboard to give sparklines/charts room
-        if matches!(pathname.as_str(), "/" | "/dashboard") {
-            if chat_state
+        if matches!(pathname.as_str(), "/" | "/dashboard")
+            && chat_state
                 .try_get()
                 .is_some_and(|s| s.dock_state == DockState::Docked)
-            {
-                dock_action.set_dock_state(DockState::Narrow);
-            }
+        {
+            dock_action.set_dock_state(DockState::Narrow);
         }
 
         // Update document title based on current route

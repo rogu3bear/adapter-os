@@ -540,7 +540,7 @@ pub fn build_rag_enriched_prompt(
 
 /// Rough token estimate: ~4 chars per token for code.
 fn estimate_tokens(text: &str) -> usize {
-    (text.len() + 3) / 4
+    text.len().div_ceil(4)
 }
 
 /// Extract Rust type names from a type string.
@@ -558,7 +558,7 @@ fn extract_rust_type_names(type_str: &str) -> Vec<String> {
         .replace("'static ", "");
 
     // Split on generic delimiters and commas
-    for part in cleaned.split(|c: char| c == '<' || c == '>' || c == ',' || c == '(' || c == ')') {
+    for part in cleaned.split(['<', '>', ',', '(', ')']) {
         let trimmed = part.trim();
         if trimmed.is_empty() {
             continue;

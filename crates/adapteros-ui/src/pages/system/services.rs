@@ -195,27 +195,19 @@ pub fn ServiceControlPanel(services: Vec<ServiceState>) -> impl IntoView {
         >
             // Feedback messages
             {move || {
-                if let Some(msg) = action_error.get() {
-                    Some(view! {
+                action_error.get().map(|msg| view! {
                         <div class="rounded-md border border-destructive/40 bg-destructive/5 px-3 py-2 mb-4">
                             <p class="text-sm text-destructive">{msg}</p>
                         </div>
                     })
-                } else {
-                    None
-                }
             }}
 
             {move || {
-                if let Some(msg) = action_success.get() {
-                    Some(view! {
+                action_success.get().map(|msg| view! {
                         <div class="rounded-md border border-green-500/40 bg-green-500/5 px-3 py-2 mb-4">
                             <p class="text-sm text-green-600">{msg}</p>
                         </div>
                     })
-                } else {
-                    None
-                }
             }}
 
             // Service list

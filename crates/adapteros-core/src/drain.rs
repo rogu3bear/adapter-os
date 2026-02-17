@@ -97,7 +97,7 @@ pub fn phase_for_elapsed(
 
 /// Whether the current sample should emit warning logs (every ~20 samples).
 pub fn should_emit_warning_sample(sample_count: u64) -> bool {
-    sample_count > 0 && sample_count % 20 == 0
+    sample_count > 0 && sample_count.is_multiple_of(20)
 }
 
 #[cfg(test)]
