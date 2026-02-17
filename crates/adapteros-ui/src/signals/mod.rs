@@ -4,7 +4,6 @@
 
 pub mod auth;
 pub mod chat;
-pub mod modal;
 pub mod notifications;
 pub mod page_context;
 pub mod refetch;
@@ -18,10 +17,6 @@ pub use chat::{
     ChatSessionMeta, ChatSessionsManager, ChatState, ChatTarget, ContextToggle, ContextToggles,
     DockState, MessageStatus, PageContext, PendingPhase, StoredChatSession, StoredMessage,
     StreamNotice, StreamNoticeTone, SuggestedAdapter,
-};
-pub use modal::{
-    provide_modal_context, use_is_modal_open, use_modal, use_modal_context, use_modal_state,
-    ConfirmConfig, ModalAction, ModalContext, ModalId, ModalState,
 };
 pub use notifications::{
     provide_notifications_context, try_use_notifications, use_notification_context,
