@@ -143,7 +143,6 @@ tmp/
 temp/
 *.tmp
 *.tmp.*
-.codex/
 
 # Xcode / SwiftUI Installer
 installer/build/
@@ -334,9 +333,11 @@ libdeterminism_guardrail_suite.rlib
 libreplay_path_verification.rlib
 aosctl
 
-# Agent coordination (local development only)
-.agents/
+# Agent tool directories (allowed to exist; ignored so local state is not committed)
+.codex/
 .claude/
+.agent/
+.agents/
 
 # Alternate target directories (clippy, etc.)
 target-clippy/
@@ -355,7 +356,6 @@ rust_out
 
 # Temporary debug binaries
 src/bin/test_*.rs
-.codex/
 
 # Harmony restoration artifacts
 .harmony/

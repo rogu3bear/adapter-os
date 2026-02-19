@@ -1,9 +1,9 @@
 ---
-description: AdapterOS core invariants (defer to AGENTS.md)
+description: adapterOS core invariants
 alwaysApply: true
 ---
 
-Follow `AGENTS.md` for canonical repo invariants and workflows. If anything here conflicts, `AGENTS.md` wins.
+Follow `CONTRIBUTING.md` for guidelines. See `docs/` for full documentation.
 
 ## Git / Commits
 
