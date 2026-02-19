@@ -1,8 +1,8 @@
 # Determinism and Replay
 
-**Purpose:** Comprehensive documentation for deterministic execution, reproducibility, RAG determinism, and replay systems in adapterOS
-
-**Last Updated:** 2026-01-05
+**Purpose:** Comprehensive documentation for deterministic execution, reproducibility, RAG determinism, and replay systems in adapterOS  
+**Canonical source:** `crates/adapteros-core/src/seed.rs`, `crates/adapteros-lora-router/src/quantization.rs`, `crates/adapteros-deterministic-exec/`  
+**Last Updated:** 2026-02-18
 
 ---
 

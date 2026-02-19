@@ -1,8 +1,8 @@
 # adapterOS Architecture
 
-**Canonical reference for adapterOS system architecture, concepts, and workflows**
-
-**Last Updated:** 2026-01-13
+**Canonical reference for adapterOS system architecture, concepts, and workflows**  
+**Canonical source:** `crates/adapteros-server/`, `crates/adapteros-lora-worker/`, `crates/adapteros-lora-router/` — code is authoritative.  
+**Last Updated:** 2026-02-18
 
 ---
 
