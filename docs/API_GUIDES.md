@@ -1,7 +1,7 @@
 # adapterOS API Guides
 
-**Version:** 1.0.0
-**Last Updated:** 2025-12-11
+**Version:** 1.0.0  
+**Last Updated:** 2026-02-18  
 **Copyright:** 2025 MLNavigator Inc. All rights reserved.
 
 This document provides workflow guides, versioning information, and best practices for the adapterOS API.
@@ -1142,8 +1142,8 @@ The promotion workflow enforces the following policies:
 
 ---
 
-**Document Version:** 1.0.0
-**Last Updated:** 2025-12-11
+**Document Version:** 1.0.0  
+**Last Updated:** 2026-02-18  
 **Maintained By:** MLNavigator Inc
 
 For questions or support:

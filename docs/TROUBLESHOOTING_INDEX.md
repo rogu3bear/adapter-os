@@ -2,7 +2,7 @@
 
 **Complete guide to troubleshooting resources and tools**
 
-**Last Updated:** 2025-12-20
+**Last Updated:** 2026-02-18  
 **Version:** 1.0
 
 ---

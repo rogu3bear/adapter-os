@@ -1,5 +1,8 @@
 # adapterOS Boot Troubleshooting Guide
 
+**Canonical source:** `crates/adapteros-server/src/boot/`, `./start`  
+**Last Updated:** 2026-02-18
+
 This document provides a decision-tree approach to diagnosing and resolving common boot failures in adapterOS.
 
 ---

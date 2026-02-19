@@ -2,7 +2,7 @@
 
 **Comprehensive troubleshooting guide for common adapterOS deployment, configuration, and runtime issues.**
 
-**Last Updated:** 2025-12-11
+**Last Updated:** 2026-02-18  
 **Version:** 2.0
 **Maintained By:** adapterOS Support Team
 

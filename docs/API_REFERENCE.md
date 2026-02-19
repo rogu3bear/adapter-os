@@ -1,7 +1,8 @@
 # adapterOS API Reference
 
-**Version:** 1.3.0
-**Last Updated:** 2026-01-13
+**Version:** 1.3.0  
+**Last Updated:** 2026-02-18  
+**Canonical source:** `crates/adapteros-server-api/src/routes/mod.rs`, `docs/api/openapi.json`  
 **Copyright:** 2025 MLNavigator Inc. All rights reserved.
 
 This document provides the complete API reference for adapterOS, consolidating endpoint documentation, request/response formats, and integration examples.

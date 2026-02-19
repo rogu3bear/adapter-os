@@ -2,7 +2,9 @@
 
 > **Developer Reference:** Maps API routes to handler implementations.
 >
-> Last updated: January 2026
+> **Canonical route list:** [api/ROUTE_MAP.md](../api/ROUTE_MAP.md) (auto-generated from `crates/adapteros-server-api/src/routes/mod.rs`).
+>
+> Last updated: February 2026
 
 This document helps developers navigate the API codebase by mapping routes to their implementations.
 
