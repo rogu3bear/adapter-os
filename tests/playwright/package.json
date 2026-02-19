@@ -16,6 +16,7 @@
     "test:smoke": "node scripts/pw-run.mjs -c playwright.ui.config.ts -- --project=chromium --grep @smoke",
     "test:smoke:core": "node scripts/pw-run.mjs -c playwright.ui.config.ts -- --project=chromium routes.core.smoke",
     "test:smoke:data": "node scripts/pw-run.mjs -c playwright.ui.config.ts -- --project=chromium routes.data.smoke",
+    "test:smoke:guided": "node scripts/pw-run.mjs -c playwright.ui.config.ts -- --project=chromium guided.flow.smoke",
     "test:smoke:ops": "node scripts/pw-run.mjs -c playwright.ui.config.ts -- --project=chromium routes.ops.smoke",
     "test:detail": "node scripts/pw-run.mjs -c playwright.ui.config.ts -- --project=chromium --grep @detail",
     "test:flow": "node scripts/pw-run.mjs -c playwright.ui.config.ts -- --project=chromium --grep @flow",
