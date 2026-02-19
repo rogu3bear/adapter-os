@@ -50,14 +50,9 @@ Each gap includes: **What** (the practice), **Why** (impact), **Where** (file:li
 
 **Why:** In dashboards and tables, misaligned digits make scanning harder and look unprofessional.
 
-**AdapterOS:** Not set. Tables and metric displays use default proportional numerals.
+**AdapterOS:** `dist/components/core.css` — `.table-wrapper` has `font-variant-numeric: tabular-nums`. `.tabular-nums` utility in `utilities.css` for ad-hoc use.
 
-**Status:** ❌ **Gap** — Add to table containers and metric panels.
-
-**Fix:** In `base.css` or a `.table-container` / `.metric-panel` class:
-```css
-font-variant-numeric: tabular-nums;
-```
+**Status:** ✅ **Aligned** (rectified 2026-02-18)
 
 ---
 
@@ -105,24 +100,9 @@ font-variant-numeric: tabular-nums;
 
 **Why:** Long URLs in `<a>`, code in `<pre>`, and unbreakable strings in `<code>` can overflow if not styled.
 
-**AdapterOS:** `components/markdown.rs:21,38` — `<div class="markdown-content" inner_html=...>`. No `.markdown-content` rules exist in `dist/`.
+**AdapterOS:** `components/markdown.rs:21,38` — `<div class="markdown-content" inner_html=...>`. **Canonical:** `dist/components/pages.css` — `.markdown-content` rules for `overflow-wrap`, `word-break`, `pre-wrap` on children.
 
-**Status:** ❌ **Gap** — Markdown-rendered content (chat assistant messages) can overflow.
-
-**Fix:** Add to `dist/components/pages.css` or a dedicated markdown block:
-```css
-.markdown-content p,
-.markdown-content pre,
-.markdown-content code,
-.markdown-content a {
-  overflow-wrap: break-word;
-  word-break: break-word;
-}
-.markdown-content pre {
-  white-space: pre-wrap;
-  overflow-x: auto;
-}
-```
+**Status:** ✅ **Aligned** (rectified 2026-02-18)
 
 ---
 
@@ -132,9 +112,9 @@ font-variant-numeric: tabular-nums;
 
 **Why:** Without `min-w-0`, a flex child with long text expands and pushes layout instead of showing ellipsis.
 
-**AdapterOS:** `dist/components/utilities.css:629–634` defines `.truncate`. `min-w-0` exists (`utilities.css`). Used in `taskbar.rs:79`; not consistently applied everywhere truncation appears in flex rows.
+**AdapterOS:** `dist/components/utilities.css` defines `.truncate`. `min-w-0` applied to chat session rows (`chat.rs:1266–1267`), taskbar, command palette, split panel, etc. **Canonical:** `STYLE_ALLOWLIST.md` documents `.min-w-0` | Core | Allow shrink.
 
-**Status:** ⚠️ **Partial** — Apply `min-w-0` to flex children that contain truncatable text (e.g. chat session names, breadcrumbs).
+**Status:** ✅ **Aligned** (rectified 2026-02-18)
 
 ---
 
@@ -184,16 +164,9 @@ font-variant-numeric: tabular-nums;
 
 **Why:** Broken or inconsistent visuals; maintenance burden when adding ad-hoc classes.
 
-**AdapterOS:** These classes are used but not defined:
+**AdapterOS:** `border-destructive/40`, `bg-destructive/5`, `border-green-500/40`, `bg-green-500/5`, `text-green-600` exist in `utilities.css`. Success states migrated to semantic tokens: `text-status-success`, `border-status-success/40`, `bg-status-success/5` in `system/services.rs`, `system/lifecycle.rs`, `training/detail/mod.rs`.
 
-| Class | Used In |
-|-------|---------|
-| `border-destructive/40` | `workers/dialogs.rs:331`, `system/services.rs:199`, `system/lifecycle.rs:165` |
-| `border-green-500/40` | `system/services.rs:207`, `system/lifecycle.rs:173` |
-| `bg-green-500/5` | `system/services.rs:207`, `system/lifecycle.rs:173` |
-| `text-green-600` | `system/services.rs:208`, `system/lifecycle.rs:174`, `training/detail/mod.rs:267` |
-
-**Status:** ❌ **Gap** — Add utilities or replace with existing equivalents (`text-status-success`, `border-status-success/40`, `bg-status-success/5`).
+**Status:** ✅ **Aligned** (rectified 2026-02-18)
 
 ---
 
@@ -239,9 +212,9 @@ font-variant-numeric: tabular-nums;
 
 **Why:** Prevents hidden tabs and broken layout.
 
-**AdapterOS:** `TabNav` uses flex; no horizontal scroll. Material UI audit recommends `overflow-x-auto` on `.tab-nav`.
+**AdapterOS:** `dist/components/core.css` — `.tab-nav` has `overflow-x: auto`, `-webkit-overflow-scrolling: touch`, `scrollbar-width: none`. **Canonical:** `components/tabs.rs`.
 
-**Status:** ⚠️ **Partial** — Add `overflow-x-auto` to tab containers.
+**Status:** ✅ **Aligned**
 
 ---
 
@@ -317,9 +290,9 @@ font-variant-numeric: tabular-nums;
 
 **Why:** Balances density and readability; aligns numeric columns.
 
-**AdapterOS:** Mixed sizes (`text-xs`, `text-sm`, `text-[13px]`). No tabular numerals. Plus Jakarta Sans is fine but not optimized for 11–13px.
+**AdapterOS:** Mixed sizes (`text-xs`, `text-sm`, `text-[13px]`). `.table-wrapper` has `font-variant-numeric: tabular-nums`. Plus Jakarta Sans is fine but not optimized for 11–13px.
 
-**Status:** ⚠️ **Partial** — Standardize table cell size; add tabular numerals.
+**Status:** ⚠️ **Partial** — Tabular numerals in place; table cell size could be standardized.
 
 ---
 
@@ -452,9 +425,9 @@ font-variant-numeric: tabular-nums;
 
 **What:** Content injected via `inner_html` is plain DOM. Styling must target the container and its descendants (e.g. `.markdown-content p`).
 
-**AdapterOS:** `.markdown-content` has no CSS rules. Children inherit base styles but lack overflow/wrapping rules.
+**AdapterOS:** `dist/components/pages.css` — `.markdown-content p, pre, code, a` have `overflow-wrap: break-word`, `word-break: break-word`; `pre` has `white-space: pre-wrap`, `overflow-x: auto`.
 
-**Status:** ❌ **Gap** — Same as §2.2; add `.markdown-content` rules.
+**Status:** ✅ **Aligned** (rectified 2026-02-18)
 
 ---
 
