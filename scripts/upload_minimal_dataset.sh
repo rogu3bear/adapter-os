@@ -59,6 +59,6 @@ if not dataset_id or not version_id:
 print(f"dataset_id={dataset_id}")
 print(f"dataset_version_id={version_id}")
 PY
-)" || die "Failed to parse dataset upload response" "Check server logs in var/logs/server.log."
+)" || die "Failed to parse dataset upload response" "Check server logs in var/logs/backend.log."
 
 echo "$parsed"

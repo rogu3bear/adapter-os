@@ -189,6 +189,30 @@ ensure_dirs() {
     mkdir -p "$LOG_DIR"
     mkdir -p "$QUARANTINE_DIR"
     mkdir -p "$PROJECT_ROOT/var/tmp"
+    ensure_backend_log_alias
+}
+
+ensure_backend_log_alias() {
+    local alias="$LOG_DIR/server.log"
+
+    if [ -L "$alias" ]; then
+        ln -sfn "backend.log" "$alias"
+        return
+    fi
+
+    if [ -e "$alias" ]; then
+        if [ ! -e "$BACKEND_LOG" ]; then
+            mv "$alias" "$BACKEND_LOG"
+        else
+            local ts
+            ts=$(date +%s)
+            mv "$alias" "${alias}.legacy.${ts}"
+        fi
+    fi
+
+    if [ ! -e "$alias" ]; then
+        ln -s "backend.log" "$alias"
+    fi
 }
 
 quarantine_artifact() {
@@ -1990,6 +2014,7 @@ usage() {
 
 # Rotate service-manager.log at script start if it exceeds ~5MB
 mkdir -p "$LOG_DIR"
+ensure_backend_log_alias
 rotate_log_if_large "$SCRIPT_LOG" 5242880
 
 if [ $# -lt 1 ]; then

@@ -521,6 +521,31 @@ check_aosctl_installation() {
 ensure_var_dirs() {
     mkdir -p "$AOS_VAR_DIR/run"
     mkdir -p "$AOS_LOG_DIR"
+    ensure_backend_log_alias
+}
+
+ensure_backend_log_alias() {
+    local alias="$AOS_LOG_DIR/server.log"
+    local backend="$AOS_LOG_DIR/backend.log"
+
+    if [ -L "$alias" ]; then
+        ln -sfn "backend.log" "$alias"
+        return
+    fi
+
+    if [ -e "$alias" ]; then
+        if [ ! -e "$backend" ]; then
+            mv "$alias" "$backend"
+        else
+            local ts
+            ts=$(date +%s)
+            mv "$alias" "${alias}.legacy.${ts}"
+        fi
+    fi
+
+    if [ ! -e "$alias" ]; then
+        ln -s "backend.log" "$alias"
+    fi
 }
 
 rotate_boot_logs() {
@@ -1644,6 +1669,8 @@ trap cleanup SIGINT SIGTERM
 # =============================================================================
 
 main() {
+    ensure_var_dirs
+
     # Parse worker-related flags and strip them from positional args
     local parsed_args=()
     while [ $# -gt 0 ]; do

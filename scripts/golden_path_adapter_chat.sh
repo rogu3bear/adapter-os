@@ -71,7 +71,7 @@ export AOSCTL_AUTH_PATH="$AUTH_PATH"
 
 echo "==> Starting control plane + worker"
 if ! "${ROOT_DIR}/start" up --quick; then
-  die "Failed to start services" "Check var/logs/start.log and var/logs/server.log."
+  die "Failed to start services" "Check var/logs/start.log and var/logs/backend.log."
 fi
 
 echo "==> Waiting for /readyz"
@@ -84,7 +84,7 @@ for _ in $(seq 1 60); do
   sleep 2
 done
 if [ "$ready_ok" -ne 1 ]; then
-  die "Control plane not ready" "Check var/logs/server.log for readiness errors."
+  die "Control plane not ready" "Check var/logs/backend.log for readiness errors."
 fi
 
 echo "==> Seeding model in DB: ${MODEL_ID}"
@@ -99,7 +99,7 @@ upload_out="$("${ROOT_DIR}/scripts/upload_minimal_dataset.sh" "$DATASET_PATH")"
 dataset_id="$(printf '%s\n' "$upload_out" | awk -F= '/^dataset_id=/{print $2}')"
 dataset_version_id="$(printf '%s\n' "$upload_out" | awk -F= '/^dataset_version_id=/{print $2}')"
 if [ -z "$dataset_id" ] || [ -z "$dataset_version_id" ]; then
-  die "Dataset upload did not return ids" "Check var/logs/server.log for dataset upload errors."
+  die "Dataset upload did not return ids" "Check var/logs/backend.log for dataset upload errors."
 fi
 echo "dataset_id=${dataset_id}"
 echo "dataset_version_id=${dataset_version_id}"
@@ -109,7 +109,7 @@ train_out="$("${ROOT_DIR}/scripts/start_minimal_training.sh" "$dataset_version_i
 repo_id="$(printf '%s\n' "$train_out" | awk -F= '/^repo_id=/{print $2}')"
 job_id="$(printf '%s\n' "$train_out" | awk -F= '/^job_id=/{print $2}')"
 if [ -z "$job_id" ]; then
-  die "Training start did not return job_id" "Check var/logs/server.log for training start errors."
+  die "Training start did not return job_id" "Check var/logs/backend.log for training start errors."
 fi
 echo "repo_id=${repo_id}"
 echo "job_id=${job_id}"
@@ -162,19 +162,19 @@ data = json.load(sys.stdin)
 print(data.get("error_message") or data.get("error_code") or "training failed")
 PY
 )"
-    die "Training failed: ${err_msg}" "Check var/logs/server.log for job_id=${job_id}."
+    die "Training failed: ${err_msg}" "Check var/logs/backend.log for job_id=${job_id}."
   fi
 
   now_ts=$(date +%s)
   elapsed=$((now_ts - start_ts))
   if [ "$elapsed" -gt "$training_timeout" ]; then
-    die "Training timed out after ${training_timeout}s" "Check var/logs/server.log for job_id=${job_id}."
+    die "Training timed out after ${training_timeout}s" "Check var/logs/backend.log for job_id=${job_id}."
   fi
   sleep 5
 done
 
 if [ -z "$adapter_id" ]; then
-  die "Training completed but adapter_id missing" "Check var/logs/server.log for packaging errors."
+  die "Training completed but adapter_id missing" "Check var/logs/backend.log for packaging errors."
 fi
 
 echo "adapter_id=${adapter_id}"
@@ -254,20 +254,20 @@ for key, value in summary.items():
     print(f"{key}={value}")
 PY
 "$infer_resp_path"
-)" || die "Inference response missing receipts" "Check var/logs/worker.log and var/logs/server.log."
+)" || die "Inference response missing receipts" "Check var/logs/worker.log and var/logs/backend.log."
 
 echo "$infer_summary"
 
 echo "==> Training log excerpt"
-server_log="${ROOT_DIR}/var/logs/server.log"
-if [ -f "$server_log" ]; then
+backend_log="${ROOT_DIR}/var/logs/backend.log"
+if [ -f "$backend_log" ]; then
   if command -v rg >/dev/null 2>&1; then
-    rg "$job_id" "$server_log" | tail -n 5 || true
+    rg "$job_id" "$backend_log" | tail -n 5 || true
   else
-    grep -n "$job_id" "$server_log" | tail -n 5 || true
+    grep -n "$job_id" "$backend_log" | tail -n 5 || true
   fi
 else
-  echo "No server log found at ${server_log}"
+  echo "No backend log found at ${backend_log}"
 fi
 
 echo "==> Golden path complete"

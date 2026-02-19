@@ -113,7 +113,7 @@ PY
   create_body_resp="$(printf '%s' "$create_resp" | head -n 1)"
   create_code="$(printf '%s' "$create_resp" | tail -n 1)"
   if [ "$create_code" != "201" ]; then
-    die "Failed to create repository (HTTP ${create_code}): ${create_body_resp}" "Check server logs in var/logs/server.log."
+    die "Failed to create repository (HTTP ${create_code}): ${create_body_resp}" "Check server logs in var/logs/backend.log."
   fi
   repo_id="$(printf '%s' "$create_body_resp" | python3 - <<'PY'
 import json
@@ -150,6 +150,6 @@ if not job_id:
 print(f"repo_id={data.get('repo_id') or ''}")
 print(f"job_id={job_id}")
 PY
-)" || die "Failed to parse training start response" "Check server logs in var/logs/server.log."
+)" || die "Failed to parse training start response" "Check server logs in var/logs/backend.log."
 
 echo "$parsed"
