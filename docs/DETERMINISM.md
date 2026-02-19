@@ -1,1059 +1,121 @@
-# Determinism and Replay
+# DETERMINISM
 
-**Purpose:** Comprehensive documentation for deterministic execution, reproducibility, RAG determinism, and replay systems in adapterOS  
-**Canonical source:** `crates/adapteros-core/src/seed.rs`, `crates/adapteros-lora-router/src/quantization.rs`, `crates/adapteros-deterministic-exec/`  
-**Last Updated:** 2026-02-18
+Reproducible inference. Source: `adapteros-core/seed.rs`, `adapteros-lora-router/quantization.rs`.
 
 ---
 
-## Overview
+## Seed Derivation
 
-adapterOS guarantees reproducible execution through HKDF-seeded randomness, global tick ledger synchronization, deterministic RAG retrieval, and comprehensive replay capabilities. All inference operations are auditable and exactly reproducible given the same inputs and system state.
-
-### Key Guarantees
-
-- **Bit-exact reproducibility**: Same inputs + same state → same outputs (per-backend)
-- **Deterministic routing**: K-sparse adapter selection with fixed tie-breaking
-- **RAG ordering contract**: Score DESC, doc_id ASC for consistent retrieval
-- **Replay support**: Full reconstruction of past inferences with evidence tracking
-- **Seed isolation**: HKDF domain separation prevents RNG reuse
-- **Thread-local isolation**: Request boundaries reset TLS state (debug builds panic on leakage)
-- **Auditability**: Complete evidence chain for all decisions
-
----
-
-## System Architecture
+From `adapteros-core/src/seed.rs`:
 
 ```mermaid
-graph TB
-    subgraph "Determinism Foundation"
-        GlobalSeed[Global Seed<br/>BLAKE3 of manifest]
-        HKDF[HKDF-SHA256<br/>Domain Separation]
-        SeedRegistry[Seed Registry<br/>Reuse Guard]
-
-        GlobalSeed --> HKDF
-        HKDF --> SeedRegistry
+flowchart TB
+    subgraph Input["Inputs"]
+        MH["Manifest Hash (B3Hash)<br/>or fallback hash"]
     end
 
-    subgraph "Inference Pipeline"
-        Request[Inference Request] --> InferenceCore
-        InferenceCore --> RouterSeed[Router Seed<br/>derive_seed]
-        InferenceCore --> RAGRetrieval[RAG Retrieval<br/>Deterministic Order]
-
-        RouterSeed --> Router[K-Sparse Router<br/>Q15 Quantization]
-        RAGRetrieval --> ContextBuilder[Context Builder]
-        Router --> Worker[Worker Backend<br/>CoreML/Metal/MLX]
-        ContextBuilder --> Worker
-
-        Worker --> Response[Response + Evidence]
+    subgraph Derive["derive_seed()"]
+        HKDF["HKDF-SHA256<br/>label = domain"]
     end
 
-    subgraph "Replay System"
-        ReplayRequest[Replay Request] --> ReplayMetadata[Replay Metadata<br/>manifest_hash, router_seed, etc.]
-        ReplayMetadata --> InferenceCore
-        ReplayMetadata --> RAGSnapshot[RAG Snapshot<br/>Original doc_ids]
-        RAGSnapshot --> DegradedMode{Docs Available?}
-        DegradedMode -->|All Present| ExactReplay[Exact Replay]
-        DegradedMode -->|Some Missing| GracefulDegradation[Graceful Degradation<br/>degraded: true]
+    subgraph Output["Derived Seeds"]
+        R["router<br/>Tie-breaking in K-sparse"]
+        S["sampling<br/>Temperature, top-p"]
+        D["dropout<br/>Training mask"]
     end
 
-    subgraph "Evidence Chain"
-        Response --> InferenceEvidence[inference_evidence<br/>rag_doc_ids, scores, context_hash]
-        Response --> ReplayEvidence[replay_metadata<br/>manifest_hash, router_seed, params]
-        InferenceEvidence --> AuditTrail[BLAKE3 Audit Trail]
-        ReplayEvidence --> AuditTrail
-    end
-
-    HKDF -.->|Seeds| RouterSeed
-    HKDF -.->|Seeds| Worker
-
-    style GlobalSeed fill:#e1f5ff
-    style InferenceCore fill:#fff4e1
-    style Router fill:#f0e1ff
-    style Response fill:#e1ffe1
-    style AuditTrail fill:#ffe1e1
+    MH --> HKDF
+    HKDF --> R
+    HKDF --> S
+    HKDF --> D
 ```
 
----
+**Function:** `adapteros_core::seed::derive_seed(hash: &B3Hash, label: &str) -> [u8; 32]`
 
-## HKDF Seeding Hierarchy
-
-All randomness in adapterOS is derived from a global seed using HKDF (HMAC-based Key Derivation Function) with domain separation labels to ensure isolation and reproducibility.
-
-### Seed Derivation
-
-**Sources:** `crates/adapteros-core/src/seed.rs`, `crates/adapteros-server/src/main.rs`
-
-#### Global Seed Initialization
-
-The server derives the global executor seed from the manifest hash:
-
-```rust
-// Production: requires manifest, fails if missing
-let global_seed = derive_seed(&manifest_hash, "executor");
-
-// Development: uses fixed fallback hash
-let fallback_hash = BLAKE3::from_hex("deadbeef...");
-let global_seed = derive_seed(&fallback_hash, "executor");
-```
-
-#### Request Seed Derivation
-
-Per-request seeds incorporate:
-- Manifest hash (system state)
-- Tenant ID (isolation)
-- Request ID (uniqueness)
-- Worker ID (distribution)
-- Nonce (sequence)
-
-```rust
-let request_seed = derive_seed_typed(
-    &manifest_hash,
-    tenant_id,
-    request_id,
-    worker_id,
-    nonce
-);
-```
-
-#### Adapter Set Isolation
-
-For adapter-specific seeds:
-
-```rust
-let adapter_seed = derive_seed_full(
-    &manifest_hash,
-    &adapter_directory_hash,
-    "adapter_context"
-);
-```
-
-### Domain Labels
-
-HKDF domain separation ensures different subsystems use cryptographically isolated RNG streams:
-
-| Label | Purpose | Component | Notes |
-|-------|---------|-----------|-------|
-| `executor` | Global executor seed | `adapteros-deterministic-exec` | Root of derivation tree |
-| `router` | K-sparse tie-breaking | `adapteros-lora-router` | Router decisions |
-| `dropout` | LoRA dropout masks | `adapteros-lora-worker` | Training only |
-| `sampling` | Token sampling | `adapteros-lora-mlx-ffi` | MLX backend |
-| `lora_trainer` | Weight initialization | `adapteros-lora-worker/training` | Training only |
-| `gate_noise` | Gate perturbations | `adapteros-lora-router` | Testing/robustness |
-
-### Seed Registry (Reuse Guard)
-
-**Source:** `crates/adapteros-core/src/seed.rs`
-
-The seed registry prevents accidental seed reuse within a request:
-
-```rust
-// Registers (label, nonce) and fails fast on collision
-let seed = derive_adapter_seed(&manifest_hash, "router", nonce)?;
-
-// Clear at inference boundaries to prevent carryover
-clear_seed_registry();
-```
-
-**Best Practice:** Always clear the seed registry between requests to prevent false positives from intentional reuse across request boundaries.
-
-### Thread-Local Seed Isolation
-
-**Source:** `crates/adapteros-core/src/seed_override.rs`, `crates/adapteros-server-api/src/middleware/seed_isolation.rs`
-
-Thread-local seed state must be isolated at request boundaries to prevent cross-request contamination. The seed isolation middleware enforces this rule automatically.
-
-#### The Isolation Rule
-
-**Every request MUST start with clean thread-local seed state.** Residual state from a previous request can corrupt determinism by:
-
-- Carrying over nonce counters, causing different seed derivations
-- Leaking tenant context across request boundaries
-- Making replay non-deterministic if prior state affects seed derivation
-
-#### Middleware Enforcement
-
-The `seed_isolation_middleware` enforces isolation at the Axum layer:
-
-```rust
-pub async fn seed_isolation_middleware(req: Request, next: Next) -> Response {
-    // In debug builds: panics if state is dirty (catches bugs early)
-    assert_thread_local_clean();
-
-    // Reset all thread-local seed state
-    reset_thread_local_state();
-
-    let response = next.run(req).await;
-
-    // Clean up after request (belt and suspenders)
-    reset_thread_local_state();
-
-    response
-}
-```
-
-#### Debug Assertions
-
-In debug builds, `assert_thread_local_clean()` panics if thread-local state is not clean:
-
-```
-DETERMINISM BUG: Thread-local seed state leaked across request boundary.
-Leaked context: tenant=leaked-tenant, request_id=Some("req-123"), nonce=5
-```
-
-This fails fast to catch determinism bugs during development. In release builds, the assertion is a no-op for zero overhead.
-
-#### Functions
-
-| Function | Purpose |
-|----------|---------|
-| `reset_thread_local_state()` | Reset all TLS seed state (called at request entry) |
-| `is_thread_local_clean()` | Check if TLS state is clean (for diagnostics) |
-| `assert_thread_local_clean()` | Panic in debug if state is dirty |
-| `get_leaked_state_info()` | Get details about leaked state (for logging) |
+**Labels:** `SeedLabel::Router`, `SeedLabel::Sampling`, `SeedLabel::Dropout` (see `derive_seed_typed`).
 
 ---
 
 ## Router Determinism
 
-The K-sparse router makes deterministic adapter selection decisions using quantized gates and fixed tie-breaking rules.
-
-### Routing Algorithm
-
-**Source:** `crates/adapteros-lora-router/src/lib.rs`
-
-1. **Score Calculation**: Compute relevance scores for all adapters
-2. **Q15 Quantization**: Convert float32 gates to int16 fixed-point
-3. **Top-K Selection**: Select K adapters with highest scores
-4. **Deterministic Tie-Breaking**: Score DESC, then stable_id ASC
-
-```rust
-// Q15 quantization (CRITICAL: denominator is 32767.0, NOT 32768.0)
-let gate_q15 = (gate_f32 * 32767.0).round() as i16;
-let gate_restored = gate_q15 as f32 / 32767.0;
-
-// Deterministic sorting
-scored_adapters.sort_by(|(idx_a, score_a), (idx_b, score_b)| {
-    score_b
-        .total_cmp(score_a)
-        .then_with(|| adapter_info[*idx_a].stable_id.cmp(&adapter_info[*idx_b].stable_id))
-});
-```
-
-### Router Seed
-
-The router seed is derived per-request and stored in replay metadata:
-
-```rust
-let router_seed = derive_seed(&manifest_hash, "router");
-```
-
-**Important:** `router_seed` is stored for **audit purposes only**. The router algorithm is deterministic by design (score-based sorting), not by RNG. The seed enables verification that the same system state was used, not that random tie-breaking occurred.
-
-### Q15 Precision
-
-**Critical Invariant:** The Q15 denominator must be exactly `32767.0` (2^15 - 1), NOT `32768.0` (2^15).
-
-This ensures symmetric quantization around zero and matches fixed-point arithmetic conventions. Violating this breaks determinism across quantization boundaries.
-
-### Why Q15 Eliminates Float Drift
+K-sparse router tie-breaking. Source: `adapteros-lora-router`.
 
 ```mermaid
 flowchart LR
-    subgraph "The Problem"
-        P1["Machine A: 0.84729385"]
-        P2["Machine B: 0.84729381"]
-        P3["Hardware differences cause<br/>tiny float variations"]
+    subgraph Input["Adapter Scores"]
+        A["Adapter A: 0.85"]
+        B["Adapter B: 0.85"]
+        C["Adapter C: 0.80"]
     end
-    
-    subgraph "The Q15 Solution"
-        Q1["Multiply by 32,767"]
-        Q2["Round to integer"]
-        Q3["Both get: 27,751"]
-        Q4["Identical routing decision"]
+
+    subgraph Sort["sort_by"]
+        S1["score DESC"]
+        S2["stable_id ASC"]
     end
-    
-    P1 --> P3
-    P2 --> P3
-    P3 --> Q1 --> Q2 --> Q3 --> Q4
+
+    subgraph Output["Order"]
+        O["B before A (stable_id)<br/>then C"]
+    end
+
+    A --> S1
+    B --> S1
+    C --> S1
+    S1 --> S2 --> O
 ```
+
+**Invariant:** Tie-break must be `(score DESC, stable_id ASC)`. No `sort_unstable_by` without tie-breaker.
 
 ---
 
-## Hardware Determinism on Apple Silicon
+## Q15 Quantization
 
-adapterOS achieves determinism through a combination of hardware advantages and software controls.
+Gate values quantized for deterministic routing. Source: `adapteros-lora-router/src/quantization.rs`.
 
-### Unified Memory Architecture (UMA)
+| Rule | Value | Rationale |
+|------|-------|-----------|
+| Q15 denominator | **32767.0** | Must be 32767, NOT 32768 |
+| Quantization | `(gate * 32767.0).round() as i16` | Fixed-point representation |
 
-```mermaid
-flowchart TD
-    subgraph "Apple Silicon Advantage"
-        subgraph "Unified Memory Pool"
-            UMA["Single memory space<br/>shared by all processors"]
-        end
-        
-        subgraph "Processors"
-            CPU["CPU Cores"]
-            GPU["GPU Cores"]
-            ANE["Neural Engine"]
-        end
-        
-        subgraph "Benefits"
-            B1["No CPU↔GPU copying"]
-            B2["No transfer timing variance"]
-            B3["Consistent memory view"]
-            B4["Predictable access patterns"]
-        end
-    end
-    
-    CPU --> UMA
-    GPU --> UMA
-    ANE --> UMA
-    UMA --> B1 --> B2 --> B3 --> B4
-```
-
-### The Determinism Stack
-
-| Layer | Mechanism | Purpose |
-|-------|-----------|---------|
-| **Hardware** | UMA shared memory | No copy timing variance |
-| **Hardware** | ANE fixed datapath | Consistent tensor operations |
-| **Kernels** | Precompiled .metallib | No runtime compilation drift |
-| **Verification** | BLAKE3 hash check | Detect kernel tampering |
-| **Seeds** | HKDF from manifest | Controlled randomness |
-| **Quantization** | Q15 fixed-point | Eliminate float drift |
-| **Reduction** | Kahan summation | Consistent rounding |
-| **Tie-breaking** | Index ascending | No comparison ambiguity |
-| **Compiler** | No -ffast-math | IEEE 754 compliance |
-
-### Critical Compiler Constraints
-
-**No Fast-Math:** The `-ffast-math` flag is prohibited because it allows:
-- Operation reordering (breaks associativity)
-- Fused multiply-add substitution
-- Relaxed IEEE 754 compliance
-
-```toml
-# Cargo.toml - No fast-math flags allowed
-[profile.release]
-# Determinism requires strict IEEE floating-point
-```
+**Verification:** `grep -n "32767" crates/adapteros-lora-router/src/quantization.rs`
 
 ---
 
-## Compile-Time Enforcement
+## Modes
 
-### Q15 Constant Protection
+From `adapteros_core::SeedMode`:
 
-The Q15 denominator has a **compile-time assertion** preventing accidental changes:
+| Mode | Behavior | Use Case |
+|------|----------|----------|
+| Strict | Requires manifest hash; fails if missing | Production inference |
+| BestEffort | Uses manifest when present; fallback hash | Dev/testing |
+| NonDeterministic | Random seed (non-replayable) | Benchmarking only |
+
+**Config:** `[general] determinism_mode = "besteffort"` in cp.toml.
+
+---
+
+## DeterminismConfig
+
+For replay and testing. Source: `adapteros_core::seed::DeterminismConfig`.
 
 ```rust
-// crates/adapteros-lora-router/src/quantization.rs
-const _: () = assert!(
-    ROUTER_GATE_Q15_DENOM.to_bits() == 32767.0_f32.to_bits(),
-    "Q15 denominator must be 32767.0 for determinism"
-);
+// Fixed seed and timestamp for replay
+DeterminismConfig::builder()
+    .fixed_seed(12345)
+    .fixed_timestamp(...)
+    .stable_ordering(true)
+    .build();
 ```
-
-### CI Enforcement
-
-- GitHub Actions scans for `-ffast-math` flags and fails the build if detected
-- Script: `scripts/check_fast_math_flags.sh`
-- Metal kernels include explicit `#pragma` disabling fast-math
-
-### Known Limitation: ID Generation
-
-`crates/adapteros-core/src/ids.rs` uses `rand::thread_rng()` for ID suffix generation.
-If IDs are used in sorting or iteration order, this could theoretically introduce non-determinism.
-**Mitigation**: IDs should not be used for ordering in determinism-critical paths; the router uses `stable_id` fields instead.
 
 ---
 
-## Conversation Trace: Determinism in Action
-
-This trace shows how a single message becomes deterministically reproducible:
-
-```mermaid
-flowchart TD
-    subgraph "Step 1: System State Fingerprint"
-        S1["Model weights + Adapters + Config"]
-        S2["BLAKE3 hash → manifest_hash"]
-        S3["This identifies exact system state"]
-    end
-    
-    subgraph "Step 2: Request Processing"
-        R1["User: 'What is machine learning?'"]
-        R2["Tokenized: [1724, 374, 5765, 6975, 30]"]
-        R3["context_digest = BLAKE3(tenant + stack + tokens)"]
-    end
-    
-    subgraph "Step 3: Deterministic Routing"
-        A1["Adapter scores computed"]
-        A2["Quantized to Q15: ML[27751], Code[10223]"]
-        A3["Sorted: score DESC, stable_id ASC"]
-        A4["Top-K selected: [ML-Expert, Code-Expert]"]
-    end
-    
-    subgraph "Step 4: Token Generation"
-        T1["Each token: route → compute → sample"]
-        T2["Seed controls 'random' sampling"]
-        T3["Same seed = same token choice"]
-        T4["Decision hash computed per token"]
-    end
-    
-    subgraph "Step 5: Receipt Creation"
-        RC1["context_digest + decision_chain + output_digest"]
-        RC2["+ token_accounting + stop_reason"]
-        RC3["BLAKE3 → receipt_digest"]
-        RC4["Ed25519 signature"]
-    end
-    
-    S1 --> S2 --> S3 --> R1
-    R1 --> R2 --> R3 --> A1
-    A1 --> A2 --> A3 --> A4 --> T1
-    T1 --> T2 --> T3 --> T4 --> RC1
-    RC1 --> RC2 --> RC3 --> RC4
-```
-
-### Per-Token Decision Chain
-
-Every generated token creates a hash linking to the previous:
-
-```mermaid
-flowchart LR
-    subgraph "Hash Chain"
-        H0["context_digest"]
-        D1["Token 0<br/>decision_hash"]
-        D2["Token 1<br/>decision_hash"]
-        D3["Token 2<br/>decision_hash"]
-        DN["Token N<br/>decision_hash"]
-        RH["run_head_hash"]
-    end
-    
-    H0 --> D1 --> D2 --> D3 --> DN --> RH
-```
-
-Each `decision_hash` includes:
-- Token index
-- Selected adapter IDs
-- Gate values (Q15)
-- Policy mask digest
-- Backend ID
-
-**Tampering any token breaks the chain** → receipt verification fails.
-
----
-
-## RAG Determinism
-
-adapterOS guarantees deterministic RAG (Retrieval-Augmented Generation) results through strict ordering contracts and comprehensive evidence tracking.
-
-### Ordering Contract
-
-Documents retrieved from the RAG index are ordered by:
-
-1. **Score DESC** - Highest relevance score first (cosine similarity)
-2. **doc_id ASC** - Alphabetical document ID for tie-breaking
-
-This ensures identical queries against identical database state return documents in the same order every time.
-
-### NaN Handling Policy
-
-- Comparisons treat NaN scores as `Ordering::Equal` to avoid panics.
-- Stable tie-breakers (like `doc_id ASC`) define the final order.
-- Do not call `partial_cmp(...).unwrap()` in scoring paths.
-
-### Implementation
-
-**Source:** `crates/adapteros-lora-rag/src/pgvector.rs`
-
-```rust
-// Deterministic sorting: score DESC, doc_id ASC
-scored_docs.sort_by(|(row_a, score_a), (row_b, score_b)| {
-    score_b
-        .partial_cmp(score_a)
-        .unwrap_or(std::cmp::Ordering::Equal)
-        .then_with(|| row_a.doc_id.cmp(&row_b.doc_id))
-});
-```
-
-### KV Store vs SQL/pgvector
-
-adapterOS supports multiple RAG storage backends with strict consistency guarantees:
-
-#### Storage Modes
-
-- **`kv_primary`**: KV store is primary, SQL/pgvector secondary (dual-write, fallback on errors)
-- **`kv_only`**: KV store only (SQL/pgvector read-only, fail fast on KV errors)
-- **SQL/pgvector**: Traditional SQL-based retrieval (fallback/legacy)
-
-#### Consistency Guarantees
-
-- **Dual-write**: Both KV and SQL are updated atomically during document ingestion
-- **Drift detection**: KV results compared against SQL to detect split-brain
-- **Deterministic ordering**: Both implementations must produce identical `(score DESC, doc_id ASC)` ordering
-- **Tenant isolation**: All queries scoped by `tenant_id` + `model_hash`
-- **Backfill support**: Hydrate KV from existing `rag_documents` + `rag_document_embeddings` before enabling KV reads
-
-#### Failure Policies
-
-| Mode | KV Error Behavior | SQL Error Behavior |
-|------|-------------------|-------------------|
-| `kv_primary` | Fall back to SQL, log warning | Fail request |
-| `kv_only` | Fail fast (no silent divergence) | N/A (read-only) |
-
-**Best Practice:** Use `kv_primary` during migration, transition to `kv_only` once drift checks pass consistently.
-
-### Evidence Tracking
-
-Every RAG-enabled inference creates `inference_evidence` records:
-
-| Field | Description |
-|-------|-------------|
-| `rag_doc_ids` | JSON array of document IDs in retrieval order |
-| `rag_scores` | JSON array of relevance scores (parallel to doc_ids) |
-| `rag_collection_id` | Collection used for scoped retrieval |
-| `document_id` | Individual document contributing to context |
-| `chunk_id` | Specific chunk within the document |
-| `relevance_score` | Cosine similarity score for this chunk |
-| `rank` | Position in result set (0 = most relevant) |
-| `context_hash` | BLAKE3 hash of concatenated context |
-
----
-
-## Replay System
-
-The replay system enables exact reconstruction of past inferences with full auditability and graceful degradation when data is unavailable.
-
-### Replay Metadata
-
-**Source:** `crates/adapteros-db/src/replay_metadata.rs`
-
-Every inference stores replay metadata:
-
-```sql
-CREATE TABLE replay_metadata (
-    inference_id TEXT PRIMARY KEY,
-    manifest_hash TEXT NOT NULL,        -- System state snapshot
-    router_seed TEXT NOT NULL,          -- Router seed (audit only)
-    sampling_params_json TEXT NOT NULL, -- Temperature, top_p, etc.
-    rag_snapshot_hash TEXT,             -- BLAKE3 of RAG context
-    adapter_ids_json TEXT NOT NULL,     -- Adapter stack used
-    created_at INTEGER NOT NULL
-);
-```
-
-### Replay Request
-
-To replay an inference:
-
-```rust
-let replay_request = ReplayRequest {
-    original_inference_id: "inf-123".to_string(),
-    use_original_rag_docs: true,  // Use original RAG documents
-    validate_only: false,          // Actually execute, don't just validate
-};
-```
-
-### Exact Replay Flow
-
-1. **Fetch Metadata**: Retrieve `replay_metadata` for original inference
-2. **Verify Manifest**: Ensure current system state matches `manifest_hash`
-3. **Restore RAG Context**: Fetch original documents by `rag_doc_ids`
-4. **Restore Adapter Stack**: Load adapters by `adapter_ids_json`
-5. **Apply Sampling Params**: Use exact `sampling_params_json`
-6. **Execute**: Route through `InferenceCore` with restored state
-7. **Compare**: Verify output matches original (bit-exact for deterministic backends)
-
-### Graceful Degradation
-
-If original RAG documents have been deleted since the inference:
-
-```rust
-// Replay continues with available documents
-let replay_response = ReplayResponse {
-    inference_id: "replay-456".to_string(),
-    degraded: true,  // Indicates incomplete replay
-    missing_doc_ids: vec!["doc-001", "doc-003"],  // What's missing
-    output: "...",  // Best-effort output with available data
-};
-```
-
-**Degradation Policy:**
-- Continue with available documents (preserving order)
-- Set `degraded: true` flag
-- List `missing_doc_ids` for transparency
-- Log warning for audit trail
-
-This allows "best effort" replay while being transparent about data availability.
-
-### Verification Procedures
-
-#### Verify Determinism
-
-Run the same query twice against identical state:
+## Verification
 
 ```bash
-# Query 1
-curl -X POST http://localhost:8080/v1/infer/stream \
-  -H "Authorization: Bearer $TOKEN" \
-  -H "Content-Type: application/json" \
-  -d '{
-    "prompt": "test query",
-    "collection_id": "col-123",
-    "temperature": 0.0
-  }'
-
-# Query 2 (should return same output)
-curl -X POST http://localhost:8080/v1/infer/stream \
-  -H "Authorization: Bearer $TOKEN" \
-  -H "Content-Type: application/json" \
-  -d '{
-    "prompt": "test query",
-    "collection_id": "col-123",
-    "temperature": 0.0
-  }'
-```
-
-Compare outputs and evidence records - they should be identical.
-
-#### Query Inference Evidence
-
-```sql
-SELECT
-    inference_id,
-    rag_doc_ids,
-    rag_scores,
-    rag_collection_id,
-    context_hash
-FROM inference_evidence
-WHERE inference_id = 'your-inference-id'
-LIMIT 1;
-```
-
-#### Verify Replay Capability
-
-```bash
-# Replay an inference
-curl -X POST http://localhost:8080/v1/replay \
-  -H "Authorization: Bearer $TOKEN" \
-  -H "Content-Type: application/json" \
-  -d '{
-    "original_inference_id": "inf-123",
-    "use_original_rag_docs": true
-  }'
-```
-
----
-
-## Global Tick Ledger
-
-The deterministic executor maintains a global tick counter for serializable execution ordering.
-
-**Source:** `crates/adapteros-deterministic-exec/src/global_ledger.rs`
-
-### Initialization
-
-```rust
-use adapteros_deterministic_exec::{init_global_executor, ExecutorConfig};
-
-let config = ExecutorConfig {
-    global_seed,
-    enable_event_logging: true,
-    ..Default::default()
-};
-init_global_executor(config)?;
-```
-
-### Properties
-
-- **Serial FIFO execution**: Tasks execute in deterministic order
-- **No concurrent mutation**: Single-threaded task execution (per executor)
-- **Tick-based ordering**: Global tick counter provides total ordering
-- **Reproducible scheduling**: Same seeds → same task order
-
-**Use Case:** Multi-agent coordination, federation sync, distributed consensus
-
----
-
-## Multi-Agent Coordination
-
-`AgentBarrier` synchronizes multiple agents at tick boundaries for deterministic multi-agent systems.
-
-**Source:** `crates/adapteros-deterministic-exec/src/multi_agent.rs`
-
-### Usage
-
-```rust
-use adapteros_deterministic_exec::AgentBarrier;
-
-let barrier = Arc::new(AgentBarrier::new(vec![
-    "agent-a".into(),
-    "agent-b".into(),
-    "agent-c".into()
-]));
-
-// All agents wait at barrier
-barrier.wait("agent-a", tick).await?;
-
-// Dead agent handling
-barrier.mark_agent_dead("agent-c")?;
-```
-
-### Failure Handling
-
-| Scenario | Timeout | Behavior |
-|----------|---------|----------|
-| **Normal operation** | N/A | All agents proceed at same tick |
-| **Slow agent** | 30s default | Triggers graceful degradation |
-| **Dead agent** | Immediate | Explicit removal via `mark_agent_dead()` |
-| **CAS races** | N/A | Handled with Acquire ordering |
-
----
-
-## Policy Enforcement
-
-### Determinism Policy Pack
-
-**Source:** `crates/adapteros-policy/src/packs/determinism.rs`
-
-The Determinism policy pack validates:
-
-- **HKDF-seeded RNG usage**: Blocks non-deterministic RNG (e.g., `thread_rng()`)
-- **Precompiled metallib embeds**: No runtime kernel compilation (breaks reproducibility)
-- **Global seed format**: 32-byte hex string derived from manifest
-- **Q15 quantization**: Correct denominator (32767.0)
-- **Sorted operations**: Deterministic iteration order (e.g., BTreeMap vs HashMap)
-
-### Kernel Determinism
-
-Metal kernels are embedded as precompiled `.metallib` files with hash verification:
-
-**Build-Time:**
-- Kernel source compiled to `.metallib`
-- BLAKE3 hash recorded in `metallib_manifest.json`
-- Manifest signed with Ed25519 key
-
-**Runtime:**
-- Load `.metallib` from embedded bytes
-- Compute BLAKE3 hash of loaded binary
-- Compare against manifest hash
-- Trigger `AosError::Kernel` on mismatch
-
-This prevents runtime kernel compilation (non-deterministic) and detects kernel tampering.
-
----
-
-## KV Cache Coherence on Adapter Hot-Swap
-
-**Source:** `crates/adapteros-lora-worker/src/kvcache.rs`
-
-The KV cache must remain coherent across adapter hot-swaps to prevent stale data from leaking into new inference sessions.
-
-### Mechanism
-
-- **Stack Generation Tracking**: `KvCache` tracks `stack_generation` (incremented on adapter swap)
-- **Automatic Reset**: `ensure_cache_coherence()` compares cache generation to current stack generation
-- **Guard Allocation**: `allocate_with_guard()` captures generation at sequence allocation
-- **Pre-Inference Check**: Worker calls `ensure_cache_coherence()` before routing/dispatch
-
-### Example
-
-```rust
-// Hot-swap increments stack generation
-adapter_stack.increment_generation();
-
-// Next inference call detects mismatch
-kv_cache.ensure_cache_coherence(current_generation)?;
-// -> Cache reset, guards cleared, fresh KV state
-```
-
-This prevents cross-contamination between different adapter configurations.
-
----
-
-## Backend Determinism Coverage
-
-### Per-Backend Guarantees
-
-| Backend | Determinism Type | Test Coverage | Notes |
-|---------|-----------------|---------------|-------|
-| **CoreML** | Bit-exact | Repeat-run tests | Tensor ops are deterministic |
-| **Metal** | Bit-exact | Kernel hash verification | Production default |
-| **MLX** | HKDF-seeded | Repeat-run tests | RNG-seeded determinism |
-
-### Cross-Backend Parity
-
-**Status:** Not yet enforced
-
-- Run-by-run reproducibility is **per-backend** today
-- CoreML vs. MLX vs. Metal may produce different outputs for same inputs
-- Switching backends mid-session invalidates replay
-- Multi-backend builds should gate on attestation results
-
-**Recommendation:** Use single backend per deployment for strict determinism. Multi-backend is for development/testing only.
-
----
-
-## Codebase Adapter Determinism Requirements
-
-Deterministic replay with codebase adapters requires additional constraints beyond standard adapter determinism.
-
-### Single Codebase Adapter Per Stream
-
-For deterministic replay to work with codebase adapters:
-
-1. **One Adapter Per Stream**: Each inference stream must use exactly one codebase adapter. Mixing adapters within a stream breaks the determinism chain.
-
-2. **Pinned Throughout Request**: The codebase adapter is pinned at request start and cannot change until the request completes.
-
-3. **Recorded in Replay Metadata**: The codebase adapter ID and version are recorded in `replay_metadata` for exact reconstruction.
-
-```sql
--- Replay metadata includes codebase adapter binding
-SELECT
-    manifest_hash,
-    adapter_ids_json,    -- Includes codebase adapter ID
-    rag_snapshot_hash
-FROM replay_metadata
-WHERE inference_id = 'inf-123';
-```
-
-### Frozen CoreML Packages for Static Releases
-
-For production deployments requiring strict determinism:
-
-| Release Type | Adapter State | Backend | Determinism Level |
-|--------------|---------------|---------|-------------------|
-| **Development** | Live (MLX/Metal) | MLX | HKDF-seeded |
-| **Staging** | Frozen (MLX) | MLX | HKDF-seeded |
-| **Production** | Frozen (CoreML fused) | CoreML/ANE | Bit-exact (ANE) |
-
-**Production Workflow:**
-
-```bash
-# Option A (in-product): trigger CoreML export for a completed training job
-curl -X POST "$AOS_BASE_URL/v1/training/jobs/$JOB_ID/export/coreml" \
-  -H "Authorization: Bearer $AOS_TOKEN"
-
-# Option B (manual): export the adapter and convert offline
-curl -X GET "$AOS_BASE_URL/v1/adapters/$ADAPTER_ID/export" \
-  -H "Authorization: Bearer $AOS_TOKEN" \
-  -o ./frozen-codebase.aos
-
-# Pre-fuse into base model
-cargo run --bin aosctl -- coreml fuse \
-  --adapter ./frozen-codebase.aos \
-  --base ./base-model.safetensors \
-  --output ./fused.safetensors
-
-# Convert to CoreML package
-python scripts/convert_mlx_to_coreml.py \
-  --input ./fused.safetensors \
-  --output ./fused.mlpackage
-
-# Deploy with ANE for guaranteed determinism
-export AOS_MODEL_BACKEND=coreml
-export AOS_MODEL_PATH=./fused.mlpackage
-```
-
-### Replay Requirements
-
-To replay an inference that used a codebase adapter:
-
-1. **Same Codebase Adapter Version**: The exact version must be available
-2. **Same Base Adapter**: The base adapter referenced by the codebase adapter
-3. **Same Manifest Hash**: System state must match
-4. **Same Backend**: CoreML replay requires CoreML; MLX replay requires MLX
-
-```rust
-let replay_request = ReplayRequest {
-    original_inference_id: "inf-123",
-    // Must have access to original codebase adapter version
-    verify_codebase_adapter: true,
-};
-
-let result = replay(replay_request)?;
-if result.degraded {
-    // Codebase adapter version may be missing
-    warn!("Replay degraded: {:?}", result.missing_adapters);
-}
-```
-
-### Version Pinning for Determinism
-
-Codebase adapters auto-version when unbound from sessions. For deterministic builds:
-
-1. **Pin Specific Version**: Reference the exact version ID, not the latest
-2. **Include in Manifest**: Add codebase adapter version to manifest hash
-3. **Archive Versions**: Keep historical versions for replay capability
-
-```yaml
-# Example manifest with pinned codebase adapter version
-adapters:
-  - id: "code.myrepo.abc123.v1.2.0"
-    type: codebase
-    base_adapter_id: "core.adapteros"
-    frozen: true
-    coreml_package_hash: "blake3:..."
-```
-
----
-
-## Verification Procedures
-
-### 1. Determinism Self-Test
-
-```bash
-cargo test --test determinism_core_suite -- --test-threads=8
+cargo test --test determinism_core_suite
 cargo test -p adapteros-lora-router --test determinism
-bash scripts/check_fast_math_flags.sh
+cargo test -p adapteros-server-api --test replay_determinism_tests
+./scripts/check_fast_math_flags.sh
 ```
 
-Runs:
-- Router determinism tests (K-sparse tie-breaking)
-- Seed derivation tests (HKDF isolation)
-- Replay reconstruction tests
-- RAG ordering tests
-
-### 2. Manual Verification
-
-```bash
-# Run same inference twice
-./aosctl infer --prompt "test" --seed 42 > out1.json
-./aosctl infer --prompt "test" --seed 42 > out2.json
-
-# Compare outputs (should be identical)
-diff out1.json out2.json
-```
-
-### 3. Replay Verification
-
-```bash
-# Original inference
-INFERENCE_ID=$(./aosctl infer --prompt "test" | jq -r '.inference_id')
-
-# Replay
-./aosctl replay --inference-id $INFERENCE_ID > replay.json
-
-# Compare
-diff <(jq '.output' out1.json) <(jq '.output' replay.json)
-```
-
-### 4. RAG Determinism Test
-
-```sql
--- Run RAG query twice
-SELECT * FROM inference_evidence
-WHERE inference_id IN ('inf-001', 'inf-002')
-ORDER BY inference_id;
-
--- Compare rag_doc_ids (should be identical for same query/state)
-```
-
----
-
-## Troubleshooting
-
-### Issue: Non-Deterministic Outputs
-
-**Symptoms:** Same inputs produce different outputs
-
-**Checklist:**
-1. Verify seed derivation (same manifest hash?)
-2. Check router sorting (score DESC, stable_id ASC?)
-3. Confirm Q15 denominator = 32767.0
-4. Ensure no `thread_rng()` or `rand::random()` usage
-5. Verify backend consistency (same backend for both runs?)
-6. Run `cargo test --test determinism_core_suite -- --test-threads=8`, `cargo test -p adapteros-lora-router --test determinism`, and `bash scripts/check_fast_math_flags.sh`
-
-### Issue: Replay Fails
-
-**Symptoms:** Replay produces different output than original
-
-**Checklist:**
-1. Verify manifest hash matches (`replay_metadata.manifest_hash`)
-2. Check adapter availability (same adapters loaded?)
-3. Confirm RAG documents available (check `missing_doc_ids`)
-4. Verify sampling params match (`sampling_params_json`)
-5. Ensure same backend used (CoreML/Metal/MLX)
-
-### Issue: RAG Ordering Inconsistent
-
-**Symptoms:** Same query returns different document order
-
-**Checklist:**
-1. Check storage mode (`kv_primary` vs `kv_only` vs SQL)
-2. Run drift detection between KV and SQL
-3. Verify tenant isolation (correct `tenant_id` scoping?)
-4. Check for NaN scores (forces stable tie-breaking)
-5. Confirm `doc_id` sorting on ties
-
-### Issue: Seed Reuse Error
-
-**Symptoms:** `derive_adapter_seed` fails with "seed already used"
-
-**Solution:**
-```rust
-// Clear seed registry at inference boundaries
-clear_seed_registry();
-```
-
-**Cause:** Seed registry prevents accidental reuse within a request. Clear between requests to reset.
-
-### Issue: Thread-Local State Leakage (Debug Panic)
-
-**Symptoms:** Debug build panics with "DETERMINISM BUG: Thread-local seed state leaked"
-
-**Cause:** A previous request's seed context wasn't cleaned up, leaking state to the next request on the same thread.
-
-**Checklist:**
-1. Check that `seed_isolation_middleware` is in the middleware stack
-2. Ensure handlers use `SeedContextGuard` (RAII) instead of manual `set_thread_seed_context()`
-3. Look for early returns or panics that bypass cleanup
-4. Check for `tokio::spawn()` without proper context propagation
-
-**Solution:**
-```rust
-// Use RAII guard instead of manual set/clear
-let ctx = SeedContext::new(...);
-let _guard = SeedContextGuard::new(ctx); // Restored on drop
-
-// NOT this:
-set_thread_seed_context(ctx);
-// ... code that might return early ...
-clear_thread_seed_context(); // May never run!
-```
-
----
-
-## V7 Determinism Envelope (2026-02-04)
-
-Receipt schema V7 binds the determinism envelope explicitly:
-- Tokenizer identity: `tokenizer_hash_b3`, `tokenizer_version`, `tokenizer_normalization`
-- Decoder parameters: `decode_algo`, `temperature_q15`, `top_p_q15`, `top_k`, `seed_digest_b3`, `sampling_backend`
-- Concurrency determinism: `thread_count`, `reduction_strategy`
-- Stop controller inputs: `stop_eos_q15`, `stop_window_digest_b3`
-- Cache proof: `cache_scope`, `cached_prefix_digest_b3`, `cached_prefix_len`, `cache_key_b3`
-- Retrieval/tool binding: `retrieval_merkle_root_b3`, `retrieval_order_digest_b3`, `tool_call_inputs_digest_b3`, `tool_call_outputs_digest_b3`
-- Disclosure level: `disclosure_level="full"`
-
-Verification mode must pin backend and thread settings to reproduce V7 receipts byte-for-byte.
-
----
-
-## Related Documentation
-
-- **[AGENTS.md](../AGENTS.md)** - Developer quick reference, determinism invariants
-- **[VISUAL_GUIDES.md](VISUAL_GUIDES.md)** - Visual guides: comparisons, token flows, KV cache diagrams
-- **[replay_spec.md](replay_spec.md)** - Replay harness and verification
-- **[ARCHITECTURE.md](ARCHITECTURE.md)** - System architecture and token accounting
-- **[POLICIES.md](POLICIES.md)** - Policy system architecture
-- **[POLICIES.md](POLICIES.md)** - Policy enforcement system
-- See [SECURITY.md](SECURITY.md) for audit event logging details
-- **[DATABASE.md](DATABASE.md)** - Database schema (inference_evidence, replay_metadata)
-
----
-
-**MLNavigator Inc 2025-12-18**
+Set `AOS_DEBUG_DETERMINISM=1` for seed logging.

@@ -1,18 +1,18 @@
 # adapterOS API Route Map
 
-> **Auto-generated:** Do not edit manually. Run `./scripts/dev/generate_route_map.sh` to regenerate.  
-> **Canonical source:** `crates/adapteros-server-api/src/routes/mod.rs`
+> **Auto-generated:** Do not edit manually.
+> Run `./scripts/dev/generate_route_map.sh` to regenerate.
 
 ## Overview
 
 | Metric | Count |
 |--------|-------|
-| **Total Route Registrations (tiered)** | 371 |
+| **Total Route Registrations (tiered)** | 411 |
 | **Health routes** | 3 |
-| **Public routes** | 21 |
+| **Public routes** | 23 |
 | **Optional Auth routes** | 2 |
 | **Internal routes** | 5 |
-| **Protected routes** | 335 |
+| **Protected routes** | 373 |
 | **Spoke Audit routes** | 5 |
 
 ## Canonical Source
@@ -42,8 +42,10 @@
 | `public` | `/v1/invariants` |
 | `public` | `/v1/meta` |
 | `public` | `/v1/metrics` |
+| `public` | `/v1/provenance/{certificate_id}/verify` |
 | `public` | `/v1/search` |
 | `public` | `/v1/status` |
+| `public` | `/v1/system/probe-health` |
 | `public` | `/v1/telemetry/client-errors/anonymous` |
 | `public` | `/v1/ui/config` |
 | `public` | `/v1/version` |
@@ -63,8 +65,12 @@
 | `protected` | `/v1/adapteros/receipts/{digest}` |
 | `protected` | `/v1/adapteros/replay` |
 | `protected` | `/v1/adapteros/sessions/mint` |
+| `protected` | `/v1/adapters/from-dataset/{dataset_id}` |
 | `protected` | `/v1/adapters/{adapter_id}/evidence` |
+| `protected` | `/v1/admin/config` |
+| `protected` | `/v1/admin/status` |
 | `protected` | `/v1/admin/users` |
+| `protected` | `/v1/admin/users/{user_id}` |
 | `protected` | `/v1/audit/logs` |
 | `protected` | `/v1/audit/policy-decisions` |
 | `protected` | `/v1/audit/policy-decisions/verify-chain` |
@@ -110,6 +116,7 @@
 | `protected` | `/v1/datasets/from-chat` |
 | `protected` | `/v1/datasets/from-documents` |
 | `protected` | `/v1/datasets/from-text` |
+| `protected` | `/v1/datasets/synthesize` |
 | `protected` | `/v1/datasets/upload` |
 | `protected` | `/v1/datasets/upload/progress` |
 | `protected` | `/v1/datasets/{dataset_id}` |
@@ -163,6 +170,9 @@
 | `protected` | `/v1/error-alerts/rules/{id}` |
 | `protected` | `/v1/error-alerts/{id}/acknowledge` |
 | `protected` | `/v1/error-alerts/{id}/resolve` |
+| `protected` | `/v1/error-buckets` |
+| `protected` | `/v1/errors` |
+| `protected` | `/v1/errors/{error_id}` |
 | `protected` | `/v1/evidence` |
 | `protected` | `/v1/evidence/runs/{run_id}/export` |
 | `protected` | `/v1/evidence/{id}` |
@@ -170,13 +180,26 @@
 | `protected` | `/v1/federation/release-quarantine` |
 | `protected` | `/v1/federation/status` |
 | `protected` | `/v1/federation/sync-status` |
+| `protected` | `/v1/filesystem/browse` |
+| `protected` | `/v1/filesystem/content` |
+| `protected` | `/v1/fim/completions` |
 | `protected` | `/v1/git/branches` |
+| `protected` | `/v1/git/checkout` |
+| `protected` | `/v1/git/commit` |
+| `protected` | `/v1/git/log` |
 | `protected` | `/v1/git/repositories` |
 | `protected` | `/v1/git/repositories/{repo_id}/analysis` |
 | `protected` | `/v1/git/repositories/{repo_id}/train` |
 | `protected` | `/v1/git/sessions/start` |
 | `protected` | `/v1/git/sessions/{session_id}/end` |
+| `protected` | `/v1/git/stage` |
 | `protected` | `/v1/git/status` |
+| `protected` | `/v1/git/unstage` |
+| `protected` | `/v1/git/working-diff` |
+| `protected` | `/v1/git/working-status` |
+| `protected` | `/v1/git/working-tree/discard` |
+| `protected` | `/v1/git/working-tree/stage` |
+| `protected` | `/v1/git/working-tree/unstage` |
 | `protected` | `/v1/golden/compare` |
 | `protected` | `/v1/golden/runs` |
 | `protected` | `/v1/golden/runs/{name}` |
@@ -195,6 +218,7 @@
 | `protected` | `/v1/infer/{inference_id}/state` |
 | `protected` | `/v1/inference/{trace_id}/provenance` |
 | `protected` | `/v1/jobs` |
+| `protected` | `/v1/jobs/{job_id}` |
 | `protected` | `/v1/logs/query` |
 | `protected` | `/v1/logs/stream` |
 | `protected` | `/v1/memory/adapters` |
@@ -216,6 +240,7 @@
 | `protected` | `/v1/models/download-progress` |
 | `protected` | `/v1/models/import` |
 | `protected` | `/v1/models/status/all` |
+| `protected` | `/v1/models/{model_id}` |
 | `protected` | `/v1/models/{model_id}/load` |
 | `protected` | `/v1/models/{model_id}/status` |
 | `protected` | `/v1/models/{model_id}/unload` |
@@ -269,6 +294,8 @@
 | `protected` | `/v1/policy/quarantine/clear` |
 | `protected` | `/v1/policy/quarantine/rollback` |
 | `protected` | `/v1/policy/quarantine/status` |
+| `protected` | `/v1/prefix-templates` |
+| `protected` | `/v1/prefix-templates/{template_id}` |
 | `protected` | `/v1/promotions/{id}` |
 | `protected` | `/v1/registry/status` |
 | `protected` | `/v1/replay` |
@@ -278,6 +305,8 @@
 | `protected` | `/v1/replay/sessions/{id}` |
 | `protected` | `/v1/replay/sessions/{id}/execute` |
 | `protected` | `/v1/replay/sessions/{id}/verify` |
+| `protected` | `/v1/replay/verify/bundle` |
+| `protected` | `/v1/replay/verify/trace` |
 | `protected` | `/v1/repos` |
 | `protected` | `/v1/repos/{repo_id}` |
 | `protected` | `/v1/repos/{repo_id}/rollback/{branch}` |
@@ -312,6 +341,9 @@
 | `protected` | `/v1/services/{service_id}/start` |
 | `protected` | `/v1/services/{service_id}/stop` |
 | `protected` | `/v1/settings` |
+| `protected` | `/v1/setup/migrate` |
+| `protected` | `/v1/setup/models/discover` |
+| `protected` | `/v1/setup/models/seed` |
 | `protected` | `/v1/storage/kv-isolation/health` |
 | `protected` | `/v1/storage/kv-isolation/scan` |
 | `protected` | `/v1/storage/mode` |
@@ -321,17 +353,22 @@
 | `protected` | `/v1/stream/adapters` |
 | `protected` | `/v1/stream/boot-progress` |
 | `protected` | `/v1/stream/client-errors` |
-| `protected` | `/v1/stream/messages/{workspace_id}` |
-| `protected` | `/v1/stream/metrics` |
-| `protected` | `/v1/stream/notifications` |
-| `protected` | `/v1/stream/stack-policies/{id}` |
-| `protected` | `/v1/stream/telemetry` |
-| `protected` | `/v1/stream/trace-receipts` |
-| `protected` | `/v1/stream/workers` |
 | `protected` | `/v1/stream/contacts` |
 | `protected` | `/v1/stream/discovery` |
 | `protected` | `/v1/stream/file-changes` |
+| `protected` | `/v1/stream/messages/{workspace_id}` |
+| `protected` | `/v1/stream/metrics` |
+| `protected` | `/v1/stream/notifications` |
+| `protected` | `/v1/stream/reviews` |
+| `protected` | `/v1/stream/stack-policies/{id}` |
+| `protected` | `/v1/stream/telemetry` |
+| `protected` | `/v1/stream/trace-receipts` |
 | `protected` | `/v1/stream/training` |
+| `protected` | `/v1/stream/workers` |
+| `protected` | `/v1/streams/contacts` |
+| `protected` | `/v1/streams/discovery` |
+| `protected` | `/v1/streams/file-changes` |
+| `protected` | `/v1/streams/training` |
 | `protected` | `/v1/system/boot-attestation` |
 | `protected` | `/v1/system/integrity` |
 | `protected` | `/v1/system/memory` |
@@ -360,6 +397,7 @@
 | `protected` | `/v1/training/dataset_versions/{dataset_version_id}/manifest` |
 | `protected` | `/v1/training/dataset_versions/{dataset_version_id}/rows` |
 | `protected` | `/v1/training/datasets/from-upload` |
+| `protected` | `/v1/training/datasets/from-upload/async` |
 | `protected` | `/v1/training/datasets/generate` |
 | `protected` | `/v1/tutorials` |
 | `protected` | `/v1/tutorials/{tutorial_id}/complete` |
@@ -371,6 +409,7 @@
 | `protected` | `/v1/workers` |
 | `protected` | `/v1/workers/health/summary` |
 | `protected` | `/v1/workers/spawn` |
+| `protected` | `/v1/workers/{worker_id}` |
 | `protected` | `/v1/workers/{worker_id}/crashes` |
 | `protected` | `/v1/workers/{worker_id}/debug` |
 | `protected` | `/v1/workers/{worker_id}/detail` |
@@ -378,6 +417,7 @@
 | `protected` | `/v1/workers/{worker_id}/history` |
 | `protected` | `/v1/workers/{worker_id}/incidents` |
 | `protected` | `/v1/workers/{worker_id}/logs` |
+| `protected` | `/v1/workers/{worker_id}/restart` |
 | `protected` | `/v1/workers/{worker_id}/stop` |
 | `protected` | `/v1/workers/{worker_id}/troubleshoot` |
 | `protected` | `/v1/workspaces` |

@@ -40,14 +40,15 @@
     "/system",
     "/training",
     "/training/:id",
+    "/update-center",
     "/user",
     "/welcome",
     "/workers",
     "/workers/:id"
   ],
   "counts": {
-    "all": 44,
-    "protected": 41,
+    "all": 45,
+    "protected": 42,
     "public": 3
   },
   "parent_routes": [
@@ -91,6 +92,7 @@
     "/system",
     "/training",
     "/training/:id",
+    "/update-center",
     "/user",
     "/welcome",
     "/workers",
