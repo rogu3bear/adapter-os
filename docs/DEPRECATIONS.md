@@ -1,5 +1,8 @@
 # adapterOS CLI & Script Deprecations
 
+**Canonical source:** `./start`, `./aosctl`, `scripts/` — CI guardrails enforce this doc.  
+**Last Updated:** 2026-02-18
+
 This document tracks deprecated CLIs and scripts, along with their supported replacements. Adding a new script under `scripts/` requires either:
 
 - An entry here (with a clear deprecation plan for deprecated scripts, or with status ACTIVE for active scripts).
