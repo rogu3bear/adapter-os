@@ -1263,8 +1263,8 @@ fn SessionListPanel(
                                 {items.into_iter().map(|shared| {
                                     let href = format!("/chat/{}", shared.session_id);
                                     view! {
-                                        <a href=href class="block px-3 py-2 hover:bg-muted/50 transition-colors">
-                                            <h3 class="text-sm font-medium truncate">{shared.name}</h3>
+                                        <a href=href class="block px-3 py-2 hover:bg-muted/50 transition-colors min-w-0">
+                                            <h3 class="text-sm font-medium truncate min-w-0" title=shared.name.clone()>{shared.name.clone()}</h3>
                                             <div class="flex items-center gap-2 mt-0.5 text-2xs text-muted-foreground">
                                                 <span>{format!("from {}", shared.shared_by)}</span>
                                                 <span>"·"</span>

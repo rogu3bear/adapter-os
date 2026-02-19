@@ -9,10 +9,10 @@
 //! - Diff (compare with another run)
 
 use crate::api::types::{ExecuteReplayRequest, ExecuteReplayResponse, ReceiptVerificationResult};
-use crate::api::{use_api_client, ApiClient, UiInferenceTraceDetailResponse};
+use crate::api::{use_api_client, ApiClient, ApiError, UiInferenceTraceDetailResponse};
 use crate::components::{
     ActionCard, ActionCardVariant, AsyncBoundary, Badge, BadgeVariant, Button, ButtonVariant, Card,
-    Checkbox, CopyableId, Dialog, DiffResults, EmptyState, EmptyStateVariant, Link,
+    Checkbox, CopyableId, Dialog, DiffResults, EmptyState, EmptyStateVariant, ErrorDisplay, Link,
     PageBreadcrumbItem, PageScaffold, PageScaffoldActions, Select, SkeletonDetailSection, Spinner,
     SplitPanel, SplitRatio, StatusVariant, Table, TableBody, TableCell, TableHead, TableHeader,
     TableRow, TokenDecisionsPaged, TraceViewerWithData, VirtualTableBody,
@@ -31,7 +31,7 @@ use adapteros_api_types::errors::ErrorInstance;
 use adapteros_api_types::UiProfile;
 use leptos::prelude::*;
 use leptos::task::spawn_local;
-use leptos_router::hooks::use_query_map;
+use leptos_router::hooks::{use_navigate, use_params_map, use_query_map};
 use std::sync::Arc;
 use web_time::Instant;
 
@@ -167,28 +167,50 @@ pub fn FlightRecorder() -> impl IntoView {
 /// This is the canonical Run Detail hub for provenance
 #[component]
 pub fn FlightRecorderDetail() -> impl IntoView {
+    let params = use_params_map();
+    let navigate = use_navigate();
+    let entity_id = Memo::new(move |_| params.get().get("id").unwrap_or_default());
+
     view! {
-        <crate::components::DetailPageShell
+        <PageScaffold
             title="Restore Point Detail"
-            section="Observe"
-            section_href="/runs"
-            entity_plural="Restore Points"
-            list_href="/runs"
+            breadcrumbs=vec![
+                PageBreadcrumbItem::new("Observe", "/runs"),
+                PageBreadcrumbItem::new("Restore Points", "/runs"),
+                PageBreadcrumbItem::current(entity_id.get()),
+            ]
         >
+            <PageScaffoldActions slot>
+                <Button
+                    variant=ButtonVariant::Secondary
+                    on_click=Callback::new({
+                        let navigate = navigate.clone();
+                        move |_| navigate("/runs", Default::default())
+                    })
+                >
+                    "Back to Restore Points"
+                </Button>
+            </PageScaffoldActions>
             {move || {
-                let id = expect_context::<crate::components::DetailEntityId>().get();
-                view! {
-                    <RunDetailHub
-                        run_id=id
-                        on_close=Callback::new(|_| {
-                            if let Some(window) = web_sys::window() {
-                                let _ = window.history().and_then(|h| h.back());
-                            }
-                        })
-                    />
+                let id = entity_id.get();
+                if id.is_empty() {
+                    view! {
+                        <ErrorDisplay error=ApiError::Validation("Missing id in URL".to_string())/>
+                    }.into_any()
+                } else {
+                    view! {
+                        <RunDetailHub
+                            run_id=id
+                            on_close=Callback::new(|_| {
+                                if let Some(window) = web_sys::window() {
+                                    let _ = window.history().and_then(|h| h.back());
+                                }
+                            })
+                        />
+                    }.into_any()
                 }
             }}
-        </crate::components::DetailPageShell>
+        </PageScaffold>
     }
 }
 

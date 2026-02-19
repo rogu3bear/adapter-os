@@ -204,8 +204,8 @@ pub fn ServiceControlPanel(services: Vec<ServiceState>) -> impl IntoView {
 
             {move || {
                 action_success.get().map(|msg| view! {
-                        <div class="rounded-md border border-green-500/40 bg-green-500/5 px-3 py-2 mb-4">
-                            <p class="text-sm text-green-600">{msg}</p>
+                        <div class="rounded-md border border-status-success/40 bg-status-success/5 px-3 py-2 mb-4">
+                            <p class="text-sm text-status-success">{msg}</p>
                         </div>
                     })
             }}

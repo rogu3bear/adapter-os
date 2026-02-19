@@ -10,7 +10,8 @@ use crate::api::{
 use crate::components::{
     AsyncBoundary, Badge, BadgeVariant, Button, ButtonVariant, Card, ConfirmationDialog,
     ConfirmationSeverity, CopyableId, Dialog, ErrorDisplay, FormField, Input, ListEmptyCard,
-    LoadingDisplay, PageBreadcrumbItem, PageScaffold, PageScaffoldActions, Select, SkeletonTable,
+    LoadingDisplay, PageBreadcrumbItem, PageScaffold, PageScaffoldActions, PageScaffoldPrimaryAction,
+    Select, SkeletonTable,
     Spinner, SplitPanel, StatusVariant, Table, TableBody, TableCell, TableHead, TableHeader,
     TableRow,
 };
@@ -300,13 +301,15 @@ pub fn Models() -> impl IntoView {
                 PageBreadcrumbItem::current(ui_language::BASE_MODEL_REGISTRY),
             ]
         >
-            <PageScaffoldActions slot>
+            <PageScaffoldPrimaryAction slot>
                 <Button
                     variant=ButtonVariant::Primary
                     on_click=Callback::new(move |_| show_import_dialog.set(true))
                 >
                     {ui_language::REGISTER_NEW_BASE}
                 </Button>
+            </PageScaffoldPrimaryAction>
+            <PageScaffoldActions slot>
                 <Button
                     variant=ButtonVariant::Outline
                     on_click=Callback::new(move |_| refetch_all(()))

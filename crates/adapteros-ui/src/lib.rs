@@ -175,8 +175,7 @@ pub fn App() -> impl IntoView {
                         // PRD-UI-000: Safe mode route (no auth required, no API calls)
                         <Route path=path!("/safe") view=pages::Safe/>
                         // PRD-UI-003: Style audit (dev-only tool, no sensitive data)
-                        #[cfg(feature = "dev-routes")]
-                        <Route path=path!("/style-audit") view=pages::StyleAudit/>
+                        <Route path=path!("/style-audit") view=StyleAuditRoute/>
                         // Backward compatibility redirects
                         <Route path=path!("/flight-recorder") view=|| view! { <ProtectedRoute><Redirect path="/runs"/></ProtectedRoute> }/>
                         <Route path=path!("/flight-recorder/:id") view=|| view! { <ProtectedRoute><FlightRecorderIdRedirect/></ProtectedRoute> }/>
@@ -302,6 +301,18 @@ fn FlightRecorderIdRedirect() -> impl IntoView {
         }
     };
     view! { <Redirect path=path()/> }
+}
+
+#[component]
+fn StyleAuditRoute() -> impl IntoView {
+    #[cfg(feature = "dev-routes")]
+    {
+        view! { <pages::StyleAudit/> }.into_any()
+    }
+    #[cfg(not(feature = "dev-routes"))]
+    {
+        view! { <pages::NotFound/> }.into_any()
+    }
 }
 
 // PRD-UI-000: JS interop for boot diagnostics

@@ -20,7 +20,8 @@ use crate::api::{report_error_with_toast, ApiClient};
 use crate::components::{
     Button, ButtonLink, ButtonSize, ButtonVariant, ConfirmationDialog, ConfirmationSeverity,
     ErrorDisplay, InlineErrorBanner, LoadingDisplay, PageBreadcrumbItem, PageScaffold,
-    PageScaffoldActions, RefreshButton, SkeletonCard, SkeletonTable, SplitPanel, SplitRatio,
+    PageScaffoldActions, PageScaffoldPrimaryAction, RefreshButton, SkeletonCard, SkeletonTable,
+    SplitPanel, SplitRatio,
 };
 use crate::hooks::{
     use_api, use_api_resource, use_cached_api_resource, use_polling, use_system_status, CacheTtl,
@@ -236,6 +237,17 @@ pub fn Workers() -> impl IntoView {
                 PageBreadcrumbItem::current("Workers"),
             ]
         >
+            <PageScaffoldPrimaryAction slot>
+                <Button
+                    variant=ButtonVariant::Primary
+                    loading=Signal::from(action_loading)
+                    disabled=Signal::derive(move || system_not_ready.get())
+                    on_click=quick_spawn_from_defaults
+                >
+                    <IconPlus/>
+                    "Spawn Worker"
+                </Button>
+            </PageScaffoldPrimaryAction>
             <PageScaffoldActions slot>
                 <Button
                     variant=ButtonVariant::Secondary
@@ -296,15 +308,6 @@ pub fn Workers() -> impl IntoView {
                             "Show Inactive History".to_string()
                         }
                     }}
-                </Button>
-                <Button
-                    variant=ButtonVariant::Primary
-                    loading=Signal::from(action_loading)
-                    disabled=Signal::derive(move || system_not_ready.get())
-                    on_click=quick_spawn_from_defaults
-                >
-                    <IconPlus/>
-                    "Spawn Worker"
                 </Button>
                 <Button
                     variant=ButtonVariant::Secondary

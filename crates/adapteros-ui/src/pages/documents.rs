@@ -8,7 +8,8 @@ use crate::components::{
     Badge, BadgeVariant, Button, ButtonLink, ButtonSize, ButtonVariant, Card, ConfirmationDialog,
     ConfirmationSeverity, CopyableId, Dialog, EmptyState, EmptyStateVariant, ErrorDisplay,
     IconExternalLink, InlineProgress, LoadingDisplay, PageBreadcrumbItem, PageScaffold,
-    PageScaffoldActions, ProgressStage, ProgressStages, RefreshButton, Select, Table, TableBody,
+    PageScaffoldActions, PageScaffoldPrimaryAction, ProgressStage, ProgressStages, RefreshButton,
+    Select, Table, TableBody,
     TableCell, TableHead, TableHeader, TableRow,
 };
 use crate::hooks::{
@@ -237,6 +238,14 @@ pub fn Documents() -> impl IntoView {
                 PageBreadcrumbItem::current("Documents"),
             ]
         >
+            <PageScaffoldPrimaryAction slot>
+                <Button
+                    variant=ButtonVariant::Primary
+                    on_click=Callback::new(move |_| show_upload_dialog.set(true))
+                >
+                    "Upload Document"
+                </Button>
+            </PageScaffoldPrimaryAction>
             <PageScaffoldActions slot>
                 <Select
                     value=status_filter
@@ -261,12 +270,6 @@ pub fn Documents() -> impl IntoView {
                 <RefreshButton
                     on_click=Callback::new(move |_| refetch())
                 />
-                <Button
-                    variant=ButtonVariant::Primary
-                    on_click=Callback::new(move |_| show_upload_dialog.set(true))
-                >
-                    "Upload Document"
-                </Button>
             </PageScaffoldActions>
 
             {move || {

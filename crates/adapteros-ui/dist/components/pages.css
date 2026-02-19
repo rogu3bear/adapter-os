@@ -1,12 +1,28 @@
 /* === AdapterOS: page & feature styles ===
    Feature-specific components and page-level styles
-   Sections: Dataset Stat Card, Adapter Magnet, Chat Adapters Region, Training Return Banner,
-             Adapter Detail Panel, Version Timeline, Upload Dropzone,
+   Sections: Markdown Content, Dataset Stat Card, Adapter Magnet, Chat Adapters Region,
+             Training Return Banner, Adapter Detail Panel, Version Timeline, Upload Dropzone,
              Training Data Module, Combobox, Toast Action Link,
              Error History Panel, Chat Session Row, Welcome Page,
              SLO Performance Strip, Error Recovery Panel,
              Filesystem Workspace, Promotion Stage Rail
    ======================================================= */
+
+/* ===== Markdown Content (inner_html descendants) ===== */
+/* Markdown component uses inner_html; pulldown-cmark outputs p, pre, code, a.
+   These are plain DOM nodes—style descendants for overflow/wrapping.
+   Canonical: components/markdown.rs */
+.markdown-content p,
+.markdown-content pre,
+.markdown-content code,
+.markdown-content a {
+  overflow-wrap: break-word;
+  word-break: break-word;
+}
+.markdown-content pre {
+  white-space: pre-wrap;
+  overflow-x: auto;
+}
 
 /* ===== Dataset Stat Card ===== */
 .dataset-stat-card {

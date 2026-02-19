@@ -264,7 +264,7 @@ pub fn TrainingJobDetail(
                     <div class="flex items-center gap-3">
                         <svg
                             xmlns="http://www.w3.org/2000/svg"
-                            class="w-5 h-5 text-green-600 flex-shrink-0"
+                            class="w-5 h-5 text-status-success flex-shrink-0"
                             fill="none"
                             viewBox="0 0 24 24"
                             stroke="currentColor"

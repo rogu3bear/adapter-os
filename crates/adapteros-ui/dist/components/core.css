@@ -808,6 +808,7 @@
   position: relative;
   width: 100%;
   overflow: auto;
+  font-variant-numeric: tabular-nums;
   border: 1px solid var(--surface-border-muted, var(--color-border));
   border-radius: calc(var(--radius) + 0.125rem);
   background-color: color-mix(in srgb, var(--color-card) 96%, var(--color-background));

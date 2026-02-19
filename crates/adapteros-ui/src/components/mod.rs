@@ -106,8 +106,8 @@ pub use inference_banner::InferenceBanner;
 pub use inline_banner::{InlineErrorBanner, InlineWarningBanner};
 pub use input::{Input, Textarea};
 pub use layout::{
-    BreadcrumbItem, BreadcrumbItem as PageBreadcrumbItem, DetailEntityId, DetailPageShell,
-    PageScaffold, PageScaffoldActions, PageScaffoldPrimaryAction, Shell, SidebarNav, SidebarState,
+    BreadcrumbItem, BreadcrumbItem as PageBreadcrumbItem, PageScaffold, PageScaffoldActions,
+    PageScaffoldPrimaryAction, Shell, SidebarNav, SidebarState,
     Taskbar, TopBar,
 };
 pub use lifecycle_transition_dialog::{LifecycleTransitionDialog, LifecycleTransitionInfo};

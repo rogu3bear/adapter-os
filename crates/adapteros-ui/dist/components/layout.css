@@ -44,6 +44,59 @@
   padding: 0.65rem var(--shell-page-padding) 0.75rem;
 }
 
+/* Slim variant: inference ready + primary blocker only */
+.logic-rail--slim .logic-rail__slim {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  gap: 0.75rem;
+  flex-wrap: wrap;
+}
+
+.logic-rail__slim-status {
+  display: flex;
+  align-items: center;
+  gap: 0.5rem;
+}
+
+.logic-rail__slim-blocker {
+  font-size: 0.75rem;
+  color: var(--color-muted-foreground);
+}
+
+.logic-rail__slim-meta {
+  display: flex;
+  align-items: center;
+  gap: 0.5rem;
+  flex-wrap: wrap;
+}
+
+.logic-rail__slim-fingerprint {
+  font-family: var(--font-mono);
+  font-size: 0.7rem;
+  color: var(--color-muted-foreground);
+}
+
+.logic-rail__slim-link {
+  font-size: 0.75rem;
+  color: var(--color-primary);
+  text-decoration: none;
+  background: none;
+  border: none;
+  cursor: pointer;
+  padding: 0;
+}
+
+.logic-rail__slim-link:hover {
+  text-decoration: underline;
+}
+
+.logic-rail__slim--error {
+  display: flex;
+  align-items: center;
+  gap: 0.5rem;
+}
+
 .logic-rail__minimal {
   display: flex;
   align-items: center;

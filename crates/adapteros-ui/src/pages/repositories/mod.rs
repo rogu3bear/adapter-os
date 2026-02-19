@@ -6,7 +6,7 @@ mod detail;
 mod dialogs;
 mod list;
 
-use crate::api::ApiClient;
+use crate::api::{ApiClient, ApiError};
 use crate::components::{
     Button, ButtonVariant, ErrorDisplay, PageBreadcrumbItem, PageScaffold, PageScaffoldActions,
     Select, Spinner, SplitPanel, SplitRatio,
@@ -15,6 +15,7 @@ use crate::hooks::{use_api_resource, LoadingState};
 use detail::{RepositoryDetailPanel, RepositoryDetailStandalone};
 use dialogs::RegisterRepositoryDialog;
 use leptos::prelude::*;
+use leptos_router::hooks::{use_navigate, use_params_map};
 use list::RepositoryList;
 use std::sync::Arc;
 
@@ -181,18 +182,40 @@ pub fn Repositories() -> impl IntoView {
 /// Repository detail page (standalone route)
 #[component]
 pub fn RepositoryDetail() -> impl IntoView {
+    let params = use_params_map();
+    let navigate = use_navigate();
+    let entity_id = Memo::new(move |_| params.get().get("id").unwrap_or_default());
+
     view! {
-        <crate::components::DetailPageShell
+        <PageScaffold
             title="Repository Details"
-            section="Data"
-            section_href="/repositories"
-            entity_plural="Repositories"
-            list_href="/repositories"
+            breadcrumbs=vec![
+                PageBreadcrumbItem::new("Data", "/repositories"),
+                PageBreadcrumbItem::new("Repositories", "/repositories"),
+                PageBreadcrumbItem::current(entity_id.get()),
+            ]
         >
+            <PageScaffoldActions slot>
+                <Button
+                    variant=ButtonVariant::Secondary
+                    on_click=Callback::new({
+                        let navigate = navigate.clone();
+                        move |_| navigate("/repositories", Default::default())
+                    })
+                >
+                    "Back to Repositories"
+                </Button>
+            </PageScaffoldActions>
             {move || {
-                let id = expect_context::<crate::components::DetailEntityId>().get();
-                view! { <RepositoryDetailStandalone repo_id=id/> }
+                let id = entity_id.get();
+                if id.is_empty() {
+                    view! {
+                        <ErrorDisplay error=ApiError::Validation("Missing id in URL".to_string())/>
+                    }.into_any()
+                } else {
+                    view! { <RepositoryDetailStandalone repo_id=id/> }.into_any()
+                }
             }}
-        </crate::components::DetailPageShell>
+        </PageScaffold>
     }
 }

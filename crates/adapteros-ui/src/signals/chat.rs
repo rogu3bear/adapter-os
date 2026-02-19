@@ -3,7 +3,7 @@
 //! Global chat state that persists across page navigation.
 //! Supports both non-streaming and SSE streaming inference.
 
-use crate::api::{api_base_url, report_error_with_toast, ApiClient, ApiError, InferenceRequest};
+use crate::api::{api_base_url, report_error_with_toast, ApiClient, ApiError};
 use crate::signals::perf_logging_enabled;
 use adapteros_api_types::inference::ContextRequest;
 use chrono::{DateTime, Utc};
@@ -1398,77 +1398,6 @@ impl ChatAction {
                 *cell.borrow_mut() = None;
             }
         });
-    }
-
-    /// Send a message and get a response (non-streaming, legacy)
-    ///
-    /// **Deprecated**: Use `send_message_streaming()` instead for better UX.
-    #[deprecated(since = "0.3.0", note = "Use send_message_streaming() instead")]
-    #[allow(dead_code)]
-    pub async fn send_message(&self, content: String) -> Result<(), ApiError> {
-        if content.trim().is_empty() {
-            return Ok(());
-        }
-        if self.state.get_untracked().loading {
-            return Ok(());
-        }
-
-        let perf_enabled = perf_logging_enabled();
-        let request_started_at = Instant::now();
-
-        // Add user message with FIFO eviction
-        let _ = self.state.try_update(|s| {
-            s.messages.push(ChatMessage::user(content.clone()));
-            s.total_messages_evicted += evict_old_messages(&mut s.messages, MAX_MESSAGES);
-            s.loading = true;
-            s.error = None;
-        });
-
-        // Build the prompt with context
-        let prompt = self.build_prompt(&content);
-
-        // Send inference request
-        let request = InferenceRequest {
-            prompt,
-            max_tokens: Some(2048),
-            temperature: Some(0.7),
-            stream: None,
-        };
-
-        match self.client.infer(&request).await {
-            Ok(response) => {
-                let _ = self.state.try_update(|s| {
-                    s.messages.push(ChatMessage::assistant(response.text));
-                    s.total_messages_evicted += evict_old_messages(&mut s.messages, MAX_MESSAGES);
-                    s.loading = false;
-                    // When dock is open, mark new messages as read immediately
-                    if s.dock_state == DockState::Docked {
-                        s.mark_as_read();
-                    }
-                });
-                if perf_enabled {
-                    let elapsed_ms = request_started_at.elapsed().as_millis();
-                    web_sys::console::log_1(
-                        &format!("[perf] infer non-streaming completion: {}ms", elapsed_ms).into(),
-                    );
-                }
-                Ok(())
-            }
-            Err(e) => {
-                let _ = self.state.try_update(|s| {
-                    s.loading = false;
-                    s.error = Some(e.to_string());
-                });
-                if perf_enabled {
-                    let elapsed_ms = request_started_at.elapsed().as_millis();
-                    web_sys::console::log_1(
-                        &format!("[perf] infer non-streaming failure after {}ms", elapsed_ms)
-                            .into(),
-                    );
-                }
-                Err(e)
-            }
-        }
     }
 
     /// Build prompt with context based on toggles
