@@ -1,1 +1,0 @@
-=== Anchor Comparison Contract Guard: PASSED ===
