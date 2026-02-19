@@ -5,7 +5,6 @@
 //! - Primary action slot (single CTA, right-aligned)
 //! - Secondary actions slot (right-aligned)
 //! - Main content area
-//! - Optional inspector panel (right side)
 //!
 //! Usage:
 //! ```rust,ignore
@@ -77,15 +76,9 @@ pub struct PageScaffoldPrimaryAction {
     children: Children,
 }
 
-/// Slot for inspector panel in PageScaffold
-#[slot]
-pub struct PageScaffoldInspector {
-    children: Children,
-}
-
 /// Standardized page layout component
 ///
-/// Renders a page with consistent header, content area, and optional inspector panel.
+/// Renders a page with consistent header and content area.
 #[component]
 pub fn PageScaffold(
     /// Page title
@@ -103,14 +96,9 @@ pub fn PageScaffold(
     /// Optional secondary actions slot (rendered in header, right side)
     #[prop(optional)]
     page_scaffold_actions: Option<PageScaffoldActions>,
-    /// Optional inspector slot (rendered as right panel)
-    #[prop(optional)]
-    page_scaffold_inspector: Option<PageScaffoldInspector>,
     /// Main content
     children: Children,
 ) -> impl IntoView {
-    let has_inspector = page_scaffold_inspector.is_some();
-
     view! {
         <div class="shell-page">
             // Page header
@@ -203,25 +191,12 @@ pub fn PageScaffold(
                 </div>
             </header>
 
-            // Content area (with optional inspector)
-            <div class=move || {
-                if has_inspector {
-                    "page-scaffold-content page-scaffold-content--with-inspector"
-                } else {
-                    "page-scaffold-content"
-                }
-            }>
+            // Content area
+            <div class="page-scaffold-content">
                 // Main content
                 <section class="page-scaffold-main">
                     {children()}
                 </section>
-
-                // Inspector panel (if provided)
-                {page_scaffold_inspector.map(|inspector| view! {
-                    <aside class="page-scaffold-inspector">
-                        {(inspector.children)()}
-                    </aside>
-                })}
             </div>
         </div>
     }
