@@ -5,6 +5,10 @@ alwaysApply: true
 
 Follow `AGENTS.md` for canonical repo invariants and workflows. If anything here conflicts, `AGENTS.md` wins.
 
+## Git / Commits
+
+- **Never add `Co-authored-by: Cursor`** — Do not append Co-authored-by trailers for Cursor or any AI assistant to commit messages.
+
 ## Operating Contract
 
 - **Existing code first** — Assume code exists; new code only when you have proof it does not.

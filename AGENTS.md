@@ -14,6 +14,10 @@ Agents should assume the code already exists; new code is only appropriate when 
 - Before running expensive/slow actions (full-workspace tests, `cargo clean`, starting services, downloading models), ask or clearly justify why it's necessary.
 - **Scope fence:** Only edit files explicitly listed in your task. All other files are read-only. If you find an adjacent issue, report it — don't fix it. This prevents coupled cross-agent changes that break when partially reverted.
 
+## Git / Commits
+
+- **Never add `Co-authored-by: Cursor`** — Do not append Co-authored-by trailers for Cursor or any AI assistant to commit messages.
+
 ## Local Overrides
 
 - Put machine- or branch-specific agent guidance in `AGENTS.override.md` (gitignored) rather than editing committed instructions.
