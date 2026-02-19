@@ -1,0 +1,39 @@
+---
+description: Rust patterns and determinism rules
+globs: "**/*.rs"
+alwaysApply: false
+---
+
+# Rust Conventions
+
+## Error Handling
+
+```rust
+// ❌ BAD: Swallowed Result
+let _ = do_thing();
+
+// ✅ GOOD: Explicit handling or documented ignore
+do_thing().map_err(|e| tracing::error!(%e, "do_thing failed"))?;
+// Or: let _ = do_thing(); // Intentional: fire-and-forget background task
+```
+
+- Use `Result<T, AosError>`; see `crates/adapteros-core/src/error.rs`.
+- New error conditions need codes in `error_codes.rs`.
+
+## Logging
+
+- Prefer `tracing` macros over `println!`.
+- See `docs/ERRORS.md` for standards.
+
+## Determinism (when touching routing/seeding)
+
+- Seed derivation: HKDF-SHA256 with B3 global seed (`adapteros-core/src/seed.rs`).
+- Router tie-break: score DESC, stable_id ASC; Q15 denom = 32767.0 (`adapteros-lora-router/src/quantization.rs`).
+- No `-ffast-math` flags (CI scans for this).
+- Set `AOS_DEBUG_DETERMINISM=1` to log seed/router details.
+
+## Build & Test
+
+- `cargo fmt --all` before commit.
+- `cargo clippy --workspace -- -D warnings`.
+- Targeted tests: `cargo test -p <crate>`; determinism: `cargo test --test determinism_core_suite`.

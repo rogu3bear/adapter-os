@@ -1,0 +1,41 @@
+---
+description: Leptos UI patterns and Liquid Glass design
+globs: "crates/adapteros-ui/**/*"
+alwaysApply: false
+---
+
+# Leptos UI Rules
+
+## WASM Gotchas
+
+- No `println!` — use `web_sys::console::log_1` or `leptos::logging::log!`
+- No `std::time` — use `gloo_timers` or `web_sys::Performance`
+- Async data: use `create_local_resource`, not `spawn_local`
+- Errors: call `report_error_with_toast()`, not just `console::error_1()`
+
+## UI Responsibility Boundary
+
+**Frontend:** rendering, layout, user input, API calls, SSE streaming, client-side filtering/pagination.
+
+**Never in UI:** cryptography, policy evaluation, receipt generation, determinism enforcement, core business logic.
+
+## Layout Primitives
+
+- **SplitPanel** — list/detail layouts (Training, Models, Policies).
+- **VirtualList** — >200 items; **CappedList** — 50–200 with "Show more"; **Direct render** — <50 items.
+- **ErrorDisplay** — with `on_retry` when refetch is available.
+
+## Liquid Glass (dist/glass.css)
+
+| Tier | Usage        | Blur  | Alpha |
+|------|--------------|-------|-------|
+| 1    | headers, nav | 9.6px | 70%   |
+| 2    | cards, panels| 12px  | 78%   |
+| 3    | dialogs      | 15.6px| 85%   |
+
+Borders: 1px hsla white 0.30. Motion: state-change only.
+
+## Performance
+
+- Avoid `.get()` inside render loops; extract once before iterating.
+- Use `Memo::new` for derived chart/expensive data, not `Signal::derive`.

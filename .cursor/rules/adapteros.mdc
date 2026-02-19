@@ -1,12 +1,26 @@
 ---
-description: AdapterOS repo rules (defer to AGENTS.md)
+description: AdapterOS core invariants (defer to AGENTS.md)
 alwaysApply: true
 ---
 
 Follow `AGENTS.md` for canonical repo invariants and workflows. If anything here conflicts, `AGENTS.md` wins.
 
-- Existing code first; minimal diffs; avoid refactors unless explicitly requested.
-- Runtime/persistent paths: use `./var/` (gitignored). Never use `/tmp`, `/private/tmp`, `/var/tmp`.
+## Operating Contract
+
+- **Existing code first** — Assume code exists; new code only when you have proof it does not.
+- **Minimal diffs** — Prefer existing patterns; avoid refactors unless explicitly requested.
+- **Scope fence** — Only edit files explicitly listed in the task. Report adjacent issues; do not fix them.
+- **Expensive actions** — Before full-workspace tests, `cargo clean`, starting services, or downloading models: ask or justify.
+
+## Path Hygiene (CRITICAL)
+
+- Runtime data: `./var/` only (gitignored). Never `/tmp`, `/private/tmp`, `/var/tmp`.
 - Never create `var/` or `tmp/` directories inside crates.
-- Before running expensive actions (full-workspace tests, `cargo clean`, starting services, downloading models), ask or justify.
-- UI work: use `AOS_DEV_NO_AUTH=1 ./start` to bypass RBAC; do not modify auth/RBAC to unblock UI.
+- Never leave test databases (`*-test.sqlite3`, UUID dirs) behind.
+- Cleanup: `find ./crates -type d -name "var" -not -path "*/target/*" -exec rm -rf {} +`
+
+## UI Workflow
+
+- Use `AOS_DEV_NO_AUTH=1 ./start` to bypass RBAC for UI iteration.
+- Do not modify auth/RBAC to unblock UI.
+- Blank UI? Run `./scripts/build-ui.sh` or `./scripts/dev-up.sh`.
