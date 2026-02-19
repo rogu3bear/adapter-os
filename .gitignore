@@ -52,6 +52,12 @@ id_ed25519.pub
 target/verify/
 target-aos-*/
 target-harmonize/
+target-determinism/
+target-hardening/
+target-loader-test/
+
+# Git filter-branch / filter-repo backup (history rewrite)
+.git-rewrite/
 output/
 output/playwright/
 reports/
@@ -102,6 +108,7 @@ ui/.eslintcache
 **/.last-run.json
 *.repro
 ui/playwright-report/
+ui/cypress/videos/
 
 # Logs
 *.log
