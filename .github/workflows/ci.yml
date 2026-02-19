@@ -62,6 +62,16 @@ jobs:
       - uses: actions/checkout@v4
       - name: Check for test artifact pollution
         run: bash scripts/ci/check_test_artifacts.sh
+      - name: Check runtime log path contract
+        run: bash scripts/ci/check_runtime_log_contract.sh
+
+  docs-grounding:
+    name: "Tier 1: Docs Grounding"
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+      - name: Check docs grounding (hallucination prevention)
+        run: ./scripts/ci/check_docs_grounding.sh
 
   feature-matrix:
     name: "Tier 1: Feature Matrix Tests"
@@ -303,6 +313,14 @@ jobs:
         run: |
           cd tests/playwright
           npx playwright install --with-deps chromium
+      - name: Run console regression guard
+        run: |
+          cd tests/playwright
+          npm run test:ui -- --project=chromium ui/console.regression.spec.ts
+      - name: Run style-audit visual regression
+        run: |
+          cd tests/playwright
+          npm run test:ui -- --project=chromium ui/visual.spec.ts --grep "style audit"
       - name: Run blocking UI detail flows
         run: |
           cd tests/playwright
