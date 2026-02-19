@@ -65,12 +65,6 @@ impl NavItem {
         self.keywords = keywords;
         self
     }
-
-    #[allow(dead_code)]
-    const fn hidden(mut self) -> Self {
-        self.hidden = true;
-        self
-    }
 }
 
 // ═══════════════════════════════════════════════════════════════════════════
