@@ -2,9 +2,10 @@
 
 Get adapterOS fully up and running in under 10 minutes. This guide covers both backend integration and web UI setup.
 
-> **For basic backend-only setup**, see [getting-started.md](getting-started.md) (5 minutes).
+> **For basic backend-only setup**, see [getting-started.md](getting-started.md) (5 minutes).  
+> **Canonical source:** `./start`, `./aosctl`, `scripts/build-ui.sh` — code is authoritative.
 
-**Last Updated: January 2026**
+**Last Updated:** 2026-02-18
 
 ## Prerequisites
 

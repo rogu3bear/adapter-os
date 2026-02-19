@@ -1,6 +1,7 @@
 # Getting Started with adapterOS
 
-> **This is the canonical getting started guide for basic backend setup.** For complete setup with UI, see [QUICKSTART.md](QUICKSTART.md).
+> **Canonical source:** `./start`, `./aosctl` — code is authoritative.  
+> **For complete setup with UI:** see [QUICKSTART.md](QUICKSTART.md).
 
 Get adapterOS running in 5 minutes on your Apple Silicon Mac.
 
