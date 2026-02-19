@@ -96,39 +96,3 @@ pub fn DataSourceNav(
         </nav>
     }
 }
-
-/// Compact source selector (for mobile/responsive views).
-#[allow(dead_code)] // Leptos #[component] macro limitation: unused props in current routes.
-#[component]
-pub fn DataSourceSelector(
-    /// Currently active data source
-    active: RwSignal<DataSource>,
-) -> impl IntoView {
-    view! {
-        <div class="data-source-selector">
-            <select
-                class="data-source-select"
-                on:change=move |ev| {
-                    let value = event_target_value(&ev);
-                    let source = match value.as_str() {
-                        "documents" => DataSource::Documents,
-                        "datasets" => DataSource::Datasets,
-                        "preprocessed" => DataSource::Preprocessed,
-                        _ => DataSource::Datasets,
-                    };
-                    active.set(source);
-                }
-            >
-                <option value="documents" selected=move || active.get() == DataSource::Documents>
-                    {DataSource::Documents.icon()} " " {DataSource::Documents.label()}
-                </option>
-                <option value="datasets" selected=move || active.get() == DataSource::Datasets>
-                    {DataSource::Datasets.icon()} " " {DataSource::Datasets.label()}
-                </option>
-                <option value="preprocessed" selected=move || active.get() == DataSource::Preprocessed>
-                    {DataSource::Preprocessed.icon()} " " {DataSource::Preprocessed.label()}
-                </option>
-            </select>
-        </div>
-    }
-}

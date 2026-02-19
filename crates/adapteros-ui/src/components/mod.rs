@@ -107,8 +107,8 @@ pub use inline_banner::{InlineErrorBanner, InlineWarningBanner};
 pub use input::{Input, Textarea};
 pub use layout::{
     BreadcrumbItem, BreadcrumbItem as PageBreadcrumbItem, DetailEntityId, DetailPageShell, Header,
-    PageScaffold, PageScaffoldActions, PageScaffoldInspector, PageScaffoldPrimaryAction, Shell,
-    Sidebar, SidebarNav, SidebarState, Taskbar, TopBar,
+    PageScaffold, PageScaffoldActions, PageScaffoldPrimaryAction, Shell, Sidebar, SidebarNav,
+    SidebarState, Taskbar, TopBar,
 };
 pub use lifecycle_transition_dialog::{LifecycleTransitionDialog, LifecycleTransitionInfo};
 pub use link::{Link, LinkVariant};

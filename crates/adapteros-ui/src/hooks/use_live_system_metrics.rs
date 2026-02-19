@@ -131,8 +131,6 @@ impl TimestampedMetrics {
 #[derive(Clone, Default)]
 pub struct MetricsHistory {
     snapshots: VecDeque<TimestampedMetrics>,
-    #[allow(dead_code)]
-    version: u64,
 }
 
 impl MetricsHistory {
@@ -142,7 +140,6 @@ impl MetricsHistory {
         while self.snapshots.len() > METRICS_HISTORY_SIZE {
             self.snapshots.pop_front();
         }
-        self.version = self.version.wrapping_add(1);
     }
 
     pub(crate) fn extract<F>(&self, f: F) -> Vec<f64>

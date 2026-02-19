@@ -21,8 +21,7 @@ mod topbar;
 pub use detail_page_shell::{DetailEntityId, DetailPageShell};
 pub use logical_rail::LogicalControlRail;
 pub use page_scaffold::{
-    BreadcrumbItem, PageScaffold, PageScaffoldActions, PageScaffoldInspector,
-    PageScaffoldPrimaryAction,
+    BreadcrumbItem, PageScaffold, PageScaffoldActions, PageScaffoldPrimaryAction,
 };
 pub use shell::Shell;
 pub use sidebar::{provide_sidebar_context, use_sidebar, SidebarNav, SidebarState};
