@@ -50,7 +50,11 @@ pub fn provide_ui_profile_context() {
 
 /// Access UI profile context.
 pub fn use_ui_profile_state() -> UiProfileContext {
-    expect_context::<UiProfileContext>()
+    use_context::<UiProfileContext>().unwrap_or_else(|| {
+        let state = RwSignal::new(UiProfileState::new());
+        provide_context(state);
+        state
+    })
 }
 
 /// Effective UI profile (runtime config overridden by local settings when set).

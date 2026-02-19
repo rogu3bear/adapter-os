@@ -5,6 +5,7 @@
 //! - Ctrl+K / Cmd+K: Command Palette
 //! - Alt+1..Alt+8: Jump to workflow group
 
+use super::logical_rail::LogicalControlRail;
 use super::nav_registry::route_for_alt_shortcut;
 use super::sidebar::{provide_sidebar_context, SidebarNav};
 use super::taskbar::Taskbar;
@@ -12,7 +13,7 @@ use super::topbar::TopBar;
 use crate::api::sse::{
     use_adapter_lifecycle_sse, use_health_lifecycle_sse, use_training_lifecycle_sse,
 };
-use crate::components::chat_dock::{ChatDockPanel, MobileChatOverlay, NarrowChatDock};
+use crate::components::chat_dock::{ChatDockPanel, MobileChatOverlay};
 use crate::components::inference_banner::InferenceBanner;
 use crate::components::offline_banner::OfflineBanner;
 use crate::components::status_center::StatusCenterProvider;
@@ -106,37 +107,38 @@ pub fn Shell() -> impl IntoView {
 
         // Update document title based on current route
         let title = match pathname.as_str() {
-            "/" | "/dashboard" => "Dashboard",
-            "/adapters" => "Adapters",
-            "/training" => "Training",
-            "/chat" => "Chat",
-            "/models" => "Models",
-            "/workers" => "Workers",
-            "/monitoring" => "Monitoring",
-            "/settings" => "Settings",
-            "/documents" => "Documents",
-            "/stacks" => "Stacks",
+            "/" | "/dashboard" => "Home",
+            "/adapters" => "Adapter Library",
+            "/update-center" => "Update Center",
+            "/training" => "Adapter Training",
+            "/chat" => "Prompt Studio",
+            "/models" => "Base Model Registry",
+            "/workers" => "Inference Engines",
+            "/monitoring" => "Activity Monitor",
+            "/settings" => "Control Room Settings",
+            "/documents" => "Document Library",
+            "/stacks" => "Adapter Stack",
             "/datasets" => "Datasets",
             "/collections" => "Collections",
             "/routing" => "Routing",
             "/repositories" => "Repositories",
-            "/reviews" => "Reviews",
-            "/policies" => "Policies",
-            "/audit" => "Audit Log",
+            "/reviews" => "Safety Queue",
+            "/policies" => "Safety Shield",
+            "/audit" => "Event Viewer",
             "/admin" => "Admin",
-            "/agents" => "Agents",
-            "/runs" => "Runs",
+            "/agents" => "Automation Agents",
+            "/runs" => "System Restore Points",
             "/diff" => "Diff Viewer",
             "/welcome" => "Welcome",
-            "/system" => "System",
+            "/system" => "Kernel",
             _ if pathname.starts_with("/training/") => "Training Detail",
-            _ if pathname.starts_with("/runs/") => "Run Detail",
-            _ if pathname.starts_with("/reviews/") => "Review Detail",
+            _ if pathname.starts_with("/runs/") => "Restore Point Detail",
+            _ if pathname.starts_with("/reviews/") => "Safety Queue Detail",
             _ if pathname.starts_with("/collections/") => "Collection Detail",
             _ if pathname.starts_with("/adapters/") => "Adapter Detail",
-            _ if pathname.starts_with("/stacks/") => "Stack Detail",
-            _ if pathname.starts_with("/workers/") => "Worker Detail",
-            _ if pathname.starts_with("/models/") => "Model Detail",
+            _ if pathname.starts_with("/stacks/") => "Adapter Stack Detail",
+            _ if pathname.starts_with("/workers/") => "Inference Engine Detail",
+            _ if pathname.starts_with("/models/") => "Base Model Detail",
             _ if pathname.starts_with("/documents/") => "Document Detail",
             _ if pathname.starts_with("/datasets/") => "Dataset Detail",
             _ if pathname.starts_with("/repositories/") => "Repository Detail",
@@ -259,6 +261,8 @@ pub fn Shell() -> impl IntoView {
 
                 // Top bar
                 <TopBar/>
+                // Permanent logical contract rail (state, rules, transitions, next actions)
+                <LogicalControlRail/>
 
                 // Main content area with sidebar + workspace
                 <div class="shell-content">
@@ -276,8 +280,7 @@ pub fn Shell() -> impl IntoView {
                     {move || {
                         match chat_state.get().dock_state {
                             DockState::Docked => view! { <ChatDockPanel/> }.into_any(),
-                            DockState::Narrow => view! { <NarrowChatDock/> }.into_any(),
-                            DockState::Hidden => view! {}.into_any(),
+                            DockState::Narrow | DockState::Hidden => view! {}.into_any(),
                         }
                     }}
                 </div>

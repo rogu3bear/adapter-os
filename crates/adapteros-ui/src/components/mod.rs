@@ -3,6 +3,7 @@
 //! Headless-style components using the Liquid Glass design system.
 
 pub mod action_card;
+pub mod actions_overflow;
 pub mod adapter_bar;
 pub mod adapter_detail_panel;
 pub mod adapter_lifecycle_controls;
@@ -33,6 +34,7 @@ pub mod hash_display;
 pub mod icons;
 pub mod inference_banner;
 pub mod inference_guidance;
+pub mod inline_banner;
 pub mod input;
 pub mod layout;
 pub mod lifecycle_transition_dialog;
@@ -64,6 +66,7 @@ pub mod virtual_list;
 pub mod workspace;
 
 pub use action_card::{ActionCard, ActionCardVariant};
+pub use actions_overflow::{ActionsOverflow, ActionsOverflowItem};
 pub use adapter_bar::{
     AdapterBar, AdapterChipState, AdapterHeat, AdapterMagnet, AdapterManageDialog,
     ChatAdaptersRegion, SuggestedAdapterView, SuggestedAdaptersBar,
@@ -71,14 +74,15 @@ pub use adapter_bar::{
 pub use adapter_detail_panel::{AdapterDetailPanel, AdapterSuggestionContext};
 pub use adapter_lifecycle_controls::AdapterLifecycleControls;
 pub use async_state::{
-    AsyncBoundary, AsyncBoundaryWithEmpty, AsyncBoundaryWithErrorRender, DetailRow, EmptyState,
-    EmptyStateVariant, ErrorDisplay, LoadingDisplay, NotFoundSurface, PageHeader, RefreshButton,
+    AsyncBoundary, AsyncBoundaryWithEmpty, AsyncBoundaryWithErrorRender, DetailGridRow, DetailRow,
+    EmptyState, EmptyStateVariant, ErrorDisplay, LoadingDisplay, NotFoundSurface, PageHeader,
+    RefreshButton,
 };
 pub use auth::{AuthProvider, ProtectedRoute};
 pub use breadcrumb_trail::{humanize_segment, BreadcrumbTrail};
 pub use button::{Button, ButtonLink, ButtonSize, ButtonType, ButtonVariant};
 pub use card::Card;
-pub use chat_dock::{ChatDock, ChatDockPanel, MobileChatOverlay, NarrowChatDock};
+pub use chat_dock::{ChatDock, ChatDockPanel, MobileChatOverlay};
 pub use checkbox::Checkbox;
 pub use code_editor::CodeEditor;
 pub use combobox::{Combobox, ComboboxOption, ModelCombobox};
@@ -99,11 +103,12 @@ pub use glass_toggle::GlassThemeToggle;
 pub use global_search::{GlobalSearchBox, SearchTriggerButton};
 pub use hash_display::HashDisplay;
 pub use inference_banner::InferenceBanner;
+pub use inline_banner::{InlineErrorBanner, InlineWarningBanner};
 pub use input::{Input, Textarea};
 pub use layout::{
     BreadcrumbItem, BreadcrumbItem as PageBreadcrumbItem, DetailEntityId, DetailPageShell, Header,
-    PageScaffold, PageScaffoldActions, PageScaffoldInspector, Shell, Sidebar, SidebarNav,
-    SidebarState, Taskbar, TopBar,
+    PageScaffold, PageScaffoldActions, PageScaffoldInspector, PageScaffoldPrimaryAction, Shell,
+    Sidebar, SidebarNav, SidebarState, Taskbar, TopBar,
 };
 pub use lifecycle_transition_dialog::{LifecycleTransitionDialog, LifecycleTransitionInfo};
 pub use link::{Link, LinkVariant};

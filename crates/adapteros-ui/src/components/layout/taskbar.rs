@@ -56,8 +56,8 @@ pub fn Taskbar() -> impl IntoView {
                         }
                     )
                     on:click=on_menu_click
-                    title="Toggle navigation"
-                    aria-label="Toggle navigation sidebar"
+                    title="Open workspace launcher"
+                    aria-label="Open workspace launcher"
                     aria-expanded=move || (start_menu_open.try_get().unwrap_or(false) || sidebar.try_get().map(|s| s.is_expanded()).unwrap_or(false)).to_string()
                 >
                     <svg class="w-4 h-4" viewBox="0 0 24 24" fill="currentColor" aria-hidden="true">
@@ -66,7 +66,7 @@ pub fn Taskbar() -> impl IntoView {
                         <rect x="3" y="13" width="8" height="8" rx="1"/>
                         <rect x="13" y="13" width="8" height="8" rx="1"/>
                     </svg>
-                    <span class="text-sm font-medium hidden sm:block">"Menu"</span>
+                    <span class="text-sm font-medium hidden sm:block">"Launcher"</span>
                 </button>
 
                 // Start menu dropdown (mobile fallback only)
@@ -138,16 +138,16 @@ pub fn Taskbar() -> impl IntoView {
                                 let action = action.clone();
                                 move |_| action.toggle_dock()
                             }
-                            title="Toggle chat panel"
+                            title="Open Prompt Studio"
                             aria-label=move || {
                                 if chat_state.try_get().unwrap_or_default().dock_state == DockState::Docked {
-                                    "Close chat panel".to_string()
+                                    "Close Prompt Studio".to_string()
                                 } else {
                                     let unread = chat_state.try_get().unwrap_or_default().unread_count();
                                     if unread > 0 {
-                                        format!("Open chat panel ({} unread messages)", unread)
+                                        format!("Open Prompt Studio ({} unread messages)", unread)
                                     } else {
-                                        "Open chat panel".to_string()
+                                        "Open Prompt Studio".to_string()
                                     }
                                 }
                             }
@@ -202,7 +202,7 @@ fn ModuleButton(
                 }
             )
             title=label
-            aria-label=format!("Go to {} module", label)
+            aria-label=format!("Open {} workspace", label)
             aria-current=move || if is_active() { Some("page") } else { None }
         >
             <svg

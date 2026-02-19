@@ -127,7 +127,7 @@ fn AdapterDetailEmpty() -> impl IntoView {
                 </svg>
             </div>
             <p class="adapter-detail-empty-hint">
-                "Select an adapter to view details, routing context, and lifecycle controls."
+                "Select a skill to view details, trust context, and update controls."
             </p>
         </div>
     }
@@ -159,6 +159,7 @@ fn AdapterDetailContent(
     // Derive lifecycle badge variant
     let lifecycle_variant = match adapter.lifecycle_state {
         LifecycleState::Active => BadgeVariant::Success,
+        LifecycleState::Staging => BadgeVariant::Warning,
         LifecycleState::Deprecated => BadgeVariant::Warning,
         LifecycleState::Retired => BadgeVariant::Destructive,
         LifecycleState::Draft => BadgeVariant::Secondary,
@@ -194,11 +195,8 @@ fn AdapterDetailContent(
     let tier = adapter.tier.clone();
     let category = adapter.category.clone().unwrap_or_else(|| "N/A".into());
     let scope = adapter.scope.clone().unwrap_or_else(|| "N/A".into());
-    let lifecycle_state = adapter.lifecycle_state.to_string();
-    let runtime_state = adapter
-        .runtime_state
-        .clone()
-        .unwrap_or_else(|| "unknown".into());
+    let lifecycle_state = lifecycle_stage_label(adapter.lifecycle_state).to_string();
+    let runtime_state = runtime_state_label(adapter.runtime_state.as_deref()).to_string();
     let created_at = adapter.created_at.clone();
     let updated_at = adapter.updated_at.clone();
     let version = adapter.version.clone();
@@ -218,7 +216,7 @@ fn AdapterDetailContent(
     let suggestion_reason = suggestion_context
         .reason
         .clone()
-        .unwrap_or_else(|| "Matched by router criteria".into());
+        .unwrap_or_else(|| "Best match for this request".into());
     let suggestion_confidence = suggestion_context.confidence;
     let suggestion_gate = suggestion_context.gate_value;
     let suggestion_pinned = suggestion_context.is_pinned;
@@ -284,7 +282,7 @@ fn AdapterDetailContent(
                                 })}
                                 {gate_display.map(|gate| view! {
                                     <div class="adapter-detail-metric">
-                                        <span class="adapter-detail-metric-label">"Gate Value"</span>
+                                        <span class="adapter-detail-metric-label">"Match Score"</span>
                                         <span class="adapter-detail-metric-value font-mono">{gate}</span>
                                     </div>
                                 })}
@@ -301,10 +299,10 @@ fn AdapterDetailContent(
             })}
 
             // Core Metadata
-            <Card title="Metadata">
+            <Card title="Trust Details">
                 <dl class="adapter-detail-metadata">
                     <div class="adapter-detail-metadata-item">
-                        <dt>"Hash (BLAKE3)"</dt>
+                        <dt>"Skill Fingerprint"</dt>
                         <dd><HashDisplay hash=hash_b3 /></dd>
                     </div>
                     <div class="adapter-detail-metadata-item">
@@ -320,11 +318,11 @@ fn AdapterDetailContent(
                         <dd>{category}</dd>
                     </div>
                     <div class="adapter-detail-metadata-item">
-                        <dt>"Scope"</dt>
+                        <dt>"Coverage"</dt>
                         <dd>{scope}</dd>
                     </div>
                     <div class="adapter-detail-metadata-item">
-                        <dt>"Rank"</dt>
+                        <dt>"Capacity"</dt>
                         <dd>{rank.to_string()}</dd>
                     </div>
                     {memory_bytes.map(|bytes| view! {
@@ -341,7 +339,7 @@ fn AdapterDetailContent(
                 let langs = languages.clone();
                 let fw = framework.clone();
                 view! {
-                    <Card title="Languages & Framework">
+                    <Card title="Capabilities">
                         <div class="adapter-detail-tags">
                             {if langs.is_empty() {
                                 view! {
@@ -358,7 +356,7 @@ fn AdapterDetailContent(
                             }}
                             {fw.map(|framework_name| view! {
                                 <div class="adapter-detail-framework">
-                                    <span class="text-sm text-muted-foreground">"Framework: "</span>
+                                    <span class="text-sm text-muted-foreground">"Primary Framework: "</span>
                                     <span class="font-medium">{framework_name}</span>
                                 </div>
                             })}
@@ -375,7 +373,7 @@ fn AdapterDetailContent(
             })}
 
             // Timestamps
-            <Card title="Timeline">
+            <Card title="History">
                 <dl class="adapter-detail-metadata">
                     <div class="adapter-detail-metadata-item">
                         <dt>"Created"</dt>
@@ -390,8 +388,9 @@ fn AdapterDetailContent(
                 </dl>
             </Card>
 
-            // Lifecycle Controls
-            <Card title="Lifecycle">
+            // Update Center — stage rail + lifecycle transition controls
+            <Card title="Update Center">
+                <PromotionStageRail current_state=lifecycle_state_for_controls.clone() />
                 <AdapterLifecycleControls
                     adapter_id=adapter_id_for_lifecycle
                     adapter_name=adapter_name_for_lifecycle
@@ -420,7 +419,7 @@ fn AdapterDetailContent(
                     // Pin/Unpin button
                     {on_toggle_pin.map(|callback| {
                         let id = adapter_id_for_pin.clone();
-                        let label = if is_pinned { "Unpin Adapter" } else { "Pin Adapter" };
+                        let label = if is_pinned { "Unpin Skill" } else { "Pin Skill" };
                         view! {
                             <Button
                                 variant=if is_pinned { ButtonVariant::Secondary } else { ButtonVariant::Outline }
@@ -449,7 +448,7 @@ fn AdapterDetailContent(
                                         <svg class="w-4 h-4" fill="none" stroke="currentColor" viewBox="0 0 24 24">
                                             <path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M4 16v1a3 3 0 003 3h10a3 3 0 003-3v-1m-4-8l-4-4m0 0L8 8m4-4v12"/>
                                         </svg>
-                                        "Load Adapter"
+                                        "Load Skill"
                                     </span>
                                 </Button>
                             }
@@ -469,7 +468,7 @@ fn AdapterDetailContent(
                                         <svg class="w-4 h-4" fill="none" stroke="currentColor" viewBox="0 0 24 24">
                                             <path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M4 16v1a3 3 0 003 3h10a3 3 0 003-3v-1m-4-4l-4 4m0 0l-4-4m4 4V4"/>
                                         </svg>
-                                        "Unload Adapter"
+                                        "Unload Skill"
                                     </span>
                                 </Button>
                             }
@@ -488,6 +487,48 @@ fn trust_state_badge_variant(trust_state: &str) -> BadgeVariant {
         "warn" => BadgeVariant::Warning,
         "blocked" | "blocked_regressed" => BadgeVariant::Destructive,
         _ => BadgeVariant::Secondary,
+    }
+}
+
+fn lifecycle_stage_label(state: LifecycleState) -> &'static str {
+    match state {
+        LifecycleState::Draft => "Draft",
+        LifecycleState::Staging => "Reviewed",
+        LifecycleState::Active => "Production",
+        LifecycleState::Deprecated => "Paused",
+        LifecycleState::Retired => "Retired",
+        _ => "Unknown",
+    }
+}
+
+fn runtime_state_label(runtime_state: Option<&str>) -> &'static str {
+    match runtime_state {
+        Some("hot") => "Ready",
+        Some("warm") => "Warming",
+        Some("cold") => "Standby",
+        Some("resident") => "Pinned in Memory",
+        Some("unloaded") => "Not Loaded",
+        _ => "Unknown",
+    }
+}
+
+fn release_state_badge_variant(release_state: &str) -> BadgeVariant {
+    match release_state {
+        "promoted" => BadgeVariant::Success,
+        "draft" => BadgeVariant::Secondary,
+        "candidate" => BadgeVariant::Warning,
+        "deprecated" => BadgeVariant::Default,
+        _ => BadgeVariant::Default,
+    }
+}
+
+fn release_state_label(release_state: &str) -> &'static str {
+    match release_state {
+        "draft" => "Draft",
+        "candidate" => "Reviewed",
+        "promoted" => "Production",
+        "deprecated" => "Archived",
+        _ => "Version",
     }
 }
 
@@ -560,7 +601,8 @@ fn AdapterVersionPromotionSection(
             if selector.is_empty() {
                 resolved_version_id.set(None);
                 resolve_error.set(Some(
-                    "Enter a selector. Examples: tag:latest-stable, main@v3, main".to_string(),
+                    "Enter a version reference. Examples: tag:latest-stable, main@v3, main"
+                        .to_string(),
                 ));
                 return;
             }
@@ -577,8 +619,7 @@ fn AdapterVersionPromotionSection(
                     }
                     Ok(None) => {
                         resolved_version_id.set(None);
-                        resolve_error
-                            .set(Some(format!("No version matched selector '{}'.", selector)));
+                        resolve_error.set(Some(format!("No version matched '{}'.", selector)));
                         resolve_loading.set(false);
                     }
                     Err(err) => {
@@ -607,8 +648,8 @@ fn AdapterVersionPromotionSection(
                 match client.promote_adapter_version(&version_id, &rid).await {
                     Ok(()) => {
                         notifications.success(
-                            "Version Promoted",
-                            &format!("Version {} is now active for serving", label),
+                            "Moved to Production",
+                            &format!("{} is now live in Production", label),
                         );
                         show_promote_dialog.set(false);
                         promote_loading.set(false);
@@ -621,7 +662,7 @@ fn AdapterVersionPromotionSection(
                         }
                     }
                     Err(err) => {
-                        notifications.error("Promotion Failed", &err.to_string());
+                        notifications.error("Move to Production Failed", &err.to_string());
                         promote_loading.set(false);
                     }
                 }
@@ -649,8 +690,8 @@ fn AdapterVersionPromotionSection(
                 {
                     Ok(()) => {
                         notifications.success(
-                            "Version Rolled Back",
-                            &format!("Rolled back to version {}", label),
+                            "Version Restored",
+                            &format!("{} is now restored as the active version", label),
                         );
                         show_rollback_dialog.set(false);
                         rollback_loading.set(false);
@@ -663,7 +704,7 @@ fn AdapterVersionPromotionSection(
                         }
                     }
                     Err(err) => {
-                        notifications.error("Rollback Failed", &err.to_string());
+                        notifications.error("Restore Failed", &err.to_string());
                         rollback_loading.set(false);
                     }
                 }
@@ -672,7 +713,7 @@ fn AdapterVersionPromotionSection(
     };
 
     view! {
-        <Card title="Versions">
+        <Card title="Update Center">
             {move || {
                 if versions_loading.try_get().unwrap_or(true) {
                     return view! {
@@ -685,14 +726,14 @@ fn AdapterVersionPromotionSection(
 
                 if let Some(err) = versions_error.try_get().flatten() {
                     return view! {
-                        <p class="text-sm text-muted-foreground">{format!("Could not load versions: {}", err)}</p>
+                        <p class="text-sm text-muted-foreground">{format!("Could not load update history: {}", err)}</p>
                     }.into_any();
                 }
 
                 let vers = versions.try_get().unwrap_or_default();
                 if vers.is_empty() {
                     return view! {
-                        <p class="text-sm text-muted-foreground">"No versions found for this adapter."</p>
+                        <p class="text-sm text-muted-foreground">"No saved versions for this skill yet."</p>
                     }.into_any();
                 }
 
@@ -704,12 +745,27 @@ fn AdapterVersionPromotionSection(
 
                 view! {
                     <div class="space-y-3">
+                        <div class="rounded-md border border-border/50 bg-muted/20 p-3 space-y-2">
+                            <p class="text-sm font-medium">"Promotion Path"</p>
+                            <div class="flex flex-wrap items-center gap-2 text-xs">
+                                <Badge variant=BadgeVariant::Secondary>"Draft"</Badge>
+                                <span class="text-muted-foreground">"→"</span>
+                                <Badge variant=BadgeVariant::Warning>"Reviewed"</Badge>
+                                <span class="text-muted-foreground">"→"</span>
+                                <Badge variant=BadgeVariant::Success>"Production"</Badge>
+                            </div>
+                            <p class="text-xs text-muted-foreground">
+                                "Only serveable reviewed versions can move to Production. Every move is auditable and reversible."
+                            </p>
+                        </div>
+
                         <div class="rounded-md border border-border/40 p-3">
                             <div class="flex flex-col gap-2 sm:flex-row sm:items-center">
                                 <input
                                     type="text"
                                     class="input flex-1"
-                                    placeholder="Enter version selector"
+                                    placeholder="Find a version (tag or branch)"
+                                    aria_label="Search versions"
                                     prop:value=move || version_selector.try_get().unwrap_or_default()
                                     on:input=move |ev| {
                                         version_selector.set(event_target_value(&ev));
@@ -728,7 +784,7 @@ fn AdapterVersionPromotionSection(
                                     })
                                     loading=Signal::derive(move || resolve_loading.try_get().unwrap_or(false))
                                 >
-                                    "Resolve"
+                                    "Find"
                                 </Button>
                             </div>
                             <p class="mt-2 text-xs text-muted-foreground">
@@ -758,7 +814,7 @@ fn AdapterVersionPromotionSection(
 
                                 view! {
                                     <div class="mt-3 flex flex-wrap items-center gap-2">
-                                        <span class="text-xs text-muted-foreground">"Resolved version:"</span>
+                                        <span class="text-xs text-muted-foreground">"Selected version:"</span>
                                         <span class="text-sm font-medium">{resolved_label.clone()}</span>
                                         <Badge variant=BadgeVariant::Secondary>{resolved_branch_display.clone()}</Badge>
                                         {(!resolved_is_promoted && resolved_is_serveable).then(|| {
@@ -774,7 +830,7 @@ fn AdapterVersionPromotionSection(
                                                         show_promote_dialog.set(true);
                                                     })
                                                 >
-                                                    "Promote Resolved"
+                                                    "Move to Production"
                                                 </Button>
                                             }
                                         })}
@@ -792,15 +848,15 @@ fn AdapterVersionPromotionSection(
                                                         show_rollback_dialog.set(true);
                                                     })
                                                 >
-                                                    "Rollback Resolved"
+                                                    "Restore Version"
                                                 </Button>
                                             }
                                         })}
                                         {resolved_is_promoted.then(|| view! {
-                                            <span class="version-active-label">"Active"</span>
+                                            <span class="version-active-label">"Live in Production"</span>
                                         })}
                                         {(!resolved_is_promoted && !resolved_is_serveable && !resolved_is_deprecated).then(|| view! {
-                                            <span class="version-not-serveable">"Resolved version is not serveable"</span>
+                                            <span class="version-not-serveable">"Needs review before production"</span>
                                         })}
                                     </div>
                                 }
@@ -816,19 +872,13 @@ fn AdapterVersionPromotionSection(
                                 let is_serveable = v.serveable;
                                 let is_resolved = resolved_id.as_deref() == Some(v.id.as_str());
                                 let trust_state = v.adapter_trust_state.clone();
-                                let state_variant = match v.release_state.as_str() {
-                                    "promoted" => BadgeVariant::Success,
-                                    "draft" => BadgeVariant::Secondary,
-                                    "candidate" => BadgeVariant::Warning,
-                                    "deprecated" => BadgeVariant::Default,
-                                    _ => BadgeVariant::Default,
-                                };
+                                let state_variant = release_state_badge_variant(v.release_state.as_str());
+                                let release_state_text = release_state_label(v.release_state.as_str());
 
                                 let vid = v.id.clone();
                                 let rid = v.repo_id.clone();
                                 let branch = v.branch.clone();
                                 let label_for_dialog = version_label.clone();
-                                let release_state = v.release_state.clone();
                                 let branch_display = v.branch.clone();
 
                                 // Dataset lineage data
@@ -839,7 +889,13 @@ fn AdapterVersionPromotionSection(
 
                                 // Serveable indicator
                                 let serveable_reason = v.serveable_reason.clone()
-                                    .unwrap_or_else(|| if is_serveable { "ready to serve".to_string() } else { "not serveable".to_string() });
+                                    .unwrap_or_else(|| {
+                                        if is_serveable {
+                                            "Ready for production".to_string()
+                                        } else {
+                                            "Not ready for production".to_string()
+                                        }
+                                    });
 
                                 view! {
                                     <div
@@ -854,7 +910,7 @@ fn AdapterVersionPromotionSection(
                                         <div class="version-item-row">
                                             <div class="version-item-info">
                                                 <span class="version-item-label">{version_label.clone()}</span>
-                                                <Badge variant=state_variant>{release_state}</Badge>
+                                                <Badge variant=state_variant>{release_state_text}</Badge>
                                                 {is_resolved.then(|| view! {
                                                     <Badge variant=BadgeVariant::Secondary>"Resolved"</Badge>
                                                 })}
@@ -893,7 +949,7 @@ fn AdapterVersionPromotionSection(
                                                                 show_promote_dialog.set(true);
                                                             })
                                                         >
-                                                            "Promote"
+                                                            "Promote to Production"
                                                         </Button>
                                                     }
                                                 })}
@@ -912,23 +968,23 @@ fn AdapterVersionPromotionSection(
                                                                 show_rollback_dialog.set(true);
                                                             })
                                                         >
-                                                            "Rollback"
+                                                            "Restore"
                                                         </Button>
                                                     }
                                                 })}
                                                 // Not serveable label (non-promoted, non-deprecated, not serveable)
                                                 {(!is_promoted && !is_serveable && !is_deprecated).then(|| {
                                                     let reason = v.serveable_reason.clone()
-                                                        .unwrap_or_else(|| "not serveable".to_string());
+                                                        .unwrap_or_else(|| "Not ready for production".to_string());
                                                     view! {
                                                         <span class="version-not-serveable" title=reason>
-                                                            "Not serveable"
+                                                            "Needs review"
                                                         </span>
                                                     }
                                                 })}
                                                 // Active label for promoted
                                                 {is_promoted.then(|| view! {
-                                                    <span class="version-active-label">"Active"</span>
+                                                    <span class="version-active-label">"In Production"</span>
                                                 })}
                                                 // Dataset lineage toggle
                                                 {has_dataset_lineage.then(|| {
@@ -945,7 +1001,7 @@ fn AdapterVersionPromotionSection(
                                                                     expanded_lineage.set(Some(vid_toggle.clone()));
                                                                 }
                                                             }
-                                                            title="Dataset lineage"
+                                                            title="Evidence lineage"
                                                         >
                                                             <svg class="version-lineage-icon" viewBox="0 0 20 20" fill="currentColor">
                                                                 <path d="M3 12v3c0 1.657 3.134 3 7 3s7-1.343 7-3v-3c0 1.657-3.134 3-7 3s-7-1.343-7-3z"/>
@@ -973,7 +1029,7 @@ fn AdapterVersionPromotionSection(
                                                         }
                                                     }
                                                 >
-                                                    <span class="version-lineage-title">"Dataset Lineage"</span>
+                                                    <span class="version-lineage-title">"Evidence Lineage"</span>
                                                     <div class="version-lineage-list">
                                                         {ds_ids.into_iter().map(|ds_id| {
                                                             let trust_label = ds_trust.iter()
@@ -1003,10 +1059,10 @@ fn AdapterVersionPromotionSection(
             // Promotion confirmation dialog
             <ConfirmationDialog
                 open=show_promote_dialog
-                title="Promote Version"
-                description="Promoting this version will make it the active serving version on its branch. The previously active version will be superseded.".to_string()
+                title="Move Version to Production"
+                description="This moves the selected reviewed version into Production. The prior production version stays in history and can be restored.".to_string()
                 severity=ConfirmationSeverity::Normal
-                confirm_text="Promote"
+                confirm_text="Move to Production"
                 on_confirm=handle_promote
                 loading=Signal::derive(move || promote_loading.try_get().unwrap_or(false))
             />
@@ -1014,13 +1070,99 @@ fn AdapterVersionPromotionSection(
             // Rollback confirmation dialog
             <ConfirmationDialog
                 open=show_rollback_dialog
-                title="Roll Back Version"
-                description="Rolling back will deprecate the current active version and re-activate the selected version for serving.".to_string()
+                title="Restore Previous Version"
+                description="This restores the selected version as the active Production version and preserves a full audit trail.".to_string()
                 severity=ConfirmationSeverity::Destructive
-                confirm_text="Roll Back"
+                confirm_text="Restore Version"
                 on_confirm=handle_rollback
                 loading=Signal::derive(move || rollback_loading.try_get().unwrap_or(false))
             />
         </Card>
+    }
+}
+
+/// Promotion stage rail: Draft → Reviewed → Production
+///
+/// Shows the three-stage promotion pipeline with the current stage highlighted.
+/// Displayed inside the Update Center card in the adapter detail panel.
+#[component]
+fn PromotionStageRail(
+    /// Current lifecycle state as a string (e.g. "draft", "staging", "active").
+    #[prop(into)]
+    current_state: String,
+) -> impl IntoView {
+    #[derive(Clone, PartialEq)]
+    enum StageStatus {
+        Done,
+        Current,
+        Upcoming,
+    }
+
+    let stages: &[(&str, &str, &str)] = &[
+        ("draft", "Draft", "skill created"),
+        ("staging", "Reviewed", "approved by team"),
+        ("active", "Production", "live and serving"),
+    ];
+
+    let current = current_state.to_lowercase();
+    // Map state to stage index
+    let current_idx: usize = match current.as_str() {
+        "draft" => 0,
+        "staging" => 1,
+        "active" => 2,
+        _ => 0,
+    };
+
+    view! {
+        <div class="promotion-stage-rail" style="display: flex; align-items: center; gap: 0; margin-bottom: 1rem;">
+            {stages.iter().enumerate().map(|(idx, (_, label, hint))| {
+                let status = if idx < current_idx {
+                    StageStatus::Done
+                } else if idx == current_idx {
+                    StageStatus::Current
+                } else {
+                    StageStatus::Upcoming
+                };
+
+                let circle_class = match &status {
+                    StageStatus::Done    => "stage-dot stage-dot--done",
+                    StageStatus::Current => "stage-dot stage-dot--current",
+                    StageStatus::Upcoming => "stage-dot stage-dot--upcoming",
+                };
+
+                let label_class = match &status {
+                    StageStatus::Done    => "stage-label stage-label--done",
+                    StageStatus::Current => "stage-label stage-label--current",
+                    StageStatus::Upcoming => "stage-label stage-label--upcoming",
+                };
+
+                let show_connector = idx + 1 < stages.len();
+
+                view! {
+                    <div style="display: flex; align-items: center; flex: 1;">
+                        <div style="display: flex; flex-direction: column; align-items: center; gap: 0.25rem; flex: none;">
+                            <div class=circle_class style="width: 2rem; height: 2rem; border-radius: 50%; display: flex; align-items: center; justify-content: center; font-size: 0.75rem; font-weight: 600; border: 2px solid; flex-shrink: 0;">
+                                {if status == StageStatus::Done {
+                                    view! {
+                                        <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.5" stroke-linecap="round" stroke-linejoin="round" style="width: 0.875rem; height: 0.875rem;">
+                                            <path d="M5 13l4 4L19 7"/>
+                                        </svg>
+                                    }.into_any()
+                                } else {
+                                    view! { <span>{idx + 1}</span> }.into_any()
+                                }}
+                            </div>
+                            <div class=label_class style="text-align: center; min-width: 4.5rem;">
+                                <p style="font-size: 0.6875rem; font-weight: 600; line-height: 1;">{*label}</p>
+                                <p style="font-size: 0.625rem; margin-top: 0.125rem;">{*hint}</p>
+                            </div>
+                        </div>
+                        {show_connector.then(|| view! {
+                            <div class="stage-connector" style="height: 2px; flex: 1; margin-bottom: 1.25rem;"></div>
+                        })}
+                    </div>
+                }
+            }).collect::<Vec<_>>()}
+        </div>
     }
 }

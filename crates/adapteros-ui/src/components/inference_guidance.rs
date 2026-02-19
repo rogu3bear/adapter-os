@@ -4,6 +4,7 @@
 //! Owns priority ordering: the UI should display the highest-priority blocker
 //! regardless of backend emission order, since detection order != resolution order.
 
+use crate::constants::ui_language;
 use adapteros_api_types::{InferenceBlocker, InferenceReadyState};
 
 /// Primary next-step action for resolving an inference blocker.
@@ -54,9 +55,9 @@ pub fn guidance_for(
         }
     } else {
         let reason = match readiness {
-            InferenceReadyState::Unknown => "Status unknown",
-            InferenceReadyState::False => "Reason unavailable",
-            InferenceReadyState::True => "Inference ready",
+            InferenceReadyState::Unknown => "Readiness is still being checked",
+            InferenceReadyState::False => "The system needs attention",
+            InferenceReadyState::True => "Prompt Studio is ready",
         };
         InferenceGuidance {
             reason,
@@ -67,43 +68,43 @@ pub fn guidance_for(
 
 fn fallback_action() -> InferenceAction {
     InferenceAction {
-        label: "View system status",
+        label: "Open Activity Monitor",
         href: "/system",
     }
 }
 
 fn blocker_reason(blocker: &InferenceBlocker) -> &'static str {
     match blocker {
-        InferenceBlocker::DatabaseUnavailable => "Database unavailable",
-        InferenceBlocker::WorkerMissing => "No workers connected",
-        InferenceBlocker::NoModelLoaded => "No model loaded",
-        InferenceBlocker::ActiveModelMismatch => "Selected model not loaded on any worker",
-        InferenceBlocker::TelemetryDegraded => "Telemetry degraded",
-        InferenceBlocker::SystemBooting => "System starting up",
-        InferenceBlocker::BootFailed => "System failed to start",
+        InferenceBlocker::DatabaseUnavailable => "Core services are unavailable",
+        InferenceBlocker::WorkerMissing => "No inference engines are online",
+        InferenceBlocker::NoModelLoaded => "No base model is active",
+        InferenceBlocker::ActiveModelMismatch => "The selected base is not active on any engine",
+        InferenceBlocker::TelemetryDegraded => "Live telemetry is temporarily degraded",
+        InferenceBlocker::SystemBooting => "Kernel Boot Sequence is still running",
+        InferenceBlocker::BootFailed => "Kernel startup needs operator attention",
     }
 }
 
 fn blocker_action(blocker: &InferenceBlocker) -> InferenceAction {
     match blocker {
         InferenceBlocker::NoModelLoaded => InferenceAction {
-            label: "Load a model",
+            label: ui_language::BASE_MODEL_REGISTRY,
             href: "/models",
         },
         InferenceBlocker::WorkerMissing => InferenceAction {
-            label: "Start a worker",
+            label: "Open Inference Engines",
             href: "/workers",
         },
         InferenceBlocker::ActiveModelMismatch => InferenceAction {
-            label: "Load active model",
+            label: "Activate matching base model",
             href: "/models",
         },
         InferenceBlocker::TelemetryDegraded => InferenceAction {
-            label: "View monitoring",
+            label: "Open live monitoring",
             href: "/monitoring",
         },
         InferenceBlocker::BootFailed => InferenceAction {
-            label: "View errors",
+            label: "Review startup events",
             href: "/errors",
         },
         InferenceBlocker::DatabaseUnavailable | InferenceBlocker::SystemBooting => {

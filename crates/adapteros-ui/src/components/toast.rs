@@ -100,6 +100,7 @@ pub fn ToastItem(
                                 <pre class="toast-details-text">{toast.details.clone()}</pre>
                                 <button
                                     class="toast-copy-btn"
+                                    aria-label="Copy to clipboard"
                                     on:click=move |_| {
                                         // If details look like JSON (diagnostic bundle), copy as-is
                                         // Otherwise format as plain text

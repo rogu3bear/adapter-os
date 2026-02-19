@@ -142,6 +142,7 @@ pub fn GitPanel(
                     prop:value=move || commit_message.get()
                     on:input=move |ev| set_commit_message.set(event_target_value(&ev))
                     placeholder="Commit message"
+                    aria_label="Commit message"
                 />
                 <button
                     class="btn btn-primary btn-sm files-git-commit-btn"

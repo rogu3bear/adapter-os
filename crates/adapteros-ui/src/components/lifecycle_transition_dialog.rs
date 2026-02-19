@@ -24,6 +24,16 @@ use crate::components::{Button, ButtonVariant, Dialog, DialogSize, Textarea};
 use leptos::prelude::*;
 use web_sys::KeyboardEvent;
 
+fn lifecycle_stage_label(state: &str) -> &'static str {
+    match state.to_ascii_lowercase().as_str() {
+        "draft" => "Draft",
+        "active" => "Reviewed",
+        "deprecated" => "Paused",
+        "retired" => "Retired",
+        _ => "Updated",
+    }
+}
+
 /// Details for a lifecycle transition
 #[derive(Clone, Debug, PartialEq)]
 pub struct LifecycleTransitionInfo {
@@ -100,7 +110,7 @@ pub fn LifecycleTransitionDialog(
     view! {
         <Dialog
             open=open
-            title="Confirm Lifecycle Transition".to_string()
+            title="Confirm Status Change".to_string()
             size=DialogSize::Md
         >
             <div class="space-y-4" on:keydown=handle_keydown>
@@ -110,14 +120,14 @@ pub fn LifecycleTransitionDialog(
                         <div class="space-y-4">
                             // Adapter name
                             <div class="text-sm">
-                                <span class="text-muted-foreground">"Adapter: "</span>
+                                <span class="text-muted-foreground">"Skill: "</span>
                                 <span class="font-medium">{t.adapter_name.clone()}</span>
                             </div>
 
                             // State transition visualization
                             <div class="flex items-center gap-3 p-3 bg-muted/50 rounded-lg">
                                 <span class="px-2 py-1 text-sm font-medium bg-secondary rounded">
-                                    {t.current_state.clone()}
+                                    {lifecycle_stage_label(&t.current_state)}
                                 </span>
                                 <svg
                                     class="h-4 w-4 text-muted-foreground"
@@ -134,13 +144,13 @@ pub fn LifecycleTransitionDialog(
                                     <path d="m12 5 7 7-7 7"/>
                                 </svg>
                                 <span class="px-2 py-1 text-sm font-medium bg-primary text-primary-foreground rounded">
-                                    {t.new_state.clone()}
+                                    {lifecycle_stage_label(&t.new_state)}
                                 </span>
                             </div>
 
                             // In-flight warning
                             {t.is_in_flight.then(|| view! {
-                                <div class="flex items-start gap-2 p-3 bg-warning/10 border border-warning/20 rounded-lg text-warning">
+                                <div class="flex items-start gap-2 p-3 bg-status-warning/10 border border-status-warning/20 rounded-lg text-status-warning">
                                     <svg
                                         class="h-5 w-5 flex-shrink-0 mt-0.5"
                                         xmlns="http://www.w3.org/2000/svg"
@@ -157,9 +167,9 @@ pub fn LifecycleTransitionDialog(
                                         <line x1="12" y1="17" x2="12.01" y2="17"/>
                                     </svg>
                                     <div class="text-sm">
-                                        <p class="font-medium">"Adapter is currently in use"</p>
-                                        <p class="text-warning/80 mt-1">
-                                            "This adapter is serving active requests. Changing its state may affect ongoing inference operations."
+                                        <p class="font-medium">"Skill is currently in use"</p>
+                                        <p class="text-status-warning/80 mt-1">
+                                            "This skill is serving active conversations. Changing status now may affect in-progress responses."
                                         </p>
                                     </div>
                                 </div>
@@ -168,18 +178,18 @@ pub fn LifecycleTransitionDialog(
                             // Reason input
                             <div class="space-y-2">
                                 <label class="label" for="transition-reason">
-                                    "Reason for transition"
+                                    "Reason for this change"
                                     <span class="form-field-required" aria-hidden="true">"*"</span>
                                 </label>
                                 <Textarea
                                     value=reason
-                                    placeholder="Enter the reason for this state change (required for audit trail)..."
+                                    placeholder="Describe why this change is needed (saved in signed audit records)."
                                     id="transition-reason".to_string()
                                     rows=3
                                     disabled=loading.try_get().unwrap_or(false)
                                 />
                                 <p class="text-xs text-muted-foreground">
-                                    "This reason will be recorded in the audit log."
+                                    "This note is added to the signed audit timeline."
                                 </p>
                             </div>
                         </div>
@@ -201,7 +211,7 @@ pub fn LifecycleTransitionDialog(
                         disabled=Signal::derive(move || !can_confirm.try_get().unwrap_or(false) || loading.try_get().unwrap_or(false))
                         loading=loading
                     >
-                        "Confirm Transition"
+                        "Apply Change"
                     </Button>
                 </div>
             </div>

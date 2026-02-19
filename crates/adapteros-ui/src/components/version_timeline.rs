@@ -49,21 +49,21 @@ fn classify_event(event_type: &str) -> (&'static str, BadgeVariant) {
     // event_type format is "state_change:<new_state>" from the server handler
     let lower = event_type.to_lowercase();
     if lower.contains("promoted") || lower.contains("promotion") {
-        ("Promotion", BadgeVariant::Success)
+        ("Moved to Production", BadgeVariant::Success)
     } else if lower.contains("rollback") {
-        ("Rollback", BadgeVariant::Destructive)
+        ("Restored Version", BadgeVariant::Destructive)
     } else if lower.contains("retired") {
         ("Retired", BadgeVariant::Destructive)
     } else if lower.contains("deprecated") {
-        ("Deprecated", BadgeVariant::Warning)
+        ("Archived", BadgeVariant::Warning)
     } else if lower.contains("active") {
-        ("Active", BadgeVariant::Success)
+        ("Reviewed", BadgeVariant::Success)
     } else if lower.contains("draft") {
         ("Draft", BadgeVariant::Secondary)
     } else if lower.contains("candidate") {
-        ("Candidate", BadgeVariant::Warning)
+        ("Reviewed", BadgeVariant::Warning)
     } else if lower.contains("state_change") {
-        ("State Change", BadgeVariant::Default)
+        ("Stage Updated", BadgeVariant::Default)
     } else {
         ("Event", BadgeVariant::Default)
     }
@@ -175,7 +175,7 @@ pub fn VersionTimeline(
             return;
         }
         let _ = events.try_get();
-        let Some(focus_id) = focused_event_id.try_get().flatten() else {
+        let Some(_focus_id) = focused_event_id.try_get().flatten() else {
             return;
         };
         #[cfg(target_arch = "wasm32")]
@@ -183,7 +183,7 @@ pub fn VersionTimeline(
             if let Some(window) = web_sys::window() {
                 if let Some(document) = window.document() {
                     if let Some(element) =
-                        document.get_element_by_id(&format!("timeline-event-{}", focus_id))
+                        document.get_element_by_id(&format!("timeline-event-{}", _focus_id))
                     {
                         element.scroll_into_view();
                     }
@@ -193,27 +193,27 @@ pub fn VersionTimeline(
     });
 
     view! {
-        <Card title="Version History">
+        <Card title="Update History">
             {move || {
                 if loading.try_get().unwrap_or(true) {
                     return view! {
                         <div class="version-timeline-loading">
                             <Spinner />
-                            <span class="version-timeline-loading-text">"Loading history..."</span>
+                            <span class="version-timeline-loading-text">"Loading update history..."</span>
                         </div>
                     }.into_any();
                 }
 
                 if let Some(err) = error.try_get().flatten() {
                     return view! {
-                        <p class="version-timeline-error">{format!("Could not load timeline: {}", err)}</p>
+                        <p class="version-timeline-error">{format!("Could not load update history: {}", err)}</p>
                     }.into_any();
                 }
 
                 let items = events.try_get().unwrap_or_default();
                 if items.is_empty() {
                     return view! {
-                        <p class="version-timeline-empty">"No version history yet"</p>
+                        <p class="version-timeline-empty">"No update history yet"</p>
                     }.into_any();
                 }
 

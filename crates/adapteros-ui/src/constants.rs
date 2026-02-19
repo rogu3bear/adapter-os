@@ -26,6 +26,42 @@ pub mod strings {
     pub const REFRESH: &str = "Refresh";
 }
 
+/// Human-facing product language for runtime concepts.
+///
+/// These labels intentionally avoid exposing backend implementation terms in
+/// primary UI copy.
+pub mod ui_language {
+    /// Global identity badge in the top bar.
+    pub const CONFIG_FINGERPRINT_LABEL: &str = "Current Configuration Fingerprint";
+    pub const CONFIG_FINGERPRINT_LOADING: &str = "Fingerprint syncing";
+    pub const CONFIG_FINGERPRINT_EMPTY: &str = "Fingerprint unavailable";
+    pub const CONFIG_FINGERPRINT_COPY: &str = "Copy fingerprint";
+    pub const CONFIG_FINGERPRINT_PROVENANCE: &str = "View proof trail";
+    pub const CONFIG_FINGERPRINT_HELP: &str = "The trusted identity of the exact active setup.";
+
+    /// Determinism/replay trust states.
+    pub const REPRODUCIBLE_MODE: &str = "Reproducible Mode";
+    pub const LOCKED_OUTPUT: &str = "Locked Output";
+    pub const REPRODUCIBLE_READY: &str = "Outputs can be reproduced exactly.";
+    pub const REPRODUCIBLE_PENDING: &str = "System is preparing reproducible execution safeguards.";
+
+    /// Startup and runtime health wording.
+    pub const KERNEL_BOOT_SEQUENCE: &str = "Kernel Boot Sequence";
+    pub const BOOT_READY: &str = "Kernel ready";
+    pub const BOOTING: &str = "Booting";
+    pub const SELF_HEALING_OS: &str = "Self-Healing OS";
+    pub const EVENT_VIEWER: &str = "Event Viewer";
+    pub const SIGNED_SYSTEM_LOGS: &str = "Signed System Logs";
+    pub const SYSTEM_RESTORE_POINTS: &str = "System Restore Points";
+    pub const SAFETY_SHIELD: &str = "Safety Shield";
+
+    /// Infrastructure surfaces translated into product language.
+    pub const BASE_MODEL_REGISTRY: &str = "Base Model Registry";
+    pub const REGISTER_NEW_BASE: &str = "Register New Base";
+    pub const INFERENCE_ENGINES: &str = "Inference Engines";
+    pub const UPDATE_CENTER: &str = "Update Center";
+}
+
 /// URL helpers for UI navigation.
 pub mod urls {
     #[cfg(target_arch = "wasm32")]

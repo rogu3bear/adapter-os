@@ -2,7 +2,8 @@
 //!
 //! Provides a consistent page structure with:
 //! - Page title with optional breadcrumbs
-//! - Primary actions slot (right-aligned)
+//! - Primary action slot (single CTA, right-aligned)
+//! - Secondary actions slot (right-aligned)
 //! - Main content area
 //! - Optional inspector panel (right side)
 //!
@@ -16,8 +17,11 @@
 //!             BreadcrumbItem::current("Adapters"),
 //!         ]
 //!     >
-//!         <PageScaffoldActions slot>
+//!         <PageScaffoldPrimaryAction slot>
 //!             <Button>"Create"</Button>
+//!         </PageScaffoldPrimaryAction>
+//!         <PageScaffoldActions slot>
+//!             <Button variant=ButtonVariant::Ghost>"Import"</Button>
 //!         </PageScaffoldActions>
 //!         <div>"Main content here"</div>
 //!     </PageScaffold>
@@ -61,9 +65,15 @@ impl BreadcrumbItem {
     }
 }
 
-/// Slot for primary actions in PageScaffold
+/// Slot for secondary actions in PageScaffold
 #[slot]
 pub struct PageScaffoldActions {
+    children: Children,
+}
+
+/// Slot for single primary action in PageScaffold
+#[slot]
+pub struct PageScaffoldPrimaryAction {
     children: Children,
 }
 
@@ -87,7 +97,10 @@ pub fn PageScaffold(
     /// Optional breadcrumb navigation
     #[prop(optional)]
     breadcrumbs: Option<Vec<BreadcrumbItem>>,
-    /// Optional actions slot (rendered in header, right side)
+    /// Optional primary action slot (rendered in header, right side before secondary actions)
+    #[prop(optional)]
+    page_scaffold_primary_action: Option<PageScaffoldPrimaryAction>,
+    /// Optional secondary actions slot (rendered in header, right side)
     #[prop(optional)]
     page_scaffold_actions: Option<PageScaffoldActions>,
     /// Optional inspector slot (rendered as right panel)
@@ -161,11 +174,32 @@ pub fn PageScaffold(
                             <p class="body-small text-muted-foreground mt-1">{s}</p>
                         })}
                     </div>
-                    {page_scaffold_actions.map(|actions| view! {
-                        <div class="flex w-full flex-wrap items-center gap-2 sm:w-auto sm:shrink-0 sm:justify-end">
-                            {(actions.children)()}
-                        </div>
-                    })}
+                    {match (page_scaffold_primary_action, page_scaffold_actions) {
+                        (Some(primary_action), Some(actions)) => view! {
+                            <div class="flex w-full flex-wrap items-center gap-2 sm:w-auto sm:shrink-0 sm:justify-end">
+                                <div class="sm:order-1">
+                                    {(primary_action.children)()}
+                                </div>
+                                <div class="flex flex-wrap items-center gap-2 sm:order-2">
+                                    {(actions.children)()}
+                                </div>
+                            </div>
+                        }
+                        .into_any(),
+                        (Some(primary_action), None) => view! {
+                            <div class="flex w-full flex-wrap items-center gap-2 sm:w-auto sm:shrink-0 sm:justify-end">
+                                {(primary_action.children)()}
+                            </div>
+                        }
+                        .into_any(),
+                        (None, Some(actions)) => view! {
+                            <div class="flex w-full flex-wrap items-center gap-2 sm:w-auto sm:shrink-0 sm:justify-end">
+                                {(actions.children)()}
+                            </div>
+                        }
+                        .into_any(),
+                        (None, None) => view! {}.into_any(),
+                    }}
                 </div>
             </header>
 

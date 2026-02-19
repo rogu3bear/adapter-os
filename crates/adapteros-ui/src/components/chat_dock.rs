@@ -3,27 +3,25 @@
 //! A persistent chat panel that stays visible across page navigation.
 //! Provides a command console for interacting with adapterOS.
 
-use crate::api::ApiClient;
 use crate::components::{Button, ButtonSize, ButtonType, ButtonVariant, Spinner, Textarea};
-use crate::hooks::{use_api_resource, use_system_status, LoadingState};
+use crate::hooks::{use_system_status, LoadingState};
 use crate::signals::{
     use_chat, use_settings, ChatTarget, ContextToggle, DockState, MessageStatus, PendingPhase,
 };
 use adapteros_api_types::InferenceReadyState;
 use leptos::prelude::*;
-use std::sync::Arc;
 
 /// Human-readable blocker reasons for pending messages
 fn humanize_blocker(blocker: &adapteros_api_types::InferenceBlocker) -> &'static str {
     use adapteros_api_types::InferenceBlocker;
     match blocker {
-        InferenceBlocker::WorkerMissing => "waiting for worker",
-        InferenceBlocker::NoModelLoaded => "loading model",
-        InferenceBlocker::DatabaseUnavailable => "connecting to database",
-        InferenceBlocker::ActiveModelMismatch => "switching models",
-        InferenceBlocker::TelemetryDegraded => "system warming up",
-        InferenceBlocker::SystemBooting => "system starting",
-        InferenceBlocker::BootFailed => "system error",
+        InferenceBlocker::WorkerMissing => "waiting for inference engine",
+        InferenceBlocker::NoModelLoaded => "activating base model",
+        InferenceBlocker::DatabaseUnavailable => "reconnecting core services",
+        InferenceBlocker::ActiveModelMismatch => "aligning base model",
+        InferenceBlocker::TelemetryDegraded => "stabilizing telemetry",
+        InferenceBlocker::SystemBooting => "running kernel boot sequence",
+        InferenceBlocker::BootFailed => "kernel startup requires attention",
     }
 }
 
@@ -37,8 +35,7 @@ pub fn ChatDock() -> impl IntoView {
             let state = chat_state.get();
             match state.dock_state {
                 DockState::Docked => view! { <ChatDockPanel/> }.into_any(),
-                DockState::Narrow => view! { <NarrowChatDock/> }.into_any(),
-                DockState::Hidden => view! {}.into_any(),
+                DockState::Narrow | DockState::Hidden => view! {}.into_any(),
             }
         }}
     }
@@ -51,7 +48,7 @@ pub fn ChatDockPanel() -> impl IntoView {
         <aside class="w-80 xl:w-96 flex-col border-l border-border bg-background h-full hidden lg:flex transition-all duration-200">
             // Header with collapse button
             <div class="h-10 flex items-center justify-between border-b border-border px-3 shrink-0">
-                <span class="text-sm font-medium">"Chat"</span>
+                <span class="text-sm font-medium">"Prompt Studio"</span>
                 <div class="flex items-center gap-1">
                     <PopOutButton/>
                     <CollapseButton/>
@@ -73,59 +70,6 @@ pub fn ChatDockPanel() -> impl IntoView {
     }
 }
 
-/// Narrow dock view (icon only with unread badge)
-#[component]
-pub fn NarrowChatDock() -> impl IntoView {
-    let (chat_state, chat_action) = use_chat();
-
-    let expand = {
-        let action = chat_action.clone();
-        move |_| {
-            action.set_dock_state(DockState::Docked);
-        }
-    };
-
-    view! {
-        <aside class="w-12 flex-col items-center border-l border-border bg-background py-3 hidden lg:flex">
-            <button
-                class="relative p-2 rounded-lg hover:bg-muted/50 transition-colors"
-                on:click=expand
-                title="Expand chat"
-            >
-                // Chat icon
-                <svg
-                    xmlns="http://www.w3.org/2000/svg"
-                    class="h-5 w-5 text-muted-foreground"
-                    fill="none"
-                    viewBox="0 0 24 24"
-                    stroke="currentColor"
-                    stroke-width="2"
-                >
-                    <path
-                        stroke-linecap="round"
-                        stroke-linejoin="round"
-                        d="M8 12h.01M12 12h.01M16 12h.01M21 12c0 4.418-4.03 8-9 8a9.863 9.863 0 01-4.255-.949L3 20l1.395-3.72C3.512 15.042 3 13.574 3 12c0-4.418 4.03-8 9-8s9 3.582 9 8z"
-                    />
-                </svg>
-
-                // Unread badge
-                {move || {
-                    let unread = chat_state.get().unread_count();
-                    if unread > 0 {
-                        view! {
-                            <span class="absolute -top-1 -right-1 flex h-4 w-4 items-center justify-center rounded-full bg-destructive text-3xs font-medium text-destructive-foreground">
-                                {if unread > 9 { "9+".to_string() } else { unread.to_string() }}
-                            </span>
-                        }.into_any()
-                    } else {
-                        view! {}.into_any()
-                    }
-                }}
-            </button>
-        </aside>
-    }
-}
-
 /// Collapse button to minimize the dock
 #[component]
 fn CollapseButton() -> impl IntoView {
@@ -143,6 +87,7 @@ fn CollapseButton() -> impl IntoView {
             class="p-1 rounded hover:bg-muted transition-colors"
             on:click=collapse
             title="Collapse"
+            aria-label="Collapse"
         >
             <svg
                 xmlns="http://www.w3.org/2000/svg"
@@ -171,6 +116,7 @@ fn PopOutButton() -> impl IntoView {
             class="p-1 rounded hover:bg-muted transition-colors"
             on:click=navigate
             title="Open full chat"
+            aria-label="Open full chat"
         >
             <svg
                 xmlns="http://www.w3.org/2000/svg"
@@ -378,7 +324,7 @@ pub fn ChatTargetSelector(#[prop(optional)] inline: bool) -> impl IntoView {
                         view! {
                             <>
                                 <span class="text-muted-foreground text-xs">"Target:"</span>
-                                <span class="font-medium truncate max-w-[150px]">{label}</span>
+                                <span class="font-medium truncate min-w-[140px] max-w-[220px]">{label}</span>
                             </>
                         }
                         .into_any()
@@ -926,13 +872,14 @@ fn ReasoningModeToggle() -> impl IntoView {
             class=move || format!(
                 "flex items-center gap-1.5 px-2 py-1 rounded text-xs font-medium transition-colors {}",
                 if chat_state.get().context.reasoning_mode {
-                    "bg-warning/10 text-warning border border-warning/50"
+                    "bg-status-warning/10 text-status-warning border border-status-warning/50"
                 } else {
                     "hover:bg-muted text-muted-foreground"
                 }
             )
             on:click=on_click
             title="Enable reasoning mode: semantic router swaps adapters mid-stream based on thought boundaries (not a dedicated prefill step)"
+            aria-label="Toggle reasoning mode"
         >
             // Brain/lightbulb icon for reasoning
             <svg
@@ -987,6 +934,7 @@ where
             )
             on:click=on_click
             title=title
+            aria-label=title
         >
             <svg
                 xmlns="http://www.w3.org/2000/svg"
@@ -1019,6 +967,7 @@ fn ClearButton() -> impl IntoView {
             class="p-1.5 rounded hover:bg-muted text-muted-foreground transition-colors disabled:opacity-50"
             on:click=on_clear
             title="Clear chat"
+            aria-label="Clear chat"
             disabled=move || chat_state.get().messages.is_empty()
         >
             <svg
@@ -1168,6 +1117,7 @@ fn ChatInput() -> impl IntoView {
                     rows=2
                     class="resize-none".to_string()
                     on_keydown=on_input_keydown
+                    aria_label="Type a message"
                 />
                 <div class="flex justify-end gap-2">
                     {move || {
@@ -1234,6 +1184,7 @@ pub fn MobileChatOverlay() -> impl IntoView {
             <button
                 class="relative flex h-14 w-14 items-center justify-center rounded-full bg-primary text-primary-foreground shadow-lg hover:bg-primary/90 transition-colors"
                 on:click=toggle_overlay
+                aria-label="Open chat"
             >
                 <svg
                     xmlns="http://www.w3.org/2000/svg"
@@ -1290,6 +1241,7 @@ pub fn MobileChatOverlay() -> impl IntoView {
                                 <button
                                     class="p-2 rounded-lg hover:bg-muted"
                                     on:click=close_overlay
+                                    aria-label="Close chat panel"
                                 >
                                     <svg
                                         xmlns="http://www.w3.org/2000/svg"

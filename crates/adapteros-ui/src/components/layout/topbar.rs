@@ -10,14 +10,21 @@ use crate::components::layout::nav_registry::build_mobile_nav_items;
 use crate::components::responsive::use_is_mobile;
 use crate::components::status::{Badge, BadgeVariant};
 use crate::components::status_center::use_status_center;
+use crate::constants::ui_language;
 use crate::constants::urls::docs_url;
+use crate::hooks::{use_system_status, LoadingState};
 use crate::signals::{
     use_auth, use_notification_state, use_notifications, use_refetch, use_search, use_ui_profile,
     use_ui_profile_state,
 };
+use adapteros_api_types::{
+    InferenceBlocker, InferenceReadyState, StatusIndicator as ApiStatusIndicator,
+    SystemStatusResponse,
+};
 use leptos::prelude::*;
 use wasm_bindgen::prelude::*;
 use wasm_bindgen::JsCast;
+use wasm_bindgen_futures::JsFuture;
 
 /// Thin top bar with branding, command palette hint, and user menu.
 /// Responsive: collapses to hamburger + key actions on mobile.
@@ -33,12 +40,45 @@ pub fn TopBar() -> impl IntoView {
     let is_mobile = use_is_mobile();
     let search = use_search();
     let ui_profile_state = use_ui_profile_state();
+    let (system_status, _refetch_system_status) = use_system_status();
     let docs_url_value = Signal::derive(move || {
         ui_profile_state
             .try_get()
             .and_then(|s| s.runtime_docs_url)
             .filter(|url| !url.trim().is_empty())
             .unwrap_or_else(docs_url)
+    });
+    let fingerprint = Memo::new(move |_| match system_status.try_get() {
+        Some(LoadingState::Loaded(status)) => Some(configuration_fingerprint(&status)),
+        _ => None,
+    });
+    let reproducible_ready = Memo::new(move |_| {
+        system_status
+            .try_get()
+            .and_then(|state| {
+                if let LoadingState::Loaded(status) = state {
+                    Some(is_reproducible_mode_ready(&status))
+                } else {
+                    None
+                }
+            })
+            .unwrap_or(false)
+    });
+    let fingerprint_changed = RwSignal::new(false);
+    let last_fingerprint = RwSignal::new(None::<String>);
+    Effect::new(move || {
+        let Some(next_fingerprint) = fingerprint.try_get().flatten() else {
+            return;
+        };
+        let previous = last_fingerprint.get_untracked();
+        if previous.as_deref() != Some(next_fingerprint.as_str()) {
+            if previous.is_some() {
+                let changed_signal = fingerprint_changed;
+                changed_signal.set(true);
+                set_timeout_simple(move || changed_signal.set(false), 1500);
+            }
+            last_fingerprint.set(Some(next_fingerprint));
+        }
     });
 
     // Environment detection (dev/prod)
@@ -130,9 +170,9 @@ pub fn TopBar() -> impl IntoView {
     });
 
     view! {
-        <header class="topbar h-10 flex items-center justify-between border-b border-border/50 shrink-0">
-            // Left: Hamburger (mobile) + Product name + environment badge
-            <div class="flex items-center gap-3">
+        <header class="topbar os-topbar h-12 flex items-center justify-between border-b border-border/50 shrink-0">
+            // Left: Hamburger (mobile) + product identity + trust badges
+            <div class="topbar-left flex items-center gap-3 min-w-0">
                 // Hamburger menu button (mobile only)
                 <button
                     class="topbar-hamburger topbar-action"
@@ -149,8 +189,93 @@ pub fn TopBar() -> impl IntoView {
                 </button>
 
                 <div class="flex items-center gap-2">
-                    <span class="topbar-brand-text font-semibold text-sm tracking-tight">"adapterOS"</span>
+                    <span class="topbar-brand-text font-semibold text-sm tracking-tight">"AdapterOS Kernel"</span>
                     <Badge variant=env_badge_variant>{env_badge}</Badge>
+                </div>
+
+                // Always-visible runtime identity: Current Configuration Fingerprint.
+                <div class=move || {
+                    let changed = fingerprint_changed.try_get().unwrap_or(false);
+                    format!(
+                        "fingerprint-badge {}",
+                        if changed {
+                            "fingerprint-badge--changed"
+                        } else {
+                            ""
+                        }
+                    )
+                }
+                    aria-label="Current Configuration Fingerprint"
+                >
+                    <span class="fingerprint-badge__label">{ui_language::CONFIG_FINGERPRINT_LABEL}</span>
+                    <span
+                        class="fingerprint-badge__value"
+                        title=ui_language::CONFIG_FINGERPRINT_HELP
+                    >
+                        {move || {
+                            fingerprint
+                                .try_get()
+                                .flatten()
+                                .map(|value| short_fingerprint(&value))
+                                .unwrap_or_else(|| ui_language::CONFIG_FINGERPRINT_LOADING.to_string())
+                        }}
+                    </span>
+                    <button
+                        class="fingerprint-badge__copy"
+                        title=ui_language::CONFIG_FINGERPRINT_COPY
+                        aria-label=ui_language::CONFIG_FINGERPRINT_COPY
+                        on:click=move |_| {
+                            let value = fingerprint
+                                .get_untracked()
+                                .unwrap_or_else(|| ui_language::CONFIG_FINGERPRINT_EMPTY.to_string());
+                            wasm_bindgen_futures::spawn_local(async move {
+                                let _ = copy_text_to_clipboard(&value).await;
+                            });
+                        }
+                    >
+                        <svg class="w-3.5 h-3.5" fill="none" stroke="currentColor" viewBox="0 0 24 24" stroke-width="2">
+                            <path stroke-linecap="round" stroke-linejoin="round" d="M8 16h8M8 12h8m-8-4h8m5 10a2 2 0 01-2 2H7a2 2 0 01-2-2V6a2 2 0 012-2h8l4 4v10z"/>
+                        </svg>
+                    </button>
+                    <a
+                        href="/runs"
+                        class="fingerprint-badge__provenance"
+                        title=ui_language::CONFIG_FINGERPRINT_PROVENANCE
+                    >
+                        {ui_language::CONFIG_FINGERPRINT_PROVENANCE}
+                    </a>
+                </div>
+
+                <div
+                    class=move || {
+                        if reproducible_ready.get() {
+                            "trust-badge trust-badge--locked".to_string()
+                        } else {
+                            "trust-badge".to_string()
+                        }
+                    }
+                    aria-label=move || {
+                        if reproducible_ready.get() {
+                            "Locked Output active".to_string()
+                        } else {
+                            "Locked Output pending".to_string()
+                        }
+                    }
+                    title=move || {
+                        if reproducible_ready.get() {
+                            ui_language::REPRODUCIBLE_READY.to_string()
+                        } else {
+                            ui_language::REPRODUCIBLE_PENDING.to_string()
+                        }
+                    }
+                >
+                    <span class="trust-badge__icon" aria-hidden="true">
+                        <svg class="w-3.5 h-3.5" fill="none" stroke="currentColor" viewBox="0 0 24 24" stroke-width="2">
+                            <path stroke-linecap="round" stroke-linejoin="round" d="M12 11V7a4 4 0 00-8 0v4m16 0H4m16 0v8a2 2 0 01-2 2H6a2 2 0 01-2-2v-8"/>
+                        </svg>
+                    </span>
+                    <span class="trust-badge__text">{ui_language::REPRODUCIBLE_MODE}</span>
+                    <span class="trust-badge__state">{ui_language::LOCKED_OUTPUT}</span>
                 </div>
             </div>
 
@@ -193,7 +318,7 @@ pub fn TopBar() -> impl IntoView {
                             <svg class="w-4 h-4 text-muted-foreground" fill="none" stroke="currentColor" viewBox="0 0 24 24" stroke-width="2">
                                 <path stroke-linecap="round" stroke-linejoin="round" d="M12 18h.01M10 8h4m-4 4h2m7 4a2 2 0 01-2 2H7a2 2 0 01-2-2V6a2 2 0 012-2h6l4 4v8z"/>
                             </svg>
-                            <span class="text-xs text-muted-foreground">"Docs"</span>
+                            <span class="text-xs text-muted-foreground">"Manual"</span>
                         </a>
                     })
                 }}
@@ -292,7 +417,7 @@ pub fn TopBar() -> impl IntoView {
                                                 <svg class="w-4 h-4 text-muted-foreground" fill="none" stroke="currentColor" viewBox="0 0 24 24" stroke-width="2">
                                                     <path stroke-linecap="round" stroke-linejoin="round" d="M16 7a4 4 0 11-8 0 4 4 0 018 0zM12 14a7 7 0 00-7 7h14a7 7 0 00-7-7z"/>
                                                 </svg>
-                                                "Profile"
+                                                "Workspace Profile"
                                             </a>
                                             <a
                                                 href="/settings"
@@ -303,7 +428,7 @@ pub fn TopBar() -> impl IntoView {
                                                     <path stroke-linecap="round" stroke-linejoin="round" d="M10.325 4.317c.426-1.756 2.924-1.756 3.35 0a1.724 1.724 0 002.573 1.066c1.543-.94 3.31.826 2.37 2.37a1.724 1.724 0 001.065 2.572c1.756.426 1.756 2.924 0 3.35a1.724 1.724 0 00-1.066 2.573c.94 1.543-.826 3.31-2.37 2.37a1.724 1.724 0 00-2.572 1.065c-.426 1.756-2.924 1.756-3.35 0a1.724 1.724 0 00-2.573-1.066c-1.543.94-3.31-.826-2.37-2.37a1.724 1.724 0 00-1.065-2.572c-1.756-.426-1.756-2.924 0-3.35a1.724 1.724 0 001.066-2.573c-.94-1.543.826-3.31 2.37-2.37.996.608 2.296.07 2.572-1.065z"/>
                                                     <path stroke-linecap="round" stroke-linejoin="round" d="M15 12a3 3 0 11-6 0 3 3 0 016 0z"/>
                                                 </svg>
-                                                "Preferences"
+                                                "Personal Preferences"
                                             </a>
                                         </div>
                                         // Session actions
@@ -323,7 +448,7 @@ pub fn TopBar() -> impl IntoView {
                                                 <svg class="w-4 h-4" fill="none" stroke="currentColor" viewBox="0 0 24 24" stroke-width="2">
                                                     <path stroke-linecap="round" stroke-linejoin="round" d="M17 16l4-4m0 0l-4-4m4 4H7m6 4v1a3 3 0 01-3 3H6a3 3 0 01-3-3V7a3 3 0 013-3h4a3 3 0 013 3v1"/>
                                                 </svg>
-                                                "Log out"
+                                                "Sign out"
                                             </button>
                                         </div>
                                     }.into_any()
@@ -385,7 +510,7 @@ fn MobileMenu(
                 on:click=|e| e.stop_propagation()
             >
                 <div class="mobile-menu-header">
-                    <span class="font-semibold text-sm">"adapterOS"</span>
+                    <span class="font-semibold text-sm">"AdapterOS Kernel"</span>
                     <button
                         class="mobile-menu-close"
                         on:click=move |_| on_close()
@@ -433,7 +558,7 @@ fn MobileMenu(
                                     <svg class="w-5 h-5" fill="none" stroke="currentColor" viewBox="0 0 24 24" stroke-width="2">
                                         <path stroke-linecap="round" stroke-linejoin="round" d="M12 18h.01M10 8h4m-4 4h2m7 4a2 2 0 01-2 2H7a2 2 0 01-2-2V6a2 2 0 012-2h6l4 4v8z"/>
                                     </svg>
-                                    <span>"Documentation"</span>
+                                    <span>"Operator Manual"</span>
                                 </a>
                             })
                         }}
@@ -494,7 +619,10 @@ fn TenantPicker() -> impl IntoView {
                 match action.switch_tenant(&selected_id).await {
                     Ok(()) => {
                         notifications_stored.with_value(|n| {
-                            n.success("Tenant switched", &format!("Now using {}", selected_id));
+                            n.success(
+                                "Workspace switched",
+                                &format!("Now using workspace {}", selected_id),
+                            );
                         });
                         refetch_stored.with_value(|r| r.all());
                     }
@@ -525,13 +653,19 @@ fn TenantPicker() -> impl IntoView {
                         .collect::<Vec<_>>();
 
                     Some(view! {
-                        <div class="topbar-action-secondary flex items-center">
+                        <div class="topbar-action-secondary flex items-center gap-2">
+                            <span
+                                class="text-[10px] font-semibold uppercase tracking-wide text-muted-foreground/80"
+                                title="Tenants are workspaces, not user accounts"
+                            >
+                                "Workspace"
+                            </span>
                             <select
                                 class="tenant-picker text-xs bg-transparent border border-border/50 rounded px-2 py-1 text-foreground cursor-pointer hover:bg-muted/50 transition-colors focus:outline-none focus:ring-1 focus:ring-primary/50"
                                 on:change=on_change
                                 disabled=move || switching.get()
-                                aria-label="Switch tenant"
-                                title="Switch workspace"
+                                aria-label="Switch workspace tenant"
+                                title="Switch workspace (tenant context, not user account)"
                             >
                                 {options}
                             </select>
@@ -571,8 +705,8 @@ fn ErrorHistoryButton() -> impl IntoView {
         <button
             class="topbar-action relative flex items-center justify-center w-8 h-8 rounded-md hover:bg-muted/50 transition-colors"
             on:click=on_click
-            title="Notifications (Ctrl+Shift+S)"
-            aria-label="Open notifications"
+            title="Event Viewer (Ctrl+Shift+S)"
+            aria-label="Event Viewer (Ctrl+Shift+S)"
         >
             // Bell/notification icon
             <svg class="w-4 h-4 text-muted-foreground" fill="none" stroke="currentColor" viewBox="0 0 24 24" stroke-width="2">
@@ -591,3 +725,152 @@ fn ErrorHistoryButton() -> impl IntoView {
         </button>
     }
 }
+
+pub(crate) fn fingerprint_seed(status: &SystemStatusResponse) -> String {
+    let model_id = status
+        .kernel
+        .as_ref()
+        .and_then(|kernel| kernel.model.as_ref())
+        .and_then(|model| model.model_id.clone())
+        .unwrap_or_else(|| "none".to_string());
+    let plan_id = status
+        .kernel
+        .as_ref()
+        .and_then(|kernel| kernel.plan.as_ref())
+        .map(|plan| plan.plan_id.clone())
+        .unwrap_or_else(|| "none".to_string());
+    let inference_ready = match status.inference_ready {
+        InferenceReadyState::True => "ready",
+        InferenceReadyState::False => "blocked",
+        InferenceReadyState::Unknown => "unknown",
+    };
+    let readiness = match status.readiness.overall {
+        ApiStatusIndicator::Ready => "ready",
+        ApiStatusIndicator::NotReady => "not_ready",
+        ApiStatusIndicator::Unknown => "unknown",
+    };
+    let mut blockers = status
+        .inference_blockers
+        .iter()
+        .map(fingerprint_blocker_key)
+        .collect::<Vec<_>>();
+    blockers.sort_unstable();
+    let blockers = if blockers.is_empty() {
+        "none".to_string()
+    } else {
+        blockers.join(",")
+    };
+    let boot_phase = status
+        .boot
+        .as_ref()
+        .map(|boot| boot.phase.clone())
+        .unwrap_or_else(|| "none".to_string());
+    format!(
+        "{}|{}|{}|{}|{}|{}|{}|{}",
+        status.integrity.mode,
+        status.integrity.strict_mode,
+        model_id,
+        plan_id,
+        inference_ready,
+        readiness,
+        blockers,
+        boot_phase
+    )
+}
+
+pub(crate) fn configuration_fingerprint(status: &SystemStatusResponse) -> String {
+    // Deterministic FNV-1a digest for a stable, copyable UI fingerprint.
+    let seed = fingerprint_seed(status);
+    let mut hash: u64 = 0xcbf29ce484222325;
+    for byte in seed.as_bytes() {
+        hash ^= u64::from(*byte);
+        hash = hash.wrapping_mul(0x100000001b3);
+    }
+    format!("CFG-{:016x}", hash)
+}
+
+pub(crate) fn short_fingerprint(value: &str) -> String {
+    if value.len() <= 18 {
+        value.to_string()
+    } else {
+        format!(
+            "{}…{}",
+            &value[..10],
+            &value[value.len().saturating_sub(6)..]
+        )
+    }
+}
+
+pub(crate) fn is_reproducible_mode_ready(status: &SystemStatusResponse) -> bool {
+    let integrity_mode = status.integrity.mode.to_ascii_lowercase();
+    let mode_supports_lock = status.integrity.strict_mode
+        || integrity_mode.contains("strict")
+        || integrity_mode.contains("determin");
+    let readiness_ready = matches!(status.readiness.overall, ApiStatusIndicator::Ready);
+    let has_critical_blockers = status.inference_blockers.iter().any(|blocker| {
+        matches!(
+            blocker,
+            InferenceBlocker::BootFailed
+                | InferenceBlocker::SystemBooting
+                | InferenceBlocker::DatabaseUnavailable
+                | InferenceBlocker::WorkerMissing
+                | InferenceBlocker::NoModelLoaded
+                | InferenceBlocker::ActiveModelMismatch
+        )
+    });
+    mode_supports_lock && readiness_ready && !has_critical_blockers
+}
+
+fn fingerprint_blocker_key(blocker: &InferenceBlocker) -> &'static str {
+    match blocker {
+        InferenceBlocker::DatabaseUnavailable => "db_unavailable",
+        InferenceBlocker::WorkerMissing => "engine_missing",
+        InferenceBlocker::NoModelLoaded => "base_missing",
+        InferenceBlocker::ActiveModelMismatch => "base_mismatch",
+        InferenceBlocker::TelemetryDegraded => "telemetry_degraded",
+        InferenceBlocker::SystemBooting => "booting",
+        InferenceBlocker::BootFailed => "boot_failed",
+    }
+}
+
+async fn copy_text_to_clipboard(text: &str) -> bool {
+    let Some(window) = web_sys::window() else {
+        return false;
+    };
+    let navigator = window.navigator();
+    let clipboard =
+        js_sys::Reflect::get(&navigator, &wasm_bindgen::JsValue::from_str("clipboard")).ok();
+    let Some(clipboard) = clipboard else {
+        return false;
+    };
+    let write_text =
+        js_sys::Reflect::get(&clipboard, &wasm_bindgen::JsValue::from_str("writeText")).ok();
+    let Some(write_text) = write_text else {
+        return false;
+    };
+    let Ok(write_text) = write_text.dyn_into::<js_sys::Function>() else {
+        return false;
+    };
+    let promise = match write_text.call1(&clipboard, &wasm_bindgen::JsValue::from_str(text)) {
+        Ok(promise) => promise,
+        Err(_) => return false,
+    };
+    JsFuture::from(js_sys::Promise::resolve(&promise))
+        .await
+        .is_ok()
+}
+
+#[cfg(target_arch = "wasm32")]
+fn set_timeout_simple<F>(f: F, ms: i32)
+where
+    F: FnOnce() + 'static,
+{
+    let closure = Closure::once_into_js(f);
+    if let Some(window) = web_sys::window() {
+        let _ = window
+            .set_timeout_with_callback_and_timeout_and_arguments_0(closure.unchecked_ref(), ms);
+    }
+}
+
+#[cfg(not(target_arch = "wasm32"))]
+fn set_timeout_simple<F: FnOnce() + 'static>(_f: F, _ms: i32) {}

@@ -48,22 +48,23 @@ pub fn OfflineBanner() -> impl IntoView {
     view! {
         <Show when=move || matches!(health.get(), LoadingState::Error(_))>
             <div
-                class="offline-banner"
+                class="global-banner global-banner--error"
                 role="alert"
                 aria-live="polite"
             >
-                <div class="offline-banner-content">
-                    <span class="offline-banner-title">"Backend offline"</span>
-                    <span class="offline-banner-message">
+                <div class="global-banner-content">
+                    <span class="global-banner-title">"Backend offline"</span>
+                    <span class="global-banner-message">
                         "Unable to reach the adapterOS API. You can keep viewing cached data."
                     </span>
                 </div>
-                <Button
-                    class="offline-banner-action".to_string()
-                    on_click=Callback::new(move |_| retry.with_value(|f| f.run(())))
-                >
-                    "Retry"
-                </Button>
+                <div class="global-banner-actions">
+                    <Button
+                        on_click=Callback::new(move |_| retry.with_value(|f| f.run(())))
+                    >
+                        "Retry"
+                    </Button>
+                </div>
             </div>
         </Show>
     }

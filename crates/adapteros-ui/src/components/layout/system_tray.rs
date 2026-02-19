@@ -5,7 +5,12 @@
 use crate::api::ApiClient;
 use crate::components::status::{StatusColor, StatusIndicator};
 use crate::components::status_center::use_status_center;
-use crate::hooks::{use_api_resource, use_polling, use_system_status, LoadingState};
+use crate::constants::ui_language;
+use crate::hooks::{
+    use_api_resource, use_cached_api_resource, use_polling, use_startup_health, use_system_status,
+    CacheTtl, LoadingState,
+};
+use adapteros_api_types::WorkerResponse;
 use leptos::prelude::*;
 use std::sync::Arc;
 
@@ -25,6 +30,12 @@ pub fn SystemTray() -> impl IntoView {
     let (health, _refetch_health) =
         use_api_resource(|client: Arc<ApiClient>| async move { client.health().await });
     let (system_status, _refetch_status) = use_system_status();
+    let (startup_health, _refetch_startup_health) = use_startup_health();
+    let (workers, _refetch_workers) = use_cached_api_resource(
+        "workers_tray",
+        CacheTtl::LIST,
+        |client: Arc<ApiClient>| async move { client.list_workers().await },
+    );
 
     // Current time (updates every second)
     let (time, set_time) = signal(get_current_time());
@@ -35,7 +46,63 @@ pub fn SystemTray() -> impl IntoView {
     });
 
     view! {
-        <div class="flex items-center gap-3 shrink-0">
+        <div class="system-tray flex items-center gap-3 shrink-0">
+            {move || {
+                let (class, label, title) = match startup_health.get() {
+                    LoadingState::Loaded(boot) => {
+                        let status = boot.status.to_ascii_lowercase();
+                        if status == "ready" {
+                            (
+                                "system-tray-pill system-tray-pill--ready",
+                                ui_language::BOOT_READY.to_string(),
+                                ui_language::KERNEL_BOOT_SEQUENCE.to_string(),
+                            )
+                        } else if status == "degraded" {
+                            (
+                                "system-tray-pill system-tray-pill--warn",
+                                format!("{} (degraded)", ui_language::SELF_HEALING_OS),
+                                boot.next_action.clone(),
+                            )
+                        } else if status == "failed" {
+                            let phase = boot
+                                .failed_phase
+                                .clone()
+                                .unwrap_or_else(|| "unknown phase".to_string());
+                            (
+                                "system-tray-pill system-tray-pill--error",
+                                "Boot needs attention".to_string(),
+                                format!("{}: {}", phase, boot.next_action),
+                            )
+                        } else {
+                            (
+                                "system-tray-pill system-tray-pill--booting",
+                                format!("{}…", ui_language::BOOTING),
+                                boot.next_action.clone(),
+                            )
+                        }
+                    }
+                    LoadingState::Error(_) => (
+                        "system-tray-pill system-tray-pill--error",
+                        "Boot status unavailable".to_string(),
+                        "Boot monitor is currently unavailable.".to_string(),
+                    ),
+                    LoadingState::Idle | LoadingState::Loading => (
+                        "system-tray-pill system-tray-pill--booting",
+                        format!("{}…", ui_language::BOOTING),
+                        "Collecting startup state.".to_string(),
+                    ),
+                };
+                view! {
+                    <a
+                        href="/system"
+                        class=class
+                        title=title
+                        aria-label="Open kernel boot sequence details"
+                    >
+                        {label}
+                    </a>
+                }
+            }}
             {move || {
                 let (color, label, pulsing, title) = match system_status.get() {
                     LoadingState::Loaded(status) => {
@@ -103,6 +170,75 @@ pub fn SystemTray() -> impl IntoView {
             }}
 
             {move || {
+                let (label, tone) = match workers.get() {
+                    LoadingState::Loaded(list) => {
+                        let active = list
+                            .iter()
+                            .filter(|worker| !is_terminal_worker_state(worker))
+                            .count();
+                        if active == 0 {
+                            ("No engines online".to_string(), "system-tray-pill system-tray-pill--warn")
+                        } else {
+                            (format!("{} {} live", active, ui_language::INFERENCE_ENGINES), "system-tray-pill system-tray-pill--ready")
+                        }
+                    }
+                    LoadingState::Error(_) => (
+                        "Engine status unavailable".to_string(),
+                        "system-tray-pill system-tray-pill--error",
+                    ),
+                    LoadingState::Idle | LoadingState::Loading => (
+                        "Checking engines".to_string(),
+                        "system-tray-pill system-tray-pill--booting",
+                    ),
+                };
+                view! {
+                    <a
+                        href="/workers"
+                        class=tone
+                        title="Open inference engine activity"
+                    >
+                        {label}
+                    </a>
+                }
+            }}
+
+            {move || {
+                let (label, tone) = match system_status.get() {
+                    LoadingState::Loaded(status) => {
+                        let model = status
+                            .kernel
+                            .as_ref()
+                            .and_then(|kernel| kernel.model.as_ref())
+                            .and_then(|model| model.model_id.clone())
+                            .unwrap_or_else(|| "No base loaded".to_string());
+                        let short = if model.len() > 24 {
+                            format!("{}…", &model[..24])
+                        } else {
+                            model
+                        };
+                        (format!("Base: {}", short), "system-tray-pill system-tray-pill--neutral")
+                    }
+                    LoadingState::Error(_) => (
+                        "Base model status unavailable".to_string(),
+                        "system-tray-pill system-tray-pill--error",
+                    ),
+                    LoadingState::Idle | LoadingState::Loading => (
+                        "Checking base model".to_string(),
+                        "system-tray-pill system-tray-pill--booting",
+                    ),
+                };
+                view! {
+                    <a
+                        href="/models"
+                        class=tone
+                        title=ui_language::BASE_MODEL_REGISTRY
+                    >
+                        {label}
+                    </a>
+                }
+            }}
+
+            {move || {
                 let (color, label, pulsing, title) = match health.get() {
                     LoadingState::Loaded(resp) => {
                         let status = resp.status.to_lowercase();
@@ -154,6 +290,14 @@ pub fn SystemTray() -> impl IntoView {
             </div>
         </div>
     }
+}
+
+fn is_terminal_worker_state(worker: &WorkerResponse) -> bool {
+    let status = worker.status.to_ascii_lowercase();
+    matches!(
+        status.as_str(),
+        "stopped" | "error" | "failed" | "terminated"
+    )
 }
 
 /// Get current time formatted as HH:MM

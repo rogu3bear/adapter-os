@@ -4,10 +4,15 @@
 
 pub mod use_delete_dialog;
 pub mod use_list_controls;
+pub mod use_live_system_metrics;
 pub mod use_sse_notifications;
 
 pub use use_delete_dialog::{use_delete_dialog, DeleteDialogState};
 pub use use_list_controls::{use_list_controls, ListControls, DEFAULT_PAGE_SIZE};
+pub use use_live_system_metrics::{
+    use_live_system_metrics, LiveSystemMetricsHandle, LiveSystemMetricsSnapshot, MetricViewMode,
+    MetricsHistory,
+};
 pub use use_sse_notifications::use_sse_notifications;
 
 // Re-export the Refetch type since it's part of the use_api_resource return type
@@ -18,8 +23,21 @@ use crate::api::report_error;
 use crate::api::{use_api_client, ApiClient, ApiError, ApiResult};
 use adapteros_api_types::SystemStatusResponse;
 use leptos::prelude::*;
+use serde::{Deserialize, Serialize};
 use std::sync::atomic::{AtomicBool, Ordering};
 use std::sync::Arc;
+
+/// Response from `/healthz/startup` (boot sequence status).
+#[derive(Debug, Clone, Serialize, Deserialize)]
+pub struct StartupHealthResponse {
+    pub status: String,
+    pub boot_state: String,
+    pub next_action: String,
+    #[serde(default)]
+    pub failed_phase: Option<String>,
+    #[serde(default)]
+    pub last_error_code: Option<String>,
+}
 
 // ---------------------------------------------------------------------------
 // SWR cache — thread_local HashMap for stale-while-revalidate
@@ -373,7 +391,7 @@ where
 
             gloo_timers::callback::Timeout::new(0, move || {
                 // Only show loading spinner if we don't have cached data displayed
-                if !matches!(state_for_refetch.try_get(), Some(LoadingState::Loaded(_))) {
+                if !matches!(state_for_refetch.get_untracked(), LoadingState::Loaded(_)) {
                     let _ = set_state_result.try_set(LoadingState::Loading);
                 }
 
@@ -424,6 +442,20 @@ pub fn use_system_status() -> (ReadSignal<LoadingState<SystemStatusResponse>>, R
         "system_status",
         CacheTtl::STATUS,
         |client: Arc<ApiClient>| async move { client.system_status().await },
+    )
+}
+
+/// Shared cached hook for `/healthz/startup`.
+/// Used by LogicalControlRail and SystemTray to avoid duplicate requests.
+pub fn use_startup_health() -> (ReadSignal<LoadingState<StartupHealthResponse>>, Refetch) {
+    use_cached_api_resource(
+        "startup_health",
+        CacheTtl::STATUS,
+        |client: Arc<ApiClient>| async move {
+            client
+                .get::<StartupHealthResponse>("/healthz/startup")
+                .await
+        },
     )
 }
 

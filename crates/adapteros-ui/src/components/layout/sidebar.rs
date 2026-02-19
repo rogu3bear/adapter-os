@@ -137,7 +137,7 @@ pub fn SidebarNav() -> impl IntoView {
 #[component]
 fn SidebarGroup(group: &'static NavGroup, is_expanded: Signal<bool>) -> impl IntoView {
     let location = use_location();
-    let (group_open, set_group_open) = signal(true);
+    let (group_open, set_group_open) = signal(!group.collapsed_by_default);
     let items = group.items;
     let label = group.label;
     let icon_path = group.icon;
@@ -217,7 +217,12 @@ fn SidebarGroup(group: &'static NavGroup, is_expanded: Signal<bool>) -> impl Int
                                     )
                                     on:click=move |_| set_group_open.update(|v| *v = !*v)
                                     title=move || label.to_string()
-                                    aria-expanded=move || group_open.try_get().unwrap_or(true).to_string()
+                                    aria-expanded=move || {
+                                        group_open
+                                            .try_get()
+                                            .unwrap_or(!group.collapsed_by_default)
+                                            .to_string()
+                                    }
                                 >
                                     <svg class="sidebar-icon" width="18" height="18" viewBox="0 0 24 24"
                                         fill="none" stroke="currentColor" stroke-width="2"
@@ -232,7 +237,14 @@ fn SidebarGroup(group: &'static NavGroup, is_expanded: Signal<bool>) -> impl Int
                                     <svg
                                         class=move || format!(
                                             "sidebar-chevron {}",
-                                            if group_open.try_get().unwrap_or(true) { "sidebar-chevron--open" } else { "" }
+                                            if group_open
+                                                .try_get()
+                                                .unwrap_or(!group.collapsed_by_default)
+                                            {
+                                                "sidebar-chevron--open"
+                                            } else {
+                                                ""
+                                            }
                                         )
                                         width="14" height="14" viewBox="0 0 24 24"
                                         fill="none" stroke="currentColor" stroke-width="2"
@@ -273,7 +285,13 @@ fn SidebarGroup(group: &'static NavGroup, is_expanded: Signal<bool>) -> impl Int
             }}
 
             // Sub-items (only for multi-item groups, when expanded)
-            <Show when=move || !is_single && is_expanded_now() && group_open.try_get().unwrap_or(true)>
+            <Show when=move || {
+                !is_single
+                    && is_expanded_now()
+                    && group_open
+                        .try_get()
+                        .unwrap_or(!group.collapsed_by_default)
+            }>
                 <div class=move || {
                     "sidebar-items"
                 }>

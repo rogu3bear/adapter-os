@@ -21,6 +21,7 @@ pub fn GlassThemeToggle() -> impl IntoView {
                 settings.get_untracked().apply_glass();
             }
             title="Toggle glass theme"
+            aria-label="Toggle glass theme"
             aria-pressed=move || settings.try_get().map(|s| s.glass_enabled).unwrap_or(true).to_string()
         >
             <svg

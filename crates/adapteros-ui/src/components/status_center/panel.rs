@@ -646,12 +646,7 @@ fn NotificationsSection() -> impl IntoView {
     let action_for_clear = action.clone();
     let action_for_mark = action.clone();
 
-    let unread_count = move || {
-        state
-            .try_get()
-            .map(|s| s.notifications.iter().filter(|n| !n.read).count())
-            .unwrap_or(0)
-    };
+    let unread_count = move || state.get().notifications.iter().filter(|n| !n.read).count();
 
     // Derive announcement text for notification count changes
     let notification_announcement = move || {
@@ -665,19 +660,11 @@ fn NotificationsSection() -> impl IntoView {
         }
     };
 
-    let has_notifications = move || {
-        state
-            .try_get()
-            .map(|s| !s.notifications.is_empty())
-            .unwrap_or(false)
-    };
+    let has_notifications = move || !state.get().notifications.is_empty();
 
     // Determine badge variant from most severe unread notification
     let badge_variant = move || {
-        let notifications = state
-            .try_get()
-            .map(|s| s.notifications.clone())
-            .unwrap_or_default();
+        let notifications = state.get().notifications.clone();
         let worst = notifications
             .iter()
             .filter(|n| !n.read)

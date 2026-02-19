@@ -115,7 +115,7 @@ pub fn CommandPalette() -> impl IntoView {
                 style="animation: slideDown 150ms ease-out"
                 role="dialog"
                 aria-modal="true"
-                aria-label="Command palette"
+                aria-label="Command Deck"
             >
                 // Focus trap: start sentinel
                 <div
@@ -206,8 +206,8 @@ pub fn CommandPalette() -> impl IntoView {
                             node_ref=input_ref
                             type="text"
                             class="flex-1 bg-transparent text-base outline-none placeholder:text-muted-foreground"
-                            placeholder="Search runs, pages, adapters, actions..."
-                            aria-label="Search runs, pages, adapters, and actions"
+                            placeholder="Find pages, restore points, signed logs, and actions..."
+                            aria-label="Search pages, restore points, signed logs, and actions"
                             prop:value={
                                 let search = search_for_value.clone();
                                 move || search.query.get()
@@ -285,7 +285,7 @@ pub fn CommandPalette() -> impl IntoView {
                             } else if results.is_empty() {
                                 view! {
                                     <div class="px-4 py-8 text-center text-sm text-muted-foreground">
-                                        "No results for \""{query.clone()}"\""
+                                        "No results for \""{query.clone()}"\". Try another name or action."
                                     </div>
                                 }.into_any()
                             } else {
@@ -330,19 +330,19 @@ pub fn CommandPalette() -> impl IntoView {
                         <div class="flex items-center gap-4">
                             <span class="flex items-center gap-1">
                                 <kbd class="px-1 py-0.5 rounded bg-muted border border-border font-mono">"↑↓"</kbd>
-                                " navigate"
+                                " move"
                             </span>
                             <span class="flex items-center gap-1">
                                 <kbd class="px-1 py-0.5 rounded bg-muted border border-border font-mono">"↵"</kbd>
-                                " select"
+                                " open"
                             </span>
                             <span class="flex items-center gap-1">
                                 <kbd class="px-1 py-0.5 rounded bg-muted border border-border font-mono">"esc"</kbd>
-                                " close"
+                                " dismiss"
                             </span>
                         </div>
                         <span class="hidden sm:block text-muted-foreground/70">
-                            "adapterOS"
+                            "Command Deck"
                         </span>
                     </div>
                 </div>

@@ -684,6 +684,11 @@ impl ApiClient {
         self.get("/v1/metrics/system").await
     }
 
+    /// Get worker health summary.
+    pub async fn worker_health_summary(&self) -> ApiResult<WorkerHealthSummaryResponse> {
+        self.get("/v1/workers/health/summary").await
+    }
+
     // --- Training ---
 
     /// List training jobs with optional filtering
@@ -2694,6 +2699,7 @@ fn worker_metrics_from_detail(detail: WorkerDetailMetricsSourceResponse) -> Work
 #[cfg(test)]
 mod tests {
     use super::*;
+    use serde_json::json;
 
     fn detail_fixture(
         thread_count: i32,
@@ -2738,6 +2744,47 @@ mod tests {
         assert_eq!(metrics.cpu_utilization_pct, None);
         assert_eq!(metrics.requests_processed, 0);
         assert_eq!(metrics.avg_latency_ms, None);
+    }
+
+    #[test]
+    fn parses_worker_health_summary_response() {
+        let payload = json!({
+            "summary": {
+                "total": 2,
+                "healthy": 1,
+                "degraded": 1,
+                "crashed": 0,
+                "unknown": 0
+            },
+            "workers": [
+                {
+                    "worker_id": "worker-1",
+                    "tenant_id": "tenant-a",
+                    "status": "running",
+                    "health_status": "healthy",
+                    "throughput_rps_recent": 12.5,
+                    "avg_latency_ms": 45.2,
+                    "recent_incidents_24h": 0
+                },
+                {
+                    "worker_id": "worker-2",
+                    "tenant_id": "tenant-a",
+                    "status": "running",
+                    "health_status": "degraded",
+                    "throughput_rps_recent": 4.0,
+                    "avg_latency_ms": 210.0,
+                    "recent_incidents_24h": 1
+                }
+            ],
+            "timestamp": "2026-02-18T10:00:00Z"
+        });
+
+        let parsed: WorkerHealthSummaryResponse =
+            serde_json::from_value(payload).expect("worker health summary should parse");
+        assert_eq!(parsed.summary.total, 2);
+        assert_eq!(parsed.workers.len(), 2);
+        assert_eq!(parsed.workers[0].throughput_rps_recent, Some(12.5));
+        assert_eq!(parsed.workers[0].avg_latency_ms, Some(45.2));
     }
 }
 

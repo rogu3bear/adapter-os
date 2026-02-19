@@ -1384,6 +1384,57 @@ pub struct ProcessHealthMetricResponse {
     pub collected_at: String,
 }
 
+/// Worker health summary response from `/v1/workers/health/summary`.
+#[derive(Debug, Clone, serde::Serialize, serde::Deserialize, Default)]
+pub struct WorkerHealthSummaryResponse {
+    #[serde(default)]
+    pub summary: WorkerHealthSummaryCounts,
+    #[serde(default)]
+    pub workers: Vec<WorkerHealthSummaryWorker>,
+    #[serde(default)]
+    pub timestamp: String,
+}
+
+/// Worker health summary counts.
+#[derive(Debug, Clone, serde::Serialize, serde::Deserialize, Default)]
+pub struct WorkerHealthSummaryCounts {
+    #[serde(default)]
+    pub total: usize,
+    #[serde(default)]
+    pub healthy: usize,
+    #[serde(default)]
+    pub degraded: usize,
+    #[serde(default)]
+    pub crashed: usize,
+    #[serde(default)]
+    pub unknown: usize,
+}
+
+/// Per-worker health summary projection for monitoring UI.
+#[derive(Debug, Clone, serde::Serialize, serde::Deserialize, Default)]
+pub struct WorkerHealthSummaryWorker {
+    #[serde(default)]
+    pub worker_id: String,
+    #[serde(default)]
+    pub tenant_id: String,
+    #[serde(default)]
+    pub status: String,
+    #[serde(default)]
+    pub health_status: String,
+    #[serde(default)]
+    pub throughput_rps_recent: Option<f64>,
+    #[serde(default)]
+    pub avg_latency_ms: Option<f64>,
+    #[serde(skip_serializing_if = "Option::is_none")]
+    pub last_response_at: Option<String>,
+    #[serde(skip_serializing_if = "Option::is_none")]
+    pub consecutive_slow: Option<i64>,
+    #[serde(skip_serializing_if = "Option::is_none")]
+    pub consecutive_failures: Option<i64>,
+    #[serde(default)]
+    pub recent_incidents_24h: i64,
+}
+
 /// Process monitoring rule
 #[derive(Debug, Clone, serde::Serialize, serde::Deserialize)]
 pub struct ProcessMonitoringRuleResponse {

@@ -119,6 +119,7 @@ pub fn CodeEditor(
                     prop:value=move || content.get()
                     on:input=move |ev| on_content_change.run(event_target_value(&ev))
                     placeholder="Select a file to edit"
+                    aria_label="Code editor"
                 ></textarea>
             </div>
         </div>

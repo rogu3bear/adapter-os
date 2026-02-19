@@ -10,6 +10,7 @@
 //! Optional hint text can be added below the label for additional context.
 
 use leptos::prelude::*;
+use wasm_bindgen::JsCast;
 
 /// Context provided by FormField for child inputs.
 #[derive(Clone)]
@@ -31,13 +32,26 @@ pub fn use_form_field_context() -> Option<FormFieldContext> {
 #[component]
 pub fn HelpTooltip(#[prop(into)] text: String) -> impl IntoView {
     let aria_label = format!("Help: {}", text);
+    let node_ref = NodeRef::new();
     view! {
         <span
+            node_ref=node_ref
             class="help-tooltip"
             title=text
             aria-label=aria_label
             tabindex="0"
             role="button"
+            on:keydown=move |ev: web_sys::KeyboardEvent| {
+                let key = ev.key();
+                if key == "Enter" || key == " " || key == "Spacebar" {
+                    ev.prevent_default();
+                    ev.stop_propagation();
+                    if let Some(el) = node_ref.get() {
+                        let _ = el.dyn_ref::<web_sys::HtmlElement>()
+                            .map(|e: &web_sys::HtmlElement| e.click());
+                    }
+                }
+            }
         >
             "?"
         </span>

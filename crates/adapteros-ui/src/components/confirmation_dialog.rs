@@ -58,7 +58,7 @@ impl ConfirmationSeverity {
     fn header_class(&self) -> &'static str {
         match self {
             Self::Normal => "text-foreground",
-            Self::Warning => "text-warning",
+            Self::Warning => "text-status-warning",
             Self::Destructive => "text-destructive",
         }
     }

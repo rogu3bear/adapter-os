@@ -18,15 +18,16 @@ pub enum BannerVariant {
 impl BannerVariant {
     fn class(&self) -> &'static str {
         match self {
-            Self::Warning => "banner-warning",
-            Self::Info => "banner-info",
-            Self::Success => "banner-success",
-            Self::Error => "banner-error",
+            Self::Warning => "global-banner--warning",
+            Self::Info => "global-banner--info",
+            Self::Success => "global-banner--success",
+            Self::Error => "global-banner--error",
         }
     }
 }
 
 /// Generic alert banner for displaying feedback/status.
+/// Uses shared global-banner base for consistency with InferenceBanner, OfflineBanner.
 #[component]
 pub fn AlertBanner(
     #[prop(into)] title: String,
@@ -34,9 +35,11 @@ pub fn AlertBanner(
     #[prop(default = BannerVariant::Info)] variant: BannerVariant,
 ) -> impl IntoView {
     view! {
-        <div class=format!("banner {}", variant.class())>
-            <strong>{title}</strong>
-            <span>{message}</span>
+        <div class=format!("global-banner {}", variant.class()) role="status">
+            <div class="global-banner-content">
+                <span class="global-banner-title">{title}</span>
+                <span class="global-banner-message">{message}</span>
+            </div>
         </div>
     }
 }

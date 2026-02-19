@@ -305,7 +305,7 @@ pub fn Combobox(
                 {move || {
                     if is_valid_selection.try_get().unwrap_or(false) && !value.try_get().unwrap_or_default().is_empty() {
                         Some(view! {
-                            <span class="absolute right-8 top-1/2 -translate-y-1/2 text-success">
+                            <span class="absolute right-8 top-1/2 -translate-y-1/2 text-status-success">
                                 <svg class="h-4 w-4" fill="none" stroke="currentColor" viewBox="0 0 24 24">
                                     <path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M5 13l4 4L19 7"/>
                                 </svg>

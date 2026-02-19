@@ -37,11 +37,19 @@ use std::sync::Arc;
 /// Valid transitions from each state
 ///
 /// Returns a list of (target_state, button_label) tuples for the given current state.
+/// The lifecycle follows a 3-stage promotion path: Draft → Reviewed (staging) → Production (active).
 fn valid_transitions(state: &str) -> Vec<(&'static str, &'static str)> {
     match state.to_lowercase().as_str() {
-        "draft" => vec![("active", "Activate")],
-        "active" => vec![("deprecated", "Deprecate")],
-        "deprecated" => vec![("active", "Reactivate"), ("retired", "Retire")],
+        "draft" => vec![("staging", "Submit for Review")],
+        "staging" => vec![
+            ("active", "Move Version to Production"),
+            ("draft", "Return to Draft"),
+        ],
+        "active" => vec![
+            ("staging", "Restore Version"),
+            ("deprecated", "Pause Production"),
+        ],
+        "deprecated" => vec![("active", "Resume Production"), ("retired", "Retire Skill")],
         "retired" => vec![],
         _ => vec![],
     }
@@ -51,9 +59,22 @@ fn valid_transitions(state: &str) -> Vec<(&'static str, &'static str)> {
 fn button_variant_for_transition(target_state: &str) -> ButtonVariant {
     match target_state {
         "active" => ButtonVariant::Primary,
+        "staging" => ButtonVariant::Secondary,
+        "draft" => ButtonVariant::Secondary,
         "deprecated" => ButtonVariant::Secondary,
         "retired" => ButtonVariant::Destructive,
         _ => ButtonVariant::Secondary,
+    }
+}
+
+fn lifecycle_state_label(state: &str) -> &'static str {
+    match state {
+        "active" => "Production",
+        "staging" => "Reviewed",
+        "deprecated" => "Paused",
+        "retired" => "Retired",
+        "draft" => "Draft",
+        _ => "Updated",
     }
 }
 
@@ -150,9 +171,9 @@ pub fn AdapterLifecycleControls(
                     Ok(_) => {
                         let detail_href = format!("/adapters/{}", adapter_id);
                         notifications.success_with_action(
-                            "Lifecycle Updated",
-                            &format!("Adapter transitioned to {}", target_state),
-                            "View Adapter",
+                            "Skill Status Updated",
+                            &format!("Skill moved to {}", lifecycle_state_label(&target_state)),
+                            "View Skill",
                             &detail_href,
                         );
                         show_dialog.set(false);
@@ -173,7 +194,7 @@ pub fn AdapterLifecycleControls(
     if transitions.is_empty() {
         return view! {
             <div class="text-sm text-muted-foreground italic">
-                "No lifecycle transitions available"
+                "No further status changes are available"
             </div>
         }
         .into_any();

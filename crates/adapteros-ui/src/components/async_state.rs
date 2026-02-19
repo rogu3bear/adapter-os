@@ -338,7 +338,7 @@ pub fn ErrorDisplay(
                                         CopyState::Copied => view! {
                                             <svg
                                                 xmlns="http://www.w3.org/2000/svg"
-                                                class="h-4 w-4 text-success"
+                                                class="h-4 w-4 text-status-success"
                                                 viewBox="0 0 24 24"
                                                 fill="none"
                                                 stroke="currentColor"
@@ -728,7 +728,11 @@ pub fn RefreshButton(
     }
 }
 
-/// Detail row component for key-value displays
+/// Detail row component for key-value displays.
+///
+/// Variants:
+/// - Default: flex layout, label left, value right
+/// - Bordered: rounded, bordered cell (InfoRow-style) with uppercase label
 #[component]
 pub fn DetailRow(
     /// Label for the row
@@ -739,19 +743,79 @@ pub fn DetailRow(
     /// Optional mono font for value
     #[prop(optional)]
     mono: bool,
-    #[prop(optional, into)] data_testid: Option<String>,
+    /// Bordered variant (rounded cell with border, uppercase label)
+    #[prop(optional)]
+    bordered: bool,
+    /// Accent the value (semibold, foreground color)
+    #[prop(optional)]
+    accent: bool,
+    #[prop(optional)] data_testid: Option<String>,
 ) -> impl IntoView {
-    let value_class = if mono {
-        "font-medium font-mono text-sm"
+    let (container_class, label_class, value_class) = if bordered {
+        let vc = if accent {
+            "font-semibold text-foreground text-sm"
+        } else {
+            "text-muted-foreground text-sm"
+        };
+        (
+            "flex items-center justify-between gap-3 rounded-md border px-3 py-2",
+            "text-xs uppercase tracking-wide text-muted-foreground",
+            vc,
+        )
     } else {
-        "font-medium"
+        let vc = if mono {
+            "font-medium font-mono text-sm min-w-0 text-right break-all"
+        } else if accent {
+            "font-semibold text-foreground text-sm min-w-0 text-right break-all"
+        } else {
+            "font-medium min-w-0 text-right break-all"
+        };
+        (
+            "flex items-start justify-between gap-3 min-w-0 py-1",
+            "text-muted-foreground shrink-0",
+            vc,
+        )
     };
-    let data_testid = data_testid.filter(|value| !value.is_empty());
+    let data_testid = data_testid.filter(|v| !v.is_empty());
 
     view! {
-        <div class="flex items-start justify-between gap-3 min-w-0 py-1" data-testid=move || data_testid.clone()>
-            <span class="text-muted-foreground shrink-0">{label}</span>
-            <span class=format!("{} min-w-0 text-right break-all", value_class)>{value}</span>
+        <div class=container_class data-testid=move || data_testid.clone()>
+            <span class=label_class>{label}</span>
+            <span class=value_class>{value}</span>
+        </div>
+    }
+}
+
+/// Grid row for profile/settings key-value displays (3-col: label | value).
+/// Use when the value needs custom content (e.g. Badge, buttons).
+#[component]
+pub fn DetailGridRow(
+    /// Label for the row
+    label: &'static str,
+    /// Optional mono font for value (when using string value)
+    #[prop(optional)]
+    mono: bool,
+    /// Optional items-align: "center" (default) or "start" for multi-line values
+    #[prop(optional)]
+    items_start: bool,
+    children: Children,
+) -> impl IntoView {
+    let items_class = if items_start {
+        "items-start"
+    } else {
+        "items-center"
+    };
+    let label_class = if mono {
+        "text-sm font-medium text-muted-foreground font-mono text-xs"
+    } else {
+        "text-sm font-medium text-muted-foreground"
+    };
+    view! {
+        <div class=format!("grid grid-cols-3 gap-4 {}", items_class)>
+            <span class=label_class>{label}</span>
+            <div class="col-span-2">
+                {children()}
+            </div>
         </div>
     }
 }

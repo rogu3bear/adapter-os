@@ -176,7 +176,7 @@ pub fn use_status_data() -> (ReadSignal<StatusLoadingState>, impl Fn() + Clone) 
                 }
             }
             _ => {
-                if cached_status.try_get().flatten().is_none() {
+                if cached_status.get_untracked().is_none() {
                     let _ = set_state.try_set(StatusLoadingState::Loading);
                 }
             }
@@ -184,7 +184,7 @@ pub fn use_status_data() -> (ReadSignal<StatusLoadingState>, impl Fn() + Clone) 
     });
 
     let refetch = move || {
-        let should_show_spinner = cached_status.try_get().flatten().is_none();
+        let should_show_spinner = cached_status.get_untracked().is_none();
         if should_show_spinner {
             let _ = set_state.try_set(StatusLoadingState::Loading);
         }
