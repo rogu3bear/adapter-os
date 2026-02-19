@@ -1,5 +1,7 @@
 # UI Rectification for Demo Readiness (Expanded Plan)
 
+> **Plan document** — Implementation status in code is authoritative. See `crates/adapteros-ui/` and [BACKEND_FRONTEND_READINESS_MAP.md](BACKEND_FRONTEND_READINESS_MAP.md).
+
 **Goal:** Make the UI demo-ready—less busy, clearer grouping, Guided Flow as the obvious spine. Tasteful arrangement; not a full rebuild.
 
 ---

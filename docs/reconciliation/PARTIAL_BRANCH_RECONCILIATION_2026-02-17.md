@@ -1,5 +1,7 @@
 # Partial Branch Reconciliation (2026-02-17)
 
+> **Archived snapshot** — Branch reconciliation record. Current code is authoritative.
+
 ## Deterministic Scope
 - Base branch: `main` @ `073d932b62f0d52c1122576ce0ecb84967e2f3b6`
 - Stable integration branch: `c/stable-main-unify` @ `cc62ccbe7e544bfea3fc7ae7317516ee07fd467d`

@@ -17,6 +17,7 @@
 | API prefix: `/v1/` | `crates/adapteros-server-api/src/routes/` | Not `/api/v1/` |
 | Model download: `./scripts/download-model.sh` or `aosctl models seed` | DEPRECATIONS.md | Not download_model.sh (underscore) |
 | service-manager.sh start ui | No-op; UI served by backend | For dev UI use trunk serve |
+| Readiness gates (Models, Workers, Stacks, Documents) | `system_not_ready` / `inference_not_ready` in pages | See [BACKEND_FRONTEND_READINESS_MAP.md](BACKEND_FRONTEND_READINESS_MAP.md) |
 
 ---
 

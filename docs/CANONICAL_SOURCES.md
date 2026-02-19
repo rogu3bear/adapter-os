@@ -2,7 +2,7 @@
 
 This document declares code-level sources of truth for behavior claims in documentation.
 
-Last verified: 2026-02-09
+Last verified: 2026-02-18
 
 ## Runtime and Startup
 

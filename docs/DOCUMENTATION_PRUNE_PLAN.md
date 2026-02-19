@@ -1,20 +1,24 @@
 # Documentation Pruning Plan
 
 **Generated:** 2026-01-25  
-**Purpose:** Objective, evidence-based plan to prune outdated documentation that doesn't match codebase intent
+**Last Updated:** 2026-02-18  
+**Purpose:** Maintenance status and pruning guidance. Code is authoritative; docs must align.
 
-## Executive Summary
+## Status
 
-- **Total docs:** 145 files
-- **Tracked in git:** 141 files
-- **Untracked (delete immediately):** 4 files
-- **Orphaned (not referenced):** 84 files
-- **Broken links:** 26 files
-- **README.md broken references:** 39 files
+| Phase | Status | Notes |
+|-------|--------|-------|
+| Phase 1: Untracked deletion | ✅ Done | 4 files removed |
+| Phase 2: High-confidence deletion | ✅ Done | 14 files removed |
+| Phase 3: README broken links | ✅ Done | 39 references fixed |
+| Phase 4: Orphaned file review | Pending | 84 files |
+| Phase 5: Broken links | Pending | 26 files |
+
+**Canonical sources:** See [CANONICAL_SOURCES.md](CANONICAL_SOURCES.md). When docs conflict with code, code wins.
 
 ---
 
-## Category 1: DELETE IMMEDIATELY (Untracked Files)
+## Category 1: DELETE IMMEDIATELY (Untracked Files) — ✅ COMPLETED
 
 These files are not in git and appear to be temporary agent-generated documents:
 
@@ -237,19 +241,14 @@ After pruning:
 
 ## Next Steps
 
-1. **Review this plan** with team
-2. **Execute Phase 1** (immediate deletion)
-3. **Execute Phase 2** (high-confidence deletion)
-4. **Fix README.md** broken references
-5. **Review orphaned files** systematically
-6. **Fix broken links** in remaining files
-7. **Update docs/README.md** to reflect final structure
+1. Phase 4: Review orphaned files; delete, integrate, or archive
+2. Phase 5: Fix broken links in runbooks/ and other files
+3. Run `./scripts/ci/check_docs_grounding.sh` before commits
 
 ---
 
 ## Notes
 
-- This audit is **evidence-based** - files are categorized by objective criteria (git tracking, references, broken links)
-- **Preserve historical value** - Consider archiving important but outdated docs rather than deleting
-- **Maintain discoverability** - If a doc is valuable, ensure it's referenced in README.md or linked from other docs
-- **Documentation drift** - Use `docs/DOCUMENTATION_DRIFT.md` framework to prevent future drift
+- **Code is authoritative** — When docs conflict with implementation, update docs
+- **Documentation drift** — Use [DOCUMENTATION_DRIFT.md](DOCUMENTATION_DRIFT.md) for invariant validation
+- **Grounding check** — Run `./scripts/ci/check_docs_grounding.sh` to catch forbidden patterns

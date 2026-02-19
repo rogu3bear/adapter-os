@@ -1,7 +1,8 @@
 # AdapterOS UI Route Map
 
-This inventory maps every live route declared in
-`crates/adapteros-ui/src/lib.rs` to the canonical IA taxonomy:
+**Canonical source:** `crates/adapteros-ui/src/lib.rs` — route definitions and shell boundaries.
+
+This inventory maps every live route declared in `lib.rs` to the canonical IA taxonomy:
 
 `Infer`, `Data`, `Train`, `Deploy`, `Route`, `Observe`, `Govern`, `Org`.
 

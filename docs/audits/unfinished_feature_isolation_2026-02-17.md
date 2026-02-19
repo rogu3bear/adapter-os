@@ -1,5 +1,7 @@
 # Unfinished Feature Isolation Audit (2026-02-17)
 
+> **Archived snapshot** — Scan results from 2026-02-17. Re-run audit for current state. Code is authoritative.
+
 ## Deterministic Scope
 - Repo: `/Users/star/Dev/adapter-os`
 - Scan source: `var/reports/unfinished-audit/scan.json`

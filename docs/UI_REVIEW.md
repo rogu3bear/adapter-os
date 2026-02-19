@@ -1,8 +1,9 @@
 # AdapterOS UI Review
 
 **Generated:** 2025-02-18  
-**Scope:** Leptos CSR app in `crates/adapteros-ui/`
-**Phase 6 references:** [`UI_LAYOUT_MATRIX.md`](UI_LAYOUT_MATRIX.md), [`UI_ACTION_RULES.md`](UI_ACTION_RULES.md)
+**Scope:** Leptos CSR app in `crates/adapteros-ui/`  
+**Canonical source:** `crates/adapteros-ui/src/lib.rs` for routes and shell boundaries.  
+**References:** [UI_LAYOUT_MATRIX.md](UI_LAYOUT_MATRIX.md), [UI_ACTION_RULES.md](UI_ACTION_RULES.md), [ui/route-map.md](ui/route-map.md)
 
 ---
 

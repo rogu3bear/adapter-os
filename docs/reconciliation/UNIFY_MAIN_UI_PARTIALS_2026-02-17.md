@@ -1,5 +1,7 @@
 # Stable Mainline Unification (2026-02-17)
 
+> **Archived snapshot** — Historical merge record. Code in `crates/adapteros-ui/` is authoritative.
+
 ## Goal
 - Deterministically unify the UI partial-feature stream into a `main`-based stable branch.
 - Explicitly remove duplicate exports.

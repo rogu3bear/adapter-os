@@ -1,5 +1,7 @@
 # Structured Reconciliation Report (Authoritative)
 
+> **Note:** Commit anchor may be stale. Current code in repo is authoritative.
+
 Artifact ID: `adapteros.reconciliation.deterministic_system.v1`
 
 Repository: AdapterOS (`/Users/star/Dev/adapter-os`)
