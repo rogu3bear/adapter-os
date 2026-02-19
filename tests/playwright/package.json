@@ -22,6 +22,8 @@
     "test:flow": "node scripts/pw-run.mjs -c playwright.ui.config.ts -- --project=chromium --grep @flow",
     "test:empty": "node scripts/pw-run.mjs -c playwright.ui.config.ts -- --project=chromium --grep @empty",
     "test:visual": "node scripts/pw-run.mjs -c playwright.ui.config.ts -- visual.spec",
+    "demo": "node scripts/pw-run.mjs -c playwright.demo.config.ts --",
+    "demo:headed": "node scripts/pw-run.mjs -c playwright.demo.config.ts -- --headed",
     "report": "playwright show-report var/playwright/report"
   },
   "devDependencies": {
