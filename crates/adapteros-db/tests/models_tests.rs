@@ -12,7 +12,7 @@ use adapteros_core::{AosError, ModelImportStatus, Result};
 use adapteros_db::models::{ModelRegistrationBuilder, ModelRegistrationParams};
 use adapteros_db::Db;
 use chrono::Utc;
-use std::sync::Once;
+use std::sync::{Arc, Once};
 use uuid::Uuid;
 
 fn ensure_migration_timeout() {
@@ -84,6 +84,73 @@ fn full_model_params(name: &str) -> ModelRegistrationParams {
         .metadata_json(Some(r#"{"architecture": "transformer", "size": "7b"}"#))
         .build()
         .expect("full params should build")
+}
+
+fn race_model_params(
+    name: &str,
+    hash_b3: &str,
+    config_hash_b3: &str,
+    tokenizer_hash_b3: &str,
+    tokenizer_cfg_hash_b3: &str,
+) -> ModelRegistrationParams {
+    ModelRegistrationBuilder::new()
+        .name(name)
+        .hash_b3(hash_b3)
+        .config_hash_b3(config_hash_b3)
+        .tokenizer_hash_b3(tokenizer_hash_b3)
+        .tokenizer_cfg_hash_b3(tokenizer_cfg_hash_b3)
+        .build()
+        .expect("race params should build")
+}
+
+async fn run_registration_race(
+    db: Arc<Db>,
+    first: ModelRegistrationParams,
+    second: ModelRegistrationParams,
+) -> [std::result::Result<String, anyhow::Error>; 2] {
+    ensure_migration_timeout();
+
+    let barrier = Arc::new(tokio::sync::Barrier::new(3));
+
+    let db_a = Arc::clone(&db);
+    let barrier_a = Arc::clone(&barrier);
+    let handle_a = tokio::spawn(async move {
+        barrier_a.wait().await;
+        db_a.register_model(first).await
+    });
+
+    let db_b = Arc::clone(&db);
+    let barrier_b = Arc::clone(&barrier);
+    let handle_b = tokio::spawn(async move {
+        barrier_b.wait().await;
+        db_b.register_model(second).await
+    });
+
+    barrier.wait().await;
+
+    [
+        handle_a.await.expect("first race worker should join"),
+        handle_b.await.expect("second race worker should join"),
+    ]
+}
+
+fn assert_one_success_one_failure(
+    results: [std::result::Result<String, anyhow::Error>; 2],
+) -> anyhow::Error {
+    let success_count = results.iter().filter(|r| r.is_ok()).count();
+    assert_eq!(
+        success_count, 1,
+        "expected exactly one successful registration"
+    );
+
+    let mut failures: Vec<anyhow::Error> = results.into_iter().filter_map(|r| r.err()).collect();
+    assert_eq!(
+        failures.len(),
+        1,
+        "expected exactly one strict duplicate failure"
+    );
+
+    failures.pop().expect("missing failure result")
 }
 
 // ============================================================================
@@ -787,6 +854,105 @@ async fn register_model_with_duplicate_hash_fails() -> Result<()> {
 
     let result = db.register_model(params2).await;
     assert!(result.is_err(), "duplicate hash should fail");
+
+    Ok(())
+}
+
+#[tokio::test]
+async fn concurrent_duplicate_name_registration_one_success_one_strict_failure() -> Result<()> {
+    let db = Arc::new(new_test_db().await?);
+    let duplicate_name = "sync-race-duplicate-name";
+
+    let first = race_model_params(
+        duplicate_name,
+        "sync-race-duplicate-name-hash-a",
+        "sync-race-duplicate-name-config-a",
+        "sync-race-duplicate-name-tokenizer-a",
+        "sync-race-duplicate-name-tokenizer-cfg-a",
+    );
+    let second = race_model_params(
+        duplicate_name,
+        "sync-race-duplicate-name-hash-b",
+        "sync-race-duplicate-name-config-b",
+        "sync-race-duplicate-name-tokenizer-b",
+        "sync-race-duplicate-name-tokenizer-cfg-b",
+    );
+
+    let error = assert_one_success_one_failure(run_registration_race(db, first, second).await);
+    let msg = error.to_string();
+    let expected = "UNIQUE constraint failed: models.name";
+    assert!(
+        msg.contains(expected),
+        "expected strict duplicate-name registry error, got: {msg}"
+    );
+
+    Ok(())
+}
+
+#[tokio::test]
+async fn concurrent_duplicate_hash_registration_one_success_one_strict_failure() -> Result<()> {
+    let db = Arc::new(new_test_db().await?);
+    let duplicate_hash = "sync-race-duplicate-hash";
+
+    let first = race_model_params(
+        "sync-race-duplicate-hash-model-a",
+        duplicate_hash,
+        "sync-race-duplicate-hash-config-a",
+        "sync-race-duplicate-hash-tokenizer-a",
+        "sync-race-duplicate-hash-tokenizer-cfg-a",
+    );
+    let second = race_model_params(
+        "sync-race-duplicate-hash-model-b",
+        duplicate_hash,
+        "sync-race-duplicate-hash-config-b",
+        "sync-race-duplicate-hash-tokenizer-b",
+        "sync-race-duplicate-hash-tokenizer-cfg-b",
+    );
+
+    let error = assert_one_success_one_failure(run_registration_race(db, first, second).await);
+    let msg = error.to_string();
+    let expected = "UNIQUE constraint failed: models.hash_b3";
+    assert!(
+        msg.contains(expected),
+        "expected strict duplicate-hash registry error, got: {msg}"
+    );
+
+    Ok(())
+}
+
+#[tokio::test]
+async fn no_false_hash_collision_error_from_precheck_path() -> Result<()> {
+    let db = Arc::new(new_test_db().await?);
+    let duplicate_hash = "sync-race-precheck-path-duplicate-hash";
+
+    // Shared non-unique component hashes plus duplicate hash_b3 used to trigger precheck-path
+    // collision errors under races. We should now consistently get strict duplicate hash errors.
+    let first = race_model_params(
+        "sync-race-precheck-path-model-a",
+        duplicate_hash,
+        "sync-race-precheck-path-shared-config",
+        "sync-race-precheck-path-shared-tokenizer",
+        "sync-race-precheck-path-shared-tokenizer-cfg",
+    );
+    let second = race_model_params(
+        "sync-race-precheck-path-model-b",
+        duplicate_hash,
+        "sync-race-precheck-path-shared-config",
+        "sync-race-precheck-path-shared-tokenizer",
+        "sync-race-precheck-path-shared-tokenizer-cfg",
+    );
+
+    let error = assert_one_success_one_failure(run_registration_race(db, first, second).await);
+    let msg = error.to_string();
+    let expected = "UNIQUE constraint failed: models.hash_b3";
+    assert!(
+        msg.contains(expected),
+        "expected strict duplicate-hash registry error, got: {msg}"
+    );
+    assert!(
+        !msg.contains("Hash collision:"),
+        "unexpected legacy precheck hash-collision error: {msg}"
+    );
 
     Ok(())
 }

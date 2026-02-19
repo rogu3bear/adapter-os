@@ -510,11 +510,8 @@ impl SyncRegistry {
         })
     }
 
-    /// Register a new model with hash collision detection
+    /// Register a new model (strict uniqueness enforced by database constraints)
     pub fn register_model(&self, model: &SyncModelRecordInput) -> Result<()> {
-        // Check for hash collisions before inserting
-        self.check_model_hash_collisions(model)?;
-
         self.runtime.block_on(async {
             sqlx::query(
                 r#"
@@ -537,7 +534,19 @@ impl SyncRegistry {
             .bind(model.model_card_hash.map(|h| h.to_hex()))
             .execute(self.db.pool())
             .await
-            .map_err(|e| AosError::Registry(format!("Failed to register model: {}", e)))
+            .map_err(|e| {
+                let err_msg = e.to_string();
+                if err_msg.contains("UNIQUE constraint failed: models.name") {
+                    AosError::Registry(format!("Model name '{}' already exists", model.name))
+                } else if err_msg.contains("UNIQUE constraint failed: models.hash_b3") {
+                    AosError::Registry(format!(
+                        "Model hash_b3 '{}' already exists",
+                        model.weights_hash.to_hex()
+                    ))
+                } else {
+                    AosError::Registry(format!("Failed to register model: {}", e))
+                }
+            })
         })?;
 
         info!(
@@ -545,49 +554,6 @@ impl SyncRegistry {
             model_name = %model.name,
             "Model registered via SyncRegistry"
         );
-
-        Ok(())
-    }
-
-    /// Check for hash collisions with existing models
-    fn check_model_hash_collisions(&self, model: &SyncModelRecordInput) -> Result<()> {
-        let hashes_to_check = vec![
-            ("config", model.config_hash.to_hex()),
-            ("tokenizer", model.tokenizer_hash.to_hex()),
-            ("tokenizer_cfg", model.tokenizer_cfg_hash.to_hex()),
-            ("weights", model.weights_hash.to_hex()),
-        ];
-
-        for (hash_type, hash_value) in hashes_to_check {
-            let collision = self.runtime.block_on(async {
-                let column = format!("{}_hash_b3", hash_type);
-                let query = format!(
-                    "SELECT name FROM models WHERE {} = ?1 AND name != ?2",
-                    column
-                );
-                sqlx::query_scalar::<_, String>(&query)
-                    .bind(&hash_value)
-                    .bind(&model.name)
-                    .fetch_optional(self.db.pool())
-                    .await
-                    .map_err(|e| AosError::Registry(format!("Hash collision check failed: {}", e)))
-            })?;
-
-            if let Some(existing_name) = collision {
-                warn!(
-                    event_type = "model.hash_collision",
-                    hash_type = %hash_type,
-                    hash_value = %hash_value,
-                    existing_model = %existing_name,
-                    new_model = %model.name,
-                    "Hash collision detected"
-                );
-                return Err(AosError::Registry(format!(
-                    "Hash collision: {} hash {} already used by model '{}'",
-                    hash_type, hash_value, existing_name
-                )));
-            }
-        }
 
         Ok(())
     }
@@ -775,6 +741,27 @@ pub struct SyncModelRecordInput {
 mod tests {
     use super::*;
 
+    fn make_sync_model(
+        id: &str,
+        name: &str,
+        config_hash: B3Hash,
+        tokenizer_hash: B3Hash,
+        tokenizer_cfg_hash: B3Hash,
+        weights_hash: B3Hash,
+    ) -> SyncModelRecordInput {
+        SyncModelRecordInput {
+            id: id.to_string(),
+            name: name.to_string(),
+            config_hash,
+            tokenizer_hash,
+            tokenizer_cfg_hash,
+            weights_hash,
+            license_hash: None,
+            license_text: None,
+            model_card_hash: None,
+        }
+    }
+
     #[test]
     fn test_sync_registry_open_and_tenant() {
         // SyncRegistry creates its own runtime, so we use a regular #[test]
@@ -789,5 +776,110 @@ mod tests {
         let tenant = registry.get_tenant("test-tenant").unwrap();
         assert!(tenant.is_some());
         assert_eq!(tenant.unwrap().uid, 1000);
+    }
+
+    #[test]
+    fn register_model_duplicate_name_returns_strict_error() {
+        let temp_dir = tempfile::tempdir().unwrap();
+        let db_path = temp_dir.path().join("test.db");
+        let registry = SyncRegistry::open(&db_path).unwrap();
+
+        let first = make_sync_model(
+            "model-1",
+            "duplicate-name",
+            B3Hash::hash(b"cfg-1"),
+            B3Hash::hash(b"tok-1"),
+            B3Hash::hash(b"tok-cfg-1"),
+            B3Hash::hash(b"weights-1"),
+        );
+        let second = make_sync_model(
+            "model-2",
+            "duplicate-name",
+            B3Hash::hash(b"cfg-2"),
+            B3Hash::hash(b"tok-2"),
+            B3Hash::hash(b"tok-cfg-2"),
+            B3Hash::hash(b"weights-2"),
+        );
+
+        registry.register_model(&first).unwrap();
+        let err = registry.register_model(&second).unwrap_err();
+        let msg = err.to_string();
+        assert!(
+            msg.contains("Model name 'duplicate-name' already exists"),
+            "unexpected duplicate-name error: {msg}"
+        );
+    }
+
+    #[test]
+    fn register_model_duplicate_hash_returns_strict_error() {
+        let temp_dir = tempfile::tempdir().unwrap();
+        let db_path = temp_dir.path().join("test.db");
+        let registry = SyncRegistry::open(&db_path).unwrap();
+
+        let shared_hash = B3Hash::hash(b"shared-weights");
+        let first = make_sync_model(
+            "model-1",
+            "model-a",
+            B3Hash::hash(b"cfg-a"),
+            B3Hash::hash(b"tok-a"),
+            B3Hash::hash(b"tok-cfg-a"),
+            shared_hash.clone(),
+        );
+        let second = make_sync_model(
+            "model-2",
+            "model-b",
+            B3Hash::hash(b"cfg-b"),
+            B3Hash::hash(b"tok-b"),
+            B3Hash::hash(b"tok-cfg-b"),
+            shared_hash.clone(),
+        );
+
+        registry.register_model(&first).unwrap();
+        let err = registry.register_model(&second).unwrap_err();
+        let msg = err.to_string();
+        assert!(
+            msg.contains(&format!("Model hash_b3 '{}' already exists", shared_hash.to_hex())),
+            "unexpected duplicate-hash error: {msg}"
+        );
+    }
+
+    #[test]
+    fn register_model_duplicate_hash_does_not_return_legacy_precheck_error() {
+        let temp_dir = tempfile::tempdir().unwrap();
+        let db_path = temp_dir.path().join("test.db");
+        let registry = SyncRegistry::open(&db_path).unwrap();
+
+        let shared_config = B3Hash::hash(b"shared-config");
+        let shared_tokenizer = B3Hash::hash(b"shared-tokenizer");
+        let shared_tokenizer_cfg = B3Hash::hash(b"shared-tokenizer-cfg");
+        let shared_weights = B3Hash::hash(b"shared-weights");
+        let first = make_sync_model(
+            "model-1",
+            "model-a",
+            shared_config.clone(),
+            shared_tokenizer.clone(),
+            shared_tokenizer_cfg.clone(),
+            shared_weights.clone(),
+        );
+        let second = make_sync_model(
+            "model-2",
+            "model-b",
+            shared_config.clone(),
+            shared_tokenizer.clone(),
+            shared_tokenizer_cfg.clone(),
+            shared_weights.clone(),
+        );
+
+        registry.register_model(&first).unwrap();
+        let err = registry.register_model(&second).unwrap_err();
+        let msg = err.to_string();
+        assert!(
+            msg.contains("Model hash_b3"),
+            "expected strict duplicate hash error, got: {msg}"
+        );
+        assert!(
+            !msg.contains("Hash collision:"),
+            "unexpected legacy precheck error: {msg}"
+        );
     }
 }

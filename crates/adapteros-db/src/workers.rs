@@ -533,6 +533,28 @@ impl Db {
         Ok(count)
     }
 
+    /// Get count of recent telemetry events for a worker by event type
+    pub async fn get_worker_telemetry_count_recent(
+        &self,
+        worker_id: &str,
+        event_type: &str,
+        minutes: i32,
+    ) -> Result<i64> {
+        let count = sqlx::query_scalar::<_, i64>(
+            "SELECT COUNT(*) FROM telemetry_events
+             WHERE worker_id = ? AND event_type = ?
+             AND timestamp > datetime('now', ? || ' minutes')",
+        )
+        .bind(worker_id)
+        .bind(event_type)
+        .bind(format!("-{}", minutes))
+        .fetch_one(self.pool())
+        .await
+        .unwrap_or(0);
+
+        Ok(count)
+    }
+
     /// Get average latency for a worker from recent telemetry events
     pub async fn get_worker_avg_latency_recent(
         &self,
@@ -1875,6 +1897,48 @@ mod tests {
             let parsed: WorkerIncidentType = s.parse().unwrap();
             assert_eq!(*incident_type, parsed);
         }
+    }
+
+    #[tokio::test]
+    async fn get_worker_telemetry_count_recent_excludes_old_rows() {
+        std::env::set_var("AOS_SKIP_MIGRATION_SIGNATURES", "1");
+        let db = Db::new_in_memory().await.expect("db init should succeed");
+
+        sqlx::query(
+            "CREATE TABLE IF NOT EXISTS telemetry_events (
+                id TEXT PRIMARY KEY,
+                worker_id TEXT NOT NULL,
+                tenant_id TEXT NOT NULL,
+                event_type TEXT NOT NULL,
+                payload TEXT,
+                timestamp TEXT NOT NULL DEFAULT (datetime('now'))
+            )",
+        )
+        .execute(db.pool())
+        .await
+        .expect("create telemetry_events table should succeed");
+
+        sqlx::query(
+            "INSERT INTO telemetry_events (id, worker_id, tenant_id, event_type, payload, timestamp)
+             VALUES
+             ('recent-match', 'worker-recent', 'default', 'inference_complete', '{}', datetime('now', '-30 seconds')),
+             ('old-match', 'worker-recent', 'default', 'inference_complete', '{}', datetime('now', '-3 minutes')),
+             ('recent-other-event', 'worker-recent', 'default', 'other_event', '{}', datetime('now', '-30 seconds')),
+             ('recent-other-worker', 'worker-other', 'default', 'inference_complete', '{}', datetime('now', '-30 seconds'))",
+        )
+        .execute(db.pool())
+        .await
+        .expect("insert telemetry rows should succeed");
+
+        let count = db
+            .get_worker_telemetry_count_recent("worker-recent", "inference_complete", 1)
+            .await
+            .expect("recent telemetry count should succeed");
+
+        assert_eq!(
+            count, 1,
+            "only recent matching telemetry rows should be counted"
+        );
     }
 
     #[tokio::test]

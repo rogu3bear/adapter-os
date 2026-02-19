@@ -1,6 +1,6 @@
 use adapteros_infra_common::B3Hash;
 use parking_lot::{Mutex, RwLock};
-use std::collections::HashMap;
+use std::collections::{HashMap, VecDeque};
 use std::sync::atomic::{AtomicUsize, Ordering};
 use std::sync::Arc;
 use tracing::warn;
@@ -9,6 +9,28 @@ use tracing::warn;
 /// When exceeded, oldest snapshots are force-evicted regardless of refcount
 /// to prevent unbounded memory growth from slow/stuck clients.
 const MAX_RETIRED_SNAPSHOTS: usize = 50;
+const MAX_GENERATION_AUDIT_EVENTS: usize = 512;
+
+/// Immutable generation audit event emitted on install/drain transitions.
+#[derive(Clone, Debug)]
+pub struct AdapterGenerationAuditEvent {
+    pub timestamp_ms: u64,
+    pub event: &'static str,
+    pub generation: u64,
+    pub previous_generation: u64,
+    pub retired_count: usize,
+    pub details: String,
+}
+
+/// Health summary for RCU generation loading.
+#[derive(Clone, Debug)]
+pub struct AdapterStoreHealth {
+    pub healthy: bool,
+    pub current_generation: u64,
+    pub retired_count: usize,
+    pub audit_events: usize,
+    pub next_action: String,
+}
 
 /// Cache key for adapter residency aligned with context manifest identity.
 #[derive(Clone, Debug, PartialEq, Eq, Hash)]
@@ -106,10 +128,16 @@ impl Drop for AdapterPins {
 }
 
 /// RCU-style adapter store with ref-counted entries.
-#[derive(Default)]
 pub struct AdapterStore {
     current: RwLock<AdapterSnapshot>,
     retired: Mutex<Vec<AdapterSnapshot>>,
+    generation_audit: Mutex<VecDeque<AdapterGenerationAuditEvent>>,
+}
+
+impl Default for AdapterStore {
+    fn default() -> Self {
+        Self::new()
+    }
 }
 
 impl AdapterStore {
@@ -121,6 +149,7 @@ impl AdapterStore {
                 entries: Arc::new(HashMap::new()),
             }),
             retired: Mutex::new(Vec::new()),
+            generation_audit: Mutex::new(VecDeque::new()),
         }
     }
 
@@ -139,15 +168,99 @@ impl AdapterStore {
         entries: HashMap<AdapterCacheKey, AdapterRecord>,
     ) -> AdapterSnapshot {
         let mut guard = self.current.write();
+        if generation <= guard.generation {
+            self.push_generation_audit(
+                "generation_rejected",
+                generation,
+                guard.generation,
+                self.retired_count(),
+                format!(
+                    "Rejected non-monotonic install request (requested={}, current={})",
+                    generation, guard.generation
+                ),
+            );
+            warn!(
+                requested_generation = generation,
+                current_generation = guard.generation,
+                "Rejected non-monotonic adapter generation install"
+            );
+            return guard.clone();
+        }
+
         let new_snapshot = AdapterSnapshot {
             generation,
             entries: Arc::new(entries),
         };
+        let previous_generation = guard.generation;
         let old = std::mem::replace(&mut *guard, new_snapshot.clone());
         if old.generation != new_snapshot.generation {
             self.retired.lock().push(old);
         }
+        self.push_generation_audit(
+            "generation_installed",
+            generation,
+            previous_generation,
+            self.retired_count(),
+            format!(
+                "Installed generation {} with {} entries",
+                generation,
+                new_snapshot.entries.len()
+            ),
+        );
         new_snapshot
+    }
+
+    /// Install with bounded retry for transient generation races.
+    ///
+    /// If a non-monotonic generation is supplied, retries will keep returning
+    /// the current snapshot and finally emit a warning with the latest state.
+    pub fn install_with_retry(
+        &self,
+        generation: u64,
+        entries: HashMap<AdapterCacheKey, AdapterRecord>,
+        max_attempts: u32,
+    ) -> AdapterSnapshot {
+        let attempts = max_attempts.max(1);
+        for attempt in 1..=attempts {
+            let snapshot = self.install(generation, entries.clone());
+            if snapshot.generation == generation {
+                if attempt > 1 {
+                    self.push_generation_audit(
+                        "generation_retry_succeeded",
+                        generation,
+                        snapshot.generation,
+                        self.retired_count(),
+                        format!("Install succeeded after {} attempts", attempt),
+                    );
+                }
+                return snapshot;
+            }
+
+            if attempt < attempts {
+                std::thread::sleep(std::time::Duration::from_millis(
+                    5u64.saturating_mul(attempt as u64),
+                ));
+            }
+        }
+
+        let current = self.snapshot();
+        self.push_generation_audit(
+            "generation_retry_exhausted",
+            generation,
+            current.generation,
+            self.retired_count(),
+            format!(
+                "Install retry exhausted after {} attempts; keeping generation {}",
+                attempts, current.generation
+            ),
+        );
+        warn!(
+            requested_generation = generation,
+            current_generation = current.generation,
+            attempts = attempts,
+            "Adapter generation install retry exhausted"
+        );
+        current
     }
 
     /// Pin the current snapshot for a request and increment refcounts.
@@ -198,10 +311,27 @@ impl AdapterStore {
             let force_evicted: Vec<AdapterSnapshot> = retired.drain(0..excess).collect();
             for snapshot in force_evicted {
                 drained.push(snapshot.generation);
+                self.push_generation_audit(
+                    "retired_force_evicted",
+                    snapshot.generation,
+                    self.snapshot().generation,
+                    retired.len(),
+                    "Force-evicted retired snapshot due to retention cap".to_string(),
+                );
                 // Note: Any holders of pins to these force-evicted snapshots will
                 // continue to work (they hold Arc refs), but the snapshot memory
                 // will be reclaimed when they drop their pins.
             }
+        }
+
+        if !drained.is_empty() {
+            self.push_generation_audit(
+                "retired_drained",
+                self.snapshot().generation,
+                0,
+                retired.len(),
+                format!("Drained retired generations: {:?}", drained),
+            );
         }
 
         drained
@@ -210,6 +340,57 @@ impl AdapterStore {
     /// Get the current count of retired snapshots (for monitoring).
     pub fn retired_count(&self) -> usize {
         self.retired.lock().len()
+    }
+
+    /// Immutable generation audit log snapshot.
+    pub fn generation_audit_log(&self) -> Vec<AdapterGenerationAuditEvent> {
+        self.generation_audit.lock().iter().cloned().collect()
+    }
+
+    /// Health summary for generation loading and retirement pressure.
+    pub fn generation_health(&self) -> AdapterStoreHealth {
+        let current_generation = self.snapshot().generation;
+        let retired_count = self.retired_count();
+        let audit_events = self.generation_audit.lock().len();
+        let healthy = retired_count <= MAX_RETIRED_SNAPSHOTS;
+        let next_action = if healthy {
+            "none".to_string()
+        } else {
+            "drain retired snapshots or inspect stuck request pins".to_string()
+        };
+        AdapterStoreHealth {
+            healthy,
+            current_generation,
+            retired_count,
+            audit_events,
+            next_action,
+        }
+    }
+
+    fn push_generation_audit(
+        &self,
+        event: &'static str,
+        generation: u64,
+        previous_generation: u64,
+        retired_count: usize,
+        details: String,
+    ) {
+        let mut log = self.generation_audit.lock();
+        if log.len() == MAX_GENERATION_AUDIT_EVENTS {
+            log.pop_front();
+        }
+        let timestamp_ms = std::time::SystemTime::now()
+            .duration_since(std::time::UNIX_EPOCH)
+            .unwrap_or_default()
+            .as_millis() as u64;
+        log.push_back(AdapterGenerationAuditEvent {
+            timestamp_ms,
+            event,
+            generation,
+            previous_generation,
+            retired_count,
+            details,
+        });
     }
 }
 
