@@ -23,6 +23,7 @@ pub fn routes() -> Router {
         .route("/static/{*file}", get(static_handler))
         .route("/assets/{*file}", get(static_handler))
         .route("/favicon.ico", get(static_handler))
+        .route("/favicon.svg", get(static_handler))
         // SPA fallback should not catch /api paths
         .fallback(spa_fallback)
 }
@@ -37,6 +38,16 @@ async fn spa_fallback(uri: Uri) -> impl IntoResponse {
     let path = uri.path().trim_start_matches('/');
     if let Some(response) = serve_asset_response(path).await {
         return response.into_response();
+    }
+
+    // Missing static assets (e.g. .js, .wasm, .css) must return 404, not SPA HTML.
+    // Otherwise the browser parses HTML as script and reports "unsupported MIME type".
+    if path.ends_with(".js")
+        || path.ends_with(".wasm")
+        || path.ends_with(".css")
+        || path.ends_with(".woff2")
+    {
+        return not_found_asset(path).await.into_response();
     }
 
     index_handler().await.into_response()
@@ -112,4 +123,27 @@ fn static_asset_path(path: &str) -> Option<PathBuf> {
 
 async fn not_found() -> impl IntoResponse {
     (StatusCode::NOT_FOUND, "404 Not Found")
+}
+
+/// Developer-friendly 404 for missing static assets.
+/// Suggests running the UI build when .js/.wasm/.css/.woff2 are missing.
+async fn not_found_asset(path: &str) -> impl IntoResponse {
+    let body = format!(
+        r#"<!DOCTYPE html>
+<html lang="en">
+<head><meta charset="utf-8"><title>Asset Not Found</title></head>
+<body style="font-family:system-ui,sans-serif;max-width:42rem;margin:2rem auto;padding:1rem;">
+  <h1>404 — Asset not found</h1>
+  <p><code>{path}</code></p>
+  <p>Static assets may be missing. Try:</p>
+  <pre style="background:#f4f4f4;padding:1rem;border-radius:0.25rem;">./scripts/build-ui.sh</pre>
+  <p>Or from the UI crate: <code>cd crates/adapteros-ui && trunk build --release</code></p>
+</body>
+</html>"#
+    );
+    Response::builder()
+        .status(StatusCode::NOT_FOUND)
+        .header(header::CONTENT_TYPE, "text/html; charset=utf-8")
+        .body(Body::from(body))
+        .unwrap()
 }

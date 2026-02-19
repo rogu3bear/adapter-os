@@ -10,9 +10,9 @@ pub mod handlers;
 pub mod routes;
 
 pub use handlers::{
-    get_invariant_status, get_status, health, ready, BootPhaseDuration, DrainSection,
-    InvariantStatusResponse, InvariantViolationDto, LifecycleStatusResponse, MaintenanceSection,
-    ReadinessMode, ReadyMetrics, ReadyzCheck, ReadyzChecks, ReadyzResponse, RestartSection,
-    SystemReadySection, TelemetrySection,
+    get_invariant_status, get_status, health, ready, startup_health, BootPhaseDuration,
+    DrainSection, InvariantStatusResponse, InvariantViolationDto, LifecycleStatusResponse,
+    MaintenanceSection, ReadinessMode, ReadyMetrics, ReadyzCheck, ReadyzChecks, ReadyzResponse,
+    RestartSection, StartupHealthResponse, SystemReadySection, TelemetrySection,
 };
 pub use routes::health_routes;

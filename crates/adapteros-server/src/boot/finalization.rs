@@ -18,6 +18,11 @@
 use adapteros_boot::BootReport;
 use adapteros_server_api::boot_state::BootStateManager;
 use adapteros_server_api::config::Config;
+use adapteros_server_api::middleware::audit::audit_middleware;
+use adapteros_server_api::middleware::context::context_middleware;
+use adapteros_server_api::middleware::{
+    auth_middleware, csrf_middleware, policy_enforcement_middleware, tenant_route_guard_middleware,
+};
 use adapteros_server_api::routes;
 use adapteros_server_api::AppState;
 use anyhow::Result;
@@ -25,6 +30,7 @@ use std::path::{Path, PathBuf};
 use std::sync::atomic::AtomicUsize;
 use std::sync::{Arc, RwLock};
 use std::time::Duration;
+use tower::ServiceBuilder;
 use tower_http::compression::CompressionLayer;
 use tracing::{error, info, warn};
 
@@ -114,17 +120,41 @@ pub async fn finalize_boot(
 
     // Build spoke routes (audit and health handlers from separate crates)
     // These provide the same endpoints that were excluded from api_routes
-    // via the exclude-spoke-routes feature
-    let audit_spoke_routes = adapteros_server_api_audit::audit_routes();
+    // via the exclude-spoke-routes feature.
+    //
+    // Keep public receipt verification unauthenticated while ensuring all
+    // other audit endpoints run under the same protected middleware stack as
+    // hub-provided protected routes.
+    let protected_audit_spoke_routes = adapteros_server_api_audit::protected_audit_routes().layer(
+        ServiceBuilder::new()
+            .layer(axum::middleware::from_fn_with_state(
+                state.clone(),
+                auth_middleware,
+            ))
+            .layer(axum::middleware::from_fn(tenant_route_guard_middleware))
+            .layer(axum::middleware::from_fn(csrf_middleware))
+            .layer(axum::middleware::from_fn(context_middleware))
+            .layer(axum::middleware::from_fn_with_state(
+                state.clone(),
+                policy_enforcement_middleware,
+            ))
+            .layer(axum::middleware::from_fn_with_state(
+                state.clone(),
+                audit_middleware,
+            )),
+    );
+    let public_audit_spoke_routes = adapteros_server_api_audit::public_audit_routes();
     let health_spoke_routes = adapteros_server_api_health::health_routes();
 
     // API routes are merged directly at root level (routes already have /v1/ prefix)
-    // Spoke routes are merged after api_routes to override excluded handlers
-    // Order matters: specific API routes first, then UI fallback for SPA
+    // Health spoke must be merged BEFORE api_routes so /healthz/startup wins over
+    // api_routes' /healthz/{component} (which would otherwise match "startup" as component).
+    // Order matters: health first (specific /healthz/startup), then api, then UI fallback.
     let app = axum::Router::new()
-        .merge(api_routes) // API routes at their defined paths (/v1/*, /healthz, etc.)
-        .merge(audit_spoke_routes.with_state(state.clone())) // Audit spoke handlers
-        .merge(health_spoke_routes.with_state(state.clone())) // Health spoke handlers
+        .merge(health_spoke_routes.with_state(state.clone())) // Health: /healthz, /healthz/startup, /readyz
+        .merge(api_routes) // API routes at their defined paths (/v1/*, /healthz/all, etc.)
+        .merge(protected_audit_spoke_routes.with_state(state.clone())) // Protected audit spoke handlers
+        .merge(public_audit_spoke_routes.with_state(state.clone())) // Public audit receipt verification
         .merge(ui_routes) // UI fallback for non-API paths
         .layer(CompressionLayer::new()); // Response compression (gzip, br) for all routes
 

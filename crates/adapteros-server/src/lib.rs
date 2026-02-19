@@ -11,3 +11,8 @@ pub mod shutdown;
 pub mod status_writer;
 pub mod telemetry_flush;
 pub mod topology_loader;
+
+pub use boot::{
+    classify_startup_error, log_startup_snapshot, RetryPolicy, StartupOrchestrator,
+    StartupRecoveryPath, StartupSnapshot,
+};

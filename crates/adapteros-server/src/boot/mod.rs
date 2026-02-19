@@ -56,6 +56,7 @@ pub mod model_server;
 pub mod runtime;
 pub mod security;
 mod server;
+pub mod startup_orchestrator;
 pub mod startup_recovery;
 mod tasks;
 mod timings;
@@ -79,6 +80,10 @@ pub use security::{
 };
 pub use server::{
     bind_and_serve, bind_error_exit_code, precheck_tcp_port, BindError, BindMode, ServerBindConfig,
+};
+pub use startup_orchestrator::{
+    classify_startup_error, log_startup_snapshot, RetryPolicy, StartupOrchestrator,
+    StartupRecoveryPath, StartupSnapshot,
 };
 pub use startup_recovery::{run_startup_recovery, StartupRecoveryReport};
 pub use tasks::{BackgroundTaskSpawner, SpawnError, SpawnResult};

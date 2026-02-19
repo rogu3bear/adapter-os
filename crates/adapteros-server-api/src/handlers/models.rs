@@ -17,10 +17,14 @@ use adapteros_config::{
     resolve_base_model_location, resolve_worker_socket_for_cp, DEFAULT_MODEL_CACHE_ROOT,
 };
 use adapteros_core::io_utils::get_directory_size;
+use adapteros_core::WorkerStatus;
 use adapteros_db::users::Role;
 use adapteros_lora_worker::memory::UmaStats;
 use adapteros_storage::secure_fs::path_policy::canonicalize_strict_in_allowed_roots;
+use std::collections::HashSet;
 use std::path::{Path as StdPath, PathBuf};
+use std::str::FromStr;
+use std::sync::atomic::Ordering;
 use std::time::Duration;
 use tracing::{error, warn};
 
@@ -35,6 +39,33 @@ const ACTION_MODEL_UNLOAD: &str = "model.unload";
 
 /// Audit action: model import
 const ACTION_MODEL_IMPORT: &str = "model.import";
+const ACTION_MODEL_REGISTER_SAFE: &str = "model.register_safe";
+const MODEL_LOAD_STALE_AFTER_SECS: i64 = 180;
+const MODEL_LOAD_ATTEMPTS_PER_WORKER: usize = 2;
+
+struct CompatibilityRule {
+    backend: &'static str,
+    formats: &'static [&'static str],
+    required_files: &'static [&'static str],
+}
+
+const MODEL_COMPATIBILITY_MATRIX: &[CompatibilityRule] = &[
+    CompatibilityRule {
+        backend: "mlx",
+        formats: &["mlx", "safetensors"],
+        required_files: &["config.json", "tokenizer.json"],
+    },
+    CompatibilityRule {
+        backend: "metal",
+        formats: &["mlx", "safetensors"],
+        required_files: &["config.json", "tokenizer.json"],
+    },
+    CompatibilityRule {
+        backend: "coreml",
+        formats: &["mlx", "safetensors", "coreml"],
+        required_files: &["config.json", "tokenizer.json"],
+    },
+];
 
 /// Normalize backend label strings to canonical form via `BackendKind` parsing.
 pub fn normalize_backend_label(backend: &str) -> &str {
@@ -95,11 +126,249 @@ fn has_coreml_weights(dir: &StdPath) -> bool {
     candidates.iter().any(|path| path.exists())
 }
 
+fn loading_state_is_stale(updated_at: Option<&str>, now: chrono::DateTime<chrono::Utc>) -> bool {
+    let Some(raw_timestamp) = updated_at else {
+        // Missing updated_at means we cannot reason about this loading state safely.
+        return true;
+    };
+    let Ok(parsed) = chrono::DateTime::parse_from_rfc3339(raw_timestamp) else {
+        // Parse failure suggests bad/stale metadata; allow recovery instead of blocking.
+        return true;
+    };
+    let updated = parsed.with_timezone(&chrono::Utc);
+    now.signed_duration_since(updated).num_seconds() >= MODEL_LOAD_STALE_AFTER_SECS
+}
+
+fn worker_status_priority(status: &str) -> Option<u8> {
+    match WorkerStatus::from_str(status).ok() {
+        Some(WorkerStatus::Healthy) => Some(0),
+        Some(WorkerStatus::Registered) => Some(1),
+        Some(WorkerStatus::Created) => Some(2),
+        Some(WorkerStatus::Pending) => Some(3),
+        Some(WorkerStatus::Draining) => Some(4),
+        Some(WorkerStatus::Stopped | WorkerStatus::Error) => None,
+        None => None,
+    }
+}
+
+fn worker_socket_candidates_from_records(
+    workers: Vec<adapteros_db::models::Worker>,
+) -> Vec<(PathBuf, String)> {
+    let mut workers = workers;
+    workers.sort_by(|a, b| {
+        worker_status_priority(&a.status)
+            .unwrap_or(u8::MAX)
+            .cmp(&worker_status_priority(&b.status).unwrap_or(u8::MAX))
+            .then_with(|| b.last_seen_at.cmp(&a.last_seen_at))
+            .then_with(|| a.id.cmp(&b.id))
+    });
+
+    let mut seen = HashSet::new();
+    let mut candidates = Vec::new();
+    for worker in workers {
+        if worker_status_priority(&worker.status).is_none() {
+            continue;
+        }
+        let normalized = worker.uds_path.replace("/./", "/");
+        if !seen.insert(normalized.clone()) {
+            continue;
+        }
+        let path = PathBuf::from(&normalized);
+        if path.exists() {
+            candidates.push((path, worker.id));
+        }
+    }
+
+    candidates
+}
+
+fn validate_compatibility_matrix(format: Option<&str>, backend: &str) -> Result<(), String> {
+    let backend = backend.trim().to_ascii_lowercase();
+    let rule = MODEL_COMPATIBILITY_MATRIX
+        .iter()
+        .find(|candidate| candidate.backend == backend)
+        .ok_or_else(|| format!("No compatibility rule found for backend '{}'", backend))?;
+
+    if let Some(format) = format {
+        if !rule
+            .formats
+            .iter()
+            .any(|allowed| allowed.eq_ignore_ascii_case(format))
+        {
+            return Err(format!(
+                "Compatibility matrix rejected format '{}' for backend '{}' (allowed: {})",
+                format,
+                backend,
+                rule.formats.join(", ")
+            ));
+        }
+    }
+
+    Ok(())
+}
+
+async fn enforce_hot_swap_gate(
+    state: &AppState,
+    tenant_id: &str,
+    incoming_model_id: &str,
+) -> Result<(), String> {
+    let in_flight = state.in_flight_requests.load(Ordering::Relaxed);
+    if in_flight > 0 {
+        return Err(format!(
+            "Hot-swap gate closed: {} in-flight requests; retry after traffic drains",
+            in_flight
+        ));
+    }
+
+    let active_state = state
+        .db
+        .get_workspace_active_state(tenant_id)
+        .await
+        .map_err(|e| format!("Failed to check active workspace state: {}", e))?;
+
+    if let Some(active_state) = active_state {
+        if let Some(active_model_id) = active_state.active_base_model_id {
+            if active_model_id != incoming_model_id {
+                if let Some(status) = state
+                    .db
+                    .get_base_model_status(tenant_id)
+                    .await
+                    .map_err(|e| format!("Failed to check base model status: {}", e))?
+                {
+                    if matches!(status.status.as_str(), "loading" | "unloading") {
+                        return Err(format!(
+                            "Hot-swap gate closed: active model transition '{}' in progress",
+                            status.status
+                        ));
+                    }
+                }
+            }
+        }
+    }
+
+    Ok(())
+}
+
+async fn fallback_to_last_known_good_base_model(
+    state: &AppState,
+    tenant_id: &str,
+    failed_model_id: &str,
+    worker_candidates: &[(PathBuf, String)],
+    uds_client: &UdsClient,
+) -> Result<Option<String>, String> {
+    let active = state
+        .db
+        .get_workspace_active_state(tenant_id)
+        .await
+        .map_err(|e| format!("Failed to fetch active workspace state: {}", e))?;
+    let fallback_model_id = active
+        .and_then(|value| value.active_base_model_id)
+        .filter(|id| id != failed_model_id);
+    let Some(fallback_model_id) = fallback_model_id else {
+        return Ok(None);
+    };
+
+    let fallback_model = state
+        .db
+        .get_model_for_tenant(tenant_id, &fallback_model_id)
+        .await
+        .map_err(|e| {
+            format!(
+                "Failed to fetch fallback model '{}': {}",
+                fallback_model_id, e
+            )
+        })?
+        .ok_or_else(|| {
+            format!(
+                "Fallback model '{}' is no longer available in tenant '{}'",
+                fallback_model_id, tenant_id
+            )
+        })?;
+
+    let fallback_path = fallback_model.model_path.clone().unwrap_or_else(|| {
+        resolve_base_model_location(Some(&fallback_model_id), None, false)
+            .map(|loc| loc.full_path.display().to_string())
+            .unwrap_or_else(|_| {
+                PathBuf::from(DEFAULT_MODEL_CACHE_ROOT)
+                    .join(&fallback_model_id)
+                    .display()
+                    .to_string()
+            })
+    });
+
+    let allowed_roots = model_allowed_roots().await?;
+    let canonical_path =
+        canonicalize_strict_in_allowed_roots(StdPath::new(&fallback_path), &allowed_roots)
+            .map_err(|e| format!("Fallback path rejected: {}", e))?;
+    let backend = fallback_model
+        .backend
+        .as_deref()
+        .map(normalize_backend_label)
+        .unwrap_or("mlx");
+    validate_model_compatibility(&canonical_path, fallback_model.format.as_deref(), backend)
+        .await?;
+
+    let fallback_path = canonical_path.to_string_lossy().to_string();
+    let mut last_error = None;
+    for (socket, worker_id) in worker_candidates {
+        match uds_client
+            .load_model(socket, &fallback_model_id, &fallback_path)
+            .await
+        {
+            Ok(resp) if resp.status == "loaded" || resp.status == "already_loaded" => {
+                let memory_mb = resp.memory_usage_mb.unwrap_or(4096);
+                state
+                    .db
+                    .update_base_model_status(
+                        tenant_id,
+                        &fallback_model_id,
+                        ModelLoadStatus::Ready.as_str(),
+                        None,
+                        Some(memory_mb),
+                    )
+                    .await
+                    .map_err(|e| format!("Failed to update fallback model status: {}", e))?;
+                state
+                    .metrics_exporter
+                    .set_model_loaded_gauge(&fallback_model_id, tenant_id, true);
+                tracing::warn!(
+                    failed_model_id = %failed_model_id,
+                    fallback_model_id = %fallback_model_id,
+                    worker_id = %worker_id,
+                    "Recovered model load failure by restoring last-known-good base model"
+                );
+                return Ok(Some(fallback_model_id));
+            }
+            Ok(resp) => {
+                last_error = Some(format!(
+                    "worker={} status={} error={}",
+                    worker_id,
+                    resp.status,
+                    resp.error.unwrap_or_default()
+                ));
+            }
+            Err(err) => {
+                last_error = Some(format!("worker={} error={}", worker_id, err));
+            }
+        }
+    }
+
+    Err(last_error.unwrap_or_else(|| {
+        format!(
+            "Fallback model '{}' could not be loaded on any worker",
+            fallback_model_id
+        )
+    }))
+}
+
 async fn validate_model_compatibility(
     model_path: &StdPath,
     format: Option<&str>,
     backend: &str,
 ) -> Result<(), String> {
+    let backend = normalize_backend_label(backend).to_ascii_lowercase();
+    validate_compatibility_matrix(format, &backend)?;
+
     let model_dir = if model_path.is_dir() {
         model_path
     } else {
@@ -111,23 +380,23 @@ async fn validate_model_compatibility(
         })?
     };
 
-    let config_path = model_dir.join("config.json");
-    if !config_path.exists() {
-        return Err(format!(
-            "config.json not found at '{}'",
-            config_path.display()
-        ));
+    if let Some(rule) = MODEL_COMPATIBILITY_MATRIX
+        .iter()
+        .find(|candidate| candidate.backend == backend.as_str())
+    {
+        for required in rule.required_files {
+            let required_path = model_dir.join(required);
+            if !required_path.exists() {
+                return Err(format!(
+                    "{} not found at '{}'",
+                    required,
+                    required_path.display()
+                ));
+            }
+        }
     }
 
-    let tokenizer_path = model_dir.join("tokenizer.json");
-    if !tokenizer_path.exists() {
-        return Err(format!(
-            "tokenizer.json not found at '{}'",
-            tokenizer_path.display()
-        ));
-    }
-
-    match backend {
+    match backend.as_str() {
         "coreml" => {
             if !has_coreml_weights(model_dir) {
                 return Err(format!(
@@ -313,6 +582,28 @@ pub async fn load_model(
             ApiError::not_found("model")
         })?;
 
+    if let Err(gate_error) = enforce_hot_swap_gate(&state, tenant_id, &model_id).await {
+        log_failure_or_warn(
+            &state.db,
+            &claims,
+            ACTION_MODEL_LOAD,
+            RESOURCE_MODEL,
+            Some(&model_id),
+            &format!("Hot-swap gate denied model load: {}", gate_error),
+            Some(client_ip.0.as_str()),
+        )
+        .await;
+        return Err((
+            StatusCode::CONFLICT,
+            Json(
+                ErrorResponse::new("hot-swap gate denied model load")
+                    .with_code("HOT_SWAP_GATED")
+                    .with_string_details(gate_error),
+            ),
+        )
+            .into());
+    }
+
     // Aggregate current status across tenants/nodes for this model
     let all_statuses = state.db.list_base_model_statuses().await.map_err(|e| {
         error!("Failed to fetch model statuses: {}", e);
@@ -333,34 +624,23 @@ pub async fn load_model(
         "model_load_request"
     );
 
-    if matches!(
-        state_before,
-        ModelLoadStatus::Ready | ModelLoadStatus::Loading
-    ) {
-        if state_before.is_ready() {
-            if let Err(e) = state
-                .db
-                .set_active_base_model_if_empty(
-                    tenant_id,
-                    &model_id,
-                    state.manifest_hash.as_deref(),
-                )
-                .await
-            {
-                error!(
-                    error = %e,
-                    model_id = %model_id,
-                    tenant_id = %tenant_id,
-                    "Failed to set active base model during fast-path load"
-                );
-            }
+    if state_before.is_ready() {
+        if let Err(e) = state
+            .db
+            .set_active_base_model_if_empty(tenant_id, &model_id, state.manifest_hash.as_deref())
+            .await
+        {
+            error!(
+                error = %e,
+                model_id = %model_id,
+                tenant_id = %tenant_id,
+                "Failed to set active base model during fast-path load"
+            );
         }
         let latest = aggregated.latest;
-        state.metrics_exporter.set_model_loaded_gauge(
-            &model_id,
-            tenant_id,
-            state_before.is_ready(),
-        );
+        state
+            .metrics_exporter
+            .set_model_loaded_gauge(&model_id, tenant_id, true);
         let response = build_model_status_response(
             &state,
             model_id,
@@ -370,10 +650,60 @@ pub async fn load_model(
             latest.and_then(|s| s.loaded_at.clone()),
             latest.and_then(|s| s.error_message.clone()),
             latest.and_then(|s| s.memory_usage_mb),
-            state_before.is_ready(),
+            true,
         )
         .await;
         return Ok(Json(response));
+    }
+
+    if matches!(state_before, ModelLoadStatus::Loading) {
+        let latest = aggregated.latest;
+        let tenant_updated_at = match state
+            .db
+            .get_base_model_status_for_model(tenant_id, &model_id)
+            .await
+        {
+            Ok(status) => status.map(|s| s.updated_at),
+            Err(e) => {
+                warn!(
+                    model_id = %model_id,
+                    tenant_id = %tenant_id,
+                    error = %e,
+                    "Failed to read tenant-scoped model loading timestamp; falling back to aggregated timestamp"
+                );
+                None
+            }
+        };
+        let stale = loading_state_is_stale(
+            tenant_updated_at
+                .as_deref()
+                .or_else(|| latest.map(|s| s.updated_at.as_str())),
+            chrono::Utc::now(),
+        );
+        if !stale {
+            state
+                .metrics_exporter
+                .set_model_loaded_gauge(&model_id, tenant_id, false);
+            let response = build_model_status_response(
+                &state,
+                model_id,
+                model.name,
+                model.model_path,
+                state_before,
+                latest.and_then(|s| s.loaded_at.clone()),
+                latest.and_then(|s| s.error_message.clone()),
+                latest.and_then(|s| s.memory_usage_mb),
+                false,
+            )
+            .await;
+            return Ok(Json(response));
+        }
+        warn!(
+            model_id = %model_id,
+            tenant_id = %tenant_id,
+            stale_after_secs = MODEL_LOAD_STALE_AFTER_SECS,
+            "Detected stale model loading state; forcing recovery load attempt"
+        );
     }
 
     // Update status to "loading" first (idempotent ensure)
@@ -464,22 +794,28 @@ pub async fn load_model(
         }
     };
 
-    // Get worker socket path - try from workers table first, then env var fallback
-    let uds_path = get_worker_socket_path(&state, tenant_id)
-        .await
-        .ok_or_else(|| {
-            error!("No worker available for model loading");
-            (
-                StatusCode::SERVICE_UNAVAILABLE,
-                Json(
-                    ErrorResponse::new("no worker available")
-                        .with_code("WORKER_UNAVAILABLE")
-                        .with_string_details(
-                            "No worker is available to load the model".to_string(),
-                        ),
-                ),
-            )
-        })?;
+    // Get worker socket paths - try tenant workers first, then global workers, then env fallback
+    let worker_candidates = get_worker_socket_paths(&state, tenant_id).await;
+    if worker_candidates.is_empty() {
+        let err_msg =
+            "No worker is available to load the model (all candidate sockets missing/unhealthy)"
+                .to_string();
+        error!(
+            model_id = %model_id,
+            tenant_id = %tenant_id,
+            "No worker available for model loading"
+        );
+        record_failure(err_msg.clone()).await;
+        return Err((
+            StatusCode::SERVICE_UNAVAILABLE,
+            Json(
+                ErrorResponse::new("no worker available")
+                    .with_code("WORKER_UNAVAILABLE")
+                    .with_string_details(err_msg),
+            ),
+        )
+            .into());
+    }
 
     // Get model path from database; fall back to canonical resolver
     let model_path = model.model_path.clone().unwrap_or_else(|| {
@@ -560,46 +896,117 @@ pub async fn load_model(
             .into());
     }
 
-    // Call worker via UDS to actually load the model
+    // Call worker(s) via UDS to actually load the model. Try multiple workers and retry once
+    // per worker to improve recovery from transient UDS/socket issues.
     let uds_client = UdsClient::new(Duration::from_secs(120)); // Model loading can take time
-    let load_result = uds_client
-        .load_model(&uds_path, &model_id, &model_path)
-        .await;
+    let mut worker_failures: Vec<String> = Vec::new();
+    let mut final_status = ModelLoadStatus::Error;
+    let mut memory_mb: Option<i32> = None;
+    let mut load_error: Option<String> = None;
+    let mut loaded_via_worker_id: Option<String> = None;
 
-    let (final_status, memory_mb, load_error) = match load_result {
-        Ok(response) => {
-            if response.status == "loaded" || response.status == "already_loaded" {
-                info!(
-                    model_id = %model_id,
-                    memory_mb = ?response.memory_usage_mb,
-                    "Worker confirmed model is loaded"
-                );
-                (ModelLoadStatus::Ready, response.memory_usage_mb, None)
-            } else {
-                warn!(
-                    model_id = %model_id,
-                    status = %response.status,
-                    error = ?response.error,
-                    "Worker returned non-loaded status"
-                );
-                (ModelLoadStatus::Error, None, response.error)
+    for (uds_path, worker_id) in &worker_candidates {
+        let mut worker_response = None;
+        let mut last_error = None;
+        for attempt in 1..=MODEL_LOAD_ATTEMPTS_PER_WORKER {
+            match uds_client
+                .load_model(uds_path, &model_id, &model_path)
+                .await
+            {
+                Ok(response) => {
+                    worker_response = Some(response);
+                    break;
+                }
+                Err(e) => {
+                    let err = e.to_string();
+                    last_error = Some(err.clone());
+                    if attempt < MODEL_LOAD_ATTEMPTS_PER_WORKER {
+                        warn!(
+                            model_id = %model_id,
+                            worker_id = %worker_id,
+                            uds_path = %uds_path.display(),
+                            attempt = attempt,
+                            max_attempts = MODEL_LOAD_ATTEMPTS_PER_WORKER,
+                            error = %err,
+                            "Model load attempt failed on worker, retrying once"
+                        );
+                    }
+                }
             }
         }
-        Err(e) => {
-            // UDS call failed - worker is down or not responding
-            // Report this as a real error instead of silently succeeding
-            error!(
-                model_id = %model_id,
-                error = %e,
-                "Failed to communicate with worker for model loading"
-            );
-            (
-                ModelLoadStatus::Error,
-                None,
-                Some(format!("Worker communication failed: {}", e)),
-            )
+
+        if let Some(response) = worker_response {
+            if response.status == "loaded" || response.status == "already_loaded" {
+                final_status = ModelLoadStatus::Ready;
+                memory_mb = response.memory_usage_mb;
+                load_error = None;
+                loaded_via_worker_id = Some(worker_id.clone());
+                break;
+            }
+
+            let err = response.error.unwrap_or_else(|| {
+                format!("Worker returned non-loaded status '{}'", response.status)
+            });
+            worker_failures.push(format!(
+                "worker={} path={} error={}",
+                worker_id,
+                uds_path.display(),
+                err
+            ));
+            continue;
         }
-    };
+
+        if let Some(err) = last_error {
+            worker_failures.push(format!(
+                "worker={} path={} error={}",
+                worker_id,
+                uds_path.display(),
+                err
+            ));
+        }
+    }
+
+    let mut fallback_recovery_note: Option<String> = None;
+    if !matches!(final_status, ModelLoadStatus::Ready) {
+        load_error = Some(if worker_failures.is_empty() {
+            "Model load failed: no worker attempts were recorded".to_string()
+        } else {
+            format!(
+                "Model load failed across {} worker candidate(s): {}",
+                worker_failures.len(),
+                worker_failures.join(" | ")
+            )
+        });
+
+        match fallback_to_last_known_good_base_model(
+            &state,
+            tenant_id,
+            &model_id,
+            &worker_candidates,
+            &uds_client,
+        )
+        .await
+        {
+            Ok(Some(restored_model_id)) => {
+                fallback_recovery_note = Some(format!(
+                    "Recovered by restoring last-known-good model '{}'",
+                    restored_model_id
+                ));
+            }
+            Ok(None) => {}
+            Err(fallback_error) => {
+                if let Some(error) = load_error.as_mut() {
+                    error.push_str(&format!(" | fallback failed: {}", fallback_error));
+                }
+            }
+        }
+    } else if let Some(worker_id) = loaded_via_worker_id {
+        info!(
+            model_id = %model_id,
+            worker_id = %worker_id,
+            "Worker confirmed model is loaded"
+        );
+    }
 
     let estimated_memory_mb = memory_mb.unwrap_or(4096);
 
@@ -657,6 +1064,11 @@ pub async fn load_model(
 
     // If worker returned an error, report it
     if let Some(error_msg) = load_error {
+        let error_msg = if let Some(note) = fallback_recovery_note.as_ref() {
+            format!("{} | {}", error_msg, note)
+        } else {
+            error_msg
+        };
         let _ = state
             .db
             .update_model_operation(&op_id, "failed", Some(&error_msg), Some(&now), None)
@@ -1527,6 +1939,26 @@ pub async fn import_model(
             ),
         ));
     }
+    if let Err(gate_error) = enforce_hot_swap_gate(&state, tenant_id, &req.model_name).await {
+        log_failure_or_warn(
+            &state.db,
+            &claims,
+            ACTION_MODEL_REGISTER_SAFE,
+            RESOURCE_MODEL,
+            None,
+            &format!("Safe registration blocked by hot-swap gate: {}", gate_error),
+            Some(client_ip.0.as_str()),
+        )
+        .await;
+        return Err((
+            StatusCode::CONFLICT,
+            Json(
+                ErrorResponse::new("safe registration blocked by hot-swap gate")
+                    .with_code("HOT_SWAP_GATED")
+                    .with_string_details(gate_error),
+            ),
+        ));
+    }
     let canonical_path_str = canonical_path.to_string_lossy().to_string();
 
     // Start import
@@ -1572,7 +2004,7 @@ pub async fn import_model(
     log_success_or_warn(
         &state.db,
         &claims,
-        ACTION_MODEL_IMPORT,
+        ACTION_MODEL_REGISTER_SAFE,
         RESOURCE_MODEL,
         Some(&model_id),
         Some(client_ip.0.as_str()),
@@ -2030,24 +2462,49 @@ pub async fn get_all_models_status(
     }))
 }
 
-/// Helper function to get the worker socket path
+/// Helper function to get worker socket paths
 ///
 /// Tries to get the socket path from:
-/// 1. Workers table in database (production path)
-/// 2. AOS_WORKER_SOCKET environment variable (development fallback)
-/// 3. Default path var/run/worker.sock (local development)
-async fn get_worker_socket_path(state: &AppState, _tenant_id: &str) -> Option<PathBuf> {
-    // Try to get from workers table first
-    if let Ok(workers) = state.db.list_all_workers().await {
-        if let Some(worker) = workers.first() {
-            return Some(PathBuf::from(&worker.uds_path));
+/// 1. Tenant workers in database (preferred)
+/// 2. Global workers in database
+/// 3. AOS_WORKER_SOCKET environment variable (development fallback)
+/// 4. Default path var/run/worker.sock (local development)
+async fn get_worker_socket_paths(state: &AppState, tenant_id: &str) -> Vec<(PathBuf, String)> {
+    // Prefer tenant-local workers first, then fall back to global workers.
+    let mut candidates = Vec::new();
+    match state.db.list_workers_by_tenant(tenant_id).await {
+        Ok(mut tenant_workers) => candidates.append(&mut tenant_workers),
+        Err(e) => {
+            warn!(
+                tenant_id = %tenant_id,
+                error = %e,
+                "Failed to list tenant workers for model loading"
+            );
         }
+    }
+    match state.db.list_all_workers().await {
+        Ok(all_workers) => {
+            candidates.extend(all_workers.into_iter().filter(|w| w.tenant_id != tenant_id))
+        }
+        Err(e) => {
+            warn!(
+                tenant_id = %tenant_id,
+                error = %e,
+                "Failed to list global workers for model loading"
+            );
+        }
+    }
+
+    let mut paths = worker_socket_candidates_from_records(candidates);
+    if !paths.is_empty() {
+        return paths;
     }
 
     match resolve_worker_socket_for_cp() {
         Ok(resolved) => {
             if resolved.path.exists() {
-                return Some(resolved.path);
+                paths.push((resolved.path, "env-fallback".to_string()));
+                return paths;
             }
             warn!(
                 path = %resolved.path.display(),
@@ -2060,7 +2517,106 @@ async fn get_worker_socket_path(state: &AppState, _tenant_id: &str) -> Option<Pa
         }
     }
 
-    None
+    paths
+}
+
+#[cfg(test)]
+mod model_load_recovery_tests {
+    use super::*;
+    use adapteros_db::models::Worker;
+
+    fn mk_worker(
+        id: &str,
+        tenant_id: &str,
+        status: &str,
+        uds_path: String,
+        last_seen_at: Option<&str>,
+    ) -> Worker {
+        Worker {
+            id: id.to_string(),
+            tenant_id: tenant_id.to_string(),
+            node_id: "node-1".to_string(),
+            plan_id: "plan-1".to_string(),
+            uds_path,
+            pid: Some(1234),
+            status: status.to_string(),
+            started_at: "2026-01-01T00:00:00Z".to_string(),
+            last_seen_at: last_seen_at.map(|s| s.to_string()),
+            manifest_hash_b3: Some("manifest".to_string()),
+            backend: Some("mlx".to_string()),
+            model_hash_b3: None,
+            capabilities_json: None,
+            tokenizer_hash_b3: None,
+            tokenizer_vocab_size: None,
+        }
+    }
+
+    #[test]
+    fn loading_state_staleness_threshold() {
+        let now = chrono::Utc::now();
+        let fresh = (now - chrono::Duration::seconds(MODEL_LOAD_STALE_AFTER_SECS - 5)).to_rfc3339();
+        let stale = (now - chrono::Duration::seconds(MODEL_LOAD_STALE_AFTER_SECS + 1)).to_rfc3339();
+
+        assert!(
+            !loading_state_is_stale(Some(&fresh), now),
+            "fresh loading state should not be treated as stale"
+        );
+        assert!(
+            loading_state_is_stale(Some(&stale), now),
+            "expired loading state should be treated as stale"
+        );
+        assert!(
+            loading_state_is_stale(None, now),
+            "missing timestamp should be treated as stale to unblock recovery"
+        );
+        assert!(
+            loading_state_is_stale(Some("not-a-timestamp"), now),
+            "invalid timestamp should be treated as stale to unblock recovery"
+        );
+    }
+
+    #[test]
+    fn worker_candidate_selection_prioritizes_and_dedupes() {
+        let manifest_dir = PathBuf::from(env!("CARGO_MANIFEST_DIR"));
+        let existing_a = manifest_dir.to_string_lossy().to_string();
+        let existing_b = manifest_dir.join("src").to_string_lossy().to_string();
+
+        let workers = vec![
+            mk_worker(
+                "w-registered-dup",
+                "tenant-a",
+                "registered",
+                existing_a.clone(),
+                Some("2026-01-01T00:00:00Z"),
+            ),
+            mk_worker(
+                "w-healthy-dup",
+                "tenant-a",
+                "healthy",
+                existing_a,
+                Some("2026-01-01T00:00:10Z"),
+            ),
+            mk_worker(
+                "w-stopped",
+                "tenant-a",
+                "stopped",
+                existing_b.clone(),
+                Some("2026-01-01T00:00:11Z"),
+            ),
+            mk_worker(
+                "w-healthy-b",
+                "tenant-a",
+                "healthy",
+                existing_b,
+                Some("2026-01-01T00:00:09Z"),
+            ),
+        ];
+
+        let selected = worker_socket_candidates_from_records(workers);
+        assert_eq!(selected.len(), 2, "should dedupe by socket path");
+        assert_eq!(selected[0].1, "w-healthy-dup");
+        assert_eq!(selected[1].1, "w-healthy-b");
+    }
 }
 
 // ============================================================================

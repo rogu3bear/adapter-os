@@ -4,7 +4,7 @@
 
 use adapteros_api_types::ModelLoadStatus;
 use adapteros_server_api::auth::is_dev_bypass_enabled;
-use adapteros_server_api::boot_state::{BootState, BootWarning};
+use adapteros_server_api::boot_state::{BootState, BootWarning, PhaseOutcome, PhaseStatus};
 use adapteros_server_api::state::{AppState, BackgroundTaskSnapshot};
 use adapteros_server_api::supervisor_client;
 use adapteros_server_api::types::HealthResponse;
@@ -83,6 +83,123 @@ pub async fn health(State(state): State<AppState>) -> impl IntoResponse {
                 crate_manifest: Some(manifest.crates.clone()),
                 crate_manifest_digest: manifest.digest.as_ref().map(|d| d.to_hex()),
             }
+        }),
+    )
+}
+
+#[derive(Debug, Clone, Serialize, Deserialize, ToSchema)]
+pub struct StartupHealthResponse {
+    pub status: String,
+    pub boot_state: String,
+    pub next_action: String,
+    #[serde(skip_serializing_if = "Option::is_none")]
+    pub boot_trace_id: Option<String>,
+    #[serde(skip_serializing_if = "Option::is_none")]
+    pub last_error_code: Option<String>,
+    #[serde(skip_serializing_if = "Option::is_none")]
+    pub failed_phase: Option<String>,
+    #[serde(default, skip_serializing_if = "Vec::is_empty")]
+    pub phases: Vec<PhaseStatus>,
+}
+
+#[utoipa::path(
+    tag = "system",
+    get,
+    path = "/healthz/startup",
+    responses(
+        (status = 200, description = "Startup status healthy/degraded/ready", body = StartupHealthResponse),
+        (status = 503, description = "Startup in progress or failed", body = StartupHealthResponse)
+    )
+)]
+pub async fn startup_health(State(state): State<AppState>) -> impl IntoResponse {
+    let Some(ref boot_state) = state.boot_state else {
+        return (
+            StatusCode::SERVICE_UNAVAILABLE,
+            Json(StartupHealthResponse {
+                status: "booting".to_string(),
+                boot_state: "unknown".to_string(),
+                next_action: "Boot state manager missing. Verify startup initialization wiring."
+                    .to_string(),
+                boot_trace_id: None,
+                last_error_code: None,
+                failed_phase: None,
+                phases: Vec::new(),
+            }),
+        );
+    };
+
+    let current = boot_state.current_state();
+    let phases = boot_state.phase_statuses();
+    let failed_phase = phases
+        .iter()
+        .rev()
+        .find(|phase| matches!(phase.status, PhaseOutcome::Failed))
+        .map(|phase| phase.name.clone());
+    let last_error_code = boot_state.last_error_code();
+
+    let (status, status_code, next_action) = if current.is_failed() {
+        let code_hint = last_error_code
+            .clone()
+            .unwrap_or_else(|| "UNKNOWN".to_string());
+        let action = failed_phase
+            .as_ref()
+            .map(|phase| {
+                format!(
+                    "Startup failed in phase '{}'. Resolve code '{}' and restart the process.",
+                    phase, code_hint
+                )
+            })
+            .unwrap_or_else(|| {
+                format!(
+                    "Startup failed before phase completion. Resolve code '{}' and restart.",
+                    code_hint
+                )
+            });
+        (
+            "failed".to_string(),
+            StatusCode::SERVICE_UNAVAILABLE,
+            action,
+        )
+    } else if current.is_degraded() {
+        (
+            "degraded".to_string(),
+            StatusCode::OK,
+            "Service is running in degraded mode. Review /readyz warnings and restore failed components."
+                .to_string(),
+        )
+    } else if current.is_ready() {
+        (
+            "ready".to_string(),
+            StatusCode::OK,
+            "Startup completed successfully. No operator action required.".to_string(),
+        )
+    } else {
+        let current_phase = phases
+            .iter()
+            .rev()
+            .find(|phase| matches!(phase.status, PhaseOutcome::InProgress))
+            .map(|phase| phase.name.clone())
+            .unwrap_or_else(|| current.as_str().to_string());
+        (
+            "booting".to_string(),
+            StatusCode::SERVICE_UNAVAILABLE,
+            format!(
+                "Startup still in progress at phase '{}'. Wait for completion or inspect logs if stalled.",
+                current_phase
+            ),
+        )
+    };
+
+    (
+        status_code,
+        Json(StartupHealthResponse {
+            status,
+            boot_state: current.as_str().to_string(),
+            next_action,
+            boot_trace_id: Some(boot_state.boot_trace_id()),
+            last_error_code,
+            failed_phase,
+            phases,
         }),
     )
 }

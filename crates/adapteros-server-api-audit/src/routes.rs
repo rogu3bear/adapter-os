@@ -10,6 +10,22 @@ use crate::handlers::{
     query_audit_logs, verify_audit_chain, verify_receipt,
 };
 
+/// Build protected audit routes (require auth/claims middleware).
+pub fn protected_audit_routes() -> Router<AppState> {
+    Router::new()
+        .route("/v1/audits", get(list_audits_extended))
+        .route("/v1/audit/logs", get(query_audit_logs))
+        .route("/v1/audit/federation", get(get_federation_audit))
+        .route("/v1/audit/compliance", get(get_compliance_audit))
+        .route("/v1/audit/chain", get(get_audit_chain))
+        .route("/v1/audit/chain/verify", get(verify_audit_chain))
+}
+
+/// Build public audit routes (must remain unauthenticated).
+pub fn public_audit_routes() -> Router<AppState> {
+    Router::new().route("/v1/audit/receipts/verify", post(verify_receipt))
+}
+
 /// Build the audit logging router
 ///
 /// Returns a router with the following endpoints:
@@ -21,12 +37,5 @@ use crate::handlers::{
 /// - `GET /v1/audit/chain/verify` - Verify audit chain integrity
 /// - `POST /v1/audit/receipts/verify` - Third-party receipt verification (public)
 pub fn audit_routes() -> Router<AppState> {
-    Router::new()
-        .route("/v1/audits", get(list_audits_extended))
-        .route("/v1/audit/logs", get(query_audit_logs))
-        .route("/v1/audit/federation", get(get_federation_audit))
-        .route("/v1/audit/compliance", get(get_compliance_audit))
-        .route("/v1/audit/chain", get(get_audit_chain))
-        .route("/v1/audit/chain/verify", get(verify_audit_chain))
-        .route("/v1/audit/receipts/verify", post(verify_receipt))
+    protected_audit_routes().merge(public_audit_routes())
 }

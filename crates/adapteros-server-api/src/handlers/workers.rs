@@ -1852,6 +1852,36 @@ pub struct ListIncidentsParams {
     pub limit: Option<i32>,
 }
 
+fn throughput_rps_recent_from_count(count: i64) -> f64 {
+    count as f64 / 60.0
+}
+
+fn worker_health_record_json(
+    worker_id: &str,
+    tenant_id: &str,
+    status: &str,
+    health_status: &str,
+    avg_latency_ms: Option<f64>,
+    last_response_at: Option<String>,
+    consecutive_slow: Option<i32>,
+    consecutive_failures: Option<i32>,
+    recent_incidents_24h: i64,
+    throughput_rps_recent: f64,
+) -> serde_json::Value {
+    serde_json::json!({
+        "worker_id": worker_id,
+        "tenant_id": tenant_id,
+        "status": status,
+        "health_status": health_status,
+        "avg_latency_ms": avg_latency_ms,
+        "last_response_at": last_response_at,
+        "consecutive_slow": consecutive_slow,
+        "consecutive_failures": consecutive_failures,
+        "recent_incidents_24h": recent_incidents_24h,
+        "throughput_rps_recent": throughput_rps_recent
+    })
+}
+
 /// List worker incidents (PRD-09)
 ///
 /// Returns a list of incidents for a specific worker, ordered by creation time (newest first).
@@ -1958,6 +1988,13 @@ pub async fn get_worker_health_summary(
             _ => unknown_count += 1,
         }
 
+        let recent_inference_count = state
+            .db
+            .get_worker_telemetry_count_recent(&worker.id, "inference_complete", 1)
+            .await
+            .unwrap_or(0);
+        let throughput_rps_recent = throughput_rps_recent_from_count(recent_inference_count);
+
         // Get recent incident count (last 24 hours)
         let recent_incidents = state
             .db
@@ -1965,17 +2002,18 @@ pub async fn get_worker_health_summary(
             .await
             .unwrap_or(0);
 
-        health_records.push(serde_json::json!({
-            "worker_id": worker.id,
-            "tenant_id": worker.tenant_id,
-            "status": worker.status,
-            "health_status": status,
-            "avg_latency_ms": health.as_ref().and_then(|h| h.avg_latency_ms),
-            "last_response_at": health.as_ref().and_then(|h| h.last_response_at.clone()),
-            "consecutive_slow": health.as_ref().and_then(|h| h.consecutive_slow_responses),
-            "consecutive_failures": health.as_ref().and_then(|h| h.consecutive_failures),
-            "recent_incidents_24h": recent_incidents
-        }));
+        health_records.push(worker_health_record_json(
+            &worker.id,
+            &worker.tenant_id,
+            &worker.status,
+            status,
+            health.as_ref().and_then(|h| h.avg_latency_ms),
+            health.as_ref().and_then(|h| h.last_response_at.clone()),
+            health.as_ref().and_then(|h| h.consecutive_slow_responses),
+            health.as_ref().and_then(|h| h.consecutive_failures),
+            recent_incidents,
+            throughput_rps_recent,
+        ));
     }
 
     Ok(Json(serde_json::json!({
@@ -1989,4 +2027,33 @@ pub async fn get_worker_health_summary(
         "workers": health_records,
         "timestamp": chrono::Utc::now().to_rfc3339()
     })))
+}
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+
+    #[test]
+    fn worker_health_record_includes_numeric_throughput_rps_recent() {
+        let worker_record = worker_health_record_json(
+            "worker-123",
+            "tenant-123",
+            "healthy",
+            "healthy",
+            Some(12.5),
+            None,
+            None,
+            None,
+            0,
+            throughput_rps_recent_from_count(18),
+        );
+
+        let throughput = worker_record
+            .get("throughput_rps_recent")
+            .and_then(serde_json::Value::as_f64)
+            .expect("throughput_rps_recent should be present and numeric");
+
+        assert!(throughput.is_finite());
+        assert!((throughput - 0.3).abs() < 1e-12);
+    }
 }

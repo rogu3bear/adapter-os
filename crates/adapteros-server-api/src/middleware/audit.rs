@@ -30,6 +30,9 @@ use axum::{
     middleware::Next,
     response::Response,
 };
+use chrono::Utc;
+use serde::{Deserialize, Serialize};
+use std::path::PathBuf;
 use std::sync::Arc;
 use tracing::{info, warn};
 
@@ -232,6 +235,81 @@ pub async fn audit_middleware(
     }
 
     response
+}
+
+/// Immutable startup audit record for pre-request boot events.
+#[derive(Debug, Clone, Serialize, Deserialize)]
+pub struct StartupAuditRecord {
+    pub timestamp: String,
+    pub phase: String,
+    pub event: String,
+    pub message: String,
+    #[serde(skip_serializing_if = "Option::is_none")]
+    pub code: Option<String>,
+}
+
+/// Append startup audit record to immutable JSONL trail under `var/run/`.
+///
+/// This helper is intentionally file-based so startup failures that occur
+/// before full DB readiness still leave an auditable trail for operators.
+pub fn append_startup_audit_record(record: &StartupAuditRecord) {
+    let path = PathBuf::from("var/run/startup_audit.jsonl");
+    if let Some(parent) = path.parent() {
+        if let Err(error) = std::fs::create_dir_all(parent) {
+            warn!(
+                error = %error,
+                path = %parent.display(),
+                "Failed to create startup audit directory"
+            );
+            return;
+        }
+    }
+
+    let mut file = match std::fs::OpenOptions::new()
+        .create(true)
+        .append(true)
+        .open(&path)
+    {
+        Ok(file) => file,
+        Err(error) => {
+            warn!(
+                error = %error,
+                path = %path.display(),
+                "Failed to open startup audit trail"
+            );
+            return;
+        }
+    };
+
+    use std::io::Write;
+    match serde_json::to_string(record) {
+        Ok(line) => {
+            if let Err(error) = writeln!(file, "{}", line) {
+                warn!(
+                    error = %error,
+                    path = %path.display(),
+                    "Failed to append startup audit record"
+                );
+            }
+        }
+        Err(error) => warn!(error = %error, "Failed to serialize startup audit record"),
+    }
+}
+
+/// Convenience constructor that appends a startup audit record immediately.
+pub fn record_startup_audit_event(
+    phase: impl Into<String>,
+    event: impl Into<String>,
+    message: impl Into<String>,
+    code: Option<String>,
+) {
+    append_startup_audit_record(&StartupAuditRecord {
+        timestamp: Utc::now().to_rfc3339(),
+        phase: phase.into(),
+        event: event.into(),
+        message: message.into(),
+        code,
+    });
 }
 
 #[cfg(test)]

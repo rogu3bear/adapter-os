@@ -19,9 +19,9 @@ use adapteros_server::boot::{
     bind_and_serve, bind_error_exit_code, build_app_state, check_model_server_readiness,
     enforce_invariants, finalize_boot, initialize_config, initialize_database, initialize_executor,
     initialize_federation, initialize_metrics, initialize_security, log_effective_config,
-    run_preflight_checks, run_startup_recovery, validate_boot_invariants,
+    log_startup_snapshot, run_preflight_checks, run_startup_recovery, validate_boot_invariants,
     validate_post_db_invariants, validate_production_security_env, write_boot_report, BindMode,
-    ServerBindConfig,
+    RetryPolicy, ServerBindConfig, StartupOrchestrator,
 };
 use adapteros_server::cli::Cli;
 use adapteros_server_api::boot_state::failure_codes;
@@ -48,6 +48,7 @@ async fn main() -> Result<()> {
     // =========================================================================
     let config_ctx = initialize_config(&cli).await?;
     let boot_state = config_ctx.boot_state.clone();
+    let startup_orchestrator = StartupOrchestrator::new(boot_state.clone());
 
     // Handle OpenAPI generation (early exit)
     if cli.generate_openapi {
@@ -60,24 +61,24 @@ async fn main() -> Result<()> {
     let boot_start = std::time::Instant::now();
     let boot_timeout = Duration::from_secs(config_ctx.boot_timeout_secs);
     let boot_state_for_timeout = config_ctx.boot_state.clone();
+    let startup_orchestrator_for_boot = startup_orchestrator.clone();
 
     // Wrap the entire boot sequence in a timeout
     let boot_result = tokio::time::timeout(boot_timeout, async {
+        let startup_orchestrator = startup_orchestrator_for_boot.clone();
+
         // =====================================================================
         // Phase 2: Security Initialization
         // =====================================================================
-        boot_state.start_phase("security_init");
-        let security_ctx = initialize_security(config_ctx.server_config.clone(), &cli)
-            .await
-            .map_err(|e| {
-                boot_state.finish_phase_err(
-                    "security_init",
-                    failure_codes::SECURITY_INIT_FAILED,
-                    Some(e.to_string()),
-                );
-                e
-            })?;
-        boot_state.finish_phase_ok("security_init");
+        let security_ctx = startup_orchestrator
+            .run_phase(
+                "security_init",
+                failure_codes::SECURITY_INIT_FAILED,
+                RetryPolicy::with_attempts(2),
+                |_| async { initialize_security(config_ctx.server_config.clone(), &cli).await },
+                None,
+            )
+            .await?;
 
         // Log effective configuration
         log_effective_config(&config_ctx.server_config)?;
@@ -85,43 +86,52 @@ async fn main() -> Result<()> {
         // =====================================================================
         // Phase 3: Deterministic Executor
         // =====================================================================
-        boot_state.start_phase("executor_init");
-        let executor_ctx = initialize_executor(config_ctx.server_config.clone(), &cli)
-            .await
-            .map_err(|e| {
-                boot_state.finish_phase_err(
-                    "executor_init",
-                    failure_codes::EXECUTOR_INIT_FAILED,
-                    Some(e.to_string()),
-                );
-                e
-            })?;
-        boot_state.finish_phase_ok("executor_init");
+        let executor_ctx = startup_orchestrator
+            .run_phase(
+                "executor_init",
+                failure_codes::EXECUTOR_INIT_FAILED,
+                RetryPolicy::with_attempts(2),
+                |_| async { initialize_executor(config_ctx.server_config.clone(), &cli).await },
+                None,
+            )
+            .await?;
+        startup_orchestrator.mark_determinism_seed_initialized(executor_ctx.manifest_hash.is_some());
+
+        let has_manifest_hash = executor_ctx.manifest_hash.is_some();
+        startup_orchestrator
+            .run_phase(
+                "determinism_seed",
+                failure_codes::EXECUTOR_INIT_FAILED,
+                RetryPolicy::no_retry(),
+                |_| async {
+                    if has_manifest_hash {
+                        Ok(())
+                    } else {
+                        Err(anyhow::anyhow!(
+                            "Deterministic manifest hash missing; executor seed not initialized"
+                        ))
+                    }
+                },
+                None,
+            )
+            .await?;
 
         // =====================================================================
         // Phase 4: Security Preflight Checks
         // =====================================================================
-        boot_state.start_phase("preflight");
-        run_preflight_checks(config_ctx.server_config.clone(), &cli)
-            .await
-            .map_err(|e| {
-                boot_state.finish_phase_err(
-                    "preflight",
-                    failure_codes::PREFLIGHT_FAILED,
-                    Some(e.to_string()),
-                );
-                e
-            })?;
-        boot_state.finish_phase_ok("preflight");
+        startup_orchestrator
+            .run_phase(
+                "preflight",
+                failure_codes::PREFLIGHT_FAILED,
+                RetryPolicy::with_attempts(2),
+                |_| async { run_preflight_checks(config_ctx.server_config.clone(), &cli).await },
+                None,
+            )
+            .await?;
 
         // =====================================================================
         // Phase 4b: Boot Invariants Validation
         // =====================================================================
-        boot_state.start_phase("invariants");
-        let invariant_report = validate_boot_invariants(
-            &config_ctx.server_config,
-            executor_ctx.manifest_hash.is_some(),
-        );
         let production_mode = {
             let cfg = config_ctx
                 .server_config
@@ -129,129 +139,142 @@ async fn main() -> Result<()> {
                 .map_err(|e| anyhow::anyhow!("Config lock poisoned: {}", e))?;
             cfg.server.production_mode
         };
-        enforce_invariants(&invariant_report, production_mode).map_err(|e| {
-            boot_state.finish_phase_err(
+        startup_orchestrator
+            .run_phase(
                 "invariants",
                 failure_codes::INVARIANTS_FAILED,
-                Some(e.to_string()),
-            );
-            anyhow::anyhow!("{}", e)
-        })?;
-        boot_state.finish_phase_ok("invariants");
+                RetryPolicy::no_retry(),
+                |_| async {
+                    let invariant_report = validate_boot_invariants(
+                        &config_ctx.server_config,
+                        executor_ctx.manifest_hash.is_some(),
+                    );
+                    enforce_invariants(&invariant_report, production_mode)
+                        .map_err(|e| anyhow::anyhow!("{}", e))
+                },
+                None,
+            )
+            .await?;
 
         // =====================================================================
         // Phase 4c: Model Server Readiness (if enabled)
         // =====================================================================
-        boot_state.start_phase("model_server_readiness");
-        let mut effective_config = adapteros_config::try_effective_config();
-        if effective_config.is_none() {
-            if let Err(e) = adapteros_config::init_effective_config(Some(&cli.config), vec![]) {
-                if production_mode {
-                    boot_state.finish_phase_err(
-                        "model_server_readiness",
-                        failure_codes::MODEL_SERVER_FAILED,
-                        Some(e.to_string()),
-                    );
-                    return Err(anyhow::anyhow!(
-                        "Failed to initialize effective config before model readiness: {}",
-                        e
-                    ));
-                }
-                warn!(
-                    "Failed to initialize effective config before model readiness; skipping model server readiness in dev: {}",
-                    e
-                );
-            }
-            effective_config = adapteros_config::try_effective_config();
-        }
-        if let Some(effective_config) = effective_config {
-            let _model_server_ctx = check_model_server_readiness(effective_config)
-                .await
-                .map_err(|e| {
-                    boot_state.finish_phase_err(
-                        "model_server_readiness",
-                        failure_codes::MODEL_SERVER_FAILED,
-                        Some(e.to_string()),
-                    );
-                    e
-                })?;
-        } else if !production_mode {
-            warn!("Effective config unavailable; skipping model server readiness in dev");
-        }
-        boot_state.finish_phase_ok("model_server_readiness");
+        startup_orchestrator
+            .run_phase(
+                "model_server_readiness",
+                failure_codes::MODEL_SERVER_FAILED,
+                RetryPolicy::with_attempts(3),
+                |_| async {
+                    let mut effective_config = adapteros_config::try_effective_config();
+                    if effective_config.is_none() {
+                        if let Err(e) =
+                            adapteros_config::init_effective_config(Some(&cli.config), vec![])
+                        {
+                            if production_mode {
+                                return Err(anyhow::anyhow!(
+                                    "Failed to initialize effective config before model readiness: {}",
+                                    e
+                                ));
+                            }
+                            warn!(
+                                "Failed to initialize effective config before model readiness; skipping model server readiness in dev: {}",
+                                e
+                            );
+                        }
+                        effective_config = adapteros_config::try_effective_config();
+                    }
+                    if let Some(effective_config) = effective_config {
+                        let _model_server_ctx = check_model_server_readiness(effective_config).await?;
+                    } else if !production_mode {
+                        warn!("Effective config unavailable; skipping model server readiness in dev");
+                    }
+                    Ok(())
+                },
+                None,
+            )
+            .await?;
 
         // =====================================================================
         // Phase 5: Database Connection
         // =====================================================================
-        boot_state.start_phase("db_connect");
-        let db_ctx = initialize_database(
-            config_ctx.server_config.clone(),
-            config_ctx.boot_state.clone(),
-            &cli,
-        )
-        .await
-        .map_err(|e| {
-            boot_state.finish_phase_err(
+        let db_ctx = startup_orchestrator
+            .run_phase(
                 "db_connect",
                 failure_codes::DB_CONN_FAILED,
-                Some(e.to_string()),
-            );
-            e
-        })?;
-        boot_state.finish_phase_ok("db_connect");
+                RetryPolicy::with_attempts(3),
+                |_| async {
+                    initialize_database(
+                        config_ctx.server_config.clone(),
+                        config_ctx.boot_state.clone(),
+                        &cli,
+                    )
+                    .await
+                },
+                None,
+            )
+            .await?;
 
         // =====================================================================
         // Phase 6: Database Migrations
         // =====================================================================
-        boot_state.start_phase("migrations");
-        let _migrate_only = run_migrations(
-            &db_ctx.db,
-            config_ctx.server_config.clone(),
-            &cli,
-            &db_ctx.boot_state,
-        )
-        .await
-        .map_err(|e| {
-            boot_state.finish_phase_err(
+        let _migrate_only = startup_orchestrator
+            .run_phase(
                 "migrations",
                 failure_codes::MIGRATION_FAILED,
-                Some(e.to_string()),
-            );
-            e
-        })?;
-        boot_state.finish_phase_ok("migrations");
+                RetryPolicy::with_attempts(2),
+                |_| async {
+                    run_migrations(
+                        &db_ctx.db,
+                        config_ctx.server_config.clone(),
+                        &cli,
+                        &db_ctx.boot_state,
+                    )
+                    .await
+                    .map(|_| ())
+                },
+                None,
+            )
+            .await?;
 
         // =====================================================================
         // Phase 6b: Post-DB Invariants Validation
         // =====================================================================
         // These invariants require a live database connection (trigger checks, etc.)
-        boot_state.start_phase("post_db_invariants");
-        let post_db_report =
-            validate_post_db_invariants(&config_ctx.server_config, db_ctx.db.pool()).await;
-        enforce_invariants(&post_db_report, production_mode).map_err(|e| {
-            boot_state.finish_phase_err(
+        startup_orchestrator
+            .run_phase(
                 "post_db_invariants",
                 failure_codes::INVARIANTS_FAILED,
-                Some(e.to_string()),
-            );
-            anyhow::anyhow!("{}", e)
-        })?;
-        boot_state.finish_phase_ok("post_db_invariants");
+                RetryPolicy::no_retry(),
+                |_| async {
+                    let post_db_report =
+                        validate_post_db_invariants(&config_ctx.server_config, db_ctx.db.pool())
+                            .await;
+                    enforce_invariants(&post_db_report, production_mode)
+                        .map_err(|e| anyhow::anyhow!("{}", e))
+                },
+                None,
+            )
+            .await?;
 
         // =====================================================================
         // Phase 7: Startup Recovery
         // =====================================================================
         // Recover orphaned resources from previous server crashes/restarts
         // ANCHOR: This phase is best-effort and runs before accepting requests
-        boot_state.start_phase("startup_recovery");
-        if let Err(error) = run_startup_recovery(&db_ctx.db).await {
-            warn!(error = %error, "Startup recovery encountered errors (non-fatal)");
-            boot_state.record_boot_warning(
+        startup_orchestrator
+            .run_phase(
                 "startup_recovery",
-                format!("Startup recovery cleanup failed: {}", error),
-            );
-        }
-        boot_state.finish_phase_ok("startup_recovery");
+                failure_codes::STARTUP_RECOVERY_FAILED,
+                RetryPolicy::with_attempts(2),
+                |_| async {
+                    run_startup_recovery(&db_ctx.db).await.map(|_| ()).map_err(|error| {
+                        warn!(error = %error, "Startup recovery encountered errors (degraded)");
+                        anyhow::anyhow!(error)
+                    })
+                },
+                Some(()),
+            )
+            .await?;
 
         // =====================================================================
         // Phases 8: Policy & Backend (already extracted to separate crates)
@@ -260,16 +283,15 @@ async fn main() -> Result<()> {
         // =====================================================================
         // Phase 9a: API Configuration
         // =====================================================================
-        boot_state.start_phase("router_build");
-        let api_config = build_api_config(config_ctx.server_config.clone()).map_err(|e| {
-            boot_state.finish_phase_err(
+        let api_config = startup_orchestrator
+            .run_phase(
                 "router_build",
                 failure_codes::ROUTER_BUILD_FAILED,
-                Some(e.to_string()),
-            );
-            e
-        })?;
-        boot_state.finish_phase_ok("router_build");
+                RetryPolicy::no_retry(),
+                |_| async { build_api_config(config_ctx.server_config.clone()) },
+                None,
+            )
+            .await?;
 
         // Enable dev bypass from config if specified (debug builds only)
         {
@@ -342,6 +364,21 @@ async fn main() -> Result<()> {
         )
         .await?;
 
+        // Deterministic+replay gate must be ready before any request-serving bind.
+        startup_orchestrator.mark_replay_ready(state.tick_ledger.is_some() && state.manifest_hash.is_some());
+        startup_orchestrator
+            .run_phase(
+                "runtime_gate",
+                failure_codes::INVARIANTS_FAILED,
+                RetryPolicy::no_retry(),
+                |_| async {
+                    startup_orchestrator.ensure_runtime_gates_ready()?;
+                    Ok(())
+                },
+                None,
+            )
+            .await?;
+
         // =====================================================================
         // Phase 10b: Background Tasks
         // =====================================================================
@@ -372,21 +409,23 @@ async fn main() -> Result<()> {
         // Phases 11-12: Finalization
         // =====================================================================
         let ui_routes = assets::routes();
-        let boot_artifacts = finalize_boot(
-            state,
-            config_ctx.server_config.clone(),
-            ui_routes,
-            &db_ctx.boot_state,
-        )
-        .await
-        .map_err(|e| {
-            boot_state.finish_phase_err(
-                "router_build",
+        let boot_artifacts = startup_orchestrator
+            .run_phase(
+                "finalize_boot",
                 failure_codes::ROUTER_BUILD_FAILED,
-                Some(e.to_string()),
-            );
-            e
-        })?;
+                RetryPolicy::no_retry(),
+                |_| async {
+                    finalize_boot(
+                        state.clone(),
+                        config_ctx.server_config.clone(),
+                        ui_routes.clone(),
+                        &db_ctx.boot_state,
+                    )
+                    .await
+                },
+                None,
+            )
+            .await?;
 
         // Write boot report
         write_boot_report(
@@ -395,6 +434,8 @@ async fn main() -> Result<()> {
             security_ctx.worker_keypair.as_ref(),
             cli.strict,
         )?;
+
+        log_startup_snapshot(&startup_orchestrator.snapshot());
 
         Ok::<_, anyhow::Error>((
             db_ctx.boot_state,

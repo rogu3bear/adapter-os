@@ -16,4 +16,4 @@ pub use handlers::{
     ChainVerificationResponse, ComplianceAuditResponse, ComplianceControl, FederationAuditResponse,
     HostChainSummary,
 };
-pub use routes::audit_routes;
+pub use routes::{audit_routes, protected_audit_routes, public_audit_routes};
