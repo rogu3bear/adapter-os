@@ -73,8 +73,8 @@ pub fn DataSourceNav(
                 if matches!(current, DataSource::Documents | DataSource::Datasets) {
                     if let Some(on_upload) = on_upload {
                         let upload_label = match current {
-                            DataSource::Documents => "Upload Document",
-                            DataSource::Datasets => "Upload Dataset",
+                            DataSource::Documents => "Add files",
+                            DataSource::Datasets => "Create Adapter",
                             DataSource::Preprocessed => "",
                         };
                         Some(view! {

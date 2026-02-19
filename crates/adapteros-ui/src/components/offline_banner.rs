@@ -1,11 +1,9 @@
 //! Offline banner to indicate backend connectivity issues.
 
-use crate::api::ApiClient;
 use crate::components::Button;
-use crate::hooks::{use_api_resource, LoadingState};
+use crate::hooks::{use_health, LoadingState};
 use crate::signals::notifications::try_use_notifications;
 use leptos::prelude::*;
-use std::sync::Arc;
 
 /// Banner displayed when the backend is unreachable.
 ///
@@ -17,8 +15,7 @@ use std::sync::Arc;
 /// recovering from an offline state.
 #[component]
 pub fn OfflineBanner() -> impl IntoView {
-    let (health, refetch) =
-        use_api_resource(|client: Arc<ApiClient>| async move { client.health().await });
+    let (health, refetch) = use_health();
 
     let retry = StoredValue::new(refetch);
 

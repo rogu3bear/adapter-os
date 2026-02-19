@@ -303,13 +303,22 @@ pub fn Datasets() -> impl IntoView {
     view! {
         <PageScaffold
             title="Datasets"
-            subtitle="Manage training datasets for adapter fine-tuning"
+            subtitle="Advanced training data management"
             breadcrumbs=vec![
                 PageBreadcrumbItem::new("Data", "/datasets"),
                 PageBreadcrumbItem::current("Datasets"),
             ]
         >
             <PageScaffoldActions slot>
+                <Button
+                    variant=ButtonVariant::Primary
+                    on_click=Callback::new({
+                        let navigate = navigate_for_view.clone();
+                        move |_| navigate("/training?open_wizard=1", Default::default())
+                    })
+                >
+                    "Create Adapter"
+                </Button>
                 <Button
                     variant=ButtonVariant::Ghost
                     on_click=Callback::new({
@@ -321,10 +330,10 @@ pub fn Datasets() -> impl IntoView {
                 </Button>
                 <RefreshButton on_click=Callback::new(move |_| refetch.run(()))/>
                 <Button
-                    variant=ButtonVariant::Primary
+                    variant=ButtonVariant::Outline
                     on_click=Callback::new(move |_| show_upload_dialog.set(true))
                 >
-                    "Upload Dataset"
+                    "Upload Structured Data"
                 </Button>
             </PageScaffoldActions>
 
@@ -1052,19 +1061,22 @@ fn DatasetsList(
         >
             <Card>
                 <div class="py-10 px-6 text-center space-y-3">
-                    <div class="heading-3">"No datasets"</div>
+                    <div class="heading-3">"No training data yet"</div>
                     <p class="text-sm text-muted-foreground max-w-xl mx-auto">
-                        "Start from documents (recommended) or upload a dataset file directly."
+                        "Create an adapter from your files first, or upload structured training data directly."
                     </p>
                     <div class="flex items-center justify-center gap-2 pt-2">
                         <Button
                             variant=ButtonVariant::Primary
                             on_click=Callback::new({
                                 let nav_store = navigate_store;
-                                move |_| nav_store.with_value(|nav| nav("/documents", Default::default()))
+                                move |_| {
+                                    nav_store
+                                        .with_value(|nav| nav("/training?open_wizard=1", Default::default()))
+                                }
                             })
                         >
-                            "Upload Documents"
+                            "Create Adapter"
                         </Button>
                         <Button
                             variant=ButtonVariant::Outline
@@ -1073,7 +1085,7 @@ fn DatasetsList(
                                 move |_| on_upload.run(())
                             })
                         >
-                            "Upload Dataset"
+                            "Upload Structured Data"
                         </Button>
                     </div>
                 </div>

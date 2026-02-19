@@ -120,364 +120,375 @@ pub const DASHBOARD_ITEM: NavItem = NavItem {
 };
 
 /// Full profile navigation groups in workflow order
-static NAV_GROUPS_FULL: &[NavGroup] = &[
-    // 1. Infer (Alt+1) — Prompt Studio is the primary entry point
-    NavGroup {
-        id: "infer",
-        label: "Infer",
-        icon: ICON_ZAP,
-        alt_shortcut: Some(1),
-        items: &[
-            NavItem::new("chat", "Prompt Studio", "/chat").with_keywords(&[
-                "inference",
-                "generate",
-                "prompt",
-                "conversation",
-                "stream",
-            ]),
-        ],
-        collapsed_by_default: false,
-        show_in_taskbar: true,
-        show_in_mobile: true,
-    },
-    // 2. Data (Alt+2)
-    NavGroup {
-        id: "data",
-        label: "Data",
-        icon: ICON_DATABASE,
-        alt_shortcut: Some(2),
-        items: &[
-            NavItem::new("documents", "Documents", "/documents")
-                .with_keywords(&["files", "upload", "corpus", "ingest"]),
-            NavItem::new("collections", "Collections", "/collections")
-                .with_keywords(&["groups", "corpus", "organize"]),
-            NavItem::new("datasets", "Datasets", "/datasets")
-                .with_keywords(&["training", "data", "upload", "versions", "jsonl"]),
-            NavItem::new("repositories", "Repositories", "/repositories")
-                .with_keywords(&["git", "code", "codebase", "repo"]),
-        ],
-        collapsed_by_default: false,
-        show_in_taskbar: true,
-        show_in_mobile: true,
-    },
-    // 3. Train (Alt+3)
-    NavGroup {
-        id: "train",
-        label: "Train",
-        icon: ICON_FLAME,
-        alt_shortcut: Some(3),
-        items: &[NavItem::new("training", "Adapter Training", "/training")
-            .with_keywords(&["train", "finetune", "jobs", "pipeline", "lora"])],
-        collapsed_by_default: false,
-        show_in_taskbar: true,
-        show_in_mobile: true,
-    },
-    // 4. Deploy (Alt+4)
-    NavGroup {
-        id: "deploy",
-        label: "Deploy",
-        icon: ICON_ROCKET,
-        alt_shortcut: Some(4),
-        items: &[
-            NavItem::new("adapters", "Adapters", "/adapters").with_keywords(&[
-                "lora",
-                "finetune",
-                "weights",
-                "models",
-                "lifecycle",
-            ]),
-            NavItem::new("update_center", "Update Center", "/update-center").with_keywords(&[
-                "promote",
-                "production",
-                "draft",
-                "reviewed",
-                "rollback",
-                "restore",
-            ]),
-            NavItem::new("stacks", "Adapter Stack", "/stacks").with_keywords(&[
-                "combination",
-                "ensemble",
-                "runtime",
-                "active",
-            ]),
-            NavItem::new("models", "Base Model Registry", "/models").with_keywords(&[
-                "llm",
-                "foundation",
-                "base",
-                "weights",
-                "load",
-            ]),
-        ],
-        collapsed_by_default: false,
-        show_in_taskbar: true,
-        show_in_mobile: true,
-    },
-    // 5. Route (Alt+5)
-    NavGroup {
-        id: "route",
-        label: "Route",
-        icon: ICON_BRANCH,
-        alt_shortcut: Some(5),
-        items: &[
-            NavItem::new("routing", "Routing", "/routing").with_keywords(&[
-                "rules",
-                "decisions",
-                "k-sparse",
-                "gates",
-                "debug",
-            ]),
-        ],
-        collapsed_by_default: false,
-        show_in_taskbar: true,
-        show_in_mobile: true,
-    },
-    // 6. Observe (Alt+6)
-    NavGroup {
-        id: "observe",
-        label: "Observe",
-        icon: ICON_EYE,
-        alt_shortcut: Some(6),
-        items: &[
-            NavItem::new("runs", "Restore Points", "/runs").with_keywords(&[
-                "flight",
-                "recorder",
-                "traces",
-                "provenance",
-                "receipts",
-                "runs",
-            ]),
-            NavItem::new("monitoring", "Activity Monitor", "/monitoring").with_keywords(&[
-                "alerts",
-                "anomalies",
-                "health",
-                "metrics",
-                "observability",
-            ]),
-            NavItem::new("errors", "Recovery Console", "/errors").with_keywords(&[
-                "incidents",
-                "crashes",
-                "live",
-                "analysis",
-                "client",
-            ]),
-            NavItem::new("diff", "Diff", "/diff").with_keywords(&[
-                "compare",
-                "divergence",
-                "determinism",
-                "anchor",
-            ]),
-            NavItem::new("workers", "Inference Engines", "/workers").with_keywords(&[
-                "runtime",
-                "instances",
-                "compute",
-                "nodes",
-                "process",
-            ]),
-        ],
-        collapsed_by_default: false,
-        show_in_taskbar: true,
-        show_in_mobile: true,
-    },
-    // 7. Govern (Alt+7)
-    NavGroup {
-        id: "govern",
-        label: "Govern",
-        icon: ICON_SHIELD,
-        alt_shortcut: Some(7),
-        items: &[
-            NavItem::new("policies", "Safety Shield", "/policies").with_keywords(&[
-                "rules",
-                "constraints",
-                "enforcement",
-                "determinism",
-            ]),
-            NavItem::new("audit", "Event Viewer", "/audit").with_keywords(&[
-                "logs",
-                "history",
-                "events",
-                "compliance",
-                "trail",
-            ]),
-            NavItem::new("reviews", "Safety Queue", "/reviews").with_keywords(&[
-                "hitl",
-                "approval",
-                "pause",
-                "queue",
-                "moderation",
-            ]),
-        ],
-        collapsed_by_default: true,
-        show_in_taskbar: true,
-        show_in_mobile: true,
-    },
-    // 8. Org (Alt+8)
-    NavGroup {
-        id: "org",
-        label: "Org",
-        icon: ICON_BUILDING,
-        alt_shortcut: Some(8),
-        items: &[
-            NavItem::new("agents", "Automation Agents (Beta)", "/agents").with_keywords(&[
-                "orchestration",
-                "multi-agent",
-                "executor",
-                "sessions",
-            ]),
-            NavItem::new("files", "Files", "/files").with_keywords(&[
-                "filesystem",
-                "browse",
-                "directories",
-                "server",
-            ]),
-            NavItem::new("admin", "Admin", "/admin").with_keywords(&[
-                "users",
-                "roles",
-                "api-keys",
-                "organization",
-                "tenants",
-            ]),
-            NavItem::new("settings", "Settings", "/settings").with_keywords(&[
-                "config",
-                "preferences",
-                "options",
-                "profile",
-            ]),
-            NavItem::new("system", "Kernel", "/system").with_keywords(&[
-                "health",
-                "status",
-                "diagnostics",
-                "infrastructure",
-            ]),
-        ],
-        collapsed_by_default: true,
-        show_in_taskbar: true,
-        show_in_mobile: true,
-    },
-];
+static NAV_GROUPS_FULL: &[NavGroup] =
+    &[
+        // 1. Infer (Alt+1) — Prompt Studio is the primary entry point
+        NavGroup {
+            id: "infer",
+            label: "Infer",
+            icon: ICON_ZAP,
+            alt_shortcut: Some(1),
+            items: &[
+                NavItem::new("chat", "Prompt Studio", "/chat").with_keywords(&[
+                    "inference",
+                    "generate",
+                    "prompt",
+                    "conversation",
+                    "stream",
+                ]),
+            ],
+            collapsed_by_default: false,
+            show_in_taskbar: true,
+            show_in_mobile: true,
+        },
+        // 2. Data (Alt+2)
+        NavGroup {
+            id: "data",
+            label: "Data",
+            icon: ICON_DATABASE,
+            alt_shortcut: Some(2),
+            items: &[
+                NavItem::new("documents", "Documents", "/documents")
+                    .with_keywords(&["files", "upload", "corpus", "ingest"]),
+                NavItem::new("collections", "Collections", "/collections")
+                    .with_keywords(&["groups", "corpus", "organize"]),
+                NavItem::new("datasets", "Datasets", "/datasets").with_keywords(&[
+                    "training",
+                    "data",
+                    "files",
+                    "knowledge",
+                    "versions",
+                ]),
+                NavItem::new("repositories", "Repositories", "/repositories")
+                    .with_keywords(&["git", "code", "codebase", "repo"]),
+            ],
+            collapsed_by_default: false,
+            show_in_taskbar: true,
+            show_in_mobile: true,
+        },
+        // 3. Train (Alt+3)
+        NavGroup {
+            id: "train",
+            label: "Train",
+            icon: ICON_FLAME,
+            alt_shortcut: Some(3),
+            items: &[
+                NavItem::new("training", "Create Adapter", "/training?open_wizard=1")
+                    .with_keywords(&["create", "adapter", "train", "files", "knowledge"]),
+            ],
+            collapsed_by_default: false,
+            show_in_taskbar: true,
+            show_in_mobile: true,
+        },
+        // 4. Deploy (Alt+4)
+        NavGroup {
+            id: "deploy",
+            label: "Deploy",
+            icon: ICON_ROCKET,
+            alt_shortcut: Some(4),
+            items: &[
+                NavItem::new("adapters", "Adapters", "/adapters").with_keywords(&[
+                    "lora",
+                    "finetune",
+                    "weights",
+                    "models",
+                    "lifecycle",
+                ]),
+                NavItem::new("update_center", "Update Center", "/update-center").with_keywords(&[
+                    "promote",
+                    "production",
+                    "draft",
+                    "reviewed",
+                    "rollback",
+                    "restore",
+                ]),
+                NavItem::new("stacks", "Adapter Stack", "/stacks").with_keywords(&[
+                    "combination",
+                    "ensemble",
+                    "runtime",
+                    "active",
+                ]),
+                NavItem::new("models", "Base Model Registry", "/models").with_keywords(&[
+                    "llm",
+                    "foundation",
+                    "base",
+                    "weights",
+                    "load",
+                ]),
+            ],
+            collapsed_by_default: false,
+            show_in_taskbar: true,
+            show_in_mobile: true,
+        },
+        // 5. Route (Alt+5)
+        NavGroup {
+            id: "route",
+            label: "Route",
+            icon: ICON_BRANCH,
+            alt_shortcut: Some(5),
+            items: &[
+                NavItem::new("routing", "Routing", "/routing").with_keywords(&[
+                    "rules",
+                    "decisions",
+                    "k-sparse",
+                    "gates",
+                    "debug",
+                ]),
+            ],
+            collapsed_by_default: false,
+            show_in_taskbar: true,
+            show_in_mobile: true,
+        },
+        // 6. Observe (Alt+6)
+        NavGroup {
+            id: "observe",
+            label: "Observe",
+            icon: ICON_EYE,
+            alt_shortcut: Some(6),
+            items: &[
+                NavItem::new("runs", "Restore Points", "/runs").with_keywords(&[
+                    "flight",
+                    "recorder",
+                    "traces",
+                    "provenance",
+                    "receipts",
+                    "runs",
+                ]),
+                NavItem::new("monitoring", "Activity Monitor", "/monitoring").with_keywords(&[
+                    "alerts",
+                    "anomalies",
+                    "health",
+                    "metrics",
+                    "observability",
+                ]),
+                NavItem::new("errors", "Recovery Console", "/errors").with_keywords(&[
+                    "incidents",
+                    "crashes",
+                    "live",
+                    "analysis",
+                    "client",
+                ]),
+                NavItem::new("diff", "Diff", "/diff").with_keywords(&[
+                    "compare",
+                    "divergence",
+                    "determinism",
+                    "anchor",
+                ]),
+                NavItem::new("workers", "Inference Engines", "/workers").with_keywords(&[
+                    "runtime",
+                    "instances",
+                    "compute",
+                    "nodes",
+                    "process",
+                ]),
+            ],
+            collapsed_by_default: false,
+            show_in_taskbar: true,
+            show_in_mobile: true,
+        },
+        // 7. Govern (Alt+7)
+        NavGroup {
+            id: "govern",
+            label: "Govern",
+            icon: ICON_SHIELD,
+            alt_shortcut: Some(7),
+            items: &[
+                NavItem::new("policies", "Safety Shield", "/policies").with_keywords(&[
+                    "rules",
+                    "constraints",
+                    "enforcement",
+                    "determinism",
+                ]),
+                NavItem::new("audit", "Event Viewer", "/audit").with_keywords(&[
+                    "logs",
+                    "history",
+                    "events",
+                    "compliance",
+                    "trail",
+                ]),
+                NavItem::new("reviews", "Safety Queue", "/reviews").with_keywords(&[
+                    "hitl",
+                    "approval",
+                    "pause",
+                    "queue",
+                    "moderation",
+                ]),
+            ],
+            collapsed_by_default: true,
+            show_in_taskbar: true,
+            show_in_mobile: true,
+        },
+        // 8. Org (Alt+8)
+        NavGroup {
+            id: "org",
+            label: "Org",
+            icon: ICON_BUILDING,
+            alt_shortcut: Some(8),
+            items: &[
+                NavItem::new("agents", "Automation Agents (Beta)", "/agents").with_keywords(&[
+                    "orchestration",
+                    "multi-agent",
+                    "executor",
+                    "sessions",
+                ]),
+                NavItem::new("files", "Files", "/files").with_keywords(&[
+                    "filesystem",
+                    "browse",
+                    "directories",
+                    "server",
+                ]),
+                NavItem::new("admin", "Admin", "/admin").with_keywords(&[
+                    "users",
+                    "roles",
+                    "api-keys",
+                    "organization",
+                    "tenants",
+                ]),
+                NavItem::new("settings", "Settings", "/settings").with_keywords(&[
+                    "config",
+                    "preferences",
+                    "options",
+                    "profile",
+                ]),
+                NavItem::new("system", "Kernel", "/system").with_keywords(&[
+                    "health",
+                    "status",
+                    "diagnostics",
+                    "infrastructure",
+                ]),
+            ],
+            collapsed_by_default: true,
+            show_in_taskbar: true,
+            show_in_mobile: true,
+        },
+    ];
 
 /// Primary profile navigation groups (focused runtime projection)
-static NAV_GROUPS_PRIMARY: &[NavGroup] = &[
-    // 1. Train (Alt+1) — Adapter Training
-    NavGroup {
-        id: "train",
-        label: "Train",
-        icon: ICON_FLAME,
-        alt_shortcut: Some(1),
-        items: &[NavItem::new("training", "Adapter Training", "/training")
-            .with_keywords(&["train", "finetune", "jobs", "pipeline", "lora"])],
-        collapsed_by_default: false,
-        show_in_taskbar: true,
-        show_in_mobile: true,
-    },
-    // 2. Infer (Alt+2) — Prompt Studio
-    NavGroup {
-        id: "infer",
-        label: "Infer",
-        icon: ICON_ZAP,
-        alt_shortcut: Some(2),
-        items: &[
-            NavItem::new("chat", "Prompt Studio", "/chat").with_keywords(&[
-                "inference",
-                "generate",
-                "prompt",
-                "conversation",
-            ]),
-        ],
-        collapsed_by_default: false,
-        show_in_taskbar: true,
-        show_in_mobile: true,
-    },
-    // 3. Verify (Alt+3) — Restore Points
-    NavGroup {
-        id: "verify",
-        label: "Verify",
-        icon: ICON_EYE,
-        alt_shortcut: Some(3),
-        items: &[
-            NavItem::new("runs", "Restore Points", "/runs").with_keywords(&[
-                "flight",
-                "recorder",
-                "traces",
-                "provenance",
-                "receipts",
-                "runs",
-            ]),
-        ],
-        collapsed_by_default: false,
-        show_in_taskbar: true,
-        show_in_mobile: true,
-    },
-    // 4. Promote (Alt+4) — Update Center
-    NavGroup {
-        id: "promote",
-        label: "Promote",
-        icon: ICON_ROCKET,
-        alt_shortcut: Some(4),
-        items: &[
-            NavItem::new("update_center", "Update Center", "/update-center").with_keywords(&[
-                "promote",
-                "production",
-                "draft",
-                "reviewed",
-                "rollback",
-                "restore",
-            ]),
-        ],
-        collapsed_by_default: false,
-        show_in_taskbar: true,
-        show_in_mobile: true,
-    },
-    // 5. Deploy (Alt+5) — Models + Adapters
-    NavGroup {
-        id: "deploy",
-        label: "Deploy",
-        icon: ICON_CUBE,
-        alt_shortcut: Some(5),
-        items: &[
-            NavItem::new("models", "Base Model Registry", "/models").with_keywords(&[
-                "llm",
-                "foundation",
-                "base",
-                "weights",
-            ]),
-            NavItem::new("adapters", "Adapters", "/adapters").with_keywords(&[
-                "lora",
-                "finetune",
-                "weights",
-                "models",
-                "lifecycle",
-            ]),
-        ],
-        collapsed_by_default: false,
-        show_in_taskbar: true,
-        show_in_mobile: true,
-    },
-    // 6. Observe (Alt+6) — Inference Engines + Kernel
-    NavGroup {
-        id: "observe",
-        label: "Observe",
-        icon: ICON_EYE,
-        alt_shortcut: Some(6),
-        items: &[
-            NavItem::new("workers", "Inference Engines", "/workers").with_keywords(&[
-                "runtime",
-                "instances",
-                "compute",
-                "nodes",
-                "process",
-            ]),
-            NavItem::new("system", "Kernel", "/system").with_keywords(&[
-                "health",
-                "status",
-                "diagnostics",
-                "infrastructure",
-            ]),
-        ],
-        collapsed_by_default: false,
-        show_in_taskbar: true,
-        show_in_mobile: true,
-    },
-];
+static NAV_GROUPS_PRIMARY: &[NavGroup] =
+    &[
+        // 1. Train (Alt+1) — Adapter Training
+        NavGroup {
+            id: "train",
+            label: "Train",
+            icon: ICON_FLAME,
+            alt_shortcut: Some(1),
+            items: &[
+                NavItem::new("training", "Create Adapter", "/training?open_wizard=1")
+                    .with_keywords(&["create", "adapter", "train", "files", "knowledge"]),
+            ],
+            collapsed_by_default: false,
+            show_in_taskbar: true,
+            show_in_mobile: true,
+        },
+        // 2. Infer (Alt+2) — Prompt Studio
+        NavGroup {
+            id: "infer",
+            label: "Infer",
+            icon: ICON_ZAP,
+            alt_shortcut: Some(2),
+            items: &[
+                NavItem::new("chat", "Prompt Studio", "/chat").with_keywords(&[
+                    "inference",
+                    "generate",
+                    "prompt",
+                    "conversation",
+                ]),
+            ],
+            collapsed_by_default: false,
+            show_in_taskbar: true,
+            show_in_mobile: true,
+        },
+        // 3. Verify (Alt+3) — Restore Points
+        NavGroup {
+            id: "verify",
+            label: "Verify",
+            icon: ICON_EYE,
+            alt_shortcut: Some(3),
+            items: &[
+                NavItem::new("runs", "Restore Points", "/runs").with_keywords(&[
+                    "flight",
+                    "recorder",
+                    "traces",
+                    "provenance",
+                    "receipts",
+                    "runs",
+                ]),
+            ],
+            collapsed_by_default: false,
+            show_in_taskbar: true,
+            show_in_mobile: true,
+        },
+        // 4. Promote (Alt+4) — Update Center
+        NavGroup {
+            id: "promote",
+            label: "Promote",
+            icon: ICON_ROCKET,
+            alt_shortcut: Some(4),
+            items: &[
+                NavItem::new("update_center", "Update Center", "/update-center").with_keywords(&[
+                    "promote",
+                    "production",
+                    "draft",
+                    "reviewed",
+                    "rollback",
+                    "restore",
+                ]),
+            ],
+            collapsed_by_default: false,
+            show_in_taskbar: true,
+            show_in_mobile: true,
+        },
+        // 5. Deploy (Alt+5) — Models + Adapters
+        NavGroup {
+            id: "deploy",
+            label: "Deploy",
+            icon: ICON_CUBE,
+            alt_shortcut: Some(5),
+            items: &[
+                NavItem::new("models", "Base Model Registry", "/models").with_keywords(&[
+                    "llm",
+                    "foundation",
+                    "base",
+                    "weights",
+                ]),
+                NavItem::new("adapters", "Adapters", "/adapters").with_keywords(&[
+                    "lora",
+                    "finetune",
+                    "weights",
+                    "models",
+                    "lifecycle",
+                ]),
+            ],
+            collapsed_by_default: false,
+            show_in_taskbar: true,
+            show_in_mobile: true,
+        },
+        // 6. Observe (Alt+6) — Inference Engines + Kernel
+        NavGroup {
+            id: "observe",
+            label: "Observe",
+            icon: ICON_EYE,
+            alt_shortcut: Some(6),
+            items: &[
+                NavItem::new("workers", "Inference Engines", "/workers").with_keywords(&[
+                    "runtime",
+                    "instances",
+                    "compute",
+                    "nodes",
+                    "process",
+                ]),
+                NavItem::new("system", "Kernel", "/system").with_keywords(&[
+                    "health",
+                    "status",
+                    "diagnostics",
+                    "infrastructure",
+                ]),
+            ],
+            collapsed_by_default: false,
+            show_in_taskbar: true,
+            show_in_mobile: true,
+        },
+    ];
 
 // ═══════════════════════════════════════════════════════════════════════════
 // PUBLIC API

@@ -861,7 +861,7 @@ mod tests {
 
     #[test]
     fn training_example_schema_matches_contract() {
-        let schema_str = include_str!("../../../../docs/contracts/training-example.schema.json");
+        let schema_str = include_str!("../../training_example_schema.json");
         let schema: serde_json::Value =
             serde_json::from_str(schema_str).expect("parse training example schema");
 

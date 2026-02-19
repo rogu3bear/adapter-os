@@ -10,10 +10,9 @@ use crate::api::{
 use crate::components::{
     AsyncBoundary, Badge, BadgeVariant, Button, ButtonVariant, Card, ConfirmationDialog,
     ConfirmationSeverity, CopyableId, Dialog, ErrorDisplay, FormField, Input, ListEmptyCard,
-    LoadingDisplay, PageBreadcrumbItem, PageScaffold, PageScaffoldActions, PageScaffoldPrimaryAction,
-    Select, SkeletonTable,
-    Spinner, SplitPanel, StatusVariant, Table, TableBody, TableCell, TableHead, TableHeader,
-    TableRow,
+    LoadingDisplay, PageBreadcrumbItem, PageScaffold, PageScaffoldActions,
+    PageScaffoldPrimaryAction, Select, SkeletonTable, Spinner, SplitPanel, StatusVariant, Table,
+    TableBody, TableCell, TableHead, TableHeader, TableRow,
 };
 use crate::constants::ui_language;
 use crate::hooks::{

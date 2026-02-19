@@ -315,8 +315,8 @@ pub fn Training() -> impl IntoView {
 
     view! {
         <PageScaffold
-            title="Skill Builds"
-            subtitle="Teach new skills, monitor build progress, and hand off to conversation when ready."
+            title="Adapter Training"
+            subtitle="Create adapters, monitor training progress, and open chat when they are ready."
             breadcrumbs=vec![
                 PageBreadcrumbItem::new("Train", "/training"),
                 PageBreadcrumbItem::current("Skill Builds"),
@@ -327,7 +327,7 @@ pub fn Training() -> impl IntoView {
                     variant=ButtonVariant::Primary
                     on_click=Callback::new(move |_| create_dialog_open.set(true))
                 >
-                    "Create Job"
+                    "Create Adapter"
                 </Button>
             </PageScaffoldPrimaryAction>
             <PageScaffoldActions slot>

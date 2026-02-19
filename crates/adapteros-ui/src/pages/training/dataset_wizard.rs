@@ -619,7 +619,7 @@ pub fn DatasetUploadWizard(
             form_errors.update(|e| {
                 e.set(
                     "file",
-                    "Add at least one valid sample before uploading".to_string(),
+                    "Add at least one valid example before uploading".to_string(),
                 )
             });
             valid = false;
@@ -654,7 +654,7 @@ pub fn DatasetUploadWizard(
                 let csv_mapping = csv_mapping.get();
                 let sample_count = preview_rows.get().len();
                 let idempotency_value = idempotency_key.get();
-                status.set("Uploading dataset (this may take a moment)...".to_string());
+                status.set("Uploading your files (this may take a moment)...".to_string());
                 let is_active = Arc::clone(&is_active);
                 spawn_local(async move {
                     if !is_active.load(Ordering::Relaxed) {
@@ -675,13 +675,12 @@ pub fn DatasetUploadWizard(
                         UploadMode::Text => "txt",
                     };
                     let Some(data_file) = data_file_value.map(|file| file.take()) else {
-                        let _ =
-                            upload_error.try_set(Some("Select a dataset file to upload".into()));
+                        let _ = upload_error.try_set(Some("Choose a file to upload".into()));
                         let _ = submitting.try_set(false);
                         return;
                     };
                     if let Err(_) = form.append_with_blob("files[]", data_file.as_ref()) {
-                        let _ = upload_error.try_set(Some("Failed to attach dataset file".into()));
+                        let _ = upload_error.try_set(Some("Failed to attach file".into()));
                         let _ = submitting.try_set(false);
                         return;
                     }
@@ -715,7 +714,7 @@ pub fn DatasetUploadWizard(
                                 return;
                             }
                             let _ = status.try_set(format!(
-                                "Dataset {} uploaded ({} files, {} bytes)",
+                                "Upload complete (ID: {}, {} files, {} bytes)",
                                 resp.dataset_id, resp.file_count, resp.total_size_bytes
                             ));
                             on_complete.run(DatasetOutcome {
@@ -790,8 +789,8 @@ pub fn DatasetUploadWizard(
             view! {
                 <Dialog
                     open=open
-                    title="Upload Training Dataset".to_string()
-                    description="Pick a format, validate required fields, and preview the parsed samples before upload.".to_string()
+                    title="Upload structured training data".to_string()
+                    description="For advanced use: choose JSONL, CSV, or text/markdown, validate fields, then upload.".to_string()
                     size=DialogSize::Xl
                     scrollable=true
                 >
@@ -1106,7 +1105,7 @@ pub fn DatasetUploadWizard(
                             >
                                 <Show
                                     when=move || submitting.try_get().unwrap_or(false)
-                                    fallback=move || view! { "Upload dataset" }
+                                    fallback=move || view! { "Upload structured data" }
                                 >
                                     <div class="flex items-center gap-2"><Spinner size=SpinnerSize::Sm/> "Uploading..."</div>
                                 </Show>

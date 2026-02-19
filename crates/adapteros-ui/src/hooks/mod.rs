@@ -20,8 +20,11 @@ pub use use_sse_notifications::use_sse_notifications;
 
 #[cfg(target_arch = "wasm32")]
 use crate::api::report_error;
-use crate::api::{use_api_client, ApiClient, ApiError, ApiResult};
-use adapteros_api_types::SystemStatusResponse;
+use crate::api::{
+    use_api_client, ApiClient, ApiError, ApiResult, ReadyzResponse, SystemHealthResponse,
+    SystemReadyResponse,
+};
+use adapteros_api_types::{HealthResponse, SystemStatusResponse};
 use leptos::prelude::*;
 use serde::{Deserialize, Serialize};
 use std::sync::atomic::{AtomicBool, Ordering};
@@ -443,6 +446,72 @@ pub fn use_system_status() -> (ReadSignal<LoadingState<SystemStatusResponse>>, R
         CacheTtl::STATUS,
         |client: Arc<ApiClient>| async move { client.system_status().await },
     )
+}
+
+#[derive(Clone, Debug, Default)]
+pub struct HealthEndpointsState {
+    pub healthz: LoadingState<(u16, HealthResponse)>,
+    pub readyz: LoadingState<(u16, ReadyzResponse)>,
+    pub healthz_all: LoadingState<SystemHealthResponse>,
+    pub system_ready: LoadingState<(u16, SystemReadyResponse)>,
+}
+
+/// Shared cached hook for `/healthz`.
+pub fn use_health() -> (ReadSignal<LoadingState<HealthResponse>>, Refetch) {
+    use_cached_api_resource("health", CacheTtl::STATUS, |client: Arc<ApiClient>| async move {
+        client.health().await
+    })
+}
+
+/// Shared cached hook for common health endpoints used by System and Monitoring pages.
+pub fn use_health_endpoints() -> (ReadSignal<HealthEndpointsState>, Refetch) {
+    let (healthz, refetch_healthz) = use_cached_api_resource(
+        "health_endpoints:healthz",
+        CacheTtl::STATUS,
+        |client: Arc<ApiClient>| async move {
+            client.get_with_status::<HealthResponse>("/healthz").await
+        },
+    );
+    let (readyz, refetch_readyz) = use_cached_api_resource(
+        "health_endpoints:readyz",
+        CacheTtl::STATUS,
+        |client: Arc<ApiClient>| async move {
+            client.get_with_status::<ReadyzResponse>("/readyz").await
+        },
+    );
+    let (healthz_all, refetch_healthz_all) = use_cached_api_resource(
+        "health_endpoints:healthz_all",
+        CacheTtl::STATUS,
+        |client: Arc<ApiClient>| async move { client.get::<SystemHealthResponse>("/healthz/all").await },
+    );
+    let (system_ready, refetch_system_ready) = use_cached_api_resource(
+        "health_endpoints:system_ready",
+        CacheTtl::STATUS,
+        |client: Arc<ApiClient>| async move {
+            client
+                .get_with_status::<SystemReadyResponse>("/system/ready")
+                .await
+        },
+    );
+
+    let (state, set_state) = signal(HealthEndpointsState::default());
+    Effect::new(move || {
+        set_state.set(HealthEndpointsState {
+            healthz: healthz.get(),
+            readyz: readyz.get(),
+            healthz_all: healthz_all.get(),
+            system_ready: system_ready.get(),
+        });
+    });
+
+    let refetch = Refetch::new(move || {
+        refetch_healthz.run(());
+        refetch_readyz.run(());
+        refetch_healthz_all.run(());
+        refetch_system_ready.run(());
+    });
+
+    (state, refetch)
 }
 
 /// Shared cached hook for `/healthz/startup`.

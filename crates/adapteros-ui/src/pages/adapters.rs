@@ -145,7 +145,7 @@ pub fn Adapters() -> impl IntoView {
                                 navigate(NEW_ADAPTER_PATH, Default::default());
                             })
                         >
-                            "Teach New Skill"
+                            "Create Adapter"
                         </Button>
                     }
                 }
@@ -220,8 +220,8 @@ fn AdaptersListInteractive(
             <ListEmptyCard
                 variant=EmptyStateVariant::Empty
                 title="No skills yet"
-                description="Teach your first skill to give the system a new capability, then start a conversation right away."
-                action_label="Teach New Skill"
+                description="Create your first adapter to add a new capability, then start a conversation right away."
+                action_label="Create Adapter"
                 on_action=Callback::new(move |_| {
                     navigate(NEW_ADAPTER_PATH, Default::default());
                 })

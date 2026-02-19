@@ -7,7 +7,7 @@ use crate::components::status::{StatusColor, StatusIndicator};
 use crate::components::status_center::use_status_center;
 use crate::constants::ui_language;
 use crate::hooks::{
-    use_api_resource, use_cached_api_resource, use_polling, use_startup_health, use_system_status,
+    use_cached_api_resource, use_health, use_polling, use_startup_health, use_system_status,
     CacheTtl, LoadingState,
 };
 use adapteros_api_types::WorkerResponse;
@@ -27,8 +27,7 @@ pub fn SystemTray() -> impl IntoView {
         .collect::<String>();
 
     let status_center = use_status_center();
-    let (health, _refetch_health) =
-        use_api_resource(|client: Arc<ApiClient>| async move { client.health().await });
+    let (health, _refetch_health) = use_health();
     let (system_status, _refetch_status) = use_system_status();
     let (startup_health, _refetch_startup_health) = use_startup_health();
     let (workers, _refetch_workers) = use_cached_api_resource(

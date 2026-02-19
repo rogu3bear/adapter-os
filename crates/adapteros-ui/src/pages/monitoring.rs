@@ -15,8 +15,8 @@ use crate::components::{
     TableRow,
 };
 use crate::hooks::{
-    use_api_resource, use_live_system_metrics, use_polling, LiveSystemMetricsHandle, LoadingState,
-    MetricViewMode,
+    use_api_resource, use_health_endpoints, use_live_system_metrics, use_polling,
+    LiveSystemMetricsHandle, LoadingState, MetricViewMode,
 };
 use crate::signals::{use_refetch_signal, RefetchTopic};
 use crate::utils::humanize;
@@ -63,23 +63,11 @@ pub fn Monitoring() -> impl IntoView {
             client.get_system_overview().await
         });
 
-    // Fetch health endpoints
-    let (healthz, refetch_healthz) = use_api_resource(move |client: Arc<ApiClient>| async move {
-        client.get_with_status::<HealthResponse>("/healthz").await
-    });
-    let (readyz, refetch_readyz) = use_api_resource(move |client: Arc<ApiClient>| async move {
-        client.get_with_status::<ReadyzResponse>("/readyz").await
-    });
-    let (healthz_all, refetch_healthz_all) =
-        use_api_resource(move |client: Arc<ApiClient>| async move {
-            client.get::<SystemHealthResponse>("/healthz/all").await
-        });
-    let (system_ready, refetch_system_ready) =
-        use_api_resource(move |client: Arc<ApiClient>| async move {
-            client
-                .get_with_status::<SystemReadyResponse>("/system/ready")
-                .await
-        });
+    let (health_endpoints, refetch_health_endpoints) = use_health_endpoints();
+    let healthz = Signal::derive(move || health_endpoints.get().healthz);
+    let readyz = Signal::derive(move || health_endpoints.get().readyz);
+    let healthz_all = Signal::derive(move || health_endpoints.get().healthz_all);
+    let system_ready = Signal::derive(move || health_endpoints.get().system_ready);
 
     // SSE-driven refresh from Shell's health lifecycle stream.
     let health_refetch_counter = use_refetch_signal(RefetchTopic::Health);
@@ -91,10 +79,7 @@ pub fn Monitoring() -> impl IntoView {
             refetch_health.run(());
             refetch_overview.run(());
             refetch_worker_health_summary.run(());
-            refetch_healthz.run(());
-            refetch_readyz.run(());
-            refetch_healthz_all.run(());
-            refetch_system_ready.run(());
+            refetch_health_endpoints.run(());
         }
     });
 
@@ -105,10 +90,7 @@ pub fn Monitoring() -> impl IntoView {
         refetch_health.run(());
         refetch_overview.run(());
         refetch_worker_health_summary.run(());
-        refetch_healthz.run(());
-        refetch_readyz.run(());
-        refetch_healthz_all.run(());
-        refetch_system_ready.run(());
+        refetch_health_endpoints.run(());
     });
 
     // Count active alerts
@@ -142,10 +124,7 @@ pub fn Monitoring() -> impl IntoView {
                         refetch_health.run(());
                         refetch_overview.run(());
                         refetch_worker_health_summary.run(());
-                        refetch_healthz.run(());
-                        refetch_readyz.run(());
-                        refetch_healthz_all.run(());
-                        refetch_system_ready.run(());
+                        refetch_health_endpoints.run(());
                     })
                 >
                     "Refresh"

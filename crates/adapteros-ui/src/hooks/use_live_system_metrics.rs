@@ -107,9 +107,6 @@ impl LiveSystemMetricsSnapshot {
 #[derive(Clone, Copy)]
 pub(crate) struct TimestampedMetrics {
     pub(crate) timestamp: u64,
-    pub(crate) cpu_usage: f64,
-    pub(crate) memory_usage: f64,
-    pub(crate) gpu_utilization: f64,
     pub(crate) requests_per_second: f64,
     pub(crate) avg_latency_ms: f64,
 }
@@ -118,9 +115,6 @@ impl TimestampedMetrics {
     fn from_snapshot(snapshot: LiveSystemMetricsSnapshot, timestamp: u64) -> Self {
         Self {
             timestamp,
-            cpu_usage: snapshot.cpu_usage as f64,
-            memory_usage: snapshot.memory_usage as f64,
-            gpu_utilization: snapshot.gpu_utilization as f64,
             requests_per_second: snapshot.requests_per_second as f64,
             avg_latency_ms: snapshot.avg_latency_ms as f64,
         }
@@ -140,13 +134,6 @@ impl MetricsHistory {
         while self.snapshots.len() > METRICS_HISTORY_SIZE {
             self.snapshots.pop_front();
         }
-    }
-
-    pub(crate) fn extract<F>(&self, f: F) -> Vec<f64>
-    where
-        F: Fn(&TimestampedMetrics) -> f64,
-    {
-        self.snapshots.iter().map(f).collect()
     }
 
     fn to_time_series<F>(&self, name: &str, extractor: F) -> TimeSeriesData

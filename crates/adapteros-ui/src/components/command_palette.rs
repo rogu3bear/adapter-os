@@ -471,6 +471,21 @@ fn execute_command(command: &str) {
                 action.clear_messages();
             }
         }
+        "clear-chat" => {
+            if let Some((_state, action)) = use_context::<ChatContext>() {
+                action.clear_messages();
+            }
+        }
+        "upload-document" => {
+            if let Some(window) = web_sys::window() {
+                let _ = window.location().set_href("/training?open_wizard=1");
+            }
+        }
+        "open-dataset-upload" => {
+            if let Some(window) = web_sys::window() {
+                let _ = window.location().set_href("/training?open_wizard=1");
+            }
+        }
         "refresh" => {
             if let Some(window) = web_sys::window() {
                 let _ = window.location().reload();

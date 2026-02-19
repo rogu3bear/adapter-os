@@ -427,15 +427,22 @@ fn ReadyStep() -> impl IntoView {
             </p>
             <div class="wizard-ready-actions">
                 <ButtonLink
-                    href="/chat"
+                    href="/training?open_wizard=1"
                     variant=ButtonVariant::Primary
                     size=ButtonSize::Md
                 >
-                    "Open Prompt Studio"
+                    "Create your first adapter"
+                </ButtonLink>
+                <ButtonLink
+                    href="/chat"
+                    variant=ButtonVariant::Outline
+                    size=ButtonSize::Md
+                >
+                    "Open Chat"
                 </ButtonLink>
                 <ButtonLink
                     href="/"
-                    variant=ButtonVariant::Outline
+                    variant=ButtonVariant::Ghost
                     size=ButtonSize::Md
                 >
                     "Open Home"

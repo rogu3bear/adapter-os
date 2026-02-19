@@ -234,7 +234,11 @@ impl ApiClient {
             }
         }
 
-        if method == "POST" && (path == "/v1/training/jobs" || path == "/v1/training/start") {
+        if method == "POST"
+            && (path == "/v1/training/jobs"
+                || path == "/v1/training/start"
+                || path.starts_with("/v1/adapters/from-dataset/"))
+        {
             req = req.header("Idempotency-Key", &Self::training_idempotency_key());
         }
 
@@ -787,6 +791,19 @@ impl ApiClient {
         request: &CreateTrainingJobRequest,
     ) -> ApiResult<adapteros_api_types::TrainingJobResponse> {
         self.post("/v1/training/jobs", request).await
+    }
+
+    /// Create an adapter directly from an existing dataset.
+    pub async fn create_adapter_from_dataset<T: Serialize>(
+        &self,
+        dataset_id: &str,
+        request: &T,
+    ) -> ApiResult<adapteros_api_types::TrainingJobResponse> {
+        self.post(
+            &format!("/v1/adapters/from-dataset/{}", encode(dataset_id)),
+            request,
+        )
+        .await
     }
 
     /// Inspect CoreML preprocessing cache status for a dataset/model pair

@@ -54,7 +54,7 @@ pub fn Dashboard() -> impl IntoView {
                     variant=ButtonVariant::Primary
                     size=ButtonSize::Sm
                 >
-                    "Teach New Skill"
+                    "Create Adapter"
                 </ButtonLink>
             </PageScaffoldPrimaryAction>
             <PageScaffoldActions slot>
@@ -242,10 +242,10 @@ fn JourneyFlowSection() -> impl IntoView {
             <div class="grid gap-3 md:grid-cols-2 lg:grid-cols-4">
                 <JourneyStep
                     step="Step 1"
-                    title="Teach a New Skill"
-                    body="Name the skill, set its purpose, and optionally attach training data."
+                    title="Create Adapter"
+                    body="Add your files, name the adapter, and start training."
                     href="/training?open_wizard=1"
-                    cta="Teach New Skill"
+                    cta="Create Adapter"
                     start_here=true
                 />
                 <JourneyStep

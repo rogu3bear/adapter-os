@@ -28,11 +28,11 @@ pub fn generate_contextual_actions(ctx: &RouteContext) -> Vec<SearchResult> {
                 actions.push(SearchResult {
                     id: format!("ctx-train-doc-{}", sel.entity_id),
                     result_type: SearchResultType::Action,
-                    title: "Train adapter from this document".to_string(),
+                    title: "Create adapter from this file".to_string(),
                     subtitle: Some(sel.entity_name.clone()),
                     score: 2.0,
                     action: SearchAction::Navigate(format!(
-                        "/training?source=document&document_id={}",
+                        "/training?open_wizard=1&source=document&document_id={}",
                         sel.entity_id
                     )),
                     shortcut: None,
@@ -42,8 +42,8 @@ pub fn generate_contextual_actions(ctx: &RouteContext) -> Vec<SearchResult> {
             actions.push(SearchResult {
                 id: "ctx-upload-doc".to_string(),
                 result_type: SearchResultType::Action,
-                title: "Upload new document".to_string(),
-                subtitle: Some("Add a document for RAG indexing".to_string()),
+                title: "Add your files".to_string(),
+                subtitle: Some("Upload files to start creating an adapter".to_string()),
                 score: 1.5,
                 action: SearchAction::Execute("upload-document".to_string()),
                 shortcut: None,
@@ -69,10 +69,10 @@ pub fn generate_contextual_actions(ctx: &RouteContext) -> Vec<SearchResult> {
             actions.push(SearchResult {
                 id: "ctx-train-new-adapter".to_string(),
                 result_type: SearchResultType::Action,
-                title: "Train new adapter".to_string(),
-                subtitle: Some("Start a new training job".to_string()),
+                title: "Create Adapter".to_string(),
+                subtitle: Some("Open the adapter creation wizard".to_string()),
                 score: 1.5,
-                action: SearchAction::Navigate("/training".to_string()),
+                action: SearchAction::Navigate("/training?open_wizard=1".to_string()),
                 shortcut: None,
             });
         }
@@ -83,10 +83,10 @@ pub fn generate_contextual_actions(ctx: &RouteContext) -> Vec<SearchResult> {
         actions.push(SearchResult {
             id: "ctx-start-training".to_string(),
             result_type: SearchResultType::Action,
-            title: "Start new training job".to_string(),
-            subtitle: Some("Train a new adapter".to_string()),
+            title: "Create Adapter".to_string(),
+            subtitle: Some("Open the adapter creation wizard".to_string()),
             score: 1.5,
-            action: SearchAction::Navigate("/training".to_string()),
+            action: SearchAction::Navigate("/training?open_wizard=1".to_string()),
             shortcut: None,
         });
     }
@@ -148,11 +148,11 @@ pub fn generate_contextual_actions(ctx: &RouteContext) -> Vec<SearchResult> {
                 actions.push(SearchResult {
                     id: format!("ctx-train-from-dataset-{}", sel.entity_id),
                     result_type: SearchResultType::Action,
-                    title: "Train adapter from this dataset".to_string(),
+                    title: "Create adapter from this training data".to_string(),
                     subtitle: Some(sel.entity_name.clone()),
                     score: 2.0,
                     action: SearchAction::Navigate(format!(
-                        "/training?dataset_id={}",
+                        "/training?open_wizard=1&dataset_id={}",
                         sel.entity_id
                     )),
                     shortcut: None,
@@ -162,8 +162,8 @@ pub fn generate_contextual_actions(ctx: &RouteContext) -> Vec<SearchResult> {
             actions.push(SearchResult {
                 id: "ctx-upload-dataset".to_string(),
                 result_type: SearchResultType::Action,
-                title: "Upload dataset".to_string(),
-                subtitle: Some("Upload a new training dataset".to_string()),
+                title: "Add your files".to_string(),
+                subtitle: Some("Upload files and create an adapter".to_string()),
                 score: 1.5,
                 action: SearchAction::Execute("open-dataset-upload".to_string()),
                 shortcut: None,

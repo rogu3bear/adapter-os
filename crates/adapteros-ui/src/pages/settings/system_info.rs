@@ -1,20 +1,17 @@
 //! System Info section component
 
-use crate::api::ApiClient;
 use crate::components::{
     Badge, BadgeVariant, Button, ButtonVariant, Card, DetailGridRow, ErrorDisplay, Spinner,
 };
-use crate::hooks::{use_api_resource, LoadingState};
+use crate::hooks::{use_health, LoadingState};
 use adapteros_api_types::HealthResponse;
 use leptos::prelude::*;
-use std::sync::Arc;
 
 /// System Info section
 #[component]
 pub fn SystemInfoSection() -> impl IntoView {
     // Fetch health info
-    let (health, refetch) =
-        use_api_resource(|client: Arc<ApiClient>| async move { client.health().await });
+    let (health, refetch) = use_health();
 
     view! {
         <div class="space-y-6 max-w-2xl">

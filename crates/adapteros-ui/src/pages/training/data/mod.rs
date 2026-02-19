@@ -19,7 +19,7 @@ pub mod state;
 mod upload_dialog;
 
 // Re-export upload types for external use
-pub use upload_dialog::{SafetyScanStatus, UploadResult};
+pub use upload_dialog::{DocumentUploadDialog, SafetyScanStatus, UploadBatchResult, UploadResult};
 
 use crate::api::{report_error_with_toast, ApiClient};
 use crate::components::ErrorDisplay;
@@ -33,7 +33,6 @@ use std::sync::{
     atomic::{AtomicBool, Ordering},
     Arc,
 };
-use upload_dialog::DocumentUploadDialog;
 
 /// Training Data Management component.
 ///
@@ -202,7 +201,7 @@ pub fn TrainingData() -> impl IntoView {
     };
 
     let on_doc_upload_success = {
-        Callback::new(move |_document_id: String| {
+        Callback::new(move |_result: UploadBatchResult| {
             // Refetch documents after successful upload
             refetch_documents_signal.with_value(|f| f());
             // Switch to documents view
@@ -428,6 +427,9 @@ pub fn TrainingData() -> impl IntoView {
             <DocumentUploadDialog
                 open=show_doc_upload
                 on_success=on_doc_upload_success
+                allow_multiple=false
+                auto_create_dataset=false
+                prefer_training_dataset_upload=false
             />
         </div>
     }

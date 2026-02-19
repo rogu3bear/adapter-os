@@ -620,7 +620,7 @@ fn ChatEmptyWorkspace() -> impl IntoView {
                         on_click=go_to_training
                         data_testid="chat-empty-create-adapter".to_string()
                     >
-                        "Teach New Skill"
+                        "Create Adapter"
                     </Button>
                 </div>
                 <p class="text-xs text-muted-foreground">
@@ -2874,7 +2874,7 @@ fn ChatConversationPanel(
                     // Reset cancellation flag before starting
                     upload_cancelled.set(false);
                     attach_busy.set(true);
-                    attach_status.set(Some("Creating dataset from text...".to_string()));
+                    attach_status.set(Some("Preparing your text...".to_string()));
 
                     #[cfg(target_arch = "wasm32")]
                     {
@@ -2919,7 +2919,7 @@ fn ChatConversationPanel(
                                         return;
                                     }
                                     attach_error
-                                        .set(Some(format!("Failed to create dataset: {}", e)));
+                                        .set(Some(format!("Couldn't prepare your text: {}", e)));
                                     attach_busy.set(false);
                                     attach_status.set(None);
                                 }
@@ -2929,9 +2929,8 @@ fn ChatConversationPanel(
 
                     #[cfg(not(target_arch = "wasm32"))]
                     {
-                        attach_error.set(Some(
-                            "Text dataset creation is only available in the web UI.".to_string(),
-                        ));
+                        attach_error
+                            .set(Some("Text processing is only available in the web UI.".to_string()));
                         attach_busy.set(false);
                         attach_status.set(None);
                     }
@@ -2970,7 +2969,7 @@ fn ChatConversationPanel(
                     // Reset cancellation flag before starting
                     upload_cancelled.set(false);
                     attach_busy.set(true);
-                    attach_status.set(Some("Creating dataset from chat...".to_string()));
+                    attach_status.set(Some("Preparing selected messages...".to_string()));
 
                     #[cfg(target_arch = "wasm32")]
                     {
@@ -3014,8 +3013,10 @@ fn ChatConversationPanel(
                                     if upload_cancelled.try_get_untracked().unwrap_or(true) {
                                         return;
                                     }
-                                    attach_error
-                                        .set(Some(format!("Failed to create dataset: {}", e)));
+                                    attach_error.set(Some(format!(
+                                        "Couldn't prepare selected messages: {}",
+                                        e
+                                    )));
                                     attach_busy.set(false);
                                     attach_status.set(None);
                                 }
@@ -3026,9 +3027,8 @@ fn ChatConversationPanel(
                     #[cfg(not(target_arch = "wasm32"))]
                     {
                         let _ = (chat_messages, session_id);
-                        attach_error.set(Some(
-                            "Chat dataset creation is only available in the web UI.".to_string(),
-                        ));
+                        attach_error
+                            .set(Some("Chat processing is only available in the web UI.".to_string()));
                         attach_busy.set(false);
                         attach_status.set(None);
                     }
@@ -3926,7 +3926,7 @@ fn ChatConversationPanel(
             <Dialog
                 open=show_attach_dialog
                 title="Attach data".to_string()
-                description="Create a dataset draft from a file, pasted text, or this chat.".to_string()
+                description="Create training material from a file, pasted text, or this chat.".to_string()
             >
                 <div class="space-y-4">
                     <div class="grid grid-cols-3 gap-2 text-xs">
@@ -4028,7 +4028,7 @@ fn ChatConversationPanel(
                                     placeholder="Paste training examples or notes...".to_string()
                                     rows=5
                                     class="w-full".to_string()
-                                    aria_label="Paste dataset text".to_string()
+                                    aria_label="Paste training text".to_string()
                                 />
                             </div>
                         }.into_any(),

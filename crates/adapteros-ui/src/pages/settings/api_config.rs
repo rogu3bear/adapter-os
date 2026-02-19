@@ -3,6 +3,7 @@
 use crate::api::ApiClient;
 use crate::components::{Button, ButtonVariant, Card, Input, Spinner};
 use crate::components::{IconCheck, IconX};
+use crate::hooks::{use_health, LoadingState};
 use crate::signals::{update_setting, use_auth, use_settings, AuthState};
 use leptos::prelude::*;
 
@@ -22,11 +23,37 @@ pub fn ApiConfigSection() -> impl IntoView {
 
     // Connection test state
     let test_status = RwSignal::new(ConnectionTestStatus::Idle);
+    let default_probe_active = RwSignal::new(false);
+    let (default_health, refetch_default_health) = use_health();
+
+    Effect::new(move || {
+        if !default_probe_active.get() {
+            return;
+        }
+        match default_health.get() {
+            LoadingState::Loaded(_) => {
+                test_status.set(ConnectionTestStatus::Success);
+                default_probe_active.set(false);
+            }
+            LoadingState::Error(e) => {
+                test_status.set(ConnectionTestStatus::Error(e.user_message()));
+                default_probe_active.set(false);
+            }
+            LoadingState::Idle | LoadingState::Loading => {}
+        }
+    });
 
     // Test connection handler
     let test_connection = move |_| {
         test_status.set(ConnectionTestStatus::Testing);
         let endpoint = api_endpoint.get();
+
+        if endpoint == get_default_api_endpoint() {
+            default_probe_active.set(true);
+            refetch_default_health.run(());
+            return;
+        }
+        default_probe_active.set(false);
 
         wasm_bindgen_futures::spawn_local(async move {
             let client = ApiClient::with_base_url(&endpoint);

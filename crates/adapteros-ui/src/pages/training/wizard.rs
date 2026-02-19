@@ -1,25 +1,27 @@
 //! Stepped wizard for creating training jobs
 //!
 //! 4-step wizard flow:
-//! 1. Dataset - Choose data source
-//! 2. Model - Select base model
-//! 3. Config - Training parameters
-//! 4. Review - Summary and submit
+//! 1. Knowledge - Add or choose files
+//! 2. Name - Name your adapter
+//! 3. Train - Default settings with optional advanced controls
+//! 4. Confirm - Review and submit
 
 use crate::api::error::format_structured_details;
-use crate::api::{use_api_client, ApiClient, DatasetResponse, ModelListResponse};
+use crate::api::{
+    use_api_client, ApiClient, ApiError, DatasetResponse, DocumentListResponse, ModelListResponse,
+};
 use crate::components::{
     AsyncBoundary, Card, DialogSize, FormField, Input, Select, StepFormDialog,
 };
 use crate::hooks::{use_api_resource, LoadingState, Refetch};
-use crate::pages::training::config_presets::{TrainingConfigPresets, TrainingPreset};
+use crate::pages::training::config_presets::TrainingPreset;
 use crate::pages::training::dataset_wizard::{DatasetOutcome, DatasetUploadWizard};
 use crate::pages::training::generate_wizard::GenerateDatasetWizard;
 use crate::signals::use_notifications;
 use crate::validation::{
     rules, use_field_error, use_form_state, validate_on_blur, FormState, ValidationRule,
 };
-use adapteros_api_types::{TrainingJobResponse, TRAINING_DATA_CONTRACT_VERSION};
+use adapteros_api_types::TRAINING_DATA_CONTRACT_VERSION;
 use leptos::prelude::*;
 use serde_json::json;
 use std::sync::{
@@ -27,67 +29,113 @@ use std::sync::{
     Arc,
 };
 
+#[path = "data/upload_dialog.rs"]
+mod document_upload_dialog;
+use document_upload_dialog::{DocumentUploadDialog, UploadBatchResult};
+
 /// Wizard step enum
 #[derive(Clone, Copy, PartialEq, Eq, Debug, Default)]
 pub enum WizardStep {
-    /// Step 0: Skill identity — name, purpose, optional examples
+    /// Step 0: Knowledge source selection
     #[default]
-    Intro,
-    Dataset,
-    Model,
-    Config,
-    Review,
+    Knowledge,
+    Name,
+    Train,
+    Confirm,
 }
 
 impl WizardStep {
     fn index(&self) -> usize {
         match self {
-            WizardStep::Intro => 0,
-            WizardStep::Dataset => 1,
-            WizardStep::Model => 2,
-            WizardStep::Config => 3,
-            WizardStep::Review => 4,
+            WizardStep::Knowledge => 0,
+            WizardStep::Name => 1,
+            WizardStep::Train => 2,
+            WizardStep::Confirm => 3,
         }
     }
 
     fn label(&self) -> &'static str {
         match self {
-            WizardStep::Intro => "Define",
-            WizardStep::Dataset => "Knowledge",
-            WizardStep::Model => "Foundation",
-            WizardStep::Config => "Behavior",
-            WizardStep::Review => "Confirm",
+            WizardStep::Knowledge => "Knowledge",
+            WizardStep::Name => "Name",
+            WizardStep::Train => "Train",
+            WizardStep::Confirm => "Confirm",
         }
     }
 
     fn next(&self) -> Option<WizardStep> {
         match self {
-            WizardStep::Intro => Some(WizardStep::Dataset),
-            WizardStep::Dataset => Some(WizardStep::Model),
-            WizardStep::Model => Some(WizardStep::Config),
-            WizardStep::Config => Some(WizardStep::Review),
-            WizardStep::Review => None,
+            WizardStep::Knowledge => Some(WizardStep::Name),
+            WizardStep::Name => Some(WizardStep::Train),
+            WizardStep::Train => Some(WizardStep::Confirm),
+            WizardStep::Confirm => None,
         }
     }
 
     fn prev(&self) -> Option<WizardStep> {
         match self {
-            WizardStep::Intro => None,
-            WizardStep::Dataset => Some(WizardStep::Intro),
-            WizardStep::Model => Some(WizardStep::Dataset),
-            WizardStep::Config => Some(WizardStep::Model),
-            WizardStep::Review => Some(WizardStep::Config),
+            WizardStep::Knowledge => None,
+            WizardStep::Name => Some(WizardStep::Knowledge),
+            WizardStep::Train => Some(WizardStep::Name),
+            WizardStep::Confirm => Some(WizardStep::Train),
         }
     }
 }
 
-const STEPS: [WizardStep; 5] = [
-    WizardStep::Intro,
-    WizardStep::Dataset,
-    WizardStep::Model,
-    WizardStep::Config,
-    WizardStep::Review,
+const STEPS: [WizardStep; 4] = [
+    WizardStep::Knowledge,
+    WizardStep::Name,
+    WizardStep::Train,
+    WizardStep::Confirm,
 ];
+
+#[cfg(target_arch = "wasm32")]
+async fn wait_for_document_indexed(client: &ApiClient, document_id: &str) -> Result<(), String> {
+    const MAX_POLLS: usize = 80;
+    const POLL_DELAY_MS: u32 = 1500;
+
+    for _ in 0..MAX_POLLS {
+        match client.get_document(document_id).await {
+            Ok(document) => match document.status.as_str() {
+                "indexed" => return Ok(()),
+                "failed" | "error" => {
+                    return Err(document.error_message.unwrap_or_else(|| {
+                        "One of your files could not be prepared. Please try another file."
+                            .to_string()
+                    }))
+                }
+                _ => {}
+            },
+            Err(e) => return Err(e.user_message()),
+        }
+        gloo_timers::future::TimeoutFuture::new(POLL_DELAY_MS).await;
+    }
+
+    Err("Your files are still preparing. Please try again in a moment.".to_string())
+}
+
+#[cfg(not(target_arch = "wasm32"))]
+async fn wait_for_document_indexed(_client: &ApiClient, _document_id: &str) -> Result<(), String> {
+    Ok(())
+}
+
+fn map_training_submit_error(error: &ApiError) -> String {
+    match error.code() {
+        Some("DATASET_TRUST_BLOCKED")
+        | Some("DATASET_TRUST_NEEDS_APPROVAL")
+        | Some("VALIDATION_ERROR") => "Your files need a quick review before training.".to_string(),
+        Some("TRAINING_CAPACITY_LIMIT")
+        | Some("MEMORY_PRESSURE_CRITICAL")
+        | Some("CAPACITY_CHECK_ERROR")
+        | Some("BACKPRESSURE")
+        | Some("MEMORY_PRESSURE")
+        | Some("OUT_OF_MEMORY")
+        | Some("SERVICE_UNAVAILABLE") => {
+            "Training is busy. Try again in a few minutes.".to_string()
+        }
+        _ => format_structured_details(error),
+    }
+}
 
 /// Training job creation wizard
 #[component]
@@ -148,7 +196,8 @@ pub fn CreateJobWizard(
         Effect::new(move || {
             if let Some(ds_id) = init_ds.try_get().flatten() {
                 let _ = dataset_id.try_set(ds_id.clone());
-                let _ = dataset_message.try_set(Some(format!("Using dataset: {}", ds_id)));
+                let _ = dataset_message
+                    .try_set(Some(format!("Using selected training data: {}", ds_id)));
             }
         });
     }
@@ -158,7 +207,7 @@ pub fn CreateJobWizard(
         Effect::new(move || {
             if let Some(doc_id) = src_doc.try_get().flatten() {
                 let _ = dataset_message.try_set(Some(format!(
-                    "From document: {} — generate or upload a dataset",
+                    "Document {} is available. Add files or choose an uploaded file.",
                     doc_id
                 )));
             }
@@ -188,20 +237,27 @@ pub fn CreateJobWizard(
     // Dataset sample count for time estimation (updated when dataset is selected)
     let dataset_sample_count = RwSignal::new(None::<usize>);
 
-    // Backend selection (simplified - Auto by default)
-    let show_advanced_backend = RwSignal::new(false);
+    // Train step advanced options
+    let show_train_advanced = RwSignal::new(false);
+    let show_knowledge_advanced = RwSignal::new(false);
     let preferred_backend = RwSignal::new("auto".to_string());
     let backend_policy = RwSignal::new("auto".to_string());
     let coreml_training_fallback = RwSignal::new("mlx".to_string());
+    let document_upload_open = RwSignal::new(false);
+    let selected_document_id = RwSignal::new(String::new());
+    let creating_document_dataset = RwSignal::new(false);
 
     // Lifted state: survives step transitions so data isn't re-fetched
     // and UI toggles aren't lost when navigating between steps.
-    let (models, refetch_models) = use_api_resource(
+    let (models, _refetch_models) = use_api_resource(
         |client: std::sync::Arc<ApiClient>| async move { client.list_models().await },
     );
+    let (documents, refetch_documents) =
+        use_api_resource(|client: std::sync::Arc<ApiClient>| async move {
+            client.list_documents(None).await
+        });
     let use_custom_model = RwSignal::new(false);
     let dataset_info = RwSignal::new(None::<DatasetResponse>);
-    let show_change_options = RwSignal::new(false);
 
     // Shared API client for closures and handlers
     let client = use_api_client();
@@ -237,6 +293,23 @@ pub fn CreateJobWizard(
             }
         });
     }
+
+    // If no base model is preselected, default to the first non-CoreML model.
+    Effect::new(move || {
+        if !base_model_id.get().trim().is_empty() {
+            return;
+        }
+        if let LoadingState::Loaded(resp) = models.get() {
+            if let Some(model) = resp
+                .models
+                .iter()
+                .find(|m| m.backend.as_deref() != Some("coreml"))
+                .or_else(|| resp.models.first())
+            {
+                let _ = base_model_id.try_set(model.id.clone());
+            }
+        }
+    });
 
     // Initialize training parameters from deep-link props
     if let Some(init_epochs) = initial_epochs {
@@ -299,48 +372,124 @@ pub fn CreateJobWizard(
 
     let on_created_clone = on_created.clone();
 
-    // Dataset callback — unified for both upload and generation
-    let on_dataset_ready = {
-        move |outcome: DatasetOutcome| {
-            let label = if outcome.is_synthetic {
-                "Generated"
-            } else {
-                "Uploaded"
-            };
-            dataset_id.set(outcome.dataset_id.clone());
-            dataset_sample_count.set(Some(outcome.sample_count));
-            dataset_message.set(Some(format!(
-                "{} dataset: {} ({} samples)",
-                label, outcome.dataset_id, outcome.sample_count
-            )));
-        }
+    // Dataset callback — unified for upload, document conversion, and generation
+    let on_dataset_ready = Callback::new(move |outcome: DatasetOutcome| {
+        let sample_count = (outcome.sample_count > 0).then_some(outcome.sample_count);
+        let source = if outcome.is_synthetic {
+            "Generated examples"
+        } else {
+            "Your files"
+        };
+        let message = if let Some(count) = sample_count {
+            format!("{} are ready ({} examples).", source, count)
+        } else {
+            format!("{} are ready.", source)
+        };
+        dataset_id.set(outcome.dataset_id);
+        dataset_sample_count.set(sample_count);
+        dataset_message.set(Some(message));
+    });
+
+    // Convert a selected document into a dataset for training.
+    let use_document_for_dataset = {
+        let client = client.clone();
+        let is_active = Arc::clone(&is_active);
+        let on_dataset_ready = on_dataset_ready.clone();
+        Callback::new(move |document_id: String| {
+            let document_id = document_id.trim().to_string();
+            if document_id.is_empty() || creating_document_dataset.get() {
+                return;
+            }
+
+            creating_document_dataset.set(true);
+            error.set(None);
+            dataset_message.set(Some("Preparing your files…".to_string()));
+
+            let client = client.clone();
+            let is_active = Arc::clone(&is_active);
+            let on_dataset_ready = on_dataset_ready.clone();
+            wasm_bindgen_futures::spawn_local(async move {
+                if !is_active.load(Ordering::Relaxed) {
+                    return;
+                }
+                if let Err(message) = wait_for_document_indexed(&client, &document_id).await {
+                    if !is_active.load(Ordering::Relaxed) {
+                        return;
+                    }
+                    let _ = error.try_set(Some(message));
+                    let _ = creating_document_dataset.try_set(false);
+                    return;
+                }
+                match client
+                    .create_dataset_from_documents(vec![document_id.clone()], None)
+                    .await
+                {
+                    Ok(dataset) => {
+                        if !is_active.load(Ordering::Relaxed) {
+                            return;
+                        }
+                        let sample_count = match client.get_dataset_statistics(&dataset.id).await {
+                            Ok(stats) if stats.num_examples > 0 => stats.num_examples as usize,
+                            _ => 0,
+                        };
+                        on_dataset_ready.run(DatasetOutcome {
+                            dataset_id: dataset.id.clone(),
+                            dataset_version_id: dataset.dataset_version_id.clone(),
+                            sample_count,
+                            is_synthetic: false,
+                            source_hash: dataset
+                                .dataset_hash_b3
+                                .clone()
+                                .or(dataset.hash_b3.clone()),
+                            receipt_count: 0,
+                        });
+                        let _ = creating_document_dataset.try_set(false);
+                    }
+                    Err(e) => {
+                        if !is_active.load(Ordering::Relaxed) {
+                            return;
+                        }
+                        let _ = error.try_set(Some(format_structured_details(&e)));
+                        let _ = creating_document_dataset.try_set(false);
+                    }
+                }
+            });
+        })
+    };
+
+    let on_document_upload_success = {
+        let on_dataset_ready = on_dataset_ready.clone();
+        Callback::new(move |result: UploadBatchResult| {
+            refetch_documents.run(());
+            if let Some(dataset_id_value) = result.dataset_id {
+                on_dataset_ready.run(DatasetOutcome {
+                    dataset_id: dataset_id_value,
+                    dataset_version_id: None,
+                    sample_count: 0,
+                    is_synthetic: false,
+                    source_hash: None,
+                    receipt_count: 0,
+                });
+            } else if let Some(document_id) = result.document_ids.first() {
+                use_document_for_dataset.run(document_id.clone());
+            }
+        })
     };
 
     // Step validation
-    let validate_intro_step = move || -> bool {
+    let validate_name_step = move || -> bool {
         let adapter_name_rules = rules::adapter_name();
         let name = adapter_name.get();
         validate_on_blur("adapter_name", &name, &adapter_name_rules, form_state)
     };
 
-    let validate_dataset_step = move || -> bool {
+    let validate_knowledge_step = move || -> bool {
         let dataset_rules = [ValidationRule::Pattern {
             pattern: r"^\s*\S.*$",
-            message: "Select or generate a dataset before continuing",
+            message: "Add your files or choose an uploaded file before continuing",
         }];
         let dataset = dataset_id.get();
         validate_on_blur("dataset_id", &dataset, &dataset_rules, form_state)
-    };
-
-    let validate_model_step = {
-        move || -> bool {
-            let model = base_model_id.get();
-            let model_rules = [ValidationRule::Pattern {
-                pattern: r"^\s*\S.*$",
-                message: "Base model is required",
-            }];
-            validate_on_blur("base_model_id", &model, &model_rules, form_state)
-        }
     };
 
     let validate_config_step = {
@@ -414,15 +563,16 @@ pub fn CreateJobWizard(
         }
     };
 
+    let validate_train_step = move || -> bool { validate_config_step() };
+
     // Navigation
     let go_next = move |_: ()| {
         let step = current_step.get();
         let can_proceed = match step {
-            WizardStep::Intro => validate_intro_step(),
-            WizardStep::Dataset => validate_dataset_step(),
-            WizardStep::Model => validate_model_step(),
-            WizardStep::Config => validate_config_step(),
-            WizardStep::Review => true,
+            WizardStep::Knowledge => validate_knowledge_step(),
+            WizardStep::Name => validate_name_step(),
+            WizardStep::Train => validate_train_step(),
+            WizardStep::Confirm => true,
         };
 
         if can_proceed {
@@ -452,7 +602,6 @@ pub fn CreateJobWizard(
             let name_for_toast = name.clone();
             let model = base_model_id.get();
             let ds_id = dataset_id.get();
-            let cat = category.get();
             let epochs_val: u32 = epochs.get().parse().unwrap_or(10);
             let lr_val: f32 = learning_rate.get().parse().unwrap_or(0.0001);
             let val_split: f32 = validation_split.get().parse().unwrap_or(0.0);
@@ -472,10 +621,20 @@ pub fn CreateJobWizard(
                 if !is_active.load(Ordering::Relaxed) {
                     return;
                 }
+                let model_id = model.trim().to_string();
+                if model_id.is_empty() {
+                    let _ = error.try_set(Some(
+                        "A training model is still loading. Please try again in a moment."
+                            .to_string(),
+                    ));
+                    let _ = submitting.try_set(false);
+                    return;
+                }
+
                 let dataset_id = ds_id.trim().to_string();
                 if dataset_id.is_empty() {
                     let _ = error.try_set(Some(
-                        "Choose training examples before starting this skill build.".to_string(),
+                        "Add training examples before starting this adapter.".to_string(),
                     ));
                     let _ = submitting.try_set(false);
                     return;
@@ -483,9 +642,8 @@ pub fn CreateJobWizard(
 
                 let request = json!({
                     "adapter_name": name,
-                    "base_model_id": model,
-                    "dataset_id": dataset_id,
-                    "config": {
+                    "base_model_id": model_id,
+                    "training_config": {
                         "rank": rank_val,
                         "alpha": alpha_val,
                         "targets": ["q_proj", "v_proj"],
@@ -501,13 +659,9 @@ pub fn CreateJobWizard(
                         "coreml_training_fallback": if backend_val == "coreml" || policy_val == "coreml_else_fallback" { json!(fallback_val) } else { serde_json::Value::Null },
                         "early_stopping": early_stopping.get_untracked(),
                     },
-                    "category": cat,
                 });
 
-                match client
-                    .post::<_, TrainingJobResponse>("/v1/training/jobs", &request)
-                    .await
-                {
+                match client.create_adapter_from_dataset(&dataset_id, &request).await {
                     Ok(response) => {
                         if !is_active.load(Ordering::Relaxed) {
                             return;
@@ -515,12 +669,12 @@ pub fn CreateJobWizard(
                         let _ = submitting.try_set(false);
                         let job_href = format!("/training?job_id={}", response.id);
                         notifications.success_with_action(
-                            "Skill build started",
+                            "Adapter training started",
                             &format!(
-                                "\"{}\" is now being prepared. You can monitor progress live.",
+                                "\"{}\" is now training. You can watch progress live.",
                                 name_for_toast
                             ),
-                            "View build",
+                            "View training",
                             &job_href,
                         );
                         if is_active.load(Ordering::Relaxed) {
@@ -531,7 +685,7 @@ pub fn CreateJobWizard(
                         if !is_active.load(Ordering::Relaxed) {
                             return;
                         }
-                        let _ = error.try_set(Some(format_structured_details(&e)));
+                        let _ = error.try_set(Some(map_training_submit_error(&e)));
                         let _ = submitting.try_set(false);
                     }
                 }
@@ -564,11 +718,14 @@ pub fn CreateJobWizard(
         alpha.set("16".to_string());
         preferred_backend.set("auto".to_string());
         backend_policy.set("auto".to_string());
-        show_advanced_backend.set(false);
+        show_train_advanced.set(false);
+        show_knowledge_advanced.set(false);
+        document_upload_open.set(false);
+        selected_document_id.set(String::new());
+        creating_document_dataset.set(false);
         // Reset lifted step state
         use_custom_model.set(false);
         dataset_info.set(None);
-        show_change_options.set(false);
     };
 
     // Reset form when dialog closes
@@ -592,7 +749,7 @@ pub fn CreateJobWizard(
     view! {
         <StepFormDialog
             open=open
-            title="Teach New Skill".to_string()
+            title="Create Adapter".to_string()
             current_step=Signal::derive(move || current_step.try_get().unwrap_or_default().index())
             total_steps=STEPS.len()
             step_labels=step_labels
@@ -600,7 +757,7 @@ pub fn CreateJobWizard(
             on_next=Callback::new(go_next)
             on_back=Callback::new(go_back)
             on_submit=Callback::new(submit.clone())
-            submit_label="Start Building Skill".to_string()
+            submit_label="Start training".to_string()
             size=DialogSize::Lg
             scrollable=true
         >
@@ -614,37 +771,32 @@ pub fn CreateJobWizard(
             // Step content
             <div class="wizard-step-content min-w-0">
                 {move || match current_step.try_get().unwrap_or_default() {
-                    WizardStep::Intro => view! {
-                        <IntroStepContent
-                            adapter_name=adapter_name
-                            skill_purpose=skill_purpose
-                            form_state=form_state
-                        />
-                    }.into_any(),
-                    WizardStep::Dataset => view! {
+                    WizardStep::Knowledge => view! {
                         <DatasetStepContent
                             dataset_id=dataset_id
                             dataset_message=dataset_message
                             dataset_sample_count=dataset_sample_count
                             dataset_info=dataset_info
-                            show_change_options=show_change_options
+                            show_knowledge_advanced=show_knowledge_advanced
+                            document_upload_open=document_upload_open
+                            selected_document_id=selected_document_id
+                            creating_document_dataset=creating_document_dataset
+                            documents=documents
+                            on_use_document=use_document_for_dataset
                             dataset_wizard_open=dataset_wizard_open
                             generate_wizard_open=generate_wizard_open
                             form_state=form_state
                         />
                     }.into_any(),
-                    WizardStep::Model => view! {
-                        <ModelStepContent
-                            base_model_id=base_model_id
-                            category=category
+                    WizardStep::Name => view! {
+                        <NameStepContent
+                            adapter_name=adapter_name
+                            skill_purpose=skill_purpose
                             form_state=form_state
-                            models=models
-                            refetch_models=refetch_models
-                            use_custom_model=use_custom_model
                         />
                     }.into_any(),
-                    WizardStep::Config => view! {
-                        <ConfigStepContent
+                    WizardStep::Train => view! {
+                        <TrainStepContent
                             training_preset=training_preset
                             epochs=epochs
                             learning_rate=learning_rate
@@ -653,7 +805,7 @@ pub fn CreateJobWizard(
                             batch_size=batch_size
                             rank=rank
                             alpha=alpha
-                            show_advanced=show_advanced_backend
+                            show_advanced=show_train_advanced
                             preferred_backend=preferred_backend
                             backend_policy=backend_policy
                             coreml_fallback=coreml_training_fallback
@@ -661,7 +813,7 @@ pub fn CreateJobWizard(
                             sample_count=dataset_sample_count.try_get().flatten()
                         />
                     }.into_any(),
-                    WizardStep::Review => view! {
+                    WizardStep::Confirm => view! {
                         <ReviewStepContent
                             adapter_name=adapter_name.try_get().unwrap_or_default()
                             base_model_id=base_model_id.try_get().unwrap_or_default()
@@ -682,25 +834,28 @@ pub fn CreateJobWizard(
             </div>
 
             // Embedded wizards (modals inside modal)
+            <DocumentUploadDialog
+                open=document_upload_open
+                on_success=on_document_upload_success
+                allow_multiple=true
+                auto_create_dataset=true
+                prefer_training_dataset_upload=true
+            />
             <DatasetUploadWizard
                 open=dataset_wizard_open
-                on_complete=Callback::new(on_dataset_ready.clone())
+                on_complete=on_dataset_ready.clone()
             />
             <GenerateDatasetWizard
                 open=generate_wizard_open
-                on_generated=Callback::new(on_dataset_ready.clone())
+                on_generated=on_dataset_ready
             />
         </StepFormDialog>
     }
 }
 
-/// Step 0: Skill identity — name and purpose
-///
-/// First-seen entry point for the teaching flow. Collects the skill name
-/// (required, validated by adapter_name rules) and an optional plain-language
-/// purpose statement that helps reviewers understand the skill's goal.
+/// Step 1: Adapter name and purpose.
 #[component]
-fn IntroStepContent(
+fn NameStepContent(
     adapter_name: RwSignal<String>,
     skill_purpose: RwSignal<String>,
     form_state: RwSignal<FormState>,
@@ -710,23 +865,22 @@ fn IntroStepContent(
     view! {
         <div class="space-y-6">
             <div class="rounded-lg border border-border/60 bg-card/40 p-4 space-y-1">
-                <p class="text-sm font-medium">"What skill are you teaching?"</p>
+                <p class="text-sm font-medium">"Name your adapter"</p>
                 <p class="text-xs text-muted-foreground">
-                    "Give it a clear name and optionally describe what it should do. "
-                    "You can attach examples and fine-tune behavior in the next steps."
+                    "Use a short name and, optionally, what you want it to help with."
                 </p>
             </div>
 
             <FormField
-                label="Skill Name"
+                label="Adapter name"
                 name="adapter_name"
                 required=true
-                help="A short, human-friendly name — e.g. \"customer-support\" or \"code-review\""
+                help="A short name such as \"billing-help\" or \"code-review\""
                 error=adapter_name_error
             >
                 <Input
                     value=adapter_name
-                    placeholder="customer-support-skill".to_string()
+                    placeholder="billing-help".to_string()
                     on_blur=Callback::new(move |_| {
                         let adapter_name_rules = rules::adapter_name();
                         let value = adapter_name.get();
@@ -736,263 +890,213 @@ fn IntroStepContent(
             </FormField>
 
             <FormField
-                label="Purpose"
+                label="What should it help with?"
                 name="skill_purpose"
                 required=false
-                help="Optional — describe what this skill should do in plain language"
+                help="Optional plain-language goal"
             >
                 <Input
                     value=skill_purpose
-                    placeholder="Handles customer support questions about billing and account management.".to_string()
+                    placeholder="Answers customer questions about billing and account access.".to_string()
                 />
             </FormField>
         </div>
     }
 }
 
-/// Step 1: Dataset selection — context-aware
-///
-/// When a dataset is pre-selected (e.g., from chat-to-training or dataset detail),
-/// shows the dataset info and offers to continue, synthesize more, or change.
-/// When no dataset is set, shows the original upload/generate flow.
+/// Step 0: Choose knowledge source for the adapter.
 #[component]
 fn DatasetStepContent(
     dataset_id: RwSignal<String>,
     dataset_message: RwSignal<Option<String>>,
     dataset_sample_count: RwSignal<Option<usize>>,
-    /// Dataset details fetched by the parent — survives step transitions.
     dataset_info: RwSignal<Option<DatasetResponse>>,
-    /// "Change dataset" toggle — survives step transitions.
-    show_change_options: RwSignal<bool>,
+    show_knowledge_advanced: RwSignal<bool>,
+    document_upload_open: RwSignal<bool>,
+    selected_document_id: RwSignal<String>,
+    creating_document_dataset: RwSignal<bool>,
+    documents: ReadSignal<LoadingState<DocumentListResponse>>,
+    on_use_document: Callback<String>,
     dataset_wizard_open: RwSignal<bool>,
     generate_wizard_open: RwSignal<bool>,
     form_state: RwSignal<FormState>,
 ) -> impl IntoView {
     let has_dataset = Signal::derive(move || !dataset_id.get().trim().is_empty());
-
-    view! {
-        <div class="space-y-6">
-            {move || {
-                if has_dataset.get() {
-                    view! {
-                        <DatasetReadyView
-                            dataset_id=dataset_id
-                            dataset_info=dataset_info
-                            dataset_message=dataset_message
-                            dataset_sample_count=dataset_sample_count
-                            show_change_options=show_change_options
-                            dataset_wizard_open=dataset_wizard_open
-                            generate_wizard_open=generate_wizard_open
-                            form_state=form_state
-                        />
-                    }.into_any()
-                } else {
-                    view! {
-                        <DatasetChooseView
-                            dataset_id=dataset_id
-                            dataset_message=dataset_message
-                            dataset_wizard_open=dataset_wizard_open
-                            generate_wizard_open=generate_wizard_open
-                            form_state=form_state
-                        />
-                    }.into_any()
-                }
-            }}
-        </div>
-    }
-}
-
-/// Shown when a dataset is already selected — contextual "ready" state
-#[component]
-fn DatasetReadyView(
-    dataset_id: RwSignal<String>,
-    dataset_info: RwSignal<Option<DatasetResponse>>,
-    dataset_message: RwSignal<Option<String>>,
-    dataset_sample_count: RwSignal<Option<usize>>,
-    show_change_options: RwSignal<bool>,
-    dataset_wizard_open: RwSignal<bool>,
-    generate_wizard_open: RwSignal<bool>,
-    form_state: RwSignal<FormState>,
-) -> impl IntoView {
     let dataset_error = use_field_error(form_state, "dataset_id");
 
     view! {
-        <div class="space-y-4">
+        <div class="space-y-6">
             <div class="text-center py-2">
-                <h3 class="heading-4 mb-1">"Knowledge ready"</h3>
+                <h3 class="heading-4 mb-1">"Add knowledge for your adapter"</h3>
                 <p class="text-sm text-muted-foreground">
-                    "Your examples are connected. Click Next to choose the foundation model."
+                    "Start by adding files, or choose a file you've already uploaded."
                 </p>
             </div>
 
-            // Dataset info card
+            // Current dataset status
             {move || {
-                if let Some(info) = dataset_info.get() {
-                    let display_name = info.display_name.clone().unwrap_or_else(|| info.name.clone());
-                    let format_label = info.format.to_uppercase();
-                    let size = info.total_size_bytes.map(format_bytes).unwrap_or_default();
-                    let file_count = info.file_count.unwrap_or(0);
-                    let status = info.status.clone();
-                    let ds_type = info.dataset_type.clone().unwrap_or_default();
-
+                if has_dataset.get() {
+                    let msg = dataset_message
+                        .get()
+                        .unwrap_or_else(|| "Your knowledge is ready.".to_string());
+                    let details = dataset_info.get();
                     view! {
                         <div class="rounded-lg border border-status-success/50 bg-status-success/5 p-4">
-                            <div class="flex items-start gap-4">
-                                <div class="rounded-full bg-status-success/10 p-2.5 shrink-0">
+                            <div class="flex items-start gap-3">
+                                <div class="rounded-full bg-status-success/10 p-2 shrink-0">
                                     <svg class="w-5 h-5 text-status-success" fill="none" viewBox="0 0 24 24" stroke="currentColor">
                                         <path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M5 13l4 4L19 7"/>
                                     </svg>
                                 </div>
                                 <div class="min-w-0 flex-1">
-                                    <p class="font-medium truncate">{display_name}</p>
-                                    <div class="flex flex-wrap items-center gap-x-3 gap-y-1 mt-1 text-xs text-muted-foreground">
-                                        <span class="font-medium text-foreground/70">{format_label}</span>
-                                        {(file_count > 0).then(|| view! {
-                                            <span>{format!("{} file{}", file_count, if file_count == 1 { "" } else { "s" })}</span>
-                                        })}
-                                        {(!size.is_empty()).then(|| view! {
-                                            <span>{size}</span>
-                                        })}
-                                        {(!ds_type.is_empty()).then(|| view! {
-                                            <span class="inline-flex items-center rounded bg-muted px-1.5 py-0.5 text-xs">{ds_type}</span>
-                                        })}
-                                        {(status == "synthesized").then(|| view! {
-                                            <span class="inline-flex items-center rounded bg-purple-100 px-1.5 py-0.5 text-xs text-purple-700">"synthetic"</span>
-                                        })}
-                                    </div>
-                                    {move || dataset_sample_count.get().map(|count| view! {
-                                        <p class="text-xs text-muted-foreground mt-1">{format!("{} training samples", count)}</p>
+                                    <p class="text-sm font-medium">{msg}</p>
+                                    {move || details.clone().map(|info| {
+                                        let display_name = info.display_name.clone().unwrap_or_else(|| info.name.clone());
+                                        view! {
+                                            <p class="text-xs text-muted-foreground mt-1">
+                                                {format!("Knowledge source: {}", display_name)}
+                                            </p>
+                                        }
+                                    })}
+                                    {move || dataset_sample_count.get().map(|count| {
+                                        view! {
+                                            <p class="text-xs text-muted-foreground mt-1">
+                                                {format!("{} examples", count)}
+                                            </p>
+                                        }
                                     })}
                                 </div>
                             </div>
                         </div>
                     }.into_any()
                 } else {
-                    // Fallback: show dataset_message while info loads
-                    let msg = dataset_message.get().unwrap_or_else(|| {
-                        format!("Dataset: {}", dataset_id.get())
-                    });
+                    let msg = dataset_message.get();
                     view! {
-                        <div class="rounded-lg border border-status-success/50 bg-status-success/5 p-4 text-center">
-                            <svg class="w-5 h-5 mx-auto mb-1.5 text-status-success" fill="none" viewBox="0 0 24 24" stroke="currentColor">
-                                <path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M5 13l4 4L19 7"/>
-                            </svg>
-                            <p class="text-sm font-medium">{msg}</p>
-                        </div>
+                        {msg.map(|text| view! {
+                            <div class="rounded-lg border border-border/70 bg-muted/30 p-3">
+                                <p class="text-sm text-muted-foreground">{text}</p>
+                            </div>
+                        })}
                     }.into_any()
                 }
             }}
 
-            // Secondary actions
-            <div class="grid gap-3 sm:grid-cols-2">
-                <Card>
-                    <button
-                        class="w-full p-4 text-left hover:bg-muted/50 transition-colors rounded-lg"
-                        on:click=move |_| generate_wizard_open.set(true)
-                    >
-                        <div class="flex items-start gap-3">
-                            <div class="rounded-full bg-primary/10 p-2 shrink-0">
-                                <svg class="w-4 h-4 text-primary" fill="none" viewBox="0 0 24 24" stroke="currentColor">
-                                    <path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M13 10V3L4 14h7v7l9-11h-7z"/>
-                                </svg>
-                            </div>
-                            <div>
-                                <h4 class="text-sm font-medium">"Synthesize More Data"</h4>
-                                <p class="text-xs text-muted-foreground mt-0.5">
-                                    "Generate additional examples from a document to strengthen this skill"
-                                </p>
-                            </div>
+            // Primary path
+            <Card>
+                <button
+                    class="w-full p-5 text-left hover:bg-muted/50 transition-colors rounded-lg"
+                    on:click=move |_| {
+                        document_upload_open.set(true);
+                    }
+                >
+                    <div class="flex items-start gap-4">
+                        <div class="rounded-full bg-primary/10 p-3">
+                            <svg class="w-6 h-6 text-primary" fill="none" viewBox="0 0 24 24" stroke="currentColor">
+                                <path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M4 16v1a3 3 0 003 3h10a3 3 0 003-3v-1m-4-8l-4-4m0 0L8 8m4-4v12"/>
+                            </svg>
                         </div>
-                    </button>
-                </Card>
-
-                <Card>
-                    <button
-                        class="w-full p-4 text-left hover:bg-muted/50 transition-colors rounded-lg"
-                        on:click=move |_| show_change_options.update(|v| *v = !*v)
-                    >
-                        <div class="flex items-start gap-3">
-                            <div class="rounded-full bg-muted p-2 shrink-0">
-                                <svg class="w-4 h-4 text-muted-foreground" fill="none" viewBox="0 0 24 24" stroke="currentColor">
-                                    <path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M4 4v5h.582m15.356 2A8.001 8.001 0 004.582 9m0 0H9m11 11v-5h-.581m0 0a8.003 8.003 0 01-15.357-2m15.357 2H15"/>
-                                </svg>
-                            </div>
-                            <div>
-                                <h4 class="text-sm font-medium">"Change Dataset"</h4>
-                                <p class="text-xs text-muted-foreground mt-0.5">
-                                    "Switch to a different set of examples"
-                                </p>
-                            </div>
+                        <div>
+                            <h4 class="font-medium">"Add your files"</h4>
+                            <p class="text-sm text-muted-foreground mt-1">
+                                "Upload a document and we will prepare training examples for you."
+                            </p>
                         </div>
-                    </button>
-                </Card>
-            </div>
-
-            // Expandable: change dataset options
-            <Show when=move || show_change_options.try_get().unwrap_or(false)>
-                <div class="border-t pt-4 space-y-4">
-                    <div class="grid gap-4 sm:grid-cols-2">
-                        <Card>
-                            <button
-                                class="w-full p-4 text-left hover:bg-muted/50 transition-colors rounded-lg"
-                                on:click=move |_| {
-                                    dataset_id.set(String::new());
-                                    dataset_message.set(None);
-                                    dataset_sample_count.set(None);
-                                    dataset_wizard_open.set(true);
-                                    show_change_options.set(false);
-                                }
-                            >
-                                <div class="flex items-start gap-3">
-                                    <div class="rounded-full bg-primary/10 p-2 shrink-0">
-                                        <svg class="w-4 h-4 text-primary" fill="none" viewBox="0 0 24 24" stroke="currentColor">
-                                            <path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M4 16v1a3 3 0 003 3h10a3 3 0 003-3v-1m-4-8l-4-4m0 0L8 8m4-4v12"/>
-                                        </svg>
-                                    </div>
-                                    <div>
-                                        <h4 class="text-sm font-medium">"Upload Files"</h4>
-                                        <p class="text-xs text-muted-foreground mt-0.5">
-                                            "JSONL, CSV, or text files"
-                                        </p>
-                                    </div>
-                                </div>
-                            </button>
-                        </Card>
-                        <Card>
-                            <button
-                                class="w-full p-4 text-left hover:bg-muted/50 transition-colors rounded-lg"
-                                on:click=move |_| {
-                                    dataset_id.set(String::new());
-                                    dataset_message.set(None);
-                                    dataset_sample_count.set(None);
-                                    generate_wizard_open.set(true);
-                                    show_change_options.set(false);
-                                }
-                            >
-                                <div class="flex items-start gap-3">
-                                    <div class="rounded-full bg-primary/10 p-2 shrink-0">
-                                        <svg class="w-4 h-4 text-primary" fill="none" viewBox="0 0 24 24" stroke="currentColor">
-                                            <path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M13 10V3L4 14h7v7l9-11h-7z"/>
-                                        </svg>
-                                    </div>
-                                    <div>
-                                        <h4 class="text-sm font-medium">"Generate From Document"</h4>
-                                        <p class="text-xs text-muted-foreground mt-0.5">
-                                            "Create examples from your text files"
-                                        </p>
-                                    </div>
-                                </div>
-                            </button>
-                        </Card>
                     </div>
-                    <div>
-                        <p class="text-xs text-muted-foreground mb-2">
-                            "Or enter an existing dataset ID:"
-                        </p>
+                </button>
+            </Card>
+
+            // Secondary path
+            <Card>
+                <div class="p-5 space-y-3">
+                    <h4 class="font-medium">"Use a file you already uploaded"</h4>
+                    <p class="text-sm text-muted-foreground">
+                        "Choose a file and we will prepare training material from it."
+                    </p>
+                    <AsyncBoundary
+                        state=documents
+                        on_retry=Callback::new(move |_| {})
+                        loading_message="Loading uploaded files...".to_string()
+                        render=move |resp: DocumentListResponse| {
+                            let options = resp
+                                .data
+                                .iter()
+                                .map(|doc| {
+                                    let status = match doc.status.as_str() {
+                                        "indexed" => "ready",
+                                        "processing" => "processing",
+                                        "failed" => "needs attention",
+                                        _ => doc.status.as_str(),
+                                    };
+                                    (
+                                        doc.document_id.clone(),
+                                        format!("{} ({}, {})", doc.name, status, format_bytes(doc.size_bytes)),
+                                    )
+                                })
+                                .collect::<Vec<_>>();
+
+                            if options.is_empty() {
+                                view! {
+                                    <p class="text-sm text-muted-foreground">
+                                        "No uploaded files yet. Use \"Add your files\" above."
+                                    </p>
+                                }.into_any()
+                            } else {
+                                view! {
+                                    <div class="space-y-3">
+                                        <Select value=selected_document_id options=options />
+                                        <button
+                                            type="button"
+                                            class="btn btn-secondary"
+                                            disabled=move || creating_document_dataset.get() || selected_document_id.get().trim().is_empty()
+                                            on:click=move |_| on_use_document.run(selected_document_id.get())
+                                        >
+                                            {move || if creating_document_dataset.get() { "Preparing..." } else { "Use selected file" }}
+                                        </button>
+                                    </div>
+                                }.into_any()
+                            }
+                        }
+                    />
+                </div>
+            </Card>
+
+            <div class="border-t pt-4">
+                <button
+                    type="button"
+                    class="flex items-center gap-2 text-sm text-muted-foreground hover:text-foreground"
+                    on:click=move |_| show_knowledge_advanced.update(|v| *v = !*v)
+                >
+                    <svg
+                        class=move || if show_knowledge_advanced.get() { "w-4 h-4 transition-transform rotate-90" } else { "w-4 h-4 transition-transform" }
+                        fill="none" viewBox="0 0 24 24" stroke="currentColor"
+                    >
+                        <path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M9 5l7 7-7 7"/>
+                    </svg>
+                    "Advanced options"
+                </button>
+
+                <Show when=move || show_knowledge_advanced.get()>
+                    <div class="mt-4 space-y-4 pl-6">
+                        <button
+                            type="button"
+                            class="btn btn-secondary"
+                            on:click=move |_| dataset_wizard_open.set(true)
+                        >
+                            "I have structured data (JSONL/CSV)"
+                        </button>
+
+                        <button
+                            type="button"
+                            class="btn btn-secondary"
+                            on:click=move |_| generate_wizard_open.set(true)
+                        >
+                            "Generate examples from a document"
+                        </button>
+
                         <FormField
-                            label="Dataset ID"
+                            label="Dataset ID (advanced)"
                             name="dataset_id"
-                            help="Use a dataset that already exists in your workspace"
+                            help="Use a dataset ID that already exists"
                             error=dataset_error
                         >
                             <Input
@@ -1001,7 +1105,7 @@ fn DatasetReadyView(
                                 on_blur=Callback::new(move |_| {
                                     let dataset_rules = [ValidationRule::Pattern {
                                         pattern: r"^\s*\S.*$",
-                                        message: "Select or generate a dataset before continuing",
+                                        message: "Add your files or choose an uploaded file before continuing",
                                     }];
                                     let dataset = dataset_id.get();
                                     let _ = validate_on_blur("dataset_id", &dataset, &dataset_rules, form_state);
@@ -1009,111 +1113,7 @@ fn DatasetReadyView(
                             />
                         </FormField>
                     </div>
-                </div>
-            </Show>
-        </div>
-    }
-}
-
-/// Shown when no dataset is selected — original upload/generate flow
-#[component]
-fn DatasetChooseView(
-    dataset_id: RwSignal<String>,
-    dataset_message: RwSignal<Option<String>>,
-    dataset_wizard_open: RwSignal<bool>,
-    generate_wizard_open: RwSignal<bool>,
-    form_state: RwSignal<FormState>,
-) -> impl IntoView {
-    let dataset_error = use_field_error(form_state, "dataset_id");
-
-    view! {
-        <div class="space-y-6">
-            <div class="text-center py-4">
-                <h3 class="heading-4 mb-2">"How should this skill learn?"</h3>
-                <p class="text-sm text-muted-foreground">
-                    "Choose the examples you want this skill to learn from."
-                </p>
-            </div>
-
-            // Dataset ready message (from a just-completed sub-wizard)
-            {move || dataset_message.try_get().flatten().map(|msg| view! {
-                <div class="rounded-lg border border-status-success/50 bg-status-success/10 p-4 text-center">
-                    <svg class="w-6 h-6 mx-auto mb-2 text-status-success" fill="none" viewBox="0 0 24 24" stroke="currentColor">
-                        <path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M5 13l4 4L19 7"/>
-                    </svg>
-                    <p class="text-sm font-medium">{msg}</p>
-                </div>
-            })}
-
-            // Option cards
-            <div class="grid gap-4 sm:grid-cols-2">
-                <Card>
-                    <button
-                        class="w-full p-6 text-left hover:bg-muted/50 transition-colors rounded-lg"
-                        on:click=move |_| dataset_wizard_open.set(true)
-                    >
-                        <div class="flex items-start gap-4">
-                            <div class="rounded-full bg-primary/10 p-3">
-                                <svg class="w-6 h-6 text-primary" fill="none" viewBox="0 0 24 24" stroke="currentColor">
-                                    <path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M4 16v1a3 3 0 003 3h10a3 3 0 003-3v-1m-4-8l-4-4m0 0L8 8m4-4v12"/>
-                                </svg>
-                            </div>
-                            <div>
-                                <h4 class="font-medium">"Upload Dataset"</h4>
-                                <p class="text-sm text-muted-foreground mt-1">
-                                    "Upload JSONL, CSV, or text files with your examples"
-                                </p>
-                            </div>
-                        </div>
-                    </button>
-                </Card>
-
-                <Card>
-                    <button
-                        class="w-full p-6 text-left hover:bg-muted/50 transition-colors rounded-lg"
-                        on:click=move |_| generate_wizard_open.set(true)
-                    >
-                        <div class="flex items-start gap-4">
-                            <div class="rounded-full bg-primary/10 p-3">
-                                <svg class="w-6 h-6 text-primary" fill="none" viewBox="0 0 24 24" stroke="currentColor">
-                                    <path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M13 10V3L4 14h7v7l9-11h-7z"/>
-                                </svg>
-                            </div>
-                            <div>
-                                <h4 class="font-medium">"Generate from Document"</h4>
-                                <p class="text-sm text-muted-foreground mt-1">
-                                    "Create example pairs from your text or markdown files"
-                                </p>
-                            </div>
-                        </div>
-                    </button>
-                </Card>
-            </div>
-
-            // Manual dataset ID
-            <div class="pt-4 border-t">
-                <p class="text-sm text-muted-foreground mb-3">
-                    "Use an existing dataset ID (optional):"
-                </p>
-                <FormField
-                    label="Dataset ID"
-                    name="dataset_id"
-                    help="Use a dataset that already exists in your workspace"
-                    error=dataset_error
-                >
-                    <Input
-                        value=dataset_id
-                        placeholder="ds-abc123".to_string()
-                        on_blur=Callback::new(move |_| {
-                            let dataset_rules = [ValidationRule::Pattern {
-                                pattern: r"^\s*\S.*$",
-                                message: "Select or generate a dataset before continuing",
-                            }];
-                            let dataset = dataset_id.get();
-                            let _ = validate_on_blur("dataset_id", &dataset, &dataset_rules, form_state);
-                        })
-                    />
-                </FormField>
+                </Show>
             </div>
         </div>
     }
@@ -1129,7 +1129,58 @@ fn format_bytes(bytes: i64) -> String {
     }
 }
 
-/// Step 2: Model selection
+/// Step 2: Train setup (defaults first, advanced optional).
+#[component]
+fn TrainStepContent(
+    form_state: RwSignal<FormState>,
+    training_preset: RwSignal<String>,
+    epochs: RwSignal<String>,
+    learning_rate: RwSignal<String>,
+    validation_split: RwSignal<String>,
+    early_stopping: RwSignal<bool>,
+    batch_size: RwSignal<String>,
+    rank: RwSignal<String>,
+    alpha: RwSignal<String>,
+    show_advanced: RwSignal<bool>,
+    preferred_backend: RwSignal<String>,
+    backend_policy: RwSignal<String>,
+    coreml_fallback: RwSignal<String>,
+    sample_count: Option<usize>,
+) -> impl IntoView {
+    view! {
+        <div class="space-y-6">
+            <div class="rounded-lg border border-border/60 bg-card/40 p-4 space-y-1">
+                <p class="text-sm font-medium">"Default training plan"</p>
+                <p class="text-xs text-muted-foreground">
+                    "We will use balanced defaults. Open advanced options if you want to tune details."
+                </p>
+                {sample_count.map(|count| view! {
+                    <p class="text-xs text-muted-foreground">{format!("Using {} examples", count)}</p>
+                })}
+            </div>
+
+            <ConfigStepContent
+                training_preset=training_preset
+                epochs=epochs
+                learning_rate=learning_rate
+                validation_split=validation_split
+                early_stopping=early_stopping
+                batch_size=batch_size
+                rank=rank
+                alpha=alpha
+                show_advanced=show_advanced
+                preferred_backend=preferred_backend
+                backend_policy=backend_policy
+                coreml_fallback=coreml_fallback
+                form_state=form_state
+                sample_count=sample_count
+            />
+        </div>
+    }
+}
+
+/// Train step: base model and adapter type.
+#[allow(dead_code)]
 #[component]
 fn ModelStepContent(
     base_model_id: RwSignal<String>,
@@ -1147,10 +1198,10 @@ fn ModelStepContent(
     view! {
         <div class="space-y-6">
             <FormField
-                label="Foundation Model"
+                label="Starting model"
                 name="base_model_id"
                 required=true
-                help="The base intelligence this skill will learn from"
+                help="Choose the model this adapter should learn from"
                 error=base_model_error
             >
                 {move || {
@@ -1174,7 +1225,7 @@ fn ModelStepContent(
                                     type="button"
                                     on:click=move |_| use_custom_model.set(false)
                                 >
-                                    "Choose from model registry"
+                                    "Choose from available models"
                                 </button>
                             </div>
                         }.into_any()
@@ -1240,18 +1291,18 @@ fn ModelStepContent(
             </FormField>
 
             <FormField
-                label="Skill Focus"
+                label="Adapter type"
                 name="category"
-                help="Helps others quickly find and reuse this skill"
+                help="Used for organization and filtering"
             >
                 <Select
                     value=category
                     options=vec![
-                        ("code".to_string(), "Software & Code".to_string()),
-                        ("framework".to_string(), "Framework Guidance".to_string()),
-                        ("codebase".to_string(), "Codebase Assistant".to_string()),
+                        ("code".to_string(), "Code tasks".to_string()),
+                        ("framework".to_string(), "Framework guidance".to_string()),
+                        ("codebase".to_string(), "Codebase helper".to_string()),
                         ("docs".to_string(), "Documentation".to_string()),
-                        ("domain".to_string(), "Domain Expertise".to_string()),
+                        ("domain".to_string(), "Domain expertise".to_string()),
                     ]
                 />
             </FormField>
@@ -1277,35 +1328,32 @@ fn ConfigStepContent(
     form_state: RwSignal<FormState>,
     sample_count: Option<usize>,
 ) -> impl IntoView {
+    let preset_label = TrainingPreset::parse_str(&training_preset.get())
+        .label()
+        .to_string();
+    let epochs_error = use_field_error(form_state, "epochs");
+    let learning_rate_error = use_field_error(form_state, "learning_rate");
+    let validation_split_error = use_field_error(form_state, "validation_split");
     let batch_size_error = use_field_error(form_state, "batch_size");
     let rank_error = use_field_error(form_state, "rank");
     let alpha_error = use_field_error(form_state, "alpha");
 
     view! {
         <div class="space-y-6">
-            // Training preset selection with core parameters
-            {if let Some(count) = sample_count {
-                view! {
-                    <TrainingConfigPresets
-                        preset=training_preset
-                        epochs=epochs
-                        learning_rate=learning_rate
-                        validation_split=validation_split
-                        early_stopping=early_stopping
-                        sample_count=count
-                    />
-                }.into_any()
-            } else {
-                view! {
-                    <TrainingConfigPresets
-                        preset=training_preset
-                        epochs=epochs
-                        learning_rate=learning_rate
-                        validation_split=validation_split
-                        early_stopping=early_stopping
-                    />
-                }.into_any()
-            }}
+            <Card>
+                <div class="p-4 space-y-1">
+                    <p class="text-sm font-medium">"Balanced default plan"</p>
+                    <p class="text-xs text-muted-foreground">
+                        "Training uses sensible defaults for most adapters."
+                    </p>
+                    <p class="text-xs text-muted-foreground">
+                        {format!("Preset: {}", preset_label)}
+                    </p>
+                    {sample_count.map(|count| view! {
+                        <p class="text-xs text-muted-foreground">{format!("Estimated input size: {} examples", count)}</p>
+                    })}
+                </div>
+            </Card>
 
             // Advanced options section
             <div class="border-t pt-4">
@@ -1320,14 +1368,106 @@ fn ConfigStepContent(
                     >
                         <path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M9 5l7 7-7 7"/>
                     </svg>
-                    "Advanced Controls"
+                    "Advanced options"
                 </button>
 
                 {move || show_advanced.try_get().unwrap_or(false).then(|| view! {
                     <div class="mt-4 space-y-6 pl-6">
+                        <div>
+                            <h4 class="text-sm font-medium mb-3">"Training parameters"</h4>
+                            <div class="grid gap-4 sm:grid-cols-2">
+                                <FormField
+                                    label="Epochs"
+                                    name="epochs"
+                                    required=true
+                                    help="Number of passes over your training examples"
+                                    error=epochs_error
+                                >
+                                    <Input
+                                        value=epochs
+                                        input_type="number".to_string()
+                                        on_blur=Callback::new(move |_| {
+                                            let epochs_rules = [
+                                                ValidationRule::Required,
+                                                ValidationRule::IntRange { min: 1, max: 1000 },
+                                            ];
+                                            let value = epochs.get();
+                                            let _ = validate_on_blur("epochs", &value, &epochs_rules, form_state);
+                                        })
+                                    />
+                                </FormField>
+                                <FormField
+                                    label="Learning rate"
+                                    name="learning_rate"
+                                    required=true
+                                    help="Step size for parameter updates"
+                                    error=learning_rate_error
+                                >
+                                    <Input
+                                        value=learning_rate
+                                        on_blur=Callback::new(move |_| {
+                                            let learning_rate_rules = rules::learning_rate();
+                                            let value = learning_rate.get();
+                                            let _ = validate_on_blur(
+                                                "learning_rate",
+                                                &value,
+                                                &learning_rate_rules,
+                                                form_state,
+                                            );
+                                        })
+                                    />
+                                </FormField>
+                                <FormField
+                                    label="Validation split"
+                                    name="validation_split"
+                                    required=true
+                                    help="Portion of data held out for validation"
+                                    error=validation_split_error
+                                >
+                                    <Input
+                                        value=validation_split
+                                        on_blur=Callback::new(move |_| {
+                                            let validation_split_rules =
+                                                [ValidationRule::Range { min: 0.0, max: 0.5 }];
+                                            let value = validation_split.get();
+                                            let _ = validate_on_blur(
+                                                "validation_split",
+                                                &value,
+                                                &validation_split_rules,
+                                                form_state,
+                                            );
+                                        })
+                                    />
+                                </FormField>
+                                <FormField
+                                    label="Early stopping"
+                                    name="early_stopping"
+                                    required=false
+                                    help="Stop automatically when progress plateaus"
+                                >
+                                    <label class="flex items-center gap-2 text-sm">
+                                        <input
+                                            type="checkbox"
+                                            prop:checked=move || early_stopping.get()
+                                            on:change=move |ev| {
+                                                use wasm_bindgen::JsCast;
+                                                if let Some(input) = ev
+                                                    .target()
+                                                    .and_then(|t| t.dyn_into::<web_sys::HtmlInputElement>().ok())
+                                                {
+                                                    early_stopping.set(input.checked());
+                                                }
+                                            }
+                                        />
+                                        <span>"Enable early stopping"</span>
+                                    </label>
+                                </FormField>
+                            </div>
+                        </div>
+
                         // Batch size and LoRA config
                         <div>
-                            <h4 class="text-sm font-medium mb-3">"Skill Adapter Settings"</h4>
+                            <h4 class="text-sm font-medium mb-3">"Adapter settings"</h4>
                             <div class="grid gap-4 sm:grid-cols-3">
                                 <FormField
                                     label="Batch Size"
@@ -1468,25 +1608,25 @@ fn ReviewStepContent(
     view! {
         <div class="space-y-6">
             <div class="text-center py-2">
-                <h3 class="heading-4">"Confirm Skill Setup"</h3>
+                <h3 class="heading-4">"Confirm adapter setup"</h3>
                 <p class="text-sm text-muted-foreground">
-                    "Review what will be built. You can go back and edit any step."
+                    "Review what will be created. You can go back and edit any step."
                 </p>
             </div>
 
             <div class="rounded-lg border bg-muted/30 divide-y">
-                <ReviewRow label="Skill Name" value=adapter_name/>
-                <ReviewRow label="Foundation Model" value=base_model_id/>
-                <ReviewRow label="Training Examples" value=if dataset_id.is_empty() { "None selected".to_string() } else { dataset_id }/>
-                <ReviewRow label="Skill Focus" value=category/>
+                <ReviewRow label="Adapter name" value=adapter_name/>
+                <ReviewRow label="Starting model" value=base_model_id/>
+                <ReviewRow label="Your files" value=if dataset_id.is_empty() { "None selected".to_string() } else { dataset_id }/>
+                <ReviewRow label="Adapter type" value=category/>
             </div>
 
             <div class="rounded-lg border bg-muted/30 divide-y">
-                <ReviewRow label="Training Plan" value=preset_label.to_string()/>
+                <ReviewRow label="Training plan" value=preset_label.to_string()/>
                 <ReviewRow label="Epochs" value=epochs/>
                 <ReviewRow label="Learning Rate" value=learning_rate/>
-                <ReviewRow label="Validation Split" value=val_split_display/>
-                <ReviewRow label="Early Stopping" value=if early_stopping { "Enabled".to_string() } else { "Disabled".to_string() }/>
+                <ReviewRow label="Validation split" value=val_split_display/>
+                <ReviewRow label="Early stopping" value=if early_stopping { "Enabled".to_string() } else { "Disabled".to_string() }/>
             </div>
 
             <div class="rounded-lg border bg-muted/30 divide-y">

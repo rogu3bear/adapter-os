@@ -23,8 +23,8 @@ impl DataSource {
     /// Returns the display label for this source.
     pub fn label(&self) -> &'static str {
         match self {
-            DataSource::Documents => "Documents",
-            DataSource::Datasets => "Datasets",
+            DataSource::Documents => "Your files",
+            DataSource::Datasets => "Training data",
             DataSource::Preprocessed => "Preprocessed",
         }
     }

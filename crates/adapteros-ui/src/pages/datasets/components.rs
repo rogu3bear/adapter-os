@@ -243,6 +243,7 @@ pub fn DatasetDetailTabVersions(
     dataset_version_id: Option<String>,
     on_refresh: Callback<()>,
 ) -> impl IntoView {
+    let dataset_id_store = StoredValue::new(dataset_id);
     let dataset_version_id_store = StoredValue::new(dataset_version_id.clone());
     let trigger_refresh = StoredValue::new(on_refresh);
 
@@ -250,6 +251,7 @@ pub fn DatasetDetailTabVersions(
         <Card>
             <div class="p-4 space-y-3">
                 <h3 class="heading-4">"Versions"</h3>
+                <CopyableId id=dataset_id_store.get_value() label="Dataset ID".to_string() truncate=28 />
                 {dataset_version_id_store.get_value().map(|id| view! {
                     <CopyableId id=id label="Current dataset_version_id".to_string() truncate=28 />
                 })}
@@ -326,8 +328,15 @@ pub fn DatasetDetailTabVersions(
                             }.into_any()
                         }
                     }
-                    LoadingState::Error(_) => {
-                        view! { <p class="text-sm text-muted-foreground">"Versions unavailable"</p> }.into_any()
+                    LoadingState::Error(error) => {
+                        view! {
+                            <ErrorDisplay
+                                error=error
+                                on_retry=Callback::new(move |_| {
+                                    trigger_refresh.with_value(|refresh| refresh.run(()));
+                                })
+                            />
+                        }.into_any()
                     }
                 }}
             </div>

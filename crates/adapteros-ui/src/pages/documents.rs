@@ -9,8 +9,7 @@ use crate::components::{
     ConfirmationSeverity, CopyableId, Dialog, EmptyState, EmptyStateVariant, ErrorDisplay,
     IconExternalLink, InlineProgress, LoadingDisplay, PageBreadcrumbItem, PageScaffold,
     PageScaffoldActions, PageScaffoldPrimaryAction, ProgressStage, ProgressStages, RefreshButton,
-    Select, Table, TableBody,
-    TableCell, TableHead, TableHeader, TableRow,
+    Select, Table, TableBody, TableCell, TableHead, TableHeader, TableRow,
 };
 use crate::hooks::{
     use_api, use_api_resource, use_conditional_polling, use_delete_dialog, use_system_status,

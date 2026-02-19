@@ -62,7 +62,7 @@ fn BackendReadinessErrorFallback(
             // Warning banner instead of blocking error
             <InlineWarningBanner
                 title="Backend Status Unknown".to_string()
-                message="Unable to check backend capabilities. You can still create training jobs — the system will automatically select an available backend."
+                message="Unable to check backend capabilities. You can still start training — the system will automatically select an available backend."
             >
                 <details class="text-xs text-muted-foreground">
                     <summary class="cursor-pointer hover:text-foreground">"Technical details"</summary>
