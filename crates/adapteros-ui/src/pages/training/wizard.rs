@@ -22,11 +22,17 @@ use crate::validation::{
 use adapteros_api_types::{TrainingJobResponse, TRAINING_DATA_CONTRACT_VERSION};
 use leptos::prelude::*;
 use serde_json::json;
+use std::sync::{
+    atomic::{AtomicBool, Ordering},
+    Arc,
+};
 
 /// Wizard step enum
 #[derive(Clone, Copy, PartialEq, Eq, Debug, Default)]
 pub enum WizardStep {
+    /// Step 0: Skill identity — name, purpose, optional examples
     #[default]
+    Intro,
     Dataset,
     Model,
     Config,
@@ -36,24 +42,27 @@ pub enum WizardStep {
 impl WizardStep {
     fn index(&self) -> usize {
         match self {
-            WizardStep::Dataset => 0,
-            WizardStep::Model => 1,
-            WizardStep::Config => 2,
-            WizardStep::Review => 3,
+            WizardStep::Intro => 0,
+            WizardStep::Dataset => 1,
+            WizardStep::Model => 2,
+            WizardStep::Config => 3,
+            WizardStep::Review => 4,
         }
     }
 
     fn label(&self) -> &'static str {
         match self {
-            WizardStep::Dataset => "Dataset",
-            WizardStep::Model => "Model",
-            WizardStep::Config => "Configure",
-            WizardStep::Review => "Review",
+            WizardStep::Intro => "Define",
+            WizardStep::Dataset => "Knowledge",
+            WizardStep::Model => "Foundation",
+            WizardStep::Config => "Behavior",
+            WizardStep::Review => "Confirm",
         }
     }
 
     fn next(&self) -> Option<WizardStep> {
         match self {
+            WizardStep::Intro => Some(WizardStep::Dataset),
             WizardStep::Dataset => Some(WizardStep::Model),
             WizardStep::Model => Some(WizardStep::Config),
             WizardStep::Config => Some(WizardStep::Review),
@@ -63,7 +72,8 @@ impl WizardStep {
 
     fn prev(&self) -> Option<WizardStep> {
         match self {
-            WizardStep::Dataset => None,
+            WizardStep::Intro => None,
+            WizardStep::Dataset => Some(WizardStep::Intro),
             WizardStep::Model => Some(WizardStep::Dataset),
             WizardStep::Config => Some(WizardStep::Model),
             WizardStep::Review => Some(WizardStep::Config),
@@ -71,7 +81,8 @@ impl WizardStep {
     }
 }
 
-const STEPS: [WizardStep; 4] = [
+const STEPS: [WizardStep; 5] = [
+    WizardStep::Intro,
     WizardStep::Dataset,
     WizardStep::Model,
     WizardStep::Config,
@@ -114,11 +125,20 @@ pub fn CreateJobWizard(
     #[prop(optional)]
     initial_alpha: Option<RwSignal<Option<String>>>,
 ) -> impl IntoView {
+    let is_active = Arc::new(AtomicBool::new(true));
+    {
+        let is_active = Arc::clone(&is_active);
+        on_cleanup(move || {
+            is_active.store(false, Ordering::Relaxed);
+        });
+    }
+
     // Wizard step state
     let current_step = RwSignal::new(WizardStep::default());
 
     // Form state - persists across steps
     let adapter_name = RwSignal::new(String::new());
+    let skill_purpose = RwSignal::new(String::new());
     let base_model_id = RwSignal::new(String::new());
     let dataset_id = RwSignal::new(String::new());
     let dataset_message = RwSignal::new(None::<String>);
@@ -188,7 +208,9 @@ pub fn CreateJobWizard(
 
     // Fetch dataset details reactively when dataset_id changes
     {
-        let client = client.clone();
+        let _client = client.clone();
+        #[cfg(target_arch = "wasm32")]
+        let is_active = Arc::clone(&is_active);
         Effect::new(move || {
             let id = dataset_id.get();
             if id.trim().is_empty() {
@@ -197,11 +219,19 @@ pub fn CreateJobWizard(
             }
             #[cfg(target_arch = "wasm32")]
             {
-                let client = client.clone();
+                let client = _client.clone();
+                let is_active = Arc::clone(&is_active);
                 wasm_bindgen_futures::spawn_local(async move {
+                    if !is_active.load(Ordering::Relaxed) {
+                        return;
+                    }
                     match client.get_dataset(&id).await {
-                        Ok(resp) => dataset_info.set(Some(resp)),
-                        Err(_) => dataset_info.set(None),
+                        Ok(resp) => {
+                            let _ = dataset_info.try_set(Some(resp));
+                        }
+                        Err(_) => {
+                            let _ = dataset_info.try_set(None);
+                        }
                     }
                 });
             }
@@ -287,6 +317,12 @@ pub fn CreateJobWizard(
     };
 
     // Step validation
+    let validate_intro_step = move || -> bool {
+        let adapter_name_rules = rules::adapter_name();
+        let name = adapter_name.get();
+        validate_on_blur("adapter_name", &name, &adapter_name_rules, form_state)
+    };
+
     let validate_dataset_step = move || -> bool {
         let dataset_rules = [ValidationRule::Pattern {
             pattern: r"^\s*\S.*$",
@@ -298,24 +334,12 @@ pub fn CreateJobWizard(
 
     let validate_model_step = {
         move || -> bool {
-            let mut valid = true;
-
-            let name = adapter_name.get();
-            let adapter_name_rules = rules::adapter_name();
-            if !validate_on_blur("adapter_name", &name, &adapter_name_rules, form_state) {
-                valid = false;
-            }
-
             let model = base_model_id.get();
             let model_rules = [ValidationRule::Pattern {
                 pattern: r"^\s*\S.*$",
                 message: "Base model is required",
             }];
-            if !validate_on_blur("base_model_id", &model, &model_rules, form_state) {
-                valid = false;
-            }
-
-            valid
+            validate_on_blur("base_model_id", &model, &model_rules, form_state)
         }
     };
 
@@ -394,6 +418,7 @@ pub fn CreateJobWizard(
     let go_next = move |_: ()| {
         let step = current_step.get();
         let can_proceed = match step {
+            WizardStep::Intro => validate_intro_step(),
             WizardStep::Dataset => validate_dataset_step(),
             WizardStep::Model => validate_model_step(),
             WizardStep::Config => validate_config_step(),
@@ -441,12 +466,18 @@ pub fn CreateJobWizard(
             let on_created = on_created.clone();
             let notifications = notifications.clone();
             let client = client.clone();
+            let is_active = Arc::clone(&is_active);
 
             wasm_bindgen_futures::spawn_local(async move {
+                if !is_active.load(Ordering::Relaxed) {
+                    return;
+                }
                 let dataset_id = ds_id.trim().to_string();
                 if dataset_id.is_empty() {
-                    error.set(Some("Dataset is required to start training".to_string()));
-                    submitting.set(false);
+                    let _ = error.try_set(Some(
+                        "Choose training examples before starting this skill build.".to_string(),
+                    ));
+                    let _ = submitting.try_set(false);
                     return;
                 }
 
@@ -478,19 +509,30 @@ pub fn CreateJobWizard(
                     .await
                 {
                     Ok(response) => {
-                        submitting.set(false);
+                        if !is_active.load(Ordering::Relaxed) {
+                            return;
+                        }
+                        let _ = submitting.try_set(false);
                         let job_href = format!("/training?job_id={}", response.id);
                         notifications.success_with_action(
-                            "Training job created",
-                            &format!("\"{}\" is now queued for training", name_for_toast),
-                            "View Job",
+                            "Skill build started",
+                            &format!(
+                                "\"{}\" is now being prepared. You can monitor progress live.",
+                                name_for_toast
+                            ),
+                            "View build",
                             &job_href,
                         );
-                        on_created(response.id);
+                        if is_active.load(Ordering::Relaxed) {
+                            on_created(response.id);
+                        }
                     }
                     Err(e) => {
-                        error.set(Some(format_structured_details(&e)));
-                        submitting.set(false);
+                        if !is_active.load(Ordering::Relaxed) {
+                            return;
+                        }
+                        let _ = error.try_set(Some(format_structured_details(&e)));
+                        let _ = submitting.try_set(false);
                     }
                 }
             });
@@ -506,6 +548,7 @@ pub fn CreateJobWizard(
         generate_wizard_open.set(false);
         // Reset form state
         adapter_name.set(String::new());
+        skill_purpose.set(String::new());
         base_model_id.set(String::new());
         dataset_id.set(String::new());
         dataset_message.set(None);
@@ -549,7 +592,7 @@ pub fn CreateJobWizard(
     view! {
         <StepFormDialog
             open=open
-            title="New Training Job".to_string()
+            title="Teach New Skill".to_string()
             current_step=Signal::derive(move || current_step.try_get().unwrap_or_default().index())
             total_steps=STEPS.len()
             step_labels=step_labels
@@ -557,7 +600,7 @@ pub fn CreateJobWizard(
             on_next=Callback::new(go_next)
             on_back=Callback::new(go_back)
             on_submit=Callback::new(submit.clone())
-            submit_label="Start Training".to_string()
+            submit_label="Start Building Skill".to_string()
             size=DialogSize::Lg
             scrollable=true
         >
@@ -571,6 +614,13 @@ pub fn CreateJobWizard(
             // Step content
             <div class="wizard-step-content min-w-0">
                 {move || match current_step.try_get().unwrap_or_default() {
+                    WizardStep::Intro => view! {
+                        <IntroStepContent
+                            adapter_name=adapter_name
+                            skill_purpose=skill_purpose
+                            form_state=form_state
+                        />
+                    }.into_any(),
                     WizardStep::Dataset => view! {
                         <DatasetStepContent
                             dataset_id=dataset_id
@@ -585,7 +635,6 @@ pub fn CreateJobWizard(
                     }.into_any(),
                     WizardStep::Model => view! {
                         <ModelStepContent
-                            adapter_name=adapter_name
                             base_model_id=base_model_id
                             category=category
                             form_state=form_state
@@ -642,6 +691,62 @@ pub fn CreateJobWizard(
                 on_generated=Callback::new(on_dataset_ready.clone())
             />
         </StepFormDialog>
+    }
+}
+
+/// Step 0: Skill identity — name and purpose
+///
+/// First-seen entry point for the teaching flow. Collects the skill name
+/// (required, validated by adapter_name rules) and an optional plain-language
+/// purpose statement that helps reviewers understand the skill's goal.
+#[component]
+fn IntroStepContent(
+    adapter_name: RwSignal<String>,
+    skill_purpose: RwSignal<String>,
+    form_state: RwSignal<FormState>,
+) -> impl IntoView {
+    let adapter_name_error = use_field_error(form_state, "adapter_name");
+
+    view! {
+        <div class="space-y-6">
+            <div class="rounded-lg border border-border/60 bg-card/40 p-4 space-y-1">
+                <p class="text-sm font-medium">"What skill are you teaching?"</p>
+                <p class="text-xs text-muted-foreground">
+                    "Give it a clear name and optionally describe what it should do. "
+                    "You can attach examples and fine-tune behavior in the next steps."
+                </p>
+            </div>
+
+            <FormField
+                label="Skill Name"
+                name="adapter_name"
+                required=true
+                help="A short, human-friendly name — e.g. \"customer-support\" or \"code-review\""
+                error=adapter_name_error
+            >
+                <Input
+                    value=adapter_name
+                    placeholder="customer-support-skill".to_string()
+                    on_blur=Callback::new(move |_| {
+                        let adapter_name_rules = rules::adapter_name();
+                        let value = adapter_name.get();
+                        let _ = validate_on_blur("adapter_name", &value, &adapter_name_rules, form_state);
+                    })
+                />
+            </FormField>
+
+            <FormField
+                label="Purpose"
+                name="skill_purpose"
+                required=false
+                help="Optional — describe what this skill should do in plain language"
+            >
+                <Input
+                    value=skill_purpose
+                    placeholder="Handles customer support questions about billing and account management.".to_string()
+                />
+            </FormField>
+        </div>
     }
 }
 
@@ -714,9 +819,9 @@ fn DatasetReadyView(
     view! {
         <div class="space-y-4">
             <div class="text-center py-2">
-                <h3 class="heading-4 mb-1">"Dataset ready"</h3>
+                <h3 class="heading-4 mb-1">"Knowledge ready"</h3>
                 <p class="text-sm text-muted-foreground">
-                    "Your training data is selected. Click Next to choose a model."
+                    "Your examples are connected. Click Next to choose the foundation model."
                 </p>
             </div>
 
@@ -794,7 +899,7 @@ fn DatasetReadyView(
                             <div>
                                 <h4 class="text-sm font-medium">"Synthesize More Data"</h4>
                                 <p class="text-xs text-muted-foreground mt-0.5">
-                                    "Generate additional Q&A pairs from a document to augment this dataset"
+                                    "Generate additional examples from a document to strengthen this skill"
                                 </p>
                             </div>
                         </div>
@@ -815,7 +920,7 @@ fn DatasetReadyView(
                             <div>
                                 <h4 class="text-sm font-medium">"Change Dataset"</h4>
                                 <p class="text-xs text-muted-foreground mt-0.5">
-                                    "Upload or generate a different dataset instead"
+                                    "Switch to a different set of examples"
                                 </p>
                             </div>
                         </div>
@@ -845,8 +950,10 @@ fn DatasetReadyView(
                                         </svg>
                                     </div>
                                     <div>
-                                        <h4 class="text-sm font-medium">"Upload Dataset"</h4>
-                                        <p class="text-xs text-muted-foreground mt-0.5">"JSONL, CSV, or text files"</p>
+                                        <h4 class="text-sm font-medium">"Upload Files"</h4>
+                                        <p class="text-xs text-muted-foreground mt-0.5">
+                                            "JSONL, CSV, or text files"
+                                        </p>
                                     </div>
                                 </div>
                             </button>
@@ -869,19 +976,23 @@ fn DatasetReadyView(
                                         </svg>
                                     </div>
                                     <div>
-                                        <h4 class="text-sm font-medium">"Generate from Document"</h4>
-                                        <p class="text-xs text-muted-foreground mt-0.5">"Create Q&A pairs from text files"</p>
+                                        <h4 class="text-sm font-medium">"Generate From Document"</h4>
+                                        <p class="text-xs text-muted-foreground mt-0.5">
+                                            "Create examples from your text files"
+                                        </p>
                                     </div>
                                 </div>
                             </button>
                         </Card>
                     </div>
                     <div>
-                        <p class="text-xs text-muted-foreground mb-2">"Or enter a dataset ID manually:"</p>
+                        <p class="text-xs text-muted-foreground mb-2">
+                            "Or enter an existing dataset ID:"
+                        </p>
                         <FormField
                             label="Dataset ID"
                             name="dataset_id"
-                            help="Use an existing dataset ID if you already have one"
+                            help="Use a dataset that already exists in your workspace"
                             error=dataset_error
                         >
                             <Input
@@ -918,9 +1029,9 @@ fn DatasetChooseView(
     view! {
         <div class="space-y-6">
             <div class="text-center py-4">
-                <h3 class="heading-4 mb-2">"Choose your training data"</h3>
+                <h3 class="heading-4 mb-2">"How should this skill learn?"</h3>
                 <p class="text-sm text-muted-foreground">
-                    "Select how you want to provide training data."
+                    "Choose the examples you want this skill to learn from."
                 </p>
             </div>
 
@@ -950,7 +1061,7 @@ fn DatasetChooseView(
                             <div>
                                 <h4 class="font-medium">"Upload Dataset"</h4>
                                 <p class="text-sm text-muted-foreground mt-1">
-                                    "Upload JSONL, CSV, or text files with your training examples"
+                                    "Upload JSONL, CSV, or text files with your examples"
                                 </p>
                             </div>
                         </div>
@@ -971,7 +1082,7 @@ fn DatasetChooseView(
                             <div>
                                 <h4 class="font-medium">"Generate from Document"</h4>
                                 <p class="text-sm text-muted-foreground mt-1">
-                                    "Create Q&A pairs from your text or markdown files using local inference"
+                                    "Create example pairs from your text or markdown files"
                                 </p>
                             </div>
                         </div>
@@ -981,11 +1092,13 @@ fn DatasetChooseView(
 
             // Manual dataset ID
             <div class="pt-4 border-t">
-                <p class="text-sm text-muted-foreground mb-3">"Or enter an existing dataset ID:"</p>
+                <p class="text-sm text-muted-foreground mb-3">
+                    "Use an existing dataset ID (optional):"
+                </p>
                 <FormField
                     label="Dataset ID"
                     name="dataset_id"
-                    help="Use an existing dataset ID if you already have one"
+                    help="Use a dataset that already exists in your workspace"
                     error=dataset_error
                 >
                     <Input
@@ -1019,7 +1132,6 @@ fn format_bytes(bytes: i64) -> String {
 /// Step 2: Model selection
 #[component]
 fn ModelStepContent(
-    adapter_name: RwSignal<String>,
     base_model_id: RwSignal<String>,
     category: RwSignal<String>,
     form_state: RwSignal<FormState>,
@@ -1030,34 +1142,15 @@ fn ModelStepContent(
     /// "Enter model ID manually" toggle — survives step transitions.
     use_custom_model: RwSignal<bool>,
 ) -> impl IntoView {
-    let adapter_name_error = use_field_error(form_state, "adapter_name");
     let base_model_error = use_field_error(form_state, "base_model_id");
 
     view! {
         <div class="space-y-6">
             <FormField
-                label="Adapter Name"
-                name="adapter_name"
-                required=true
-                help="A unique name for your trained adapter (letters, numbers, hyphens)"
-                error=adapter_name_error
-            >
-                <Input
-                    value=adapter_name
-                    placeholder="my-code-adapter".to_string()
-                    on_blur=Callback::new(move |_| {
-                        let adapter_name_rules = rules::adapter_name();
-                        let value = adapter_name.get();
-                        let _ = validate_on_blur("adapter_name", &value, &adapter_name_rules, form_state);
-                    })
-                />
-            </FormField>
-
-            <FormField
-                label="Base Model"
+                label="Foundation Model"
                 name="base_model_id"
                 required=true
-                help="The foundation model to fine-tune"
+                help="The base intelligence this skill will learn from"
                 error=base_model_error
             >
                 {move || {
@@ -1081,7 +1174,7 @@ fn ModelStepContent(
                                     type="button"
                                     on:click=move |_| use_custom_model.set(false)
                                 >
-                                    "Back to model list"
+                                    "Choose from model registry"
                                 </button>
                             </div>
                         }.into_any()
@@ -1123,9 +1216,9 @@ fn ModelStepContent(
                                             {move || {
                                                 let selected = base_model_id.get();
                                                 coreml_ids.contains(&selected).then(|| view! {
-                                                    <div class="rounded-md border border-warning/40 bg-warning/10 p-3">
-                                                        <p class="text-xs text-warning-foreground">
-                                                            "CoreML models do not support LoRA adapter training. Select an MLX model instead."
+                                                    <div class="rounded-md border border-status-warning/40 bg-status-warning/10 p-3">
+                                                        <p class="text-xs text-status-warning">
+                                                            "This model cannot train new skills in this environment. Choose an MLX model instead."
                                                         </p>
                                                     </div>
                                                 })
@@ -1147,18 +1240,18 @@ fn ModelStepContent(
             </FormField>
 
             <FormField
-                label="Category"
+                label="Skill Focus"
                 name="category"
-                help="Categorize your adapter for easier discovery"
+                help="Helps others quickly find and reuse this skill"
             >
                 <Select
                     value=category
                     options=vec![
-                        ("code".to_string(), "Code".to_string()),
-                        ("framework".to_string(), "Framework".to_string()),
-                        ("codebase".to_string(), "Codebase".to_string()),
+                        ("code".to_string(), "Software & Code".to_string()),
+                        ("framework".to_string(), "Framework Guidance".to_string()),
+                        ("codebase".to_string(), "Codebase Assistant".to_string()),
                         ("docs".to_string(), "Documentation".to_string()),
-                        ("domain".to_string(), "Domain".to_string()),
+                        ("domain".to_string(), "Domain Expertise".to_string()),
                     ]
                 />
             </FormField>
@@ -1227,14 +1320,14 @@ fn ConfigStepContent(
                     >
                         <path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M9 5l7 7-7 7"/>
                     </svg>
-                    "Advanced Options"
+                    "Advanced Controls"
                 </button>
 
                 {move || show_advanced.try_get().unwrap_or(false).then(|| view! {
                     <div class="mt-4 space-y-6 pl-6">
                         // Batch size and LoRA config
                         <div>
-                            <h4 class="text-sm font-medium mb-3">"LoRA & Batch Configuration"</h4>
+                            <h4 class="text-sm font-medium mb-3">"Skill Adapter Settings"</h4>
                             <div class="grid gap-4 sm:grid-cols-3">
                                 <FormField
                                     label="Batch Size"
@@ -1301,12 +1394,12 @@ fn ConfigStepContent(
 
                         // Backend selection
                         <div>
-                            <h4 class="text-sm font-medium mb-3">"Backend Selection"</h4>
+                            <h4 class="text-sm font-medium mb-3">"Runtime Selection"</h4>
                             <p class="text-xs text-muted-foreground mb-3">
-                                "By default, the system automatically selects the best available backend."
+                                "By default, the system automatically picks the best available runtime."
                             </p>
                             <div class="grid gap-4 sm:grid-cols-2">
-                                <FormField label="Preferred Backend" name="preferred_backend">
+                                <FormField label="Preferred Runtime" name="preferred_backend">
                                     <Select
                                         value=preferred_backend
                                         options=vec![
@@ -1317,7 +1410,7 @@ fn ConfigStepContent(
                                         ]
                                     />
                                 </FormField>
-                                <FormField label="Backend Policy" name="backend_policy">
+                                <FormField label="Runtime Policy" name="backend_policy">
                                     <Select
                                         value=backend_policy
                                         options=vec![
@@ -1330,7 +1423,7 @@ fn ConfigStepContent(
                             </div>
                             {move || (preferred_backend.try_get().unwrap_or_default() == "coreml" || backend_policy.try_get().unwrap_or_default() == "coreml_else_fallback").then(|| view! {
                                 <div class="mt-4">
-                                    <FormField label="Fallback Backend" name="coreml_fallback">
+                                    <FormField label="Fallback Runtime" name="coreml_fallback">
                                         <Select
                                             value=coreml_fallback
                                             options=vec![
@@ -1375,21 +1468,21 @@ fn ReviewStepContent(
     view! {
         <div class="space-y-6">
             <div class="text-center py-2">
-                <h3 class="heading-4">"Review Your Training Job"</h3>
+                <h3 class="heading-4">"Confirm Skill Setup"</h3>
                 <p class="text-sm text-muted-foreground">
-                    "Confirm the settings below before starting training"
+                    "Review what will be built. You can go back and edit any step."
                 </p>
             </div>
 
             <div class="rounded-lg border bg-muted/30 divide-y">
-                <ReviewRow label="Adapter Name" value=adapter_name/>
-                <ReviewRow label="Base Model" value=base_model_id/>
-                <ReviewRow label="Dataset" value=if dataset_id.is_empty() { "None selected".to_string() } else { dataset_id }/>
-                <ReviewRow label="Category" value=category/>
+                <ReviewRow label="Skill Name" value=adapter_name/>
+                <ReviewRow label="Foundation Model" value=base_model_id/>
+                <ReviewRow label="Training Examples" value=if dataset_id.is_empty() { "None selected".to_string() } else { dataset_id }/>
+                <ReviewRow label="Skill Focus" value=category/>
             </div>
 
             <div class="rounded-lg border bg-muted/30 divide-y">
-                <ReviewRow label="Preset" value=preset_label.to_string()/>
+                <ReviewRow label="Training Plan" value=preset_label.to_string()/>
                 <ReviewRow label="Epochs" value=epochs/>
                 <ReviewRow label="Learning Rate" value=learning_rate/>
                 <ReviewRow label="Validation Split" value=val_split_display/>
@@ -1398,9 +1491,9 @@ fn ReviewStepContent(
 
             <div class="rounded-lg border bg-muted/30 divide-y">
                 <ReviewRow label="Batch Size" value=batch_size/>
-                <ReviewRow label="LoRA Rank" value=rank/>
-                <ReviewRow label="LoRA Alpha" value=alpha/>
-                <ReviewRow label="Backend" value=if backend == "auto" { "Auto (recommended)".to_string() } else { backend }/>
+                <ReviewRow label="Adapter Capacity" value=rank/>
+                <ReviewRow label="Adapter Strength" value=alpha/>
+                <ReviewRow label="Compute Runtime" value=if backend == "auto" { "Automatic (recommended)".to_string() } else { backend }/>
             </div>
         </div>
     }

@@ -5,8 +5,8 @@
 use crate::api::{report_error_with_toast, ApiClient, ApiError, WorkerMetricsResponse};
 use crate::components::{
     Badge, BadgeVariant, Button, ButtonSize, ButtonVariant, Card, ConfirmationDialog,
-    ConfirmationSeverity, CopyableId, EmptyState, EmptyStateVariant, Spinner, StatusColor,
-    StatusIndicator, Table, TableBody, TableCell, TableHead, TableHeader, TableRow,
+    ConfirmationSeverity, CopyableId, EmptyState, EmptyStateVariant, InlineErrorBanner, Spinner,
+    StatusColor, StatusIndicator, Table, TableBody, TableCell, TableHead, TableHeader, TableRow,
 };
 use crate::hooks::{use_api, use_api_resource, use_navigate, use_scope_alive, LoadingState};
 use crate::signals::use_notifications;
@@ -551,6 +551,146 @@ pub fn WorkerRow(
 }
 
 // ============================================================================
+// Worker Panel Subcomponents
+// ============================================================================
+
+/// Info grid for worker details (ID, node, tenant, health, backend, etc.)
+#[component]
+pub fn WorkerInfoGrid(worker: WorkerResponse, health: Option<WorkerHealthRecord>) -> impl IntoView {
+    let health_status = health
+        .as_ref()
+        .map(|h| h.health_status.clone())
+        .filter(|s| !s.is_empty())
+        .unwrap_or_else(|| "unknown".to_string());
+    let recent_incidents = health
+        .as_ref()
+        .map(|h| h.recent_incidents_24h.to_string())
+        .unwrap_or_else(|| "-".to_string());
+
+    view! {
+        <div class="grid grid-cols-2 gap-4" data-testid="worker-panel-info-grid">
+            <DetailItem label="Worker ID" value=worker.id.clone()/>
+            <DetailItem label="Node ID" value=worker.node_id.clone()/>
+            <DetailItem label="Tenant ID" value=worker.tenant_id.clone()/>
+            <DetailItem label="Plan ID" value=worker.plan_id.clone()/>
+            <DetailItem label="Health" value=health_status/>
+            <DetailItem label="Incidents (24h)" value=recent_incidents/>
+            <DetailItem label="Backend" value=worker.backend.clone().filter(|b| !b.is_empty()).unwrap_or_else(|| "Unknown".to_string())/>
+            <DetailItem label="Model" value=worker.model_id.clone().filter(|m| !m.is_empty()).unwrap_or_else(|| "Not assigned".to_string())/>
+            <DetailItem label="PID" value=worker.pid.map(|p| p.to_string()).unwrap_or("-".to_string())/>
+            <DetailItem label="UDS Path" value=worker.uds_path.clone()/>
+            <DetailItem label="Started At" value=format_timestamp(&worker.started_at)/>
+            <DetailItem label="Last Seen" value=worker.last_seen_at.clone().map(|t| format_timestamp(&t)).unwrap_or("-".to_string())/>
+        </div>
+    }
+}
+
+/// Cache info card for worker
+#[component]
+pub fn WorkerCacheCard(worker: WorkerResponse) -> impl IntoView {
+    view! {
+        <div data-testid="worker-panel-cache-card">
+            <h4 class="text-sm font-medium mb-2">"Cache"</h4>
+            <div class="grid grid-cols-2 gap-4">
+                <DetailItem
+                    label="Used"
+                    value=worker.cache_used_mb.map(|m| format!("{} MB", m)).unwrap_or("-".to_string())
+                />
+                <DetailItem
+                    label="Max"
+                    value=worker.cache_max_mb.map(|m| format!("{} MB", m)).unwrap_or("-".to_string())
+                />
+                <DetailItem
+                    label="Pinned Entries"
+                    value=worker.cache_pinned_entries.map(|e| e.to_string()).unwrap_or("-".to_string())
+                />
+                <DetailItem
+                    label="Active Entries"
+                    value=worker.cache_active_entries.map(|e| e.to_string()).unwrap_or("-".to_string())
+                />
+            </div>
+        </div>
+    }
+}
+
+/// Recent errors card - fetches and displays worker error logs
+#[component]
+pub fn WorkerErrorsCard(worker_id: String, limit: u32) -> impl IntoView {
+    let (error_logs, _) = use_api_resource({
+        let worker_id = worker_id.clone();
+        move |client: Arc<ApiClient>| {
+            let id = worker_id.clone();
+            async move {
+                client
+                    .get_worker_logs(&id, Some("error"), Some(limit))
+                    .await
+            }
+        }
+    });
+
+    view! {
+        <div data-testid="worker-panel-errors-card">
+            <h4 class="text-sm font-medium mb-2">"Recent Errors"</h4>
+            {move || match error_logs.get() {
+                LoadingState::Idle | LoadingState::Loading => view! {
+                    <div
+                        class="flex items-center gap-2 text-muted-foreground"
+                        data-testid="worker-panel-errors-loading"
+                    >
+                        <Spinner/>
+                        <span>"Loading errors..."</span>
+                    </div>
+                }.into_any(),
+                LoadingState::Loaded(logs) => {
+                    if logs.is_empty() {
+                        view! {
+                            <p
+                                class="text-sm text-muted-foreground"
+                                data-testid="worker-panel-errors-empty"
+                            >
+                                "No recent errors"
+                            </p>
+                        }.into_any()
+                    } else {
+                        view! {
+                            <div class="space-y-2">
+                                {logs.into_iter().map(|log| view! {
+                                    <div class="rounded-md border p-2">
+                                        <p class="text-xs text-muted-foreground">{format_timestamp(&log.timestamp)}</p>
+                                        <p class="text-sm">{log.message}</p>
+                                    </div>
+                                }).collect::<Vec<_>>()}
+                            </div>
+                        }.into_any()
+                    }
+                }
+                LoadingState::Error(e) => {
+                    if matches!(&e, ApiError::Forbidden(_)) {
+                        view! {
+                            <p
+                                class="text-sm text-muted-foreground"
+                                data-testid="worker-panel-errors-error"
+                            >
+                                "Recent errors require Operator or Admin permissions."
+                            </p>
+                        }.into_any()
+                    } else {
+                        view! {
+                            <p
+                                class="text-sm text-destructive"
+                                data-testid="worker-panel-errors-error"
+                            >
+                                {format!("Failed to load errors: {}", e)}
+                            </p>
+                        }.into_any()
+                    }
+                }
+            }}
+        </div>
+    }
+}
+
+// ============================================================================
 // Worker Detail Panel (slide-out)
 // ============================================================================
 
@@ -562,15 +702,10 @@ pub fn WorkerDetailPanel(
 ) -> impl IntoView {
     let navigate = use_navigate();
     let worker_id = worker.id.clone();
-    let health_status = health
-        .as_ref()
-        .map(|h| h.health_status.clone())
-        .filter(|s| !s.is_empty())
-        .unwrap_or_else(|| "unknown".to_string());
-    let recent_incidents = health
-        .as_ref()
-        .map(|h| h.recent_incidents_24h.to_string())
-        .unwrap_or_else(|| "-".to_string());
+    let worker_for_header = worker.clone();
+    let worker_for_info = worker.clone();
+    let worker_for_cache = worker.clone();
+    let worker_for_caps = worker.clone();
 
     // Fetch metrics for this worker
     let (metrics, _refetch_metrics) = use_api_resource({
@@ -581,14 +716,7 @@ pub fn WorkerDetailPanel(
         }
     });
 
-    // Fetch recent error logs for this worker
-    let (error_logs, _refetch_error_logs) = use_api_resource({
-        let worker_id = worker.id.clone();
-        move |client: Arc<ApiClient>| {
-            let id = worker_id.clone();
-            async move { client.get_worker_logs(&id, Some("error"), Some(5)).await }
-        }
-    });
+    let health_record = health.clone();
 
     view! {
         <Card title="Worker Details".to_string()>
@@ -596,9 +724,9 @@ pub fn WorkerDetailPanel(
                 // Header
                 <div class="flex items-center justify-between" data-testid="worker-panel-header">
                     <div class="flex items-center gap-3">
-                        <span class="font-mono text-lg">{worker_display_name(&worker.id, worker.display_name.as_deref())}</span>
-                        <Badge variant=status_badge_variant(&worker.status)>
-                            {worker.status.clone()}
+                        <span class="font-mono text-lg">{worker_display_name(&worker_for_header.id, worker_for_header.display_name.as_deref())}</span>
+                        <Badge variant=status_badge_variant(&worker_for_header.status)>
+                            {worker_for_header.status.clone()}
                         </Badge>
                     </div>
                     <div class="flex items-center gap-2">
@@ -625,25 +753,11 @@ pub fn WorkerDetailPanel(
                     </div>
                 </div>
 
-                // Info grid
-                <div class="grid grid-cols-2 gap-4" data-testid="worker-panel-info-grid">
-                    <DetailItem label="Worker ID" value=worker.id.clone()/>
-                    <DetailItem label="Node ID" value=worker.node_id.clone()/>
-                    <DetailItem label="Tenant ID" value=worker.tenant_id.clone()/>
-                    <DetailItem label="Plan ID" value=worker.plan_id.clone()/>
-                    <DetailItem label="Health" value=health_status/>
-                    <DetailItem label="Incidents (24h)" value=recent_incidents/>
-                    <DetailItem label="Backend" value=worker.backend.clone().filter(|b| !b.is_empty()).unwrap_or_else(|| "Unknown".to_string())/>
-                    <DetailItem label="Model" value=worker.model_id.clone().filter(|m| !m.is_empty()).unwrap_or_else(|| "Not assigned".to_string())/>
-                    <DetailItem label="PID" value=worker.pid.map(|p| p.to_string()).unwrap_or("-".to_string())/>
-                    <DetailItem label="UDS Path" value=worker.uds_path.clone()/>
-                    <DetailItem label="Started At" value=format_timestamp(&worker.started_at)/>
-                    <DetailItem label="Last Seen" value=worker.last_seen_at.clone().map(|t| format_timestamp(&t)).unwrap_or("-".to_string())/>
-                </div>
+                <WorkerInfoGrid worker=worker_for_info health=health_record/>
 
                 // Capabilities
                 {
-                    let caps = worker.capabilities.clone();
+                    let caps = worker_for_caps.capabilities.clone();
                     (!caps.is_empty()).then(move || {
                         let cap_views: Vec<_> = caps.iter().map(|cap| {
                             let cap_text = cap.clone();
@@ -664,28 +778,7 @@ pub fn WorkerDetailPanel(
                     })
                 }
 
-                // Cache info
-                <div data-testid="worker-panel-cache-card">
-                    <h4 class="text-sm font-medium mb-2">"Cache"</h4>
-                    <div class="grid grid-cols-2 gap-4">
-                        <DetailItem
-                            label="Used"
-                            value=worker.cache_used_mb.map(|m| format!("{} MB", m)).unwrap_or("-".to_string())
-                        />
-                        <DetailItem
-                            label="Max"
-                            value=worker.cache_max_mb.map(|m| format!("{} MB", m)).unwrap_or("-".to_string())
-                        />
-                        <DetailItem
-                            label="Pinned Entries"
-                            value=worker.cache_pinned_entries.map(|e| e.to_string()).unwrap_or("-".to_string())
-                        />
-                        <DetailItem
-                            label="Active Entries"
-                            value=worker.cache_active_entries.map(|e| e.to_string()).unwrap_or("-".to_string())
-                        />
-                    </div>
-                </div>
+                <WorkerCacheCard worker=worker_for_cache/>
 
                 // Metrics (if loaded)
                 {move || {
@@ -708,65 +801,7 @@ pub fn WorkerDetailPanel(
                     }
                 }}
 
-                // Recent errors
-                <div data-testid="worker-panel-errors-card">
-                    <h4 class="text-sm font-medium mb-2">"Recent Errors"</h4>
-                    {match error_logs.get() {
-                        LoadingState::Idle | LoadingState::Loading => view! {
-                            <div
-                                class="flex items-center gap-2 text-muted-foreground"
-                                data-testid="worker-panel-errors-loading"
-                            >
-                                <Spinner/>
-                                <span>"Loading errors..."</span>
-                            </div>
-                        }.into_any(),
-                        LoadingState::Loaded(logs) => {
-                            if logs.is_empty() {
-                                view! {
-                                    <p
-                                        class="text-sm text-muted-foreground"
-                                        data-testid="worker-panel-errors-empty"
-                                    >
-                                        "No recent errors"
-                                    </p>
-                                }.into_any()
-                            } else {
-                                view! {
-                                    <div class="space-y-2">
-                                        {logs.into_iter().map(|log| view! {
-                                            <div class="rounded-md border p-2">
-                                                <p class="text-xs text-muted-foreground">{format_timestamp(&log.timestamp)}</p>
-                                                <p class="text-sm">{log.message}</p>
-                                            </div>
-                                        }).collect::<Vec<_>>()}
-                                    </div>
-                                }.into_any()
-                            }
-                        }
-                        LoadingState::Error(e) => {
-                            if matches!(&e, ApiError::Forbidden(_)) {
-                                view! {
-                                    <p
-                                        class="text-sm text-muted-foreground"
-                                        data-testid="worker-panel-errors-error"
-                                    >
-                                        "Recent errors require Operator or Admin permissions."
-                                    </p>
-                                }.into_any()
-                            } else {
-                                view! {
-                                    <p
-                                        class="text-sm text-destructive"
-                                        data-testid="worker-panel-errors-error"
-                                    >
-                                        {format!("Failed to load errors: {}", e)}
-                                    </p>
-                                }.into_any()
-                            }
-                        }
-                    }}
-                </div>
+                <WorkerErrorsCard worker_id=worker_id limit=5/>
             </div>
         </Card>
     }
@@ -1153,12 +1188,10 @@ pub fn WorkerDetailView(
 
             // Error banner
             {move || action_error.get().map(|e| view! {
-                <div
-                    class="rounded-lg border border-destructive bg-destructive/10 p-4"
-                    data-testid="worker-detail-action-error"
-                >
-                    <p class="text-destructive">{e}</p>
-                </div>
+                <InlineErrorBanner
+                    message=e
+                    data_testid="worker-detail-action-error".to_string()
+                />
             })}
 
             // Basic info card

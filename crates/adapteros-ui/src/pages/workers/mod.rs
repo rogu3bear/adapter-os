@@ -19,11 +19,12 @@ pub(crate) use utils::is_terminal_worker_status;
 use crate::api::{report_error_with_toast, ApiClient};
 use crate::components::{
     Button, ButtonLink, ButtonSize, ButtonVariant, ConfirmationDialog, ConfirmationSeverity,
-    ErrorDisplay, LoadingDisplay, PageBreadcrumbItem, PageScaffold, PageScaffoldActions,
-    RefreshButton, SkeletonCard, SkeletonTable, SplitPanel, SplitRatio,
+    ErrorDisplay, InlineErrorBanner, LoadingDisplay, PageBreadcrumbItem, PageScaffold,
+    PageScaffoldActions, RefreshButton, SkeletonCard, SkeletonTable, SplitPanel, SplitRatio,
 };
 use crate::hooks::{
-    use_api, use_api_resource, use_cached_api_resource, use_polling, CacheTtl, LoadingState,
+    use_api, use_api_resource, use_cached_api_resource, use_polling, use_system_status, CacheTtl,
+    LoadingState,
 };
 use crate::signals::{use_notifications, use_refetch_signal, RefetchTopic};
 use adapteros_api_types::SpawnWorkerRequest;
@@ -31,7 +32,9 @@ use leptos::prelude::*;
 use std::collections::HashMap;
 use std::sync::Arc;
 
-use crate::components::{IconPlus, IconRefresh, IconX};
+use adapteros_api_types::StatusIndicator as ApiStatusIndicator;
+
+use crate::components::{IconPlus, IconRefresh};
 use components::{WorkerDetailPanel, WorkerDetailView, WorkersList, WorkersSummary};
 use dialogs::{PlanOption, SpawnWorkerDialog};
 use utils::{is_recent_timestamp, WorkerHealthRecord, WorkerHealthSummary};
@@ -46,6 +49,13 @@ pub fn Workers() -> impl IntoView {
     let selected_worker = RwSignal::new(Option::<String>::None);
     let show_history = RwSignal::new(false);
     let action_loading = RwSignal::new(false);
+    let (system_status, _) = use_system_status();
+    let system_not_ready = Memo::new(move |_| {
+        !matches!(
+            system_status.get(),
+            LoadingState::Loaded(ref s) if matches!(s.readiness.overall, ApiStatusIndicator::Ready)
+        )
+    });
     let action_error = RwSignal::new(Option::<String>::None);
     let pending_drain_worker = RwSignal::new(Option::<String>::None);
     let pending_stop_worker = RwSignal::new(Option::<String>::None);
@@ -290,6 +300,7 @@ pub fn Workers() -> impl IntoView {
                 <Button
                     variant=ButtonVariant::Primary
                     loading=Signal::from(action_loading)
+                    disabled=Signal::derive(move || system_not_ready.get())
                     on_click=quick_spawn_from_defaults
                 >
                     <IconPlus/>
@@ -297,7 +308,7 @@ pub fn Workers() -> impl IntoView {
                 </Button>
                 <Button
                     variant=ButtonVariant::Secondary
-                    disabled=Signal::from(action_loading)
+                    disabled=Signal::derive(move || action_loading.get() || system_not_ready.get())
                     on_click=open_advanced_spawn
                 >
                     "Advanced Spawn"
@@ -318,17 +329,10 @@ pub fn Workers() -> impl IntoView {
 
             // Error banner
             {move || action_error.get().map(|e| view! {
-                <div class="rounded-lg border border-destructive bg-destructive/10 p-4">
-                    <div class="flex items-center justify-between">
-                        <p class="text-destructive font-medium">{e}</p>
-                        <button
-                            class="text-destructive hover:text-destructive/80"
-                            on:click=move |_| action_error.set(None)
-                        >
-                            <IconX/>
-                        </button>
-                    </div>
-                </div>
+                <InlineErrorBanner
+                    message=e
+                    on_dismiss=Callback::new(move |_| action_error.set(None))
+                />
             })}
 
             // Main content

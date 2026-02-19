@@ -2,7 +2,7 @@
 //! Shows CoreML/Metal/MLX capability summary plus base model status before launch.
 
 use crate::api::ApiClient;
-use crate::components::{Badge, BadgeVariant, Card, Spinner};
+use crate::components::{Badge, BadgeVariant, Card, DetailRow, InlineWarningBanner, Spinner};
 use crate::hooks::{use_api_resource, LoadingState};
 use adapteros_api_types::{
     model_status::ModelLoadStatus, training::TrainingBackendReadinessResponse,
@@ -60,37 +60,24 @@ fn BackendReadinessErrorFallback(
     view! {
         <div class="space-y-4">
             // Warning banner instead of blocking error
-            <div class="rounded-lg border border-warning/50 bg-warning/10 p-4">
-                <div class="flex items-start gap-3">
-                    <div class="shrink-0 text-warning">
-                        <svg xmlns="http://www.w3.org/2000/svg" width="20" height="20" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round">
-                            <path d="m21.73 18-8-14a2 2 0 0 0-3.48 0l-8 14A2 2 0 0 0 4 21h16a2 2 0 0 0 1.73-3Z"/>
-                            <path d="M12 9v4"/>
-                            <path d="M12 17h.01"/>
-                        </svg>
-                    </div>
-                    <div class="flex-1 space-y-2">
-                        <p class="font-semibold text-warning">"Backend Status Unknown"</p>
-                        <p class="text-sm text-muted-foreground">
-                            "Unable to check backend capabilities. You can still create training jobs — "
-                            "the system will automatically select an available backend."
-                        </p>
-                        <details class="text-xs text-muted-foreground">
-                            <summary class="cursor-pointer hover:text-foreground">"Technical details"</summary>
-                            <p class="mt-2 font-mono bg-muted p-2 rounded text-xs break-all">
-                                {error.to_string()}
-                            </p>
-                        </details>
-                    </div>
-                </div>
-            </div>
+            <InlineWarningBanner
+                title="Backend Status Unknown".to_string()
+                message="Unable to check backend capabilities. You can still create training jobs — the system will automatically select an available backend."
+            >
+                <details class="text-xs text-muted-foreground">
+                    <summary class="cursor-pointer hover:text-foreground">"Technical details"</summary>
+                    <p class="mt-2 font-mono bg-muted p-2 rounded text-xs break-all">
+                        {error.to_string()}
+                    </p>
+                </details>
+            </InlineWarningBanner>
 
             // Fallback status summary
             <div class="grid gap-3 md:grid-cols-2">
-                <InfoRow label="Status" value="Unknown".to_string() accent=false/>
-                <InfoRow label="Backend Policy" value="Auto (fallback)".to_string() accent=false/>
-                <InfoRow label="CoreML" value="Check unavailable".to_string() accent=false/>
-                <InfoRow label="Capabilities" value="Will be detected at runtime".to_string() accent=false/>
+                <DetailRow label="Status" value="Unknown".to_string() bordered=true/>
+                <DetailRow label="Backend Policy" value="Auto (fallback)".to_string() bordered=true/>
+                <DetailRow label="CoreML" value="Check unavailable".to_string() bordered=true/>
+                <DetailRow label="Capabilities" value="Will be detected at runtime".to_string() bordered=true/>
             </div>
 
             // Retry button
@@ -187,19 +174,22 @@ fn BackendReadinessContent(readiness: TrainingBackendReadinessResponse) -> impl 
             </div>
 
             <div class="grid gap-3 md:grid-cols-2">
-                <InfoRow
+                <DetailRow
                     label="Policy"
                     value=readiness.backend_policy.as_str().to_string()
+                    bordered=true
                 />
-                <InfoRow label="Fallback" value=fallback_label/>
-                <InfoRow
+                <DetailRow label="Fallback" value=fallback_label bordered=true/>
+                <DetailRow
                     label="CoreML"
                     value=coreml_line.clone()
+                    bordered=true
                     accent=readiness.coreml.available
                 />
-                <InfoRow
+                <DetailRow
                     label="Capabilities"
                     value=format_capabilities(&readiness)
+                    bordered=true
                 />
             </div>
 
@@ -209,11 +199,11 @@ fn BackendReadinessContent(readiness: TrainingBackendReadinessResponse) -> impl 
             </div>
 
             {(!warnings.is_empty()).then(|| view! {
-                <div class="rounded-lg border border-warning/50 bg-warning/10 p-3 space-y-1">
-                    <p class="text-xs font-semibold uppercase tracking-wide text-warning">
+                <div class="rounded-lg border border-status-warning/50 bg-status-warning/10 p-3 space-y-1">
+                    <p class="text-xs font-semibold uppercase tracking-wide text-status-warning">
                         "Warnings"
                     </p>
-                    <ul class="list-disc pl-4 text-sm text-warning">
+                    <ul class="list-disc pl-4 text-sm text-status-warning">
                         {warnings.into_iter().map(|w| view! { <li>{w}</li> }).collect_view()}
                     </ul>
                 </div>
@@ -315,22 +305,6 @@ fn BaseModelCard(base: Option<adapteros_api_types::TrainingBaseModelReadiness>) 
                     </div>
                 }
             })}
-        </div>
-    }
-}
-
-#[component]
-fn InfoRow(label: &'static str, value: String, #[prop(optional)] accent: bool) -> impl IntoView {
-    let value_class = if accent {
-        "font-semibold text-foreground"
-    } else {
-        "text-muted-foreground"
-    };
-
-    view! {
-        <div class="flex items-center justify-between gap-3 rounded-md border px-3 py-2">
-            <span class="text-xs uppercase tracking-wide text-muted-foreground">{label}</span>
-            <span class=format!("text-sm {}", value_class)>{value}</span>
         </div>
     }
 }

@@ -12,7 +12,11 @@ mod profile;
 mod security;
 mod system_info;
 
-use crate::components::{PageBreadcrumbItem, PageScaffold, PageScaffoldActions, TabNav, TabPanel};
+use crate::components::{
+    Badge, BadgeVariant, ButtonLink, ButtonVariant, Card, PageBreadcrumbItem, PageScaffold,
+    PageScaffoldActions, TabNav, TabPanel,
+};
+use crate::constants::ui_language;
 use api_config::ApiConfigSection;
 pub use api_config::ApiConfigSection as SettingsApiConfigSection;
 use leptos::prelude::*;
@@ -30,8 +34,8 @@ pub fn Settings() -> impl IntoView {
 
     view! {
         <PageScaffold
-            title="Settings"
-            subtitle="Manage your profile, preferences, and API configuration."
+            title="Control Room Settings"
+            subtitle="Tune workspace behavior, trust guarantees, and kernel integrations."
             breadcrumbs=vec![
                 PageBreadcrumbItem::label("Org"),
                 PageBreadcrumbItem::current("Settings"),
@@ -40,17 +44,17 @@ pub fn Settings() -> impl IntoView {
             <PageScaffoldActions slot>
                 <div class="flex items-center gap-2 rounded-full border border-border px-3 py-1 text-xs text-muted-foreground">
                     <span class="inline-flex h-2 w-2 rounded-full bg-emerald-500"></span>
-                    "Settings auto-save"
+                    "Changes auto-save"
                 </div>
             </PageScaffoldActions>
 
             <TabNav
                 tabs=vec![
-                    ("profile", "Profile"),
-                    ("preferences", "Preferences"),
-                    ("api", "API"),
-                    ("security", "Security"),
-                    ("system", "System"),
+                    ("profile", "Operator Profile"),
+                    ("preferences", "Workspace"),
+                    ("api", "Network"),
+                    ("security", "Safety"),
+                    ("system", "Kernel"),
                 ]
                 active=active_tab
             />
@@ -73,17 +77,46 @@ pub fn Settings() -> impl IntoView {
 
             <TabPanel tab="system" active=active_tab>
                 <SystemInfoSection/>
+                <KernelSettingsSection/>
             </TabPanel>
 
             // Scope info footer
             <div class="rounded-lg border border-border bg-muted/30 p-4">
-                <h3 class="text-sm font-semibold mb-2">"Scope"</h3>
+                <h3 class="text-sm font-semibold mb-2">"How these settings apply"</h3>
                 <ul class="space-y-1 text-xs text-muted-foreground">
-                    <li>"Preferences are stored in this browser only."</li>
-                    <li>"Profile fields are read-only today."</li>
-                    <li>"API changes apply immediately."</li>
+                    <li>"Workspace preferences are stored in this browser only."</li>
+                    <li>"Profile values are read-only in this release."</li>
+                    <li>"Network and safety updates apply immediately."</li>
                 </ul>
             </div>
         </PageScaffold>
+    }
+}
+
+#[component]
+fn KernelSettingsSection() -> impl IntoView {
+    view! {
+        <Card>
+            <div class="flex items-start justify-between gap-4">
+                <div class="space-y-2">
+                    <div class="flex items-center gap-2">
+                        <h3 class="text-sm font-semibold">{ui_language::BASE_MODEL_REGISTRY}</h3>
+                        <Badge variant=BadgeVariant::Outline>{ui_language::REPRODUCIBLE_MODE}</Badge>
+                    </div>
+                    <p class="text-xs text-muted-foreground">
+                        "Register and validate base models before activation. Compatibility checks are enforced before live traffic."
+                    </p>
+                    <p class="text-xs text-muted-foreground">
+                        "Use this to confirm update readiness and preserve safe rollback behavior."
+                    </p>
+                </div>
+                <ButtonLink
+                    href="/models"
+                    variant=ButtonVariant::Primary
+                >
+                    {ui_language::REGISTER_NEW_BASE}
+                </ButtonLink>
+            </div>
+        </Card>
     }
 }

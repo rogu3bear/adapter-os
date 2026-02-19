@@ -20,8 +20,9 @@ use crate::api::{report_error_with_toast, ApiClient};
 use crate::components::{
     AdapterDetailPanel, AsyncBoundary, AsyncBoundaryWithErrorRender, Badge, BadgeVariant, Button,
     ButtonSize, ButtonVariant, Card, CopyableId, EmptyStateVariant, ErrorDisplay, Link,
-    ListEmptyCard, PageBreadcrumbItem, PageScaffold, PageScaffoldActions, SplitPanel, SplitRatio,
-    Table, TableBody, TableCell, TableHead, TableHeader, TableRow,
+    ListEmptyCard, PageBreadcrumbItem, PageScaffold, PageScaffoldActions,
+    PageScaffoldPrimaryAction, SplitPanel, SplitRatio, Table, TableBody, TableCell, TableHead,
+    TableHeader, TableRow,
 };
 use crate::contexts::use_in_flight;
 use crate::hooks::{use_api_resource, use_cached_api_resource, CacheTtl, LoadingState};
@@ -87,7 +88,7 @@ pub fn Adapters() -> impl IntoView {
                                 "adapter",
                                 id.clone(),
                                 adapter.name.clone(),
-                                adapter.lifecycle_state.to_string(),
+                                lifecycle_stage_label(adapter.lifecycle_state).to_string(),
                             ));
                         } else {
                             route_ctx.set_selected(SelectedEntity::new("adapter", id.clone(), id));
@@ -128,13 +129,13 @@ pub fn Adapters() -> impl IntoView {
 
     view! {
         <PageScaffold
-            title="Adapters"
+            title="Skill Library"
             breadcrumbs=vec![
                 PageBreadcrumbItem::new("Deploy", "/adapters"),
-                PageBreadcrumbItem::current("Adapters"),
+                PageBreadcrumbItem::current("Skill Library"),
             ]
         >
-            <PageScaffoldActions slot>
+            <PageScaffoldPrimaryAction slot>
                 {
                     let navigate = use_navigate();
                     view! {
@@ -144,11 +145,15 @@ pub fn Adapters() -> impl IntoView {
                                 navigate(NEW_ADAPTER_PATH, Default::default());
                             })
                         >
-                            "New Adapter"
+                            "Teach New Skill"
                         </Button>
                     }
                 }
+            </PageScaffoldPrimaryAction>
+            <PageScaffoldActions slot>
                 <Button
+                    variant=ButtonVariant::Secondary
+                    size=ButtonSize::Sm
                     on_click=Callback::new(move |_| refetch.run(()))
                 >
                     "Refresh"
@@ -214,9 +219,9 @@ fn AdaptersListInteractive(
         return view! {
             <ListEmptyCard
                 variant=EmptyStateVariant::Empty
-                title="No adapters found"
-                description="Adapters enable specialized inference capabilities. Train your first adapter to get started."
-                action_label="Train Adapter"
+                title="No skills yet"
+                description="Teach your first skill to give the system a new capability, then start a conversation right away."
+                action_label="Teach New Skill"
                 on_action=Callback::new(move |_| {
                     navigate(NEW_ADAPTER_PATH, Default::default());
                 })
@@ -245,7 +250,7 @@ fn AdaptersListInteractive(
                 <TableHeader>
                     <TableRow>
                         <TableHead>"Name"</TableHead>
-                        <TableHead>"Lifecycle"</TableHead>
+                        <TableHead>"Stage"</TableHead>
                         <TableHead>"Tier"</TableHead>
                         <TableHead>""</TableHead>
                     </TableRow>
@@ -266,8 +271,10 @@ fn AdaptersListInteractive(
 
                             // Lifecycle badge variant
                             let lifecycle_variant = lifecycle_badge_variant(lifecycle);
-                            let lifecycle_label = lifecycle.to_string();
+                            let lifecycle_label = lifecycle_stage_label(lifecycle);
 
+                            let id_for_keydown = id_for_click.clone();
+                            let row_label = format!("Select adapter {}", name);
                             view! {
                                 <tr
                                     class=if is_selected {
@@ -276,8 +283,19 @@ fn AdaptersListInteractive(
                                         "table-row cursor-pointer hover:bg-accent/30"
                                     }
                                     data-state=if is_selected { "selected" } else { "" }
+                                    role="button"
+                                    tabindex=0
+                                    aria-label=row_label
                                     on:click=move |_| {
                                         on_select.run(id_for_click.clone());
+                                    }
+                                    on:keydown=move |e: web_sys::KeyboardEvent| {
+                                        let key = e.key();
+                                        if key == "Enter" || key == " " || key == "Spacebar" {
+                                            e.prevent_default();
+                                            e.stop_propagation();
+                                            on_select.run(id_for_keydown.clone());
+                                        }
                                     }
                                 >
                                     <TableCell>
@@ -309,7 +327,7 @@ fn AdaptersListInteractive(
                                                             nav_stored.with_value(|nav| nav(&path, Default::default()));
                                                         })
                                                     >
-                                                        "Chat"
+                                                        "Open Studio"
                                                     </Button>
                                                 </div>
                                             }
@@ -429,7 +447,7 @@ pub fn AdapterDetail() -> impl IntoView {
                                 navigate(&path, Default::default());
                             })
                         >
-                            "Open Chat"
+                            "Start Conversation"
                         </Button>
                     }
                 }
@@ -473,10 +491,22 @@ pub fn AdapterDetail() -> impl IntoView {
 fn lifecycle_badge_variant(state: LifecycleState) -> BadgeVariant {
     match state {
         LifecycleState::Active => BadgeVariant::Success,
+        LifecycleState::Staging => BadgeVariant::Warning,
         LifecycleState::Deprecated => BadgeVariant::Warning,
         LifecycleState::Retired => BadgeVariant::Destructive,
         LifecycleState::Draft => BadgeVariant::Secondary,
         _ => BadgeVariant::Secondary,
+    }
+}
+
+fn lifecycle_stage_label(state: LifecycleState) -> &'static str {
+    match state {
+        LifecycleState::Draft => "Draft",
+        LifecycleState::Staging => "Reviewed",
+        LifecycleState::Active => "Production",
+        LifecycleState::Deprecated => "Paused",
+        LifecycleState::Retired => "Retired",
+        _ => "Unknown",
     }
 }
 
@@ -533,6 +563,7 @@ fn AdapterDetailContent(adapter: AdapterResponse) -> impl IntoView {
     }
 
     let lifecycle_variant = lifecycle_badge_variant(adapter.lifecycle_state);
+    let lifecycle_label = lifecycle_stage_label(adapter.lifecycle_state);
 
     // Extract values needed before moving into closures
     let adapter_name_for_link = adapter.name.clone();
@@ -575,7 +606,7 @@ fn AdapterDetailContent(adapter: AdapterResponse) -> impl IntoView {
             <Card title="Status".to_string()>
                 <div class="flex items-center gap-2 mb-3">
                     <Badge variant=lifecycle_variant>
-                        {adapter.lifecycle_state.to_string()}
+                        {lifecycle_label}
                     </Badge>
                     {adapter.runtime_state.clone().map(|state| view! {
                         <Badge variant=BadgeVariant::Secondary>

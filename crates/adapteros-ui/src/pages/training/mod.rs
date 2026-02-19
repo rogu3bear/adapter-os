@@ -27,8 +27,8 @@ mod wizard;
 
 use crate::api::ApiClient;
 use crate::components::{
-    AsyncBoundary, Button, ButtonLink, ButtonSize, ButtonVariant, PageBreadcrumbItem, PageScaffold,
-    PageScaffoldActions, SplitPanel,
+    AsyncBoundary, Button, ButtonSize, ButtonVariant, PageBreadcrumbItem, PageScaffold,
+    PageScaffoldActions, PageScaffoldPrimaryAction, SplitPanel,
 };
 use crate::hooks::{use_cached_api_resource, use_conditional_polling, CacheTtl, LoadingState};
 use crate::signals::{try_use_route_context, SelectedEntity};
@@ -66,11 +66,11 @@ pub fn TrainingDetailRoute() -> impl IntoView {
 
     view! {
         <PageScaffold
-            title="Training Job"
-            subtitle="Inspect status, logs, and artifacts for this training run."
+            title="Skill Build"
+            subtitle="Inspect status, logs, and artifacts for this skill build."
             breadcrumbs=vec![
                 PageBreadcrumbItem::new("Train", "/training"),
-                PageBreadcrumbItem::new("Training Jobs", "/training"),
+                PageBreadcrumbItem::new("Skill Builds", "/training"),
                 PageBreadcrumbItem::current("Details"),
             ]
         >
@@ -79,7 +79,7 @@ pub fn TrainingDetailRoute() -> impl IntoView {
                 if id.is_empty() {
                     view! {
                         <div class="py-8 text-sm text-muted-foreground">
-                            "Training job ID is missing from the route."
+                            "Skill build ID is missing from the route."
                         </div>
                     }
                     .into_any()
@@ -315,28 +315,50 @@ pub fn Training() -> impl IntoView {
 
     view! {
         <PageScaffold
-            title="Training Jobs"
-            subtitle="Launch, monitor, and validate training runs for adapter builds."
+            title="Skill Builds"
+            subtitle="Teach new skills, monitor build progress, and hand off to conversation when ready."
             breadcrumbs=vec![
                 PageBreadcrumbItem::new("Train", "/training"),
-                PageBreadcrumbItem::current("Training Jobs"),
+                PageBreadcrumbItem::current("Skill Builds"),
             ]
         >
-            <PageScaffoldActions slot>
-                <ButtonLink href="/datasets" variant=ButtonVariant::Secondary size=ButtonSize::Sm>
-                    "Datasets"
-                </ButtonLink>
-                <StatusFilter filter=status_filter/>
-                <CoremlFilters filter=coreml_filter/>
+            <PageScaffoldPrimaryAction slot>
                 <Button
                     variant=ButtonVariant::Primary
                     on_click=Callback::new(move |_| create_dialog_open.set(true))
                 >
-                    "New Training Job"
+                    "Create Job"
+                </Button>
+            </PageScaffoldPrimaryAction>
+            <PageScaffoldActions slot>
+                <Button
+                    variant=ButtonVariant::Secondary
+                    size=ButtonSize::Sm
+                    on_click=Callback::new(move |_| refetch_jobs.run(()))
+                >
+                    "Refresh"
                 </Button>
             </PageScaffoldActions>
 
-            <BackendReadinessPanel/>
+            <details class="mb-3 rounded-lg border border-border/60 bg-card/60 px-3 py-2">
+                <summary class="cursor-pointer text-xs font-semibold uppercase tracking-wide text-muted-foreground">
+                    "Filters"
+                </summary>
+                <div class="mt-3 flex flex-wrap items-center gap-3">
+                    <StatusFilter filter=status_filter/>
+                    <CoremlFilters filter=coreml_filter/>
+                </div>
+            </details>
+
+            <details class="mb-4 rounded-lg border border-border/60 bg-card/60 px-3 py-2">
+                <summary class="cursor-pointer text-xs font-semibold uppercase tracking-wide text-muted-foreground">
+                    "Backend readiness"
+                </summary>
+                <div class="mt-3">
+                    <BackendReadinessPanel/>
+                </div>
+            </details>
+
             <SplitPanel
                 has_selection=has_selection
                 on_close=Callback::new(move |_| on_close_detail())

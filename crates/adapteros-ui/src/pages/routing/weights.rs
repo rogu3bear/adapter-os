@@ -305,6 +305,7 @@ fn WeightSlider(
                     max="0.5"
                     step="0.001"
                     class="weight-slider-input"
+                    aria_label=label
                     prop:value=move || signal.try_get().unwrap_or(0.0).to_string()
                     on:input=move |ev| {
                         if let Ok(v) = event_target_value(&ev).parse::<f64>() {

@@ -20,6 +20,9 @@ pub fn UsersSection() -> impl IntoView {
     let sel = use_split_panel_selection_state();
     let selected_id = sel.selected_id;
 
+    // Search/filter state
+    let search_query = RwSignal::new(String::new());
+
     // Pagination state
     let current_page = RwSignal::new(1usize);
 
@@ -42,7 +45,7 @@ pub fn UsersSection() -> impl IntoView {
         refetch.run(());
     });
 
-    // Derived: all users vec
+    // Derived: all users vec (unfiltered)
     let all_users = Signal::derive(move || -> Vec<UserResponse> {
         match users.get() {
             LoadingState::Loaded(data) => data.users,
@@ -50,8 +53,31 @@ pub fn UsersSection() -> impl IntoView {
         }
     });
 
+    // Filtered users based on search query
+    let filtered_users = Signal::derive(move || -> Vec<UserResponse> {
+        let query = search_query.get();
+        let query = query.trim().to_lowercase();
+        if query.is_empty() {
+            return all_users.get();
+        }
+        all_users
+            .get()
+            .into_iter()
+            .filter(|u| {
+                u.email.to_lowercase().contains(&query)
+                    || u.display_name.to_lowercase().contains(&query)
+            })
+            .collect()
+    });
+
+    // Reset to page 1 when search changes
+    Effect::new(move || {
+        let _ = search_query.get();
+        current_page.set(1);
+    });
+
     // Pagination math
-    let total_users = Signal::derive(move || all_users.get().len());
+    let total_users = Signal::derive(move || filtered_users.get().len());
     let total_pages = Signal::derive(move || {
         let count = total_users.get();
         if count == 0 {
@@ -70,7 +96,7 @@ pub fn UsersSection() -> impl IntoView {
     });
 
     let visible_users = Signal::derive(move || {
-        let all = all_users.get();
+        let all = filtered_users.get();
         let page = current_page.get();
         let start = (page - 1) * USERS_PER_PAGE;
         all.into_iter()
@@ -105,9 +131,32 @@ pub fn UsersSection() -> impl IntoView {
 
                     view! {
                         <div class="space-y-4">
-                            <div class="flex items-center justify-between">
-                                <span class="text-sm text-muted-foreground">
-                                    {move || format!("{} users total", total_users.get())}
+                            <div class="flex items-center gap-3">
+                                <input
+                                    type="search"
+                                    class="form-input flex-1"
+                                    placeholder="Filter by name or email…"
+                                    aria_label="Filter users by name or email"
+                                    prop:value=move || search_query.get()
+                                    on:input=move |e| {
+                                        use wasm_bindgen::JsCast;
+                                        let val = e.target()
+                                            .and_then(|t| t.dyn_into::<web_sys::HtmlInputElement>().ok())
+                                            .map(|el| el.value())
+                                            .unwrap_or_default();
+                                        search_query.set(val);
+                                    }
+                                />
+                                <span class="text-sm text-muted-foreground whitespace-nowrap">
+                                    {move || {
+                                        let visible = total_users.get();
+                                        let total = all_users.get().len();
+                                        if search_query.get().trim().is_empty() {
+                                            format!("{} users", total)
+                                        } else {
+                                            format!("{} of {}", visible, total)
+                                        }
+                                    }}
                                 </span>
                                 <Button
                                     variant=ButtonVariant::Outline

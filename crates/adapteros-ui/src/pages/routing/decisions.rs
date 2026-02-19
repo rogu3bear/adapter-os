@@ -958,7 +958,7 @@ fn FeatureContributionRow(label: String, value: f64, max_abs: f64) -> impl IntoV
     let fill_class = if value >= 0.0 {
         "h-full rounded bg-primary"
     } else {
-        "h-full rounded bg-warning"
+        "h-full rounded bg-status-warning"
     };
     let width_style = format!("width: {width:.2}%;");
     let value_text = format!("{value:.4}");

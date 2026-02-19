@@ -8,6 +8,7 @@ use crate::components::{
     AsyncBoundaryWithEmpty, Button, ButtonVariant, Checkbox, Dialog, FormField, Input, Select,
     Textarea,
 };
+use crate::constants::ui_language;
 use crate::hooks::{use_api, use_api_resource, Refetch};
 use crate::signals::use_notifications;
 use adapteros_api_types::AdapterResponse;
@@ -122,7 +123,7 @@ pub fn CreateStackDialog(open: RwSignal<bool>, refetch: Refetch) -> impl IntoVie
                     />
                 </FormField>
 
-                <FormField label="Determinism Mode" name="determinism_mode">
+                <FormField label=ui_language::REPRODUCIBLE_MODE name="determinism_mode">
                     <Select
                         value=determinism_mode
                         options=vec![

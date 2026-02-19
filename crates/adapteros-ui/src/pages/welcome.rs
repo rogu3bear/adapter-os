@@ -4,15 +4,16 @@
 //! no workers registered). Guides the operator through initial setup
 //! via an interactive 4-step wizard.
 
-use crate::api::ApiClient;
 use crate::components::{Button, ButtonLink, ButtonSize, ButtonVariant, PageScaffold, Spinner};
-use crate::hooks::{use_api_resource, use_polling, use_system_status, LoadingState};
+use crate::hooks::{use_polling, use_system_status, LoadingState};
 use crate::signals::{use_refetch_signal, RefetchTopic};
+#[cfg(target_arch = "wasm32")]
+use adapteros_api_types::SetupSeedModelsRequest;
 use adapteros_api_types::{
-    InferenceBlocker, InferenceReadyState, SetupDiscoveredModel, SetupSeedModelsRequest,
-    StatusIndicator, SystemStatusResponse,
+    InferenceReadyState, SetupDiscoveredModel, StatusIndicator, SystemStatusResponse,
 };
 use leptos::prelude::*;
+#[cfg(target_arch = "wasm32")]
 use std::sync::Arc;
 
 // ---------------------------------------------------------------------------
@@ -21,11 +22,7 @@ use std::sync::Arc;
 
 /// A single setup checklist item.
 struct CheckItem {
-    label: &'static str,
     status: CheckStatus,
-    hint: &'static str,
-    action_label: Option<&'static str>,
-    action_href: Option<&'static str>,
 }
 
 #[derive(Clone, Copy, PartialEq)]
@@ -35,35 +32,11 @@ enum CheckStatus {
     Unknown,
 }
 
-impl CheckStatus {
-    fn icon_path(self) -> &'static str {
-        match self {
-            Self::Ready => "M5 13l4 4L19 7",
-            Self::Issue => "M12 9v4m0 4h.01",
-            Self::Unknown => "M8.228 9c.549-1.165 2.03-2 3.772-2 2.21 0 4 1.343 4 3 0 1.4-1.278 2.575-3.006 2.907-.542.104-.994.54-.994 1.093m0 3h.01",
-        }
-    }
-    fn css_class(self) -> &'static str {
-        match self {
-            Self::Ready => "welcome-check-ready",
-            Self::Issue => "welcome-check-issue",
-            Self::Unknown => "welcome-check-unknown",
-        }
-    }
-}
-
 fn derive_checklist(status: &SystemStatusResponse) -> Vec<CheckItem> {
     let db_ok = status.readiness.checks.db.status == StatusIndicator::Ready;
     let migrations_ok = status.readiness.checks.migrations.status == StatusIndicator::Ready;
     let workers_ok = status.readiness.checks.workers.status == StatusIndicator::Ready;
     let models_ok = status.readiness.checks.models.status == StatusIndicator::Ready;
-
-    let model_count = status
-        .kernel
-        .as_ref()
-        .and_then(|k| k.models.as_ref())
-        .and_then(|m| m.total)
-        .unwrap_or(0);
 
     let adapter_count = status
         .kernel
@@ -76,119 +49,41 @@ fn derive_checklist(status: &SystemStatusResponse) -> Vec<CheckItem> {
 
     vec![
         CheckItem {
-            label: "Database",
             status: if db_ok && migrations_ok {
                 CheckStatus::Ready
             } else {
                 CheckStatus::Issue
             },
-            hint: if db_ok && migrations_ok {
-                "Connected, migrations current"
-            } else if db_ok {
-                "Connected, but migrations need attention"
-            } else {
-                "Run: ./aosctl db migrate"
-            },
-            action_label: None,
-            action_href: None,
         },
         CheckItem {
-            label: "Workers",
             status: if workers_ok {
                 CheckStatus::Ready
             } else {
                 CheckStatus::Issue
             },
-            hint: if workers_ok {
-                "Worker connected and ready"
-            } else {
-                "A worker runs models. Connect one to continue"
-            },
-            action_label: if workers_ok {
-                None
-            } else {
-                Some("Set up worker")
-            },
-            action_href: if workers_ok { None } else { Some("/workers") },
         },
         CheckItem {
-            label: "Models",
             status: if models_ok {
                 CheckStatus::Ready
             } else {
                 CheckStatus::Issue
             },
-            hint: if models_ok {
-                "Model loaded on a worker"
-            } else if model_count > 0 {
-                "Model added, but not loaded on a worker"
-            } else {
-                "Next: add a model after a worker is online"
-            },
-            action_label: Some("Open models"),
-            action_href: Some("/models"),
         },
         CheckItem {
-            label: "Adapters",
             status: if adapter_count > 0 {
                 CheckStatus::Ready
             } else {
                 CheckStatus::Unknown
             },
-            hint: if adapter_count > 0 {
-                "Adapters available in workspace"
-            } else {
-                "Optional \u{2014} train or register an adapter"
-            },
-            action_label: Some("Adapters"),
-            action_href: Some("/adapters"),
         },
         CheckItem {
-            label: "Inference",
             status: if inference_ready {
                 CheckStatus::Ready
             } else {
                 CheckStatus::Issue
             },
-            hint: if inference_ready {
-                "System ready for inference"
-            } else {
-                primary_blocker_hint(&status.inference_blockers)
-            },
-            action_label: if inference_ready {
-                Some("Open chat")
-            } else {
-                Some("See blockers")
-            },
-            action_href: if inference_ready {
-                Some("/chat")
-            } else {
-                Some("/system")
-            },
         },
     ]
-}
-
-fn primary_blocker_hint(blockers: &[InferenceBlocker]) -> &'static str {
-    let primary = blockers.iter().min_by_key(|b| match b {
-        InferenceBlocker::BootFailed => 0,
-        InferenceBlocker::SystemBooting => 1,
-        InferenceBlocker::DatabaseUnavailable => 2,
-        InferenceBlocker::WorkerMissing => 3,
-        InferenceBlocker::NoModelLoaded => 4,
-        InferenceBlocker::ActiveModelMismatch => 5,
-        InferenceBlocker::TelemetryDegraded => 6,
-    });
-    match primary {
-        Some(InferenceBlocker::BootFailed) => "Boot failed \u{2014} check server logs",
-        Some(InferenceBlocker::SystemBooting) => "System is still booting",
-        Some(InferenceBlocker::DatabaseUnavailable) => "Database unavailable",
-        Some(InferenceBlocker::WorkerMissing) => "No worker connected",
-        Some(InferenceBlocker::NoModelLoaded) => "No model loaded on a worker",
-        Some(InferenceBlocker::ActiveModelMismatch) => "Loaded model does not match selection",
-        Some(InferenceBlocker::TelemetryDegraded) => "Telemetry degraded (non-blocking)",
-        None => "Resolve issues above to enable inference",
-    }
 }
 
 // ---------------------------------------------------------------------------
@@ -215,10 +110,10 @@ impl WizardStep {
 
     fn label(self) -> &'static str {
         match self {
-            Self::Database => "Database",
-            Self::Worker => "Worker",
-            Self::Models => "Models",
-            Self::Ready => "Ready",
+            Self::Database => "System Storage",
+            Self::Worker => "Compute Worker",
+            Self::Models => "Base Model",
+            Self::Ready => "Start Using AdapterOS",
         }
     }
 
@@ -306,12 +201,12 @@ fn DatabaseStep(
     let error_msg = move || migrate_error.try_get().flatten();
     view! {
         <div class="wizard-action-area">
-            <h3 class="wizard-step-title">"Database Setup"</h3>
+            <h3 class="wizard-step-title">"Prepare System Storage"</h3>
             <Show
                 when=move || db_ok
                 fallback=move || view! {
                     <p class="wizard-step-desc">
-                        "The database needs migrations applied before the system can start."
+                        "AdapterOS needs to apply setup updates before it can run safely."
                     </p>
                     <Show
                         when=is_migrating
@@ -321,13 +216,13 @@ fn DatabaseStep(
                                 size=ButtonSize::Md
                                 on_click=Callback::new(move |_| on_migrate.run(()))
                             >
-                                "Run Migrations"
+                                "Apply Setup Updates"
                             </Button>
                         }
                     >
                         <div class="wizard-inline-spinner">
                             <Spinner />
-                            <span>"Running migrations..."</span>
+                            <span>"Applying setup updates..."</span>
                         </div>
                     </Show>
                     {move || error_msg().map(|e| view! {
@@ -340,7 +235,7 @@ fn DatabaseStep(
                         <path d="M22 11.08V12a10 10 0 11-5.93-9.14"/>
                         <polyline points="22 4 12 14.01 9 11.01"/>
                     </svg>
-                    <span>"Database connected, migrations current"</span>
+                    <span>"Storage connected and up to date"</span>
                 </div>
             </Show>
         </div>
@@ -351,22 +246,22 @@ fn DatabaseStep(
 fn WorkerStep(worker_connected: bool) -> impl IntoView {
     view! {
         <div class="wizard-action-area">
-            <h3 class="wizard-step-title">"Connect a Worker"</h3>
+            <h3 class="wizard-step-title">"Connect a Compute Worker"</h3>
             <Show
                 when=move || worker_connected
                 fallback=move || view! {
                     <p class="wizard-step-desc">
-                        "A worker process handles inference. Start one in a terminal:"
+                        "A compute worker powers conversations. Start one in a terminal:"
                     </p>
                     <code class="wizard-code-block">"./start worker"</code>
-                    <p class="wizard-step-hint">"Waiting for worker to connect..."</p>
+                    <p class="wizard-step-hint">"Waiting for a worker to join..."</p>
                     <ButtonLink
                         href="/workers"
                         variant=ButtonVariant::Outline
                         size=ButtonSize::Sm
                         class="mt-2".to_string()
                     >
-                        "View Workers"
+                        "Open Worker Status"
                     </ButtonLink>
                 }
             >
@@ -375,7 +270,7 @@ fn WorkerStep(worker_connected: bool) -> impl IntoView {
                         <path d="M22 11.08V12a10 10 0 11-5.93-9.14"/>
                         <polyline points="22 4 12 14.01 9 11.01"/>
                     </svg>
-                    <span>"Worker connected and ready"</span>
+                    <span>"Compute worker connected and healthy"</span>
                 </div>
             </Show>
         </div>
@@ -403,12 +298,12 @@ fn ModelsStep(
 
     view! {
         <div class="wizard-action-area">
-            <h3 class="wizard-step-title">"Seed a Model"</h3>
+            <h3 class="wizard-step-title">"Register a Base Model"</h3>
             <Show
                 when=move || models_seeded
                 fallback=move || view! {
                     <p class="wizard-step-desc">
-                        "Discover model directories and seed selected models into the database."
+                        "Find base model folders and register the ones you want available."
                     </p>
                     <div class="wizard-ready-actions">
                         <Button
@@ -418,7 +313,7 @@ fn ModelsStep(
                             disabled=Signal::derive(move || seeding.try_get().unwrap_or(false))
                             on_click=Callback::new(move |_| on_discover.run(()))
                         >
-                            "Discover Models"
+                            "Find Base Models"
                         </Button>
                         <Button
                             variant=ButtonVariant::Primary
@@ -434,7 +329,7 @@ fn ModelsStep(
                             })
                             on_click=Callback::new(move |_| on_seed_selected.run(()))
                         >
-                            "Seed Selected"
+                            "Register Selected"
                         </Button>
                     </div>
                     {move || discover_error_msg().map(|e| view! {
@@ -454,7 +349,7 @@ fn ModelsStep(
                                 .unwrap_or(false)
                         }
                         fallback=move || view! {
-                            <p class="wizard-step-hint">"No model directories discovered yet."</p>
+                            <p class="wizard-step-hint">"No base model folders found yet."</p>
                         }
                     >
                         <div class="wizard-model-list">
@@ -476,7 +371,7 @@ fn ModelsStep(
                                                     <p class="text-xs text-muted-foreground">{path.clone()}</p>
                                                     <p class="text-xs text-muted-foreground">{format!("{} / {}", model.format, model.backend)}</p>
                                                     {already_registered.then(|| view! {
-                                                        <p class="text-xs text-muted-foreground">"Already registered"</p>
+                                                        <p class="text-xs text-muted-foreground">"Already in registry"</p>
                                                     })}
                                                 </div>
                                                 <Button
@@ -499,7 +394,7 @@ fn ModelsStep(
                         size=ButtonSize::Sm
                         class="mt-2".to_string()
                     >
-                        "View Models"
+                        "Open Base Model Registry"
                     </ButtonLink>
                 }
             >
@@ -508,7 +403,7 @@ fn ModelsStep(
                         <path d="M22 11.08V12a10 10 0 11-5.93-9.14"/>
                         <polyline points="22 4 12 14.01 9 11.01"/>
                     </svg>
-                    <span>{format!("{} model(s) registered", model_count)}</span>
+                    <span>{format!("{} base model(s) ready", model_count)}</span>
                 </div>
             </Show>
         </div>
@@ -519,17 +414,16 @@ fn ModelsStep(
 fn ReadyStep() -> impl IntoView {
     view! {
         <div class="wizard-action-area">
-            <h3 class="wizard-step-title">"All Set"</h3>
+            <h3 class="wizard-step-title">"You Are Ready"</h3>
             <div class="wizard-step-success">
                 <svg class="wizard-success-icon" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round">
                     <path d="M22 11.08V12a10 10 0 11-5.93-9.14"/>
                     <polyline points="22 4 12 14.01 9 11.01"/>
                 </svg>
-                <span>"System is ready for inference"</span>
+                <span>"AdapterOS is ready for reliable conversations"</span>
             </div>
             <p class="wizard-step-desc">
-                "AdapterOS can route requests through LoRA adapters for domain-specific responses. "
-                "Try it out in the chat, or explore the dashboard."
+                "Teach skills, run conversations, replay exact outputs, and review signed logs from one place."
             </p>
             <div class="wizard-ready-actions">
                 <ButtonLink
@@ -537,14 +431,14 @@ fn ReadyStep() -> impl IntoView {
                     variant=ButtonVariant::Primary
                     size=ButtonSize::Md
                 >
-                    "Open Chat"
+                    "Open Prompt Studio"
                 </ButtonLink>
                 <ButtonLink
                     href="/"
                     variant=ButtonVariant::Outline
                     size=ButtonSize::Md
                 >
-                    "Go to Dashboard"
+                    "Open Home"
                 </ButtonLink>
             </div>
         </div>
@@ -581,7 +475,7 @@ pub fn Welcome() -> impl IntoView {
     let (discover_error, set_discover_error) = signal(Option::<String>::None);
     let (seed_error, set_seed_error) = signal(Option::<String>::None);
     let (seed_message, set_seed_message) = signal(Option::<String>::None);
-    let (discovered_models, set_discovered_models) = signal(Vec::<SetupDiscoveredModel>::new());
+    let (discovered_models, _set_discovered_models) = signal(Vec::<SetupDiscoveredModel>::new());
     let (selected_model_paths, set_selected_model_paths) = signal(Vec::<String>::new());
 
     // Capture the API client in the component's reactive scope
@@ -594,6 +488,7 @@ pub fn Welcome() -> impl IntoView {
     #[cfg(target_arch = "wasm32")]
     let client_for_seed = Arc::clone(&client);
 
+    #[cfg(target_arch = "wasm32")]
     let refetch_for_migrate = refetch.clone();
     let on_migrate = Callback::new(move |()| {
         set_migrating.set(true);
@@ -645,7 +540,7 @@ pub fn Welcome() -> impl IntoView {
                             .map(|m| m.path.clone())
                             .collect::<Vec<_>>();
                         set_discovering_models.set(false);
-                        set_discovered_models.set(response.models);
+                        _set_discovered_models.set(response.models);
                         set_selected_model_paths.set(selected);
                     }
                     Err(e) => {
@@ -657,6 +552,7 @@ pub fn Welcome() -> impl IntoView {
         }
     });
 
+    #[cfg(target_arch = "wasm32")]
     let refetch_for_seed = refetch.clone();
     let on_seed_selected = Callback::new(move |()| {
         let paths = selected_model_paths.get_untracked();
@@ -704,8 +600,8 @@ pub fn Welcome() -> impl IntoView {
 
     view! {
         <PageScaffold
-            title="Welcome"
-            subtitle="First-run setup"
+            title="Welcome Home"
+            subtitle="Guided setup for a safe first conversation"
         >
             <div class="welcome-container">
                 <div class="welcome-card">
@@ -720,7 +616,7 @@ pub fn Welcome() -> impl IntoView {
                         </svg>
                         <h2 class="welcome-title">"Welcome to AdapterOS"</h2>
                         <p class="welcome-subtitle">
-                            "Follow the steps below to get your system ready for inference."
+                            "Follow these steps to bring the system online with reproducibility and signed audit coverage."
                         </p>
                     </div>
 
@@ -729,7 +625,7 @@ pub fn Welcome() -> impl IntoView {
                             LoadingState::Idle | LoadingState::Loading => view! {
                                 <div class="welcome-loading">
                                     <Spinner />
-                                    <span class="text-sm text-muted-foreground">"Checking system status\u{2026}"</span>
+                                    <span class="text-sm text-muted-foreground">"Checking system readiness\u{2026}"</span>
                                 </div>
                             }.into_any(),
                             LoadingState::Error(_) => view! {
@@ -741,9 +637,9 @@ pub fn Welcome() -> impl IntoView {
                                             <line x1="9" y1="9" x2="15" y2="15"/>
                                         </svg>
                                         <div>
-                                            <p class="text-sm font-semibold">"Could not reach the backend"</p>
+                                            <p class="text-sm font-semibold">"Could not reach AdapterOS"</p>
                                             <p class="text-xs text-muted-foreground">
-                                                "Make sure the server is running: " <code>"./start"</code>
+                                                "Make sure the control plane is running: " <code>"./start"</code>
                                             </p>
                                         </div>
                                     </div>
@@ -828,7 +724,7 @@ pub fn Welcome() -> impl IntoView {
                                                         <div class="welcome-progress-fill" style=format!("width: {}%", ready_count * 100 / total) />
                                                     </div>
                                                     <p class="welcome-progress-label">
-                                                        {format!("{} of {} checks passing", ready_count, total)}
+                                                        {format!("{} of {} system checks complete", ready_count, total)}
                                                     </p>
                                                 </div>
                                             }
@@ -841,7 +737,7 @@ pub fn Welcome() -> impl IntoView {
 
                     <div class="welcome-skip">
                         <a href="/" class="welcome-skip-link">
-                            "Skip to Dashboard"
+                            "Go to Home"
                         </a>
                     </div>
                 </div>

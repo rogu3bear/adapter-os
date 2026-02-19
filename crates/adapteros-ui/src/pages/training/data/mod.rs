@@ -29,7 +29,10 @@ use detail_panel::DataDetailPanel;
 use leptos::prelude::*;
 use source_nav::DataSourceNav;
 use state::{DataSource, PreprocessStatus};
-use std::sync::Arc;
+use std::sync::{
+    atomic::{AtomicBool, Ordering},
+    Arc,
+};
 use upload_dialog::DocumentUploadDialog;
 
 /// Training Data Management component.
@@ -38,6 +41,14 @@ use upload_dialog::DocumentUploadDialog;
 /// source navigation, item list, and detail panel.
 #[component]
 pub fn TrainingData() -> impl IntoView {
+    let is_active = Arc::new(AtomicBool::new(true));
+    {
+        let is_active = Arc::clone(&is_active);
+        on_cleanup(move || {
+            is_active.store(false, Ordering::Relaxed);
+        });
+    }
+
     // State
     let active_source = RwSignal::new(DataSource::Datasets);
     let selected_id = RwSignal::new(None::<String>);
@@ -215,8 +226,12 @@ pub fn TrainingData() -> impl IntoView {
             #[cfg(target_arch = "wasm32")]
             {
                 use crate::api::{api_base_url, ApiClient};
+                let is_active = Arc::clone(&is_active);
 
                 wasm_bindgen_futures::spawn_local(async move {
+                    if !is_active.load(Ordering::Relaxed) {
+                        return;
+                    }
                     let client = ApiClient::with_base_url(&api_base_url());
 
                     match client
@@ -224,17 +239,23 @@ pub fn TrainingData() -> impl IntoView {
                         .await
                     {
                         Ok(response) => {
-                            creating_dataset.set(false);
+                            if !is_active.load(Ordering::Relaxed) {
+                                return;
+                            }
+                            let _ = creating_dataset.try_set(false);
                             // Refetch datasets and switch view
                             refetch_datasets_signal.with_value(|f| f());
-                            active_source.set(DataSource::Datasets);
-                            selected_id.set(Some(response.id));
+                            let _ = active_source.try_set(DataSource::Datasets);
+                            let _ = selected_id.try_set(Some(response.id));
                             tracing::info!("Created dataset from document: {}", document_id);
                         }
                         Err(e) => {
+                            if !is_active.load(Ordering::Relaxed) {
+                                return;
+                            }
                             report_error_with_toast(&e, "Failed to create dataset", Some("/training"), true);
-                            create_dataset_error.set(Some(e.user_message()));
-                            creating_dataset.set(false);
+                            let _ = create_dataset_error.try_set(Some(e.user_message()));
+                            let _ = creating_dataset.try_set(false);
                             tracing::error!("Failed to create dataset: {}", e);
                         }
                     }
@@ -255,15 +276,22 @@ pub fn TrainingData() -> impl IntoView {
             #[cfg(target_arch = "wasm32")]
             {
                 use crate::api::{api_base_url, ApiClient};
+                let is_active = Arc::clone(&is_active);
 
                 wasm_bindgen_futures::spawn_local(async move {
+                    if !is_active.load(Ordering::Relaxed) {
+                        return;
+                    }
                     let client = ApiClient::with_base_url(&api_base_url());
                     match client.invalidate_preprocessed_cache(&dataset_id).await {
                         Ok(()) => {
+                            if !is_active.load(Ordering::Relaxed) {
+                                return;
+                            }
                             refetch_preprocessed_signal.with_value(|f| f());
                             refetch_cache_count_signal.with_value(|f| f());
-                            selected_id.set(None);
-                            active_source.set(DataSource::Preprocessed);
+                            let _ = selected_id.try_set(None);
+                            let _ = active_source.try_set(DataSource::Preprocessed);
                             tracing::info!(
                                 dataset_id = %dataset_id,
                                 "Invalidated preprocessed cache"

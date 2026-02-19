@@ -6,15 +6,14 @@
 #[cfg(target_arch = "wasm32")]
 use crate::api::report_error_with_toast;
 use crate::api::{
-    ApiClient, DatasetListResponse, DatasetPreviewResponse, DatasetSafetyCheckResult,
-    DatasetStatisticsResponse, DatasetVersionsResponse,
+    ApiClient, DatasetListResponse, DatasetSafetyCheckResult, DatasetStatisticsResponse,
 };
 use crate::components::{
     Badge, BadgeVariant, BreadcrumbTrail, Button, ButtonLink, ButtonSize, ButtonVariant, Card,
     Checkbox, Combobox, ComboboxOption, ConfirmationDialog, ConfirmationSeverity, CopyableId,
     EmptyState, ErrorDisplay, Input, PageBreadcrumbItem, PageHeader, PageScaffold,
-    PageScaffoldActions, RefreshButton, Select, SkeletonCard, SkeletonDetailSection, SkeletonTable,
-    TabNav, TabPanel, Table, TableBody, TableCell, TableHead, TableHeader, TableRow, Toggle,
+    PageScaffoldActions, RefreshButton, Select, SkeletonDetailSection, SkeletonTable, TabNav,
+    TabPanel, Table, TableBody, TableCell, TableHead, TableHeader, TableRow, Toggle,
 };
 use crate::hooks::{
     use_api, use_api_resource, use_delete_dialog, DeleteDialogState, LoadingState, Refetch,
@@ -31,6 +30,44 @@ use serde_json::json;
 use std::collections::HashMap;
 use std::fmt;
 use std::sync::Arc;
+
+// =============================================================================
+// Dataset Stat Card Component
+// =============================================================================
+
+/// Clickable stat card for dataset readiness strip (trainable, needs validation, etc.).
+#[component]
+fn DatasetStatCard(
+    label: &'static str,
+    badge_label: &'static str,
+    badge_variant: BadgeVariant,
+    description: &'static str,
+    title: &'static str,
+    on_click: Callback<()>,
+    children: Children,
+) -> impl IntoView {
+    view! {
+        <button
+            type="button"
+            class="text-left rounded-md focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-ring focus-visible:ring-offset-2"
+            on:click=move |_| on_click.run(())
+            title=title
+        >
+            <Card>
+                <div class="dataset-stat-card">
+                    <div class="dataset-stat-card__label">{label}</div>
+                    <div class="dataset-stat-card__row">
+                        <div class="heading-3">{children()}</div>
+                        <Badge variant=badge_variant>{badge_label}</Badge>
+                    </div>
+                    <div class="dataset-stat-card__description">{description}</div>
+                </div>
+            </Card>
+        </button>
+    }
+}
+
+mod components;
 
 // =============================================================================
 // Trainability / Readiness Helpers
@@ -793,90 +830,46 @@ fn DatasetsList(
                     <div class="space-y-4">
                         // Readiness strip
                         <div class="grid gap-3 sm:grid-cols-2 lg:grid-cols-4">
-                            <button
-                                class="text-left rounded-md focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-ring focus-visible:ring-offset-2"
-                                on:click={
-                                    let cb = on_quick_trainable;
-                                    move |_| cb.run(())
-                                }
+                            <DatasetStatCard
+                                label="Trainable"
+                                badge_label="Ready"
+                                badge_variant=BadgeVariant::Success
+                                description="Ready for training"
                                 title="Show trainable datasets"
+                                on_click=on_quick_trainable
                             >
-                                <Card>
-                                    <div class="p-4 space-y-1 hover:bg-muted/40 transition-colors rounded-md">
-                                        <div class="text-xs text-muted-foreground">"Trainable"</div>
-                                        <div class="flex items-end justify-between">
-                                            <div class="heading-3">{move || trainable_count.try_get().unwrap_or(0).to_string()}</div>
-                                            <Badge variant=BadgeVariant::Success>"Ready"</Badge>
-                                        </div>
-                                        <div class="text-xs text-muted-foreground">
-                                            "Ready for training"
-                                        </div>
-                                    </div>
-                                </Card>
-                            </button>
-                            <button
-                                class="text-left rounded-md focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-ring focus-visible:ring-offset-2"
-                                on:click={
-                                    let cb = on_quick_needs_validation;
-                                    move |_| cb.run(())
-                                }
+                                {move || trainable_count.try_get().unwrap_or(0).to_string()}
+                            </DatasetStatCard>
+                            <DatasetStatCard
+                                label="Needs validation"
+                                badge_label="Check"
+                                badge_variant=BadgeVariant::Warning
+                                description="Fix format or re-validate"
                                 title="Show datasets that need validation"
+                                on_click=on_quick_needs_validation
                             >
-                                <Card>
-                                    <div class="p-4 space-y-1 hover:bg-muted/40 transition-colors rounded-md">
-                                        <div class="text-xs text-muted-foreground">"Needs validation"</div>
-                                        <div class="flex items-end justify-between">
-                                            <div class="heading-3">{move || needs_validation_count.try_get().unwrap_or(0).to_string()}</div>
-                                            <Badge variant=BadgeVariant::Warning>"Check"</Badge>
-                                        </div>
-                                        <div class="text-xs text-muted-foreground">
-                                            "Fix format or re-validate"
-                                        </div>
-                                    </div>
-                                </Card>
-                            </button>
-                            <button
-                                class="text-left rounded-md focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-ring focus-visible:ring-offset-2"
-                                on:click={
-                                    let cb = on_quick_needs_trust;
-                                    move |_| cb.run(())
-                                }
+                                {move || needs_validation_count.try_get().unwrap_or(0).to_string()}
+                            </DatasetStatCard>
+                            <DatasetStatCard
+                                label="Needs trust"
+                                badge_label="Gate"
+                                badge_variant=BadgeVariant::Warning
+                                description="Approval required"
                                 title="Show datasets blocked by trust/approval"
+                                on_click=on_quick_needs_trust
                             >
-                                <Card>
-                                    <div class="p-4 space-y-1 hover:bg-muted/40 transition-colors rounded-md">
-                                        <div class="text-xs text-muted-foreground">"Needs trust"</div>
-                                        <div class="flex items-end justify-between">
-                                            <div class="heading-3">{move || needs_trust_count.try_get().unwrap_or(0).to_string()}</div>
-                                            <Badge variant=BadgeVariant::Warning>"Gate"</Badge>
-                                        </div>
-                                        <div class="text-xs text-muted-foreground">
-                                            "Approval required"
-                                        </div>
-                                    </div>
-                                </Card>
-                            </button>
-                            <button
-                                class="text-left rounded-md focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-ring focus-visible:ring-offset-2"
-                                on:click={
-                                    let cb = on_quick_processing_failed;
-                                    move |_| cb.run(())
-                                }
+                                {move || needs_trust_count.try_get().unwrap_or(0).to_string()}
+                            </DatasetStatCard>
+                            <DatasetStatCard
+                                label="Processing / Failed"
+                                badge_label="Status"
+                                badge_variant=BadgeVariant::Secondary
+                                description="Wait or investigate"
                                 title="Show datasets still processing or failed"
+                                on_click=on_quick_processing_failed
                             >
-                                <Card>
-                                    <div class="p-4 space-y-1 hover:bg-muted/40 transition-colors rounded-md">
-                                        <div class="text-xs text-muted-foreground">"Processing / Failed"</div>
-                                        <div class="flex items-end justify-between">
-                                            <div class="heading-3">{move || processing_failed_count.try_get().unwrap_or(0).to_string()}</div>
-                                            <Badge variant=BadgeVariant::Secondary>"Status"</Badge>
-                                        </div>
-                                        <div class="text-xs text-muted-foreground">
-                                            "Wait or investigate"
-                                        </div>
-                                    </div>
-                                </Card>
-                            </button>
+                                {move || processing_failed_count.try_get().unwrap_or(0).to_string()}
+                            </DatasetStatCard>
                         </div>
 
                         // Filter bar + view toggle
@@ -1582,28 +1575,14 @@ pub fn DatasetDetail() -> impl IntoView {
         async move { client.list_dataset_versions(&id).await }
     });
 
-    // Preview state (minimal sample rows for sanity check)
-    let preview_limit = RwSignal::new("10".to_string());
-    let pretty_json = RwSignal::new(true);
-    let (preview, preview_refetch) = use_api_resource(move |client: Arc<ApiClient>| {
-        let id = dataset_id();
-        let limit_raw = preview_limit.try_get().unwrap_or_default();
-        async move {
-            let limit = limit_raw.parse::<usize>().ok();
-            client.preview_dataset(&id, limit).await
-        }
-    });
+    // Refresh trigger for Preview tab (when main Refresh is clicked)
+    let preview_refresh_trigger = RwSignal::new(0u32);
 
     // Files list
     let (files, files_refetch) = use_api_resource(move |client: Arc<ApiClient>| {
         let id = dataset_id();
         async move { client.list_dataset_files(&id).await }
     });
-
-    // File content preview (loaded on demand when user clicks a file row)
-    let expanded_file_id = RwSignal::new(Option::<String>::None);
-    let file_content = RwSignal::new(Option::<Result<String, String>>::None);
-    let file_content_truncated = RwSignal::new(false);
 
     // If no explicit tab is requested, pick a default based on trainability.
     Effect::new(move |_| {
@@ -1626,7 +1605,6 @@ pub fn DatasetDetail() -> impl IntoView {
     let refetch_stored = StoredValue::new(refetch);
     let stats_refetch_stored = StoredValue::new(stats_refetch);
     let versions_refetch_stored = StoredValue::new(versions_refetch);
-    let preview_refetch_stored = StoredValue::new(preview_refetch);
     let files_refetch_stored = StoredValue::new(files_refetch);
 
     Effect::new(move |_| {
@@ -1636,16 +1614,8 @@ pub fn DatasetDetail() -> impl IntoView {
         refetch_stored.with_value(|f| f.run(()));
         stats_refetch_stored.with_value(|f| f.run(()));
         versions_refetch_stored.with_value(|f| f.run(()));
-        preview_refetch_stored.with_value(|f| f.run(()));
+        preview_refresh_trigger.update(|n| *n = n.wrapping_add(1));
         files_refetch_stored.with_value(|f| f.run(()));
-    });
-
-    // Refetch preview when the limit changes
-    Effect::new(move |_| {
-        let Some(_) = preview_limit.try_get() else {
-            return;
-        };
-        let _ = refetch_trigger.try_update(|n| *n = n.wrapping_add(1));
     });
 
     let trigger_refresh = move || {
@@ -1684,7 +1654,6 @@ pub fn DatasetDetail() -> impl IntoView {
     };
     let detail_delete_for_loading = detail_delete_state;
     let detail_delete_for_button = detail_delete_state;
-    let client_for_files = StoredValue::new(client.clone());
 
     view! {
         <div class="space-y-6">
@@ -1717,9 +1686,10 @@ pub fn DatasetDetail() -> impl IntoView {
                             let dataset_version_id = data.dataset_version_id.clone();
                             let dataset_version_id_display =
                                 dataset_version_id.clone().unwrap_or_else(|| "—".to_string());
-                            let dataset_version_id_store = StoredValue::new(dataset_version_id.clone());
                             let trust_state = data.trust_state.clone();
                             let dataset_id_for_train = data.id.clone();
+                            let data_for_details = data.clone();
+                            let data_for_issues = (data.validation_errors.clone(), data.validation_diagnostics.clone());
 
                             view! {
                                 <div class="space-y-4">
@@ -1857,553 +1827,43 @@ pub fn DatasetDetail() -> impl IntoView {
                                     </div>
 
                                     <TabPanel tab=DatasetDetailTab::Preview active=active_tab tab_id="preview".to_string() class="pt-4 space-y-4">
-                                        <Card>
-                                            <div class="p-4 space-y-3">
-                                                <div class="flex items-center justify-between gap-3 flex-wrap">
-                                                    <div>
-                                                        <h3 class="heading-4">"Preview"</h3>
-                                                        <p class="text-sm text-muted-foreground">
-                                                            "First N examples (read-only) for a quick sanity check."
-                                                        </p>
-                                                    </div>
-                                                    <div class="flex items-center gap-3">
-                                                        <Select
-                                                            value=preview_limit
-                                                            options=vec![
-                                                                ("10".to_string(), "10".to_string()),
-                                                                ("25".to_string(), "25".to_string()),
-                                                                ("50".to_string(), "50".to_string()),
-                                                            ]
-                                                            class="w-24".to_string()
-                                                        />
-                                                        <Toggle
-                                                            checked=pretty_json
-                                                            label="Pretty JSON".to_string()
-                                                            class="w-auto"
-                                                        />
-                                                    </div>
-                                                </div>
-
-                                                {move || match preview.try_get().unwrap_or(LoadingState::Idle) {
-                                                    LoadingState::Idle | LoadingState::Loading => {
-                                                        view! { <SkeletonCard has_header=true/> }.into_any()
-                                                    }
-                                                    LoadingState::Loaded(DatasetPreviewResponse { examples, total_examples, .. }) => {
-                                                        if examples.is_empty() {
-                                                            view! {
-                                                                <EmptyState
-                                                                    title="No preview available"
-                                                                    description="This dataset has no readable examples, or you don't have access."
-                                                                />
-                                                            }.into_any()
-                                                        } else {
-                                                            let pretty = pretty_json.try_get().unwrap_or(true);
-                                                            view! {
-                                                                <div class="space-y-2">
-                                                                    <div class="text-xs text-muted-foreground">
-                                                                        {format!(
-                                                                            "Returned {} example(s) (server reported total_examples={})",
-                                                                            examples.len(),
-                                                                            total_examples
-                                                                        )}
-                                                                    </div>
-                                                                    <div class="space-y-3">
-                                                                        {examples.into_iter().enumerate().map(|(idx, ex)| {
-                                                                            let rendered = if pretty {
-                                                                                serde_json::to_string_pretty(&ex).unwrap_or_else(|_| ex.to_string())
-                                                                            } else {
-                                                                                serde_json::to_string(&ex).unwrap_or_else(|_| ex.to_string())
-                                                                            };
-                                                                            view! {
-                                                                                <div class="rounded border border-muted bg-muted/30 p-3">
-                                                                                    <div class="text-xs text-muted-foreground mb-2">
-                                                                                        {format!("Example {}", idx + 1)}
-                                                                                    </div>
-                                                                                    <pre class="font-mono text-xs whitespace-pre-wrap break-words">{rendered}</pre>
-                                                                                </div>
-                                                                            }
-                                                                        }).collect_view()}
-                                                                    </div>
-                                                                </div>
-                                                            }.into_any()
-                                                        }
-                                                    }
-                                                    LoadingState::Error(e) => {
-                                                        view! {
-                                                            <ErrorDisplay
-                                                                error=e
-                                                                on_retry=Callback::new(move |_| trigger_refresh())
-                                                            />
-                                                        }.into_any()
-                                                    }
-                                                }}
-                                            </div>
-                                        </Card>
+                                        <components::DatasetDetailTabPreview
+                                            dataset_id=dataset_id()
+                                            on_refresh=Callback::new(move |_| trigger_refresh())
+                                            refresh_trigger=preview_refresh_trigger.read_only()
+                                        />
                                     </TabPanel>
 
                                     <TabPanel tab=DatasetDetailTab::Issues active=active_tab tab_id="issues".to_string() class="pt-4 space-y-4">
-                                        {move || {
-                                            let errors = data.validation_errors.clone().unwrap_or_default();
-                                            let diags = data.validation_diagnostics.clone().unwrap_or_default();
-
-                                            if errors.is_empty() && diags.is_empty() {
-                                                view! {
-                                                    <Card>
-                                                        <EmptyState
-                                                            title="No issues detected"
-                                                            description="This dataset has no validation errors or diagnostics."
-                                                        />
-                                                    </Card>
-                                                }.into_any()
-                                            } else {
-                                                view! {
-                                                    <div class="space-y-4">
-                                                        {(!errors.is_empty()).then(|| view! {
-                                                            <Card>
-                                                                <div class="p-4">
-                                                                    <h3 class="heading-4 mb-2" id="validation-errors">"Validation Errors"</h3>
-                                                                    <ul class="space-y-2 text-sm text-destructive">
-                                                                        {errors.into_iter().map(|err| view! { <li>{err}</li> }).collect_view()}
-                                                                    </ul>
-                                                                </div>
-                                                            </Card>
-                                                        })}
-
-                                                        {(!diags.is_empty()).then(|| view! {
-                                                            <Card>
-                                                                <div class="p-4">
-                                                                    <h3 class="heading-4 mb-2">"Validation Diagnostics"</h3>
-                                                                    <div class="space-y-3 text-sm">
-                                                                        {diags.into_iter().map(|diag| view! {
-                                                                            <div class="rounded border border-muted p-3">
-                                                                                <div class="flex items-center justify-between">
-                                                                                    <span class="text-muted-foreground">"Line"</span>
-                                                                                    <span class="font-mono">{diag.line_number.to_string()}</span>
-                                                                                </div>
-                                                                                {diag.raw_snippet.map(|snippet| view! {
-                                                                                    <div class="mt-2 font-mono text-xs text-muted-foreground truncate">{snippet}</div>
-                                                                                })}
-                                                                                {diag.missing_fields.map(|fields| view! {
-                                                                                    <div class="mt-2">
-                                                                                        <span class="text-muted-foreground">"Missing: "</span>
-                                                                                        <span>{fields.join(", ")}</span>
-                                                                                    </div>
-                                                                                })}
-                                                                                {diag.invalid_field_types.map(|fields| view! {
-                                                                                    <div class="mt-2">
-                                                                                        <span class="text-muted-foreground">"Invalid types: "</span>
-                                                                                        <span>
-                                                                                            {fields
-                                                                                                .iter()
-                                                                                                .map(|field| format!("{} ({} -> {})", field.field, field.actual, field.expected))
-                                                                                                .collect::<Vec<_>>()
-                                                                                                .join(", ")}
-                                                                                        </span>
-                                                                                    </div>
-                                                                                })}
-                                                                                {diag.contract_version_expected.map(|version| view! {
-                                                                                    <div class="mt-2 text-muted-foreground">
-                                                                                        "Contract version expected: " {version}
-                                                                                    </div>
-                                                                                })}
-                                                                            </div>
-                                                                        }).collect_view()}
-                                                                    </div>
-                                                                </div>
-                                                            </Card>
-                                                        })}
-                                                    </div>
-                                                }.into_any()
-                                            }
-                                        }}
+                                        <components::DatasetDetailTabIssues
+                                            validation_errors=data_for_issues.0
+                                            validation_diagnostics=data_for_issues.1
+                                        />
                                     </TabPanel>
 
                                     <TabPanel tab=DatasetDetailTab::Versions active=active_tab tab_id="versions".to_string() class="pt-4 space-y-4">
-                                        <Card>
-                                            <div class="p-4 space-y-3">
-                                                <h3 class="heading-4">"Versions"</h3>
-                                                {dataset_version_id_store.get_value().map(|id| view! {
-                                                    <CopyableId id=id label="Current dataset_version_id".to_string() truncate=28 />
-                                                })}
-                                                {move || match versions.try_get().unwrap_or(LoadingState::Idle) {
-                                                    LoadingState::Idle | LoadingState::Loading => {
-                                                        view! { <SkeletonTable rows=3 columns=3/> }.into_any()
-                                                    }
-                                                    LoadingState::Loaded(DatasetVersionsResponse { versions, .. }) => {
-                                                        if versions.is_empty() {
-                                                            view! { <p class="text-sm text-muted-foreground">"No dataset versions found."</p> }.into_any()
-                                                        } else {
-                                                            let current = dataset_version_id_store.get_value();
-                                                            view! {
-                                                                <Table>
-                                                                    <TableHeader>
-                                                                        <TableRow>
-                                                                            <TableHead>"Version"</TableHead>
-                                                                            <TableHead>"Label"</TableHead>
-                                                                            <TableHead>"Trust"</TableHead>
-                                                                            <TableHead>"Hash"</TableHead>
-                                                                            <TableHead>"Created"</TableHead>
-                                                                        </TableRow>
-                                                                    </TableHeader>
-                                                                    <TableBody>
-                                                                        {versions.into_iter().map(|version| {
-                                                                            let trust_state = version.trust_state.clone().unwrap_or_else(|| "unknown".to_string());
-                                                                            let trust_variant = trust_state_badge_variant(&trust_state);
-                                                                            let hash = version
-                                                                                .hash_b3
-                                                                                .clone()
-                                                                                .map(|h| h.chars().take(10).collect::<String>())
-                                                                                .unwrap_or_else(|| "—".to_string());
-                                                                            let is_current = current.as_ref().map(|c| c == &version.dataset_version_id).unwrap_or(false);
-                                                                            let row_class = if is_current { "bg-muted/50".to_string() } else { String::new() };
-                                                                            view! {
-                                                                                <TableRow class=row_class>
-                                                                                    <TableCell>
-                                                                                        <div class="space-y-1">
-                                                                                            <div class="flex items-center gap-2">
-                                                                                                <div class="font-medium">
-                                                                                                    {"v"}{version.version_number.to_string()}
-                                                                                                </div>
-                                                                                                {is_current.then(|| view! { <Badge variant=BadgeVariant::Success>"Current"</Badge> })}
-                                                                                            </div>
-                                                                                            <div class="text-xs text-muted-foreground font-mono truncate max-w-xs">
-                                                                                                {version.dataset_version_id.clone()}
-                                                                                            </div>
-                                                                                            {version.repo_slug.clone().map(|slug| view! {
-                                                                                                <div class="text-xs text-muted-foreground truncate">{slug}</div>
-                                                                                            })}
-                                                                                        </div>
-                                                                                    </TableCell>
-                                                                                    <TableCell>
-                                                                                        <span class="text-sm text-muted-foreground">
-                                                                                            {version.version_label.clone().unwrap_or_else(|| "—".to_string())}
-                                                                                        </span>
-                                                                                    </TableCell>
-                                                                                    <TableCell>
-                                                                                        <Badge variant=trust_variant>{trust_state}</Badge>
-                                                                                    </TableCell>
-                                                                                    <TableCell>
-                                                                                        <span class="font-mono text-xs text-muted-foreground">{hash}</span>
-                                                                                    </TableCell>
-                                                                                    <TableCell>
-                                                                                        <span class="text-sm text-muted-foreground">
-                                                                                            {format_date(&version.created_at)}
-                                                                                        </span>
-                                                                                    </TableCell>
-                                                                                </TableRow>
-                                                                            }
-                                                                        }).collect::<Vec<_>>()}
-                                                                    </TableBody>
-                                                                </Table>
-                                                            }.into_any()
-                                                        }
-                                                    }
-                                                    LoadingState::Error(_) => {
-                                                        view! { <p class="text-sm text-muted-foreground">"Versions unavailable"</p> }.into_any()
-                                                    }
-                                                }}
-                                            </div>
-                                        </Card>
-
-                                        {move || {
-                                            match versions.try_get().unwrap_or(LoadingState::Idle) {
-                                                LoadingState::Loaded(DatasetVersionsResponse { versions, .. }) => {
-                                                    let preferred = dataset_version_id_store.get_value()
-                                                        .or_else(|| versions.first().map(|v| v.dataset_version_id.clone()));
-                                                    preferred.map(|id| view! {
-                                                        <Card>
-                                                            <div class="p-4 space-y-2">
-                                                                <h3 class="heading-4">"Usage"</h3>
-                                                                <p class="text-sm text-muted-foreground">
-                                                                    "Use a dataset version ID in inference or training to pin the exact data snapshot."
-                                                                </p>
-                                                                <div class="rounded-md bg-muted p-3 font-mono text-sm break-all">
-                                                                    {format!("dataset_version_id: \"{}\"", id)}
-                                                                </div>
-                                                            </div>
-                                                        </Card>
-                                                    }.into_any())
-                                                }
-                                                _ => None,
-                                            }
-                                        }}
+                                        <components::DatasetDetailTabVersions
+                                            dataset_id=dataset_id()
+                                            versions=versions
+                                            dataset_version_id=dataset_version_id.clone()
+                                            on_refresh=Callback::new(move |_| trigger_refresh())
+                                        />
                                     </TabPanel>
 
                                     <TabPanel tab=DatasetDetailTab::Files active=active_tab tab_id="files".to_string() class="pt-4 space-y-4">
-                                        <Card>
-                                            <div class="p-4 space-y-3">
-                                                <div>
-                                                    <h3 class="heading-4">"Files"</h3>
-                                                    <p class="text-sm text-muted-foreground">
-                                                        "Individual files within this dataset. Click a row to preview content."
-                                                    </p>
-                                                </div>
-                                                {move || match files.try_get().unwrap_or(LoadingState::Idle) {
-                                                    LoadingState::Idle | LoadingState::Loading => {
-                                                        view! { <SkeletonTable rows=3 columns=5/> }.into_any()
-                                                    }
-                                                    LoadingState::Loaded(file_list) => {
-                                                        if file_list.is_empty() {
-                                                            view! {
-                                                                <EmptyState
-                                                                    title="No files"
-                                                                    description="This dataset has no individual files, or files are not tracked separately."
-                                                                />
-                                                            }.into_any()
-                                                        } else {
-                                                            let dataset_id_for_files = dataset_id();
-                                                            view! {
-                                                                <Table>
-                                                                    <TableHeader>
-                                                                        <TableRow>
-                                                                            <TableHead>"Name"</TableHead>
-                                                                            <TableHead>"Size"</TableHead>
-                                                                            <TableHead>"MIME Type"</TableHead>
-                                                                            <TableHead>"Created"</TableHead>
-                                                                            <TableHead>"Hash"</TableHead>
-                                                                        </TableRow>
-                                                                    </TableHeader>
-                                                                    <TableBody>
-                                                                        {file_list.into_iter().map(|file| {
-                                                                            let fid = file.file_id.clone();
-                                                                            let fid_for_click = fid.clone();
-                                                                            let fid_for_expand = fid.clone();
-                                                                            let ds_id = dataset_id_for_files.clone();
-                                                                            let hash_short = if file.hash.len() > 10 {
-                                                                                format!("{}...", &file.hash[..10])
-                                                                            } else {
-                                                                                file.hash.clone()
-                                                                            };
-                                                                            let mime = file.mime_type.clone().unwrap_or_else(|| "—".to_string());
-                                                                            let size = format_bytes(file.size_bytes);
-                                                                            let client_for_fetch = client_for_files.get_value();
-                                                                            view! {
-                                                                                <TableRow
-                                                                                    class="cursor-pointer hover:bg-muted/50"
-                                                                                    on:click=move |_| {
-                                                                                        let current = expanded_file_id.get_untracked();
-                                                                                        if current.as_deref() == Some(fid_for_click.as_str()) {
-                                                                                            expanded_file_id.set(None);
-                                                                                            file_content.set(None);
-                                                                                            file_content_truncated.set(false);
-                                                                                        } else {
-                                                                                            expanded_file_id.set(Some(fid_for_click.clone()));
-                                                                                            file_content.set(None);
-                                                                                            file_content_truncated.set(false);
-                                                                                            #[cfg(target_arch = "wasm32")]
-                                                                                            {
-                                                                                            let fid = fid_for_click.clone();
-                                                                                            let ds_id = ds_id.clone();
-                                                                                            let client = Arc::clone(&client_for_fetch);
-                                                                                            wasm_bindgen_futures::spawn_local(async move {
-                                                                                                match client.get_dataset_file_content(&ds_id, &fid).await {
-                                                                                                    Ok(content) => {
-                                                                                                        let lines: Vec<&str> = content.lines().collect();
-                                                                                                        let truncated = lines.len() > 200;
-                                                                                                        let display = if truncated {
-                                                                                                            lines[..200].join("\n")
-                                                                                                        } else {
-                                                                                                            content.clone()
-                                                                                                        };
-                                                                                                        let _ = file_content.try_set(Some(Ok(display)));
-                                                                                                        let _ = file_content_truncated.try_set(truncated);
-                                                                                                    }
-                                                                                                    Err(e) => {
-                                                                                                        let _ = file_content.try_set(Some(Err(e.to_string())));
-                                                                                                    }
-                                                                                                }
-                                                                                            });
-                                                                                            }
-                                                                                        }
-                                                                                    }
-                                                                                >
-                                                                                    <TableCell>
-                                                                                        <span class="font-medium">{file.file_name.clone()}</span>
-                                                                                    </TableCell>
-                                                                                    <TableCell>
-                                                                                        <span class="text-sm">{size}</span>
-                                                                                    </TableCell>
-                                                                                    <TableCell>
-                                                                                        <span class="text-sm text-muted-foreground">{mime}</span>
-                                                                                    </TableCell>
-                                                                                    <TableCell>
-                                                                                        <span class="text-sm text-muted-foreground">{format_date(&file.created_at)}</span>
-                                                                                    </TableCell>
-                                                                                    <TableCell>
-                                                                                        <span class="font-mono text-xs text-muted-foreground" title=file.hash.clone()>{hash_short}</span>
-                                                                                    </TableCell>
-                                                                                </TableRow>
-                                                                                {move || {
-                                                                                    let is_expanded = expanded_file_id.try_get().flatten().as_deref() == Some(fid_for_expand.as_str());
-                                                                                    is_expanded.then(|| {
-                                                                                        let content_view = match file_content.try_get().flatten() {
-                                                                                            None => view! {
-                                                                                                <div class="flex items-center gap-2 text-sm text-muted-foreground">
-                                                                                                    <span class="inline-block h-4 w-4 animate-spin rounded-full border-2 border-current border-t-transparent"></span>
-                                                                                                    "Loading content..."
-                                                                                                </div>
-                                                                                            }.into_any(),
-                                                                                            Some(Ok(text)) => {
-                                                                                                let truncated = file_content_truncated.get_untracked();
-                                                                                                view! {
-                                                                                                    <div>
-                                                                                                        <pre class="text-sm bg-muted/30 rounded-lg p-3 overflow-x-auto whitespace-pre-wrap max-h-64 overflow-y-auto font-mono">{text}</pre>
-                                                                                                        {truncated.then(|| view! {
-                                                                                                            <p class="text-xs text-muted-foreground mt-2">
-                                                                                                                "Showing first 200 lines. Download the file for full content."
-                                                                                                            </p>
-                                                                                                        })}
-                                                                                                    </div>
-                                                                                                }.into_any()
-                                                                                            }
-                                                                                            Some(Err(e)) => view! {
-                                                                                                <p class="text-sm text-destructive">{format!("Failed to load content: {}", e)}</p>
-                                                                                            }.into_any(),
-                                                                                        };
-                                                                                        view! {
-                                                                                            <tr>
-                                                                                                <td colspan="5" class="p-3 border-t border-border bg-muted/10">
-                                                                                                    {content_view}
-                                                                                                </td>
-                                                                                            </tr>
-                                                                                        }
-                                                                                    })
-                                                                                }}
-                                                                            }
-                                                                        }).collect::<Vec<_>>()}
-                                                                    </TableBody>
-                                                                </Table>
-                                                            }.into_any()
-                                                        }
-                                                    }
-                                                    LoadingState::Error(e) => {
-                                                        view! {
-                                                            <ErrorDisplay
-                                                                error=e
-                                                                on_retry=Callback::new(move |_| trigger_refresh())
-                                                            />
-                                                        }.into_any()
-                                                    }
-                                                }}
-                                            </div>
-                                        </Card>
+                                        <components::DatasetDetailTabFiles
+                                            dataset_id=dataset_id()
+                                            files=files
+                                            on_refresh=Callback::new(move |_| trigger_refresh())
+                                        />
                                     </TabPanel>
 
                                     <TabPanel tab=DatasetDetailTab::Details active=active_tab tab_id="details".to_string() class="pt-4 space-y-4">
-                                        <div class="grid gap-6 md:grid-cols-2">
-                                            <Card>
-                                                <div class="p-4">
-                                                    <h3 class="heading-4 mb-4">"Overview"</h3>
-                                                    <dl class="space-y-3">
-                                                        <CopyableId id=data.id.clone() display_name=data.display_name.clone().unwrap_or_default() label="ID".to_string() truncate=24 />
-                                                        <div class="flex justify-between">
-                                                            <dt class="text-muted-foreground">"Type"</dt>
-                                                            <dd>
-                                                                {match data.dataset_type.as_deref() {
-                                                                    Some("identity") => view! { <Badge variant=BadgeVariant::Secondary>"Identity Set"</Badge> }.into_any(),
-                                                                    _ => view! { <Badge variant=BadgeVariant::Outline>"Standard"</Badge> }.into_any(),
-                                                                }}
-                                                            </dd>
-                                                        </div>
-                                                        <div class="flex justify-between">
-                                                            <dt class="text-muted-foreground">"Format"</dt>
-                                                            <dd>{data.format.to_uppercase()}</dd>
-                                                        </div>
-                                                        <div class="flex justify-between">
-                                                            <dt class="text-muted-foreground">"Status"</dt>
-                                                            <dd>
-                                                                <Badge variant={
-                                                                    match data.status.as_str() {
-                                                                        "ready" | "indexed" => BadgeVariant::Success,
-                                                                        "processing" => BadgeVariant::Warning,
-                                                                        "failed" | "error" => BadgeVariant::Destructive,
-                                                                        _ => BadgeVariant::Secondary,
-                                                                    }
-                                                                }>{data.status.clone()}</Badge>
-                                                            </dd>
-                                                        </div>
-                                                        <div class="flex justify-between">
-                                                            <dt class="text-muted-foreground">"Validation"</dt>
-                                                            <dd>
-                                                                {data.validation_status.clone().map(|s| {
-                                                                    let v = validation_badge_variant(&s);
-                                                                    view! { <Badge variant=v>{s}</Badge> }
-                                                                })}
-                                                            </dd>
-                                                        </div>
-                                                        <div class="flex justify-between" id="trust-state">
-                                                            <dt class="text-muted-foreground">"Trust State"</dt>
-                                                            <dd>
-                                                                {data.trust_state.clone().map(|s| {
-                                                                    let v = trust_state_badge_variant(&s);
-                                                                    view! { <Badge variant=v>{s}</Badge> }
-                                                                })}
-                                                            </dd>
-                                                        </div>
-                                                        <div class="flex justify-between">
-                                                            <dt class="text-muted-foreground">"Current Version"</dt>
-                                                            <dd class="font-mono text-xs truncate max-w-sm">
-                                                                {dataset_version_id_display.clone()}
-                                                            </dd>
-                                                        </div>
-                                                        <div class="flex justify-between">
-                                                            <dt class="text-muted-foreground">"File Count"</dt>
-                                                            <dd>{data.file_count.unwrap_or(0)}</dd>
-                                                        </div>
-                                                        <div class="flex justify-between">
-                                                            <dt class="text-muted-foreground">"Total Size"</dt>
-                                                            <dd>{data.total_size_bytes.map(format_bytes).unwrap_or_else(|| "—".to_string())}</dd>
-                                                        </div>
-                                                        <div class="flex justify-between">
-                                                            <dt class="text-muted-foreground">"Created"</dt>
-                                                            <dd>{format_date(&data.created_at)}</dd>
-                                                        </div>
-                                                        {data.hash_b3.clone().map(|hash| view! {
-                                                            <div class="flex justify-between">
-                                                                <dt class="text-muted-foreground">"Hash (B3)"</dt>
-                                                                <dd class="font-mono text-xs truncate max-w-sm">{hash}</dd>
-                                                            </div>
-                                                        })}
-                                                    </dl>
-                                                </div>
-                                            </Card>
-
-                                            <Card>
-                                                <div class="p-4">
-                                                    <h3 class="heading-4 mb-4">"Statistics"</h3>
-                                                    {move || match stats.try_get().unwrap_or(LoadingState::Idle) {
-                                                        LoadingState::Idle | LoadingState::Loading => {
-                                                            view! { <SkeletonDetailSection rows=3/> }.into_any()
-                                                        }
-                                                        LoadingState::Loaded(stats_data) => {
-                                                            view! {
-                                                                <dl class="space-y-3">
-                                                                    <div class="flex justify-between">
-                                                                        <dt class="text-muted-foreground">"Examples"</dt>
-                                                                        <dd>{stats_data.num_examples.to_string()}</dd>
-                                                                    </div>
-                                                                    <div class="flex justify-between">
-                                                                        <dt class="text-muted-foreground">"Total Tokens"</dt>
-                                                                        <dd>{stats_data.total_tokens.to_string()}</dd>
-                                                                    </div>
-                                                                    <div class="flex justify-between">
-                                                                        <dt class="text-muted-foreground">"Avg Input Length"</dt>
-                                                                        <dd>{format!("{:.1}", stats_data.avg_input_length)}</dd>
-                                                                    </div>
-                                                                    <div class="flex justify-between">
-                                                                        <dt class="text-muted-foreground">"Avg Target Length"</dt>
-                                                                        <dd>{format!("{:.1}", stats_data.avg_target_length)}</dd>
-                                                                    </div>
-                                                                </dl>
-                                                            }.into_any()
-                                                        }
-                                                        LoadingState::Error(_) => {
-                                                            view! { <p class="text-sm text-muted-foreground">"Statistics unavailable"</p> }.into_any()
-                                                        }
-                                                    }}
-                                                </div>
-                                            </Card>
-                                        </div>
+                                        <components::DatasetDetailTabDetails
+                                            data=data_for_details
+                                            stats=stats
+                                            dataset_version_id_display=dataset_version_id_display.clone()
+                                        />
                                     </TabPanel>
 
                                     <ConfirmationDialog
@@ -3129,16 +2589,16 @@ fn DatasetDraftView(
                         })}
 
                         {needs_approval.then(|| view! {
-                            <div class="p-3 rounded-md bg-warning/10 border border-warning/20 mb-3">
-                                <p class="text-sm text-warning-foreground font-medium">
+                            <div class="p-3 rounded-md bg-status-warning/10 border border-status-warning/20 mb-3">
+                                <p class="text-sm text-status-warning font-medium">
                                     "This dataset requires approval before training can proceed."
                                 </p>
                             </div>
                         })}
 
                         {has_warning_state.then(|| view! {
-                            <div class="p-3 rounded-md bg-warning/10 border border-warning/20 mb-3">
-                                <p class="text-sm text-warning-foreground font-medium">
+                            <div class="p-3 rounded-md bg-status-warning/10 border border-status-warning/20 mb-3">
+                                <p class="text-sm text-status-warning font-medium">
                                     "Training allowed with warnings. Review before proceeding."
                                 </p>
                             </div>
@@ -3165,11 +2625,11 @@ fn DatasetDraftView(
                             let warnings = result.warnings.clone();
                             view! {
                                 <div>
-                                    <h4 class="text-sm font-medium text-warning-foreground mb-2">"Warnings"</h4>
+                                    <h4 class="text-sm font-medium text-status-warning mb-2">"Warnings"</h4>
                                     <ul class="space-y-1 text-sm text-muted-foreground">
                                         {warnings.into_iter().map(|warning| view! {
                                             <li class="flex items-start gap-2">
-                                                <span class="text-warning">"•"</span>
+                                                <span class="text-status-warning">"•"</span>
                                                 <span>{warning}</span>
                                             </li>
                                         }).collect_view()}

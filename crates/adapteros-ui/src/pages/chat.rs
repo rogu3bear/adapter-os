@@ -29,7 +29,7 @@ use crate::components::{
     Checkbox, ConfirmationDialog, ConfirmationSeverity, Dialog, Input, Markdown, MarkdownStream,
     Spinner, SuggestedAdapterView, Textarea, TraceButton, TracePanel,
 };
-use crate::hooks::{use_api_resource, use_system_status, LoadingState};
+use crate::hooks::{use_system_status, LoadingState};
 use crate::signals::{
     use_chat, use_settings, ChatSessionMeta, ChatSessionsManager, ChatTarget, StreamNoticeTone,
 };
@@ -37,7 +37,6 @@ use adapteros_api_types::training::ChatMessageInput;
 use adapteros_api_types::InferenceReadyState;
 use leptos::prelude::*;
 use leptos_router::hooks::{use_navigate, use_params_map};
-use std::sync::Arc;
 use wasm_bindgen::JsCast;
 
 /// Maximum prompt length for URL-embedded prompts (bytes).
@@ -216,7 +215,7 @@ pub fn ChatSession() -> impl IntoView {
 
     view! {
         <>
-            <h1 class="sr-only">"Chat Session"</h1>
+            <h1 class="sr-only">"Prompt Studio"</h1>
             <Show when=move || mounted.try_get().unwrap_or(false) fallback=move || view! {
                 <div
                     class="chat-loading-placeholder flex items-center justify-center h-full opacity-50"
@@ -549,7 +548,7 @@ fn ChatEmptyWorkspace() -> impl IntoView {
                 // a server-issued session id.
                 let name = generate_readable_id("session", "chat");
                 match action
-                    .create_backend_session(name, Some("New Chat".to_string()))
+                    .create_backend_session(name, Some("New Conversation".to_string()))
                     .await
                 {
                     Ok(session_id) => {
@@ -603,25 +602,25 @@ fn ChatEmptyWorkspace() -> impl IntoView {
     view! {
         <div class="flex h-full items-center justify-center p-6" data-testid="chat-empty-state">
             <div class="text-center space-y-4 max-w-md">
-                <div class="mx-auto w-14 h-14 rounded-2xl bg-gradient-to-br from-primary/20 to-primary/5 flex items-center justify-center shadow-sm">
-                    <svg xmlns="http://www.w3.org/2000/svg" class="h-7 w-7 text-primary" fill="none" viewBox="0 0 24 24" stroke="currentColor" stroke-width="1.5">
+                <div class="mx-auto w-14 h-14 shrink-0 rounded-2xl bg-gradient-to-br from-primary/20 to-primary/5 flex items-center justify-center shadow-sm">
+                    <svg xmlns="http://www.w3.org/2000/svg" class="text-primary shrink-0" width="28" height="28" fill="none" viewBox="0 0 24 24" stroke="currentColor" stroke-width="1.5">
                         <path stroke-linecap="round" stroke-linejoin="round" d="M8 12h.01M12 12h.01M16 12h.01M21 12c0 4.418-4.03 8-9 8a9.863 9.863 0 01-4.255-.949L3 20l1.395-3.72C3.512 15.042 3 13.574 3 12c0-4.418 4.03-8 9-8s9 3.582 9 8z"/>
                     </svg>
                 </div>
                 <h3 class="heading-3">"Start a conversation"</h3>
                 <p class="text-sm text-muted-foreground leading-relaxed">
-                    "Create a new chat session to begin reasoning over your data with adaptive routing."
+                    "Open a guided conversation, apply the right skills automatically, and keep every response auditable."
                 </p>
                 <div class="flex items-center justify-center gap-3">
                     <Button on_click=create_session data_testid="chat-empty-new-chat".to_string()>
-                        "New Chat"
+                        "New Conversation"
                     </Button>
                     <Button
                         variant=ButtonVariant::Secondary
                         on_click=go_to_training
                         data_testid="chat-empty-create-adapter".to_string()
                     >
-                        "Create Adapter"
+                        "Teach New Skill"
                     </Button>
                 </div>
                 <p class="text-xs text-muted-foreground">
@@ -635,7 +634,7 @@ fn ChatEmptyWorkspace() -> impl IntoView {
                             go_to_adapters.run(());
                         }
                     >
-                        "browse existing adapters"
+                        "browse skill library"
                     </a>
                 </p>
             </div>
@@ -656,7 +655,7 @@ fn ChatUnavailableEntry(
         <div class="flex h-full items-center justify-center p-6" data-testid="chat-unavailable-state">
             <div class="w-full max-w-2xl rounded-lg border border-warning/40 bg-warning/10 p-6">
                 <div class="space-y-2">
-                    <h2 class="heading-3">"Chat unavailable"</h2>
+                    <h2 class="heading-3">"Conversation unavailable"</h2>
                     <p class="text-sm text-muted-foreground" data-testid="chat-unavailable-reason">
                         {reason}"."
                     </p>
@@ -791,7 +790,7 @@ fn SessionListPanel(
             wasm_bindgen_futures::spawn_local(async move {
                 let name = generate_readable_id("session", "chat");
                 match action
-                    .create_backend_session(name, Some("New Chat".to_string()))
+                    .create_backend_session(name, Some("New Conversation".to_string()))
                     .await
                 {
                     Ok(session_id) => {
@@ -840,7 +839,7 @@ fn SessionListPanel(
             wasm_bindgen_futures::spawn_local(async move {
                 let name = generate_readable_id("session", "chat");
                 match action
-                    .create_backend_session(name, Some("New Chat".to_string()))
+                    .create_backend_session(name, Some("New Conversation".to_string()))
                     .await
                 {
                     Ok(session_id) => {
@@ -1059,18 +1058,18 @@ fn SessionListPanel(
             // Header with search and new button
             <div class="p-3 space-y-2 border-b border-border shrink-0">
                 <div class="flex items-center justify-between">
-                    <h2 class="text-sm font-semibold">"Sessions"</h2>
+                    <h2 class="text-sm font-semibold">"Conversations"</h2>
                     <button
                         class="inline-flex items-center gap-1 px-2 py-1 text-xs font-medium rounded-md bg-primary text-primary-foreground hover:bg-primary/90 transition-colors"
                         on:click=move |_| create_session.run(())
-                        title="New chat session"
-                        aria-label="New Session"
+                        title="New conversation"
+                        aria-label="New Conversation"
                         data-testid="chat-sidebar-new-session"
                     >
                         <svg xmlns="http://www.w3.org/2000/svg" class="h-3 w-3" fill="none" viewBox="0 0 24 24" stroke="currentColor" stroke-width="2">
                             <path stroke-linecap="round" stroke-linejoin="round" d="M12 4v16m8-8H4"/>
                         </svg>
-                        "New Session"
+                        "New Conversation"
                     </button>
                 </div>
                 <div class="grid grid-cols-3 gap-1 rounded-lg bg-muted/40 p-1">
@@ -1137,8 +1136,8 @@ fn SessionListPanel(
                                 || selected_training_count.try_get().unwrap_or(0) == 0
                         }
                         on:click=move |_| learn_and_generate_adapter.run(())
-                        title="Create training data from selected chats and open training"
-                        aria-label="Learn and Generate Adapter"
+                        title="Create a new skill from selected conversations"
+                        aria-label="Teach Skill From Selected Conversations"
                         data-testid="chat-sidebar-learn"
                     >
                         <svg xmlns="http://www.w3.org/2000/svg" class="h-3.5 w-3.5" fill="none" viewBox="0 0 24 24" stroke="currentColor" stroke-width="2">
@@ -1148,16 +1147,20 @@ fn SessionListPanel(
                             if creating_training_dataset.try_get().unwrap_or(false) {
                                 "Preparing training data..."
                             } else {
-                                "Learn & Generate Adapter"
+                                "Teach Skill from Selection"
                             }
                         }}
                     </button>
                     <div class="flex items-center justify-between gap-2 text-2xs text-muted-foreground">
                         <span>
-                            {move || format!(
-                                "{} selected",
-                                selected_training_count.try_get().unwrap_or(0)
-                            )}
+                            {move || {
+                                let count = selected_training_count.try_get().unwrap_or(0);
+                                if count == 0 {
+                                    "Select conversations below to enable".to_string()
+                                } else {
+                                    format!("{} selected", count)
+                                }
+                            }}
                         </span>
                         <button
                             class="underline decoration-dotted hover:text-foreground disabled:no-underline disabled:cursor-not-allowed"
@@ -1194,7 +1197,7 @@ fn SessionListPanel(
                         <div class="px-3 py-2 border-b border-primary/20 bg-primary/5 shrink-0">
                             <div class="flex items-center justify-between gap-2">
                                 <div class="min-w-0">
-                                    <p class="text-xs font-medium truncate">"Continue conversation"</p>
+                                    <p class="text-xs font-medium truncate">"Continue this draft"</p>
                                     <p class="text-2xs text-muted-foreground">
                                         {move || format!("{} messages", dock_message_count.try_get().unwrap_or(0))}
                                     </p>
@@ -1232,7 +1235,7 @@ fn SessionListPanel(
                             let create_session_shared = create_session;
                             return view! {
                                 <div class="p-6 text-center space-y-2">
-                                    <p class="text-xs text-muted-foreground">"No sessions shared with you yet"</p>
+                                    <p class="text-xs text-muted-foreground">"No shared conversations yet"</p>
                                     <div class="flex items-center justify-center gap-2">
                                         <Button
                                             variant=ButtonVariant::Ghost
@@ -1249,7 +1252,7 @@ fn SessionListPanel(
                                             size=ButtonSize::Sm
                                             on_click=Callback::new(move |_| create_session_shared.run(()))
                                         >
-                                            "New session"
+                                            "New conversation"
                                         </Button>
                                     </div>
                                 </div>
@@ -1280,11 +1283,11 @@ fn SessionListPanel(
                         let create_session_empty = create_session;
                         let has_search = !search_query.try_get().unwrap_or_default().is_empty();
                         let message = if has_search {
-                            "No matching sessions"
+                            "No matching conversations"
                         } else if showing_archived {
-                            "No archived sessions"
+                            "No archived conversations"
                         } else {
-                            "No sessions yet"
+                            "No conversations yet"
                         };
                         view! {
                             <div class="p-6 text-center space-y-2">
@@ -1319,7 +1322,7 @@ fn SessionListPanel(
                                             size=ButtonSize::Sm
                                             on_click=Callback::new(move |_| create_session_empty.run(()))
                                         >
-                                            "New session"
+                                            "New conversation"
                                         </Button>
                                     }.into_any()
                                 }}
@@ -1419,7 +1422,7 @@ fn SessionListItem(
     /// Whether this session is currently selected
     #[prop(into)]
     selected: Signal<bool>,
-    /// Whether this session is selected for "Learn & Generate Adapter"
+    /// Whether this session is selected for "Teach Skill from Selection"
     #[prop(into)]
     training_selected: Signal<bool>,
     /// Callback for selecting this session as training input
@@ -1438,7 +1441,7 @@ fn SessionListItem(
     let message_count = session.message_count;
     let session_title = session.title.clone();
     let session_preview = session.preview.clone();
-    let training_aria_label = format!("Select '{}' for adapter learning", session_title.clone());
+    let training_aria_label = format!("Select '{}' for skill teaching", session_title.clone());
     let archive_action = on_archive;
     let unarchive_action = on_unarchive;
 
@@ -1548,17 +1551,17 @@ fn SessionListItem(
     view! {
         <div
             class=move || format!(
-                "group relative flex items-start gap-2 py-2 px-3 transition-colors {}",
+                "chat-session-row {}",
                 if selected.try_get().unwrap_or(false) {
-                    "bg-primary/10 border-l-2 border-l-primary"
+                    "chat-session-row--active"
                 } else {
-                    "hover:bg-muted/50 border-l-2 border-l-transparent"
+                    ""
                 }
             )
             data-testid="chat-session-row"
         >
             <div
-                class="pt-0.5 shrink-0"
+                class="chat-session-row-checkbox"
                 data-testid="chat-session-training-checkbox"
                 on:click=move |ev: web_sys::MouseEvent| {
                     ev.prevent_default();
@@ -1572,51 +1575,44 @@ fn SessionListItem(
                 />
             </div>
 
-            <a href=href class="flex-1 min-w-0">
-                <div class="min-w-0">
-                    // Title
-                    <h3 class="text-sm font-medium truncate">{session_title}</h3>
+            <a href=href class="chat-session-row-link">
+                <h3 class="chat-session-row-title">{session_title}</h3>
 
-                    // Preview
-                    {if !session_preview.is_empty() {
-                        let preview = session_preview.clone();
-                        Some(view! {
-                            <p class="text-xs text-muted-foreground mt-0.5 line-clamp-1">
-                                {preview}
-                            </p>
-                        })
-                    } else {
-                        None
-                    }}
+                {if !session_preview.is_empty() {
+                    let preview = session_preview.clone();
+                    Some(view! {
+                        <p class="chat-session-row-preview">{preview}</p>
+                    })
+                } else {
+                    None
+                }}
 
-                    // Metadata
-                    <div class="flex items-center gap-2 mt-0.5 text-2xs text-muted-foreground">
-                        {move || {
-                            let show_timestamps = settings
-                                .try_get()
-                                .map(|s| s.show_timestamps)
-                                .unwrap_or(true);
-                            if show_timestamps {
-                                view! {
-                                    <>
-                                        <span>{format_relative_time(&updated_at)}</span>
-                                        <span>"·"</span>
-                                    </>
-                                }
-                                .into_any()
-                            } else {
-                                view! {}.into_any()
+                <div class="chat-session-row-meta">
+                    {move || {
+                        let show_timestamps = settings
+                            .try_get()
+                            .map(|s| s.show_timestamps)
+                            .unwrap_or(true);
+                        if show_timestamps {
+                            view! {
+                                <>
+                                    <span>{format_relative_time(&updated_at)}</span>
+                                    <span>"·"</span>
+                                </>
                             }
-                        }}
-                        <span>{format!("{} msgs", message_count)}</span>
-                    </div>
+                            .into_any()
+                        } else {
+                            view! {}.into_any()
+                        }
+                    }}
+                    <span>{format!("{} msgs", message_count)}</span>
                 </div>
             </a>
 
-            <div class="flex items-center gap-1 shrink-0">
+            <div class="chat-session-row-actions">
                 {archive_action.map(|archive| view! {
                     <button
-                        class="p-1 rounded hover:bg-primary/10 text-muted-foreground hover:text-primary transition-colors"
+                        class="chat-session-row-action"
                         on:click=move |ev: web_sys::MouseEvent| {
                             ev.prevent_default();
                             ev.stop_propagation();
@@ -1626,14 +1622,14 @@ fn SessionListItem(
                         aria-label="Archive session"
                         data-testid="chat-session-archive"
                     >
-                        <svg xmlns="http://www.w3.org/2000/svg" class="h-3.5 w-3.5" fill="none" viewBox="0 0 24 24" stroke="currentColor" stroke-width="2">
+                        <svg xmlns="http://www.w3.org/2000/svg" fill="none" viewBox="0 0 24 24" stroke="currentColor" stroke-width="2">
                             <path stroke-linecap="round" stroke-linejoin="round" d="M3 7h18M5 7v10a2 2 0 002 2h10a2 2 0 002-2V7M9 11h6"/>
                         </svg>
                     </button>
                 })}
                 {unarchive_action.map(|unarchive| view! {
                     <button
-                        class="p-1 rounded hover:bg-primary/10 text-muted-foreground hover:text-primary transition-colors"
+                        class="chat-session-row-action"
                         on:click=move |ev: web_sys::MouseEvent| {
                             ev.prevent_default();
                             ev.stop_propagation();
@@ -1643,13 +1639,13 @@ fn SessionListItem(
                         aria-label="Restore session"
                         data-testid="chat-session-unarchive"
                     >
-                        <svg xmlns="http://www.w3.org/2000/svg" class="h-3.5 w-3.5" fill="none" viewBox="0 0 24 24" stroke="currentColor" stroke-width="2">
+                        <svg xmlns="http://www.w3.org/2000/svg" fill="none" viewBox="0 0 24 24" stroke="currentColor" stroke-width="2">
                             <path stroke-linecap="round" stroke-linejoin="round" d="M4 12a8 8 0 118 8M4 12V8m0 4h4"/>
                         </svg>
                     </button>
                 })}
                 <button
-                    class="p-1 rounded hover:bg-destructive/10 text-muted-foreground hover:text-destructive transition-colors"
+                    class="chat-session-row-action chat-session-row-action--destructive"
                     on:click=move |ev: web_sys::MouseEvent| {
                         ev.prevent_default();
                         ev.stop_propagation();
@@ -1659,16 +1655,15 @@ fn SessionListItem(
                     aria-label="Delete session"
                     data-testid="chat-session-delete"
                 >
-                    <svg xmlns="http://www.w3.org/2000/svg" class="h-3.5 w-3.5" fill="none" viewBox="0 0 24 24" stroke="currentColor" stroke-width="2">
+                    <svg xmlns="http://www.w3.org/2000/svg" fill="none" viewBox="0 0 24 24" stroke="currentColor" stroke-width="2">
                         <path stroke-linecap="round" stroke-linejoin="round" d="M19 7l-.867 12.142A2 2 0 0116.138 21H7.862a2 2 0 01-1.995-1.858L5 7m5 4v6m4-6v6m1-10V4a1 1 0 00-1-1h-4a1 1 0 00-1 1v3M4 7h16"/>
                     </svg>
                 </button>
 
-                // Overflow menu (kebab)
                 <div class="relative">
                     <button
                         node_ref=overflow_trigger_ref
-                        class="p-1 rounded hover:bg-muted/50 text-muted-foreground hover:text-foreground transition-colors"
+                        class="chat-session-row-action chat-session-row-action--muted"
                         on:click=move |ev: web_sys::MouseEvent| {
                             ev.prevent_default();
                             ev.stop_propagation();
@@ -1680,7 +1675,7 @@ fn SessionListItem(
                         attr:aria-expanded=move || show_overflow.try_get().unwrap_or(false).to_string()
                         data-testid="chat-session-overflow"
                     >
-                        <svg xmlns="http://www.w3.org/2000/svg" class="h-3.5 w-3.5" fill="currentColor" viewBox="0 0 20 20">
+                        <svg xmlns="http://www.w3.org/2000/svg" fill="currentColor" viewBox="0 0 20 20">
                             <circle cx="10" cy="4" r="1.5"/>
                             <circle cx="10" cy="10" r="1.5"/>
                             <circle cx="10" cy="16" r="1.5"/>
@@ -1748,7 +1743,7 @@ fn SessionListItem(
                                         show_provenance_panel.set(true);
                                     }
                                 >
-                                    "Provenance"
+                                    "Evidence"
                                 </button>
                                 {is_archived.then(|| view! {
                                     <div class="border-t border-border my-1" role="separator" />
@@ -1938,7 +1933,7 @@ fn ChatConversationMessageItem(
                                                 view! {
                                                     <span class="inline-flex items-center gap-1.5 text-muted-foreground">
                                                         <Spinner/>
-                                                        <span class="text-xs">"Routing..."</span>
+                                                        <span class="text-xs">"Preparing response..."</span>
                                                     </span>
                                                 }.into_any()
                                             }}
@@ -1958,6 +1953,7 @@ fn ChatConversationMessageItem(
                                 let trace = trace_id.clone();
                                 let run_overview_url = trace.clone().map(|tid| format!("/runs/{}", tid));
                                 let run_receipt_url = trace.clone().map(|tid| format!("/runs/{}?tab=receipt", tid));
+                                let run_replay_url = trace.clone().map(|tid| format!("/runs/{}?tab=replay", tid));
                                 Some(view! {
                                     <div class="flex items-center gap-3 mt-1 px-1 flex-wrap" data-testid="chat-trace-links">
                                         {trace.clone().map(|tid| view! {
@@ -1975,18 +1971,18 @@ fn ChatConversationMessageItem(
                                                 <a
                                                     href=url
                                                     class="text-xs text-muted-foreground hover:text-primary transition-colors px-1.5 py-0.5 rounded hover:bg-muted"
-                                                    title="View Run Detail"
+                                                    title="View Restore Point"
                                                     data-testid="chat-run-link"
                                                 >
-                                                    "Run"
+                                                    "Restore Point"
                                                 </a>
                                             }.into_any()).unwrap_or_else(|| view! {
                                                 <span
                                                     class="text-xs text-muted-foreground/60 px-1.5 py-0.5 rounded"
-                                                    title="Run detail unavailable"
+                                                    title="Restore point unavailable"
                                                     data-testid="chat-run-link"
                                                 >
-                                                    "Run"
+                                                    "Restore Point"
                                                 </span>
                                             }.into_any())}
                                             <span class="text-muted-foreground/50">"·"</span>
@@ -1994,18 +1990,37 @@ fn ChatConversationMessageItem(
                                                 <a
                                                     href=url
                                                     class="text-xs text-muted-foreground hover:text-primary transition-colors px-1.5 py-0.5 rounded hover:bg-muted"
-                                                    title="View Receipt"
+                                                    title="View Signed System Log"
                                                     data-testid="chat-receipt-link"
                                                 >
-                                                    "Receipt"
+                                                    "Signed Log"
                                                 </a>
                                             }.into_any()).unwrap_or_else(|| view! {
                                                 <span
                                                     class="text-xs text-muted-foreground/60 px-1.5 py-0.5 rounded"
-                                                    title="Receipt unavailable"
+                                                    title="Signed system log unavailable"
                                                     data-testid="chat-receipt-link"
                                                 >
-                                                    "Receipt"
+                                                    "Signed Log"
+                                                </span>
+                                            }.into_any())}
+                                            <span class="text-muted-foreground/50">"·"</span>
+                                            {run_replay_url.map(|url| view! {
+                                                <a
+                                                    href=url
+                                                    class="text-xs text-muted-foreground hover:text-primary transition-colors px-1.5 py-0.5 rounded hover:bg-muted"
+                                                    title="Replay this response exactly"
+                                                    data-testid="chat-replay-link"
+                                                >
+                                                    "Replay Exactly"
+                                                </a>
+                                            }.into_any()).unwrap_or_else(|| view! {
+                                                <span
+                                                    class="text-xs text-muted-foreground/60 px-1.5 py-0.5 rounded"
+                                                    title="Replay unavailable"
+                                                    data-testid="chat-replay-link"
+                                                >
+                                                    "Replay Exactly"
                                                 </span>
                                             }.into_any())}
                                         </div>
@@ -2498,6 +2513,30 @@ fn ChatConversationPanel(
             .iter()
             .map(|m| m.id.clone())
             .collect::<Vec<_>>()
+    });
+
+    let latest_trace_id = Memo::new(move |_| {
+        chat_state
+            .try_get()
+            .unwrap_or_default()
+            .messages
+            .iter()
+            .rev()
+            .find_map(|msg| msg.trace_id.clone())
+    });
+
+    let latest_replay_url = Signal::derive(move || {
+        latest_trace_id
+            .try_get()
+            .flatten()
+            .map(|trace_id| format!("/runs/{}?tab=replay", trace_id))
+    });
+
+    let latest_signed_log_url = Signal::derive(move || {
+        latest_trace_id
+            .try_get()
+            .flatten()
+            .map(|trace_id| format!("/runs/{}?tab=receipt", trace_id))
     });
 
     // Track tail updates so auto-scroll follows streaming token appends.
@@ -3010,6 +3049,16 @@ fn ChatConversationPanel(
         Effect::new(move |_| {
             let id = session_id();
             if id.is_empty() {
+                session_tags.set(Vec::new());
+                return;
+            }
+            // Placeholder sessions are local drafts that are not guaranteed to exist on the server.
+            // Skip tag fetches until the session is confirmed to avoid noisy 404s.
+            let is_server_confirmed = ChatSessionsManager::load_session(&id)
+                .map(|session| !session.placeholder)
+                .unwrap_or(false);
+            if !is_server_confirmed {
+                session_tags.set(Vec::new());
                 return;
             }
             let id = id.clone();
@@ -3031,7 +3080,7 @@ fn ChatConversationPanel(
                 data-testid="chat-header"
             >
                 <div class="space-y-1">
-                    <h2 class="heading-3">"Chat Session"</h2>
+                    <h2 class="heading-3">"Prompt Studio"</h2>
                     <div class="flex items-center gap-2 text-xs text-muted-foreground">
                         <span class="uppercase tracking-wider text-2xs font-medium">"Session"</span>
                         <span
@@ -3141,10 +3190,10 @@ fn ChatConversationPanel(
                         <button
                             class="px-2 py-1 text-xs rounded-md border border-border hover:bg-muted/50 transition-colors"
                             on:click=move |_| show_header_provenance.set(true)
-                            title="View provenance"
+                            title="View evidence"
                             data-testid="chat-header-provenance"
                         >
-                            "Provenance"
+                            "Evidence"
                         </button>
                     </div>
                 </div>
@@ -3200,6 +3249,13 @@ fn ChatConversationPanel(
                 if show_header_tags.try_get().unwrap_or(false) {
                     let refresh_tags = Callback::new(move |_: ()| {
                         let id = session_id();
+                        let is_server_confirmed = ChatSessionsManager::load_session(&id)
+                            .map(|session| !session.placeholder)
+                            .unwrap_or(false);
+                        if !is_server_confirmed {
+                            session_tags.set(Vec::new());
+                            return;
+                        }
                         wasm_bindgen_futures::spawn_local(async move {
                             let client = ApiClient::with_base_url(api_base_url());
                             if let Ok(resp) = client.get_session_tags(&id).await {
@@ -3322,17 +3378,64 @@ fn ChatConversationPanel(
                 })
             }}
 
-            // Unified Adapters Region: Active, Pinned, Suggested + Manage
-            <ChatAdaptersRegion
-                active_adapters=adapter_magnets
-                pinned_adapters=pinned_adapters
-                suggestions=suggested_adapters
-                pending=adapter_selection_pending
-                on_select_override=on_select_override
-                on_toggle_pin=on_toggle_pin
-                on_set_pinned=on_set_pinned
-                loading=is_streaming
-            />
+            <details class="rounded-lg border border-border/60 bg-card/60 px-3 py-2" data-testid="chat-advanced-adapter-controls">
+                <summary class="cursor-pointer text-xs font-semibold uppercase tracking-wide text-muted-foreground">
+                    "Advanced adapter controls"
+                </summary>
+                <div class="mt-3">
+                    // Unified Adapters Region: Active, Pinned, Suggested + Manage
+                    <ChatAdaptersRegion
+                        active_adapters=adapter_magnets
+                        pinned_adapters=pinned_adapters
+                        suggestions=suggested_adapters
+                        pending=adapter_selection_pending
+                        on_select_override=on_select_override
+                        on_toggle_pin=on_toggle_pin
+                        on_set_pinned=on_set_pinned
+                        loading=is_streaming
+                    />
+                </div>
+            </details>
+
+            {move || {
+                latest_replay_url.try_get().flatten().map(|replay_href| {
+                    let signed_log_href = latest_signed_log_url
+                        .try_get()
+                        .flatten()
+                        .unwrap_or_else(|| "/runs".to_string());
+                    view! {
+                        <div
+                            class="rounded-lg border border-primary/25 bg-primary/5 px-4 py-3"
+                            data-testid="chat-replay-proof-banner"
+                        >
+                            <div class="flex flex-wrap items-center justify-between gap-3">
+                                <div class="space-y-1">
+                                    <p class="text-sm font-medium">"Replay with proof is ready"</p>
+                                    <p class="text-xs text-muted-foreground">
+                                        "You can replay the latest response with locked output and review its signed log trail."
+                                    </p>
+                                </div>
+                                <div class="flex items-center gap-2">
+                                    <ButtonLink
+                                        href=replay_href
+                                        variant=ButtonVariant::Primary
+                                        size=ButtonSize::Sm
+                                    >
+                                        "Replay Exact Response"
+                                    </ButtonLink>
+                                    <ButtonLink
+                                        href=signed_log_href
+                                        variant=ButtonVariant::Outline
+                                        size=ButtonSize::Sm
+                                    >
+                                        "View Signed Log"
+                                    </ButtonLink>
+                                </div>
+                            </div>
+                        </div>
+                    }
+                })
+            }}
 
             // Messages
             <div class="relative flex-1 min-h-0">
@@ -3395,10 +3498,12 @@ fn ChatConversationPanel(
                                 >
                                     <div class="text-center space-y-4 max-w-md px-4">
                                         // Conversation icon with gradient background
-                                        <div class="mx-auto w-14 h-14 rounded-2xl bg-gradient-to-br from-primary/20 to-primary/5 flex items-center justify-center shadow-sm">
+                                        <div class="mx-auto w-14 h-14 shrink-0 rounded-2xl bg-gradient-to-br from-primary/20 to-primary/5 flex items-center justify-center shadow-sm">
                                             <svg
                                                 xmlns="http://www.w3.org/2000/svg"
-                                                class="h-7 w-7 text-primary"
+                                                class="text-primary shrink-0"
+                                                width="28"
+                                                height="28"
                                                 fill="none"
                                                 viewBox="0 0 24 24"
                                                 stroke="currentColor"
@@ -3414,12 +3519,12 @@ fn ChatConversationPanel(
                                         <div class="space-y-2">
                                             <h3 class="heading-4 text-foreground">"What would you like to explore?"</h3>
                                             <p class="text-sm text-muted-foreground leading-relaxed">
-                                                "Ask a question to begin. The system will automatically route your request to the best adapters for the task."
+                                                "Ask anything to begin. The system will route your request to the best skill stack and keep a signed record."
                                             </p>
                                         </div>
                                         // Suggestion chips (clickable to pre-fill)
                                         <div class="flex flex-wrap justify-center gap-2 pt-2">
-                                            {["Summarize a document", "Explain a concept", "Review code"].into_iter().map(|prompt| {
+                                            {["Summarize this document", "Draft a customer reply", "Review this code change"].into_iter().map(|prompt| {
                                                 let prompt_text = prompt.to_string();
                                                 view! {
                                                     <button
@@ -3486,7 +3591,7 @@ fn ChatConversationPanel(
                                                 .unwrap_or(false);
 
                                             let (icon_color, bg_color) = if is_warning {
-                                                ("text-warning", "bg-warning/5 border-warning/20")
+                                                ("text-status-warning", "bg-warning/5 border-warning/20")
                                             } else {
                                                 ("text-destructive", "bg-destructive/5 border-destructive/20")
                                             };
@@ -3495,7 +3600,7 @@ fn ChatConversationPanel(
                                             let help_hint = notice.as_ref().and_then(|n| {
                                                 match n.message.as_str() {
                                                     "Server is busy" => Some("The server is processing many requests. Retrying usually helps."),
-                                                    "No workers available" => Some("All inference workers are busy. Try again in a moment."),
+                                                    "No workers available" => Some("All inference engines are busy. Try again in a moment."),
                                                     "Connection lost" => Some("Check your network connection and try again."),
                                                     "Request already in progress" => Some("Wait for the current request to finish."),
                                                     "Session expired" => Some("You need to log in again to continue."),
@@ -3655,7 +3760,7 @@ fn ChatConversationPanel(
                     let help_text = notice.as_ref().and_then(|n| {
                         match n.message.as_str() {
                             "Server is busy" => Some("The server is processing many requests. Retrying usually helps."),
-                            "No workers available" => Some("All inference workers are busy. Try again in a moment."),
+                            "No workers available" => Some("All inference engines are busy. Try again in a moment."),
                             "Connection lost" => Some("Check your network connection and try again."),
                             "Request already in progress" => Some("Wait for the current request to finish."),
                             "Session expired" => Some("You need to log in again to continue."),
@@ -4718,7 +4823,7 @@ fn ProvenancePanel(session_id: String, #[prop(into)] on_close: Callback<()>) -> 
     });
 
     view! {
-        <Dialog open=open title="Session Provenance">
+        <Dialog open=open title="Session Evidence">
             <div class="space-y-4 max-h-96 overflow-y-auto">
                 {move || {
                     if loading.try_get().unwrap_or(true) {

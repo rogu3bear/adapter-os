@@ -1,167 +1,35 @@
 //! Dashboard page
+//!
+//! Calm Home: trust anchors visible, Guided Flow as hero, minimal operational noise.
+//! Full metrics and infrastructure live at /system.
 
-use crate::api::{use_sse_json_events, ActivityEventResponse, ApiClient, SseState};
+use crate::api::SseState;
 use crate::boot_log;
 use crate::components::inference_guidance::{guidance_for, primary_blocker};
 use crate::components::status_center::use_status_center;
 use crate::components::{
-    Button, ButtonLink, ButtonSize, ButtonVariant, Card, ChartPoint, DataSeries, EmptyState,
-    EmptyStateVariant, ErrorDisplay, IconCheckCircle, IconPlay, IconServer, LineChart,
-    PageScaffold, PageScaffoldActions, SkeletonCard, SkeletonStatsGrid, SparklineMetric, Spinner,
-    StatusColor, StatusIconBox, StatusIndicator, StatusVariant, TimeSeriesData, WorkerStatusBadge,
+    Button, ButtonLink, ButtonSize, ButtonVariant, Card, ErrorDisplay, IconCheckCircle, IconPlay,
+    PageScaffold, PageScaffoldActions, PageScaffoldPrimaryAction, SkeletonStatsGrid, StatusColor,
+    StatusIconBox, StatusIndicator, StatusVariant,
 };
 use crate::hooks::{
-    use_cached_api_resource, use_sse_notifications, use_system_status, CacheTtl, LoadingState,
+    use_live_system_metrics, use_sse_notifications, use_system_status, LoadingState,
 };
-use crate::pages::training::utils::format_backend_or;
-use crate::pages::workers::is_terminal_worker_status;
-use crate::signals::use_auth;
 use crate::utils::format_relative_time;
 use adapteros_api_types::{
-    InferenceReadyState, StatusIndicator as ApiStatusIndicator, SystemMetricsResponse,
-    SystemStatusResponse, WorkerResponse,
+    InferenceReadyState, StatusIndicator as ApiStatusIndicator, SystemStatusResponse,
 };
 use leptos::prelude::*;
-use std::collections::VecDeque;
-use std::sync::Arc;
-
-/// Maximum number of data points to keep in history for charts
-const METRICS_HISTORY_SIZE: usize = 60;
-
-/// Lightweight snapshot of metrics for display - avoids cloning full response
-#[derive(Clone)]
-struct MetricsSnapshot {
-    cpu_usage: f32,
-    memory_usage: f32,
-    gpu_utilization: f32,
-    requests_per_second: f32,
-    avg_latency_ms: f32,
-    active_workers: i32,
-    active_sessions: Option<i32>,
-    uptime_seconds: u64,
-    load_1min: f64,
-    load_5min: f64,
-    load_15min: f64,
-    /// 95th percentile inference latency (None if server doesn't report it)
-    latency_p95_ms: Option<f32>,
-    /// Tokens generated per second across all workers
-    tokens_per_second: Option<f32>,
-    /// Error rate as fraction (0.0-1.0)
-    error_rate: Option<f32>,
-}
-
-impl From<&SystemMetricsResponse> for MetricsSnapshot {
-    fn from(m: &SystemMetricsResponse) -> Self {
-        Self {
-            cpu_usage: m.cpu_usage_percent.unwrap_or(m.cpu_usage),
-            memory_usage: m.memory_usage_percent.unwrap_or(m.memory_usage),
-            gpu_utilization: m.gpu_utilization,
-            requests_per_second: m.requests_per_second,
-            avg_latency_ms: m.avg_latency_ms,
-            active_workers: m.active_workers,
-            active_sessions: m.active_sessions,
-            uptime_seconds: m.uptime_seconds,
-            load_1min: m.load_average.load_1min,
-            load_5min: m.load_average.load_5min,
-            load_15min: m.load_average.load_15min,
-            latency_p95_ms: m.latency_p95_ms,
-            tokens_per_second: m.tokens_per_second,
-            error_rate: m.error_rate,
-        }
-    }
-}
-
-/// A single timestamped metrics entry for history tracking.
-#[derive(Clone, Copy)]
-struct TimestampedMetrics {
-    timestamp: u64,
-    cpu_usage: f64,
-    memory_usage: f64,
-    gpu_utilization: f64,
-    requests_per_second: f64,
-    avg_latency_ms: f64,
-}
-
-impl TimestampedMetrics {
-    fn from_response(metrics: &SystemMetricsResponse, timestamp: u64) -> Self {
-        Self {
-            timestamp,
-            cpu_usage: metrics.cpu_usage_percent.unwrap_or(metrics.cpu_usage) as f64,
-            memory_usage: metrics.memory_usage_percent.unwrap_or(metrics.memory_usage) as f64,
-            gpu_utilization: metrics.gpu_utilization as f64,
-            requests_per_second: metrics.requests_per_second as f64,
-            avg_latency_ms: metrics.avg_latency_ms as f64,
-        }
-    }
-}
-
-/// Metrics history for chart visualization using a single synchronized buffer.
-#[derive(Clone, Default)]
-struct MetricsHistory {
-    snapshots: VecDeque<TimestampedMetrics>,
-    /// Version counter to enable cheap change detection
-    version: u64,
-}
-
-impl MetricsHistory {
-    fn push(&mut self, metrics: &SystemMetricsResponse, timestamp: u64) {
-        self.snapshots
-            .push_back(TimestampedMetrics::from_response(metrics, timestamp));
-
-        // Single trim operation
-        while self.snapshots.len() > METRICS_HISTORY_SIZE {
-            self.snapshots.pop_front();
-        }
-
-        // Increment version for change detection
-        self.version = self.version.wrapping_add(1);
-    }
-
-    /// Extract a single metric field as Vec<f64> for sparklines.
-    fn extract<F>(&self, f: F) -> Vec<f64>
-    where
-        F: Fn(&TimestampedMetrics) -> f64,
-    {
-        self.snapshots.iter().map(f).collect()
-    }
-
-    fn to_time_series<F>(&self, name: &str, extractor: F) -> TimeSeriesData
-    where
-        F: Fn(&TimestampedMetrics) -> f64,
-    {
-        let points: Vec<ChartPoint> = self
-            .snapshots
-            .iter()
-            .map(|s| ChartPoint::new(s.timestamp, extractor(s)))
-            .collect();
-
-        let mut data = TimeSeriesData::new();
-        data.series.push(DataSeries {
-            name: name.to_string(),
-            points,
-            color: String::new(),
-        });
-        data
-    }
-
-    fn throughput_series(&self) -> TimeSeriesData {
-        self.to_time_series("Requests/sec", |s| s.requests_per_second)
-    }
-
-    fn latency_series(&self) -> TimeSeriesData {
-        self.to_time_series("Latency (ms)", |s| s.avg_latency_ms)
-    }
-}
 
 /// Dashboard page
 #[component]
 pub fn Dashboard() -> impl IntoView {
     boot_log("route", "Dashboard rendered");
 
-    // Fetch system status (SWR-cached to avoid spinner flash on re-navigation)
     let (status, refetch) = use_system_status();
+    let live_metrics = use_live_system_metrics();
+    use_sse_notifications(live_metrics.sse_status.read_only());
 
-    // Log first successful status fetch
     let logged_first_status = StoredValue::new(false);
     Effect::new(move || {
         let Some(current) = status.try_get() else {
@@ -175,183 +43,59 @@ pub fn Dashboard() -> impl IntoView {
         }
     });
 
-    // Fetch workers list (SWR-cached)
-    let (workers, refetch_workers) = use_cached_api_resource(
-        "workers_list",
-        CacheTtl::LIST,
-        |client: Arc<ApiClient>| async move { client.list_workers().await },
-    );
-
-    let (auth_state, _) = use_auth();
-    let can_view_activity = Memo::new(move |_| {
-        auth_state
-            .try_get()
-            .and_then(|s| {
-                s.user()
-                    .map(|u| u.role == "admin" || u.permissions.iter().any(|p| p == "ActivityView"))
-            })
-            .unwrap_or(false)
-    });
-
-    // Fetch activity feed (permission-aware, SWR-cached)
-    let (activity, refetch_activity) = use_cached_api_resource(
-        "activity_recent",
-        CacheTtl::LIST,
-        move |client: Arc<ApiClient>| async move {
-            if !can_view_activity.get_untracked() {
-                Ok(Vec::new())
-            } else {
-                client.activity_feed(Some(20)).await
-            }
-        },
-    );
-
-    // Live metrics snapshot - lightweight struct for display (avoids full response clone)
-    let live_metrics: RwSignal<Option<MetricsSnapshot>> = RwSignal::new(None);
-
-    // Metrics history for charts
-    let metrics_history: RwSignal<MetricsHistory> = RwSignal::new(MetricsHistory::default());
-    let last_metrics_update = StoredValue::new(0u64);
-
-    // SSE connection for real-time metrics updates
-    let (sse_status, _sse_reconnect) = use_sse_json_events::<SystemMetricsResponse, _>(
-        "/v1/stream/metrics",
-        &["metrics"],
-        move |metrics| {
-            let Some(last) = last_metrics_update.try_get_value() else {
-                return;
-            };
-            let now = js_sys::Date::now() as u64;
-            if now.saturating_sub(last) < 250 {
-                return;
-            }
-            let _ = last_metrics_update.try_set_value(now);
-
-            // Store lightweight snapshot instead of full response
-            let _ = live_metrics.try_set(Some(MetricsSnapshot::from(&metrics)));
-
-            // Add to history with timestamp
-            let _ = metrics_history.try_update(|h| h.push(&metrics, now));
-        },
-    );
-
-    // Bridge SSE connection state to user notifications
-    use_sse_notifications(sse_status.read_only());
-
-    // REST fallback for metrics when SSE fails or is not connected (SWR-cached)
-    let (metrics_fallback, refetch_metrics_fallback) = use_cached_api_resource(
-        "system_metrics",
-        CacheTtl::STATUS,
-        |client: Arc<ApiClient>| async move { client.system_metrics().await },
-    );
-
-    // Update live_metrics from REST fallback when SSE is not providing data
-    Effect::new(move || {
-        let Some(sse_state) = sse_status.try_get() else {
-            return;
-        };
-        let has_live_metrics = live_metrics.try_get().flatten().is_some();
-
-        // If SSE is not connected/working and we don't have live metrics, use REST fallback
-        if !has_live_metrics
-            || matches!(
-                sse_state,
-                SseState::Error | SseState::CircuitOpen | SseState::Disconnected
-            )
-        {
-            if let Some(LoadingState::Loaded(ref resp)) = metrics_fallback.try_get() {
-                let now = js_sys::Date::now() as u64;
-                let _ = live_metrics.try_set(Some(MetricsSnapshot::from(resp)));
-                let _ = metrics_history.try_update(|h| h.push(resp, now));
-            }
-        }
-    });
-
-    // Periodically refresh REST fallback when SSE is not connected
-    let refetch_metrics_fallback_stored = StoredValue::new(refetch_metrics_fallback);
-    Effect::new(move || {
-        let Some(sse_state) = sse_status.try_get() else {
-            return;
-        };
-
-        // Only set up polling if SSE is not connected
-        if matches!(
-            sse_state,
-            SseState::Error | SseState::CircuitOpen | SseState::Disconnected
-        ) {
-            // Trigger a refetch - the interval is handled by the resource itself
-            let _ = refetch_metrics_fallback_stored.try_with_value(|f| f.run(()));
-        }
-    });
-
-    // Refetch functions stored for use in closures
-    let refetch_signal = StoredValue::new(refetch);
-    let refetch_workers_signal = StoredValue::new(refetch_workers);
-    let refetch_activity_signal = StoredValue::new(refetch_activity);
-
-    // Refetch all data (SSE reconnection handled separately due to non-Send types)
-    let refetch_all = move || {
-        let _ = refetch_signal.try_with_value(|f| f.run(()));
-        let _ = refetch_workers_signal.try_with_value(|f| f.run(()));
-        let _ = refetch_activity_signal.try_with_value(|f| f.run(()));
-    };
-
     view! {
         <PageScaffold
-            title="Dashboard"
-            subtitle="A live system overview of health, activity, and resource usage."
+            title="Home"
+            subtitle="Create, chat, replay, verify, and promote with confidence."
         >
-            <PageScaffoldActions slot>
-                <SseIndicator state=sse_status/>
-                <Button
+            <PageScaffoldPrimaryAction slot>
+                <ButtonLink
+                    href="/training?open_wizard=1"
                     variant=ButtonVariant::Primary
-                    on_click=Callback::new(move |_| refetch_all())
+                    size=ButtonSize::Sm
+                >
+                    "Teach New Skill"
+                </ButtonLink>
+            </PageScaffoldPrimaryAction>
+            <PageScaffoldActions slot>
+                <SseIndicator state=live_metrics.sse_status/>
+                <Button
+                    variant=ButtonVariant::Secondary
+                    on_click=Callback::new(move |_| refetch.run(()))
                     aria_label="Refresh dashboard data".to_string()
                 >
                     "Refresh"
                 </Button>
+                <ButtonLink
+                    href="/system"
+                    variant=ButtonVariant::Outline
+                    size=ButtonSize::Sm
+                >
+                    "View infrastructure"
+                </ButtonLink>
             </PageScaffoldActions>
 
             {move || {
                 match status.try_get().unwrap_or(LoadingState::Loading) {
                     LoadingState::Idle | LoadingState::Loading => {
                         view! {
-                            <SkeletonStatsGrid count=3/>
-                            <div class="grid gap-6 mt-6 lg:grid-cols-5">
-                                <div class="lg:col-span-3 space-y-6">
-                                    <SkeletonCard has_header=true/>
-                                    <SkeletonCard has_header=true/>
-                                </div>
-                                <div class="lg:col-span-2 space-y-6">
-                                    <SkeletonCard has_header=true/>
-                                    <SkeletonCard has_header=true/>
-                                </div>
+                            <div class="mt-4">
+                                <div class="h-48 rounded-lg border border-border animate-pulse bg-muted/20"/>
                             </div>
+                            <SkeletonStatsGrid count=2/>
+                            <div class="mt-3 h-10 rounded-lg border border-border animate-pulse bg-muted/20"/>
                         }.into_any()
                     }
                     LoadingState::Loaded(data) => {
-                        let workers_data = match workers.try_get().unwrap_or(LoadingState::Loading) {
-                            LoadingState::Loaded(w) => w,
-                            _ => Vec::new(),
-                        };
-                        let workers_error = matches!(workers.try_get().unwrap_or(LoadingState::Loading), LoadingState::Error(_));
                         view! {
-                            <DashboardContent
-                                status=data
-                                workers=workers_data
-                                workers_error=workers_error
-                                live_metrics=live_metrics
-                                metrics_history=metrics_history
-                                activity=activity
-                                can_view_activity=can_view_activity
-                            />
+                            <DashboardContent status=data/>
                         }.into_any()
                     }
                     LoadingState::Error(e) => {
                         view! {
                             <ErrorDisplay
                                 error=e
-                                on_retry=Callback::new(move |_| refetch_all())
+                                on_retry=Callback::new(move |_| refetch.run(()))
                             />
                         }.into_any()
                     }
@@ -389,17 +133,8 @@ fn SseIndicator(state: RwSignal<SseState>) -> impl IntoView {
 }
 
 #[component]
-fn DashboardContent(
-    status: SystemStatusResponse,
-    workers: Vec<WorkerResponse>,
-    #[prop(optional)] workers_error: bool,
-    live_metrics: RwSignal<Option<MetricsSnapshot>>,
-    metrics_history: RwSignal<MetricsHistory>,
-    activity: ReadSignal<LoadingState<Vec<ActivityEventResponse>>>,
-    can_view_activity: Memo<bool>,
-) -> impl IntoView {
+fn DashboardContent(status: SystemStatusResponse) -> impl IntoView {
     let status_center = use_status_center();
-
     let is_ready = matches!(status.readiness.overall, ApiStatusIndicator::Ready);
     let db_status = matches!(status.readiness.checks.db.status, ApiStatusIndicator::Ready);
     let inference_needs_attention = !matches!(status.inference_ready, InferenceReadyState::True);
@@ -416,36 +151,11 @@ fn DashboardContent(
         InferenceReadyState::Unknown => "Unknown",
     };
 
-    let total_workers = workers.len();
-    let terminal_workers = workers
-        .iter()
-        .filter(|w| is_terminal_worker_status(&w.status))
-        .count();
-    let active_worker_rows: Vec<_> = workers
-        .iter()
-        .filter(|w| !is_terminal_worker_status(&w.status))
-        .cloned()
-        .collect();
-    let active_workers = active_worker_rows.len();
-    let healthy_workers = active_worker_rows
-        .iter()
-        .filter(|w| w.status.eq_ignore_ascii_case("healthy"))
-        .count();
-
-    let worker_card_title = format!(
-        "Workers (Healthy/Active: {}/{})",
-        healthy_workers, active_workers
-    );
-    let slo_status = status.clone();
-
     view! {
-        // ═══════════════════════════════════════════════════════════════════════════
-        // CRITICAL PATH: System Health at a Glance
-        // These 3 cards are the "is everything OK?" indicators - always visible first
-        // ═══════════════════════════════════════════════════════════════════════════
-        <div class="grid gap-4 sm:grid-cols-2 lg:grid-cols-3">
-            // System Status Card - Primary health indicator
-            <Card title="System Status".to_string()>
+        <JourneyFlowSection />
+
+        <div class="mt-4 grid gap-4 sm:grid-cols-2">
+            <Card title="Kernel Status".to_string()>
                 <div class="flex items-center gap-3">
                     <StatusIconBox status=StatusVariant::from_bool(is_ready)>
                         <IconCheckCircle class="h-5 w-5".to_string() />
@@ -461,8 +171,7 @@ fn DashboardContent(
                 </div>
             </Card>
 
-            // Inference Status - The most actionable card
-            <Card title="Inference".to_string()>
+            <Card title="Prompt Studio".to_string()>
                 <div class="flex items-center gap-3">
                     <StatusIconBox status=match status.inference_ready {
                         InferenceReadyState::True => StatusVariant::Success,
@@ -473,7 +182,7 @@ fn DashboardContent(
                     </StatusIconBox>
                     <div>
                         <div class="text-2xl font-bold">{inference_text}</div>
-                        <p class="text-xs text-muted-foreground">"Inference status"</p>
+                        <p class="text-xs text-muted-foreground">"Prompt readiness"</p>
                         {if let Some(guidance) = inference_guidance {
                             let action = guidance.action;
                             Some(view! {
@@ -488,13 +197,13 @@ fn DashboardContent(
                                             {action.label}
                                         </ButtonLink>
                                         {status_center.map(|ctx| view! {
-                                                <button
-                                                    class="text-xs text-muted-foreground hover:text-foreground"
-                                                    on:click=move |_| ctx.open()
-                                                >
-                                                    "Why?"
-                                                </button>
-                                            })}
+                                            <button
+                                                class="text-xs text-muted-foreground hover:text-foreground"
+                                                on:click=move |_| ctx.open()
+                                            >
+                                                "Why?"
+                                            </button>
+                                        })}
                                     </div>
                                 </div>
                             })
@@ -504,707 +213,98 @@ fn DashboardContent(
                     </div>
                 </div>
             </Card>
-
-            // Database Status
-            <Card title="Database".to_string()>
-                <div class="flex items-center gap-3">
-                    <StatusIconBox status=StatusVariant::from_bool(db_status)>
-                        <IconServer class="h-5 w-5".to_string() />
-                    </StatusIconBox>
-                    <div>
-                        <div class="text-2xl font-bold">
-                            {if db_status { "Connected" } else { "Disconnected" }}
-                        </div>
-                        <p class="text-xs text-muted-foreground">"Database connection"</p>
-                    </div>
-                </div>
-            </Card>
         </div>
 
-        // ═══════════════════════════════════════════════════════════════════════════
-        // SLO PERFORMANCE: Secondary indicators alongside readiness checks
-        // Muted treatment - operational context, not primary health signal
-        // ═══════════════════════════════════════════════════════════════════════════
-        <SloPerformanceSection status=slo_status.clone() live_metrics=live_metrics/>
-
-        // ═══════════════════════════════════════════════════════════════════════════
-        // RESOURCE ALLOCATION: Per-backend memory breakdown and contention warnings
-        // ═══════════════════════════════════════════════════════════════════════════
-        <ResourceAllocationSection status=slo_status/>
-
-        // ═══════════════════════════════════════════════════════════════════════════
-        // MAIN CONTENT: Two-column layout for desktop, stacked for mobile
-        // Left: Performance (metrics + charts) | Right: Operations (activity + workers)
-        // ═══════════════════════════════════════════════════════════════════════════
-        <div class="grid gap-6 mt-6 lg:grid-cols-5">
-            // Left Column: Performance Metrics (wider - 3/5 on desktop)
-            <div class="lg:col-span-3 space-y-6">
-                // Live Metrics Section
-                <LiveMetricsSection metrics=live_metrics history=metrics_history/>
-            </div>
-
-            // Right Column: Operations (narrower - 2/5 on desktop)
-            <div class="lg:col-span-2 space-y-6">
-                // Workers List - with count in header
-                <Card title=worker_card_title>
-                    <p class="text-xs text-muted-foreground mb-2">
-                        "Workers run inference requests. Next: open Workers to spawn one or investigate status."
-                    </p>
-                    {(terminal_workers > 0).then(|| {
-                        view! {
-                            <p class="text-xs text-muted-foreground mb-2">
-                                {format!(
-                                    "Total registered: {} ({} inactive hidden)",
-                                    total_workers, terminal_workers
-                                )}
-                            </p>
-                        }
-                    })}
-                    {if active_worker_rows.is_empty() && workers_error {
-                        view! {
-                            <div class="py-4 text-center">
-                                <p class="text-sm text-muted-foreground">"Could not load worker status."</p>
-                                <p class="text-xs text-muted-foreground mt-1">"Open Workers and refresh to investigate status."</p>
-                            </div>
-                        }.into_any()
-                    } else if active_worker_rows.is_empty() {
-                        if total_workers > 0 {
-                            view! {
-                                <EmptyState
-                                    variant=EmptyStateVariant::Unavailable
-                                    title="No Active Workers".to_string()
-                                    description=format!(
-                                        "All {} registered workers are inactive. Next: open Workers, check status, and spawn a worker.",
-                                        total_workers
-                                    )
-                                />
-                            }.into_any()
-                        } else {
-                            view! {
-                                <EmptyState
-                                    variant=EmptyStateVariant::Empty
-                                    title="No Workers Registered".to_string()
-                                    description="Workers handle inference requests. Next: open Workers and choose Spawn Worker.".to_string()
-                                />
-                            }.into_any()
-                        }
-                    } else {
-                        let visible_workers = active_worker_rows.clone();
-                        view! {
-                            <div class="space-y-2">
-                                {visible_workers.into_iter().map(|worker| {
-                                    view! {
-                                        <div class="flex items-center justify-between p-2 rounded-lg border">
-                                            <div class="flex items-center gap-3">
-                                                <div>
-                                                    <p class="font-medium text-sm">{worker.display_name.clone().unwrap_or_else(|| adapteros_id::short_id(&worker.id))}</p>
-                                                    <p class="text-xs text-muted-foreground">
-                                                        {format_backend_or(worker.backend.as_deref(), "Unknown backend")}
-                                                    </p>
-                                                </div>
-                                            </div>
-                                            <WorkerStatusBadge status=worker.status.clone() />
-                                        </div>
-                                    }
-                                }).collect::<Vec<_>>()}
-                            </div>
-                        }.into_any()
-                    }}
-                    <div class="mt-3 pt-3 border-t border-border">
-                        <a href="/workers" class="text-xs text-muted-foreground hover:text-foreground transition-colors">
-                            "View all workers \u{2192}"
-                        </a>
-                    </div>
-                </Card>
-
-                // Activity feed
-                <Card title="Recent Activity".to_string()>
-                    {move || {
-                        if !can_view_activity.try_get().unwrap_or(false) {
-                            return view! {
-                                <EmptyState
-                                    variant=EmptyStateVariant::NoPermission
-                                    title="Activity feed requires permission"
-                                    description="Ask an admin for ActivityView access to view recent events."
-                                    secondary_label="Open settings"
-                                    secondary_href="/settings".to_string()
-                                />
-                            }.into_any();
-                        }
-                        match activity.try_get().unwrap_or(LoadingState::Loading) {
-                            LoadingState::Idle | LoadingState::Loading => view! {
-                                <div class="flex items-center gap-2 py-4 justify-center text-muted-foreground">
-                                    <Spinner/>
-                                    <span class="text-sm">"Loading activity\u{2026}"</span>
-                                </div>
-                            }.into_any(),
-                            LoadingState::Error(_) => view! {
-                                <div class="text-sm text-muted-foreground">"Activity unavailable."</div>
-                            }.into_any(),
-                            LoadingState::Loaded(events) => {
-                                if events.is_empty() {
-                                    view! {
-                                        <div class="text-sm text-muted-foreground">"No recent activity."</div>
-                                    }.into_any()
-                                } else {
-                                    view! {
-                                        <div class="space-y-2 max-h-80 overflow-y-auto">
-                                            {events.into_iter().map(|event| {
-                                                let target = event.target_type.clone().unwrap_or_else(|| "system".to_string());
-                                                let when = event.created_at.clone();
-                                                let href = activity_event_href(event.target_type.as_deref(), event.target_id.as_deref());
-                                                view! {
-                                                    {if let Some(href) = href {
-                                                        view! {
-                                                            <a
-                                                                href=href
-                                                                class="flex items-center justify-between rounded-md border border-input px-3 py-2 hover:bg-accent/30 transition-colors no-underline text-foreground"
-                                                            >
-                                                                <div>
-                                                                    <div class="text-sm font-medium">{event.event_type}</div>
-                                                                    <div class="text-xs text-muted-foreground">{target.clone()}</div>
-                                                                </div>
-                                                                <div class="text-xs text-muted-foreground">{format_relative_time(&when)}</div>
-                                                            </a>
-                                                        }.into_any()
-                                                    } else {
-                                                        view! {
-                                                            <div class="flex items-center justify-between rounded-md border border-input px-3 py-2">
-                                                                <div>
-                                                                    <div class="text-sm font-medium">{event.event_type}</div>
-                                                                    <div class="text-xs text-muted-foreground">{target}</div>
-                                                                </div>
-                                                                <div class="text-xs text-muted-foreground">{format_relative_time(&when)}</div>
-                                                            </div>
-                                                        }.into_any()
-                                                    }}
-                                                }
-                                            }).collect::<Vec<_>>()}
-                                        </div>
-                                    }.into_any()
-                                }
-                            }
-                        }
-                    }}
-                </Card>
-            </div>
+        <div class="mt-3 flex items-center justify-between rounded-lg border border-border/60 bg-muted/20 px-3 py-2">
+            <StatusIndicator
+                color=StatusVariant::from_bool(db_status).to_status_color()
+                pulsing=db_status
+                label=if db_status {
+                    "System services connected".to_string()
+                } else {
+                    "System services need attention".to_string()
+                }
+            />
+            <a href="/system" class="text-xs font-medium text-primary hover:underline">
+                "View infrastructure"
+            </a>
         </div>
     }
 }
 
-/// SLO performance section - secondary indicators alongside readiness checks.
-///
-/// Sources data from two places:
-/// - `SystemStatusResponse.kernel` for adapter count, model inventory, memory pressure
-/// - `MetricsSnapshot` (SSE/REST) for P95 latency, tokens/sec, error rate
-///
-/// Uses muted Liquid Glass Tier 1 styling to remain secondary to readiness cards.
 #[component]
-fn SloPerformanceSection(
-    status: SystemStatusResponse,
-    live_metrics: RwSignal<Option<MetricsSnapshot>>,
-) -> impl IntoView {
-    let kernel = status.kernel.clone();
-
-    // Extract kernel-sourced data (static per status fetch)
-    let active_adapters = kernel
-        .as_ref()
-        .and_then(|k| k.adapters.as_ref())
-        .and_then(|a| a.total_active);
-    let models_loaded = kernel
-        .as_ref()
-        .and_then(|k| k.models.as_ref())
-        .and_then(|m| m.loaded);
-    let models_total = kernel
-        .as_ref()
-        .and_then(|k| k.models.as_ref())
-        .and_then(|m| m.total);
-    let memory_pressure = kernel
-        .as_ref()
-        .and_then(|k| k.memory.as_ref())
-        .and_then(|m| m.pressure.clone());
-
+fn JourneyFlowSection() -> impl IntoView {
     view! {
-        <div class="slo-performance-strip mt-4">
-            <div class="slo-performance-header">
-                <span class="slo-performance-title">"Performance"</span>
-                <span class="slo-performance-subtitle">"SLO indicators"</span>
-            </div>
-            <div class="slo-performance-grid">
-                // P95 Latency (from live metrics SSE stream)
-                {move || {
-                    let val = live_metrics
-                        .try_get()
-                        .flatten()
-                        .and_then(|m| m.latency_p95_ms);
-                    view! {
-                        <SloMetric
-                            label="P95 Latency"
-                            value=val.map(|v| format!("{:.0} ms", v))
-                            warn=val.map(|v| v > 500.0).unwrap_or(false)
-                        />
-                    }
-                }}
-
-                // Avg Latency as P50 proxy (from live metrics)
-                {move || {
-                    let val = live_metrics
-                        .try_get()
-                        .flatten()
-                        .map(|m| m.avg_latency_ms);
-                    view! {
-                        <SloMetric
-                            label="P50 Latency"
-                            value=val.map(|v| format!("{:.0} ms", v))
-                            warn=val.map(|v| v > 300.0).unwrap_or(false)
-                        />
-                    }
-                }}
-
-                // Tokens/sec (from live metrics)
-                {move || {
-                    let val = live_metrics
-                        .try_get()
-                        .flatten()
-                        .and_then(|m| m.tokens_per_second);
-                    view! {
-                        <SloMetric
-                            label="Tokens/sec"
-                            value=val.map(|v| format!("{:.1}", v))
-                            warn=false
-                        />
-                    }
-                }}
-
-                // Error rate (from live metrics)
-                {move || {
-                    let val = live_metrics
-                        .try_get()
-                        .flatten()
-                        .and_then(|m| m.error_rate);
-                    view! {
-                        <SloMetric
-                            label="Error Rate"
-                            value=val.map(|v| format!("{:.1}%", v * 100.0))
-                            warn=val.map(|v| v > 0.05).unwrap_or(false)
-                        />
-                    }
-                }}
-
-                // Active adapters (from system status)
-                <SloMetric
-                    label="Active Adapters"
-                    value=active_adapters.map(|v| v.to_string())
-                    warn=false
+        <Card title="Guided Flow".to_string() class="mt-4">
+            <p class="text-sm text-muted-foreground mb-4">
+                "Use this path to create a skill, validate reproducibility, review signed proof, and promote safely."
+            </p>
+            <div class="grid gap-3 md:grid-cols-2 lg:grid-cols-4">
+                <JourneyStep
+                    step="Step 1"
+                    title="Teach a New Skill"
+                    body="Name the skill, set its purpose, and optionally attach training data."
+                    href="/training?open_wizard=1"
+                    cta="Teach New Skill"
+                    start_here=true
                 />
-
-                // Models (from system status) - clickable link to /models
-                <a href="/models" class="no-underline text-inherit" title="View models">
-                    <SloMetric
-                        label="Models"
-                        value=match (models_loaded, models_total) {
-                            (Some(l), Some(t)) => Some(format!("{}/{}", l, t)),
-                            (Some(l), None) => Some(format!("{} loaded", l)),
-                            (None, Some(t)) => Some(format!("{} total", t)),
-                            (None, None) => None,
-                        }
-                        warn=false
-                    />
-                </a>
-
-                // Memory pressure (from system status)
-                <SloMetric
-                    label="Memory"
-                    value=memory_pressure.clone()
-                    warn=memory_pressure
-                        .as_deref()
-                        .map(|p| p == "critical" || p == "warning")
-                        .unwrap_or(false)
+                <JourneyStep
+                    step="Step 2"
+                    title="Start a Conversation"
+                    body="Switch to Prompt Studio and talk to the skill immediately."
+                    href="/chat"
+                    cta="Open Prompt Studio"
+                />
+                <JourneyStep
+                    step="Step 3"
+                    title="Replay & Signed Proof"
+                    body="Replay the exact response with locked output and inspect tamper-proof evidence."
+                    href="/runs"
+                    cta="Open Restore Points"
+                />
+                <JourneyStep
+                    step="Step 4"
+                    title="Promote Safely"
+                    body="Move versions from Draft to Reviewed to Production with rollback controls."
+                    href="/update-center"
+                    cta="Open Update Center"
                 />
             </div>
-        </div>
+            <p class="mt-4 text-xs text-muted-foreground">
+                "Current Configuration Fingerprint remains pinned in the top bar across every step."
+            </p>
+            <p class="mt-1 text-xs text-muted-foreground">
+                <a href="/audit" class="hover:text-foreground transition-colors">"Track every event"</a>
+                " in Event Viewer."
+            </p>
+        </Card>
     }
 }
 
-/// Resource allocation section: per-backend memory breakdown with contention warnings.
-///
-/// Renders a stacked horizontal bar (Metal / MLX / CoreML / headroom),
-/// a contention warning banner when pressure is high/critical, and a
-/// stats row with per-backend usage. Only visible when `backend_breakdown`
-/// is present in the system status response.
 #[component]
-fn ResourceAllocationSection(status: SystemStatusResponse) -> impl IntoView {
-    let breakdown = status
-        .kernel
-        .as_ref()
-        .and_then(|k| k.memory.as_ref())
-        .and_then(|m| m.backend_breakdown.clone());
-
-    let Some(bd) = breakdown else {
-        return view! {}.into_any();
-    };
-
-    let total_available = bd.total_available_mb.unwrap_or(1.0).max(1.0);
-    let total_used = bd.total_used_mb.unwrap_or(0.0);
-    let metal = bd.metal_mb.unwrap_or(0.0);
-    let mlx = bd.mlx_mb.unwrap_or(0.0);
-    let coreml = bd.coreml_mb.unwrap_or(0.0);
-    let headroom_pct = bd.headroom_pct.unwrap_or(0.0);
-    let pressure = bd.pressure_level.clone().unwrap_or_default();
-
-    // Calculate bar segment widths as percentages of total available
-    let metal_pct = (metal / total_available * 100.0).min(100.0);
-    let mlx_pct = (mlx / total_available * 100.0).min(100.0);
-    let coreml_pct = (coreml / total_available * 100.0).min(100.0);
-    // "Other" usage not attributed to a specific backend
-    let attributed = metal + mlx + coreml;
-    let other_pct = if total_used > attributed {
-        ((total_used - attributed) / total_available * 100.0).min(100.0)
-    } else {
-        0.0
-    };
-
-    let is_high = pressure == "high" || pressure == "High";
-    let is_critical = pressure == "critical" || pressure == "Critical";
-
-    let warning_banner = if is_critical {
-        Some(view! {
-            <div class="banner banner-error">
-                <p class="text-sm font-medium">"Critical memory pressure. Consider pausing training jobs."</p>
-            </div>
-        })
-    } else if is_high {
-        Some(view! {
-            <div class="banner banner-warning">
-                <p class="text-sm font-medium">"Memory pressure is elevated. Training may impact inference quality."</p>
-            </div>
-        })
-    } else {
-        None
-    };
-
-    // Format MB values for display
-    let fmt_mb = |v: f64| -> String {
-        if v >= 1024.0 {
-            format!("{:.1} GB", v / 1024.0)
-        } else {
-            format!("{:.0} MB", v)
-        }
-    };
-
-    let total_used_str = fmt_mb(total_used);
-    let total_avail_str = fmt_mb(total_available);
-
-    // Build stats fragments conditionally (only show if non-zero)
-    let metal_str = (metal > 0.0).then(|| format!("Metal: {}", fmt_mb(metal)));
-    let mlx_str = (mlx > 0.0).then(|| format!("MLX: {}", fmt_mb(mlx)));
-    let coreml_str = (coreml > 0.0).then(|| format!("CoreML: {}", fmt_mb(coreml)));
-    let headroom_str = format!("Headroom: {:.0}%", headroom_pct);
-
-    let stats_parts: Vec<String> = [metal_str, mlx_str, coreml_str]
-        .into_iter()
-        .flatten()
-        .chain(std::iter::once(headroom_str))
-        .collect();
-    let stats_text = stats_parts.join("  |  ");
-
-    view! {
-        <div class="mt-4 space-y-3">
-            {warning_banner}
-
-            <Card title="Resource Allocation".to_string()>
-                // Stacked memory bar
-                <div class="mb-3">
-                    <div class="flex justify-between text-xs text-muted-foreground mb-1">
-                        <span>{format!("Used: {}", total_used_str)}</span>
-                        <span>{format!("Total: {}", total_avail_str)}</span>
-                    </div>
-                    <div class="resource-bar" style="display:flex;height:12px;border-radius:6px;overflow:hidden;background:var(--color-surface-secondary, hsl(0 0% 50% / 0.15))">
-                        {(metal_pct > 0.0).then(|| view! {
-                            <div
-                                style=format!("width:{}%;background:var(--color-chart-1, #3b82f6)", metal_pct)
-                                title=format!("Metal: {}", fmt_mb(metal))
-                            ></div>
-                        })}
-                        {(mlx_pct > 0.0).then(|| view! {
-                            <div
-                                style=format!("width:{}%;background:var(--color-chart-2, #8b5cf6)", mlx_pct)
-                                title=format!("MLX: {}", fmt_mb(mlx))
-                            ></div>
-                        })}
-                        {(coreml_pct > 0.0).then(|| view! {
-                            <div
-                                style=format!("width:{}%;background:var(--color-chart-3, #10b981)", coreml_pct)
-                                title=format!("CoreML: {}", fmt_mb(coreml))
-                            ></div>
-                        })}
-                        {(other_pct > 0.0).then(|| view! {
-                            <div
-                                style=format!("width:{}%;background:var(--color-surface-tertiary, hsl(0 0% 50% / 0.3))", other_pct)
-                                title=format!("Other: {}", fmt_mb(total_used - attributed))
-                            ></div>
-                        })}
-                    </div>
-                    // Legend
-                    <div class="flex flex-wrap gap-4 mt-2 text-xs text-muted-foreground">
-                        {(metal > 0.0).then(|| view! {
-                            <span class="flex items-center gap-1">
-                                <span style="display:inline-block;width:8px;height:8px;border-radius:50%;background:var(--color-chart-1, #3b82f6)"></span>
-                                "Metal"
-                            </span>
-                        })}
-                        {(mlx > 0.0).then(|| view! {
-                            <span class="flex items-center gap-1">
-                                <span style="display:inline-block;width:8px;height:8px;border-radius:50%;background:var(--color-chart-2, #8b5cf6)"></span>
-                                "MLX"
-                            </span>
-                        })}
-                        {(coreml > 0.0).then(|| view! {
-                            <span class="flex items-center gap-1">
-                                <span style="display:inline-block;width:8px;height:8px;border-radius:50%;background:var(--color-chart-3, #10b981)"></span>
-                                "CoreML"
-                            </span>
-                        })}
-                        <span class="flex items-center gap-1">
-                            <span style="display:inline-block;width:8px;height:8px;border-radius:50%;background:var(--color-surface-secondary, hsl(0 0% 50% / 0.15))"></span>
-                            "Available"
-                        </span>
-                    </div>
-                </div>
-
-                // Stats row
-                <div class="pt-2 border-t border-border">
-                    <p class="text-xs text-muted-foreground">{stats_text}</p>
-                </div>
-            </Card>
-        </div>
-    }.into_any()
-}
-
-/// Single SLO metric cell with graceful degradation.
-#[component]
-fn SloMetric(
-    label: &'static str,
-    #[prop(into)] value: Option<String>,
-    #[prop(optional)] warn: bool,
+fn JourneyStep(
+    step: &'static str,
+    title: &'static str,
+    body: &'static str,
+    href: &'static str,
+    cta: &'static str,
+    #[prop(optional)] start_here: bool,
 ) -> impl IntoView {
-    let (display, available) = match value {
-        Some(v) => (v, true),
-        None => ("--".to_string(), false),
-    };
-    let class = if warn {
-        "slo-metric slo-metric--warn"
-    } else if !available {
-        "slo-metric slo-metric--unavailable"
-    } else {
-        "slo-metric"
-    };
-
     view! {
-        <div class=class>
-            <span class="slo-metric-value">{display}</span>
-            <span class="slo-metric-label">{label}</span>
-        </div>
-    }
-}
-
-/// Live metrics section - displays real-time metrics from SSE stream with charts
-#[component]
-fn LiveMetricsSection(
-    metrics: RwSignal<Option<MetricsSnapshot>>,
-    history: RwSignal<MetricsHistory>,
-) -> impl IntoView {
-    // Use Memo for sparkline data - only recomputes when history version changes
-    let cpu_sparkline = Memo::new(move |_| history.with(|h| h.extract(|s| s.cpu_usage)));
-    let memory_sparkline = Memo::new(move |_| history.with(|h| h.extract(|s| s.memory_usage)));
-    let gpu_sparkline = Memo::new(move |_| history.with(|h| h.extract(|s| s.gpu_utilization)));
-    let rps_sparkline = Memo::new(move |_| history.with(|h| h.extract(|s| s.requests_per_second)));
-    let latency_sparkline = Memo::new(move |_| history.with(|h| h.extract(|s| s.avg_latency_ms)));
-
-    // Time series for the line charts - memoized to avoid redundant computation
-    let throughput_data = Memo::new(move |_| history.with(|h| h.throughput_series()));
-    let latency_data = Memo::new(move |_| history.with(|h| h.latency_series()));
-
-    view! {
-        <div class="space-y-6">
-            // ─────────────────────────────────────────────────────────────────────
-            // Performance Metrics: Request handling (the most watched metrics)
-            // ─────────────────────────────────────────────────────────────────────
-            <Card title="Request Performance".to_string() description="Real-time inference throughput".to_string()>
-                {move || {
-                    match metrics.try_get().flatten() {
-                        Some(m) => view! {
-                            <div class="grid gap-4 sm:grid-cols-2 lg:grid-cols-3">
-                                // Requests/sec - primary metric
-                                <SparklineMetric
-                                    label="Requests/sec".to_string()
-                                    value=format!("{:.1}", m.requests_per_second)
-                                    values=Signal::from(rps_sparkline)
-                                    show_trend=true
-                                />
-
-                                // Latency - performance indicator
-                                <SparklineMetric
-                                    label="Avg Latency".to_string()
-                                    value=format!("{:.0} ms", m.avg_latency_ms)
-                                    unit="ms".to_string()
-                                    values=Signal::from(latency_sparkline)
-                                    show_trend=true
-                                />
-
-                                // Active Workers & Sessions
-                                {
-                                    let sessions_trend = m.active_sessions.map(|s| format!("{} sessions", s));
-                                    view! {
-                                        <MetricCard
-                                            label="Active Workers".to_string()
-                                            value=m.active_workers.to_string()
-                                            trend=sessions_trend
-                                        />
-                                    }
-                                }
-                            </div>
-                        }.into_any(),
-                        None => view! {
-                            <div class="flex items-center justify-center py-6 text-muted-foreground gap-2">
-                                <Spinner/>
-                                <span class="text-sm">"Connecting to metrics stream..."</span>
-                            </div>
-                        }.into_any(),
-                    }
-                }}
-            </Card>
-
-            // ─────────────────────────────────────────────────────────────────────
-            // Resource Utilization: Hardware metrics
-            // ─────────────────────────────────────────────────────────────────────
-            <Card title="Resource Utilization".to_string()>
-                {move || {
-                    match metrics.try_get().flatten() {
-                        Some(m) => view! {
-                            <div class="grid gap-4 sm:grid-cols-2 lg:grid-cols-4">
-                                // CPU
-                                <SparklineMetric
-                                    label="CPU Usage".to_string()
-                                    value=format!("{:.1}%", m.cpu_usage)
-                                    values=Signal::from(cpu_sparkline)
-                                    show_trend=true
-                                />
-
-                                // Memory
-                                <SparklineMetric
-                                    label="Memory".to_string()
-                                    value=format!("{:.1}%", m.memory_usage)
-                                    values=Signal::from(memory_sparkline)
-                                    show_trend=true
-                                />
-
-                                // GPU
-                                <SparklineMetric
-                                    label="GPU".to_string()
-                                    value=format!("{:.1}%", m.gpu_utilization)
-                                    values=Signal::from(gpu_sparkline)
-                                    show_trend=true
-                                />
-
-                                // Load Average
-                                <MetricCard
-                                    label="Load Avg".to_string()
-                                    value=format!("{:.2}", m.load_1min)
-                                    trend=format!("5m: {:.2} 15m: {:.2}", m.load_5min, m.load_15min)
-                                />
-                            </div>
-
-                            // Uptime inline at bottom
-                            <div class="mt-4 pt-3 border-t border-border flex justify-end">
-                                <span class="text-xs text-muted-foreground">
-                                    "Uptime: "{format_uptime(m.uptime_seconds)}
-                                </span>
-                            </div>
-                        }.into_any(),
-                        None => view! {
-                            <div class="flex items-center justify-center py-6 text-muted-foreground gap-2">
-                                <Spinner/>
-                                <span class="text-sm">"Connecting to metrics stream\u{2026}"</span>
-                            </div>
-                        }.into_any(),
-                    }
-                }}
-            </Card>
-
-            // ─────────────────────────────────────────────────────────────────────
-            // Time Series Charts: Historical view
-            // ─────────────────────────────────────────────────────────────────────
-            <div class="grid gap-6 sm:grid-cols-2">
-                // Throughput chart
-                <LineChart
-                    data=Signal::from(throughput_data)
-                    title="Throughput".to_string()
-                    y_label="req/s".to_string()
-                    height=180.0
-                    show_points=false
-                />
-
-                // Latency chart
-                <LineChart
-                    data=Signal::from(latency_data)
-                    title="Latency".to_string()
-                    y_label="ms".to_string()
-                    height=180.0
-                    show_points=false
-                />
+        <div class="rounded-lg border border-border/60 bg-card/60 p-3 space-y-2">
+            <div class="flex items-center gap-2">
+                <p class="text-[11px] uppercase tracking-wide text-muted-foreground">{step}</p>
+                <Show when=move || start_here>
+                    <span class="rounded-full border border-primary/35 bg-primary/10 px-2 py-0.5 text-[10px] font-semibold uppercase tracking-wide text-primary">
+                        "Start here"
+                    </span>
+                </Show>
             </div>
+            <p class="text-sm font-semibold">{title}</p>
+            <p class="text-xs text-muted-foreground">{body}</p>
+            <ButtonLink href=href variant=ButtonVariant::Outline size=ButtonSize::Sm>
+                {cta}
+            </ButtonLink>
         </div>
-    }
-}
-
-/// Individual metric card for live metrics display
-#[component]
-fn MetricCard(
-    label: String,
-    value: String,
-    #[prop(optional, into)] trend: MaybeProp<String>,
-) -> impl IntoView {
-    let trend = trend.get();
-
-    view! {
-        <div class="rounded-lg border p-4 bg-card">
-            <p class="text-xs text-muted-foreground mb-1">{label}</p>
-            <p class="text-2xl font-bold">{value}</p>
-            {trend.map(|t| view! {
-                <div class="flex items-center gap-1 text-xs mt-1 text-muted-foreground">
-                    <span>{t}</span>
-                </div>
-            })}
-        </div>
-    }
-}
-
-/// Map activity event target type + ID to a navigable href.
-/// Returns `None` for events that don't map to a known page.
-fn activity_event_href(target_type: Option<&str>, target_id: Option<&str>) -> Option<String> {
-    let id = target_id?;
-    match target_type? {
-        "run" | "inference" | "trace" => Some(format!("/runs/{}", id)),
-        "adapter" => Some(format!("/adapters/{}", id)),
-        "review" | "pause" => Some(format!("/reviews/{}", id)),
-        "worker" => Some(format!("/workers/{}", id)),
-        "training" | "training_job" => Some(format!("/training/{}", id)),
-        _ => None,
-    }
-}
-
-/// Format uptime in human-readable format
-fn format_uptime(seconds: u64) -> String {
-    let days = seconds / 86400;
-    let hours = (seconds % 86400) / 3600;
-    let minutes = (seconds % 3600) / 60;
-
-    if days > 0 {
-        format!("{}d {}h", days, hours)
-    } else if hours > 0 {
-        format!("{}h {}m", hours, minutes)
-    } else {
-        format!("{}m", minutes)
     }
 }

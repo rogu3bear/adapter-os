@@ -3,6 +3,8 @@
 //! Real-time error monitoring with live feed, history, analytics, alerts, and crashes.
 //! Uses SSE for real-time error streaming via `/v1/stream/client-errors`.
 
+mod components;
+
 use crate::api::{
     report_error_with_toast, use_api_client, use_sse_json, ApiClient, CreateErrorAlertRuleRequest,
     ErrorAlertHistoryResponse, ErrorAlertRuleResponse, ProcessCrashDumpResponse, SseState,
@@ -10,9 +12,9 @@ use crate::api::{
 };
 use crate::components::{
     AsyncBoundary, Badge, BadgeVariant, Button, ButtonSize, ButtonVariant, Card, Column,
-    ConfirmationDialog, ConfirmationSeverity, DataTable, Dialog, EmptyState, Input,
-    PageBreadcrumbItem, PageScaffold, Select, SkeletonTable, TabNav, TabPanel, Table, TableBody,
-    TableCell, TableHead, TableHeader, TableRow, VirtualTableBody,
+    ConfirmationDialog, ConfirmationSeverity, DataTable, Dialog, EmptyState, InlineErrorBanner,
+    Input, PageBreadcrumbItem, PageScaffold, Select, SkeletonTable, SplitPanel, SplitRatio, TabNav,
+    TabPanel, Table, TableBody, TableCell, TableHead, TableHeader, TableRow, VirtualTableBody,
 };
 use crate::hooks::{use_api_resource, use_scope_alive, LoadingState};
 use crate::utils::humanize;
@@ -85,6 +87,9 @@ fn LiveFeedSection() -> impl IntoView {
     // Pause state
     let is_paused = RwSignal::new(false);
 
+    // Selected error for detail panel
+    let selected_error = RwSignal::new(None::<ClientErrorItem>);
+
     // SSE connection for client error stream
     // Use try_get/try_update to avoid panics when signals are disposed on unmount
     let (sse_status, _reconnect) =
@@ -98,6 +103,9 @@ fn LiveFeedSection() -> impl IntoView {
                 });
             }
         });
+
+    let on_select = move |err: ClientErrorItem| selected_error.set(Some(err));
+    let on_close = move |_| selected_error.set(None);
 
     view! {
         <div class="space-y-4">
@@ -125,59 +133,83 @@ fn LiveFeedSection() -> impl IntoView {
                 </div>
             </div>
 
-            // Live errors list
-            {
-                let live_vec = Signal::derive(move || {
-                    live_errors.try_get().unwrap_or_default().iter().cloned().collect::<Vec<_>>()
-                });
-
-                view! {
-                    <Card>
+            <SplitPanel
+                has_selection=Signal::derive(move || selected_error.try_get().is_some())
+                on_close=Callback::new(on_close)
+                back_label="Back to Live Feed"
+                ratio=SplitRatio::Half
+                list_panel=move || {
+                    let live_vec = Signal::derive(move || {
+                        live_errors.try_get().unwrap_or_default().iter().cloned().collect::<Vec<_>>()
+                    });
+                    view! {
+                        <Card>
+                            {move || {
+                                if live_vec.try_get().unwrap_or_default().is_empty() {
+                                    view! {
+                                        <EmptyState
+                                            title="No incidents detected"
+                                            description="Errors will appear here in real-time when they occur"
+                                        />
+                                    }.into_any()
+                                } else {
+                                    view! {
+                                        <VirtualTableBody
+                                            items=live_vec
+                                            row_height=56
+                                            max_visible_rows=10
+                                            overscan=4
+                                            header={view! {
+                                                <TableHeader>
+                                                    <TableRow>
+                                                        <TableHead>"Time"</TableHead>
+                                                        <TableHead>"Type"</TableHead>
+                                                        <TableHead>"Message"</TableHead>
+                                                        <TableHead>"Status"</TableHead>
+                                                        <TableHead>"Page"</TableHead>
+                                                    </TableRow>
+                                                </TableHeader>
+                                            }.into_any()}
+                                            render_row=move |error, _| {
+                                                view! {
+                                                    <ErrorRow error=error on_select=Callback::new(on_select)/>
+                                                }
+                                            }
+                                            debug_label="errors-live-feed".to_string()
+                                        />
+                                    }.into_any()
+                                }
+                            }}
+                        </Card>
+                    }
+                }
+                detail_panel=move || {
+                    view! {
                         {move || {
-                            if live_vec.try_get().unwrap_or_default().is_empty() {
-                                view! {
-                                    <EmptyState
-                                        title="No incidents detected"
-                                        description="Errors will appear here in real-time when they occur"
-                                    />
-                                }.into_any()
-                            } else {
-                                view! {
-                                    <VirtualTableBody
-                                        items=live_vec
-                                        row_height=56
-                                        max_visible_rows=10
-                                        overscan=4
-                                        header={view! {
-                                            <TableHeader>
-                                                <TableRow>
-                                                    <TableHead>"Time"</TableHead>
-                                                    <TableHead>"Type"</TableHead>
-                                                    <TableHead>"Message"</TableHead>
-                                                    <TableHead>"Status"</TableHead>
-                                                    <TableHead>"Page"</TableHead>
-                                                </TableRow>
-                                            </TableHeader>
-                                        }.into_any()}
-                                        render_row=move |error, _| {
-                                            view! { <ErrorRow error=error/> }
-                                        }
-                                        debug_label="errors-live-feed".to_string()
-                                    />
-                                }.into_any()
+                            match selected_error.try_get().flatten() {
+                                Some(err) => view! { <components::ErrorDetailCard error=err/> }.into_any(),
+                                None => view! {}.into_any(),
                             }
                         }}
-                    </Card>
+                    }
                 }
-            }
+            />
         </div>
     }
 }
 
-/// Single error row component
+/// Single error row component. When on_select is provided, the row is clickable.
 #[component]
-fn ErrorRow(error: ClientErrorItem) -> impl IntoView {
-    let badge_variant = match error.error_type.as_str() {
+fn ErrorRow(
+    error: ClientErrorItem,
+    /// Optional callback when row is clicked (enables split-panel detail)
+    #[prop(optional)]
+    on_select: Option<Callback<ClientErrorItem>>,
+) -> impl IntoView {
+    let error_for_callbacks = error.clone();
+    let error_for_click = error_for_callbacks.clone();
+    let error_for_keydown = error_for_callbacks.clone();
+    let badge_variant = match error_for_callbacks.error_type.as_str() {
         "Network" => BadgeVariant::Destructive,
         "Http" => BadgeVariant::Warning,
         "Server" => BadgeVariant::Destructive,
@@ -187,7 +219,7 @@ fn ErrorRow(error: ClientErrorItem) -> impl IntoView {
         _ => BadgeVariant::Outline,
     };
 
-    let status_badge = error.http_status.map(|status| {
+    let status_badge = error_for_callbacks.http_status.map(|status| {
         let variant = if status >= 500 {
             BadgeVariant::Destructive
         } else if status >= 400 {
@@ -198,32 +230,67 @@ fn ErrorRow(error: ClientErrorItem) -> impl IntoView {
         (status, variant)
     });
 
-    view! {
-        <TableRow>
-            <TableCell>
-                <span class="text-xs text-muted-foreground font-mono">
-                    {format_timestamp(&error.client_timestamp)}
-                </span>
-            </TableCell>
-            <TableCell>
-                <Badge variant=badge_variant>{error.error_type.clone()}</Badge>
-            </TableCell>
-            <TableCell>
-                <span class="text-sm truncate max-w-md block" title=error.message.clone()>
-                    {truncate_message(&error.message, 80)}
-                </span>
-            </TableCell>
-            <TableCell>
-                {status_badge.map(|(status, variant)| view! {
-                    <Badge variant=variant>{status.to_string()}</Badge>
-                })}
-            </TableCell>
-            <TableCell>
-                <span class="text-xs text-muted-foreground font-mono">
-                    {error.page.clone().unwrap_or_else(|| "-".to_string())}
-                </span>
-            </TableCell>
-        </TableRow>
+    let page_display = error_for_callbacks
+        .page
+        .clone()
+        .unwrap_or_else(|| "-".to_string());
+    let message_title = error_for_callbacks.message.clone();
+    let message_truncated = truncate_message(&error_for_callbacks.message, 80);
+    let cells = view! {
+        <TableCell>
+            <span class="text-xs text-muted-foreground font-mono">
+                {format_timestamp(&error_for_callbacks.client_timestamp)}
+            </span>
+        </TableCell>
+        <TableCell>
+            <Badge variant=badge_variant>{error_for_callbacks.error_type.clone()}</Badge>
+        </TableCell>
+        <TableCell>
+            <span class="text-sm truncate max-w-md block" title=message_title>
+                {message_truncated}
+            </span>
+        </TableCell>
+        <TableCell>
+            {status_badge.map(|(status, variant)| view! {
+                <Badge variant=variant>{status.to_string()}</Badge>
+            })}
+        </TableCell>
+        <TableCell>
+            <span class="text-xs text-muted-foreground font-mono">
+                {page_display}
+            </span>
+        </TableCell>
+    };
+
+    match on_select {
+        Some(cb) => {
+            let row_label = format!("View details for error {}", error_for_callbacks.id);
+            view! {
+                <tr
+                    class="table-row table-row-interactive cursor-pointer hover:bg-muted/50"
+                    role="button"
+                    tabindex=0
+                    aria-label=row_label
+                    on:click=move |_| cb.run(error_for_click.clone())
+                    on:keydown=move |e: web_sys::KeyboardEvent| {
+                        let key = e.key();
+                        if key == "Enter" || key == " " || key == "Spacebar" {
+                            e.prevent_default();
+                            cb.run(error_for_keydown.clone());
+                        }
+                    }
+                >
+                    {cells}
+                </tr>
+            }
+            .into_any()
+        }
+        None => view! {
+            <TableRow>
+                {cells}
+            </TableRow>
+        }
+        .into_any(),
     }
 }
 
@@ -233,6 +300,9 @@ fn HistorySection() -> impl IntoView {
     // Filter state
     let error_type_filter = RwSignal::new(String::new());
     let http_status_filter = RwSignal::new(String::new());
+
+    // Selected error for detail panel
+    let selected_error = RwSignal::new(None::<ClientErrorItem>);
 
     // Fetch errors from API
     let (errors, refetch) = use_api_resource(move |client: Arc<ApiClient>| async move {
@@ -267,6 +337,9 @@ fn HistorySection() -> impl IntoView {
         let _ = http_status_filter.try_get();
         refetch.run(());
     });
+
+    let on_select = move |err: ClientErrorItem| selected_error.set(Some(err));
+    let on_close = move |_| selected_error.set(None);
 
     view! {
         <div class="space-y-4">
@@ -309,89 +382,110 @@ fn HistorySection() -> impl IntoView {
                 </Button>
             </div>
 
-            // Errors table with client-side pagination
-            <Card>
-                <AsyncBoundary
-                    state=errors
-                    on_retry=Callback::new(move |_| refetch.run(()))
-                    render=move |data| {
-                        if data.errors.is_empty() {
-                            view! {
-                                <div class="py-12 text-center">
-                                    <div class="text-muted-foreground">"No errors found"</div>
-                                </div>
-                            }.into_any()
-                        } else {
-                            let error_count = data.errors.len();
-                            let total = data.total;
-                            let errors_data = data.errors;
-                            let visible_count = RwSignal::new(ERROR_HISTORY_PAGE_SIZE);
-
-                            view! {
-                                <div>
-                                    <div class="px-4 py-2 text-sm text-muted-foreground border-b">
-                                        {format!("Showing {} of {} errors", error_count, total)}
-                                    </div>
-                                    {
-                                        let visible_errors = Signal::derive({
-                                            let errors_data = errors_data.clone();
-                                            move || {
-                                                let count = visible_count
-                                                    .try_get()
-                                                    .unwrap_or(ERROR_HISTORY_PAGE_SIZE)
-                                                    .min(error_count);
-                                                errors_data.iter().take(count).cloned().collect::<Vec<_>>()
-                                            }
-                                        });
+            <SplitPanel
+                has_selection=Signal::derive(move || selected_error.try_get().is_some())
+                on_close=Callback::new(on_close)
+                back_label="Back to History"
+                ratio=SplitRatio::Half
+                list_panel=move || {
+                    view! {
+                        <Card>
+                            <AsyncBoundary
+                                state=errors
+                                on_retry=Callback::new(move |_| refetch.run(()))
+                                render=move |data| {
+                                    if data.errors.is_empty() {
+                                        view! {
+                                            <div class="py-12 text-center">
+                                                <div class="text-muted-foreground">"No errors found"</div>
+                                            </div>
+                                        }.into_any()
+                                    } else {
+                                        let error_count = data.errors.len();
+                                        let total = data.total;
+                                        let errors_data = data.errors;
+                                        let visible_count = RwSignal::new(ERROR_HISTORY_PAGE_SIZE);
 
                                         view! {
-                                            <VirtualTableBody
-                                                items=visible_errors
-                                                row_height=56
-                                                max_visible_rows=12
-                                                overscan=4
-                                                header={view! {
-                                                    <TableHeader>
-                                                        <TableRow>
-                                                            <TableHead>"Time"</TableHead>
-                                                            <TableHead>"Type"</TableHead>
-                                                            <TableHead>"Message"</TableHead>
-                                                            <TableHead>"Status"</TableHead>
-                                                            <TableHead>"Page"</TableHead>
-                                                        </TableRow>
-                                                    </TableHeader>
-                                                }.into_any()}
-                                                render_row=move |error, _| {
-                                                    view! { <ErrorRow error=error/> }
-                                                }
-                                                debug_label="errors-history".to_string()
-                                            />
-                                        }
-                                    }
+                                            <div>
+                                                <div class="px-4 py-2 text-sm text-muted-foreground border-b">
+                                                    {format!("Showing {} of {} errors", error_count, total)}
+                                                </div>
+                                                {
+                                                    let visible_errors = Signal::derive({
+                                                        let errors_data = errors_data.clone();
+                                                        move || {
+                                                            let count = visible_count
+                                                                .try_get()
+                                                                .unwrap_or(ERROR_HISTORY_PAGE_SIZE)
+                                                                .min(error_count);
+                                                            errors_data.iter().take(count).cloned().collect::<Vec<_>>()
+                                                        }
+                                                    });
 
-                                    // Show more button
-                                    {move || {
-                                        let count = visible_count.try_get().unwrap_or(ERROR_HISTORY_PAGE_SIZE);
-                                        let remaining = error_count.saturating_sub(count);
-                                        (remaining > 0).then(|| view! {
-                                            <div class="flex items-center justify-center py-3 border-t">
-                                                <button
-                                                    class="text-sm text-primary hover:underline"
-                                                    on:click=move |_| {
-                                                        visible_count.update(|c| *c = (*c + ERROR_HISTORY_PAGE_SIZE).min(error_count));
+                                                    view! {
+                                                        <VirtualTableBody
+                                                            items=visible_errors
+                                                            row_height=56
+                                                            max_visible_rows=12
+                                                            overscan=4
+                                                            header={view! {
+                                                                <TableHeader>
+                                                                    <TableRow>
+                                                                        <TableHead>"Time"</TableHead>
+                                                                        <TableHead>"Type"</TableHead>
+                                                                        <TableHead>"Message"</TableHead>
+                                                                        <TableHead>"Status"</TableHead>
+                                                                        <TableHead>"Page"</TableHead>
+                                                                    </TableRow>
+                                                                </TableHeader>
+                                                            }.into_any()}
+                                                            render_row=move |error, _| {
+                                                                view! {
+                                                                    <ErrorRow error=error on_select=Callback::new(on_select)/>
+                                                                }
+                                                            }
+                                                            debug_label="errors-history".to_string()
+                                                        />
                                                     }
-                                                >
-                                                    {format!("Show more ({} remaining)", remaining)}
-                                                </button>
+                                                }
+
+                                                // Show more button
+                                                {move || {
+                                                    let count = visible_count.try_get().unwrap_or(ERROR_HISTORY_PAGE_SIZE);
+                                                    let remaining = error_count.saturating_sub(count);
+                                                    (remaining > 0).then(|| view! {
+                                                        <div class="flex items-center justify-center py-3 border-t">
+                                                            <button
+                                                                class="text-sm text-primary hover:underline"
+                                                                on:click=move |_| {
+                                                                    visible_count.update(|c| *c = (*c + ERROR_HISTORY_PAGE_SIZE).min(error_count));
+                                                                }
+                                                            >
+                                                                {format!("Show more ({} remaining)", remaining)}
+                                                            </button>
+                                                        </div>
+                                                    })
+                                                }}
                                             </div>
-                                        })
-                                    }}
-                                </div>
-                            }.into_any()
-                        }
+                                        }.into_any()
+                                    }
+                                }
+                            />
+                        </Card>
                     }
-                />
-            </Card>
+                }
+                detail_panel=move || {
+                    view! {
+                        {move || {
+                            match selected_error.try_get().flatten() {
+                                Some(err) => view! { <components::ErrorDetailCard error=err/> }.into_any(),
+                                None => view! {}.into_any(),
+                            }
+                        }}
+                    }
+                }
+            />
         </div>
     }
 }
@@ -443,26 +537,11 @@ fn StatsDisplay(stats: ClientErrorStatsResponse) -> impl IntoView {
     view! {
         <div class="space-y-6">
             // Summary cards
-            <div class="grid grid-cols-1 md:grid-cols-3 gap-4">
-                <Card>
-                    <div class="p-4">
-                        <div class="text-sm font-medium text-muted-foreground">"Total Errors (24h)"</div>
-                        <div class="text-2xl font-bold mt-1">{total_count}</div>
-                    </div>
-                </Card>
-                <Card>
-                    <div class="p-4">
-                        <div class="text-sm font-medium text-muted-foreground">"Error Types"</div>
-                        <div class="text-2xl font-bold mt-1">{error_type_count}</div>
-                    </div>
-                </Card>
-                <Card>
-                    <div class="p-4">
-                        <div class="text-sm font-medium text-muted-foreground">"HTTP Status Codes"</div>
-                        <div class="text-2xl font-bold mt-1">{http_status_count}</div>
-                    </div>
-                </Card>
-            </div>
+            <components::ErrorSummarySection>
+                <components::ErrorSummaryCard label="Total Errors (24h)" value=total_count.to_string()/>
+                <components::ErrorSummaryCard label="Error Types" value=error_type_count.to_string()/>
+                <components::ErrorSummaryCard label="HTTP Status Codes" value=http_status_count.to_string()/>
+            </components::ErrorSummarySection>
 
             // Error type breakdown
             <Card>
@@ -1280,9 +1359,7 @@ fn CreateAlertRuleDialog(open: RwSignal<bool>, on_created: Callback<()>) -> impl
             description="Configure a new alert rule for error monitoring"
         >
             {move || error.try_get().flatten().map(|e| view! {
-                <div class="rounded-md border border-destructive bg-destructive/10 p-3 text-sm text-destructive">
-                    {e}
-                </div>
+                <InlineErrorBanner message=e/>
             })}
 
             <div class="space-y-4">

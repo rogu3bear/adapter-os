@@ -472,7 +472,7 @@ fn ReviewDetailBody(pause: InferenceStateResponse) -> impl IntoView {
                     })}
 
                     {move || submit_ok.try_get().unwrap_or(false).then(|| view! {
-                        <div class="rounded-md border border-success/30 bg-success/10 p-3 text-sm text-success">
+                        <div class="rounded-md border border-status-success/30 bg-status-success/10 p-3 text-sm text-status-success">
                             "Review submitted. If the worker is still connected, inference should resume automatically."
                             <div class="mt-2">
                                 <a href="/reviews" class="text-sm font-medium text-primary hover:underline">"Back to queue"</a>

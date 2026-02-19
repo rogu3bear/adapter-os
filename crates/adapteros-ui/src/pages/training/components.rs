@@ -100,16 +100,16 @@ pub fn TrainingJobList(
                             <path d="M9.75 17L9 20l-1 1h8l-1-1-.75-3M3 13h18M5 17h14a2 2 0 002-2V5a2 2 0 00-2-2H5a2 2 0 00-2 2v10a2 2 0 002 2z"/>
                         </svg>
                     </div>
-                    <h3 class="heading-4 text-foreground mb-1">"No training jobs yet"</h3>
+                    <h3 class="heading-4 text-foreground mb-1">"No skill builds yet"</h3>
                     <p class="text-sm text-muted-foreground max-w-sm mb-6">
-                        "Train a LoRA adapter on your data to customize model behavior for your use case."
+                        "Teach the system a new skill with your examples, then move directly into conversation."
                     </p>
                     {on_create.map(|cb| view! {
                         <Button
                             variant=ButtonVariant::Primary
                             on_click=Callback::new(move |_| cb.run(()))
                         >
-                            "Create Your First Training Job"
+                            "Teach Your First Skill"
                         </Button>
                     })}
                 </div>

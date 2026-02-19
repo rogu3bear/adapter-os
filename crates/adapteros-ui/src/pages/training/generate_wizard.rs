@@ -12,10 +12,11 @@
 //! - Fixed seed for deterministic generation
 //! - Provenance tracking (source model hash, generation receipts)
 
+#[cfg(target_arch = "wasm32")]
 use crate::api::error::format_structured_details;
 use crate::api::use_api_client;
 use crate::components::{
-    Button, ButtonVariant, Dialog, DialogSize, FormField, Input, Select, Spinner,
+    Button, ButtonVariant, Dialog, DialogSize, FormField, InlineErrorBanner, Input, Select, Spinner,
 };
 use crate::pages::training::dataset_wizard::DatasetOutcome;
 use crate::validation::{use_form_errors, validate_field, ValidationRule};
@@ -37,6 +38,7 @@ pub enum GenerateStrategy {
 }
 
 impl GenerateStrategy {
+    #[cfg(target_arch = "wasm32")]
     fn as_str(&self) -> &'static str {
         match self {
             GenerateStrategy::Qa => "qa",
@@ -130,10 +132,10 @@ pub fn GenerateDatasetWizard(
     });
 
     // Shared API client
-    let client = use_api_client();
+    let _client = use_api_client();
 
     // Validate fields before generation
-    let validate_form = move || -> bool {
+    let _validate_form = move || -> bool {
         form_errors.update(|e| e.clear_all());
         let mut valid = true;
 
@@ -184,7 +186,7 @@ pub fn GenerateDatasetWizard(
     #[cfg(target_arch = "wasm32")]
     let handle_file_select = {
         let is_active = Arc::clone(&is_active);
-        let client = client.clone();
+        let client = _client.clone();
         move |ev: web_sys::Event| {
             use wasm_bindgen::JsCast;
 
@@ -198,7 +200,7 @@ pub fn GenerateDatasetWizard(
             };
 
             // Validate form before starting generation
-            if !validate_form() {
+            if !_validate_form() {
                 input.set_value("");
                 return;
             }
@@ -336,8 +338,8 @@ pub fn GenerateDatasetWizard(
 
                     // Error banner (inline, matching CreateJobWizard pattern)
                     {move || error.try_get().flatten().map(|e| view! {
-                        <div class="mb-4 rounded-lg border border-destructive bg-destructive/10 p-3">
-                            <p class="text-sm text-destructive">{e}</p>
+                        <div class="mb-4">
+                            <InlineErrorBanner message=e/>
                         </div>
                     })}
 

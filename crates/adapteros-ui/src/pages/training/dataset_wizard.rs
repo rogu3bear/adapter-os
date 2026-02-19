@@ -6,12 +6,13 @@
 //! - Direct CSV with column mapping
 //! - Direct text/markdown with simple pairing strategies
 
+#[cfg(target_arch = "wasm32")]
 use crate::api::error::format_structured_details;
 use crate::api::use_api_client;
 use crate::components::spinner::SpinnerSize;
 use crate::components::{
     Badge, BadgeVariant, Button, ButtonSize, ButtonVariant, Card, Dialog, DialogSize, FormField,
-    Input, Select, Spinner,
+    InlineErrorBanner, Input, Select, Spinner,
 };
 use crate::validation::{rules, use_form_errors, validate_field};
 #[cfg(target_arch = "wasm32")]
@@ -415,7 +416,7 @@ pub fn DatasetUploadWizard(
     });
 
     // Shared API client
-    let client = use_api_client();
+    let _client = use_api_client();
 
     // Reset form when dialog closes (Effect-based, matches CreateJobWizard pattern)
     let reset_form = move || {
@@ -647,7 +648,7 @@ pub fn DatasetUploadWizard(
             let description_value = description.get();
             #[cfg(target_arch = "wasm32")]
             {
-                let client = client.clone();
+                let client = _client.clone();
                 let data_file_value = data_file.get();
                 let mode_value = mode.get();
                 let csv_mapping = csv_mapping.get();
@@ -914,6 +915,7 @@ pub fn DatasetUploadWizard(
                                             type="file"
                                             accept=".csv"
                                             class="mt-1 block w-full text-sm"
+                                            aria_label="Upload CSV file"
                                             on:change=move |ev| data_handler.run(ev)
                                         />
                                         {move || {
@@ -975,6 +977,7 @@ pub fn DatasetUploadWizard(
                                             type="file"
                                             accept=".txt,.md,.markdown"
                                             class="mt-1 block w-full text-sm"
+                                            aria_label="Upload text or markdown file"
                                             on:change=move |ev| data_handler.run(ev)
                                         />
                                         <div class="flex gap-2">
@@ -1079,9 +1082,7 @@ pub fn DatasetUploadWizard(
 
                         // Upload error (inline banner)
                         {move || upload_error.try_get().flatten().map(|err| view! {
-                            <div class="rounded-md border border-destructive bg-destructive/10 p-3 text-sm text-destructive">
-                                {err}
-                            </div>
+                            <InlineErrorBanner message=err/>
                         })}
                         {move || {
                             let msg = status.try_get().unwrap_or_default();

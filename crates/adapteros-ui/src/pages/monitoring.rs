@@ -2,6 +2,7 @@
 //!
 //! Real-time process monitoring with alerts, anomalies, and health metrics.
 
+use crate::api::types::{WorkerHealthSummaryResponse, WorkerHealthSummaryWorker};
 use crate::api::{
     report_error_with_toast, use_api_client, ApiClient, ComponentStatus, ProcessAlertResponse,
     ProcessAnomalyResponse, ProcessHealthMetricResponse, ReadyzCheck, ReadyzChecks, ReadyzResponse,
@@ -9,11 +10,14 @@ use crate::api::{
 };
 use crate::components::{
     Badge, BadgeVariant, Button, ButtonSize, ButtonVariant, Card, EmptyState, EmptyStateVariant,
-    ErrorDisplay, PageBreadcrumbItem, PageScaffold, PageScaffoldActions, SkeletonCard,
+    ErrorDisplay, LineChart, PageBreadcrumbItem, PageScaffold, PageScaffoldActions, SkeletonCard,
     SkeletonStatsGrid, Spinner, TabButton, Table, TableBody, TableCell, TableHead, TableHeader,
     TableRow,
 };
-use crate::hooks::{use_api_resource, use_polling, LoadingState};
+use crate::hooks::{
+    use_api_resource, use_live_system_metrics, use_polling, LiveSystemMetricsHandle, LoadingState,
+    MetricViewMode,
+};
 use crate::signals::{use_refetch_signal, RefetchTopic};
 use crate::utils::humanize;
 use adapteros_api_types::HealthResponse;
@@ -44,6 +48,13 @@ pub fn Monitoring() -> impl IntoView {
     let (health_metrics, refetch_health) =
         use_api_resource(move |client: Arc<ApiClient>| async move {
             client.get_process_health_metrics(None).await
+        });
+
+    // Shared global live metrics + worker summary projection for top panel.
+    let live_metrics = use_live_system_metrics();
+    let (worker_health_summary, refetch_worker_health_summary) =
+        use_api_resource(move |client: Arc<ApiClient>| async move {
+            client.worker_health_summary().await
         });
 
     // Fetch system overview (includes active sessions count)
@@ -79,6 +90,7 @@ pub fn Monitoring() -> impl IntoView {
         if counter > 0 {
             refetch_health.run(());
             refetch_overview.run(());
+            refetch_worker_health_summary.run(());
             refetch_healthz.run(());
             refetch_readyz.run(());
             refetch_healthz_all.run(());
@@ -92,6 +104,7 @@ pub fn Monitoring() -> impl IntoView {
         refetch_anomalies.run(());
         refetch_health.run(());
         refetch_overview.run(());
+        refetch_worker_health_summary.run(());
         refetch_healthz.run(());
         refetch_readyz.run(());
         refetch_healthz_all.run(());
@@ -128,6 +141,7 @@ pub fn Monitoring() -> impl IntoView {
                         refetch_anomalies.run(());
                         refetch_health.run(());
                         refetch_overview.run(());
+                        refetch_worker_health_summary.run(());
                         refetch_healthz.run(());
                         refetch_readyz.run(());
                         refetch_healthz_all.run(());
@@ -375,38 +389,62 @@ pub fn Monitoring() -> impl IntoView {
                             match health_metrics.try_get().unwrap_or_default() {
                                 LoadingState::Idle | LoadingState::Loading => {
                                     view! {
-                                        <SkeletonStatsGrid count=6 />
+                                        <div class="space-y-4">
+                                            <MonitoringLivePerformancePanel
+                                                live_metrics=live_metrics
+                                                worker_health_summary=worker_health_summary
+                                            />
+                                            <SkeletonStatsGrid count=6 />
+                                        </div>
                                     }.into_any()
                                 }
                                 LoadingState::Loaded(data) => {
                                     let metrics_data: Vec<ProcessHealthMetricResponse> = data;
                                     if metrics_data.is_empty() {
                                         view! {
-                                            <EmptyState
-                                                title="No Health Metrics"
-                                                description="No health metrics are being collected. Start some workers to see metrics."
-                                                variant=EmptyStateVariant::Empty
-                                                icon="M3.75 13.5l10.5-11.25L12 10.5h8.25L9.75 21.75 12 13.5H3.75z"
-                                            />
+                                            <div class="space-y-4">
+                                                <MonitoringLivePerformancePanel
+                                                    live_metrics=live_metrics
+                                                    worker_health_summary=worker_health_summary
+                                                />
+                                                <EmptyState
+                                                    title="No Health Metrics"
+                                                    description="No health metrics are being collected. Start some workers to see metrics."
+                                                    variant=EmptyStateVariant::Empty
+                                                    icon="M3.75 13.5l10.5-11.25L12 10.5h8.25L9.75 21.75 12 13.5H3.75z"
+                                                />
+                                            </div>
                                         }.into_any()
                                     } else {
                                         // Group metrics by worker
                                         let grouped = group_metrics_by_worker(metrics_data);
                                         view! {
-                                            <div class="grid gap-4 md:grid-cols-2 lg:grid-cols-3">
-                                                {grouped.into_iter().map(|(worker_id, worker_metrics)| view! {
-                                                    <WorkerHealthCard worker_id=worker_id metrics=worker_metrics/>
-                                                }).collect::<Vec<_>>()}
+                                            <div class="space-y-4">
+                                                <MonitoringLivePerformancePanel
+                                                    live_metrics=live_metrics
+                                                    worker_health_summary=worker_health_summary
+                                                />
+                                                <div class="grid gap-4 md:grid-cols-2 lg:grid-cols-3">
+                                                    {grouped.into_iter().map(|(worker_id, worker_metrics)| view! {
+                                                        <WorkerHealthCard worker_id=worker_id metrics=worker_metrics/>
+                                                    }).collect::<Vec<_>>()}
+                                                </div>
                                             </div>
                                         }.into_any()
                                     }
                                 }
                                 LoadingState::Error(e) => {
                                     view! {
-                                        <ErrorDisplay
-                                            error=e
-                                            on_retry=refetch_health.as_callback()
-                                        />
+                                        <div class="space-y-4">
+                                            <MonitoringLivePerformancePanel
+                                                live_metrics=live_metrics
+                                                worker_health_summary=worker_health_summary
+                                            />
+                                            <ErrorDisplay
+                                                error=e
+                                                on_retry=refetch_health.as_callback()
+                                            />
+                                        </div>
                                     }.into_any()
                                 }
                             }
@@ -415,6 +453,341 @@ pub fn Monitoring() -> impl IntoView {
                 }}
             </div>
         </PageScaffold>
+    }
+}
+
+#[derive(Clone, Debug, PartialEq)]
+struct WorkerPerformanceProjection {
+    worker_id: String,
+    throughput_rps_recent: f64,
+    avg_latency_ms: f64,
+}
+
+#[component]
+fn MonitoringLivePerformancePanel(
+    live_metrics: LiveSystemMetricsHandle,
+    worker_health_summary: ReadSignal<LoadingState<WorkerHealthSummaryResponse>>,
+) -> impl IntoView {
+    let metric_mode = RwSignal::new(MetricViewMode::Throughput);
+    let global_chart_data = Memo::new(move |_| {
+        let mode = metric_mode.try_get().unwrap_or_default();
+        live_metrics
+            .history
+            .with(|history| history.series_for_mode(mode))
+    });
+
+    let target_workers: RwSignal<Vec<WorkerPerformanceProjection>> = RwSignal::new(Vec::new());
+    let display_workers: RwSignal<Vec<WorkerPerformanceProjection>> = RwSignal::new(Vec::new());
+
+    Effect::new(move || {
+        if let Some(LoadingState::Loaded(summary)) = worker_health_summary.try_get() {
+            let top_workers = top_five_workers_by_throughput(&summary.workers);
+            let _ = target_workers.try_set(top_workers.clone());
+            let _ = display_workers.try_update(|current| {
+                if current.is_empty() {
+                    *current = top_workers.clone();
+                }
+            });
+        }
+    });
+
+    let _ = use_polling(100, move || async move {
+        let target = target_workers.try_get().unwrap_or_default();
+        if target.is_empty() {
+            return;
+        }
+
+        let current = display_workers.try_get().unwrap_or_default();
+        let next = lerp_worker_projections(&current, &target, 0.35);
+        let _ = display_workers.try_set(next);
+    });
+
+    view! {
+        <Card title="Live Performance".to_string() description="Global metrics with top worker performance.".to_string()>
+            <div class="space-y-4">
+                <div class="flex items-center justify-between gap-3">
+                    <div class="inline-flex rounded-md border border-border bg-muted/20 p-1 transition-colors duration-200">
+                        <button
+                            type="button"
+                            class=move || {
+                                if metric_mode.try_get().unwrap_or_default() == MetricViewMode::Throughput {
+                                    "rounded px-3 py-1 text-xs font-medium bg-background text-foreground shadow-sm transition-all duration-200"
+                                } else {
+                                    "rounded px-3 py-1 text-xs font-medium text-muted-foreground hover:text-foreground transition-all duration-200"
+                                }
+                            }
+                            on:click=move |_| metric_mode.set(MetricViewMode::Throughput)
+                        >
+                            "Throughput"
+                        </button>
+                        <button
+                            type="button"
+                            class=move || {
+                                if metric_mode.try_get().unwrap_or_default() == MetricViewMode::Latency {
+                                    "rounded px-3 py-1 text-xs font-medium bg-background text-foreground shadow-sm transition-all duration-200"
+                                } else {
+                                    "rounded px-3 py-1 text-xs font-medium text-muted-foreground hover:text-foreground transition-all duration-200"
+                                }
+                            }
+                            on:click=move |_| metric_mode.set(MetricViewMode::Latency)
+                        >
+                            "Latency"
+                        </button>
+                    </div>
+                    <span class="text-xs text-muted-foreground transition-opacity duration-200">
+                        {move || match metric_mode.try_get().unwrap_or_default() {
+                            MetricViewMode::Throughput => "Requests/sec",
+                            MetricViewMode::Latency => "Latency (ms)",
+                        }}
+                    </span>
+                </div>
+
+                <LineChart
+                    data=Signal::from(global_chart_data)
+                    title="Global Live Performance".to_string()
+                    height=170.0
+                    show_points=false
+                    class="transition-opacity duration-200".to_string()
+                />
+
+                {move || {
+                    match live_metrics.display_metrics.try_get().flatten() {
+                        Some(metrics) => view! {
+                            <div class="grid gap-2 sm:grid-cols-2 lg:grid-cols-3 text-xs">
+                                <div class="rounded-md border border-border bg-muted/10 px-3 py-2 transition-colors duration-200">
+                                    <span class="text-muted-foreground">"CPU "</span>
+                                    <span class="font-mono font-medium">{format!("{:.1}%", metrics.cpu_usage)}</span>
+                                </div>
+                                <div class="rounded-md border border-border bg-muted/10 px-3 py-2 transition-colors duration-200">
+                                    <span class="text-muted-foreground">"Memory "</span>
+                                    <span class="font-mono font-medium">{format!("{:.1}%", metrics.memory_usage)}</span>
+                                </div>
+                                <div class="rounded-md border border-border bg-muted/10 px-3 py-2 transition-colors duration-200">
+                                    <span class="text-muted-foreground">"GPU "</span>
+                                    <span class="font-mono font-medium">{format!("{:.1}%", metrics.gpu_utilization)}</span>
+                                </div>
+                                <div class="rounded-md border border-border bg-muted/10 px-3 py-2 transition-colors duration-200">
+                                    <span class="text-muted-foreground">"Current Throughput "</span>
+                                    <span class="font-mono font-medium">{format!("{:.1} req/s", metrics.requests_per_second)}</span>
+                                </div>
+                                <div class="rounded-md border border-border bg-muted/10 px-3 py-2 transition-colors duration-200">
+                                    <span class="text-muted-foreground">"Current Latency "</span>
+                                    <span class="font-mono font-medium">{format!("{:.0} ms", metrics.avg_latency_ms)}</span>
+                                </div>
+                                <div class="rounded-md border border-border bg-muted/10 px-3 py-2 transition-colors duration-200">
+                                    <span class="text-muted-foreground">"Active Workers "</span>
+                                    <span class="font-mono font-medium">{metrics.active_workers}</span>
+                                </div>
+                            </div>
+                        }.into_any(),
+                        None => view! {
+                            <div class="flex items-center gap-2 text-xs text-muted-foreground">
+                                <Spinner/>
+                                <span>"Waiting for live metrics stream..."</span>
+                            </div>
+                        }.into_any(),
+                    }
+                }}
+
+                <div class="border-t border-border pt-3 space-y-2">
+                    <div class="flex items-center justify-between text-xs text-muted-foreground">
+                        <span>
+                            {move || {
+                                match metric_mode.try_get().unwrap_or_default() {
+                                    MetricViewMode::Throughput => "Top workers by throughput (recent)",
+                                    MetricViewMode::Latency => "Top workers by latency (recent)",
+                                }
+                            }}
+                        </span>
+                        {move || {
+                            let count = target_workers.try_get().unwrap_or_default().len();
+                            view! { <span>{format!("{} workers", count)}</span> }
+                        }}
+                    </div>
+                    {move || {
+                        match worker_health_summary.try_get().unwrap_or_default() {
+                            LoadingState::Idle | LoadingState::Loading => view! {
+                                <div class="flex items-center gap-2 text-xs text-muted-foreground">
+                                    <Spinner/>
+                                    <span>"Loading worker performance..."</span>
+                                </div>
+                            }.into_any(),
+                            LoadingState::Error(_) => view! {
+                                <div class="text-xs text-muted-foreground">
+                                    "Worker summary unavailable."
+                                </div>
+                            }.into_any(),
+                            LoadingState::Loaded(_) => {
+                                let workers = display_workers.try_get().unwrap_or_default();
+                                if workers.is_empty() {
+                                    view! {
+                                        <div class="text-xs text-muted-foreground">
+                                            "No worker performance data."
+                                        </div>
+                                    }.into_any()
+                                } else {
+                                    let mode = metric_mode.try_get().unwrap_or_default();
+                                    let max_value = workers
+                                        .iter()
+                                        .map(|worker| project_worker_value(worker, mode))
+                                        .fold(0.0, f64::max)
+                                        .max(1.0);
+                                    view! {
+                                        <div class="space-y-2">
+                                            {workers.into_iter().map(|worker| {
+                                                let value = project_worker_value(&worker, mode);
+                                                let width = (value / max_value * 100.0).clamp(5.0, 100.0);
+                                                let value_label = format_projected_worker_value(value, mode);
+                                                view! {
+                                                    <div class="rounded-md border border-border px-3 py-2 transition-all duration-200 ease-out">
+                                                        <div class="flex items-center justify-between text-xs">
+                                                            <span class="font-medium">{adapteros_id::short_id(&worker.worker_id)}</span>
+                                                            <span class="font-mono transition-opacity duration-200">{value_label}</span>
+                                                        </div>
+                                                        <div class="mt-2 h-1.5 rounded bg-muted/50 overflow-hidden">
+                                                            <div
+                                                                class="h-full bg-primary/70 transition-all duration-300 ease-out"
+                                                                style={format!("width: {:.2}%;", width)}
+                                                            ></div>
+                                                        </div>
+                                                    </div>
+                                                }
+                                            }).collect::<Vec<_>>()}
+                                        </div>
+                                    }.into_any()
+                                }
+                            }
+                        }
+                    }}
+                </div>
+            </div>
+        </Card>
+    }
+}
+
+fn top_five_workers_by_throughput(
+    workers: &[WorkerHealthSummaryWorker],
+) -> Vec<WorkerPerformanceProjection> {
+    use std::cmp::Ordering;
+
+    let mut projected: Vec<WorkerPerformanceProjection> = workers
+        .iter()
+        .map(|worker| WorkerPerformanceProjection {
+            worker_id: worker.worker_id.clone(),
+            throughput_rps_recent: worker.throughput_rps_recent.unwrap_or_default(),
+            avg_latency_ms: worker.avg_latency_ms.unwrap_or_default(),
+        })
+        .collect();
+
+    projected.sort_by(|left, right| {
+        right
+            .throughput_rps_recent
+            .partial_cmp(&left.throughput_rps_recent)
+            .unwrap_or(Ordering::Equal)
+            .then_with(|| left.worker_id.cmp(&right.worker_id))
+    });
+    projected.truncate(5);
+    projected
+}
+
+fn project_worker_value(worker: &WorkerPerformanceProjection, mode: MetricViewMode) -> f64 {
+    match mode {
+        MetricViewMode::Throughput => worker.throughput_rps_recent,
+        MetricViewMode::Latency => worker.avg_latency_ms,
+    }
+}
+
+fn format_projected_worker_value(value: f64, mode: MetricViewMode) -> String {
+    match mode {
+        MetricViewMode::Throughput => format!("{:.1} req/s", value),
+        MetricViewMode::Latency => format!("{:.0} ms", value),
+    }
+}
+
+fn lerp_worker_projections(
+    current: &[WorkerPerformanceProjection],
+    target: &[WorkerPerformanceProjection],
+    factor: f64,
+) -> Vec<WorkerPerformanceProjection> {
+    target
+        .iter()
+        .map(|target_worker| {
+            if let Some(current_worker) = current
+                .iter()
+                .find(|worker| worker.worker_id == target_worker.worker_id)
+            {
+                WorkerPerformanceProjection {
+                    worker_id: target_worker.worker_id.clone(),
+                    throughput_rps_recent: lerp_f64(
+                        current_worker.throughput_rps_recent,
+                        target_worker.throughput_rps_recent,
+                        factor,
+                    ),
+                    avg_latency_ms: lerp_f64(
+                        current_worker.avg_latency_ms,
+                        target_worker.avg_latency_ms,
+                        factor,
+                    ),
+                }
+            } else {
+                target_worker.clone()
+            }
+        })
+        .collect()
+}
+
+fn lerp_f64(current: f64, target: f64, factor: f64) -> f64 {
+    current + (target - current) * factor.clamp(0.0, 1.0)
+}
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+
+    fn worker(
+        id: &str,
+        throughput_rps_recent: f64,
+        avg_latency_ms: f64,
+    ) -> WorkerHealthSummaryWorker {
+        WorkerHealthSummaryWorker {
+            worker_id: id.to_string(),
+            throughput_rps_recent: Some(throughput_rps_recent),
+            avg_latency_ms: Some(avg_latency_ms),
+            ..Default::default()
+        }
+    }
+
+    #[test]
+    fn sorts_top_five_workers_by_throughput_desc() {
+        let workers = vec![
+            worker("worker-c", 9.0, 40.0),
+            worker("worker-a", 12.0, 30.0),
+            worker("worker-f", 7.0, 50.0),
+            worker("worker-b", 12.0, 20.0),
+            worker("worker-d", 4.0, 25.0),
+            worker("worker-e", 8.0, 35.0),
+        ];
+
+        let top = top_five_workers_by_throughput(&workers);
+        let ids: Vec<&str> = top.iter().map(|w| w.worker_id.as_str()).collect();
+
+        assert_eq!(top.len(), 5);
+        assert_eq!(
+            ids,
+            vec!["worker-a", "worker-b", "worker-c", "worker-e", "worker-f"]
+        );
+    }
+
+    #[test]
+    fn projection_follows_selected_toggle_mode() {
+        let worker = WorkerPerformanceProjection {
+            worker_id: "worker-1".to_string(),
+            throughput_rps_recent: 15.5,
+            avg_latency_ms: 82.0,
+        };
+
+        assert!((project_worker_value(&worker, MetricViewMode::Throughput) - 15.5).abs() < 0.001);
+        assert!((project_worker_value(&worker, MetricViewMode::Latency) - 82.0).abs() < 0.001);
     }
 }
 

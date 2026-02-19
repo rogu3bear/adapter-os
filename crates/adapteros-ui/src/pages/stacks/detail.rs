@@ -4,16 +4,18 @@
 
 use super::dialogs::EditStackDialog;
 use super::helpers::{lifecycle_badge_variant, workflow_type_label};
-use crate::api::{ApiClient, StackResponse};
+use crate::api::{report_error_with_toast, ApiClient, StackResponse};
 use crate::components::{
     Badge, BadgeVariant, Button, ButtonSize, ButtonVariant, Card, CopyableId, ErrorDisplay,
     LoadingDisplay, NotFoundSurface, PageBreadcrumbItem, PageScaffold, PageScaffoldActions,
     RefreshButton,
 };
+use crate::constants::ui_language;
 use crate::contexts::use_in_flight;
-use crate::hooks::{use_api, use_api_resource, LoadingState, Refetch};
+use crate::hooks::{use_api, use_api_resource, use_system_status, LoadingState, Refetch};
 use crate::utils::{format_datetime, humanize};
 use adapteros_api_types::AdapterResponse;
+use adapteros_api_types::InferenceReadyState;
 use leptos::prelude::*;
 use leptos_router::hooks::use_params_map;
 use std::sync::Arc;
@@ -129,6 +131,15 @@ pub fn StackDetailContent(
     let stack_id_activate = stack_id.clone();
     let is_active = stack.is_active;
 
+    let (system_status, _) = use_system_status();
+    let inference_not_ready = Memo::new(move |_| {
+        !matches!(
+            system_status.get(),
+            LoadingState::Loaded(ref s) if matches!(s.inference_ready, InferenceReadyState::True)
+        )
+    });
+    let (activating, set_activating) = signal(false);
+
     // Filter adapters that belong to this stack
     let stack_adapter_ids: std::collections::HashSet<_> =
         stack.adapter_ids.iter().cloned().collect();
@@ -199,14 +210,21 @@ pub fn StackDetailContent(
                                 <Button
                                     variant=ButtonVariant::Primary
                                     size=ButtonSize::Sm
+                                    disabled=Signal::derive(move || inference_not_ready.get() || activating.get())
+                                    loading=Signal::from(activating)
                                     on_click=Callback::new(move |_| {
                                         let client = Arc::clone(&client);
                                         let id = id.clone();
                                         let refetch = refetch;
+                                        set_activating.set(true);
                                         wasm_bindgen_futures::spawn_local(async move {
-                                            if client.activate_stack(&id).await.is_ok() {
-                                                refetch.run(());
+                                            match client.activate_stack(&id).await {
+                                                Ok(_) => refetch.run(()),
+                                                Err(e) => {
+                                                    report_error_with_toast(&e, "Failed to activate stack", Some("/stacks"), true);
+                                                }
                                             }
+                                            let _ = set_activating.try_set(false);
                                         });
                                     })
                                 >
@@ -230,17 +248,17 @@ pub fn StackDetailContent(
             </Card>
         </div>
 
-        // Determinism Settings
-        <Card title="Determinism Settings".to_string() class="mt-6".to_string()>
+        // Reproducibility settings
+        <Card title="Reproducibility Settings".to_string() class="mt-6".to_string()>
             <div class="grid gap-4 md:grid-cols-2">
                 <div>
-                    <p class="text-sm text-muted-foreground">"Determinism Mode"</p>
+                    <p class="text-sm text-muted-foreground">{ui_language::REPRODUCIBLE_MODE}</p>
                     <p class="font-medium">
                         {stack.determinism_mode.clone().unwrap_or_else(|| "default".to_string())}
                     </p>
                 </div>
                 <div>
-                    <p class="text-sm text-muted-foreground">"Routing Determinism Mode"</p>
+                    <p class="text-sm text-muted-foreground">"Routing lock mode"</p>
                     <p class="font-medium">
                         {stack.routing_determinism_mode.clone().unwrap_or_else(|| "deterministic".to_string())}
                     </p>

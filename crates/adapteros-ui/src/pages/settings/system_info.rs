@@ -1,7 +1,9 @@
 //! System Info section component
 
 use crate::api::ApiClient;
-use crate::components::{Badge, BadgeVariant, Button, ButtonVariant, Card, ErrorDisplay, Spinner};
+use crate::components::{
+    Badge, BadgeVariant, Button, ButtonVariant, Card, DetailGridRow, ErrorDisplay, Spinner,
+};
 use crate::hooks::{use_api_resource, LoadingState};
 use adapteros_api_types::HealthResponse;
 use leptos::prelude::*;
@@ -19,22 +21,18 @@ pub fn SystemInfoSection() -> impl IntoView {
             // UI Version
             <Card title="UI Version".to_string() description="Frontend application version.".to_string()>
                 <div class="space-y-2">
-                    <div class="grid grid-cols-3 gap-4 items-center">
-                        <span class="text-sm font-medium text-muted-foreground">"Version"</span>
-                        <span class="col-span-2 text-sm font-mono">{env!("CARGO_PKG_VERSION")}</span>
-                    </div>
-                    <div class="grid grid-cols-3 gap-4 items-center">
-                        <span class="text-sm font-medium text-muted-foreground">"Build ID"</span>
-                        <span class="col-span-2 text-sm font-mono">{option_env!("AOS_BUILD_ID").unwrap_or("unknown")}</span>
-                    </div>
-                    <div class="grid grid-cols-3 gap-4 items-center">
-                        <span class="text-sm font-medium text-muted-foreground">"Framework"</span>
-                        <span class="col-span-2 text-sm">"Leptos 0.7 (CSR)"</span>
-                    </div>
-                    <div class="grid grid-cols-3 gap-4 items-center">
-                        <span class="text-sm font-medium text-muted-foreground">"Target"</span>
-                        <span class="col-span-2 text-sm font-mono">"wasm32-unknown-unknown"</span>
-                    </div>
+                    <DetailGridRow label="Version" mono=true>
+                        <span class="text-sm font-mono">{env!("CARGO_PKG_VERSION")}</span>
+                    </DetailGridRow>
+                    <DetailGridRow label="Build ID" mono=true>
+                        <span class="text-sm font-mono">{option_env!("AOS_BUILD_ID").unwrap_or("unknown")}</span>
+                    </DetailGridRow>
+                    <DetailGridRow label="Framework">
+                        <span class="text-sm">"Leptos 0.7 (CSR)"</span>
+                    </DetailGridRow>
+                    <DetailGridRow label="Target" mono=true>
+                        <span class="text-sm font-mono">"wasm32-unknown-unknown"</span>
+                    </DetailGridRow>
                 </div>
             </Card>
 
@@ -76,16 +74,14 @@ pub fn SystemInfoSection() -> impl IntoView {
             // Build Info
             <Card title="Build Information".to_string() description="Compilation and environment details.".to_string()>
                 <div class="space-y-2">
-                    <div class="grid grid-cols-3 gap-4 items-center">
-                        <span class="text-sm font-medium text-muted-foreground">"API Schema Version"</span>
-                        <span class="col-span-2 text-sm font-mono">{adapteros_api_types::API_SCHEMA_VERSION}</span>
-                    </div>
-                    <div class="grid grid-cols-3 gap-4 items-center">
-                        <span class="text-sm font-medium text-muted-foreground">"Build Profile"</span>
-                        <span class="col-span-2 text-sm">
+                    <DetailGridRow label="API Schema Version" mono=true>
+                        <span class="text-sm font-mono">{adapteros_api_types::API_SCHEMA_VERSION}</span>
+                    </DetailGridRow>
+                    <DetailGridRow label="Build Profile">
+                        <span class="text-sm">
                             {if cfg!(debug_assertions) { "Debug" } else { "Release" }}
                         </span>
-                    </div>
+                    </DetailGridRow>
                 </div>
             </Card>
         </div>
@@ -103,56 +99,46 @@ fn HealthInfo(health: HealthResponse) -> impl IntoView {
 
     view! {
         <div class="space-y-2">
-            <div class="grid grid-cols-3 gap-4 items-center">
-                <span class="text-sm font-medium text-muted-foreground">"Status"</span>
-                <div class="col-span-2">
-                    <Badge variant=status_variant>
-                        {health.status.clone()}
-                    </Badge>
-                </div>
-            </div>
-            <div class="grid grid-cols-3 gap-4 items-center">
-                <span class="text-sm font-medium text-muted-foreground">"Version"</span>
-                <span class="col-span-2 text-sm font-mono">{health.version.clone()}</span>
-            </div>
-            <div class="grid grid-cols-3 gap-4 items-center">
-                <span class="text-sm font-medium text-muted-foreground">"Schema Version"</span>
-                <span class="col-span-2 text-sm font-mono">{health.schema_version.clone()}</span>
-            </div>
+            <DetailGridRow label="Status">
+                <Badge variant=status_variant>
+                    {health.status.clone()}
+                </Badge>
+            </DetailGridRow>
+            <DetailGridRow label="Version" mono=true>
+                <span class="text-sm font-mono">{health.version.clone()}</span>
+            </DetailGridRow>
+            <DetailGridRow label="Schema Version" mono=true>
+                <span class="text-sm font-mono">{health.schema_version.clone()}</span>
+            </DetailGridRow>
 
             // Model runtime health
             {health.models.map(|models| view! {
                 <div class="mt-4 pt-4 border-t">
                     <h4 class="text-sm font-medium mb-2">"Model Runtime"</h4>
                     <div class="space-y-2">
-                        <div class="grid grid-cols-3 gap-4 items-center">
-                            <span class="text-sm font-medium text-muted-foreground">"Models Loaded"</span>
-                            <span class="col-span-2 text-sm">
+                        <DetailGridRow label="Models Loaded">
+                            <span class="text-sm">
                                 {format!("{} / {}", models.loaded_count, models.total_models)}
                             </span>
-                        </div>
-                        <div class="grid grid-cols-3 gap-4 items-center">
-                            <span class="text-sm font-medium text-muted-foreground">"Health"</span>
-                            <div class="col-span-2">
-                                {if models.healthy {
-                                    view! {
-                                        <Badge variant=BadgeVariant::Success>"Healthy"</Badge>
-                                    }.into_any()
-                                } else {
-                                    view! {
-                                        <Badge variant=BadgeVariant::Destructive>"Unhealthy"</Badge>
-                                    }.into_any()
-                                }}
-                            </div>
-                        </div>
+                        </DetailGridRow>
+                        <DetailGridRow label="Health">
+                            {if models.healthy {
+                                view! {
+                                    <Badge variant=BadgeVariant::Success>"Healthy"</Badge>
+                                }.into_any()
+                            } else {
+                                view! {
+                                    <Badge variant=BadgeVariant::Destructive>"Unhealthy"</Badge>
+                                }.into_any()
+                            }}
+                        </DetailGridRow>
                         {if models.inconsistencies_count > 0 {
                             Some(view! {
-                                <div class="grid grid-cols-3 gap-4 items-center">
-                                    <span class="text-sm font-medium text-muted-foreground">"Inconsistencies"</span>
-                                    <span class="col-span-2 text-sm text-destructive">
+                                <DetailGridRow label="Inconsistencies">
+                                    <span class="text-sm text-destructive">
                                         {models.inconsistencies_count.to_string()}
                                     </span>
-                                </div>
+                                </DetailGridRow>
                             })
                         } else {
                             None

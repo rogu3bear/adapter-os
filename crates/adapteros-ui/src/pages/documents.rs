@@ -12,13 +12,16 @@ use crate::components::{
     TableCell, TableHead, TableHeader, TableRow,
 };
 use crate::hooks::{
-    use_api, use_api_resource, use_conditional_polling, use_delete_dialog, LoadingState,
+    use_api, use_api_resource, use_conditional_polling, use_delete_dialog, use_system_status,
+    LoadingState,
 };
 use crate::signals::{try_use_route_context, SelectedEntity};
 use crate::utils::{format_bytes, format_datetime, format_relative_time};
 use leptos::prelude::*;
 use leptos_router::hooks::{use_navigate, use_params_map};
 use std::sync::Arc;
+
+use adapteros_api_types::StatusIndicator as ApiStatusIndicator;
 
 #[cfg(target_arch = "wasm32")]
 use send_wrapper::SendWrapper;
@@ -404,6 +407,14 @@ fn DocumentsList(
     let delete_state = use_delete_dialog();
     let reprocessing_id = RwSignal::new(Option::<String>::None);
 
+    let (system_status, _) = use_system_status();
+    let system_not_ready = Memo::new(move |_| {
+        !matches!(
+            system_status.get(),
+            LoadingState::Loaded(ref s) if matches!(s.readiness.overall, ApiStatusIndicator::Ready)
+        )
+    });
+
     let delete_state_for_cancel = delete_state;
     let on_cancel_delete = Callback::new(move |_| {
         delete_state_for_cancel.cancel();
@@ -552,7 +563,10 @@ fn DocumentsList(
                                                         aria_label=aria
                                                         disabled=Signal::derive({
                                                             let id = id_reprocess.clone();
-                                                            move || reprocessing_id.try_get().flatten().as_deref() == Some(id.as_str())
+                                                            move || {
+                                                                reprocessing_id.try_get().flatten().as_deref() == Some(id.as_str())
+                                                                    || system_not_ready.get()
+                                                            }
                                                         })
                                                         on_click=Callback::new({
                                                             let client = Arc::clone(&client);
@@ -664,7 +678,7 @@ mod tests {
 /// Document upload dialog with validation and progress.
 #[component]
 fn DocumentUploadDialog(open: RwSignal<bool>, on_success: Callback<String>) -> impl IntoView {
-    let client = use_api_client();
+    let _client = use_api_client();
     const MAX_FILE_SIZE: u64 = 100 * 1024 * 1024;
 
     #[cfg(target_arch = "wasm32")]
@@ -771,7 +785,7 @@ fn DocumentUploadDialog(open: RwSignal<bool>, on_success: Callback<String>) -> i
             let on_success = on_success;
             let open = open;
 
-            let client = client.clone();
+            let client = _client.clone();
             wasm_bindgen_futures::spawn_local(async move {
                 match client.upload_document(&file).await {
                     Ok(response) => {
@@ -1034,6 +1048,15 @@ fn DocumentDetailContent(
     refetch_trigger: WriteSignal<u32>,
 ) -> AnyView {
     let client = use_api();
+
+    let (system_status, _) = use_system_status();
+    let system_not_ready = Memo::new(move |_| {
+        !matches!(
+            system_status.get(),
+            LoadingState::Loaded(ref s) if matches!(s.readiness.overall, ApiStatusIndicator::Ready)
+        )
+    });
+
     let navigate = use_navigate();
     let status_variant = status_badge_variant(&document.status);
     let doc_id = document.document_id.clone();
@@ -1244,7 +1267,7 @@ fn DocumentDetailContent(
                                     <Button
                                         variant=ButtonVariant::Secondary
                                         size=ButtonSize::Sm
-                                        disabled=Signal::derive(move || processing.try_get().unwrap_or(false))
+                                        disabled=Signal::derive(move || processing.try_get().unwrap_or(false) || system_not_ready.get())
                                         on_click=Callback::new(retry_action)
                                     >
                                         {move || if processing.try_get().unwrap_or(false) { "Retrying..." } else { "Retry" }}
@@ -1254,7 +1277,7 @@ fn DocumentDetailContent(
                             <Button
                                 variant=ButtonVariant::Secondary
                                 size=ButtonSize::Sm
-                                disabled=Signal::derive(move || processing.try_get().unwrap_or(false))
+                                disabled=Signal::derive(move || processing.try_get().unwrap_or(false) || system_not_ready.get())
                                 on_click=Callback::new(process_action)
                             >
                                 {move || if processing.try_get().unwrap_or(false) { "Processing..." } else { "Reprocess" }}

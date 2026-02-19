@@ -1,7 +1,7 @@
 //! Profile section component
 
 use crate::components::{
-    Badge, BadgeVariant, Button, ButtonVariant, Card, DangerZone, DangerZoneItem,
+    Badge, BadgeVariant, Button, ButtonVariant, Card, DangerZone, DangerZoneItem, DetailGridRow,
     SimpleConfirmDialog,
 };
 use crate::signals::use_auth;
@@ -36,44 +36,25 @@ pub fn ProfileSection() -> impl IntoView {
                         let user = user.clone();
                         view! {
                             <div class="space-y-4">
-                                // Display Name
-                                <div class="grid grid-cols-3 gap-4 items-center">
-                                    <span class="text-sm font-medium text-muted-foreground">"Display Name"</span>
-                                    <span class="col-span-2 text-sm">{user.display_name.clone()}</span>
-                                </div>
-
-                                // Email
-                                <div class="grid grid-cols-3 gap-4 items-center">
-                                    <span class="text-sm font-medium text-muted-foreground">"Email"</span>
-                                    <span class="col-span-2 text-sm">{user.email.clone()}</span>
-                                </div>
-
-                                // User ID
-                                <div class="grid grid-cols-3 gap-4 items-center">
-                                    <span class="text-sm font-medium text-muted-foreground">"User ID"</span>
-                                    <span class="col-span-2 text-sm font-mono text-xs">{user.user_id.clone()}</span>
-                                </div>
-
-                                // Role
-                                <div class="grid grid-cols-3 gap-4 items-center">
-                                    <span class="text-sm font-medium text-muted-foreground">"Role"</span>
-                                    <div class="col-span-2">
-                                        <Badge variant=role_to_variant(&user.role)>
-                                            {user.role.clone()}
-                                        </Badge>
-                                    </div>
-                                </div>
-
-                                // Tenant
-                                <div class="grid grid-cols-3 gap-4 items-center">
-                                    <span class="text-sm font-medium text-muted-foreground">"Tenant ID"</span>
-                                    <span class="col-span-2 text-sm font-mono text-xs">{user.tenant_id.clone()}</span>
-                                </div>
-
-                                // Permissions
-                                <div class="grid grid-cols-3 gap-4 items-start">
-                                    <span class="text-sm font-medium text-muted-foreground">"Permissions"</span>
-                                    <div class="col-span-2 flex flex-wrap gap-1">
+                                <DetailGridRow label="Display Name">
+                                    <span class="text-sm">{user.display_name.clone()}</span>
+                                </DetailGridRow>
+                                <DetailGridRow label="Email">
+                                    <span class="text-sm">{user.email.clone()}</span>
+                                </DetailGridRow>
+                                <DetailGridRow label="User ID" mono=true>
+                                    <span class="text-sm font-mono text-xs">{user.user_id.clone()}</span>
+                                </DetailGridRow>
+                                <DetailGridRow label="Role">
+                                    <Badge variant=role_to_variant(&user.role)>
+                                        {user.role.clone()}
+                                    </Badge>
+                                </DetailGridRow>
+                                <DetailGridRow label="Tenant ID" mono=true>
+                                    <span class="text-sm font-mono text-xs">{user.tenant_id.clone()}</span>
+                                </DetailGridRow>
+                                <DetailGridRow label="Permissions" items_start=true>
+                                    <div class="flex flex-wrap gap-1">
                                         {if user.permissions.is_empty() {
                                             view! {
                                                 <span class="text-sm text-muted-foreground">"No explicit permissions"</span>
@@ -91,37 +72,26 @@ pub fn ProfileSection() -> impl IntoView {
                                             }.into_any()
                                         }}
                                     </div>
-                                </div>
-
-                                // MFA Status
-                                <div class="grid grid-cols-3 gap-4 items-center">
-                                    <span class="text-sm font-medium text-muted-foreground">"MFA Status"</span>
-                                    <div class="col-span-2">
-                                        {if user.mfa_enabled.unwrap_or(false) {
-                                            view! {
-                                                <Badge variant=BadgeVariant::Success>"Enabled"</Badge>
-                                            }.into_any()
-                                        } else {
-                                            view! {
-                                                <Badge variant=BadgeVariant::Secondary>"Disabled"</Badge>
-                                            }.into_any()
-                                        }}
-                                    </div>
-                                </div>
-
-                                // Last Login
+                                </DetailGridRow>
+                                <DetailGridRow label="MFA Status">
+                                    {if user.mfa_enabled.unwrap_or(false) {
+                                        view! {
+                                            <Badge variant=BadgeVariant::Success>"Enabled"</Badge>
+                                        }.into_any()
+                                    } else {
+                                        view! {
+                                            <Badge variant=BadgeVariant::Secondary>"Disabled"</Badge>
+                                        }.into_any()
+                                    }}
+                                </DetailGridRow>
                                 {user.last_login_at.clone().map(|last| view! {
-                                    <div class="grid grid-cols-3 gap-4 items-center">
-                                        <span class="text-sm font-medium text-muted-foreground">"Last Login"</span>
-                                        <span class="col-span-2 text-sm">{format_relative_time(&last)}</span>
-                                    </div>
+                                    <DetailGridRow label="Last Login">
+                                        <span class="text-sm">{format_relative_time(&last)}</span>
+                                    </DetailGridRow>
                                 })}
-
-                                // Member Since
-                                <div class="grid grid-cols-3 gap-4 items-center">
-                                    <span class="text-sm font-medium text-muted-foreground">"Member Since"</span>
-                                    <span class="col-span-2 text-sm">{format_datetime(&user.created_at)}</span>
-                                </div>
+                                <DetailGridRow label="Member Since">
+                                    <span class="text-sm">{format_datetime(&user.created_at)}</span>
+                                </DetailGridRow>
                             </div>
                         }.into_any()
                     } else {

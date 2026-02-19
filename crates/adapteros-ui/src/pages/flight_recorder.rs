@@ -19,6 +19,7 @@ use crate::components::{
 };
 use crate::components::{ButtonSize, Input};
 use crate::constants::pagination::TOKEN_DECISIONS_PAGE_SIZE;
+use crate::constants::ui_language;
 use crate::hooks::{use_api_resource, use_list_controls, use_polling, LoadingState};
 use crate::pages::diff::RunSelector;
 use crate::signals::{perf_logging_enabled, use_notifications, use_ui_profile, NotificationAction};
@@ -75,31 +76,44 @@ pub fn FlightRecorder() -> impl IntoView {
 
     view! {
         <PageScaffold
-            title="Runs"
-            subtitle="Inference run history and diagnostics"
+            title=ui_language::SYSTEM_RESTORE_POINTS
+            subtitle="Timeline of execution states, signed logs, and exact restore opportunities."
             breadcrumbs=vec![
                 PageBreadcrumbItem::new("Observe", "/runs"),
-                PageBreadcrumbItem::current("Runs"),
+                PageBreadcrumbItem::current(ui_language::SYSTEM_RESTORE_POINTS),
             ]
         >
             <PageScaffoldActions slot>
+                <Button
+                    variant=ButtonVariant::Secondary
+                    size=ButtonSize::Sm
+                    on_click=Callback::new(move |_| refetch_runs.run(()))
+                >
+                    "Refresh"
+                </Button>
+            </PageScaffoldActions>
+
+            <div class="mb-3 flex items-center gap-2 rounded-lg border border-border/60 bg-card/60 px-3 py-2">
+                <span class="text-xs font-semibold uppercase tracking-wide text-muted-foreground">
+                    "Status"
+                </span>
                 <Select
                     value=status_filter
                     options=vec![
-                        ("".to_string(), "All Statuses".to_string()),
+                        ("".to_string(), "All".to_string()),
                         ("running".to_string(), "Running".to_string()),
                         ("completed".to_string(), "Completed".to_string()),
                         ("failed".to_string(), "Failed".to_string()),
                         ("cancelled".to_string(), "Cancelled".to_string()),
                     ]
-                    class="w-40".to_string()
+                    class="w-36".to_string()
                 />
-            </PageScaffoldActions>
+            </div>
 
             <SplitPanel
                 has_selection=Signal::derive(move || selected_run_id.try_get().flatten().is_some())
                 on_close=Callback::new(move |_| on_close_detail())
-                back_label="Back to Runs"
+                back_label="Back to Restore Points"
                 ratio=SplitRatio::Half
                 list_panel=move || {
                     view! {
@@ -111,8 +125,8 @@ pub fn FlightRecorder() -> impl IntoView {
                                     view! {
                                         <Card>
                                             <EmptyState
-                                                title="No runs found"
-                                                description="Diagnostic runs will appear here after inference requests are processed."
+                                                title="No restore points yet"
+                                                description="Execution snapshots appear here after prompts complete."
                                                 variant=EmptyStateVariant::Empty
                                             />
                                         </Card>
@@ -155,10 +169,10 @@ pub fn FlightRecorder() -> impl IntoView {
 pub fn FlightRecorderDetail() -> impl IntoView {
     view! {
         <crate::components::DetailPageShell
-            title="Run Detail"
+            title="Restore Point Detail"
             section="Observe"
             section_href="/runs"
-            entity_plural="Runs"
+            entity_plural="Restore Points"
             list_href="/runs"
         >
             {move || {
@@ -465,7 +479,7 @@ fn RunDetailHub(run_id: String, on_close: Callback<()>) -> impl IntoView {
             <div class="flex items-center justify-between">
                 <div>
                     <div class="flex items-center gap-2">
-                        <h2 class="heading-3">"Run Detail"</h2>
+                        <h2 class="heading-3">"Restore Point Detail"</h2>
                         <a
                             href=format!("/runs/{}", run_id)
                             class="text-xs text-muted-foreground hover:text-primary"
@@ -490,12 +504,12 @@ fn RunDetailHub(run_id: String, on_close: Callback<()>) -> impl IntoView {
             <div class="flex items-center gap-2 flex-wrap">
                 <QuickActionButton
                     icon="📋"
-                    label="Copy Run ID"
+                    label="Copy Restore Point ID"
                     action=QuickAction::CopyText(run_id.clone())
                 />
                 <QuickActionButton
                     icon="🔗"
-                    label="Copy Receipt Hash"
+                    label="Copy Signed Log Fingerprint"
                     action=QuickAction::CopyReceiptHash(receipt_digest.read_only())
                 />
                 <QuickActionButton
@@ -505,7 +519,7 @@ fn RunDetailHub(run_id: String, on_close: Callback<()>) -> impl IntoView {
                 />
                 <QuickActionButton
                     icon="🔏"
-                    label="Download Signature"
+                    label="Download Tamper-Proof Receipt"
                     action=QuickAction::DownloadSignature(run_id.clone())
                 />
                 {move || {
@@ -516,7 +530,7 @@ fn RunDetailHub(run_id: String, on_close: Callback<()>) -> impl IntoView {
                                 class="inline-flex items-center gap-1.5 px-2 py-1 text-xs rounded border border-border hover:bg-muted transition-colors"
                             >
                                 <span>"↔"</span>
-                                <span>"Compare Runs"</span>
+                                <span>"Compare Restore Points"</span>
                             </a>
                         })
                     } else {
@@ -530,7 +544,7 @@ fn RunDetailHub(run_id: String, on_close: Callback<()>) -> impl IntoView {
                 <nav class="flex gap-1">
                     <RunDetailTabButton tab=RunDetailTab::Overview active=active_tab label="Overview"/>
                     <RunDetailTabButton tab=RunDetailTab::Trace active=active_tab label="Trace"/>
-                    <RunDetailTabButton tab=RunDetailTab::Receipt active=active_tab label="Receipt"/>
+                    <RunDetailTabButton tab=RunDetailTab::Receipt active=active_tab label=ui_language::SIGNED_SYSTEM_LOGS/>
                     <RunDetailTabButton tab=RunDetailTab::Routing active=active_tab label="Routing"/>
                     <RunDetailTabButton tab=RunDetailTab::Errors active=active_tab label="Errors"/>
                     {move || {
@@ -538,8 +552,8 @@ fn RunDetailHub(run_id: String, on_close: Callback<()>) -> impl IntoView {
                             Some(view! {
                                 <RunDetailTabButton tab=RunDetailTab::Tokens active=active_tab label="Tokens"/>
                                 <RunDetailTabButton tab=RunDetailTab::Diff active=active_tab label="Diff"/>
-                                <RunDetailTabButton tab=RunDetailTab::Events active=active_tab label="Events"/>
-                                <RunDetailTabButton tab=RunDetailTab::Replay active=active_tab label="Replay"/>
+                                <RunDetailTabButton tab=RunDetailTab::Events active=active_tab label=ui_language::EVENT_VIEWER/>
+                                <RunDetailTabButton tab=RunDetailTab::Replay active=active_tab label=ui_language::SYSTEM_RESTORE_POINTS/>
                             })
                         } else {
                             None
@@ -638,7 +652,7 @@ fn RunDetailHub(run_id: String, on_close: Callback<()>) -> impl IntoView {
                                     {fallback_message}
                                 </div>
                                 <a href="/runs" class="inline-flex text-sm text-primary hover:underline">
-                                    "Back to Runs"
+                                    "Back to Restore Points"
                                 </a>
                                 <crate::components::trace_viewer::TraceViewer trace_id=run_id.clone() compact=false/>
                             </div>
@@ -784,12 +798,17 @@ fn QuickActionButton(
             QuickAction::CopyReceiptHash(run_id) => {
                 let Some(digest) = run_id.try_get().flatten() else {
                     notifications.error(
-                        "Receipt hash unavailable",
-                        "Receipt hash is not available for this run yet.",
+                        "Signed log fingerprint unavailable",
+                        "Signed log fingerprint is not available for this restore point yet.",
                     );
                     return;
                 };
-                copy_to_clipboard(&digest, set_copied, notifications.clone(), "Receipt hash");
+                copy_to_clipboard(
+                    &digest,
+                    set_copied,
+                    notifications.clone(),
+                    "Signed log fingerprint",
+                );
             }
             QuickAction::Export(run_id) => {
                 // Export diagnostic run as JSON (API is mounted at root, not /api).
@@ -854,8 +873,8 @@ fn QuickActionButton(
                 // Download receipt JSON file
                 let Some(digest) = digest_signal.try_get().flatten() else {
                     notifications.error(
-                        "Receipt unavailable",
-                        "Receipt digest is not available for this run yet.",
+                        "Signed log receipt unavailable",
+                        "Signed log fingerprint is not available for this restore point yet.",
                     );
                     return;
                 };
@@ -869,19 +888,19 @@ fn QuickActionButton(
                             if let Err(e) = trigger_download(&filename, &json_content) {
                                 notifs.error(
                                     "Download failed",
-                                    &format!("Could not download receipt: {}", e),
+                                    &format!("Could not download signed log receipt: {}", e),
                                 );
                             } else {
                                 notifs.success(
                                     "Download started",
-                                    "Receipt JSON download initiated.",
+                                    "Signed log receipt download initiated.",
                                 );
                             }
                         }
                         Err(e) => {
                             notifs.error(
-                                "Receipt download failed",
-                                &format!("Could not fetch receipt: {}", e),
+                                "Signed log receipt download failed",
+                                &format!("Could not fetch signed log receipt: {}", e),
                             );
                         }
                     }
@@ -1061,7 +1080,7 @@ fn OverviewTab(
                         <p class="font-medium">{duration_str}</p>
                     </div>
                     <div>
-                        <p class="text-sm text-muted-foreground">"Events"</p>
+                        <p class="text-sm text-muted-foreground">{ui_language::EVENT_VIEWER}</p>
                         <p class="font-medium">
                             {events_count}
                             {if dropped_count > 0 {
@@ -1271,17 +1290,17 @@ fn OverviewTab(
                                         Some(true) => (
                                             "Verified",
                                             BadgeVariant::Success,
-                                            "Server recomputation matched the stored receipt digest.",
+                                            "Server recomputation matched the stored signed log fingerprint.",
                                         ),
                                         Some(false) => (
                                             "Mismatch",
                                             BadgeVariant::Destructive,
-                                            "Receipt digest mismatch: stored digest does not match recomputation.",
+                                            "Signed log mismatch: stored fingerprint does not match recomputation.",
                                         ),
                                         None => (
                                             "Pending",
                                             BadgeVariant::Warning,
-                                            "Receipt has not been recomputed/verified by the server yet.",
+                                            "Signed log has not been recomputed by the server yet.",
                                         ),
                                     };
                                 let backend_label = detail
@@ -1292,7 +1311,7 @@ fn OverviewTab(
                                     <div class="space-y-3">
                                         <div class="flex items-center justify-between">
                                             <div>
-                                                <p class="text-sm text-muted-foreground">"Receipt status"</p>
+                                                <p class="text-sm text-muted-foreground">"Signed log status"</p>
                                                 <Badge variant=verified_variant>{verified_label}</Badge>
                                             </div>
                                             <div class="text-right">
@@ -1304,7 +1323,7 @@ fn OverviewTab(
                                         <div class="grid grid-cols-1 md:grid-cols-2 gap-3">
                                             <ProvenanceField label="Input digest" value=receipt.input_digest_b3.clone()/>
                                             <ProvenanceField label="Output digest" value=Some(receipt.output_digest.clone())/>
-                                            <ProvenanceField label="Receipt digest" value=Some(receipt.receipt_digest.clone())/>
+                                            <ProvenanceField label="Signed log fingerprint" value=Some(receipt.receipt_digest.clone())/>
                                             <ProvenanceField label="Run head hash" value=Some(receipt.run_head_hash.clone())/>
                                             <ProvenanceField label="Seed lineage hash" value=receipt.seed_lineage_hash.clone()/>
                                             <ProvenanceField label="Backend attestation hash" value=receipt.backend_attestation_b3.clone()/>
@@ -1339,7 +1358,7 @@ fn OverviewTab(
                             } else {
                                 view! {
                                     <div class="text-sm text-muted-foreground italic">
-                                        "Receipt details are not available for this run yet."
+                                        "Signed log details are not available for this restore point yet."
                                     </div>
                                 }
                                 .into_any()
@@ -1393,8 +1412,8 @@ fn OverviewTab(
                     <ActionCard
                         href="?tab=receipt"
                         icon="✓"
-                        title="Receipt"
-                        description="Verify hashes"
+                        title=ui_language::SIGNED_SYSTEM_LOGS
+                        description="Verify fingerprints"
                         variant=ActionCardVariant::Subtle
                         centered=true
                     />
@@ -1449,7 +1468,7 @@ fn ProvenanceField(label: &'static str, value: Option<String>) -> impl IntoView 
 #[component]
 fn StageRow(stage: StageTiming, pct: f64) -> impl IntoView {
     let status_class = if stage.success {
-        "bg-success"
+        "bg-status-success"
     } else {
         "bg-destructive"
     };
@@ -1627,9 +1646,9 @@ fn ReceiptsTab(
                         view! {
                             <div class="space-y-4">
                                 <p class="text-sm text-muted-foreground">
-                                    "Receipts & Hashes"
+                                    "Signed Logs & Fingerprints"
                                 </p>
-                                <Card title="Receipt Summary".to_string()>
+                                <Card title="Signed Log Summary".to_string()>
                                     {move || match trace_detail.try_get().unwrap_or_default() {
                                         LoadingState::Loaded(detail) => {
                                             if let Some(receipt) = detail.receipt.clone() {
@@ -1653,7 +1672,7 @@ fn ReceiptsTab(
                                                         <div class="grid grid-cols-1 md:grid-cols-2 gap-4">
                                                             <CopyableId
                                                                 id=receipt.receipt_digest.clone()
-                                                                label="Receipt digest".to_string()
+                                                                label="Signed log fingerprint".to_string()
                                                                 truncate=28
                                                             />
                                                             <div>
@@ -1687,18 +1706,18 @@ fn ReceiptsTab(
                                                                                 Ok(report) => {
                                                                                     if report.pass {
                                                                                         notifications.success(
-                                                                                            "Receipt verified",
-                                                                                            "Stored receipt matches canonical recomputation.",
+                                                                                            "Signed log verified",
+                                                                                            "Stored signed log matches canonical recomputation.",
                                                                                         );
                                                                                     } else if report.reasons.is_empty() {
                                                                                         notifications.warning(
-                                                                                            "Receipt mismatch",
+                                                                                            "Signed log mismatch",
                                                                                             "Verification failed (no reasons returned).",
                                                                                         );
                                                                                     } else {
                                                                                         let reason = report.reasons[0].clone();
                                                                                         notifications.warning(
-                                                                                            "Receipt mismatch",
+                                                                                            "Signed log mismatch",
                                                                                             &format!("First reason: {reason}"),
                                                                                         );
                                                                                     }
@@ -1706,7 +1725,7 @@ fn ReceiptsTab(
                                                                                 }
                                                                                 Err(err) => {
                                                                                     notifications.error(
-                                                                                        "Receipt verification failed",
+                                                                                        "Signed log verification failed",
                                                                                         &format!("{err}"),
                                                                                     );
                                                                                 }
@@ -1727,7 +1746,7 @@ fn ReceiptsTab(
                                                         </div>
                                                         <div class="grid grid-cols-1 md:grid-cols-2 gap-4 text-sm">
                                                             <div>
-                                                                <p class="text-muted-foreground">"Determinism mode"</p>
+                                                                <p class="text-muted-foreground">{ui_language::REPRODUCIBLE_MODE}</p>
                                                                 <p>{determinism_label}</p>
                                                             </div>
                                                             <div>
@@ -1742,7 +1761,7 @@ fn ReceiptsTab(
                                                     <div class="space-y-3">
                                                         <div class="grid grid-cols-1 md:grid-cols-2 gap-4">
                                                             <div>
-                                                                <p class="text-sm text-muted-foreground">"Receipt digest"</p>
+                                                                <p class="text-sm text-muted-foreground">"Signed log fingerprint"</p>
                                                                 <p class="text-sm text-muted-foreground italic">"Unknown"</p>
                                                             </div>
                                                             <div>
@@ -1752,7 +1771,7 @@ fn ReceiptsTab(
                                                         </div>
                                                         <div class="grid grid-cols-1 md:grid-cols-2 gap-4 text-sm">
                                                             <div>
-                                                                <p class="text-muted-foreground">"Determinism mode"</p>
+                                                                <p class="text-muted-foreground">{ui_language::REPRODUCIBLE_MODE}</p>
                                                                 <p>{determinism_label}</p>
                                                             </div>
                                                             <div>
@@ -1768,7 +1787,7 @@ fn ReceiptsTab(
                                             <div class="text-sm text-muted-foreground">{format!("Failed to load: {}", err)}</div>
                                         }.into_any(),
                                         _ => view! {
-                                            <div class="text-sm text-muted-foreground italic">"Loading receipt summary..."</div>
+                                            <div class="text-sm text-muted-foreground italic">"Loading signed log summary..."</div>
                                         }.into_any(),
                                     }}
                                 </Card>
@@ -1778,7 +1797,7 @@ fn ReceiptsTab(
                     ReceiptPanelTab::Details => {
                         view! {
                             <div class="space-y-4">
-                                <Card title="Receipts & Hashes".to_string()>
+                                <Card title="Signed Logs & Fingerprints".to_string()>
                                     <div class="space-y-4">
                                         <div class="grid grid-cols-2 gap-4">
                                             <CopyableId id=run_id.clone() label="Run ID".to_string() truncate=28 />
@@ -1864,7 +1883,7 @@ fn ReceiptsTab(
                                             } else {
                                                 view! {
                                                     <div class="text-sm text-muted-foreground italic">
-                                                        "Receipt not available for this run."
+                                                        "Signed log is not available for this restore point."
                                                     </div>
                                                 }.into_any()
                                             }
@@ -1891,7 +1910,7 @@ fn ReceiptsTab(
                                     />
                                     <QuickActionButton
                                         icon="⬇"
-                                        label="Download receipt JSON"
+                                        label="Download signed log receipt"
                                         action=QuickAction::DownloadReceipt(receipt_digest.read_only())
                                     />
                                 </div>
@@ -1984,7 +2003,7 @@ fn RoutingTab(
                             } else {
                                 let events_clone = routing_events.clone();
                                 view! {
-                                    <Card title="Routing Events".to_string()>
+                                    <Card title="Routing Timeline".to_string()>
                                         <div class="space-y-2">
                                             {events_clone.into_iter().map(|event| {
                                                 view! { <RoutingEventRow event=event/> }
@@ -2134,7 +2153,7 @@ fn TokensTab(
             {if !token_events.is_empty() {
                 let events_clone = token_events.clone();
                 Some(view! {
-                    <Card title="Token Events".to_string()>
+                    <Card title="Token Timeline".to_string()>
                         <div class="space-y-2">
                             {events_clone.into_iter().map(|event| {
                                 view! { <EventRow event=event/> }
@@ -2274,13 +2293,13 @@ fn DiffTab(export: DiagExportResponse, compare_trace: Option<String>) -> impl In
                             disabled=Signal::derive(move || diff_loading.try_get().unwrap_or(false) || run_b_trace_id.try_get().unwrap_or_default().is_empty())
                             on_click=Callback::new(move |_| start_compare.run(run_b_trace_id.try_get().unwrap_or_default()))
                         >
-                            {move || if diff_loading.try_get().unwrap_or(false) { "Comparing..." } else { "Compare Runs" }}
+                            {move || if diff_loading.try_get().unwrap_or(false) { "Comparing..." } else { "Compare Restore Points" }}
                         </Button>
                         <Button
                             variant=ButtonVariant::Secondary
                             on_click=Callback::new(move |_| refetch_runs.run(()))
                         >
-                            "Refresh Runs"
+                            "Refresh Restore Points"
                         </Button>
                         {move || diff_error.try_get().flatten().map(|e| view! {
                             <span class="text-destructive text-sm">{e}</span>
@@ -2294,7 +2313,7 @@ fn DiffTab(export: DiagExportResponse, compare_trace: Option<String>) -> impl In
                             let href = format!("/runs/{}?tab=diff&compare={}", run_id, run_a_trace_id_for_link);
                             view! {
                                 <Link href=href class="text-sm">
-                                    "Open in Run Detail"
+                                    "Open restore point detail"
                                 </Link>
                             }.into_any()
                         }}
@@ -2535,7 +2554,7 @@ fn EventGroup(event_type: String, events: Vec<DiagEventResponse>) -> impl IntoVi
 fn EventRow(event: DiagEventResponse) -> impl IntoView {
     let severity_class = match event.severity.as_str() {
         "error" => "text-destructive",
-        "warn" => "text-warning",
+        "warn" => "text-status-warning",
         "debug" => "text-muted-foreground",
         "trace" => "text-muted-foreground/70",
         _ => "",
@@ -2577,20 +2596,20 @@ fn ReplayTab(trace_id: String) -> impl IntoView {
     view! {
         <div class="space-y-4">
             <p class="text-sm text-muted-foreground">
-                "Re-execute a replay session against this trace or verify a bundle receipt file."
+                "Replay this response exactly or verify a saved signed evidence bundle."
             </p>
 
             // Execute Replay section
-            <Card title="Execute Replay".to_string()>
+            <Card title="Replay Exact Response".to_string()>
                 <div class="space-y-3">
                     <p class="text-sm text-muted-foreground">
-                        "Re-run inference with the same inputs to verify determinism. Optionally override the prompt or include original RAG documents."
+                        "Re-run with the same inputs and locked settings. Leave the prompt empty for a strict exact replay."
                     </p>
                     <Button
                         variant=ButtonVariant::Primary
                         on_click=Callback::new(move |_| show_replay_dialog.set(true))
                     >
-                        "Execute Replay"
+                        "Replay Exactly"
                     </Button>
                 </div>
             </Card>
@@ -2659,8 +2678,10 @@ fn ExecuteReplayDialog(session_id: String, open: RwSignal<bool>) -> impl IntoVie
                 match client.execute_replay_session(&session_id, &request).await {
                     Ok(resp) => {
                         let _ = result.try_set(Some(resp));
-                        notifications
-                            .success("Replay complete", "Replay session executed successfully.");
+                        notifications.success(
+                            "Replay complete",
+                            "Output was reproduced and verification metadata is available.",
+                        );
                     }
                     Err(e) => {
                         let msg = e.user_message();
@@ -2674,24 +2695,24 @@ fn ExecuteReplayDialog(session_id: String, open: RwSignal<bool>) -> impl IntoVie
     };
 
     view! {
-        <Dialog open=open title="Execute Replay".to_string()>
+        <Dialog open=open title="Replay Exact Response".to_string()>
             <div class="space-y-4">
                 // Configuration
                 <div class="space-y-3">
                     <Checkbox
                         checked=Signal::derive(move || use_original_rag.try_get().unwrap_or(false))
                         on_change=Callback::new(move |v: bool| use_original_rag.set(v))
-                        label="Use original RAG documents".to_string()
+                        label="Reuse original source context".to_string()
                     />
 
                     <div>
                         <label class="text-sm text-muted-foreground block mb-1" for="replay-prompt-override">
-                            "Prompt override (optional)"
+                            "Optional: run a what-if prompt"
                         </label>
                         <textarea
                             id="replay-prompt-override"
                             class="flex w-full rounded-md border border-input bg-background px-3 py-2 text-sm min-h-[80px] resize-y"
-                            placeholder="Leave empty to use original prompt..."
+                            placeholder="Leave blank for an exact replay..."
                             prop:value=move || prompt_override.try_get().unwrap_or_default()
                             on:input=move |ev| prompt_override.set(event_target_value(&ev))
                         />
@@ -2699,7 +2720,7 @@ fn ExecuteReplayDialog(session_id: String, open: RwSignal<bool>) -> impl IntoVie
 
                     <div>
                         <label class="text-sm text-muted-foreground block mb-1" for="replay-max-tokens">
-                            "Max tokens"
+                            "Response length limit"
                         </label>
                         <input
                             id="replay-max-tokens"
@@ -2724,10 +2745,10 @@ fn ExecuteReplayDialog(session_id: String, open: RwSignal<bool>) -> impl IntoVie
                         disabled=Signal::derive(move || executing.try_get().unwrap_or(false))
                         on_click=Callback::new(on_submit.clone())
                     >
-                        <Show when=move || executing.try_get().unwrap_or(false) fallback=move || view! { <span>"Execute"</span> }>
+                        <Show when=move || executing.try_get().unwrap_or(false) fallback=move || view! { <span>"Replay"</span> }>
                             <span class="inline-flex items-center gap-2">
                                 <Spinner/>
-                                <span>"Executing..."</span>
+                                <span>"Replaying..."</span>
                             </span>
                         </Show>
                     </Button>
@@ -2749,29 +2770,65 @@ fn ExecuteReplayDialog(session_id: String, open: RwSignal<bool>) -> impl IntoVie
                 // Result display
                 {move || result.try_get().flatten().map(|resp| {
                     view! {
-                        <Card title="Replay Result".to_string()>
+                        <Card title="Replay Verification".to_string()>
                             <div class="space-y-3">
                                 <div class="flex items-center gap-2">
                                     {if resp.degraded {
-                                        view! { <Badge variant=BadgeVariant::Warning>"Degraded"</Badge> }.into_any()
+                                        view! { <Badge variant=BadgeVariant::Warning>"Needs review"</Badge> }.into_any()
                                     } else {
-                                        view! { <Badge variant=BadgeVariant::Success>"OK"</Badge> }.into_any()
+                                        view! { <Badge variant=BadgeVariant::Success>"Exact mode"</Badge> }.into_any()
                                     }}
                                     <span class="text-sm text-muted-foreground font-mono">
                                         {format!("{}ms", resp.latency_ms)}
                                     </span>
                                 </div>
+                                <p class="text-xs text-muted-foreground">
+                                    {if resp.degraded {
+                                        "Replay completed with safety fallbacks. Review evidence before relying on this output.".to_string()
+                                    } else {
+                                        "Replay completed under locked reproducibility safeguards.".to_string()
+                                    }}
+                                </p>
+                                {resp.verified_at.clone().map(|verified| view! {
+                                    <p class="text-xs text-muted-foreground">
+                                        {format!("Verified at {}", verified)}
+                                    </p>
+                                })}
+                                {(!resp.missing_doc_ids.is_empty()).then(|| view! {
+                                    <div class="rounded-md border border-status-warning/40 bg-status-warning/10 p-2">
+                                        <p class="text-xs text-status-warning">
+                                            {format!(
+                                                "Replay completed with missing source items ({}). Review before promotion.",
+                                                resp.missing_doc_ids.len()
+                                            )}
+                                        </p>
+                                    </div>
+                                })}
                                 <div>
-                                    <p class="text-xs text-muted-foreground mb-1">"Output"</p>
+                                    <p class="text-xs text-muted-foreground mb-1">"Replayed output"</p>
                                     <pre class="text-sm bg-muted/30 rounded-lg p-3 overflow-x-auto whitespace-pre-wrap max-h-64 overflow-y-auto">
                                         {resp.output.clone()}
                                     </pre>
                                 </div>
                                 <CopyableId
                                     id=resp.session_id.clone()
-                                    label="Session ID".to_string()
+                                    label="Replay run ID".to_string()
                                     truncate=28
                                 />
+                                <div class="flex flex-wrap items-center gap-2">
+                                    <Link
+                                        href=format!("/runs/{}", resp.session_id)
+                                        class="inline-flex items-center gap-1.5 px-2 py-1 text-xs rounded border border-border hover:bg-muted transition-colors"
+                                    >
+                                        "Open Restore Point"
+                                    </Link>
+                                    <Link
+                                        href=format!("/runs/{}?tab=receipt", resp.session_id)
+                                        class="inline-flex items-center gap-1.5 px-2 py-1 text-xs rounded border border-border hover:bg-muted transition-colors"
+                                    >
+                                        "Open Signed Log"
+                                    </Link>
+                                </div>
                             </div>
                         </Card>
                     }
@@ -2811,17 +2868,17 @@ fn BundleVerifySection() -> impl IntoView {
         let _ = result.try_set(None);
 
         let notifications = notifications.clone();
-        let client = client.clone();
+        let _client = client.clone();
         #[cfg(target_arch = "wasm32")]
         spawn_local(async move {
-            match client.verify_bundle_receipt(&file).await {
+            match _client.verify_bundle_receipt(&file).await {
                 Ok(verification) => {
                     if verification.pass {
-                        notifications.success("Bundle verified", "Receipt verification passed.");
+                        notifications.success("Bundle verified", "Signed log verification passed.");
                     } else {
                         notifications.warning(
                             "Bundle verification failed",
-                            "Receipt verification did not pass.",
+                            "Signed log verification did not pass.",
                         );
                     }
                     let _ = result.try_set(Some(verification));
@@ -2842,10 +2899,10 @@ fn BundleVerifySection() -> impl IntoView {
     };
 
     view! {
-        <Card title="Verify Bundle".to_string()>
+        <Card title="Verify Signed Log Bundle".to_string()>
             <div class="space-y-3">
                 <p class="text-sm text-muted-foreground">
-                    "Upload a bundle file to verify its cryptographic receipt. The server will check all digests and signatures."
+                    "Upload a bundle file to verify its signed system log. The server will validate all digests and signatures."
                 </p>
 
                 <div class="flex items-center gap-3">
@@ -2854,12 +2911,13 @@ fn BundleVerifySection() -> impl IntoView {
                         node_ref=file_ref
                         accept=".bundle,.json,.tar.gz"
                         class="flex h-10 w-full max-w-sm text-sm file:mr-4 file:py-2 file:px-4 file:rounded-md file:border file:border-input file:bg-background file:text-sm file:font-medium hover:file:bg-muted"
+                        aria_label="Upload verification bundle"
                         on:change=on_file_change
                     />
                     <Show when=move || verifying.try_get().unwrap_or(false) fallback=|| view! {}>
                         <span class="inline-flex items-center gap-2 text-sm text-muted-foreground">
                             <Spinner/>
-                            <span>"Verifying..."</span>
+                            <span>"Verifying signed log..."</span>
                         </span>
                     </Show>
                 </div>
@@ -2886,12 +2944,12 @@ fn BundleVerifySection() -> impl IntoView {
                                 <Badge variant=pass_variant>{pass_label}</Badge>
                                 {if res.signature_checked {
                                     if res.signature_valid {
-                                        view! { <Badge variant=BadgeVariant::Success>"Signature Valid"</Badge> }.into_any()
+                                        view! { <Badge variant=BadgeVariant::Success>"Signature valid"</Badge> }.into_any()
                                     } else {
-                                        view! { <Badge variant=BadgeVariant::Destructive>"Signature Invalid"</Badge> }.into_any()
+                                        view! { <Badge variant=BadgeVariant::Destructive>"Signature invalid"</Badge> }.into_any()
                                     }
                                 } else {
-                                    view! { <Badge variant=BadgeVariant::Secondary>"Signature Not Checked"</Badge> }.into_any()
+                                    view! { <Badge variant=BadgeVariant::Secondary>"Signature not checked"</Badge> }.into_any()
                                 }}
                             </div>
 
@@ -2924,7 +2982,7 @@ fn BundleVerifySection() -> impl IntoView {
                                     <CopyableId id=d label="Output digest".to_string() truncate=24/>
                                 })}
                                 {res.receipt_digest.clone().map(|d| view! {
-                                    <CopyableId id=d label="Receipt digest".to_string() truncate=24/>
+                                    <CopyableId id=d label="Signed log fingerprint".to_string() truncate=24/>
                                 })}
                                 {res.trace_id.clone().map(|d| view! {
                                     <CopyableId id=d label="Trace ID".to_string() truncate=24/>

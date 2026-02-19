@@ -14,9 +14,10 @@ use crate::components::{
     Spinner, SplitPanel, StatusVariant, Table, TableBody, TableCell, TableHead, TableHeader,
     TableRow,
 };
+use crate::constants::ui_language;
 use crate::hooks::{
-    use_api, use_api_resource, use_cached_api_resource, use_polling, CacheTtl, LoadingState,
-    Refetch,
+    use_api, use_api_resource, use_cached_api_resource, use_polling, use_system_status, CacheTtl,
+    LoadingState, Refetch,
 };
 use crate::pages::training::utils::format_backend;
 use crate::signals::{
@@ -27,6 +28,8 @@ use leptos::prelude::*;
 use leptos_router::hooks::use_params_map;
 use std::collections::HashMap;
 use std::sync::Arc;
+
+use adapteros_api_types::StatusIndicator as ApiStatusIndicator;
 
 // ============================================================================
 // Merged data types
@@ -291,10 +294,10 @@ pub fn Models() -> impl IntoView {
 
     view! {
         <PageScaffold
-            title="Models"
+            title=ui_language::BASE_MODEL_REGISTRY
             breadcrumbs=vec![
                 PageBreadcrumbItem::new("Deploy", "/models"),
-                PageBreadcrumbItem::current("Models"),
+                PageBreadcrumbItem::current(ui_language::BASE_MODEL_REGISTRY),
             ]
         >
             <PageScaffoldActions slot>
@@ -302,7 +305,7 @@ pub fn Models() -> impl IntoView {
                     variant=ButtonVariant::Primary
                     on_click=Callback::new(move |_| show_import_dialog.set(true))
                 >
-                    "Import Model"
+                    {ui_language::REGISTER_NEW_BASE}
                 </Button>
                 <Button
                     variant=ButtonVariant::Outline
@@ -320,7 +323,7 @@ pub fn Models() -> impl IntoView {
             <SplitPanel
                 has_selection=sel.has_selection
                 on_close=sel.on_close
-                back_label="Back to Models"
+                back_label="Back to Base Model Registry"
                 list_panel=move || {
                     let on_select = sel.on_select;
                     view! {
@@ -417,7 +420,7 @@ fn ModelList(
                         variant=ButtonVariant::Primary
                         on_click=Callback::new(move |_| on_import.run(()))
                     >
-                        "Import Model"
+                        {ui_language::REGISTER_NEW_BASE}
                     </Button>
                 </div>
             }
@@ -425,7 +428,7 @@ fn ModelList(
         } else {
             view! {
                 <ListEmptyCard
-                    title="No models registered"
+                    title="No base models registered"
                     description="Import a model to get started, or run `aosctl models seed` from the CLI.".to_string()
                 />
                 <div class="flex justify-center mt-4">
@@ -433,7 +436,7 @@ fn ModelList(
                         variant=ButtonVariant::Primary
                         on_click=Callback::new(move |_| on_import.run(()))
                     >
-                        "Import Model"
+                        {ui_language::REGISTER_NEW_BASE}
                     </Button>
                 </div>
             }
@@ -596,7 +599,7 @@ fn ModelDetailPanel(
         <div class="space-y-4">
             // Header with close button
             <div class="flex items-center justify-between">
-                <h2 class="heading-3">"Model Details"</h2>
+                <h2 class="heading-3">"Base Model Details"</h2>
                 <button
                     class="text-muted-foreground hover:text-foreground"
                     on:click=move |_| on_close()
@@ -694,6 +697,14 @@ fn ModelDetailContent(
             .unwrap_or_else(|| "unknown".to_string())
     });
 
+    let (system_status, _) = use_system_status();
+    let system_not_ready = Memo::new(move |_| {
+        !matches!(
+            system_status.get(),
+            LoadingState::Loaded(ref s) if matches!(s.readiness.overall, ApiStatusIndicator::Ready)
+        )
+    });
+
     // Use shared API client instead of ApiClient::new() in handlers
     let client = use_api();
     let client_load = Arc::clone(&client);
@@ -716,7 +727,7 @@ fn ModelDetailContent(
                 match client.load_model(&id).await {
                     Ok(_) => {
                         notifications.success_with_action(
-                            "Model loaded",
+                            "Base model activated",
                             &format!("{} is ready for inference.", name),
                             "View Model",
                             &format!("/models/{}", id),
@@ -749,7 +760,7 @@ fn ModelDetailContent(
                 match client.unload_model(&id).await {
                     Ok(_) => {
                         notifications.success(
-                            "Model unloaded",
+                            "Base model unloaded",
                             &format!("{} has been removed from memory.", name),
                         );
                         on_update.run(());
@@ -859,10 +870,11 @@ fn ModelDetailContent(
                                 let manage_disabled = !can_manage_models.get();
                                 let request_in_flight = loading.try_get().unwrap_or(false);
                                 let is_validating = validating.try_get().unwrap_or(false);
+                                let backend_not_ready = system_not_ready.get();
                                 let action_disabled =
-                                    manage_disabled || request_in_flight || lifecycle_in_progress;
+                                    manage_disabled || request_in_flight || lifecycle_in_progress || backend_not_ready;
                                 let validate_disabled =
-                                    manage_disabled || is_validating || lifecycle_in_progress;
+                                    manage_disabled || is_validating || lifecycle_in_progress || backend_not_ready;
 
                                 if request_in_flight {
                                     view! { <Spinner /> }.into_any()
@@ -934,8 +946,8 @@ fn ModelDetailContent(
                             } else {
                                 let role = current_role.get();
                                 view! {
-                                    <div class="rounded-md border border-warning/40 bg-warning/10 p-3">
-                                        <p class="text-xs text-warning-foreground">
+                                    <div class="rounded-md border border-status-warning/40 bg-status-warning/10 p-3">
+                                        <p class="text-xs text-status-warning">
                                             {format!(
                                                 "Current role: {}. Load and unload actions require Admin or Operator.",
                                                 role
@@ -946,25 +958,30 @@ fn ModelDetailContent(
                                 .into_any()
                             }
                         }}
+                        {move || system_not_ready.get().then(|| view! {
+                            <p class="text-xs text-muted-foreground">
+                                "System is not ready \u{2014} check the Dashboard for status."
+                            </p>
+                        })}
                     </div>
                 </div>
 
                 {if is_loading {
                     Some(view! {
                         <p class="text-xs text-muted-foreground">
-                            "Model loading. Inference will be ready once loading completes."
+                            "Base model is loading. Prompt Studio will unlock when activation completes."
                         </p>
                     })
                 } else if is_unloading {
                     Some(view! {
                         <p class="text-xs text-muted-foreground">
-                            "Model unloading. Inference using this model is being drained."
+                            "Base model is unloading. Existing prompts are draining safely."
                         </p>
                     })
                 } else if !model.is_loaded {
                     Some(view! {
                         <p class="text-xs text-muted-foreground">
-                            "Load makes this model active in memory on a worker so chat/inference can run."
+                            "Activate keeps this base model hot in memory so Prompt Studio can respond instantly."
                         </p>
                     })
                 } else {
@@ -974,8 +991,8 @@ fn ModelDetailContent(
                 {model.error_message.clone().map(|err| {
                     if lifecycle_in_progress {
                         view! {
-                            <div class="rounded-lg border border-warning/40 bg-warning/10 p-3">
-                                <p class="text-sm text-warning-foreground">{format!("Backend busy: {}", err)}</p>
+                            <div class="rounded-lg border border-status-warning/40 bg-status-warning/10 p-3">
+                                <p class="text-sm text-status-warning">{format!("Backend busy: {}", err)}</p>
                             </div>
                         }
                     } else {
@@ -992,9 +1009,9 @@ fn ModelDetailContent(
         // CoreML adapter incompatibility notice
         {merged_row.as_ref().and_then(|row| {
             (row.backend.as_deref() == Some("coreml")).then(|| view! {
-                <div class="rounded-lg border border-warning/40 bg-warning/10 p-4 mt-4">
-                    <p class="text-sm font-medium text-warning-foreground mb-1">"No Adapter Support"</p>
-                    <p class="text-xs text-warning-foreground/80">
+                <div class="rounded-lg border border-status-warning/40 bg-status-warning/10 p-4 mt-4">
+                    <p class="text-sm font-medium text-status-warning mb-1">"No Adapter Support"</p>
+                    <p class="text-xs text-status-warning">
                         "CoreML models run on the Apple Neural Engine for fast inference but do not support LoRA adapter attachment. Use an MLX model for adapter-based workflows."
                     </p>
                 </div>
@@ -1004,7 +1021,7 @@ fn ModelDetailContent(
         // Details
         <Card title="Details".to_string() class="mt-4".to_string()>
             <div class="grid gap-3 text-sm">
-                <CopyableId id=model.model_id.clone() label="Model ID".to_string() truncate=24 />
+                <CopyableId id=model.model_id.clone() label="Base ID".to_string() truncate=24 />
                 <div class="flex justify-between">
                     <span class="text-muted-foreground">"Name"</span>
                     <span class="font-medium">{model.model_name.clone()}</span>
@@ -1057,14 +1074,14 @@ fn ModelDetailContent(
             }
         })}
 
-        // Model Info (from registered metadata)
+        // Registry metadata (from registered model record)
         {merged_row.as_ref().and_then(|row| {
             let has_info = row.format.is_some() || row.backend.is_some()
                 || row.quantization.is_some() || row.import_status.is_some();
             if !has_info { return None; }
             let row = row.clone();
             Some(view! {
-                <Card title="Model Info".to_string() class="mt-4".to_string()>
+                <Card title="Registry Metadata".to_string() class="mt-4".to_string()>
                     <div class="grid gap-3 text-sm">
                         {row.format.clone().map(|fmt| view! {
                             <div class="flex justify-between">
@@ -1272,10 +1289,10 @@ pub fn ModelDetail() -> impl IntoView {
 
     view! {
         <PageScaffold
-            title="Model Details"
+            title="Base Model Details"
             breadcrumbs=vec![
                 PageBreadcrumbItem::new("Deploy", "/models"),
-                PageBreadcrumbItem::new("Models", "/models"),
+                PageBreadcrumbItem::new(ui_language::BASE_MODEL_REGISTRY, "/models"),
                 PageBreadcrumbItem::current(model_name_for_breadcrumb.get()),
             ]
         >
@@ -1315,6 +1332,14 @@ fn SeedModelDialog(open: RwSignal<bool>, on_imported: Callback<()>) -> impl Into
     let (loading, set_loading) = signal(false);
     let notifications = use_notifications();
     let client = use_api();
+
+    let (system_status, _) = use_system_status();
+    let system_not_ready = Memo::new(move |_| {
+        !matches!(
+            system_status.get(),
+            LoadingState::Loaded(ref s) if matches!(s.readiness.overall, ApiStatusIndicator::Ready)
+        )
+    });
 
     let is_valid = move || !model_path.get().trim().is_empty();
 
@@ -1375,9 +1400,9 @@ fn SeedModelDialog(open: RwSignal<bool>, on_imported: Callback<()>) -> impl Into
                 match client.seed_model(&request).await {
                     Ok(_) => {
                         notifications.success_with_action(
-                            "Model imported",
-                            "Model is being registered.",
-                            "View Models",
+                            "Base model registered",
+                            "Compatibility checks are in progress.",
+                            "Open Base Model Registry",
                             "/models",
                         );
                         on_imported.run(());
@@ -1401,25 +1426,25 @@ fn SeedModelDialog(open: RwSignal<bool>, on_imported: Callback<()>) -> impl Into
     view! {
         <Dialog
             open=open
-            title="Import Model".to_string()
-            description="Register a model from the local filesystem".to_string()
+            title="Register New Base".to_string()
+            description="Register a base model from the local filesystem".to_string()
         >
             <div class="space-y-4 overflow-y-auto" style="max-height: 60vh">
-                <FormField label="Model Path" name="model_path" required=true help="Absolute path to the model directory on disk".to_string()>
+                <FormField label="Base Model Path" name="model_path" required=true help="Absolute path to the base model directory on disk".to_string()>
                     <Input
                         value=model_path
                         placeholder="/var/models/Llama-3.2-3B-Instruct-4bit".to_string()
                     />
                 </FormField>
 
-                <FormField label="Model Name" name="model_name" help="Display name for the model (optional)".to_string()>
+                <FormField label="Registry Name" name="model_name" help="Display name shown in the Base Model Registry (optional)".to_string()>
                     <Input
                         value=model_name
                         placeholder="Auto-derived from path".to_string()
                     />
                 </FormField>
 
-                <FormField label="Format" name="model_format" help="Model file format".to_string()>
+                <FormField label="Format" name="model_format" help="Storage format used by this base model".to_string()>
                     <Select
                         value=format
                         options=format_options
@@ -1434,8 +1459,8 @@ fn SeedModelDialog(open: RwSignal<bool>, on_imported: Callback<()>) -> impl Into
                 </FormField>
 
                 {move || (backend.get() == "coreml").then(|| view! {
-                    <div class="rounded-md border border-warning/40 bg-warning/10 p-3">
-                        <p class="text-xs text-warning-foreground">
+                    <div class="rounded-md border border-status-warning/40 bg-status-warning/10 p-3">
+                        <p class="text-xs text-status-warning">
                             "CoreML models do not support LoRA adapter attachment. Choose MLX if you plan to use adapters."
                         </p>
                     </div>
@@ -1453,7 +1478,7 @@ fn SeedModelDialog(open: RwSignal<bool>, on_imported: Callback<()>) -> impl Into
                     </Button>
                     <Button
                         variant=ButtonVariant::Primary
-                        disabled=Signal::derive(move || !is_valid() || loading.get())
+                        disabled=Signal::derive(move || !is_valid() || loading.get() || system_not_ready.get())
                         loading=Signal::from(loading)
                         on_click=Callback::new(on_submit.clone())
                     >

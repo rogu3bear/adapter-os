@@ -188,6 +188,7 @@ pub fn App() -> impl IntoView {
                             <Route path=path!("/dashboard") view=pages::Dashboard/>
                             <Route path=path!("/adapters") view=pages::Adapters/>
                             <Route path=path!("/adapters/:id") view=pages::AdapterDetail/>
+                            <Route path=path!("/update-center") view=pages::UpdateCenter/>
                             <Route path=path!("/chat") view=pages::Chat/>
                             <Route path=path!("/chat/:session_id") view=pages::ChatSession/>
                             <Route path=path!("/system") view=pages::System/>

@@ -9,7 +9,8 @@ use crate::components::{
     ConfirmationSeverity, EmptyState, Table, TableBody, TableCell, TableHead, TableHeader,
     TableRow,
 };
-use crate::hooks::Refetch;
+use crate::hooks::{use_system_status, LoadingState, Refetch};
+use adapteros_api_types::InferenceReadyState;
 use leptos::prelude::*;
 use std::sync::Arc;
 
@@ -29,6 +30,14 @@ pub fn StacksList(stacks: Vec<StackResponse>, refetch: Refetch) -> impl IntoView
     }
 
     let client = crate::hooks::use_api();
+
+    let (system_status, _) = use_system_status();
+    let inference_not_ready = Memo::new(move |_| {
+        !matches!(
+            system_status.get(),
+            LoadingState::Loaded(ref s) if matches!(s.inference_ready, InferenceReadyState::True)
+        )
+    });
 
     // Delete confirmation dialog state
     let show_delete_confirm = RwSignal::new(false);
@@ -214,6 +223,7 @@ pub fn StacksList(stacks: Vec<StackResponse>, refetch: Refetch) -> impl IntoView
                             view! {
                                 <StackRow
                                     stack=stack
+                                    inference_not_ready=inference_not_ready
                                     show_delete_confirm=show_delete_confirm
                                     pending_delete_id=pending_delete_id
                                     pending_delete_name=pending_delete_name
@@ -320,6 +330,7 @@ pub fn StacksList(stacks: Vec<StackResponse>, refetch: Refetch) -> impl IntoView
 #[component]
 pub fn StackRow(
     stack: StackResponse,
+    inference_not_ready: Memo<bool>,
     show_delete_confirm: RwSignal<bool>,
     pending_delete_id: RwSignal<Option<String>>,
     pending_delete_name: RwSignal<String>,
@@ -388,7 +399,7 @@ pub fn StackRow(
                         let name_for_deactivate = name_for_deactivate.clone();
                         view! {
                             <button
-                                class="text-sm text-status-warning hover:underline focus:outline-none focus:ring-2 focus:ring-ring focus:ring-offset-2 rounded"
+                                class="text-sm text-status-warning hover:underline focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-ring focus-visible:ring-offset-2 rounded"
                                 on:click=move |_| {
                                     pending_deactivate_name.set(name_for_deactivate.clone());
                                     show_deactivate_confirm.set(true);
@@ -402,7 +413,9 @@ pub fn StackRow(
                         let name_for_activate = name_for_activate.clone();
                         view! {
                             <button
-                                class="text-sm text-status-success hover:underline focus:outline-none focus:ring-2 focus:ring-ring focus:ring-offset-2 rounded"
+                                class="text-sm text-status-success hover:underline focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-ring focus-visible:ring-offset-2 rounded"
+                                disabled=move || inference_not_ready.get()
+                                title=move || if inference_not_ready.get() { "Inference engine not ready" } else { "" }
                                 on:click=move |_| {
                                     pending_activate_id.set(Some(id_for_activate.clone()));
                                     pending_activate_name.set(name_for_activate.clone());
@@ -418,7 +431,7 @@ pub fn StackRow(
                         let name_for_delete = name_for_delete.clone();
                         view! {
                             <button
-                                class="text-sm text-destructive hover:underline focus:outline-none focus:ring-2 focus:ring-ring focus:ring-offset-2 rounded"
+                                class="text-sm text-destructive hover:underline focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-ring focus-visible:ring-offset-2 rounded"
                                 on:click=move |_| {
                                     pending_delete_id.set(Some(id_for_delete.clone()));
                                     pending_delete_name.set(name_for_delete.clone());

@@ -399,6 +399,7 @@ pub fn DocumentUploadDialog(
                             on:change=handle_file_change
                             disabled=uploading.get()
                             class="upload-dropzone-input"
+                            aria_label="Upload dataset file"
                         />
                     </div>
                 </div>
