@@ -112,7 +112,9 @@
 //! If these caches need to be consolidated in the future, consider making
 //! `ModelCache` support the `get_or_load` pattern and type-erased values.
 
-use crate::{base_model_state::BaseModelState, model_key::ModelKey};
+use crate::{
+    backend_factory::PinConflictMode, base_model_state::BaseModelState, model_key::ModelKey,
+};
 use adapteros_core::{
     constants::BYTES_PER_MB, identity::IdentityEnvelope, singleflight::SingleFlightSync, AosError,
     Result,
@@ -353,6 +355,8 @@ pub struct BaseModelPinState {
     pub load_count: u64,
     /// Base model eviction count.
     pub evict_count: u64,
+    /// Conflict behavior when pin limit is reached.
+    pub conflict_mode: PinConflictMode,
 }
 
 /// Operation label for SingleFlight metrics
@@ -476,11 +480,13 @@ impl ModelHandleCache {
         enabled: bool,
         budget_bytes: Option<u64>,
         model_id: Option<String>,
+        conflict_mode: PinConflictMode,
     ) {
         let mut state = self.base_model_pin.write();
         state.enabled = enabled;
         state.budget_bytes = budget_bytes;
         state.model_id = model_id;
+        state.conflict_mode = conflict_mode;
         state.base_model_key = None;
         state.load_count = 0;
         state.evict_count = 0;
@@ -503,16 +509,73 @@ impl ModelHandleCache {
             return;
         }
         if let Some(existing) = state.base_model_key.as_ref() {
-            tracing::warn!(
+            tracing::info!(
                 existing = %existing.short_hex(),
                 next = %key.short_hex(),
-                "Base model key changed; keeping first key for residency tracking"
+                "Base model key changed; switching residency tracking key"
             );
-            return;
         }
         state.base_model_key = Some(key.clone());
         state.load_count = 0;
         state.evict_count = 0;
+    }
+
+    fn select_pin_displacement_candidate(&self, incoming_key: &ModelKey) -> Option<ModelKey> {
+        let pinned = self.pinned_keys.read();
+        let timestamps = self.pinned_timestamps.read();
+        let cache = self.cache.read();
+        let active = self.active_counts.read();
+
+        let mut candidates: Vec<(ModelKey, Option<Instant>)> = pinned
+            .iter()
+            .filter(|key| *key != incoming_key)
+            .filter(|key| cache.contains_key(*key))
+            .filter(|key| active.get(*key).copied().unwrap_or(0) == 0)
+            .map(|key| (key.clone(), timestamps.get(key).copied()))
+            .collect();
+
+        candidates.sort_by(|a, b| {
+            a.1.is_none()
+                .cmp(&b.1.is_none())
+                .then_with(|| a.1.cmp(&b.1))
+                .then_with(|| a.0.cmp(&b.0))
+        });
+
+        candidates.into_iter().map(|(key, _)| key).next()
+    }
+
+    fn pin_displacement_block_reason(&self, incoming_key: &ModelKey) -> &'static str {
+        let pinned = self.pinned_keys.read();
+        if pinned.is_empty() {
+            return "no_pinned_entries";
+        }
+
+        let cache = self.cache.read();
+        let active = self.active_counts.read();
+        let mut has_other = false;
+        let mut has_existing_other = false;
+
+        for key in pinned.iter() {
+            if key == incoming_key {
+                continue;
+            }
+            has_other = true;
+            if !cache.contains_key(key) {
+                continue;
+            }
+            has_existing_other = true;
+            if active.get(key).copied().unwrap_or(0) == 0 {
+                return "evictable_candidate_available";
+            }
+        }
+
+        if !has_other {
+            "only_incoming_model_pinned"
+        } else if !has_existing_other {
+            "other_pinned_entries_not_cached"
+        } else {
+            "all_other_pinned_entries_active"
+        }
     }
 
     /// Remove a lifecycle listener for a specific key.
@@ -765,8 +828,9 @@ impl ModelHandleCache {
     {
         self.set_base_model_key(key);
         let handle = self.get_or_load(key, loader)?;
+        let conflict_mode = self.base_model_pin.read().conflict_mode;
 
-        // Auto-pin the base model (respecting the limit)
+        // Auto-pin the base model (respecting the limit and conflict mode)
         {
             let mut pinned = self.pinned_keys.write();
 
@@ -774,17 +838,93 @@ impl ModelHandleCache {
             if !pinned.contains(key) {
                 // Check pin limit before adding new entry
                 if pinned.len() >= self.max_pinned_entries {
-                    tracing::warn!(
-                        key = %key.short_hex(),
-                        current_pinned = pinned.len(),
-                        max_pinned = self.max_pinned_entries,
-                        "Base model loaded but NOT pinned: pin limit reached. Model is subject to LRU eviction."
-                    );
-                    if let Some(ref m) = self.metrics {
-                        m.record_pin_limit_rejection();
+                    drop(pinned);
+                    let candidate = self.select_pin_displacement_candidate(key);
+                    let block_reason = if candidate.is_none() {
+                        self.pin_displacement_block_reason(key)
+                    } else {
+                        "displacement_candidate_available"
+                    };
+                    let candidate_short = candidate.as_ref().map(ModelKey::short_hex);
+
+                    match conflict_mode {
+                        PinConflictMode::Shadow => {
+                            tracing::warn!(
+                                key = %key.short_hex(),
+                                current_pinned = self.pinned_count(),
+                                max_pinned = self.max_pinned_entries,
+                                conflict_mode = %conflict_mode,
+                                displacement_candidate = ?candidate_short,
+                                block_reason,
+                                "Base model loaded but left unpinned because pin limit was reached"
+                            );
+                            if let Some(ref m) = self.metrics {
+                                m.record_pin_limit_rejection();
+                            }
+                            return Ok(handle);
+                        }
+                        PinConflictMode::Enforce => {
+                            let displaced = candidate.ok_or_else(|| {
+                                if let Some(ref m) = self.metrics {
+                                    m.record_pin_limit_rejection();
+                                }
+                                AosError::CacheEntryPinned {
+                                    key: key.short_hex(),
+                                    reason: format!(
+                                        "Pin conflict mode is enforce and no evictable pinned entries are available (reason: {block_reason})"
+                                    ),
+                                }
+                            })?;
+
+                            let displaced_short = displaced.short_hex();
+                            if !self.unpin(&displaced) {
+                                if let Some(ref m) = self.metrics {
+                                    m.record_pin_limit_rejection();
+                                }
+                                return Err(AosError::CacheEntryPinned {
+                                    key: key.short_hex(),
+                                    reason: format!(
+                                        "Pin conflict mode is enforce and no evictable pinned entries are available (displacement candidate {} could not be unpinned)",
+                                        displaced_short
+                                    ),
+                                });
+                            }
+
+                            if let Err(err) = self.unload(&displaced) {
+                                if self.cache.read().contains_key(&displaced) {
+                                    let _ = self.pin(&displaced);
+                                }
+                                if let Some(ref m) = self.metrics {
+                                    m.record_pin_limit_rejection();
+                                }
+                                return Err(AosError::CacheEntryPinned {
+                                    key: key.short_hex(),
+                                    reason: format!(
+                                        "Pin conflict mode is enforce and no evictable pinned entries are available after displacement attempt for {}: {}",
+                                        displaced_short, err
+                                    ),
+                                });
+                            }
+
+                            if !self.pin(key) {
+                                if let Some(ref m) = self.metrics {
+                                    m.record_pin_limit_rejection();
+                                }
+                                return Err(AosError::CacheEntryPinned {
+                                    key: key.short_hex(),
+                                    reason: "Pin conflict mode is enforce and no evictable pinned entries are available after displacement".to_string(),
+                                });
+                            }
+
+                            tracing::info!(
+                                incoming_key = %key.short_hex(),
+                                displaced_key = %displaced_short,
+                                conflict_mode = %conflict_mode,
+                                "Displaced pinned base model to satisfy enforce pin conflict mode"
+                            );
+                            return Ok(handle);
+                        }
                     }
-                    // Still return the handle - model is loaded, just not pinned
-                    return Ok(handle);
                 }
 
                 if pinned.insert(key.clone()) {
@@ -1708,7 +1848,7 @@ mod tests {
     use std::sync::atomic::{AtomicUsize, Ordering};
     use std::sync::{Arc, Barrier};
     use std::thread;
-    use std::time::Duration;
+    use std::time::{Duration, Instant};
 
     fn make_identity(
         kernel: &str,
@@ -2695,6 +2835,184 @@ mod tests {
     }
 
     #[test]
+    fn shadow_does_not_displace_and_returns_unpinned_handle() {
+        let cache = ModelHandleCache::new(1024).with_max_pinned_entries(1);
+        cache.configure_base_model_pinning(
+            true,
+            None,
+            Some("shadow-model".to_string()),
+            PinConflictMode::Shadow,
+        );
+        let key1 = make_key(BackendType::Metal, b"shadow-model-1");
+        let key2 = make_key(BackendType::Metal, b"shadow-model-2");
+
+        cache
+            .get_or_load_base_model(&key1, || Ok((ModelHandle::Metal(Arc::new(vec![1])), 1)))
+            .unwrap();
+        let result =
+            cache.get_or_load_base_model(&key2, || Ok((ModelHandle::Metal(Arc::new(vec![2])), 1)));
+
+        assert!(result.is_ok(), "Shadow mode should keep serving");
+        assert!(cache.is_pinned(&key1), "Existing pin should remain");
+        assert!(
+            !cache.is_pinned(&key2),
+            "Incoming model should remain unpinned"
+        );
+        assert!(cache.cache.read().contains_key(&key1));
+        assert!(cache.cache.read().contains_key(&key2));
+    }
+
+    #[test]
+    fn enforce_displaces_oldest_non_active_pinned_entry() {
+        let cache = ModelHandleCache::new(1024).with_max_pinned_entries(2);
+        cache.configure_base_model_pinning(
+            true,
+            None,
+            Some("enforce-model".to_string()),
+            PinConflictMode::Enforce,
+        );
+        let old_key = make_key(BackendType::Metal, b"enforce-old");
+        let newer_key = make_key(BackendType::Metal, b"enforce-newer");
+        let incoming_key = make_key(BackendType::Metal, b"enforce-incoming");
+
+        cache
+            .get_or_load_base_model(&old_key, || Ok((ModelHandle::Metal(Arc::new(vec![1])), 1)))
+            .unwrap();
+        cache
+            .get_or_load_base_model(&newer_key, || {
+                Ok((ModelHandle::Metal(Arc::new(vec![2])), 1))
+            })
+            .unwrap();
+
+        {
+            let now = Instant::now();
+            let mut timestamps = cache.pinned_timestamps.write();
+            timestamps.insert(old_key.clone(), now - Duration::from_secs(20));
+            timestamps.insert(newer_key.clone(), now - Duration::from_secs(10));
+        }
+
+        let result = cache.get_or_load_base_model(&incoming_key, || {
+            Ok((ModelHandle::Metal(Arc::new(vec![3])), 1))
+        });
+        assert!(
+            result.is_ok(),
+            "Enforce mode should displace the oldest evictable pin"
+        );
+
+        assert!(!cache.is_pinned(&old_key), "Old pin should be removed");
+        assert!(
+            !cache.cache.read().contains_key(&old_key),
+            "Displaced model should be unloaded"
+        );
+        assert!(cache.is_pinned(&newer_key), "Newer pin should remain");
+        assert!(
+            cache.cache.read().contains_key(&newer_key),
+            "Newer pinned model should still be cached"
+        );
+        assert!(
+            cache.is_pinned(&incoming_key),
+            "Incoming model should become pinned"
+        );
+    }
+
+    #[test]
+    fn enforce_fails_when_all_pinned_entries_are_active() {
+        let cache = ModelHandleCache::new(1024).with_max_pinned_entries(1);
+        cache.configure_base_model_pinning(
+            true,
+            None,
+            Some("enforce-blocked".to_string()),
+            PinConflictMode::Enforce,
+        );
+        let old_key = make_key(BackendType::Metal, b"enforce-blocked-old");
+        let incoming_key = make_key(BackendType::Metal, b"enforce-blocked-incoming");
+
+        cache
+            .get_or_load_base_model(&old_key, || Ok((ModelHandle::Metal(Arc::new(vec![1])), 1)))
+            .unwrap();
+        let _guard = cache
+            .begin_use(&old_key)
+            .expect("Old key should be active for conflict test");
+
+        let err = cache
+            .get_or_load_base_model(&incoming_key, || {
+                Ok((ModelHandle::Metal(Arc::new(vec![2])), 1))
+            })
+            .expect_err("Enforce mode should fail when no pinned candidate is evictable");
+
+        match err {
+            AosError::CacheEntryPinned { reason, .. } => {
+                assert!(
+                    reason.contains("no evictable pinned entries"),
+                    "Error reason should explain enforce failure: {}",
+                    reason
+                );
+            }
+            other => panic!("Unexpected error variant: {}", other),
+        }
+        assert!(
+            cache.is_pinned(&old_key),
+            "Existing pin should remain in place"
+        );
+        assert!(
+            !cache.is_pinned(&incoming_key),
+            "Incoming model should not be pinned on enforce failure"
+        );
+    }
+
+    #[test]
+    fn displacement_order_is_deterministic_on_timestamp_tie() {
+        let cache = ModelHandleCache::new(1024).with_max_pinned_entries(8);
+        cache.configure_base_model_pinning(
+            true,
+            None,
+            Some("candidate-order".to_string()),
+            PinConflictMode::Enforce,
+        );
+        let candidate_a = make_key(BackendType::Metal, b"candidate-a");
+        let candidate_b = make_key(BackendType::Metal, b"candidate-b");
+        let active_key = make_key(BackendType::Metal, b"candidate-active");
+        let missing_key = make_key(BackendType::Metal, b"candidate-missing");
+        let incoming_key = make_key(BackendType::Metal, b"candidate-incoming");
+
+        for key in [&candidate_a, &candidate_b, &active_key, &missing_key] {
+            cache
+                .get_or_load_base_model(key, || Ok((ModelHandle::Metal(Arc::new(vec![1])), 1)))
+                .unwrap();
+        }
+
+        let _guard = cache
+            .begin_use(&active_key)
+            .expect("Active key should be markable active");
+        cache.cache.write().remove(&missing_key);
+
+        let tie_timestamp = Instant::now() - Duration::from_secs(10);
+        {
+            let mut timestamps = cache.pinned_timestamps.write();
+            timestamps.insert(candidate_a.clone(), tie_timestamp);
+            timestamps.insert(candidate_b.clone(), tie_timestamp);
+            timestamps.insert(
+                active_key.clone(),
+                Instant::now() - Duration::from_secs(100),
+            );
+            timestamps.insert(
+                missing_key.clone(),
+                Instant::now() - Duration::from_secs(100),
+            );
+        }
+
+        let expected = if candidate_a < candidate_b {
+            candidate_a.clone()
+        } else {
+            candidate_b.clone()
+        };
+        let selected = cache
+            .select_pin_displacement_candidate(&incoming_key)
+            .expect("A deterministic candidate should be selected");
+        assert_eq!(selected, expected);
+    }
+
+    #[test]
     fn test_pin_is_idempotent() {
         let cache = ModelHandleCache::new(1024).with_max_pinned_entries(2);
         let key = make_key(BackendType::Metal, b"model");
@@ -3034,6 +3352,28 @@ mod tests {
             .expect("Transition should succeed");
 
         assert_eq!(cache.len(), 2);
+    }
+
+    #[test]
+    fn test_set_base_model_key_switches_and_resets_counters() {
+        let cache = ModelHandleCache::new(1024);
+        let old_key = make_key(BackendType::Metal, b"tracked-old");
+        let new_key = make_key(BackendType::Metal, b"tracked-new");
+
+        cache.set_base_model_key(&old_key);
+        cache.record_base_model_load(&old_key);
+        cache.record_base_model_evict(&old_key);
+
+        let state_before = cache.base_model_pin_state();
+        assert_eq!(state_before.base_model_key, Some(old_key.clone()));
+        assert_eq!(state_before.load_count, 1);
+        assert_eq!(state_before.evict_count, 1);
+
+        cache.set_base_model_key(&new_key);
+        let state_after = cache.base_model_pin_state();
+        assert_eq!(state_after.base_model_key, Some(new_key));
+        assert_eq!(state_after.load_count, 0);
+        assert_eq!(state_after.evict_count, 0);
     }
 
     // ========================================

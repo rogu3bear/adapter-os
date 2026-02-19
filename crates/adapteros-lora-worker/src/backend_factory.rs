@@ -25,7 +25,10 @@ pub use capabilities::{
     should_use_reasoning_backend, BackendCapabilities, BackendSelection, BackendStrategy,
     ReasoningBackendHint, SelectionContext,
 };
-pub use model_config::{resolve_base_model_pin_budget_bytes, resolve_base_model_pin_enabled};
+pub use model_config::{
+    resolve_base_model_pin_budget_bytes, resolve_base_model_pin_conflict_mode,
+    resolve_base_model_pin_enabled, PinConflictMode,
+};
 pub use model_io::load_model_bytes_verified;
 
 use crate::model_handle_cache::{ModelHandle, ModelHandleCache};
@@ -46,6 +49,7 @@ use model_io::load_model_bytes_atomic_verified;
 use model_io::verify_model_integrity;
 use std::path::{Path, PathBuf};
 use std::sync::Arc;
+use std::time::Duration;
 #[cfg(feature = "multi-backend")]
 use tracing::debug;
 use tracing::{error, info, warn};
@@ -75,6 +79,14 @@ pub type KernelBox = Box<dyn FusedKernels + Send + Sync>;
 /// This is an alias of `BackendKind` to keep public signatures stable while
 /// consolidating backend parsing and display logic in a single place.
 pub type BackendChoice = adapteros_core::backend::BackendKind;
+
+#[derive(Debug, Clone)]
+pub struct BackendLoadHealth {
+    pub backend: BackendChoice,
+    pub attempts: u32,
+    pub healthy: bool,
+    pub message: String,
+}
 
 #[derive(Debug, Clone, Copy)]
 pub struct CoremlFailureClassification {
@@ -220,7 +232,92 @@ pub fn create_backend_from_config(config: &ModelConfig) -> Result<KernelBox> {
         BackendPreference::CPU => BackendChoice::CPU,
         BackendPreference::ModelServer => BackendChoice::ModelServer,
     };
-    create_backend_with_model(choice, &config.path)
+    let retry_attempts = std::env::var("AOS_BACKEND_LOAD_RETRIES")
+        .ok()
+        .and_then(|value| value.parse::<u32>().ok())
+        .unwrap_or(3)
+        .max(1);
+    let (backend, health) =
+        create_backend_with_model_resilient(choice, &config.path, retry_attempts)?;
+    if !health.healthy {
+        warn!(
+            backend = %health.backend.as_str(),
+            attempts = health.attempts,
+            message = %health.message,
+            "Backend reported unhealthy load status"
+        );
+    }
+    Ok(backend)
+}
+
+/// Create backend with retry and pre-load health checks.
+///
+/// This wraps `create_backend_with_model` so worker startup can recover from
+/// transient load races without introducing non-deterministic fallback paths.
+pub fn create_backend_with_model_resilient(
+    choice: BackendChoice,
+    model_path: &Path,
+    max_attempts: u32,
+) -> Result<(KernelBox, BackendLoadHealth)> {
+    if !model_path.exists() {
+        return Err(AosError::Config(format!(
+            "Model path does not exist: {}",
+            model_path.display()
+        )));
+    }
+
+    let attempts = max_attempts.max(1);
+    let mut last_error_message: Option<String> = None;
+    for attempt in 1..=attempts {
+        match create_backend_with_model(choice, model_path) {
+            Ok(backend) => {
+                let health = BackendLoadHealth {
+                    backend: choice,
+                    attempts: attempt,
+                    healthy: true,
+                    message: "backend initialized".to_string(),
+                };
+                info!(
+                    backend = %choice.as_str(),
+                    attempts = attempt,
+                    model_path = %model_path.display(),
+                    "Backend initialized with resilient loader"
+                );
+                return Ok((backend, health));
+            }
+            Err(error) => {
+                last_error_message = Some(error.to_string());
+                if attempt < attempts {
+                    let backoff = Duration::from_millis(100u64.saturating_mul(attempt as u64));
+                    warn!(
+                        backend = %choice.as_str(),
+                        attempt = attempt,
+                        max_attempts = attempts,
+                        backoff_ms = backoff.as_millis() as u64,
+                        error = %error,
+                        "Backend load failed, retrying"
+                    );
+                    std::thread::sleep(backoff);
+                    continue;
+                }
+                error!(
+                    backend = %choice.as_str(),
+                    attempts = attempts,
+                    model_path = %model_path.display(),
+                    error = %error,
+                    "Backend load retry exhausted"
+                );
+                return Err(error);
+            }
+        }
+    }
+
+    Err(AosError::Config(last_error_message.unwrap_or_else(|| {
+        format!(
+            "Backend load failed without concrete error for backend {}",
+            choice.as_str()
+        )
+    })))
 }
 
 #[cfg(all(target_os = "macos", feature = "coreml-backend"))]
@@ -590,10 +687,23 @@ fn ensure_base_model_pinned(
     key: &ModelKey,
     backend: BackendType,
 ) -> Result<()> {
-    if cache.base_model_pin_enabled() && !cache.is_pinned(key) {
-        return Err(AosError::Config(format!(
-            "Base model pinning enabled but {backend:?} base model was not pinned (pin limit reached?)"
-        )));
+    let state = cache.base_model_pin_state();
+    if state.enabled && !cache.is_pinned(key) {
+        match state.conflict_mode {
+            PinConflictMode::Shadow => {
+                warn!(
+                    backend = ?backend,
+                    key = %key.short_hex(),
+                    conflict_mode = %state.conflict_mode,
+                    "Base model pinning requested but model is not pinned; continuing in shadow mode"
+                );
+            }
+            PinConflictMode::Enforce => {
+                return Err(AosError::Config(format!(
+                    "Base model pinning enabled but {backend:?} base model was not pinned while pin conflict mode is enforce"
+                )));
+            }
+        }
     }
     Ok(())
 }
@@ -1645,6 +1755,95 @@ mod tests {
         let ctx = SelectionContext::new(base_profile, metal_only_caps);
         let selection = select_backend_from_execution_profile(&ctx).expect("fallback to metal");
         assert_eq!(selection.selected, BackendChoice::Metal);
+    }
+
+    #[cfg(any(target_os = "macos", feature = "multi-backend"))]
+    #[test]
+    fn shadow_mode_does_not_fail_when_pin_not_achieved() {
+        let cache = ModelHandleCache::new(1024);
+        cache.configure_base_model_pinning(
+            true,
+            None,
+            Some("test-model".to_string()),
+            PinConflictMode::Shadow,
+        );
+        let key = ModelKey::new(
+            BackendType::Metal,
+            B3Hash::hash(b"shadow"),
+            crate::model_key::ModelCacheIdentity::for_backend(BackendType::Metal),
+        );
+
+        let result = ensure_base_model_pinned(&cache, &key, BackendType::Metal);
+        assert!(
+            result.is_ok(),
+            "Shadow mode should allow unpinned base models"
+        );
+    }
+
+    #[cfg(any(target_os = "macos", feature = "multi-backend"))]
+    #[test]
+    fn enforce_mode_fails_when_pin_not_achieved() {
+        let cache = ModelHandleCache::new(1024);
+        cache.configure_base_model_pinning(
+            true,
+            None,
+            Some("test-model".to_string()),
+            PinConflictMode::Enforce,
+        );
+        let key = ModelKey::new(
+            BackendType::Metal,
+            B3Hash::hash(b"enforce"),
+            crate::model_key::ModelCacheIdentity::for_backend(BackendType::Metal),
+        );
+
+        let err = ensure_base_model_pinned(&cache, &key, BackendType::Metal)
+            .expect_err("Enforce mode should fail when base model is unpinned");
+        assert!(
+            err.to_string().contains("pin conflict mode is enforce"),
+            "Unexpected error: {}",
+            err
+        );
+    }
+
+    #[cfg(any(target_os = "macos", feature = "multi-backend"))]
+    #[test]
+    fn enforce_mode_succeeds_after_auto_displacement() {
+        let cache = ModelHandleCache::new(1024).with_max_pinned_entries(1);
+        cache.configure_base_model_pinning(
+            true,
+            None,
+            Some("test-model".to_string()),
+            PinConflictMode::Enforce,
+        );
+        let old_key = ModelKey::new(
+            BackendType::Metal,
+            B3Hash::hash(b"enforce-old"),
+            crate::model_key::ModelCacheIdentity::for_backend(BackendType::Metal),
+        );
+        let incoming_key = ModelKey::new(
+            BackendType::Metal,
+            B3Hash::hash(b"enforce-new"),
+            crate::model_key::ModelCacheIdentity::for_backend(BackendType::Metal),
+        );
+
+        cache
+            .get_or_load_base_model(&old_key, || {
+                Ok((ModelHandle::Metal(std::sync::Arc::new(vec![1])), 1))
+            })
+            .expect("initial base model should load");
+        cache
+            .get_or_load_base_model(&incoming_key, || {
+                Ok((ModelHandle::Metal(std::sync::Arc::new(vec![2])), 1))
+            })
+            .expect("incoming model should trigger displacement in enforce mode");
+
+        assert!(!cache.is_pinned(&old_key), "old model should be displaced");
+        assert!(
+            cache.is_pinned(&incoming_key),
+            "incoming model should be pinned"
+        );
+        ensure_base_model_pinned(&cache, &incoming_key, BackendType::Metal)
+            .expect("enforce mode should pass after successful displacement");
     }
 
     #[cfg(not(feature = "multi-backend"))]

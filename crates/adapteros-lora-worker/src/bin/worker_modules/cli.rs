@@ -48,6 +48,10 @@ pub struct Args {
     #[arg(long)]
     pub pin_budget_bytes: Option<u64>,
 
+    /// Pin conflict mode when pin limit is reached (shadow|enforce)
+    #[arg(long, value_parser = ["shadow", "enforce"])]
+    pub pin_conflict_mode: Option<String>,
+
     /// Adapter cache budget in bytes
     #[arg(long, env = "AOS_ADAPTER_CACHE_BYTES")]
     pub adapter_cache_bytes: Option<u64>,

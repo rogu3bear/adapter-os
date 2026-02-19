@@ -72,7 +72,7 @@ pub mod proto {
 }
 
 pub use config::ModelServerConfig;
-pub use server::ModelServer;
+pub use server::{ModelServer, ModelServerStartupStatus};
 
 /// Version of the model server protocol
 pub const PROTOCOL_VERSION: &str = "1.0.0";

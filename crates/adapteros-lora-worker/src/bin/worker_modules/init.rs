@@ -32,9 +32,10 @@ use adapteros_lora_worker::{
     backend_factory::{
         configure_model_cache_pinning, configure_model_cache_telemetry,
         create_backend_with_model_hashes, detect_capabilities as detect_backend_capabilities,
-        get_model_cache, resolve_base_model_pin_budget_bytes, resolve_base_model_pin_enabled,
-        select_backend_from_execution_profile, validate_model_cache_budget, BackendChoice,
-        BaseModelPinConfig, SelectionContext,
+        get_model_cache, resolve_base_model_pin_budget_bytes, resolve_base_model_pin_conflict_mode,
+        resolve_base_model_pin_enabled, select_backend_from_execution_profile,
+        validate_model_cache_budget, BackendChoice, BaseModelPinConfig, PinConflictMode,
+        SelectionContext,
     },
     health::{HealthEvent, HealthTick},
     inference_pause::InferencePauseRegistry,
@@ -45,6 +46,7 @@ use adapteros_lora_worker::{
 use adapteros_telemetry::TelemetryWriter;
 use clap::Parser;
 use serde::Deserialize;
+use std::str::FromStr;
 use std::sync::{
     atomic::{AtomicBool, Ordering},
     Arc,
@@ -525,6 +527,13 @@ pub async fn run_worker() -> Result<()> {
     } else {
         resolve_base_model_pin_enabled()?
     };
+    let pin_conflict_mode = if let Some(raw) = args.pin_conflict_mode.as_deref() {
+        PinConflictMode::from_str(raw).map_err(|e| {
+            AosError::Validation(format!("Invalid --pin-conflict-mode '{}': {}", raw, e))
+        })?
+    } else {
+        resolve_base_model_pin_conflict_mode()?
+    };
     if let Some(0) = args.pin_budget_bytes {
         return Err(AosError::Validation(
             "Pin budget bytes must be greater than zero".to_string(),
@@ -564,10 +573,12 @@ pub async fn run_worker() -> Result<()> {
         enabled: pin_enabled,
         budget_bytes: pin_budget_bytes,
         model_id: Some(base_model_id.clone()),
+        conflict_mode: pin_conflict_mode,
     })?;
     info!(
         pin_enabled,
         pin_budget_bytes,
+        pin_conflict_mode = %pin_conflict_mode,
         model_id = %base_model_id,
         "Base model pinning configured"
     );

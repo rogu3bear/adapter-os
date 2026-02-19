@@ -4,6 +4,7 @@ use adapteros_config::{reject_tmp_persistent_path, ConfigLoader, ModelConfig};
 use adapteros_core::{AosError, Result};
 use adapteros_lora_kernel_api::attestation::BackendType;
 use std::path::Path;
+use std::str::FromStr;
 use tracing::{debug, error, warn};
 
 #[cfg(any(target_os = "macos", feature = "multi-backend"))]
@@ -80,6 +81,43 @@ pub(crate) fn resolve_model_cache_budget_bytes() -> Result<u64> {
     Err(AosError::Config(
         "Model cache budget not configured. Set AOS_MODEL_CACHE_MAX_MB or model.cache.max.mb in the config TOML (MB).".to_string(),
     ))
+}
+
+/// Behavior when base-model pinning encounters a pin-limit conflict.
+#[derive(Debug, Clone, Copy, PartialEq, Eq, Default)]
+pub enum PinConflictMode {
+    /// Keep serving by loading the incoming model unpinned.
+    #[default]
+    Shadow,
+    /// Fail closed unless an existing pinned model can be deterministically displaced.
+    Enforce,
+}
+
+impl PinConflictMode {
+    pub fn as_str(self) -> &'static str {
+        match self {
+            Self::Shadow => "shadow",
+            Self::Enforce => "enforce",
+        }
+    }
+}
+
+impl std::fmt::Display for PinConflictMode {
+    fn fmt(&self, f: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
+        f.write_str(self.as_str())
+    }
+}
+
+impl FromStr for PinConflictMode {
+    type Err = String;
+
+    fn from_str(raw: &str) -> std::result::Result<Self, Self::Err> {
+        match raw.trim().to_ascii_lowercase().as_str() {
+            "shadow" => Ok(Self::Shadow),
+            "enforce" => Ok(Self::Enforce),
+            _ => Err("must be one of: shadow, enforce".to_string()),
+        }
+    }
 }
 
 /// Resolve base model pinning enabled flag (env overrides config).
@@ -162,6 +200,45 @@ pub fn resolve_base_model_pin_budget_bytes() -> Result<Option<u64>> {
     }
 
     Ok(None)
+}
+
+/// Resolve base model pin conflict mode (env overrides config, defaults to shadow).
+pub fn resolve_base_model_pin_conflict_mode() -> Result<PinConflictMode> {
+    if let Ok(raw) = std::env::var("AOS_BASE_MODEL_PIN_CONFLICT_MODE") {
+        let parsed = PinConflictMode::from_str(&raw).map_err(|e| {
+            AosError::Config(format!(
+                "Invalid AOS_BASE_MODEL_PIN_CONFLICT_MODE '{}': {}",
+                raw, e
+            ))
+        })?;
+        return Ok(parsed);
+    }
+
+    let toml_path = resolve_config_toml_path()?;
+    let config = ConfigLoader::new()
+        .load(Vec::new(), toml_path.clone())
+        .map_err(|e| {
+            let scope = toml_path
+                .as_ref()
+                .map(|p| format!(" from {}", p))
+                .unwrap_or_default();
+            AosError::Config(format!(
+                "Failed to load configuration{} for base model pin conflict mode: {}",
+                scope, e
+            ))
+        })?;
+
+    if let Some(raw) = config.get("model.cache.pin_conflict_mode") {
+        let parsed = PinConflictMode::from_str(raw).map_err(|e| {
+            AosError::Config(format!(
+                "Invalid model.cache.pin_conflict_mode '{}': {}",
+                raw, e
+            ))
+        })?;
+        return Ok(parsed);
+    }
+
+    Ok(PinConflictMode::Shadow)
 }
 
 /// Load and validate model configuration from config.json

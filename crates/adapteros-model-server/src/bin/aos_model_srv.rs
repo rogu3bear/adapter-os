@@ -135,16 +135,32 @@ async fn main() -> Result<(), Box<dyn std::error::Error>> {
         "Loading model..."
     );
 
-    if let Err(e) = server.load_model(&args.model_path).await {
+    let load_retries = std::env::var("AOS_MODEL_SERVER_LOAD_RETRIES")
+        .ok()
+        .and_then(|value| value.parse::<u32>().ok())
+        .unwrap_or(3)
+        .max(1);
+    if let Err(e) = server
+        .load_model_with_recovery(&args.model_path, load_retries)
+        .await
+    {
         error!(
             error = %e,
             model_path = %args.model_path.display(),
+            retries = load_retries,
             "Failed to load model"
         );
         return Err(format!("Failed to load model: {}", e).into());
     }
 
-    info!("Model loaded successfully");
+    let startup = server.startup_status().await;
+    info!(
+        phase = %startup.phase,
+        ready = startup.ready,
+        deterministic_seed = %startup.deterministic_seed,
+        replay_gate_ready = startup.replay_gate_ready,
+        "Model loaded successfully"
+    );
 
     // Set up signal handling for graceful shutdown
     let server_clone = server.clone();

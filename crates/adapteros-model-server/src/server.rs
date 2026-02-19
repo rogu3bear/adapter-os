@@ -5,11 +5,12 @@
 use std::net::SocketAddr;
 use std::sync::atomic::{AtomicBool, AtomicU64, Ordering};
 use std::sync::Arc;
-use std::time::Instant;
+use std::time::{Duration, Instant};
 
+use serde::{Deserialize, Serialize};
 use tokio::sync::RwLock;
 use tonic::{Request, Response, Status};
-use tracing::{debug, error, info};
+use tracing::{debug, error, info, warn};
 
 use crate::activation_tracker::ActivationTracker;
 use crate::adapter_cache::AdapterCache;
@@ -25,6 +26,17 @@ impl Drop for ActiveRequestGuard {
     fn drop(&mut self) {
         self.0.fetch_sub(1, Ordering::Relaxed);
     }
+}
+
+#[derive(Debug, Clone, Serialize, Deserialize)]
+pub struct ModelServerStartupStatus {
+    pub phase: String,
+    pub attempt: u32,
+    pub ready: bool,
+    pub deterministic_seed: String,
+    pub replay_gate_ready: bool,
+    #[serde(skip_serializing_if = "Option::is_none")]
+    pub last_error: Option<String>,
 }
 
 /// Model Server state
@@ -55,6 +67,9 @@ pub struct ModelServer {
 
     /// Drain flag
     draining: AtomicBool,
+
+    /// Startup gate status (deterministic boot + replay readiness)
+    startup_status: Arc<RwLock<ModelServerStartupStatus>>,
 }
 
 impl ModelServer {
@@ -80,6 +95,23 @@ impl ModelServer {
             4096,  // Default hidden_size
             32,    // Default num_layers
         )));
+        let deterministic_seed = adapteros_core::B3Hash::hash(
+            config
+                .model_path
+                .as_ref()
+                .map(|path| path.to_string_lossy().as_bytes().to_vec())
+                .unwrap_or_default()
+                .as_slice(),
+        )
+        .to_hex();
+        let startup_status = Arc::new(RwLock::new(ModelServerStartupStatus {
+            phase: "created".to_string(),
+            attempt: 0,
+            ready: false,
+            deterministic_seed,
+            replay_gate_ready: false,
+            last_error: None,
+        }));
 
         Self {
             config,
@@ -91,19 +123,99 @@ impl ModelServer {
             request_count: AtomicU64::new(0),
             active_requests: Arc::new(AtomicU64::new(0)),
             draining: AtomicBool::new(false),
+            startup_status,
         }
     }
 
     /// Load the model
     pub async fn load_model(&self, model_path: &std::path::Path) -> Result<(), Status> {
-        let mut executor = self.executor.write().await;
-        executor
-            .load_model(model_path)
-            .map_err(|e| Status::internal(format!("Failed to load model: {}", e)))
+        self.load_model_with_recovery(model_path, 1).await
+    }
+
+    /// Load the model with retry, deterministic startup gating, and audit status.
+    pub async fn load_model_with_recovery(
+        &self,
+        model_path: &std::path::Path,
+        max_attempts: u32,
+    ) -> Result<(), Status> {
+        if !model_path.exists() {
+            self.set_startup_phase(
+                "load_failed",
+                1,
+                Some(format!(
+                    "Model path does not exist: {}",
+                    model_path.display()
+                )),
+            )
+            .await;
+            return Err(Status::invalid_argument(format!(
+                "Model path does not exist: {}",
+                model_path.display()
+            )));
+        }
+
+        let attempts = max_attempts.max(1);
+        for attempt in 1..=attempts {
+            self.set_startup_phase("loading_model", attempt, None).await;
+            let load_result = {
+                let mut executor = self.executor.write().await;
+                executor.load_model(model_path)
+            };
+            match load_result {
+                Ok(()) => {
+                    let mut status = self.startup_status.write().await;
+                    status.phase = "model_loaded".to_string();
+                    status.attempt = attempt;
+                    status.ready = true;
+                    status.replay_gate_ready = true;
+                    status.last_error = None;
+                    info!(
+                        attempts = attempt,
+                        model_path = %model_path.display(),
+                        deterministic_seed = %status.deterministic_seed,
+                        "Model server startup completed"
+                    );
+                    return Ok(());
+                }
+                Err(error) => {
+                    let message = format!("Failed to load model: {}", error);
+                    self.set_startup_phase("load_retry", attempt, Some(message.clone()))
+                        .await;
+                    if attempt < attempts {
+                        let backoff = Duration::from_millis(250u64.saturating_mul(attempt as u64));
+                        warn!(
+                            attempt = attempt,
+                            max_attempts = attempts,
+                            backoff_ms = backoff.as_millis() as u64,
+                            error = %error,
+                            "Model load failed during startup, retrying"
+                        );
+                        tokio::time::sleep(backoff).await;
+                        continue;
+                    }
+                    self.set_startup_phase("load_failed", attempt, Some(message.clone()))
+                        .await;
+                    return Err(Status::internal(message));
+                }
+            }
+        }
+
+        Err(Status::internal(
+            "Model startup retry loop exited without a terminal result",
+        ))
     }
 
     /// Start the gRPC server
     pub async fn serve(self: Arc<Self>) -> Result<(), Box<dyn std::error::Error>> {
+        let status = self.startup_status().await;
+        if !status.ready || !status.replay_gate_ready {
+            return Err(format!(
+                "Model Server startup gate not ready (phase={}, ready={}, replay_ready={})",
+                status.phase, status.ready, status.replay_gate_ready
+            )
+            .into());
+        }
+
         let addr: SocketAddr = "127.0.0.1:50051".parse()?;
 
         info!(
@@ -156,6 +268,20 @@ impl ModelServer {
     pub fn start_drain(&self) {
         self.draining.store(true, Ordering::Relaxed);
     }
+
+    /// Snapshot startup status for health/readiness reporting.
+    pub async fn startup_status(&self) -> ModelServerStartupStatus {
+        self.startup_status.read().await.clone()
+    }
+
+    async fn set_startup_phase(&self, phase: &str, attempt: u32, last_error: Option<String>) {
+        let mut status = self.startup_status.write().await;
+        status.phase = phase.to_string();
+        status.attempt = attempt;
+        status.last_error = last_error;
+        status.ready = phase == "model_loaded";
+        status.replay_gate_ready = phase == "model_loaded";
+    }
 }
 
 /// gRPC service implementation
@@ -175,8 +301,11 @@ impl proto::model_server_server::ModelServer for ModelServerService {
         &self,
         request: Request<proto::ForwardRequest>,
     ) -> Result<Response<proto::ForwardResponse>, Status> {
-        if self.server.is_draining() {
-            return Err(Status::unavailable("Server is draining"));
+        let startup = self.server.startup_status().await;
+        if self.server.is_draining() || !startup.ready || !startup.replay_gate_ready {
+            return Err(Status::unavailable(
+                "Model server not ready (draining or startup gate incomplete)",
+            ));
         }
 
         self.server.request_count.fetch_add(1, Ordering::Relaxed);
@@ -264,7 +393,8 @@ impl proto::model_server_server::ModelServer for ModelServerService {
         &self,
         _request: Request<proto::HealthRequest>,
     ) -> Result<Response<proto::HealthResponse>, Status> {
-        let status = if self.server.is_draining() {
+        let startup = self.server.startup_status().await;
+        let status = if self.server.is_draining() || !startup.ready || !startup.replay_gate_ready {
             proto::health_response::Status::Unhealthy
         } else {
             proto::health_response::Status::Healthy
@@ -272,7 +402,13 @@ impl proto::model_server_server::ModelServer for ModelServerService {
 
         Ok(Response::new(proto::HealthResponse {
             status: status.into(),
-            message: String::new(),
+            message: if startup.ready {
+                String::new()
+            } else {
+                startup
+                    .last_error
+                    .unwrap_or_else(|| format!("startup phase '{}'", startup.phase))
+            },
             model_id: self.server.config.model_id.clone().unwrap_or_default(),
             uptime_seconds: self.server.uptime_secs(),
         }))

@@ -1,4 +1,6 @@
-use super::model_config::{resolve_config_toml_path, resolve_model_cache_budget_bytes};
+use super::model_config::{
+    resolve_config_toml_path, resolve_model_cache_budget_bytes, PinConflictMode,
+};
 use crate::model_handle_cache::ModelHandleCache;
 use adapteros_config::ConfigLoader;
 use adapteros_core::{constants::BYTES_PER_MB, AosError, Result};
@@ -130,11 +132,17 @@ pub struct BaseModelPinConfig {
     pub enabled: bool,
     pub budget_bytes: Option<u64>,
     pub model_id: Option<String>,
+    pub conflict_mode: PinConflictMode,
 }
 
 /// Configure base model pinning state in the model cache.
 pub fn configure_model_cache_pinning(config: BaseModelPinConfig) -> Result<()> {
     let cache = get_model_cache()?;
-    cache.configure_base_model_pinning(config.enabled, config.budget_bytes, config.model_id);
+    cache.configure_base_model_pinning(
+        config.enabled,
+        config.budget_bytes,
+        config.model_id,
+        config.conflict_mode,
+    );
     Ok(())
 }

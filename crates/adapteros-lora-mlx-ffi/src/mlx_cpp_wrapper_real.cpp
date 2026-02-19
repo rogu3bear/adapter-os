@@ -1255,12 +1255,24 @@ struct mlx_lora_adapter {
     float scale;  // global scale factor
 };
 
-// Array creation (only from_ints is actually used)
+// Array creation
 extern "C" mlx_array_t *mlx_array_from_ints(const int *data, int size) {
   try {
     // Copy data into vector and construct array using iterator
     std::vector<int> vec(data, data + size);
     mx::array arr = mx::array(vec.begin(), make_shape(size), mx::int32);
+    auto wrapper = new MLXArrayWrapper(arr);
+    return reinterpret_cast<mlx_array_t *>(wrapper);
+  } catch (const std::exception &e) {
+    g_last_error = e.what();
+    return nullptr;
+  }
+}
+
+extern "C" mlx_array_t *mlx_array_from_uints(const uint32_t *data, int size) {
+  try {
+    std::vector<uint32_t> vec(data, data + size);
+    mx::array arr = mx::array(vec.begin(), make_shape(size), mx::uint32);
     auto wrapper = new MLXArrayWrapper(arr);
     return reinterpret_cast<mlx_array_t *>(wrapper);
   } catch (const std::exception &e) {
