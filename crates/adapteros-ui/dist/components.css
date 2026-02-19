@@ -1,7 +1,8 @@
 /* AdapterOS Component Styles — consolidated import bundle
  *
  * This file is the single entry point loaded by index.html.
- * Trunk follows @import chains, so all sub-files are bundled automatically.
+ * It intentionally keeps @import references to dist/components/*.css, so
+ * those files must be copied to the runtime static directory as well.
  *
  * File map:
  *   components/core.css       — primitive UI components (buttons, cards, inputs, etc.)

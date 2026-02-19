@@ -87,6 +87,23 @@ else
 fi
 echo ""
 
+# Resolve CSS @import references so runtime styles cannot silently break.
+echo "--- CSS Import Resolution ---"
+if [ -e "${CSS_FILES[0]}" ]; then
+    for css_file in "${CSS_FILES[@]}"; do
+        [ -f "$css_file" ] || continue
+        while IFS= read -r import_path; do
+            [ -n "$import_path" ] || continue
+            if [ -f "$STATIC_DIR/$import_path" ]; then
+                log_success "CSS import resolved: $(basename "$css_file") -> $import_path"
+            else
+                log_error "Missing CSS import target: $(basename "$css_file") -> $import_path"
+            fi
+        done < <(grep -oE '@import "[^"]+"' "$css_file" | sed -E 's/@import "([^"]+)"/\1/' || true)
+    done
+fi
+echo ""
+
 # 3. Check index.html exists and references hashed assets
 echo "--- index.html Validation ---"
 INDEX_FILE="$STATIC_DIR/index.html"

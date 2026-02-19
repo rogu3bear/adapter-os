@@ -64,6 +64,7 @@ watch = [
   "${ROOT}/crates/adapteros-ui/dist/base.css",
   "${ROOT}/crates/adapteros-ui/dist/glass.css",
   "${ROOT}/crates/adapteros-ui/dist/components.css",
+  "${ROOT}/crates/adapteros-ui/dist/components",
   "${ROOT}/crates/adapteros-ui/dist/sw.js",
 ]
 ignore = ["${ROOT}/crates/adapteros-ui/target"]
