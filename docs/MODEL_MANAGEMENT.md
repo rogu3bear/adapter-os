@@ -1,5 +1,10 @@
 # Model Management Guide
 
+> **Agent note:** Code is authoritative. Formats, detection logic, and paths may have changed. Re-verify in `crates/adapteros-server/`, `crates/adapteros-lora-worker/` before trusting. See [CANONICAL_SOURCES.md](CANONICAL_SOURCES.md) and [DOCS_AUDIT_2026-02-18.md](DOCS_AUDIT_2026-02-18.md).
+
+**Canonical source:** `crates/adapteros-server/src/model_seeding.rs`, `crates/adapteros-lora-worker/`  
+**Last Updated:** 2026-02-18
+
 ## Overview
 
 adapterOS manages base models throughout their complete lifecycle: discovery, import, validation, loading, and unloading. Models are registered in the database with content-addressed hashes for integrity verification, and the system tracks load state across tenants with memory pressure awareness.

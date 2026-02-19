@@ -1,7 +1,9 @@
 # Getting Started with adapterOS
 
-> **Canonical source:** `./start`, `./aosctl` — code is authoritative.  
-> **For complete setup with UI:** see [QUICKSTART.md](QUICKSTART.md).
+> **Agent note:** Code is authoritative. Commands and paths may have changed. Re-verify with `./start`, `./aosctl` before trusting. See [CANONICAL_SOURCES.md](CANONICAL_SOURCES.md) and [DOCS_AUDIT_2026-02-18.md](DOCS_AUDIT_2026-02-18.md).
+
+**Canonical source:** `./start`, `./aosctl`  
+**For complete setup with UI:** see [QUICKSTART.md](QUICKSTART.md).
 
 Get adapterOS running in 5 minutes on your Apple Silicon Mac.
 

@@ -52,7 +52,10 @@ id_ed25519.pub
 target/verify/
 target-aos-*/
 target-harmonize/
+output/
 output/playwright/
+reports/
+training/synthesis_model/output/
 .playwright-cli/
 target-lora-tests/
 
@@ -180,6 +183,8 @@ training/datasets/docs/all_docs_identity/
 training/data/
 training/*.jsonl
 training/*.json
+training/bundle_*
+training/*.ndjson
 
 # Import matrix analysis (generated files)
 import_matrix.json
@@ -347,6 +352,11 @@ src/bin/test_*.rs
 
 # Harmony restoration artifacts
 .harmony/
+
+# Tool/agent temp state (local development only)
+.integrator/
+.staging-manifests/
+.worker_logs/
 .venv-coreml311/
 
 # Orphaned root files (verified 2026-01-25 - directory audit cleanup)

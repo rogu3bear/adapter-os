@@ -1,5 +1,7 @@
 # adapterOS API Guides
 
+> **Agent note:** Code is authoritative. Endpoints and schemas may have changed. Re-verify in `crates/adapteros-server-api/src/routes/` and `docs/api/openapi.json` before trusting. See [CANONICAL_SOURCES.md](CANONICAL_SOURCES.md) and [DOCS_AUDIT_2026-02-18.md](DOCS_AUDIT_2026-02-18.md).
+
 **Version:** 1.0.0  
 **Last Updated:** 2026-02-18  
 **Copyright:** 2025 MLNavigator Inc. All rights reserved.

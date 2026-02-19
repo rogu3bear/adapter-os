@@ -1,5 +1,7 @@
 # AdapterOS Benchmarks (M4 Max) — 2026-01-31
 
+> **Snapshot** — Benchmark results from 2026-01-31. Re-run for current numbers; hardware/code changes invalidate these. See [DOCS_AUDIT_2026-02-18.md](DOCS_AUDIT_2026-02-18.md).
+
 ## Environment
 - Host: MacBook Pro (Mac16,5) — Apple M4 Max, 16 cores (12P+4E)
 - Memory: 48 GB

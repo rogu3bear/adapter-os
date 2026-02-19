@@ -123,5 +123,5 @@ This document tracks handler file sizes in `crates/adapteros-server-api/src/hand
 
 ## Related Documents
 
-- [`ROUTE_MAP.md`](./ROUTE_MAP.md) — Route to handler mapping
+- [`api/ROUTE_MAP.md`](../api/ROUTE_MAP.md) — Route to handler mapping (auto-generated)
 - [`../api/openapi.json`](../api/openapi.json) — OpenAPI specification

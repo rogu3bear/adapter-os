@@ -1,7 +1,8 @@
 # adapterOS Policy Packs
 
 **Document Version:** 2.0
-**Last Updated:** 2025-12-11
+**Canonical source:** `crates/adapteros-policy/`  
+**Last Updated:** 2026-02-18
 **Status:** Production Ready
 **Maintained by:** adapterOS Policy Team
 

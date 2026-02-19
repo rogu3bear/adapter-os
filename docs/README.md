@@ -11,9 +11,11 @@
 
 ## Quick Links
 
+**Canonical sources:** See [CANONICAL_SOURCES.md](CANONICAL_SOURCES.md). When docs conflict with code, code wins.
+
 | Category | Links |
 |----------|-------|
-| **Getting Started** | [Quickstart](getting-started.md) • [Authentication](AUTHENTICATION.md) • [Configuration](CONFIGURATION.md) |
+| **Getting Started** | [Quickstart](getting-started.md) • [QUICKSTART (full)](QUICKSTART.md) • [Authentication](AUTHENTICATION.md) • [Configuration](CONFIGURATION.md) |
 | **Development** | [CLI Guide](CLI_GUIDE.md) • [API Reference](API_REFERENCE.md) • [Testing](TESTING.md) |
 | **Contracts** | [Canonical Sources](CANONICAL_SOURCES.md) • [Docs Grounding](DOCS_GROUNDING.md) • [Startup Contract](STARTUP_CONTRACT.md) • [Execution Contract](EXECUTION_CONTRACT.md) • [Rectification Contracts](contracts/RECTIFICATION_CONTRACTS.md) |
 | **Operations** | [Deployment](DEPLOYMENT.md) • [Troubleshooting](TROUBLESHOOTING.md) • [Operations](OPERATIONS.md) |
@@ -236,6 +238,7 @@ open http://localhost:8080
 | [**TESTING.md**](TESTING.md) | Testing guide and test organization |
 | [**NAMING_CONVENTIONS.md**](NAMING_CONVENTIONS.md) | Code naming conventions and standards |
 | [**DOCUMENTATION_DRIFT.md**](DOCUMENTATION_DRIFT.md) | Documentation validation framework |
+| [**DOCS_AUDIT_2026-02-18.md**](DOCS_AUDIT_2026-02-18.md) | Snapshot/temp doc audit — re-verify before trusting |
 
 ### Error Handling
 
@@ -443,12 +446,12 @@ Upload → Validation → Storage (BLAKE3) → Registry → Loading
 
 When adding or updating documentation:
 
-1. Follow the existing structure and format
-2. Add navigation links to this README
-3. Use clear headings and code examples
-4. Update API documentation when changing interfaces
-5. Keep the quick start guide current
-6. Run `bash scripts/test/all.sh all`, then `cargo test --test determinism_core_suite -- --test-threads=8`, `cargo test -p adapteros-lora-router --test determinism`, `bash scripts/check_fast_math_flags.sh`, and `cargo run -p xtask -- sbom` + `git diff --exit-code sbom/cargo-sbom.json` before committing
+1. **Code is authoritative** — When docs conflict with implementation, update docs. See [CANONICAL_SOURCES.md](CANONICAL_SOURCES.md).
+2. Follow the existing structure and format; add navigation links to this README.
+3. Use clear headings and code examples.
+4. Update API documentation when changing interfaces; run `./scripts/ci/check_openapi_drift.sh --fix` to sync OpenAPI.
+5. Run `./scripts/ci/check_docs_grounding.sh` to catch forbidden patterns.
+6. See [DOCUMENTATION_PRUNE_PLAN.md](DOCUMENTATION_PRUNE_PLAN.md) for maintenance status.
 
 See [CONTRIBUTING.md](../CONTRIBUTING.md) in the project root for general contribution guidelines.
 
@@ -519,11 +522,14 @@ See [CONTRIBUTING.md](../CONTRIBUTING.md) in the project root for general contri
 
 ### Planning & Design Documents
 
+> **Note:** Plans are historical; code is authoritative. See [plans/README.md](plans/README.md).
+
 | Document | Description |
 |----------|-------------|
 | [**design/BACKEND_STATUS_PAGE.md**](design/BACKEND_STATUS_PAGE.md) | Backend status page design |
 | [**design/MOE_FREE_TOKEN_EXPLORATION.md**](design/MOE_FREE_TOKEN_EXPLORATION.md) | MoE free token exploration |
 | [**design/RENAME_MAP_MOE_LORA.md**](design/RENAME_MAP_MOE_LORA.md) | MoE/LoRA naming map |
+| [**plans/README.md**](plans/README.md) | Plans index (code is authoritative) |
 | [**plans/PLAN_boot.md**](plans/PLAN_boot.md) | Boot sequence plan |
 | [**plans/PLAN_inference_loop.md**](plans/PLAN_inference_loop.md) | Inference loop plan |
 | [**plans/PLAN_operationalization.md**](plans/PLAN_operationalization.md) | Operationalization plan |

@@ -1,8 +1,11 @@
 # adapterOS Training Guide
 
-Complete guide to training custom LoRA adapters in adapterOS, covering the entire pipeline from dataset preparation through deployment.
+> **Agent note:** Code is authoritative. Endpoints, phases, and CLI flags may have changed. Re-verify in `crates/adapteros-lora-worker/`, `crates/adapteros-server-api/src/handlers/training.rs` before trusting. See [CANONICAL_SOURCES.md](CANONICAL_SOURCES.md) and [DOCS_AUDIT_2026-02-18.md](DOCS_AUDIT_2026-02-18.md).
 
-**Last Updated:** 2025-12-11
+**Canonical source:** `crates/adapteros-lora-worker/`, `aosctl train`, `crates/adapteros-server-api/src/handlers/training.rs`  
+**Last Updated:** 2026-02-18
+
+Complete guide to training custom LoRA adapters in adapterOS, covering the entire pipeline from dataset preparation through deployment.
 
 ---
 

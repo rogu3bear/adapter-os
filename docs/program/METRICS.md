@@ -1,7 +1,8 @@
 # AdapterOS Program Metrics
 
-Generated: 2026-02-06
-Updated: 2026-02-07
+> **Snapshot** — Program phase verification. Status may have changed. Re-verify against current code/PRs. See [DOCS_AUDIT_2026-02-18.md](../DOCS_AUDIT_2026-02-18.md).
+
+Generated: 2026-02-06 | Updated: 2026-02-07
 
 ## Phase A Verification (2026-02-07)
 

@@ -1,5 +1,10 @@
 # UI Data Flow Documentation
 
+> **Agent note:** Code is authoritative. Hook names and patterns may have changed. Re-verify in `crates/adapteros-ui/src/hooks/` before trusting. See [CANONICAL_SOURCES.md](../CANONICAL_SOURCES.md) and [DOCS_AUDIT_2026-02-18.md](../DOCS_AUDIT_2026-02-18.md).
+
+**Canonical source:** `crates/adapteros-ui/src/hooks/`  
+**Last Updated:** 2026-02-18
+
 This document describes the data fetching patterns, polling strategies, and refetch triggers in the AdapterOS UI.
 
 ## Core Hooks

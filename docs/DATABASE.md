@@ -1,9 +1,11 @@
 # adapterOS Database Documentation
 
-**Purpose:** Comprehensive database architecture, schema, operations, and troubleshooting guide
+> **Agent note:** Code is authoritative. Schema, migrations, and table counts may have changed. Re-verify in `migrations/` and `crates/adapteros-db/` before trusting. See [CANONICAL_SOURCES.md](CANONICAL_SOURCES.md) and [DOCS_AUDIT_2026-02-18.md](DOCS_AUDIT_2026-02-18.md).
 
-**Last Updated:** 2026-01-12
-**Schema Version:** 283 migrations applied
+**Purpose:** Comprehensive database architecture, schema, operations, and troubleshooting guide  
+**Canonical source:** `migrations/`, `crates/adapteros-db/`  
+**Last Updated:** 2026-02-18  
+**Schema Version:** Run `./aosctl db migrate` and check `migrations/` for current count
 
 ---
 

@@ -1,9 +1,9 @@
 # adapterOS Security Architecture
 
-**Document Version:** 2.0
-**Last Updated:** 2025-12-11
+**Document Version:** 2.0  
+**Last Updated:** 2026-02-18  
+**Canonical source:** `crates/adapteros-server-api/src/middleware/`, `crates/adapteros-core/src/path_security.rs`  
 **Status:** Production Ready
-**Maintained by:** adapterOS Security Team
 
 ---
 

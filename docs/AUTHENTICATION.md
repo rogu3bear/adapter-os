@@ -1,5 +1,10 @@
 # Authentication Architecture
 
+> **Agent note:** Code is authoritative. Endpoints, claims, and middleware order may have changed. Re-verify in `crates/adapteros-server-api/src/` before trusting. See [CANONICAL_SOURCES.md](CANONICAL_SOURCES.md) and [DOCS_AUDIT_2026-02-18.md](DOCS_AUDIT_2026-02-18.md).
+
+**Canonical source:** `crates/adapteros-server-api/src/handlers/auth_enhanced.rs`, `crates/adapteros-server-api/src/middleware/`  
+**Last Updated:** 2026-02-18
+
 ## Overview
 
 adapterOS currently uses short-lived JWT access tokens plus refresh/session cookies. The authoritative behavior comes from:

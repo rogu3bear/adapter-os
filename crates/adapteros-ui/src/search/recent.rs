@@ -104,7 +104,7 @@ impl RecentItem {
 
     /// Create a model item
     pub fn model(id: &str, name: &str) -> Self {
-        Self::new(RecentItemType::Model, id, name, "/models")
+        Self::new(RecentItemType::Model, id, name, format!("/models/{}", id))
     }
 
     /// Create a worker item
@@ -256,5 +256,11 @@ mod tests {
         }
 
         assert_eq!(manager.items.len(), MAX_RECENT_ITEMS);
+    }
+
+    #[test]
+    fn test_model_recent_item_uses_detail_path() {
+        let item = RecentItem::model("mdl_123", "Qwen 7B");
+        assert_eq!(item.path, "/models/mdl_123");
     }
 }

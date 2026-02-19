@@ -1,7 +1,9 @@
 # AdapterOS Deep Dive (Strict Audit Rectification)
 
-Date: 2026-02-13
-Scope: /Users/star/Dev/adapter-os
+> **Snapshot** — Audit from 2026-02-13. Line references may have drifted; verify in code.
+
+**Date:** 2026-02-13  
+**Scope:** /Users/star/Dev/adapter-os
 Audit rules: status set is strictly {Verified, Documented, Not implemented, Not found}; every O/R row has one paragraph answer (3-7 sentences), strict evidence references, and caveats.
 Evidence format rule: every evidence item must be absolute and line-ranged as /Users/star/Dev/adapter-os/<path>:<start>-<end.
 

@@ -1,8 +1,9 @@
 # Visual Guides: Understanding adapterOS
 
-**Purpose:** Visual explanations of adapterOS concepts, comparisons with typical LLM systems, and token flow diagrams.
+> **Agent note:** Code is authoritative. Diagrams and flow descriptions may be outdated. Re-verify behavior in code before trusting. See [CANONICAL_SOURCES.md](CANONICAL_SOURCES.md) and [DOCS_AUDIT_2026-02-18.md](DOCS_AUDIT_2026-02-18.md).
 
-**Last Updated:** 2025-12-18
+**Purpose:** Visual explanations of adapterOS concepts, comparisons with typical LLM systems, and token flow diagrams.  
+**Last Updated:** 2026-02-18
 
 ---
 

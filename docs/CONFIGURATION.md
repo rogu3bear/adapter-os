@@ -1,8 +1,8 @@
 # AdapterOS Configuration Guide
 
-**Purpose:** Comprehensive reference for configuring AdapterOS development and deployment environments.
-
-**Last Updated:** 2026-01-02
+**Purpose:** Comprehensive reference for configuring AdapterOS development and deployment environments.  
+**Canonical source:** `configs/cp.toml`, `crates/adapteros-config/`  
+**Last Updated:** 2026-02-18
 
 ---
 

@@ -1,8 +1,8 @@
 # Adapter Lifecycle States in adapterOS
 
-**Canonical reference for adapter and base model lifecycle management**
-
-**Last Updated:** 2026-02-16
+**Canonical reference for adapter and base model lifecycle management**  
+**Canonical source:** `crates/adapteros-lora-lifecycle/`, `crates/adapteros-db/src/adapters.rs`  
+**Last Updated:** 2026-02-18
 
 ---
 

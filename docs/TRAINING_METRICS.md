@@ -2,8 +2,8 @@
 
 Complete guide to the comprehensive training metrics infrastructure in adapterOS.
 
-**Last Updated:** 2025-12-11
-**Location:** `crates/adapteros-lora-worker/src/training/`
+**Canonical source:** `crates/adapteros-lora-worker/src/training/metrics.rs`, `visualization.rs`, `trainer_metrics_ext.rs`  
+**Last Updated:** 2026-02-18
 
 ---
 

@@ -174,7 +174,8 @@ pub fn App() -> impl IntoView {
                         <Route path=path!("/login") view=pages::Login/>
                         // PRD-UI-000: Safe mode route (no auth required, no API calls)
                         <Route path=path!("/safe") view=pages::Safe/>
-                        // PRD-UI-003: Style audit (dev tool, no sensitive data)
+                        // PRD-UI-003: Style audit (dev-only tool, no sensitive data)
+                        #[cfg(feature = "dev-routes")]
                         <Route path=path!("/style-audit") view=pages::StyleAudit/>
                         // Backward compatibility redirects
                         <Route path=path!("/flight-recorder") view=|| view! { <ProtectedRoute><Redirect path="/runs"/></ProtectedRoute> }/>

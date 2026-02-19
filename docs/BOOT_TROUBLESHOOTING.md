@@ -1,5 +1,7 @@
 # adapterOS Boot Troubleshooting Guide
 
+> **Agent note:** Code is authoritative. Phase names and diagnostic steps may have changed. Re-verify in `crates/adapteros-server/src/boot/` before trusting. See [CANONICAL_SOURCES.md](CANONICAL_SOURCES.md) and [DOCS_AUDIT_2026-02-18.md](DOCS_AUDIT_2026-02-18.md).
+
 **Canonical source:** `crates/adapteros-server/src/boot/`, `./start`  
 **Last Updated:** 2026-02-18
 

@@ -7,6 +7,21 @@ use crate::api::ApiClient;
 use leptos::prelude::*;
 use std::sync::Arc;
 
+fn normalize_entity_path(result_type: SearchResultType, id: &str, path: &str) -> String {
+    match result_type {
+        // Search results should deep-link to model detail when possible.
+        SearchResultType::Model if path == "/models" || path == "/models/" || path.is_empty() => {
+            format!("/models/{}", id)
+        }
+        SearchResultType::Worker
+            if path == "/workers" || path == "/workers/" || path.is_empty() =>
+        {
+            format!("/workers/{}", id)
+        }
+        _ => path.to_string(),
+    }
+}
+
 /// Search provider using server-side API
 ///
 /// Instead of caching all entities client-side, this provider
@@ -66,6 +81,7 @@ impl EntityCache {
                         "stack" => SearchResultType::Stack,
                         _ => SearchResultType::Action,
                     };
+                    let path = normalize_entity_path(result_type, &r.id, &r.path);
 
                     SearchResult {
                         id: r.id,
@@ -73,7 +89,7 @@ impl EntityCache {
                         title: r.title,
                         subtitle: r.subtitle,
                         score: r.score,
-                        action: SearchAction::Navigate(r.path),
+                        action: SearchAction::Navigate(path),
                         shortcut: None,
                     }
                 })
@@ -91,5 +107,34 @@ impl EntityCache {
     /// Clear error state
     pub fn clear(&self) {
         self.error.set(None);
+    }
+}
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+
+    #[test]
+    fn normalize_model_path_to_detail_when_generic() {
+        assert_eq!(
+            normalize_entity_path(SearchResultType::Model, "mdl_1", "/models"),
+            "/models/mdl_1"
+        );
+        assert_eq!(
+            normalize_entity_path(SearchResultType::Model, "mdl_1", ""),
+            "/models/mdl_1"
+        );
+    }
+
+    #[test]
+    fn keeps_specific_path_unchanged() {
+        assert_eq!(
+            normalize_entity_path(SearchResultType::Model, "mdl_1", "/models/mdl_1"),
+            "/models/mdl_1"
+        );
+        assert_eq!(
+            normalize_entity_path(SearchResultType::Page, "dashboard", "/"),
+            "/"
+        );
     }
 }

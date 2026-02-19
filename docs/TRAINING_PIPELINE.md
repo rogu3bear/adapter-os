@@ -1,5 +1,8 @@
 # Training Pipeline Orchestration
 
+**Canonical source:** `crates/adapteros-lora-worker/`, training orchestrator, `var/training_pipeline/`  
+**Last Updated:** 2026-02-18
+
 This document describes the strict, resumable training pipeline used by the orchestrator.
 
 ## Phases and State Machine

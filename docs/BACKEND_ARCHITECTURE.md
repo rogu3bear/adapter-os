@@ -1,7 +1,10 @@
 # Backend Architecture
 
-**Copyright:** © 2025 JKCA / James KC Auchterlonie. All rights reserved.
-**Last Updated:** 2026-01-13
+> **Agent note:** Code is authoritative. Crate names and dependency graph may have changed. Re-verify in `crates/adapteros-lora-*` before trusting. See [CANONICAL_SOURCES.md](CANONICAL_SOURCES.md) and [DOCS_AUDIT_2026-02-18.md](DOCS_AUDIT_2026-02-18.md).
+
+**Copyright:** © 2025 JKCA / James KC Auchterlonie. All rights reserved.  
+**Canonical source:** `crates/adapteros-lora-worker/`, `crates/adapteros-lora-kernel-*`  
+**Last Updated:** 2026-02-18  
 **Purpose:** Crate dependency map and architecture overview for MLX, CoreML, and Metal backends
 
 ---

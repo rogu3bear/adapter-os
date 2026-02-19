@@ -531,6 +531,8 @@ All tests should pass, confirming:
 
 ---
 
+> **Snapshot** — Report from 2025-12-24. Re-verify against current code.
+
 **Report Generated:** 2025-12-24
 **Verification Status:** COMPLETE ✅
 **Tamper Detection:** VERIFIED ✅

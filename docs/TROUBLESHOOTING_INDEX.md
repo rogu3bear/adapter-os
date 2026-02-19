@@ -1,7 +1,8 @@
 # adapterOS Troubleshooting Index
 
-**Complete guide to troubleshooting resources and tools**
+> **Agent note:** Code is authoritative. Doc links and diagnostic commands may have changed. Re-verify paths and scripts before trusting. See [CANONICAL_SOURCES.md](CANONICAL_SOURCES.md) and [DOCS_AUDIT_2026-02-18.md](DOCS_AUDIT_2026-02-18.md).
 
+**Complete guide to troubleshooting resources and tools**  
 **Last Updated:** 2026-02-18  
 **Version:** 1.0
 

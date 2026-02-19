@@ -2,7 +2,8 @@
 # Generate route map documentation from routes.rs
 #
 # Usage:
-#   ./scripts/docs/generate_route_map.sh > docs/engineering/ROUTE_MAP.md
+#   ./scripts/docs/generate_route_map.sh > docs/api/ROUTE_MAP_LEGACY.md
+#   (Canonical route list: scripts/dev/generate_route_map.sh -> docs/api/ROUTE_MAP.md)
 #
 # This script extracts:
 # - Route paths from utoipa annotations

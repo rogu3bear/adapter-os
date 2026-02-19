@@ -1,10 +1,12 @@
 # K-sparse Router Performance Baseline
 
+> **Snapshot** — Baseline from 2025-12-24. Re-run for current numbers. See [DOCS_AUDIT_2026-02-18.md](../DOCS_AUDIT_2026-02-18.md).
+
 ## Overview
 
 This document establishes the performance baseline for the K-sparse router in adapterOS, measuring routing latency across different K values (number of top adapters selected) and adapter pool sizes.
 
-**Date**: 2025-12-24
+**Date:** 2025-12-24
 **Environment**: Release build (optimized)
 **Platform**: macOS (Darwin 25.1.0)
 

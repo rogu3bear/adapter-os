@@ -1,5 +1,7 @@
 # Model Server Performance Benchmarks
 
+> **Snapshot** — Benchmark numbers may change with hardware/model/code. Re-run for current accuracy. See [DOCS_AUDIT_2026-02-18.md](DOCS_AUDIT_2026-02-18.md).
+
 This document presents real performance metrics for the Model Server architecture, which enables GPU memory sharing across multiple workers.
 
 ## Executive Summary

@@ -1,5 +1,7 @@
 # Dead Code Allowances Audit (snapshot: 2026-01-25)
 
+> **Snapshot** — Re-run `rg "dead_code"` for current counts. See [DOCS_AUDIT_2026-02-18.md](DOCS_AUDIT_2026-02-18.md).
+
 Purpose: track, prune, and prevent dead-code drift. Source data taken via `rg "dead_code"` on 2026-01-25.
 
 ## Stop Condition

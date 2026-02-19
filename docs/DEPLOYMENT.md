@@ -1,6 +1,8 @@
 # adapterOS Deployment Guide
 
-**Complete deployment guide for adapterOS, covering single-node production setup, air-gapped deployment, authentication, and verification.**
+**Complete deployment guide for adapterOS, covering single-node production setup, air-gapped deployment, authentication, and verification.**  
+**Canonical source:** `./start`, `configs/cp.toml`, `deploy/`  
+**Last Updated:** 2026-02-18
 
 ---
 

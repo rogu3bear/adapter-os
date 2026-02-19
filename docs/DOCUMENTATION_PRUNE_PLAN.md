@@ -13,6 +13,7 @@
 | Phase 3: README broken links | ✅ Done | 39 references fixed |
 | Phase 4: Orphaned file review | Pending | 84 files |
 | Phase 5: Broken links | Pending | 26 files |
+| Phase 6: Nuke (2026-02-18) | ✅ Done | 5 files: 4 JSON artifacts + engineering/ROUTE_MAP.md |
 
 **Canonical sources:** See [CANONICAL_SOURCES.md](CANONICAL_SOURCES.md). When docs conflict with code, code wins.
 

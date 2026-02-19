@@ -1,7 +1,10 @@
 # adapterOS API Endpoints Truth Table
 
-> **Canonical source:** `crates/adapteros-server-api/src/routes/mod.rs`  
-> **Auto-generated route list:** [api/ROUTE_MAP.md](api/ROUTE_MAP.md)
+> **Agent note:** Code is authoritative. Routes and middleware may have changed. Re-verify in `crates/adapteros-server-api/src/routes/mod.rs` before trusting. See [CANONICAL_SOURCES.md](CANONICAL_SOURCES.md) and [DOCS_AUDIT_2026-02-18.md](DOCS_AUDIT_2026-02-18.md).
+
+**Canonical source:** `crates/adapteros-server-api/src/routes/mod.rs`  
+**Auto-generated route list:** [api/ROUTE_MAP.md](api/ROUTE_MAP.md)  
+**Last Updated:** 2026-02-18
 
 ## Route Organization
 

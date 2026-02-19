@@ -1,5 +1,7 @@
 # Determinism Patch Inventory
 
+> **Patch series** — May be applied. Verify invariants in code. Canonical: `crates/adapteros-lora-router/`, `crates/adapteros-core/`. See [DOCS_AUDIT_2026-02-18.md](DOCS_AUDIT_2026-02-18.md).
+
 This document inventories the minimal patch series for deterministic routing fixes, build provenance
 binding, and associated documentation updates.
 

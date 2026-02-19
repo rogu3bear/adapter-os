@@ -1,5 +1,10 @@
 # adapterOS Boot Sequence Walkthrough
 
+> **Agent note:** Code is authoritative. Re-verify phases, paths, and module counts before trusting. See [CANONICAL_SOURCES.md](CANONICAL_SOURCES.md) and [DOCS_AUDIT_2026-02-18.md](DOCS_AUDIT_2026-02-18.md).
+
+**Canonical source:** `start`, `crates/adapteros-server/src/boot/`, `scripts/service-manager.sh`  
+**Last Updated:** 2026-02-18
+
 This document provides a narrative walkthrough of the adapterOS boot sequence, connecting the shell orchestration layer with the Rust control plane startup. It's designed to help new developers understand how the system initializes in under 30 minutes.
 
 ## Overview

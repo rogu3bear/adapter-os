@@ -1,8 +1,8 @@
 # AdapterOS UX & Architecture Execution Plan
 
-Generated: 2026-02-06
-Updated: 2026-02-07
-Status: **In Progress — Phase B**
+> **Snapshot** — Epic status tracking. PRs may have merged; check repo for current state. See [DOCS_AUDIT_2026-02-18.md](../DOCS_AUDIT_2026-02-18.md).
+
+Generated: 2026-02-06 | Updated: 2026-02-07 | Status: **In Progress — Phase B**
 
 ## North Star
 

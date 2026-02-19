@@ -20,7 +20,7 @@ use utoipa::ToSchema;
 pub struct SearchQuery {
     /// Search query string (min 2 characters)
     pub q: String,
-    /// Scope: "all", "adapters", "pages" (default: "all")
+    /// Scope: "all", "adapters", "models", "pages" (default: "all")
     #[serde(default = "default_scope")]
     pub scope: String,
     /// Max results to return (default: 20, max: 50)
@@ -72,7 +72,7 @@ pub struct SearchResponse {
     path = "/v1/search",
     params(
         ("q" = String, Query, description = "Search query (min 2 chars)"),
-        ("scope" = Option<String>, Query, description = "Search scope: all, adapters, pages"),
+        ("scope" = Option<String>, Query, description = "Search scope: all, adapters, models, pages"),
         ("limit" = Option<u32>, Query, description = "Max results (default: 20, max: 50)")
     ),
     responses(
@@ -116,6 +116,12 @@ pub async fn global_search(
     if query.scope == "all" || query.scope == "adapters" {
         let adapter_results = search_adapters(&state, &claims.tenant_id, &query.q, limit).await?;
         results.extend(adapter_results);
+    }
+
+    // Search models if scope includes them
+    if query.scope == "all" || query.scope == "models" {
+        let model_results = search_models(&state, &claims.tenant_id, &query.q, limit).await?;
+        results.extend(model_results);
     }
 
     // Add page search results if scope includes them
@@ -211,6 +217,77 @@ async fn search_adapters(
             }
         })
         .collect();
+
+    Ok(results)
+}
+
+/// Search models by name, id, or path.
+async fn search_models(
+    state: &AppState,
+    tenant_id: &str,
+    query: &str,
+    limit: usize,
+) -> Result<Vec<SearchResult>, (StatusCode, Json<ErrorResponse>)> {
+    let models = state
+        .db
+        .list_models_with_stats(tenant_id)
+        .await
+        .map_err(|e| {
+            (
+                StatusCode::INTERNAL_SERVER_ERROR,
+                Json(
+                    ErrorResponse::new("Search failed")
+                        .with_code("DATABASE_ERROR")
+                        .with_string_details(e.to_string()),
+                ),
+            )
+        })?;
+
+    let query_lower = query.to_lowercase();
+    let mut results: Vec<SearchResult> = models
+        .into_iter()
+        .filter_map(|m| {
+            let id = m.model.id;
+            let name = m.model.name;
+            let model_type = m.model.model_type;
+            let model_path = m.model.model_path;
+            let id_lower = id.to_lowercase();
+            let name_lower = name.to_lowercase();
+            let path_lower = model_path.as_ref().map(|p| p.to_lowercase());
+
+            let score = if name_lower == query_lower || id_lower == query_lower {
+                1.0
+            } else if name_lower.starts_with(&query_lower) || id_lower.starts_with(&query_lower) {
+                0.9
+            } else if name_lower.contains(&query_lower) || id_lower.contains(&query_lower) {
+                0.75
+            } else if path_lower
+                .as_ref()
+                .map(|p| p.contains(&query_lower))
+                .unwrap_or(false)
+            {
+                0.6
+            } else {
+                return None;
+            };
+
+            Some(SearchResult {
+                result_type: "model".to_string(),
+                id: id.clone(),
+                title: name,
+                subtitle: model_type.or(model_path),
+                path: format!("/models/{}", id),
+                score,
+            })
+        })
+        .collect();
+
+    results.sort_by(|a, b| {
+        b.score
+            .partial_cmp(&a.score)
+            .unwrap_or(std::cmp::Ordering::Equal)
+    });
+    results.truncate(limit);
 
     Ok(results)
 }

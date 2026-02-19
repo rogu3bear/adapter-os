@@ -1,9 +1,10 @@
 # adapterOS Production Operations Guide
 
-**Complete operational guide for production deployment, monitoring, backup/restore, and disaster recovery.**
+> **Agent note:** Code is authoritative. Commands, paths, and config keys may have changed. Re-verify before production use. See [CANONICAL_SOURCES.md](CANONICAL_SOURCES.md) and [DOCS_AUDIT_2026-02-18.md](DOCS_AUDIT_2026-02-18.md).
 
-**Last Updated:** 2025-12-11
-**Version:** 1.0
+**Complete operational guide for production deployment, monitoring, backup/restore, and disaster recovery.**  
+**Last Updated:** 2026-02-18  
+**Version:** 1.0  
 **Maintained By:** adapterOS Operations Team
 
 ---

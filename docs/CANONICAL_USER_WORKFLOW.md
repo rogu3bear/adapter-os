@@ -1,5 +1,10 @@
 # Canonical User Workflow (Ingest to Verifiable Replay)
 
+> **Agent note:** Code is authoritative. Routes and file paths may have changed. Re-verify in `crates/adapteros-ui/src/lib.rs` and `crates/adapteros-server-api/src/routes/` before trusting. See [CANONICAL_SOURCES.md](CANONICAL_SOURCES.md) and [DOCS_AUDIT_2026-02-18.md](DOCS_AUDIT_2026-02-18.md).
+
+**Canonical source:** `crates/adapteros-ui/src/lib.rs`, `crates/adapteros-server-api/src/routes/`  
+**Last Updated:** 2026-02-18
+
 This is the canonical AdapterOS user journey using existing surfaces only:
 
 1. Ingest source documents.

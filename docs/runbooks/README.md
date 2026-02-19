@@ -1,5 +1,7 @@
 # adapterOS Production Runbooks
 
+> **Agent note:** Code is authoritative. Commands and paths may have changed. Re-verify before production use. See [CANONICAL_SOURCES.md](../CANONICAL_SOURCES.md) and [DOCS_AUDIT_2026-02-18.md](../DOCS_AUDIT_2026-02-18.md).
+
 **Operational runbooks for incident response and troubleshooting in production adapterOS environments.**
 
 **Last Updated:** 2026-02-18  

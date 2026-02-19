@@ -18,6 +18,7 @@
 | Model download: `./scripts/download-model.sh` or `aosctl models seed` | DEPRECATIONS.md | Not download_model.sh (underscore) |
 | service-manager.sh start ui | No-op; UI served by backend | For dev UI use trunk serve |
 | Readiness gates (Models, Workers, Stacks, Documents) | `system_not_ready` / `inference_not_ready` in pages | See [BACKEND_FRONTEND_READINESS_MAP.md](BACKEND_FRONTEND_READINESS_MAP.md) |
+| Snapshot/temp docs | Re-verify before trusting | See [DOCS_AUDIT_2026-02-18.md](DOCS_AUDIT_2026-02-18.md) |
 
 ---
 

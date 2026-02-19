@@ -1,5 +1,10 @@
 # adapterOS Boot Phases
 
+> **Agent note:** Code is authoritative. Phase names and transitions may have changed. Re-verify in `crates/adapteros-server/src/boot/` before trusting. See [CANONICAL_SOURCES.md](CANONICAL_SOURCES.md) and [DOCS_AUDIT_2026-02-18.md](DOCS_AUDIT_2026-02-18.md).
+
+**Canonical source:** `crates/adapteros-server/src/boot/`, `crates/adapteros-server/src/main.rs`  
+**Last Updated:** 2026-02-18
+
 This document formalizes the boot lifecycle phases and their transitions.
 
 ## Overview

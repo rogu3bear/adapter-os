@@ -1,7 +1,8 @@
 # Adapter API Examples
 
-**Version:** 1.0.0
-**Last Updated:** 2025-12-24
+**Version:** 1.0.0  
+**Canonical source:** `docs/api/openapi.json`, `crates/adapteros-server-api/src/routes/mod.rs`  
+**Last Updated:** 2026-02-18
 
 This document provides comprehensive API examples for adapter operations in adapterOS, including curl commands, request/response formats, and common workflows.
 

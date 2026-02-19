@@ -1,9 +1,10 @@
 # adapterOS Enhanced Troubleshooting Guide
 
-**Comprehensive error diagnosis and resolution for adapterOS**
+> **Agent note:** Code is authoritative. Diagnostic commands and config paths may have changed. Re-verify before use. See [CANONICAL_SOURCES.md](CANONICAL_SOURCES.md) and [DOCS_AUDIT_2026-02-18.md](DOCS_AUDIT_2026-02-18.md).
 
+**Comprehensive error diagnosis and resolution for adapterOS**  
 **Last Updated:** 2026-02-18  
-**Version:** 3.0
+**Version:** 3.0  
 **Maintained By:** adapterOS Support Team
 
 ---

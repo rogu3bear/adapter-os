@@ -1,5 +1,8 @@
 # Determinism Regression Harness
 
+**Canonical source:** `cargo test -p adapteros-core --test determinism_regression_harness`, `adapteros-db --test cache_attestation_enforcement`  
+**Last Updated:** 2026-02-18
+
 This repository maintains a small, CPU-only regression harness for determinism-critical invariants.
 
 Non-goals:

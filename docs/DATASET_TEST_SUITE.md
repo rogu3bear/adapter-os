@@ -1,5 +1,10 @@
 # Dataset Test Suite (Comprehensive)
 
+> **Agent note:** Code is authoritative. Schema tiers and validation logic may have changed. Re-verify in `crates/adapteros-db/`, `crates/adapteros-lora-worker/` before trusting. See [CANONICAL_SOURCES.md](CANONICAL_SOURCES.md) and [DOCS_AUDIT_2026-02-18.md](DOCS_AUDIT_2026-02-18.md).
+
+**Canonical source:** Dataset validation code in `crates/adapteros-db/`, `crates/adapteros-lora-worker/`  
+**Last Updated:** 2026-02-18
+
 This document defines the **comprehensive dataset test suite** for AdapterOS. It has two layers:
 
 1. **Tier 1: Structural + schema + integrity** (hard-fail)

@@ -1,8 +1,13 @@
 # adapterOS UI Walkthrough
 
+> **Agent note:** Code is authoritative. Routes and layout may have changed. Re-verify in `crates/adapteros-ui/src/lib.rs` before trusting. See [CANONICAL_SOURCES.md](CANONICAL_SOURCES.md) and [DOCS_AUDIT_2026-02-18.md](DOCS_AUDIT_2026-02-18.md).
+
+**Canonical source:** `crates/adapteros-ui/src/lib.rs`, `crates/adapteros-ui/UI_CONTRACT.md`  
+**Last Updated:** 2026-02-18
+
 A guided tour of the Leptos web UI as it exists today: entry points, layout, and navigation.
 
-For the end-to-end canonical user journey (ingest -> dataset -> adapter -> chat routing -> receipts/replay), see `/Users/star/Dev/adapter-os/docs/CANONICAL_USER_WORKFLOW.md`.
+For the end-to-end canonical user journey (ingest -> dataset -> adapter -> chat routing -> receipts/replay), see [CANONICAL_USER_WORKFLOW.md](CANONICAL_USER_WORKFLOW.md).
 
 ## Prerequisites
 

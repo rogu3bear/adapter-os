@@ -1,7 +1,9 @@
 # CoreML Investigation Summary
 
-**Date**: 2026-02-02
-**Platform**: macOS 26.2 (Build 25C56)
+> **Snapshot** — Investigation from 2026-02-02. Build/test status may have changed. Re-verify.
+
+**Date:** 2026-02-02  
+**Platform:** macOS 26.2 (Build 25C56)
 **Hardware**: Apple M4 Max
 **Rust toolchain**: stable
 **Feature flags**: `coreml-backend` (default enabled)

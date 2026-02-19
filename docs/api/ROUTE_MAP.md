@@ -1,7 +1,7 @@
 # adapterOS API Route Map
 
-> **Auto-generated:** Do not edit manually.
-> Run `./scripts/dev/generate_route_map.sh` to regenerate.
+> **Auto-generated:** Do not edit manually. Run `./scripts/dev/generate_route_map.sh` to regenerate.  
+> **Canonical source:** `crates/adapteros-server-api/src/routes/mod.rs`
 
 ## Overview
 

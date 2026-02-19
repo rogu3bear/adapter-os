@@ -27,6 +27,7 @@ pub mod routing;
 pub mod safe;
 pub mod settings;
 pub mod stacks;
+#[cfg(feature = "dev-routes")]
 pub mod style_audit;
 pub mod system;
 pub mod training;
@@ -60,6 +61,7 @@ pub use routing::Routing;
 pub use safe::Safe;
 pub use settings::Settings;
 pub use stacks::{StackDetail, Stacks};
+#[cfg(feature = "dev-routes")]
 pub use style_audit::StyleAudit;
 pub use system::System;
 pub use training::Training;

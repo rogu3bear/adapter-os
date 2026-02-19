@@ -1,5 +1,8 @@
 # Training Reporting (PRD-06)
 
+**Canonical source:** `var/artifacts/training-reports/`, report schema in training code  
+**Last Updated:** 2026-02-18
+
 This document describes the dataset-aware training report artifact produced after a training job.
 Reports are written deterministically and include dataset identity, split identity, and metric
 definitions so there are no mystery numbers.

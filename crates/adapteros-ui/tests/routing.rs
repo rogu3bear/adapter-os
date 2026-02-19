@@ -107,7 +107,9 @@ fn test_protected_routes_list() {
 #[wasm_bindgen_test]
 fn test_public_routes_list() {
     // Routes that don't require authentication
-    let public = vec!["/login", "/safe", "/style-audit"];
+    let mut public = vec!["/login", "/safe"];
+    #[cfg(feature = "dev-routes")]
+    public.push("/style-audit");
 
     for route in public {
         assert!(route.starts_with('/'));

@@ -1,7 +1,10 @@
 # adapterOS CLI Guide
 
-**Purpose**: Comprehensive guide to understanding and using the adapterOS CLI (`aosctl`)
-**Last Updated**: January 2026
+> **Agent note:** Code is authoritative. Commands and flags may have changed. Re-verify with `./aosctl --help` and `crates/adapteros-cli/src/commands/` before trusting. See [CANONICAL_SOURCES.md](CANONICAL_SOURCES.md) and [DOCS_AUDIT_2026-02-18.md](DOCS_AUDIT_2026-02-18.md).
+
+**Purpose**: Comprehensive guide to understanding and using the adapterOS CLI (`aosctl`)  
+**Canonical source:** `crates/adapteros-cli/`  
+**Last Updated:** 2026-02-18  
 **Version**: 0.13.1
 
 ---
