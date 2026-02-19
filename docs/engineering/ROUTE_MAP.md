@@ -54,23 +54,23 @@ This document helps developers navigate the API codebase by mapping routes to th
 
 ## Route Categories
 
-### Authentication (`/api/v1/auth/*`)
+### Authentication (`/v1/auth/*`)
 - **Handler**: `handlers/auth.rs`, `handlers/auth_enhanced/`
 - **Endpoints**: login, logout, refresh, MFA, sessions
 
-### Inference (`/api/v1/infer/*`)
+### Inference (`/v1/infer/*`)
 - **Handler**: `handlers/streaming_infer.rs`, `handlers/batch.rs`
 - **Endpoints**: streaming inference, batch jobs
 
-### Adapters (`/api/v1/adapters/*`)
+### Adapters (`/v1/adapters/*`)
 - **Handler**: `handlers/adapters/`
 - **Endpoints**: CRUD, versions, health, loading
 
-### Training (`/api/v1/training/*`)
+### Training (`/v1/training/*`)
 - **Handler**: `handlers/training.rs`
 - **Endpoints**: jobs, datasets, checkpoints, metrics
 
-### Chat (`/api/v1/chat/*`)
+### Chat (`/v1/chat/*`)
 - **Handler**: `handlers/chat_sessions/`
 - **Endpoints**: sessions, messages, evidence
 
@@ -78,7 +78,7 @@ This document helps developers navigate the API codebase by mapping routes to th
 - **Handler**: `handlers/health.rs`, `handlers/system_status.rs`
 - **Endpoints**: liveness, readiness, status
 
-### Admin (`/api/v1/tenants/*`, `/api/v1/workspaces/*`)
+### Admin (`/v1/tenants/*`, `/v1/workspaces/*`)
 - **Handler**: `handlers/tenants.rs`, `handlers/workspaces.rs`
 - **Endpoints**: tenant CRUD, workspace management
 

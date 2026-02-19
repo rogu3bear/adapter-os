@@ -49,7 +49,7 @@ ls -la var/run/aos/*/worker.sock
 
 # Check control plane connectivity
 curl -f http://localhost:8080/healthz
-curl -s http://localhost:8080/api/v1/workers | jq '.[] | {id, status, health_status}'
+curl -s http://localhost:8080/v1/workers | jq '.[] | {id, status, health_status}'
 ```
 
 **If worker not running:** Proceed to Step 2
@@ -228,10 +228,10 @@ ls -la var/run/aos/*/worker.sock
 **Verify Recovery:**
 ```bash
 # Check worker health
-curl -s http://localhost:8080/api/v1/workers | jq '.[] | {id, status, health_status}'
+curl -s http://localhost:8080/v1/workers | jq '.[] | {id, status, health_status}'
 
 # Test inference
-curl -X POST http://localhost:8080/api/v1/infer \
+curl -X POST http://localhost:8080/v1/infer \
   -H "Content-Type: application/json" \
   -d '{
     "prompt": "test connectivity",
@@ -386,10 +386,10 @@ ps aux | grep aos-worker | grep -v grep
 curl -f http://localhost:8080/healthz
 
 # 3. Worker registered
-curl -s http://localhost:8080/api/v1/workers | jq '.[] | {id, status, health_status}'
+curl -s http://localhost:8080/v1/workers | jq '.[] | {id, status, health_status}'
 
 # 4. Inference working
-time curl -X POST http://localhost:8080/api/v1/infer \
+time curl -X POST http://localhost:8080/v1/infer \
   -H "Content-Type: application/json" \
   -d '{"prompt": "Hello", "max_tokens": 5}'
 

@@ -186,7 +186,7 @@ pub struct RunReceipt {
    - Store in receipt table
 
 3. **Add verification endpoint**
-   - New `/api/v1/receipts/:trace_id/verify` endpoint
+   - New `/v1/receipts/:trace_id/verify` endpoint
    - Returns `CryptographicReceipt` with verification status
 
 ### Phase 2: Full Integration

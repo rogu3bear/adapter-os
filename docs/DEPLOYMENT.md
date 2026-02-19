@@ -597,7 +597,7 @@ curl http://localhost:8080/healthz
 
 ```bash
 # Get JWT token first (production mode)
-TOKEN=$(curl -s -X POST http://localhost:8080/api/v1/auth/login \
+TOKEN=$(curl -s -X POST http://localhost:8080/v1/auth/login \
   -H "Content-Type: application/json" \
   -d '{"email":"admin@example.com","password":"password"}' \
   | jq -r '.token')
@@ -1233,7 +1233,7 @@ server {
     client_max_body_size 2g;
 
     # Streaming endpoints (SSE + fetch streaming) must not be buffered
-    location ~ ^/api/v1/(infer/stream|stream/|datasets/upload/progress) {
+    location ~ ^/v1/(infer/stream|stream/|datasets/upload/progress) {
         proxy_pass http://localhost:8080;
         proxy_http_version 1.1;
         proxy_set_header Host $host;
@@ -1250,7 +1250,7 @@ server {
     }
 
     # Dataset uploads - avoid buffering request bodies to disk
-    location ^~ /api/v1/datasets/upload {
+    location ^~ /v1/datasets/upload {
         proxy_pass http://localhost:8080;
         proxy_http_version 1.1;
         proxy_set_header Host $host;
@@ -1496,7 +1496,7 @@ cat configs/cp-production.toml | grep -A5 "\[auth\]"
 ls -l var/jwt_*.pem
 
 # Test with curl
-curl -v https://app.adapteros.example.com/api/v1/auth/login \
+curl -v https://app.adapteros.example.com/v1/auth/login \
   -H "Content-Type: application/json" \
   -d '{"email": "admin@example.com", "password": "password"}'
 

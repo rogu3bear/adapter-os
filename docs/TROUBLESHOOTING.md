@@ -151,7 +151,7 @@ AOS_DEV_NO_AUTH=1 ./start up
 
 ```bash
 # Check training job status
-curl -s http://localhost:8080/api/v1/training/jobs | jq '.[] | {id, status, progress}'
+curl -s http://localhost:8080/v1/training/jobs | jq '.[] | {id, status, progress}'
 
 # Check system resources
 top -l 1 | grep CPU  # macOS
@@ -199,7 +199,7 @@ grep "stub\|fallback" var/logs/backend.log | grep -i "mlx\|metal\|coreml"
 free -h 2>/dev/null || vm_stat | grep "Pages free"
 
 # Check adapter count
-curl -s http://localhost:8080/api/v1/metrics/system | jq '.adapters.loaded_count'
+curl -s http://localhost:8080/v1/metrics/system | jq '.adapters.loaded_count'
 
 # Check adapter file integrity
 ./aosctl adapter inspect var/adapters/my_adapter.aos
@@ -210,7 +210,7 @@ curl -s http://localhost:8080/api/v1/metrics/system | jq '.adapters.loaded_count
 1. **Free up memory:**
    ```bash
    # Unload unused adapters via UI or API
-   curl -X POST http://localhost:8080/api/v1/adapters/{adapter_id}/unload
+   curl -X POST http://localhost:8080/v1/adapters/{adapter_id}/unload
    ```
 
 2. **Check file corruption:**
@@ -241,7 +241,7 @@ curl -s http://localhost:8080/api/v1/metrics/system | jq '.adapters.loaded_count
 
 1. **Verify adapter is loaded:**
    ```bash
-   curl -s http://localhost:8080/api/v1/adapters | jq '.[] | {id, status, name}'
+   curl -s http://localhost:8080/v1/adapters | jq '.[] | {id, status, name}'
    ```
 
 2. **Use related prompts:**
@@ -265,7 +265,7 @@ curl -s http://localhost:8080/api/v1/metrics/system | jq '.adapters.loaded_count
 
 ```bash
 # Check authentication
-curl -v http://localhost:8080/api/v1/adapters
+curl -v http://localhost:8080/v1/adapters
 
 # Verify dev bypass is active
 grep "Dev bypass" var/logs/backend.log | tail -5
@@ -562,13 +562,13 @@ grep "adapter.*load\|adapter.*error" var/logs/backend.log | tail -20
 
 ```bash
 # Check current memory usage
-curl -s http://localhost:8080/api/v1/metrics/system | jq '.memory'
+curl -s http://localhost:8080/v1/metrics/system | jq '.memory'
 
 # Check system memory
 free -h 2>/dev/null || vm_stat
 
 # Check loaded adapters
-curl -s http://localhost:8080/api/v1/adapters | jq '.[] | select(.status == "Loaded") | {id, name, memory_mb}'
+curl -s http://localhost:8080/v1/adapters | jq '.[] | select(.status == "Loaded") | {id, name, memory_mb}'
 ```
 
 **Solutions:**
@@ -576,7 +576,7 @@ curl -s http://localhost:8080/api/v1/adapters | jq '.[] | select(.status == "Loa
 1. **Immediate relief:**
    ```bash
    # Unload least-used adapters (via UI or API)
-   curl -X POST http://localhost:8080/api/v1/adapters/{adapter_id}/unload
+   curl -X POST http://localhost:8080/v1/adapters/{adapter_id}/unload
    ```
 
 2. **Configuration changes:**
@@ -591,7 +591,7 @@ curl -s http://localhost:8080/api/v1/adapters | jq '.[] | select(.status == "Loa
    ```bash
    # Check for memory leaks
    while true; do
-     echo "$(date): $(curl -s http://localhost:8080/api/v1/metrics/system | jq '.memory.used_bytes')"
+     echo "$(date): $(curl -s http://localhost:8080/v1/metrics/system | jq '.memory.used_bytes')"
      sleep 60
    done
 
@@ -610,10 +610,10 @@ curl -s http://localhost:8080/api/v1/adapters | jq '.[] | select(.status == "Loa
 
 ```bash
 # Check latency metrics
-curl -s http://localhost:8080/api/v1/metrics/system | jq '.inference.avg_latency_ms'
+curl -s http://localhost:8080/v1/metrics/system | jq '.inference.avg_latency_ms'
 
 # Check queue depth
-curl -s http://localhost:8080/api/v1/metrics/system | jq '.inference.queue_depth'
+curl -s http://localhost:8080/v1/metrics/system | jq '.inference.queue_depth'
 
 # Monitor requests
 tail -f var/logs/backend.log | grep "inference_request"
@@ -864,10 +864,10 @@ curl -v -H "Origin: http://localhost:3200" http://localhost:8080/healthz
 # Terminal 1: Backend
 AOS_DEV_NO_AUTH=1 ./start up
 
-# Terminal 2: Frontend
-cd ui && pnpm dev
+# Terminal 2: Frontend (Leptos dev server)
+cd crates/adapteros-ui && trunk serve
 
-# Or use canonical start script
+# Or use canonical start script (serves static UI on 8080)
 ./start
 ```
 
@@ -1034,7 +1034,7 @@ grep -i "stub\|fallback\|mock" var/logs/backend.log | tail -20
 cargo tree --workspace -f "{p} {f}" | grep -E "mlx|metal|coreml"
 
 # Method 3: Check runtime version strings
-curl -s http://localhost:8080/api/v1/debug/backends | jq .
+curl -s http://localhost:8080/v1/debug/backends | jq .
 ```
 
 **Common Stub Indicators:**
@@ -1058,7 +1058,7 @@ grep -i "stub\|fallback" var/logs/backend.log | grep -v "development\|test"
 cargo tree --workspace -f "{p} {f}" | grep -E "mlx|metal|coreml"
 
 # Health check should show real backends
-curl http://localhost:8080/api/v1/metrics/system | jq '.backends'
+curl http://localhost:8080/v1/metrics/system | jq '.backends'
 ```
 
 ### Backend Selection Strategy
@@ -1140,7 +1140,7 @@ tail -100 var/logs/backend.log
 grep -v "password\|secret\|key" configs/aos.toml
 
 # Current metrics
-curl -s http://localhost:8080/api/v1/metrics/system | jq .
+curl -s http://localhost:8080/v1/metrics/system | jq .
 
 # Database status
 sqlite3 var/aos-cp.sqlite3 "PRAGMA integrity_check;"
@@ -1167,13 +1167,13 @@ tail -f var/logs/backend.log
 lsof -i:8080 -i:3200
 
 # Memory usage
-curl -s http://localhost:8080/api/v1/metrics/system | jq '.memory'
+curl -s http://localhost:8080/v1/metrics/system | jq '.memory'
 
 # Loaded adapters
-curl -s http://localhost:8080/api/v1/adapters | jq '.[] | {name, status}'
+curl -s http://localhost:8080/v1/adapters | jq '.[] | {name, status}'
 
 # Training jobs
-curl -s http://localhost:8080/api/v1/training/jobs | jq '.[] | {id, status}'
+curl -s http://localhost:8080/v1/training/jobs | jq '.[] | {id, status}'
 ```
 
 ### Common Error Codes

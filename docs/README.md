@@ -15,7 +15,7 @@
 |----------|-------|
 | **Getting Started** | [Quickstart](getting-started.md) • [Authentication](AUTHENTICATION.md) • [Configuration](CONFIGURATION.md) |
 | **Development** | [CLI Guide](CLI_GUIDE.md) • [API Reference](API_REFERENCE.md) • [Testing](TESTING.md) |
-| **Contracts** | [Canonical Sources](CANONICAL_SOURCES.md) • [Startup Contract](STARTUP_CONTRACT.md) • [Execution Contract](EXECUTION_CONTRACT.md) • [Rectification Contracts](contracts/RECTIFICATION_CONTRACTS.md) |
+| **Contracts** | [Canonical Sources](CANONICAL_SOURCES.md) • [Docs Grounding](DOCS_GROUNDING.md) • [Startup Contract](STARTUP_CONTRACT.md) • [Execution Contract](EXECUTION_CONTRACT.md) • [Rectification Contracts](contracts/RECTIFICATION_CONTRACTS.md) |
 | **Operations** | [Deployment](DEPLOYMENT.md) • [Troubleshooting](TROUBLESHOOTING.md) • [Operations](OPERATIONS.md) |
 | **Security** | [Security Guide](SECURITY.md) • [Policies](POLICIES.md) • [Access Control](ACCESS_CONTROL.md) |
 | **Backends** | [Backend Selection](BACKEND_SELECTION.md) • [MLX](MLX_GUIDE.md) • [CoreML](COREML_BACKEND.md) • [Metal](METAL_BACKEND.md) |
@@ -131,13 +131,13 @@ cargo build --release --locked --offline
 ./scripts/strip_timestamps.sh
 
 # 3. Run migrations
-cargo sqlx migrate run
+./aosctl db migrate
 
 # 4. Start the system
 ./start  # Starts backend + UI via service-manager.sh
 
-# 5. Access the UI
-open http://localhost:3200
+# 5. Access the UI (backend serves static UI on 8080; use http://localhost:3200 only for trunk serve dev)
+open http://localhost:8080
 ```
 
 **Detailed Guides:**
@@ -175,6 +175,15 @@ open http://localhost:3200
 | Document | Description |
 |----------|-------------|
 | [**DATABASE.md**](DATABASE.md) | Comprehensive database documentation: schema, KV operations, migrations, troubleshooting |
+
+### UI & Frontend
+
+| Document | Description |
+|----------|-------------|
+| [**BACKEND_FRONTEND_READINESS_MAP.md**](BACKEND_FRONTEND_READINESS_MAP.md) | Backend-to-frontend readiness gates (Models, Workers, Stacks, Documents) |
+| [**ui/route-map.md**](ui/route-map.md) | UI route inventory (canonical: `crates/adapteros-ui/src/lib.rs`) |
+| [**UI_BEST_PRACTICES_CONTRAST.md**](UI_BEST_PRACTICES_CONTRAST.md) | UI contrast and best-practices audit |
+| [**UI_ACTION_RULES.md**](UI_ACTION_RULES.md) | UI action patterns and rules |
 
 ---
 
@@ -426,7 +435,7 @@ Upload → Validation → Storage (BLAKE3) → Registry → Loading
 - **Database**: SQLite at `var/aos-cp.sqlite3`
 - **Default Model**: Llama-3.2-3B-Instruct-4bit (4-bit quantized)
 - **Rust**: Nightly (see `rust-toolchain.toml`)
-- **UI**: Leptos 0.7 + Tailwind CSS + WASM (Client-Side Rendering)
+- **UI**: Leptos 0.7 + Pure CSS + WASM (Client-Side Rendering)
 
 ---
 
@@ -561,7 +570,7 @@ adapterOS is dual-licensed under Apache 2.0 or MIT at your option.
 
 ---
 
-**Last Updated**: December 11, 2025
+**Last Updated**: February 18, 2026
 **adapterOS Version**: 0.12.0
 **Maintained by**: [@rogu3bear](https://github.com/rogu3bear)
 **MLNavigator Inc**

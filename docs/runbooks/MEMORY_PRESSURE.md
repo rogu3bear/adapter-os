@@ -187,7 +187,7 @@ free -h  # Linux shows cache/buffers
 **Immediate Action:**
 ```bash
 # 1. Trigger manual eviction (evict 5 cold adapters)
-curl -X POST http://localhost:8080/api/v1/lifecycle/evict \
+curl -X POST http://localhost:8080/v1/lifecycle/evict \
   -H "Content-Type: application/json" \
   -d '{
     "strategy": "lowest_activation_pct",
@@ -204,7 +204,7 @@ aosctl metrics show --json | jq '.memory.pressure_level, .adapters.loaded_count'
 grep "adapter.*evicted" var/logs/backend.log | tail -10
 
 # 4. If still critical, evict more aggressively
-curl -X POST http://localhost:8080/api/v1/lifecycle/evict \
+curl -X POST http://localhost:8080/v1/lifecycle/evict \
   -H "Content-Type: application/json" \
   -d '{
     "strategy": "lowest_activation_pct",
@@ -327,7 +327,7 @@ pkill -f adapteros-server
 grep "k_sparse" configs/cp.toml
 
 # Test inference (should use less memory)
-curl -X POST http://localhost:8080/api/v1/infer \
+curl -X POST http://localhost:8080/v1/infer \
   -H "Content-Type: application/json" \
   -d '{"prompt": "test", "adapter_id": "test-adapter"}'
 ```

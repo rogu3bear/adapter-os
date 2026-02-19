@@ -32,7 +32,7 @@ cp .env.example .env
 vim .env
 
 # Step 3: Verify configuration
-cargo run -p adapteros-orchestrator -- config show
+aosctl config show
 ```
 
 ### Platform Requirements
@@ -41,19 +41,19 @@ cargo run -p adapteros-orchestrator -- config show
 - **Rust:** Nightly (see `rust-toolchain.toml`)
 - **Database:** SQLite 3.35+
 - **Build Tools:** Xcode Command Line Tools
-- **UI Development:** pnpm 9+, Node.js 18+
+- **UI Development:** Trunk (Leptos WASM): `cargo install trunk`
 
 ### New Developer Setup Checklist
 
 - [ ] Clone repository: `git clone https://github.com/rogu3bear/adapter-os.git`
 - [ ] Copy environment: `cp .env.example .env`
-- [ ] Download model: `./scripts/download_model.sh`
-- [ ] Initialize database: `cargo run -p adapteros-orchestrator -- db migrate`
-- [ ] Create default tenant: `cargo run -p adapteros-orchestrator -- init-tenant --id default --uid 1000 --gid 1000`
-- [ ] Verify configuration: `cargo run -p adapteros-orchestrator -- config show`
-- [ ] Start backend: `cargo run --release -p adapteros-server-api`
-- [ ] Start UI: `cd ui && pnpm install && pnpm dev`
-- [ ] Access UI: Open http://localhost:3200
+- [ ] Download model: `./scripts/download-model.sh` or `./aosctl models seed`
+- [ ] Initialize database: `./aosctl db migrate`
+- [ ] Create default tenant: `aosctl init-tenant --id default --uid 1000 --gid 1000`
+- [ ] Verify configuration: `aosctl config show`
+- [ ] Start backend: `./start backend` (or `cargo run --release -p adapteros-server`)
+- [ ] Start UI: `cd crates/adapteros-ui && trunk serve` (dev) or `./scripts/build-ui.sh` then `./start` (production)
+- [ ] Access UI: http://localhost:3200 (trunk dev) or http://localhost:8080 (./start with static UI)
 
 ### Production Deployment Checklist
 
@@ -67,7 +67,7 @@ cargo run -p adapteros-orchestrator -- config show
 - [ ] Update `AOS_DATABASE_URL` to production path
 - [ ] Set `AOS_TELEMETRY_ENABLED=true`
 - [ ] Set `RUST_LOG=warn,adapteros=info`
-- [ ] Test configuration: `cargo run -p adapteros-orchestrator -- config show`
+- [ ] Test configuration: `aosctl config show`
 - [ ] Build release binary: `cargo build --release -p adapteros-server-api`
 - [ ] Deploy and start service
 
@@ -972,7 +972,7 @@ echo $AOS_DATABASE_URL
 mkdir -p var
 
 # Run migrations
-cargo run -p adapteros-orchestrator -- db migrate
+./aosctl db migrate
 ```
 
 #### Model Not Found
@@ -985,7 +985,7 @@ cargo run -p adapteros-orchestrator -- db migrate
 echo $AOS_MODEL_PATH
 
 # Download model
-./scripts/download_model.sh
+./scripts/download-model.sh
 
 # Check model directory
 ls -la /var/models/Llama-3.2-3B-Instruct-4bit/
@@ -1005,7 +1005,7 @@ brew install mlx
 export AOS_MODEL_BACKEND=metal
 
 # Verify available backends
-cargo run -p adapteros-orchestrator -- config show | grep backend
+aosctl config show | grep backend
 ```
 
 ### Configuration Failure Modes

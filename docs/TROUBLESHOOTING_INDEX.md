@@ -138,7 +138,7 @@ curl -f http://localhost:8080/readyz
 
 #### System Metrics
 ```bash
-curl -s http://localhost:8080/api/v1/metrics/system | jq .
+curl -s http://localhost:8080/v1/metrics/system | jq .
 ```
 
 #### Recent Errors
@@ -185,7 +185,7 @@ After resolving the issue:
 |---------|---------|
 | `curl http://localhost:8080/healthz` | Basic health check |
 | `curl http://localhost:8080/readyz` | Readiness check |
-| `curl http://localhost:8080/api/v1/metrics/system` | System metrics |
+| `curl http://localhost:8080/v1/metrics/system` | System metrics |
 | `./aosctl metrics show` | Formatted metrics display |
 | `./aosctl status` | Overall system status |
 

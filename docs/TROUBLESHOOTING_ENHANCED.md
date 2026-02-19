@@ -141,7 +141,7 @@ DELETE FROM adapters
 WHERE tenant_id NOT IN (SELECT id FROM tenants);"
 
 # Verify tenant exists before creating adapter
-curl -s http://localhost:8080/api/v1/tenants | jq '.[].id'
+curl -s http://localhost:8080/v1/tenants | jq '.[].id'
 ```
 
 #### Worker Errors
@@ -248,7 +248,7 @@ ps aux | grep aos-worker | awk '{print $3, $4, $11}'
 vm_stat | grep "Pages swapped"
 
 # Check active requests
-curl -s http://localhost:8080/api/v1/metrics/system | jq '.inference.active_count'
+curl -s http://localhost:8080/v1/metrics/system | jq '.inference.active_count'
 
 # Monitor worker responsiveness
 time echo "ping" | socat - UNIX-CONNECT:var/run/aos/default/worker.sock
@@ -353,7 +353,7 @@ grep "isolation.*violation" var/logs/backend.log | tail -20
 # claims.admin_tenants = ["*"]
 
 # Check policy enforcement
-curl -s http://localhost:8080/api/v1/policies/isolation | jq .
+curl -s http://localhost:8080/v1/policies/isolation | jq .
 ```
 
 #### Adapter Errors
@@ -371,10 +371,10 @@ curl -s http://localhost:8080/api/v1/policies/isolation | jq .
 **Diagnosis:**
 ```bash
 # Check adapter state
-curl -s http://localhost:8080/api/v1/adapters/adapter-123 | jq '.status'
+curl -s http://localhost:8080/v1/adapters/adapter-123 | jq '.status'
 
 # Check memory headroom
-curl -s http://localhost:8080/api/v1/metrics/system | jq '.memory.headroom_pct'
+curl -s http://localhost:8080/v1/metrics/system | jq '.memory.headroom_pct'
 
 # Check eviction logs
 grep -i "evict.*adapter-123" var/logs/backend.log
@@ -386,7 +386,7 @@ grep -i "load.*adapter-123.*fail" var/logs/backend.log
 **Solutions:**
 ```bash
 # Load adapter
-curl -X POST http://localhost:8080/api/v1/adapters/adapter-123/load
+curl -X POST http://localhost:8080/v1/adapters/adapter-123/load
 
 # Increase memory headroom
 # In configs/aos.toml:
@@ -394,7 +394,7 @@ curl -X POST http://localhost:8080/api/v1/adapters/adapter-123/load
 # min_headroom_pct = 15
 
 # Evict other adapters
-curl -X POST http://localhost:8080/api/v1/adapters/adapter-456/unload
+curl -X POST http://localhost:8080/v1/adapters/adapter-456/unload
 
 # Check for file corruption
 ./aosctl adapter inspect var/adapters/adapter-123.aos
@@ -458,10 +458,10 @@ grep -i "tamper\|unauthorized" var/logs/backend.log
 **Diagnosis:**
 ```bash
 # Check memory metrics
-curl -s http://localhost:8080/api/v1/metrics/system | jq '.memory'
+curl -s http://localhost:8080/v1/metrics/system | jq '.memory'
 
 # Check loaded adapters
-curl -s http://localhost:8080/api/v1/adapters | jq '[.[] | select(.status == "Loaded")] | length'
+curl -s http://localhost:8080/v1/adapters | jq '[.[] | select(.status == "Loaded")] | length'
 
 # Check system memory
 free -h 2>/dev/null || vm_stat
@@ -473,7 +473,7 @@ watch -n 5 'ps aux | grep adapteros-server | awk "{print \$6}"'
 **Solutions:**
 ```bash
 # Immediate: evict cold adapters
-curl -X POST http://localhost:8080/api/v1/adapters/evict?tier=cold
+curl -X POST http://localhost:8080/v1/adapters/evict?tier=cold
 
 # Reduce adapter count
 # In configs/aos.toml:
@@ -501,7 +501,7 @@ curl -X POST http://localhost:8080/api/v1/adapters/evict?tier=cold
 **Diagnosis:**
 ```bash
 # Check inference metrics
-curl -s http://localhost:8080/api/v1/metrics/system | jq '.inference'
+curl -s http://localhost:8080/v1/metrics/system | jq '.inference'
 
 # Check backend type
 grep -i "backend.*initialized" var/logs/backend.log | tail -1
@@ -525,7 +525,7 @@ export AOS_MODEL_BACKEND=mlx
 # timeout_secs = 60
 
 # Check queue depth
-curl -s http://localhost:8080/api/v1/metrics/system | jq '.inference.queue_depth'
+curl -s http://localhost:8080/v1/metrics/system | jq '.inference.queue_depth'
 
 # Reduce batch size
 # [inference]
@@ -792,7 +792,7 @@ Authentication Failure
 │  ├─ Missing admin permissions?
 │  │  └─ Add to admin_tenants in JWT
 │  └─ Policy violation?
-│     └─ Check policy: curl /api/v1/policies
+│     └─ Check policy: curl http://localhost:8080/v1/policies
 │
 └─ Session expired?
    └─ Refresh: ./aosctl auth refresh
@@ -828,7 +828,7 @@ echo "JWT secret length: ${#jwt_secret} (production requires >= 64)"
 grep "^AOS_DEV_NO_AUTH=" .env.local
 
 # Check auth endpoints
-curl -v http://localhost:8080/api/v1/auth/status
+curl -v http://localhost:8080/v1/auth/status
 
 # Check session table
 sqlite3 var/aos-cp.sqlite3 "
@@ -846,12 +846,12 @@ tenant_id=$(echo "$TOKEN" | cut -d'.' -f2 | base64 -d 2>/dev/null | jq -r '.tena
 
 # List tenant resources
 curl -H "Authorization: Bearer $TOKEN" \
-  http://localhost:8080/api/v1/adapters | jq "[.[] | {id, tenant_id}]"
+  http://localhost:8080/v1/adapters | jq "[.[] | {id, tenant_id}]"
 
 # Try cross-tenant access (should fail)
 other_tenant_adapter="adapter-from-different-tenant"
 curl -H "Authorization: Bearer $TOKEN" \
-  http://localhost:8080/api/v1/adapters/$other_tenant_adapter
+  http://localhost:8080/v1/adapters/$other_tenant_adapter
 
 # Check audit log
 sqlite3 var/aos-cp.sqlite3 "
@@ -877,13 +877,13 @@ Performance Issue
 │  ├─ GPU not used?
 │  │  └─ Check Metal: system_profiler SPDisplaysDataType | grep Metal
 │  ├─ Queue backlog?
-│  │  └─ Check queue depth: curl /api/v1/metrics | jq .queue_depth
+│  │  └─ Check queue depth: curl http://localhost:8080/v1/metrics/system | jq .queue_depth
 │  └─ Slow database?
 │     └─ Run ANALYZE: sqlite3 var/aos-cp.sqlite3 "ANALYZE;"
 │
 ├─ High memory?
 │  ├─ Too many adapters?
-│  │  └─ Evict: curl -X POST /api/v1/adapters/evict
+│  │  └─ Evict: curl -X POST http://localhost:8080/v1/adapters/evict
 │  ├─ Memory leak?
 │  │  └─ Monitor: watch 'ps aux | grep adapteros-server'
 │  └─ Large model?
@@ -911,7 +911,7 @@ Performance Issue
 #### Latency Analysis
 ```bash
 # Check inference latency
-curl -s http://localhost:8080/api/v1/metrics/system | jq '.inference | {
+curl -s http://localhost:8080/v1/metrics/system | jq '.inference | {
   avg: .avg_latency_ms,
   p50: .p50_latency_ms,
   p95: .p95_latency_ms,
@@ -921,7 +921,7 @@ curl -s http://localhost:8080/api/v1/metrics/system | jq '.inference | {
 }'
 
 # Benchmark single request
-time curl -X POST http://localhost:8080/api/v1/chat/completions \
+time curl -X POST http://localhost:8080/v1/chat/completions \
   -H "Content-Type: application/json" \
   -d '{
     "model": "base",
@@ -930,7 +930,7 @@ time curl -X POST http://localhost:8080/api/v1/chat/completions \
   }'
 
 # Monitor continuous
-watch -n 1 'curl -s http://localhost:8080/api/v1/metrics/system | jq .inference.p99_latency_ms'
+watch -n 1 'curl -s http://localhost:8080/v1/metrics/system | jq .inference.p99_latency_ms'
 ```
 
 #### Memory Analysis
@@ -943,7 +943,7 @@ ps aux | grep adapteros | awk '{print $11, "RSS:", $6/1024"MB", "CPU:", $3"%"}'
 
 # Memory pressure timeline
 while true; do
-  mem=$(curl -s http://localhost:8080/api/v1/metrics/system | jq -r '.memory.used_percent')
+  mem=$(curl -s http://localhost:8080/v1/metrics/system | jq -r '.memory.used_percent')
   echo "$(date +%H:%M:%S) Memory: $mem%"
   sleep 5
 done
@@ -1113,7 +1113,7 @@ curl -s http://localhost:8080/readyz | jq '{
 }'
 
 # Metrics summary
-curl -s http://localhost:8080/api/v1/metrics/system | jq '{
+curl -s http://localhost:8080/v1/metrics/system | jq '{
   memory: .memory.used_percent,
   adapters_loaded: .adapters.loaded_count,
   inference_p99: .inference.p99_latency_ms,
@@ -1172,7 +1172,7 @@ grep ERROR var/logs/backend.log | \
 
 ```bash
 # Real-time metrics dashboard
-watch -n 2 'curl -s http://localhost:8080/api/v1/metrics/system | jq "{
+watch -n 2 'curl -s http://localhost:8080/v1/metrics/system | jq "{
   timestamp: now | strftime(\"%H:%M:%S\"),
   memory_pct: .memory.used_percent,
   cpu_pct: .cpu.used_percent,
@@ -1184,14 +1184,14 @@ watch -n 2 'curl -s http://localhost:8080/api/v1/metrics/system | jq "{
 
 # Memory trend
 for i in {1..60}; do
-  mem=$(curl -s http://localhost:8080/api/v1/metrics/system | jq -r '.memory.used_percent')
+  mem=$(curl -s http://localhost:8080/v1/metrics/system | jq -r '.memory.used_percent')
   echo "$(date +%H:%M:%S) $mem%" >> /tmp/memory_trend.log
   sleep 5
 done
 cat /tmp/memory_trend.log
 
 # Latency histogram
-curl -s http://localhost:8080/api/v1/metrics/system | jq -r '
+curl -s http://localhost:8080/v1/metrics/system | jq -r '
   .inference | {
     "p50": .p50_latency_ms,
     "p95": .p95_latency_ms,
@@ -1226,7 +1226,7 @@ curl -f http://localhost:8080/readyz && echo "Ready: OK" || echo "Ready: FAIL"
 echo
 
 echo "=== Metrics ==="
-curl -s http://localhost:8080/api/v1/metrics/system | jq .
+curl -s http://localhost:8080/v1/metrics/system | jq .
 echo
 
 echo "=== Database Status ==="
@@ -1276,13 +1276,13 @@ cargo sqlx migrate info
 #### Adapter Won't Load
 ```bash
 # Check memory
-curl -s http://localhost:8080/api/v1/metrics/system | jq '.memory.headroom_pct'
+curl -s http://localhost:8080/v1/metrics/system | jq '.memory.headroom_pct'
 
 # Check adapter state
-curl -s http://localhost:8080/api/v1/adapters/ADAPTER_ID | jq '.status'
+curl -s http://localhost:8080/v1/adapters/ADAPTER_ID | jq '.status'
 
 # Load adapter
-curl -X POST http://localhost:8080/api/v1/adapters/ADAPTER_ID/load
+curl -X POST http://localhost:8080/v1/adapters/ADAPTER_ID/load
 
 # Check worker
 ps aux | grep aos-worker
@@ -1298,10 +1298,10 @@ grep -i "backend.*initialized" var/logs/backend.log | tail -1
 system_profiler SPDisplaysDataType | grep Metal
 
 # Check queue
-curl -s http://localhost:8080/api/v1/metrics/system | jq '.inference.queue_depth'
+curl -s http://localhost:8080/v1/metrics/system | jq '.inference.queue_depth'
 
 # Benchmark
-time curl -X POST http://localhost:8080/api/v1/chat/completions \
+time curl -X POST http://localhost:8080/v1/chat/completions \
   -H "Content-Type: application/json" \
   -d '{"model": "base", "messages": [{"role": "user", "content": "test"}], "max_tokens": 10}'
 ```

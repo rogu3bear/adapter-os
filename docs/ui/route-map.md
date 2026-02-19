@@ -35,6 +35,7 @@ Naming canon:
 | `/` | Observe | Primary | Stable | Dashboard landing page. |
 | `/adapters` | Deploy | Primary | Stable | Adapter inventory. |
 | `/adapters/:id` | Deploy | Primary | Stable | Adapter detail. |
+| `/update-center` | Deploy | Primary | Stable | Update center for adapters and system components. |
 | `/chat` | Infer | Primary | Stable | Inference chat entry point. |
 | `/chat/:session_id` | Infer | Primary | Stable | Chat session deep link. |
 | `/system` | Org | Primary | Stable | System status/topology surface. |

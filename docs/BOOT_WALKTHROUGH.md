@@ -68,8 +68,9 @@ Manages individual service lifecycle:
 # Start backend only
 ./scripts/service-manager.sh start backend
 
-# Start UI dev server
-./scripts/service-manager.sh start ui
+# UI: Backend serves static UI from static/. For dev with hot reload, run
+#   cd crates/adapteros-ui && trunk serve
+# (service-manager.sh start ui is a no-op; UI is served by backend)
 
 # Stop all services
 ./scripts/service-manager.sh stop all

@@ -36,6 +36,8 @@ npx playwright test -c playwright.fast.config.ts --headed ui/routes.best_practic
 - No failed network requests for required resources (excluding benign aborts during navigation).
 - Keyboard: tab order sane, focus visible, no traps; Escape closes dialogs/panels where applicable.
 
+**Accessibility (WCAG 2.1 AA):** See [audits/ACCESSIBILITY_AUDIT.md](audits/ACCESSIBILITY_AUDIT.md) for anchored findings, rectification log, and verification commands.
+
 ## Route Inventory
 
 Source of truth: `crates/adapteros-ui/src/lib.rs`

@@ -243,7 +243,7 @@ WHERE timestamp > datetime('now', '-1 hour');")
 for adapter in $AFFECTED_ADAPTERS; do
     echo "Quarantining adapter: $adapter"
 
-    curl -X POST "http://localhost:8080/api/v1/adapters/$adapter/quarantine" \
+    curl -X POST "http://localhost:8080/v1/adapters/$adapter/quarantine" \
       -H "Content-Type: application/json" \
       -d '{
         "reason": "Determinism violation detected",
@@ -269,7 +269,7 @@ WHERE status='Quarantined'
 
 # 4. Unload from memory immediately
 for adapter in $AFFECTED_ADAPTERS; do
-    curl -X POST "http://localhost:8080/api/v1/adapters/$adapter/unload"
+    curl -X POST "http://localhost:8080/v1/adapters/$adapter/unload"
 done
 ```
 
@@ -437,7 +437,7 @@ FROM inference_trace
 WHERE inference_id='$ORIGINAL_INFERENCE_ID';"
 
 # Replay inference
-curl -X POST "http://localhost:8080/api/v1/replay/$ORIGINAL_INFERENCE_ID" \
+curl -X POST "http://localhost:8080/v1/replay/$ORIGINAL_INFERENCE_ID" \
   -H "Content-Type: application/json"
 
 # Compare hashes
@@ -602,7 +602,7 @@ for inf_id in "${TEST_INFERENCES[@]}"; do
     echo "Testing replay: $inf_id"
 
     # Replay
-    curl -X POST "http://localhost:8080/api/v1/replay/$inf_id" > /dev/null
+    curl -X POST "http://localhost:8080/v1/replay/$inf_id" > /dev/null
 
     # Check hash
     RESULT=$(sqlite3 var/aos-cp.sqlite3 "

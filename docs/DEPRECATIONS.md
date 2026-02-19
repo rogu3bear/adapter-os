@@ -2,8 +2,7 @@
 
 This document tracks deprecated CLIs and scripts, along with their supported replacements. Adding a new script under `scripts/` requires either:
 
-- An entry here (with a clear deprecation plan), or
-- An entry in `docs/internal/cli-inventory.md` (for active, non-deprecated scripts).
+- An entry here (with a clear deprecation plan for deprecated scripts, or with status ACTIVE for active scripts).
 
 The CI guardrail fails the build if any `scripts/*.sh` file is not referenced by at least one of these documents.
 
@@ -129,14 +128,14 @@ The CI guardrail fails the build if any `scripts/*.sh` file is not referenced by
 
 - `scripts/build_ui.sh`
   - Status: **DEPRECATED**
-  - Replacement: `cd crates/adapteros-ui && trunk build --release`
-  - Notes: Obsolete WebAssembly/Trunk approach. UI is now React-based using pnpm. Zero active usage.
+  - Replacement: `./scripts/build-ui.sh` or `cd crates/adapteros-ui && trunk build --release`
+  - Notes: Obsolete. Superseded by `scripts/build-ui.sh` (Leptos/WASM via Trunk). Zero active usage.
   - Sources: `[source: scripts/build_ui.sh L1-L30]`
 
 - `scripts/build_web_ui.sh`
   - Status: **DEPRECATED**
-  - Replacement: `cd crates/adapteros-ui && trunk build --release`
-  - Notes: Redundant with `pnpm build`. Contains outdated path assumptions.
+  - Replacement: `./scripts/build-ui.sh` or `cd crates/adapteros-ui && trunk build --release`
+  - Notes: Redundant with `scripts/build-ui.sh`. Contains outdated path assumptions.
   - Sources: `[source: scripts/build_web_ui.sh L1-L30]`
 
 ### Audit/Validation Scripts (Unused/Redundant)

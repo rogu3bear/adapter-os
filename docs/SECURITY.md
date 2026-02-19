@@ -898,7 +898,6 @@ fn index_root_rejects_tmp() {  // ✅ IMPLEMENTED
 }
 ```
 
-**Citation:** `plan/drift-findings.json` fs-01 rule validation  
 **Status:** ✅ Fully implemented - all persistent path resolvers reject /tmp
 
 ---

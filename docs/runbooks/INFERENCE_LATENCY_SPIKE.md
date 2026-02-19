@@ -215,7 +215,7 @@ sudo powermetrics --samplers gpu_power -n 1 | grep -i temp
 
 # If throttling: reduce load temporarily
 # Unload non-critical adapters
-curl -X POST http://localhost:8080/api/v1/adapters/{adapter_id}/unload
+curl -X POST http://localhost:8080/v1/adapters/{adapter_id}/unload
 ```
 
 ### Quick Fix: Capacity Issue
@@ -285,7 +285,7 @@ curl -s 'http://localhost:9090/api/v1/query?query=histogram_quantile(0.99, rate(
 grep ERROR var/logs/backend.log | tail -20
 
 # 5. Test end-to-end latency
-time curl -X POST http://localhost:8080/api/v1/infer \
+time curl -X POST http://localhost:8080/v1/infer \
   -H "Content-Type: application/json" \
   -d '{"prompt": "test", "adapter_id": "test-adapter"}'
 ```

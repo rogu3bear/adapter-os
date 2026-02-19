@@ -2,8 +2,8 @@
 
 **Purpose:** Comprehensive documentation of the documentation drift concept, systematic validation framework, and current findings for adapterOS.
 
-**Last Updated:** 2025-12-13
-**Status:** Active validation framework
+**Last Updated:** 2026-02-18
+**Status:** Active validation framework. Code is authoritative.
 
 ---
 
@@ -182,49 +182,15 @@ pub fn resolve_index_root() -> Result<ResolvedPath> {
 2. Added path security section to `docs/SECURITY.md`
 3. Added tenant isolation implementation section to `docs/DATABASE.md`
 4. Updated `docs/ARCHITECTURE.md` with backend cache and worker lifecycle gaps
-5. Updated `plan/drift-summary.md` to reflect documentation rectification status
+5. Documentation rectification status tracked in this document
 
-### Phase 2: Code Rectification (PENDING)
+### Phase 2: Code Rectification (✅ COMPLETED)
 
 **Objective:** Implement missing validations and guards.
 
-**Required Changes:**
-
-#### Fix fs-01: Index Root Path Guard
-```rust
-// crates/adapteros-config/src/path_resolver.rs
-pub fn resolve_index_root() -> Result<ResolvedPath> {
-    resolve_env_or_default_no_tmp("AOS_INDEX_DIR", DEFAULT_INDEX_ROOT, "index-root")
-}
-```
-
-#### Add Unit Tests
-```rust
-// crates/adapteros-config/src/path_resolver.rs
-#[test]
-fn test_index_root_rejects_tmp() {
-    std::env::set_var("AOS_INDEX_DIR", "/tmp/indices");
-    assert!(resolve_index_root().is_err());
-}
-```
-
-#### Audit tenant-01: Adapter Lifecycle Queries
-**Audit Scope:** All adapter CRUD operations in `crates/adapteros-db/src/adapters.rs`
-
-**Validation Checklist:**
-```sql
--- Every adapter query must include tenant_id filter
-SELECT * FROM adapters WHERE id = ? AND tenant_id = ?
-```
-
-**Add Cross-Tenant Denial Tests:**
-```rust
-// crates/adapteros-db/tests/tenant_adapter_lifecycle_tests.rs
-#[tokio::test]
-async fn test_adapter_registration_cross_tenant_denial() {
-    // Test that tenant-a cannot access tenant-b adapters
-}
-```
+**Implemented:**
+- **fs-01:** `resolve_index_root()` uses `resolve_env_or_default_no_tmp` in `crates/adapteros-config/src/path_resolver.rs`. Tmp rejection tests in `config_validation_tests.rs`.
+- **tenant-01:** Cross-tenant denial tests in `tenant_trigger_isolation.rs`, `tenant_fk_enforcement_tests.rs`, `stack_tenant_isolation_tests.rs`, and related DB test modules.
 
 ### Phase 3: Validation & Verification
 
@@ -234,7 +200,7 @@ async fn test_adapter_registration_cross_tenant_denial() {
 cargo run --bin drift_detector
 
 # Verify all rules show "match" status
-cat plan/drift-findings.json | jq '.findings[].status'
+# (Evidence files plan/drift-findings.json etc. were removed; run drift validation per this workflow)
 ```
 
 **Integration Testing:**
@@ -273,10 +239,8 @@ Documentation drift validation was implemented to prevent silent divergence betw
 
 ## Related Documentation
 
-- **`plan/drift-findings.json`**: Complete validation results and evidence
-- **`plan/drift-actions.md`**: Detailed rectification plan
-- **`plan/drift-summary.md`**: Human-readable status summary
 - **`AGENTS.md`**: Critical invariants (updated with accurate status)
+- **`docs/DOCS_GROUNDING.md`**: Forbidden patterns and CI verification (`./scripts/ci/check_docs_grounding.sh`)
 - **`docs/SECURITY.md`**: Path security implementation details
 - **`docs/DATABASE.md`**: Tenant isolation implementation status
 
