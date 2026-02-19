@@ -1,8 +1,11 @@
 # IDEAS
 
+**Status:** Ideas/roadmap — not implementation spec. Code is authoritative.  
+**Last Updated:** 2026-02-18
+
 This document captures concrete, system-aligned ideas for leveraging AdapterOS determinism, receipts, and caching in IDE workflows.
 
-**Note**: Placed in `docs/` to respect repo hygiene guidelines (avoid new files in repo root).
+**Note:** Placed in `docs/` to respect repo hygiene guidelines (avoid new files in repo root).
 
 ## Goals
 
