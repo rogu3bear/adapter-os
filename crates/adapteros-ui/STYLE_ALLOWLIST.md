@@ -5,6 +5,19 @@
 > This document locks down the approved utility classes. No new styling may be added
 > without updating this allowlist. The goal is to keep the system boring on purpose.
 
+## CSS File Structure
+
+Styles are split across `dist/components/*.css` for maintainability:
+
+| File | Contents |
+|------|----------|
+| `dist/components.css` | Entry point — `@import` bundle only |
+| `dist/components/core.css` | Primitive UI components (buttons, cards, inputs, etc.) |
+| `dist/components/utilities.css` | Atomic utility classes (spacing, sizing, typography, colors) |
+| `dist/components/layout.css` | Shell, sidebar, workspace, topbar, responsive layout |
+| `dist/components/overlays.css` | Toast, status center, telemetry overlay, progress stages |
+| `dist/components/pages.css` | Feature components and page-level styles |
+
 ## Status Legend
 
 | Status | Meaning |
@@ -261,10 +274,11 @@ These are the preferred styling approach. Use these instead of utility classes.
 | Class | Status | Notes |
 |-------|--------|-------|
 | `.text-white` | Transitional | Use semantic instead |
-| `.text-green-500` | Transitional | Use `.status-green` |
-| `.text-yellow-500`, `.text-yellow-600` | Transitional | Use `.status-yellow` |
-| `.text-red-500` | Transitional | Use `.status-red` |
-| `.text-blue-500` | Transitional | Use `.status-blue` |
+| `.text-green-500` | **Removed** | Pruned — use `.text-status-success` |
+| `.text-yellow-500`, `.text-yellow-600` | **Removed** | Pruned — use `.text-warning` |
+| `.text-red-500` | **Removed** | Pruned — use `.text-status-error` |
+| `.text-blue-500` | **Removed** | Pruned — use `.text-status-info` |
+| `.text-black` | **Removed** | Pruned — use semantic foreground |
 
 ### Background Colors (Core - Semantic)
 | Class | Status | Notes |
@@ -286,20 +300,21 @@ These are the preferred styling approach. Use these instead of utility classes.
 | `.bg-primary/10`, `.bg-primary/20`, `.bg-primary/90` | Core | Primary opacity |
 | `.bg-destructive/10` | Core | 10% destructive |
 
-### Background Colors (Transitional - Status)
+### Background Colors (Status — semantic -500 kept, raw -400 pruned)
 | Class | Status | Notes |
 |-------|--------|-------|
-| `.bg-gray-400`, `.bg-gray-500` | Transitional | Use `.status-gray` |
-| `.bg-green-400`, `.bg-green-500` | Transitional | Use `.status-green` |
-| `.bg-yellow-400`, `.bg-yellow-500` | Transitional | Use `.status-yellow` |
-| `.bg-red-400`, `.bg-red-500` | Transitional | Use `.status-red` |
-| `.bg-blue-400`, `.bg-blue-500` | Transitional | Use `.status-blue` |
-| `.bg-purple-500` | Transitional | Define semantic if needed |
-
-### Background Colors (Core - Zinc)
-| Class | Status | Notes |
-|-------|--------|-------|
-| `.bg-zinc-800`, `.bg-zinc-900`, `.bg-zinc-950` | Core | Code blocks only |
+| `.bg-gray-400` | **Removed** | Pruned — use `.status-gray` semantic class |
+| `.bg-gray-500` | Core | Status dot (kept — semantic var) |
+| `.bg-green-400` | **Removed** | Pruned — use `.bg-status-success` |
+| `.bg-green-500` | Core | Status dot (kept — semantic var) |
+| `.bg-yellow-400` | **Removed** | Pruned — use `.bg-status-warning` |
+| `.bg-yellow-500` | Core | Status dot (kept — semantic var) |
+| `.bg-red-400` | **Removed** | Pruned — use `.bg-status-error` |
+| `.bg-red-500` | Core | Status dot (kept — semantic var) |
+| `.bg-blue-400` | **Removed** | Pruned |
+| `.bg-blue-500` | Core | Status dot (kept — semantic var) |
+| `.bg-purple-500` | **Removed** | Pruned — define semantic token if needed |
+| `.bg-zinc-800`, `.bg-zinc-900`, `.bg-zinc-950` | **Removed** | Pruned — not in active use |
 
 ---
 
@@ -510,5 +525,5 @@ These patterns should NOT be added:
 
 ---
 
-*Last updated: 2026-01-03*
-*Utility count: ~200 (target: <150)*
+*Last updated: 2026-02-18*
+*Utility count: ~180 (target: <150; pruned raw color classes in this pass)*

@@ -45,7 +45,10 @@
     <link data-trunk rel="css" href="dist/glass.css">
     <!-- Liquid Glass Charts (PRD-UI-101) -->
     <link data-trunk rel="css" href="dist/charts.css">
-    <link data-trunk rel="js" href="js/codemirror-wrapper.js">
+    <link data-trunk rel="copy-dir" href="js">
+    <link data-trunk rel="copy-dir" href="dist/fonts">
+    <link data-trunk rel="copy-file" href="dist/favicon.svg">
+    <link rel="icon" href="/favicon.svg" type="image/svg+xml">
     <!-- wasm-opt disabled: Trunk's bundled wasm-opt lacks --enable-bulk-memory (PRD-UI-170) -->
     <!-- CI runs: wasm-opt -O4 --enable-bulk-memory, asserts <3.5MB -->
     <!-- PRD-UI-170: DNS prefetch for API endpoints -->

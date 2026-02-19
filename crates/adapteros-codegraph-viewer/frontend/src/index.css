@@ -36,11 +36,11 @@ body {
 }
 
 /* Button hover effects */
-button:hover {
+#root button:hover {
   filter: brightness(1.1);
 }
 
-button:active {
+#root button:active {
   filter: brightness(0.9);
 }
 
@@ -49,4 +49,3 @@ button:active {
   background-color: #3b82f6;
   color: white;
 }
-

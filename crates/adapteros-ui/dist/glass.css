@@ -101,9 +101,10 @@
 /* ===== Noise Texture SVG (inline for performance) ===== */
 .theme-glass {
     --glass-noise-url: url("data:image/svg+xml,%3Csvg viewBox='0 0 256 256' xmlns='http://www.w3.org/2000/svg'%3E%3Cfilter id='noise'%3E%3CfeTurbulence type='fractalNoise' baseFrequency='0.8' numOctaves='4' stitchTiles='stitch'/%3E%3C/filter%3E%3Crect width='100%25' height='100%25' filter='url(%23noise)'/%3E%3C/svg%3E");
-    --action-primary-bg: color-mix(in srgb, var(--color-primary) 72%, var(--glass-bg-2));
-    --action-primary-bg-hover: color-mix(in srgb, var(--color-primary) 80%, var(--glass-bg-2));
-    --action-primary-border: color-mix(in srgb, var(--color-primary) 50%, var(--glass-border));
+    /* Primary: saturated blue accent (not gray) for modern CTA feel */
+    --action-primary-bg: color-mix(in srgb, hsl(221 75% 48%) 78%, var(--glass-bg-2));
+    --action-primary-bg-hover: color-mix(in srgb, hsl(221 75% 52%) 85%, var(--glass-bg-2));
+    --action-primary-border: color-mix(in srgb, hsl(221 70% 55%) 45%, var(--glass-border));
     --action-primary-fab-bg: color-mix(in srgb, var(--color-primary) 40%, var(--glass-bg-3));
     --action-primary-fab-bg-hover: color-mix(in srgb, var(--color-primary) 48%, var(--glass-bg-3));
     --action-primary-fab-border: var(--action-primary-border);
@@ -124,7 +125,9 @@
     .theme-glass nav,
     .theme-glass .input,
     .theme-glass .select,
-    .theme-glass textarea {
+    .theme-glass textarea,
+    .theme-glass .adapter-magnet-bar,
+    .theme-glass .chat-adapters-region {
         backdrop-filter: blur(var(--glass-blur-1)) saturate(var(--glass-saturation));
         -webkit-backdrop-filter: blur(var(--glass-blur-1)) saturate(var(--glass-saturation));
     }
@@ -132,13 +135,12 @@
     .theme-glass aside,
     .theme-glass .btn-ghost,
     .theme-glass .table-wrapper,
-    .theme-glass .workspace-panel,
-    .theme-glass .workspace-header,
     .theme-glass .table-row:hover {
         backdrop-filter: blur(var(--glass-blur)) saturate(var(--glass-saturation));
         -webkit-backdrop-filter: blur(var(--glass-blur)) saturate(var(--glass-saturation));
     }
-    .theme-glass .dialog-content {
+    .theme-glass .dialog-content,
+    .theme-glass .adapter-chip-tooltip {
         backdrop-filter: blur(var(--glass-blur-3)) saturate(var(--glass-saturation));
         -webkit-backdrop-filter: blur(var(--glass-blur-3)) saturate(var(--glass-saturation));
     }
@@ -151,9 +153,7 @@
     .theme-glass header,
     .theme-glass nav,
     .theme-glass aside,
-    .theme-glass .table-wrapper,
-    .theme-glass .workspace-panel,
-    .theme-glass .workspace-header {
+    .theme-glass .table-wrapper {
         background-color: var(--color-background);
         opacity: 0.98;
     }
@@ -338,13 +338,6 @@
 /* Table Row Hover */
 .theme-glass .table-row:hover {
     background: color-mix(in srgb, var(--glass-bg-1) 90%, transparent);
-}
-
-/* Workspace surfaces */
-.theme-glass .workspace-panel,
-.theme-glass .workspace-header {
-    background: color-mix(in srgb, var(--glass-bg-2) 84%, var(--color-card));
-    border-color: color-mix(in srgb, var(--glass-border) 88%, var(--color-border));
 }
 
 /* ===== Elevation System ===== */
@@ -541,15 +534,15 @@
 }
 
 /* ===== Transitions for Glass Toggle ===== */
-.card,
-.dialog-content,
-header,
-nav,
-aside,
-.input,
-textarea,
-.btn-ghost,
-.table-row {
+.theme-glass .card,
+.theme-glass .dialog-content,
+.theme-glass header,
+.theme-glass nav,
+.theme-glass aside,
+.theme-glass .input,
+.theme-glass textarea,
+.theme-glass .btn-ghost,
+.theme-glass .table-row {
     transition: background-color 300ms ease,
                 backdrop-filter 300ms ease,
                 box-shadow 300ms ease,
@@ -588,9 +581,7 @@ textarea,
 .theme-glass header,
 .theme-glass nav,
 .theme-glass aside,
-.theme-glass .table-wrapper,
-.theme-glass .workspace-panel,
-.theme-glass .workspace-header {
+.theme-glass .table-wrapper {
     color: var(--glass-text-primary);
 }
 

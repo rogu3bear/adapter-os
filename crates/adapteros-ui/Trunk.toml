@@ -19,7 +19,7 @@ command_arguments = ["dist/sw.js", "../adapteros-server/static/sw.js"]
 
 [watch]
 # Watch for changes (stylers generates CSS at cargo build time)
-watch = ["src", "index.html", "dist/base.css", "dist/glass.css", "dist/components.css", "dist/sw.js"]
+watch = ["src", "index.html", "dist/base.css", "dist/glass.css", "dist/components.css", "dist/components", "dist/sw.js"]
 # Ignore patterns
 ignore = ["target"]
 

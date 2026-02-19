@@ -5,8 +5,9 @@
 
 /* ===== CSS Custom Properties (Design Tokens) ===== */
 :root {
-    /* Base radius for rounded corners */
+    /* Base radius for rounded corners (buttons use --radius-btn for softer pill) */
     --radius: 0.5rem;
+    --radius-btn: 0.625rem;
 
     /* Easing function (used across all transitions) */
     --ease-default: cubic-bezier(0.4, 0, 0.2, 1);
@@ -32,13 +33,13 @@
     --color-input: hsl(214.3 31.8% 91.4%);
     --color-ring: hsl(222.2 84% 4.9%);
 
-    /* Action color tokens (button and action surfaces) */
-    --action-primary-bg: hsl(222 47% 21% / 0.85);
-    --action-primary-bg-hover: hsl(222 47% 24% / 0.92);
-    --action-primary-border: hsl(222 47% 30% / 0.30);
-    --action-primary-fab-bg: hsl(222 47% 21% / 0.90);
-    --action-primary-fab-bg-hover: hsl(222 47% 24% / 0.95);
-    --action-primary-fab-border: hsl(222 47% 30% / 0.30);
+    /* Action color tokens (button and action surfaces) - saturated blue, not gray */
+    --action-primary-bg: hsl(221 75% 48%);
+    --action-primary-bg-hover: hsl(221 75% 52%);
+    --action-primary-border: hsl(221 70% 55% / 0.35);
+    --action-primary-fab-bg: hsl(221 75% 48% / 0.95);
+    --action-primary-fab-bg-hover: hsl(221 75% 52% / 0.98);
+    --action-primary-fab-border: hsl(221 70% 55% / 0.35);
     --action-destructive-bg: hsl(0 72% 51% / 0.80);
     --action-destructive-bg-hover: hsl(0 72% 51% / 0.90);
     --action-destructive-border: hsl(0 72% 60% / 0.30);
@@ -90,8 +91,23 @@
     --color-disabled: hsl(215 16% 78%);
     --color-disabled-foreground: hsl(215 10% 53%);
 
+    /* Spacing scale (used by utility classes and component spacing) */
+    --space-0: 0;
+    --space-px: 1px;
+    --space-0_5: 0.125rem;
+    --space-1: 0.25rem;
+    --space-2: 0.5rem;
+    --space-3: 0.75rem;
+    --space-4: 1rem;
+    --space-5: 1.25rem;
+    --space-6: 1.5rem;
+    --space-8: 2rem;
+    --space-10: 2.5rem;
+    --space-12: 3rem;
+    --space-16: 4rem;
+
     /* Typography tokens */
-    --font-sans: system-ui, -apple-system, BlinkMacSystemFont, 'Segoe UI', Roboto, Oxygen, Ubuntu, Cantarell, 'Open Sans', 'Helvetica Neue', sans-serif;
+    --font-sans: 'Plus Jakarta Sans', 'Segoe UI', -apple-system, BlinkMacSystemFont, sans-serif;
     --font-mono: ui-monospace, SFMono-Regular, Menlo, Monaco, Consolas, 'Liberation Mono', 'Courier New', monospace;
     --font-display: 'Plus Jakarta Sans', system-ui, -apple-system, sans-serif;
     --tracking-tighter: -0.05em;
@@ -107,6 +123,12 @@
         0 6px 16px hsl(222 47% 11% / 0.07);
     --surface-shadow-md: 0 2px 4px hsl(222 47% 11% / 0.12),
         0 12px 28px hsl(222 47% 11% / 0.10);
+    --os-chrome-top: linear-gradient(180deg, hsl(209 62% 97%) 0%, hsl(213 56% 94%) 100%);
+    --os-chrome-bottom: linear-gradient(180deg, hsl(214 43% 95%) 0%, hsl(218 38% 92%) 100%);
+    --os-bevel-hi: hsl(0 0% 100% / 0.75);
+    --os-bevel-lo: hsl(219 33% 50% / 0.28);
+    --os-shell-glow: 0 0 0 1px hsl(200 94% 68% / 0.24), 0 10px 28px hsl(217 85% 42% / 0.18);
+    --os-shell-glow-strong: 0 0 0 1px hsl(157 90% 48% / 0.42), 0 12px 32px hsl(157 95% 34% / 0.24);
 }
 
 /* Dark mode */
@@ -192,6 +214,12 @@
         0 10px 22px hsl(220 62% 2% / 0.32);
     --surface-shadow-md: 0 2px 4px hsl(220 62% 2% / 0.55),
         0 14px 32px hsl(220 62% 2% / 0.44);
+    --os-chrome-top: linear-gradient(180deg, hsl(217 41% 16%) 0%, hsl(222 38% 12%) 100%);
+    --os-chrome-bottom: linear-gradient(180deg, hsl(220 34% 14%) 0%, hsl(224 36% 11%) 100%);
+    --os-bevel-hi: hsl(211 44% 82% / 0.24);
+    --os-bevel-lo: hsl(220 62% 2% / 0.65);
+    --os-shell-glow: 0 0 0 1px hsl(195 100% 68% / 0.24), 0 12px 30px hsl(220 80% 22% / 0.48);
+    --os-shell-glow-strong: 0 0 0 1px hsl(157 86% 50% / 0.42), 0 14px 38px hsl(157 85% 20% / 0.48);
 }
 
 /* ===== CSS Reset ===== */
@@ -215,6 +243,9 @@ html {
 
 body {
     background-color: var(--color-background);
+    background-image:
+        radial-gradient(circle at 18% 0%, hsl(202 100% 68% / 0.10), transparent 38%),
+        radial-gradient(circle at 83% 100%, hsl(159 84% 52% / 0.08), transparent 46%);
     color: var(--color-foreground);
     min-height: 100vh;
     line-height: var(--line-height-body);
@@ -403,6 +434,25 @@ p, h1, h2, h3, h4, h5, h6 {
         transition-duration: 0.01ms !important;
         scroll-behavior: auto !important;
     }
+}
+
+/* Skip to main content - visually hidden until focused (WCAG 2.4.1) */
+.skip-to-main {
+  position: absolute;
+  left: -9999px;
+  top: 0.5rem;
+  z-index: 10000;
+  padding: 0.5rem 1rem;
+  background: var(--color-primary);
+  color: var(--color-primary-foreground);
+  border-radius: var(--radius);
+  text-decoration: none;
+  font-weight: 500;
+}
+.skip-to-main:focus-visible {
+  left: 0.5rem;
+  outline: 2px solid var(--color-ring);
+  outline-offset: 2px;
 }
 
 /* ===== Accessibility: Contrast & Focus Constants ===== */
