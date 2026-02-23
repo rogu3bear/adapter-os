@@ -114,7 +114,7 @@ nix = { version = "0.29", features = ["signal"] }
 [dev-dependencies]
 criterion = { workspace = true }
 futures = "0.3"
-axum-test = { version = "16" }
+axum-test = { version = "18" }
 adapteros-auth = { path = "../adapteros-auth" }
 adapteros-lora-kernel-coreml = { path = "../adapteros-lora-kernel-coreml" }
 adapteros-diagnostics = { path = "../adapteros-diagnostics" }
