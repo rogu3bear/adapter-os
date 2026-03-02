@@ -31,6 +31,12 @@ require_absent_path() {
   [[ ! -e "$path" ]] || fail "$message ($path)"
 }
 
+require_file() {
+  local path="$1"
+  local message="$2"
+  [[ -f "$path" ]] || fail "$message ($path)"
+}
+
 # Canonical runtime path language in policy anchors.
 require_match 'Runtime data: `var/` only' CONTRIBUTING.md \
   "Path hygiene contract in CONTRIBUTING.md must use canonical var/ form"
@@ -44,6 +50,30 @@ for pattern in "**/target/" "output/" "reports/" "/test-results" "**/test-result
   rg -n -F --quiet "$pattern" .gitignore \
     || fail ".gitignore missing required generated-artifact ignore pattern: $pattern"
 done
+
+for policy_pattern in ".playwright-cli/" ".playwright-mcp/" ".worker_logs/" ".integrator/" ".harmony/" ".codex/" ".claude/" ".agents/"; do
+  rg -n -F --quiet "$policy_pattern" .gitignore \
+    || fail ".gitignore missing required tooling-state ignore pattern: $policy_pattern"
+done
+
+# Governance policy artifacts must exist.
+for governance_file in \
+  docs/governance/REPO_GOVERNANCE.md \
+  docs/governance/OWNERSHIP.md \
+  docs/governance/GENERATED_ARTIFACT_POLICY.md \
+  docs/governance/SLOS.md \
+  docs/governance/GOVERNANCE_INCIDENTS.md \
+  docs/governance/generated-artifact-allowlist.json \
+  docs/governance/tooling-config-allowlist.json \
+  docs/governance/size-budget-allowlist.txt; do
+  require_file "$governance_file" "Missing required governance policy artifact"
+done
+
+# Governance docs must be discoverable from primary repo docs.
+require_match 'docs/governance/' README.md \
+  "README.md must link to docs/governance/"
+require_match 'docs/governance/REPO_GOVERNANCE\.md' CONTRIBUTING.md \
+  "CONTRIBUTING.md must reference REPO_GOVERNANCE.md"
 
 # Golden baseline storage should not drift into var/golden_runs in production code.
 golden_split_hits="$(
