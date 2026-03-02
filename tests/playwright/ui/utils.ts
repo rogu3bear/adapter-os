@@ -30,58 +30,202 @@ export async function disableAnimations(page: Page): Promise<void> {
   });
 }
 
-async function waitForBoot(page: Page, timeoutMs = 90_000): Promise<void> {
-  const bootProgress = page.locator('#aos-boot-progress');
-  const count = await bootProgress.count().catch(() => 0);
-  if (count === 0) return;
+type BootStageSnapshot = {
+  id: string;
+  status: string;
+  detail: string;
+};
 
-  try {
-    // Prefer DOM truth over Playwright's visibility heuristics.
-    // We have seen cases where the overlay is actually hidden (class/style),
-    // but Playwright continues to report it as "visible" and times out.
-    await page.waitForFunction(
-      () => {
-        const progress = document.getElementById('aos-boot-progress');
-        if (!progress) return true;
-        if (progress.classList.contains('hidden')) return true;
-        const style = window.getComputedStyle(progress);
-        if (style.display === 'none') return true;
-        if (style.visibility === 'hidden') return true;
-        if (style.opacity === '0') return true;
-        const rect = progress.getBoundingClientRect();
-        if (rect.width === 0 || rect.height === 0) return true;
-        return false;
-      },
-      { timeout: timeoutMs }
-    );
-  } catch (err) {
-    // Make flakes actionable: dump DOM + boot-stage diagnostics.
-    const diag = await page
-      .evaluate(() => {
-        const nodes = Array.from(document.querySelectorAll('#aos-boot-progress'));
-        const el = nodes[0] as HTMLElement | undefined;
-        const boot = (window as any).aosBoot;
-        const mountStatus = boot?.stages?.mount?.status ?? null;
-        if (!el) {
-          return { count: nodes.length, mountStatus, note: 'missing' };
-        }
-        const style = window.getComputedStyle(el);
-        const rect = el.getBoundingClientRect();
+type BootSnapshot = {
+  exists: boolean;
+  hidden: boolean;
+  className: string;
+  display: string;
+  visibility: string;
+  opacity: string;
+  rect: { width: number; height: number };
+  stages: BootStageSnapshot[];
+  path: string;
+  title: string;
+  signingInVisible: boolean;
+  hasShell: boolean;
+};
+
+const BOOT_SNAPSHOT_EVAL_TIMEOUT = Symbol('boot-snapshot-eval-timeout');
+
+function sleep(ms: number): Promise<void> {
+  return new Promise((resolve) => {
+    setTimeout(resolve, ms);
+  });
+}
+
+async function readBootSnapshot(page: Page): Promise<BootSnapshot | null> {
+  return await page
+    .evaluate(() => {
+      const progress = document.getElementById('aos-boot-progress');
+      const path = window.location.pathname;
+      const title = document.title ?? '';
+      const bodyText = document.body?.innerText ?? '';
+      const hasShell =
+        Boolean(document.querySelector('a.skip-to-main')) ||
+        Boolean(document.querySelector('main#main-content')) ||
+        Boolean(document.querySelector('nav[aria-label="Main navigation"]'));
+
+      if (!progress) {
         return {
-          count: nodes.length,
-          className: el.className,
-          display: style.display,
-          visibility: style.visibility,
-          opacity: style.opacity,
-          rect: { x: rect.x, y: rect.y, width: rect.width, height: rect.height },
-          mountStatus,
+          exists: false,
+          hidden: true,
+          className: '',
+          display: '',
+          visibility: '',
+          opacity: '',
+          rect: { width: 0, height: 0 },
+          stages: [],
+          path,
+          title,
+          signingInVisible: bodyText.includes('Signing you in'),
+          hasShell,
         };
-      })
-      .catch(() => null);
+      }
 
-    console.error('[playwright] waitForBoot timeout diagnostics:', diag);
-    throw err;
+      const style = window.getComputedStyle(progress);
+      const rect = progress.getBoundingClientRect();
+      const hidden =
+        progress.classList.contains('hidden') ||
+        style.display === 'none' ||
+        style.visibility === 'hidden' ||
+        style.opacity === '0' ||
+        rect.width === 0 ||
+        rect.height === 0;
+      const stages = Array.from(progress.querySelectorAll('.stage')).map((node) => {
+        const detailNode = node.querySelector('.detail');
+        return {
+          id: node.id || '',
+          status: node.getAttribute('data-status') ?? '',
+          detail: (detailNode?.textContent ?? '').trim(),
+        };
+      });
+
+      return {
+        exists: true,
+        hidden,
+        className: progress.className,
+        display: style.display,
+        visibility: style.visibility,
+        opacity: style.opacity,
+        rect: { width: rect.width, height: rect.height },
+        stages,
+        path,
+        title,
+        signingInVisible: bodyText.includes('Signing you in'),
+        hasShell,
+      };
+    })
+    .catch(() => null);
+}
+
+async function readBootSnapshotWithTimeout(
+  page: Page,
+  timeoutMs: number
+): Promise<BootSnapshot | null | typeof BOOT_SNAPSHOT_EVAL_TIMEOUT> {
+  let timer: ReturnType<typeof setTimeout> | undefined;
+  try {
+    return await Promise.race([
+      readBootSnapshot(page),
+      new Promise<typeof BOOT_SNAPSHOT_EVAL_TIMEOUT>((resolve) => {
+        timer = setTimeout(() => resolve(BOOT_SNAPSHOT_EVAL_TIMEOUT), timeoutMs);
+      }),
+    ]);
+  } finally {
+    if (timer) clearTimeout(timer);
   }
+}
+
+function formatBootSnapshot(snapshot: BootSnapshot | null): string {
+  if (!snapshot) {
+    return 'snapshot=unavailable';
+  }
+  const stageSummary = snapshot.stages
+    .slice(0, 7)
+    .map((stage) => `${stage.id || 'stage'}:${stage.status || 'unknown'}:${stage.detail || '-'}`)
+    .join('|');
+  return `path=${snapshot.path}, hidden=${snapshot.hidden}, shell=${snapshot.hasShell}, signing_in=${snapshot.signingInVisible}, title="${snapshot.title}", stages=${stageSummary || 'none'}`;
+}
+
+async function waitForBoot(page: Page, timeoutMs = 90_000): Promise<void> {
+  if (page.isClosed()) {
+    return;
+  }
+
+  const startedAt = Date.now();
+  const deadline = startedAt + timeoutMs;
+  const pollIntervalMs = 250;
+  const evaluateTimeoutMs = Math.max(1_000, Math.min(8_000, Math.floor(timeoutMs / 4)));
+  const pageErrors: string[] = [];
+  const onPageError = (error: Error) => {
+    if (pageErrors.length < 4) {
+      pageErrors.push(error.message);
+    }
+  };
+  page.on('pageerror', onPageError);
+
+  let lastSnapshot: BootSnapshot | null = null;
+  let evaluateTimedOut = false;
+  let evaluateTimeoutCount = 0;
+  try {
+    while (Date.now() < deadline) {
+      if (page.isClosed()) {
+        return;
+      }
+      const remainingMs = Math.max(1, deadline - Date.now());
+      const snapshotOrTimeout = await readBootSnapshotWithTimeout(
+        page,
+        Math.min(evaluateTimeoutMs, remainingMs)
+      );
+      if (snapshotOrTimeout === BOOT_SNAPSHOT_EVAL_TIMEOUT) {
+        evaluateTimedOut = true;
+        evaluateTimeoutCount += 1;
+        const sleepMs = Math.min(pollIntervalMs, Math.max(25, deadline - Date.now()));
+        await sleep(sleepMs);
+        continue;
+      }
+
+      if (!snapshotOrTimeout) {
+        const sleepMs = Math.min(pollIntervalMs, Math.max(25, deadline - Date.now()));
+        await sleep(sleepMs);
+        continue;
+      }
+
+      lastSnapshot = snapshotOrTimeout;
+      if (snapshotOrTimeout.hidden) {
+        return;
+      }
+
+      const sleepMs = Math.min(pollIntervalMs, Math.max(25, deadline - Date.now()));
+      await sleep(sleepMs);
+    }
+  } finally {
+    page.off('pageerror', onPageError);
+  }
+
+  if (page.isClosed()) {
+    return;
+  }
+
+  const elapsedMs = Date.now() - startedAt;
+  const timeoutType = evaluateTimedOut ? 'evaluate-timeout' : 'wait-timeout';
+  const diag = {
+    timeoutType,
+    timeoutMs,
+    elapsedMs,
+    evaluateTimeoutCount,
+    pageErrors,
+    snapshot: lastSnapshot,
+  };
+  console.error('[playwright] waitForBoot timeout diagnostics:', diag);
+  throw new Error(
+    `[playwright] waitForBoot ${timeoutType} after ${elapsedMs}ms; eval_timeouts=${evaluateTimeoutCount}; ${formatBootSnapshot(lastSnapshot)}; page_errors=${pageErrors.join(' || ') || 'none'}`
+  );
 }
 
 export async function waitForAppReady(
@@ -104,6 +248,23 @@ type AuthSurfaceState = {
   signingInVisible: boolean;
   shellVisible: boolean;
 };
+
+async function safeIsVisible(
+  probe: () => Promise<boolean>,
+  timeoutMs = 1500
+): Promise<boolean> {
+  let timer: ReturnType<typeof setTimeout> | undefined;
+  try {
+    return await Promise.race([
+      probe().catch(() => false),
+      new Promise<boolean>((resolve) => {
+        timer = setTimeout(() => resolve(false), timeoutMs);
+      }),
+    ]);
+  } finally {
+    if (timer) clearTimeout(timer);
+  }
+}
 
 export type AuthBootstrapMode = 'none' | 'ui-only' | 'ui-then-api';
 
@@ -136,9 +297,9 @@ async function readAuthSurfaceState(page: Page): Promise<AuthSurfaceState> {
     .getByRole('button', { name: new RegExp(AUTH_TEST_USERNAME, 'i') })
     .first();
   const shellVisible =
-    (await shellLink.isVisible().catch(() => false)) ||
-    (await shellNav.isVisible().catch(() => false)) ||
-    (await accountButton.isVisible().catch(() => false));
+    (await safeIsVisible(() => shellLink.isVisible())) ||
+    (await safeIsVisible(() => shellNav.isVisible())) ||
+    (await safeIsVisible(() => accountButton.isVisible()));
   const url = (() => {
     try {
       return page.url();
@@ -148,10 +309,10 @@ async function readAuthSurfaceState(page: Page): Promise<AuthSurfaceState> {
   })();
   return {
     url,
-    onLogin: await loginHeading.isVisible().catch(() => false),
-    onAuthError: await authError.isVisible().catch(() => false),
-    onAuthTimeout: await authTimeout.isVisible().catch(() => false),
-    signingInVisible: await signingIn.isVisible().catch(() => false),
+    onLogin: await safeIsVisible(() => loginHeading.isVisible()),
+    onAuthError: await safeIsVisible(() => authError.isVisible()),
+    onAuthTimeout: await safeIsVisible(() => authTimeout.isVisible()),
+    signingInVisible: await safeIsVisible(() => signingIn.isVisible()),
     shellVisible,
   };
 }
@@ -163,7 +324,7 @@ function formatAuthSurfaceState(state: AuthSurfaceState): string {
 async function settleAfterAuthAction(page: Page): Promise<void> {
   await page.waitForLoadState('domcontentloaded', { timeout: 4_000 }).catch(() => {});
   const signingIn = page.getByText('Signing you in', { exact: false });
-  if (await signingIn.isVisible().catch(() => false)) {
+  if (await safeIsVisible(() => signingIn.isVisible())) {
     await signingIn.waitFor({ state: 'hidden', timeout: 4_000 }).catch(() => {});
   }
   await waitForAppReady(page, { timeoutMs: 20_000 });
@@ -176,24 +337,37 @@ async function attemptUiLogin(
   const attempts = Math.max(1, maxUiAttempts);
   let uiAttempted = false;
   const authSurfacePath = /^\/(?:login|auth(?:entication)?-(?:error|timeout))(?:\/|$)/i;
+  const readPathname = (url: string): string => {
+    try {
+      return new URL(url).pathname;
+    } catch {
+      return '';
+    }
+  };
+  const isResolvedState = (state: AuthSurfaceState, statePathname: string): boolean =>
+    !state.onLogin &&
+    !state.onAuthError &&
+    !state.onAuthTimeout &&
+    !state.signingInVisible &&
+    (state.shellVisible || (statePathname.length > 0 && !authSurfacePath.test(statePathname)));
+  const recoverFromAuthSurfaceTransition = async (): Promise<{
+    resolved: boolean;
+    finalState: AuthSurfaceState;
+  }> => {
+    const finalState = await readAuthSurfaceState(page);
+    const finalPathname = readPathname(finalState.url);
+    return {
+      resolved: isResolvedState(finalState, finalPathname),
+      finalState,
+    };
+  };
 
   for (let attempt = 0; attempt < attempts; attempt += 1) {
     let state = await readAuthSurfaceState(page);
-    let statePathname = (() => {
-      try {
-        return new URL(state.url).pathname;
-      } catch {
-        return '';
-      }
-    })();
+    let statePathname = readPathname(state.url);
 
     // Already authenticated and outside auth error surfaces.
-    if (
-      !state.onLogin &&
-      !state.onAuthError &&
-      !state.onAuthTimeout &&
-      (state.shellVisible || (statePathname.length > 0 && !authSurfacePath.test(statePathname)))
-    ) {
+    if (isResolvedState(state, statePathname)) {
       return { resolved: true, uiAttempted, finalState: state };
     }
 
@@ -206,30 +380,22 @@ async function attemptUiLogin(
       }
       await settleAfterAuthAction(page);
       state = await readAuthSurfaceState(page);
-      statePathname = (() => {
-        try {
-          return new URL(state.url).pathname;
-        } catch {
-          return '';
-        }
-      })();
+      statePathname = readPathname(state.url);
     }
 
     if (!state.onLogin && !state.onAuthError && !state.onAuthTimeout) {
       // Unknown transitional state; force a deterministic entrypoint.
-      if (statePathname.length > 0 && !authSurfacePath.test(statePathname)) {
+      if (
+        !state.signingInVisible &&
+        statePathname.length > 0 &&
+        !authSurfacePath.test(statePathname)
+      ) {
         return { resolved: true, uiAttempted, finalState: state };
       }
       await gotoWithRetry(page, '/login');
       await settleAfterAuthAction(page);
       state = await readAuthSurfaceState(page);
-      statePathname = (() => {
-        try {
-          return new URL(state.url).pathname;
-        } catch {
-          return '';
-        }
-      })();
+      statePathname = readPathname(state.url);
       if (!state.onLogin && !state.onAuthError && !state.onAuthTimeout && state.shellVisible) {
         return { resolved: true, uiAttempted, finalState: state };
       }
@@ -244,19 +410,64 @@ async function attemptUiLogin(
         !(await usernameInput.isVisible().catch(() => false)) ||
         !(await passwordInput.isVisible().catch(() => false))
       ) {
+        const recovery = await recoverFromAuthSurfaceTransition();
+        if (recovery.resolved) {
+          return { resolved: true, uiAttempted, finalState: recovery.finalState };
+        }
         continue;
       }
 
-      await usernameInput.fill(AUTH_TEST_USERNAME, { timeout: 5_000 }).catch(() => {});
-      await passwordInput.fill(AUTH_TEST_PASSWORD, { timeout: 5_000 }).catch(() => {});
-      const enabled = await loginButton.isEnabled().catch(() => false);
+      const usernameFilled = await usernameInput
+        .fill(AUTH_TEST_USERNAME, { timeout: 5_000 })
+        .then(() => true)
+        .catch(() => false);
+      if (!usernameFilled) {
+        const recovery = await recoverFromAuthSurfaceTransition();
+        if (recovery.resolved) {
+          return { resolved: true, uiAttempted, finalState: recovery.finalState };
+        }
+        continue;
+      }
+
+      const passwordFilled = await passwordInput
+        .fill(AUTH_TEST_PASSWORD, { timeout: 5_000 })
+        .then(() => true)
+        .catch(() => false);
+      if (!passwordFilled) {
+        const recovery = await recoverFromAuthSurfaceTransition();
+        if (recovery.resolved) {
+          return { resolved: true, uiAttempted, finalState: recovery.finalState };
+        }
+        continue;
+      }
+
+      const enabled = await loginButton.isEnabled({ timeout: 2_000 }).catch(async () => {
+        const recovery = await recoverFromAuthSurfaceTransition();
+        if (recovery.resolved) {
+          state = recovery.finalState;
+        }
+        return false;
+      });
+      if (isResolvedState(state, readPathname(state.url))) {
+        return { resolved: true, uiAttempted, finalState: state };
+      }
       if (enabled) {
-        await loginButton.click().catch(() => {});
+        const clicked = await loginButton
+          .click({ timeout: 2_000 })
+          .then(() => true)
+          .catch(() => false);
+        if (!clicked) {
+          const recovery = await recoverFromAuthSurfaceTransition();
+          if (recovery.resolved) {
+            return { resolved: true, uiAttempted, finalState: recovery.finalState };
+          }
+        }
       }
       await settleAfterAuthAction(page);
 
       state = await readAuthSurfaceState(page);
-      if (!state.onLogin && !state.onAuthError && !state.onAuthTimeout && state.shellVisible) {
+      statePathname = readPathname(state.url);
+      if (isResolvedState(state, statePathname)) {
         return { resolved: true, uiAttempted, finalState: state };
       }
 
@@ -265,7 +476,7 @@ async function attemptUiLogin(
         .isVisible()
         .catch(() => false);
       if (serviceUnavailableVisible && attempt < attempts - 1) {
-        await page.waitForTimeout(500);
+        await sleep(500);
       }
     }
   }
@@ -289,7 +500,7 @@ async function apiLoginFallback(
     })
     .catch(() => null);
   if (loginResp && !loginResp.ok() && loginResp.status() === 503) {
-    await page.waitForTimeout(500);
+    await sleep(500);
     loginResp = await page.request
       .post('/v1/auth/login', {
         data: { username: AUTH_TEST_USERNAME, password: AUTH_TEST_PASSWORD },
@@ -304,7 +515,6 @@ async function apiLoginFallback(
   }
 
   await gotoWithRetry(page, postAuthPath);
-  await waitForAppReady(page);
 
   const meResp = await page.request.get('/v1/auth/me', { timeout: 8_000 }).catch(() => null);
   if (!meResp || !meResp.ok()) {
@@ -316,7 +526,6 @@ async function apiLoginFallback(
   const path = new URL(page.url()).pathname;
   if (!expectedPostAuthPath.test(path)) {
     await gotoWithRetry(page, postAuthPath);
-    await waitForAppReady(page);
   }
 }
 
@@ -368,8 +577,19 @@ export async function bootstrapAuth(
   }
 
   await apiLoginFallback(page, postAuthPath, expectedPostAuthPath);
-  const finalState = await readAuthSurfaceState(page);
-  if (finalState.onLogin || finalState.onAuthError || finalState.onAuthTimeout) {
+  await settleAfterAuthAction(page).catch(() => {});
+  let finalState = await readAuthSurfaceState(page);
+  if (finalState.signingInVisible && !finalState.shellVisible) {
+    await gotoWithRetry(page, postAuthPath);
+    await settleAfterAuthAction(page).catch(() => {});
+    finalState = await readAuthSurfaceState(page);
+  }
+  if (
+    finalState.onLogin ||
+    finalState.onAuthError ||
+    finalState.onAuthTimeout ||
+    finalState.signingInVisible
+  ) {
     throw new Error(
       `bootstrapAuth API fallback completed but auth surface remained unresolved (mode=${mode}). ${formatAuthSurfaceState(finalState)}`
     );
@@ -389,24 +609,194 @@ function matchesRequestedPath(currentUrl: string, requestedPath: string): boolea
   return currentPath === requested || currentPath.startsWith(`${requested}/`);
 }
 
+const SOFT_ROUTE_REDIRECTS = new Map<string, string>([['/user', '/settings']]);
+const SOFT_SETTINGS_ROUTE_SET = new Set(['/settings', '/user']);
+
+export function canonicalSoftRoutePath(routePath: string): string {
+  return SOFT_ROUTE_REDIRECTS.get(routePath) ?? routePath;
+}
+
+function acceptedSoftRoutePaths(routePath: string): string[] {
+  const canonical = canonicalSoftRoutePath(routePath);
+  return canonical === routePath ? [routePath] : [routePath, canonical];
+}
+
+export function pathMatchesSoftRoute(currentUrl: string, routePath: string): boolean {
+  try {
+    const currentPath = new URL(currentUrl).pathname;
+    return acceptedSoftRoutePaths(routePath).some(
+      (acceptedPath) => currentPath === acceptedPath || currentPath.startsWith(`${acceptedPath}/`)
+    );
+  } catch {
+    return false;
+  }
+}
+
+async function waitForSoftRoutePath(page: Page, routePath: string, timeoutMs: number): Promise<boolean> {
+  return await expect
+    .poll(() => pathMatchesSoftRoute(page.url(), routePath), { timeout: timeoutMs })
+    .toBeTruthy()
+    .then(() => true)
+    .catch(() => false);
+}
+
+async function navigateSettingsViaShortcut(page: Page): Promise<boolean> {
+  const shortcuts = ['Meta+,', 'Control+,'];
+  for (const shortcut of shortcuts) {
+    await page.keyboard.press(shortcut).catch(() => {});
+    if (await waitForSoftRoutePath(page, '/settings', 4_000)) {
+      return true;
+    }
+  }
+  return false;
+}
+
+async function switchToFullProfileIfAvailable(page: Page): Promise<void> {
+  const switchToFull = page.locator('button[title*="switch to Full"]').first();
+  if (await safeIsVisible(() => switchToFull.isVisible())) {
+    await switchToFull.click({ timeout: 5_000 }).catch(() => {});
+    await page
+      .locator('button[title*="switch to Primary"]')
+      .first()
+      .waitFor({ state: 'visible', timeout: 10_000 })
+      .catch(() => {});
+  }
+}
+
+async function openCommandDeck(page: Page): Promise<ReturnType<Page['locator']> | null> {
+  const input = page
+    .locator('.command-palette-panel input[aria-label*="Search pages"]')
+    .first();
+  if (await safeIsVisible(() => input.isVisible())) {
+    return input;
+  }
+
+  const openShortcuts = ['Control+k', 'Meta+k'];
+  for (const shortcut of openShortcuts) {
+    await page.keyboard.press(shortcut).catch(() => {});
+    if (await safeIsVisible(() => input.isVisible())) {
+      return input;
+    }
+  }
+  return null;
+}
+
+async function navigateSettingsViaCommandDeck(page: Page): Promise<boolean> {
+  const input = await openCommandDeck(page);
+  if (!input) {
+    return false;
+  }
+
+  await input.fill('settings').catch(() => {});
+  const settingsResult = page
+    .locator('.command-palette-panel .search-result-title')
+    .filter({ hasText: /^Settings$/ })
+    .first();
+
+  let resultVisible = false;
+  const resultDeadline = Date.now() + 12_000;
+  while (Date.now() < resultDeadline) {
+    if (await safeIsVisible(() => settingsResult.isVisible())) {
+      resultVisible = true;
+      break;
+    }
+    await sleep(200);
+  }
+
+  if (!resultVisible) {
+    return false;
+  }
+
+  const clicked = await settingsResult
+    .click({ timeout: 5_000, force: true })
+    .then(() => true)
+    .catch(() => false);
+  if (!clicked) {
+    return false;
+  }
+
+  return await waitForSoftRoutePath(page, '/settings', 8_000);
+}
+
+async function navigateSettingsViaHistoryApi(page: Page): Promise<boolean> {
+  let timer: ReturnType<typeof setTimeout> | undefined;
+  const switched = await Promise.race([
+    page
+      .evaluate(() => {
+        window.history.pushState({}, '', '/settings');
+        window.dispatchEvent(new PopStateEvent('popstate'));
+        return true;
+      })
+      .then(() => true)
+      .catch(() => false),
+    new Promise<boolean>((resolve) => {
+      timer = setTimeout(() => resolve(false), 1_500);
+    }),
+  ]).finally(() => {
+    if (timer) clearTimeout(timer);
+  });
+
+  if (!switched) {
+    return false;
+  }
+  return await waitForSoftRoutePath(page, '/settings', 6_000);
+}
+
+export async function gotoAndBootstrapSoftRoute(page: Page, routePath: string): Promise<void> {
+  if (!SOFT_SETTINGS_ROUTE_SET.has(routePath)) {
+    throw new Error(`Unsupported soft route "${routePath}"`);
+  }
+
+  await gotoAndBootstrap(page, '/dashboard', {
+    mode: 'ui-then-api',
+    requireUiAttempt: false,
+    postAuthPath: '/dashboard',
+    expectedPostAuthPath: /\/(dashboard|chat)(\/|$)/,
+  });
+
+  if (pathMatchesSoftRoute(page.url(), routePath)) {
+    return;
+  }
+
+  await switchToFullProfileIfAvailable(page);
+
+  const navigatedByShortcut = await navigateSettingsViaShortcut(page);
+  const navigatedByCommandDeck = navigatedByShortcut ? true : await navigateSettingsViaCommandDeck(page);
+  if (!navigatedByCommandDeck && !navigatedByShortcut) {
+    await navigateSettingsViaHistoryApi(page);
+  }
+
+  await expect
+    .poll(() => pathMatchesSoftRoute(page.url(), routePath), { timeout: 25_000 })
+    .toBeTruthy()
+    .catch(() => {
+      throw new Error(`Unable to soft-navigate to ${routePath}; current_url=${page.url()}`);
+    });
+}
+
 export async function gotoAndBootstrap(
   page: Page,
   path: string,
   options: AuthBootstrapOptions = {}
 ): Promise<void> {
-  await gotoWithRetry(page, path);
-  await waitForAppReady(page);
-  await bootstrapAuth(page, options);
-
   const mode = options.mode ?? 'ui-only';
+  await gotoWithRetry(page, path);
   if (mode === 'none') {
+    await waitForAppReady(page);
     return;
   }
 
+  // Some protected routes can remain on transitional boot/auth overlays until a login
+  // attempt runs. Don't let pre-auth readiness block the auth bootstrap.
+  await waitForAppReady(page).catch(() => {});
+  await bootstrapAuth(page, options);
+  await waitForAppReady(page);
+
   if (!matchesRequestedPath(page.url(), path)) {
     await gotoWithRetry(page, path);
-    await waitForAppReady(page);
+    await waitForAppReady(page).catch(() => {});
     await bootstrapAuth(page, options);
+    await waitForAppReady(page);
   }
 }
 
@@ -533,43 +923,18 @@ export async function resolveChatEntryContract(
       await waitForAppReady(page, { timeoutMs: 20_000 });
       continue;
     }
+    // Check active state first — this is the highest-priority anchor.
     if (await page.getByTestId('chat-header').isVisible().catch(() => false)) {
       return { state: 'active', anchor: 'chat-header', path };
     }
-    if (await page.getByTestId('chat-unavailable-state').isVisible().catch(() => false)) {
-      return {
-        state: 'unavailable',
-        anchor: 'chat-unavailable-state',
-        path,
-        unavailableReason: await readUnavailableReason(page),
-      };
-    }
+
+    // Check empty states before unavailable. Empty is actionable (click New Chat),
+    // while unavailable might be a transient flash before status response arrives.
     if (await page.getByTestId('chat-empty-new-chat').isVisible().catch(() => false)) {
       return { state: 'empty', anchor: 'chat-empty-new-chat', path };
     }
     if (await page.getByTestId('chat-sidebar-new-session').isVisible().catch(() => false)) {
       return { state: 'empty', anchor: 'chat-sidebar-new-session', path };
-    }
-    if (
-      await page
-        .getByRole('heading', { name: 'Chat unavailable', level: 2, exact: true })
-        .isVisible()
-        .catch(() => false)
-    ) {
-      return {
-        state: 'unavailable',
-        anchor: 'chat-unavailable-state',
-        path,
-        unavailableReason: await readUnavailableReason(page),
-      };
-    }
-    if (await page.getByText('Chat unavailable', { exact: false }).isVisible().catch(() => false)) {
-      return {
-        state: 'unavailable',
-        anchor: 'chat-unavailable-state',
-        path,
-        unavailableReason: await readUnavailableReason(page),
-      };
     }
     if (await page.getByRole('button', { name: 'New Chat', exact: true }).isVisible().catch(() => false)) {
       return { state: 'empty', anchor: 'chat-empty-new-chat', path };
@@ -588,10 +953,52 @@ export async function resolveChatEntryContract(
       return { state: 'empty', anchor: 'chat-sidebar-new-session', path };
     }
 
+    // Unavailable checks: the WASM app may flash "unavailable" before the status
+    // API response arrives and triggers a re-render. To avoid false negatives when
+    // the system status is stubbed as ready, do a short stabilization wait and
+    // re-check for the active anchor before committing to `unavailable`.
+    const unavailableTestId = await page.getByTestId('chat-unavailable-state').isVisible().catch(() => false);
+    const unavailableHeading = !unavailableTestId && await page
+      .getByRole('heading', { name: 'Chat unavailable', level: 2, exact: true })
+      .isVisible()
+      .catch(() => false);
+    const unavailableText = !unavailableTestId && !unavailableHeading
+      && await page.getByText('Chat unavailable', { exact: false }).isVisible().catch(() => false);
+
+    if (unavailableTestId || unavailableHeading || unavailableText) {
+      // Give the app a moment to process a pending status response that might
+      // transition the UI from unavailable → active/empty.
+      await sleep(500);
+
+      // Re-check: if the active or empty anchor appeared, prefer that.
+      if (await page.getByTestId('chat-header').isVisible().catch(() => false)) {
+        return { state: 'active', anchor: 'chat-header', path };
+      }
+      if (await page.getByTestId('chat-empty-new-chat').isVisible().catch(() => false)) {
+        return { state: 'empty', anchor: 'chat-empty-new-chat', path };
+      }
+      if (await page.getByTestId('chat-sidebar-new-session').isVisible().catch(() => false)) {
+        return { state: 'empty', anchor: 'chat-sidebar-new-session', path };
+      }
+
+      // Confirmed unavailable — the status response didn't change the state.
+      return {
+        state: 'unavailable',
+        anchor: 'chat-unavailable-state',
+        path,
+        unavailableReason: await readUnavailableReason(page),
+      };
+    }
+
     const onDashboard = /^\/($|dashboard(\/|$))/.test(path);
     if (onDashboard) {
       const chatUnavailableBanner = page.getByText('Chat unavailable', { exact: false });
       if (await chatUnavailableBanner.isVisible().catch(() => false)) {
+        // Same stabilization: wait and re-check before committing to unavailable.
+        await sleep(500);
+        if (await page.getByTestId('chat-header').isVisible().catch(() => false)) {
+          return { state: 'active', anchor: 'chat-header', path };
+        }
         const bannerText = (await chatUnavailableBanner.first().textContent().catch(() => null))?.trim();
         return {
           state: 'unavailable',
@@ -602,7 +1009,7 @@ export async function resolveChatEntryContract(
       }
     }
 
-    await page.waitForTimeout(250);
+    await sleep(250);
   }
 
   throw new Error(

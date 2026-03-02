@@ -138,17 +138,20 @@ async fn collect_status(state: &AppState) -> Result<adapterOSStatus> {
 async fn query_adapter_count(db: &adapteros_db::Db) -> Result<usize> {
     // Query from adapters table
     let count = sqlx::query_scalar::<_, i64>("SELECT COUNT(*) FROM adapters")
-        .fetch_one(db.pool())
+        .fetch_one(db.pool_result()?)
         .await
         .context("Failed to query adapter count")?;
     Ok(count as usize)
 }
 
 /// Query worker count (from node agent or workers table)
-async fn query_worker_count(_db: &adapteros_db::Db) -> Result<usize> {
-    // For now, return a mock count
-    // In production, would query from workers/sessions table
-    Ok(0)
+async fn query_worker_count(db: &adapteros_db::Db) -> Result<usize> {
+    let count = db
+        .count_active_workers()
+        .await
+        .context("Failed to query active worker count")?;
+
+    Ok(std::cmp::max(count, 0) as usize)
 }
 
 /// Base model status for status writer
@@ -163,26 +166,23 @@ struct BaseModelStatusInfo {
 
 /// Query base model status from database
 async fn query_base_model_status(db: &adapteros_db::Db) -> Result<BaseModelStatusInfo> {
-    // Query base model status for default tenant
-    if let Some(status_record) = db.get_base_model_status("default").await? {
-        // Get model details
-        let model = db.get_model(&status_record.model_id).await?;
-        let model_name = model
-            .map(|m| m.name)
-            .unwrap_or_else(|| "Unknown".to_string());
+    let status_records = db
+        .list_base_model_statuses()
+        .await
+        .context("Failed to query base model status records")?;
 
-        let status_enum = adapteros_api_types::ModelLoadStatus::parse_status(&status_record.status);
-        let is_loaded = status_enum.is_ready();
-
-        Ok(BaseModelStatusInfo {
-            base_model_loaded: is_loaded,
-            base_model_id: Some(status_record.model_id),
-            base_model_name: Some(model_name),
-            base_model_status: status_enum.as_str().to_string(),
-            base_model_memory_mb: status_record.memory_usage_mb,
+    let status_record = status_records
+        .iter()
+        .find(|record| record.tenant_id == "default")
+        .or_else(|| {
+            status_records.iter().find(|record| {
+                adapteros_api_types::ModelLoadStatus::parse_status(&record.status).is_ready()
+            })
         })
-    } else {
-        Ok(BaseModelStatusInfo {
+        .or_else(|| status_records.first());
+
+    let Some(status_record) = status_record else {
+        return Ok(BaseModelStatusInfo {
             base_model_loaded: false,
             base_model_id: None,
             base_model_name: None,
@@ -190,8 +190,23 @@ async fn query_base_model_status(db: &adapteros_db::Db) -> Result<BaseModelStatu
                 .as_str()
                 .to_string(),
             base_model_memory_mb: None,
-        })
-    }
+        });
+    };
+
+    let model = db.get_model(&status_record.model_id).await?;
+    let model_name = model
+        .map(|m| m.name)
+        .unwrap_or_else(|| "Unknown".to_string());
+
+    let status_enum = adapteros_api_types::ModelLoadStatus::parse_status(&status_record.status);
+
+    Ok(BaseModelStatusInfo {
+        base_model_loaded: status_enum.is_ready(),
+        base_model_id: Some(status_record.model_id.clone()),
+        base_model_name: Some(model_name),
+        base_model_status: status_enum.as_str().to_string(),
+        base_model_memory_mb: status_record.memory_usage_mb,
+    })
 }
 
 /// Get kernel hash from current plan

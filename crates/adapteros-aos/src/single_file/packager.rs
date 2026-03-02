@@ -71,7 +71,7 @@ fn serialize_weights_to_safetensors(weights: &WeightGroup) -> Result<Vec<u8>> {
     // Serialize to safetensors format
     let tensors = vec![("lora_a", lora_a_view), ("lora_b", lora_b_view)];
 
-    safetensors::tensor::serialize(tensors, &None)
+    safetensors::tensor::serialize(tensors, None)
         .map_err(|e| AosError::Training(format!("Failed to serialize weights: {}", e)))
 }
 

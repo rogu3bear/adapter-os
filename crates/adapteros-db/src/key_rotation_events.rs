@@ -57,7 +57,7 @@ impl Db {
         .bind(prev_key_fingerprint)
         .bind(deks_reencrypted)
         .bind(metadata)
-        .execute(self.pool())
+        .execute(self.pool_result()?)
         .await
         .map_err(|e| AosError::Database(format!("Failed to record key rotation event: {}", e)))?;
 
@@ -83,7 +83,7 @@ impl Db {
         )
         .bind(limit)
         .bind(offset)
-        .fetch_all(self.pool())
+        .fetch_all(self.pool_result()?)
         .await
         .map_err(|e| AosError::Database(format!("Failed to list key rotation events: {}", e)))?;
 
@@ -101,7 +101,7 @@ impl Db {
             "#,
         )
         .bind(-older_than_days)
-        .execute(self.pool())
+        .execute(self.pool_result()?)
         .await
         .map_err(|e| {
             AosError::Database(format!("Failed to prune old key rotation events: {}", e))

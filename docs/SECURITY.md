@@ -59,7 +59,7 @@ flowchart TB
 
 Forbidden: `/tmp`, `/private/tmp`, `/var/tmp`. Enforced by `adapteros-core/src/path_security.rs`.
 
-**Canonical runtime root:** `./var/` (or `AOS_VAR_DIR`). See [VAR_STRUCTURE.md](VAR_STRUCTURE.md).
+**Canonical runtime root:** `var/` (or `AOS_VAR_DIR`). See [VAR_STRUCTURE.md](VAR_STRUCTURE.md).
 
 ---
 

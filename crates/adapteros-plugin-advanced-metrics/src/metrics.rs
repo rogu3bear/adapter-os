@@ -4,6 +4,7 @@
 //! tracking performance data from inference, training, and system events.
 
 use adapteros_core::{plugin_events::*, Result};
+use prometheus::core::Collector;
 use prometheus::{CounterVec, GaugeVec, HistogramOpts, HistogramVec, Opts};
 use serde::{Deserialize, Serialize};
 use std::collections::HashMap;
@@ -292,6 +293,22 @@ impl MetricsCollector {
                 )
             })
             .collect()
+    }
+
+    /// Gather metric families directly from this collector instance.
+    ///
+    /// This avoids depending solely on the global Prometheus registry state.
+    pub fn gather_metric_families(&self) -> Vec<prometheus::proto::MetricFamily> {
+        let mut families = Vec::new();
+        families.extend(self.inference_latency.collect());
+        families.extend(self.training_duration.collect());
+        families.extend(self.adapter_activations.collect());
+        families.extend(self.tenant_tokens_total.collect());
+        families.extend(self.tenant_tokens_per_sec.collect());
+        families.extend(self.system_cpu_percent.collect());
+        families.extend(self.system_memory_bytes.collect());
+        families.extend(self.system_active_adapters.collect());
+        families
     }
 }
 

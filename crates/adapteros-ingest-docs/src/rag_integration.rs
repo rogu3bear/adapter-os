@@ -97,7 +97,7 @@ pub async fn index_document_with_provenance(
         .bind(&chunk_hash_str)
         .bind(&text_preview)
         .bind(&embedding_json)
-        .execute(db.pool())
+        .execute(db.pool_result()?)
         .await
         .map_err(|e| {
             adapteros_core::AosError::Database(format!("Failed to insert document chunk: {}", e))

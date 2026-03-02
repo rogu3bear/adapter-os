@@ -140,6 +140,32 @@ pub struct KvCache {
 }
 
 impl KvCache {
+    /// Release quota bytes for all currently tracked allocations.
+    ///
+    /// Called before bulk cache clears (`reset_all`/`zeroize*`) so tenant quota
+    /// state remains consistent with cache contents.
+    fn release_allocation_quota(&self) {
+        let Some(ref quota_manager) = self.quota_manager else {
+            return;
+        };
+
+        let allocated_bytes: u64 = self
+            .allocations
+            .values()
+            .map(|a| a.k_size.saturating_add(a.v_size))
+            .sum();
+        if allocated_bytes == 0 {
+            return;
+        }
+
+        // Guard against stale accounting: never release more than currently used.
+        let used_bytes = quota_manager.usage().used_bytes;
+        let release_bytes = allocated_bytes.min(used_bytes);
+        if release_bytes > 0 {
+            quota_manager.release(release_bytes);
+        }
+    }
+
     /// Create new KV cache without Metal (for testing/non-Mac platforms)
     pub fn new(capacity_bytes: u64) -> Self {
         Self {
@@ -594,7 +620,8 @@ impl KvCache {
             }
         }
 
-        // Clear allocations
+        // Release quota for all active allocations, then clear cache state.
+        self.release_allocation_quota();
         self.allocations.clear();
         self.used_bytes = 0;
         self.free_regions.clear();
@@ -685,6 +712,7 @@ impl KvCache {
 
     /// Reset all KV cache allocations (called on adapter swap if stack changes)
     pub fn reset_all(&mut self) {
+        self.release_allocation_quota();
         self.used_bytes = 0;
         self.allocations.clear();
         self.next_seq_id = 1;
@@ -704,6 +732,7 @@ impl KvCache {
 
     /// Zeroize all KV cache buffers and reset state
     pub fn zeroize_all(&mut self) {
+        self.release_allocation_quota();
         self.allocations.clear();
         self.used_bytes = 0;
         self.free_regions = vec![(0, self.capacity_bytes)];

@@ -5,8 +5,8 @@
 ## Health
 
 ```bash
-curl -f http://localhost:8080/healthz
-curl -f http://localhost:8080/readyz
+curl -f http://localhost:18080/healthz
+curl -f http://localhost:18080/readyz
 ./aosctl doctor
 ./aosctl preflight
 ```

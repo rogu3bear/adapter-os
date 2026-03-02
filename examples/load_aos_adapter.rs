@@ -19,7 +19,7 @@ async fn main() -> Result<()> {
 
     // Example 1: Direct loading with AdapterLoader
     println!("1. Direct loading with AdapterLoader:");
-    let mut loader = AdapterLoader::new(adapters_path.clone(), std::collections::HashMap::new());
+    let loader = AdapterLoader::new(adapters_path.clone(), std::collections::HashMap::new());
 
     // This will now check for:
     // 1. ./adapters/my_adapter.aos (PREFERRED)

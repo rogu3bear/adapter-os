@@ -67,7 +67,7 @@ async fn stores_ciphertext_and_recovers_plaintext() {
         "SELECT prompt_text, response_text FROM inference_replay_metadata WHERE id = ?",
     )
     .bind(&id)
-    .fetch_one(db.pool())
+    .fetch_one(db.pool_result().unwrap())
     .await
     .expect("fetch row");
 

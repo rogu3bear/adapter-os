@@ -238,7 +238,7 @@ pub async fn get_adapter_health(
         "#,
     )
     .bind(&version_id)
-    .fetch_all(state.db.pool())
+    .fetch_all(state.db.pool_result()?)
     .await
     .unwrap_or_default();
 
@@ -438,7 +438,7 @@ pub async fn get_adapter_health(
                  ORDER BY timestamp DESC LIMIT 5",
             )
             .bind(&adapter_id_clone2)
-            .fetch_all(state.db.pool())
+            .fetch_all(state.db.pool_result()?)
             .await
             .unwrap_or_else(|e| {
                 tracing::warn!(

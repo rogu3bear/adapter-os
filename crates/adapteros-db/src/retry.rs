@@ -50,6 +50,47 @@ impl RetryConfig {
     }
 }
 
+#[derive(Debug, Clone)]
+struct RetryEnvelopeAdapter {
+    policy: adapteros_core::retry_policy::RetryPolicy,
+}
+
+impl RetryEnvelopeAdapter {
+    fn from_config(config: &RetryConfig, service_type: &str) -> Self {
+        let mut policy = adapteros_core::retry_policy::RetryPolicy::without_budget(service_type);
+        policy.circuit_breaker = None;
+        policy.max_attempts = config.max_retries;
+        policy.base_delay = Duration::from_millis(config.base_delay_ms);
+        policy.max_delay = Duration::from_millis(config.max_delay_ms.max(config.base_delay_ms));
+        policy.backoff_factor = 2.0;
+        policy.jitter = false;
+        policy.deterministic_jitter = false;
+        Self { policy }
+    }
+
+    fn max_attempts(&self) -> u32 {
+        self.policy.max_attempts
+    }
+
+    fn retries_exhausted(&self, attempts: u32) -> bool {
+        attempts > self.policy.max_attempts
+    }
+
+    fn max_delay_ms(&self) -> u64 {
+        self.policy.max_delay.as_millis() as u64
+    }
+
+    fn exponential_factor(&self, attempt: u32) -> u64 {
+        2u64.saturating_pow(attempt.saturating_sub(1))
+    }
+
+    fn delay_ms(&self, base_delay_ms: u64, attempt: u32) -> u64 {
+        base_delay_ms
+            .saturating_mul(self.exponential_factor(attempt))
+            .min(self.max_delay_ms())
+    }
+}
+
 /// Check if a SQLite error is retriable (transient lock contention)
 pub fn is_retriable_sqlite_error(e: &sqlx::Error) -> bool {
     match e {
@@ -108,6 +149,7 @@ where
     E: std::fmt::Display + Retriable,
 {
     let mut attempts = 0u32;
+    let envelope = RetryEnvelopeAdapter::from_config(&config, operation_name);
 
     loop {
         match operation().await {
@@ -135,7 +177,7 @@ where
                 }
 
                 // Check if we've exhausted retries
-                if attempts > config.max_retries {
+                if envelope.retries_exhausted(attempts) {
                     warn!(
                         operation = %operation_name,
                         attempts = attempts,
@@ -146,13 +188,12 @@ where
                 }
 
                 // Calculate delay with exponential backoff
-                let delay_ms =
-                    (config.base_delay_ms * 2u64.pow(attempts - 1)).min(config.max_delay_ms);
+                let delay_ms = envelope.delay_ms(config.base_delay_ms, attempts);
 
                 warn!(
                     operation = %operation_name,
                     attempt = attempts,
-                    max_retries = config.max_retries,
+                    max_retries = envelope.max_attempts(),
                     delay_ms = delay_ms,
                     error = %e,
                     "Transient error, retrying"
@@ -177,6 +218,7 @@ where
     Fut: Future<Output = Result<T, sqlx::Error>>,
 {
     let mut attempts = 0u32;
+    let envelope = RetryEnvelopeAdapter::from_config(&config, operation_name);
 
     loop {
         match operation().await {
@@ -195,7 +237,7 @@ where
 
                 // Only retry on transient SQLite errors
                 let is_retriable = is_retriable_sqlite_error(&e);
-                let should_retry = is_retriable && attempts <= config.max_retries;
+                let should_retry = is_retriable && !envelope.retries_exhausted(attempts);
 
                 if !should_retry {
                     if is_retriable {
@@ -210,13 +252,12 @@ where
                 }
 
                 // Calculate delay with exponential backoff
-                let delay_ms =
-                    (config.base_delay_ms * 2u64.pow(attempts - 1)).min(config.max_delay_ms);
+                let delay_ms = envelope.delay_ms(config.base_delay_ms, attempts);
 
                 warn!(
                     operation = %operation_name,
                     attempt = attempts,
-                    max_retries = config.max_retries,
+                    max_retries = envelope.max_attempts(),
                     delay_ms = delay_ms,
                     error = %e,
                     "SQLite busy/locked, retrying"
@@ -348,6 +389,7 @@ where
     let start_time = std::time::Instant::now();
     let mut attempts = 0u32;
     let mut consecutive_lock_errors = 0u32;
+    let envelope = RetryEnvelopeAdapter::from_config(&config.base, operation_name);
 
     loop {
         match operation().await {
@@ -379,7 +421,7 @@ where
 
                 // Check retry limits
                 let elapsed_ms = start_time.elapsed().as_millis() as u64;
-                if attempts > config.base.max_retries {
+                if envelope.retries_exhausted(attempts) {
                     warn!(
                         operation = %operation_name,
                         attempts = attempts,
@@ -416,7 +458,7 @@ where
                 let base_delay = error_class
                     .recommended_delay_ms()
                     .max(config.base.base_delay_ms);
-                let mut delay_ms = base_delay * 2u64.pow(attempts.saturating_sub(1));
+                let mut delay_ms = envelope.delay_ms(base_delay, attempts);
 
                 // Apply lock contention multiplier for sustained contention
                 if consecutive_lock_errors > 1 {
@@ -427,7 +469,7 @@ where
                 }
 
                 // Cap at max delay
-                delay_ms = delay_ms.min(config.base.max_delay_ms);
+                delay_ms = delay_ms.min(envelope.max_delay_ms());
 
                 // Add jitter to prevent thundering herd (uses deterministic RNG when configured)
                 if config.jitter_factor > 0.0 {
@@ -437,7 +479,7 @@ where
                 warn!(
                     operation = %operation_name,
                     attempt = attempts,
-                    max_retries = config.base.max_retries,
+                    max_retries = envelope.max_attempts(),
                     error_class = ?error_class,
                     delay_ms = delay_ms,
                     consecutive_lock_errors = consecutive_lock_errors,

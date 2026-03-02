@@ -284,7 +284,7 @@ impl BehaviorTrainingGenerator {
         }
 
         let rows = query
-            .fetch_all(self.db.pool())
+            .fetch_all(self.db.pool_result()?)
             .await
             .map_err(|e| AosError::Database(format!("Query failed: {}", e)))?;
 

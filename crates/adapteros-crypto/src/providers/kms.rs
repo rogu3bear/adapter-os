@@ -134,7 +134,7 @@ impl Default for KmsConfig {
     fn default() -> Self {
         Self {
             provider_type: KmsProviderType::Mock,
-            endpoint: "http://localhost:8200".to_string(),
+            endpoint: "http://localhost:18089".to_string(),
             region: None,
             credentials: KmsCredentials::None,
             timeout_secs: 30,
@@ -1814,7 +1814,7 @@ impl KmsConfig {
         let endpoint = config
             .kms_endpoint
             .clone()
-            .unwrap_or_else(|| "http://localhost:8200".to_string());
+            .unwrap_or_else(|| "http://localhost:18089".to_string());
 
         // Parse provider type from endpoint URL pattern
         let provider_type = if endpoint.contains("kms.amazonaws.com") {
@@ -2122,7 +2122,7 @@ mod tests {
     #[tokio::test]
     async fn test_create_kms_provider_from_generic_config() {
         let config = KeyProviderConfig {
-            kms_endpoint: Some("http://localhost:8200".to_string()),
+            kms_endpoint: Some("http://localhost:18089".to_string()),
             ..Default::default()
         };
 
@@ -2265,7 +2265,7 @@ mod tests {
         // Test provider creation with mock provider
         let config = KmsConfig {
             provider_type: KmsProviderType::Mock,
-            endpoint: "http://localhost:8200".to_string(),
+            endpoint: "http://localhost:18089".to_string(),
             region: None,
             credentials: KmsCredentials::None,
             timeout_secs: 30,
@@ -2284,7 +2284,7 @@ mod tests {
     async fn test_kms_config_timeout_settings() {
         let config = KmsConfig {
             provider_type: KmsProviderType::Mock,
-            endpoint: "http://localhost:8200".to_string(),
+            endpoint: "http://localhost:18089".to_string(),
             region: None,
             credentials: KmsCredentials::None,
             timeout_secs: 60,
@@ -2300,7 +2300,7 @@ mod tests {
     async fn test_kms_config_key_namespace() {
         let config = KmsConfig {
             provider_type: KmsProviderType::Mock,
-            endpoint: "http://localhost:8200".to_string(),
+            endpoint: "http://localhost:18089".to_string(),
             region: None,
             credentials: KmsCredentials::None,
             timeout_secs: 30,
@@ -2402,10 +2402,9 @@ mod tests {
             let parsed: std::result::Result<serde_json::Value, _> =
                 serde_json::from_str(creds_json.as_ref());
             assert!(parsed.is_ok());
-            assert_eq!(
-                parsed.unwrap().get("project_id").and_then(|p| p.as_str()),
-                Some("test-project")
-            );
+            let parsed_json = parsed.unwrap();
+            let project_id = parsed_json.get("project_id").and_then(|p| p.as_str());
+            assert_eq!(project_id, Some("test-project"));
         }
     }
 
@@ -2455,7 +2454,7 @@ mod tests {
     }
 
     // GCP KMS Emulator Integration Tests
-    // Run with: GCP_KMS_EMULATOR_HOST=localhost:9011 cargo test --release --features gcp-kms
+    // Run with: GCP_KMS_EMULATOR_HOST=localhost:18090 cargo test --release --features gcp-kms
 
     /// Check if GCP KMS emulator is available
     #[cfg(feature = "gcp-kms")]
@@ -2466,8 +2465,8 @@ mod tests {
     /// Create GCP KMS config for emulator testing
     #[cfg(feature = "gcp-kms")]
     fn create_gcp_emulator_config() -> KmsConfig {
-        let endpoint =
-            std::env::var("GCP_KMS_EMULATOR_HOST").unwrap_or_else(|_| "localhost:9011".to_string());
+        let endpoint = std::env::var("GCP_KMS_EMULATOR_HOST")
+            .unwrap_or_else(|_| "localhost:18090".to_string());
 
         KmsConfig {
             provider_type: KmsProviderType::GcpKms,
@@ -2493,7 +2492,7 @@ mod tests {
     }
 
     #[tokio::test]
-    #[ignore = "Requires GCP KMS emulator: GCP_KMS_EMULATOR_HOST=localhost:9011"]
+    #[ignore = "Requires GCP KMS emulator: GCP_KMS_EMULATOR_HOST=localhost:18090"]
     #[cfg(feature = "gcp-kms")]
     async fn test_gcp_kms_emulator_key_generation() {
         use crate::providers::gcp::GcpKmsProvider;
@@ -2519,7 +2518,7 @@ mod tests {
     }
 
     #[tokio::test]
-    #[ignore = "Requires GCP KMS emulator: GCP_KMS_EMULATOR_HOST=localhost:9011"]
+    #[ignore = "Requires GCP KMS emulator: GCP_KMS_EMULATOR_HOST=localhost:18090"]
     #[cfg(feature = "gcp-kms")]
     async fn test_gcp_kms_emulator_sign_and_verify() {
         use crate::providers::gcp::GcpKmsProvider;
@@ -2558,7 +2557,7 @@ mod tests {
     }
 
     #[tokio::test]
-    #[ignore = "Requires GCP KMS emulator: GCP_KMS_EMULATOR_HOST=localhost:9011"]
+    #[ignore = "Requires GCP KMS emulator: GCP_KMS_EMULATOR_HOST=localhost:18090"]
     #[cfg(feature = "gcp-kms")]
     async fn test_gcp_kms_emulator_encrypt_decrypt() {
         use crate::providers::gcp::GcpKmsProvider;
@@ -2598,7 +2597,7 @@ mod tests {
     }
 
     #[tokio::test]
-    #[ignore = "Requires GCP KMS emulator: GCP_KMS_EMULATOR_HOST=localhost:9011"]
+    #[ignore = "Requires GCP KMS emulator: GCP_KMS_EMULATOR_HOST=localhost:18090"]
     #[cfg(feature = "gcp-kms")]
     async fn test_gcp_kms_emulator_key_rotation() {
         use crate::providers::gcp::GcpKmsProvider;

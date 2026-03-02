@@ -1,0 +1,135 @@
+#!/usr/bin/env bash
+#
+# aosctl wrapper
+#
+# This script intelligently runs the aosctl CLI without invoking `cargo run`
+# unless the binary is missing or a rebuild is explicitly requested.
+# This prevents cargo file locks from blocking rust-analyzer and other agents.
+
+AOSCTL_BIN="target/debug/aosctl"
+AOSCTL_MANIFEST="crates/adapteros-cli/Cargo.toml"
+AOSCTL_SRC_DIR="crates/adapteros-cli/src"
+PRECHECK_FAILURE_CODE=86
+
+build_aosctl() {
+    local reason="$1"
+    local attempt=1
+    local status=1
+
+    echo "Building aosctl (${reason})..."
+
+    while [ "$attempt" -le 2 ]; do
+        cargo build -p adapteros-cli --bin aosctl
+        status=$?
+        if [ "$status" -eq 0 ]; then
+            return 0
+        fi
+
+        if [ "$attempt" -lt 2 ]; then
+            echo "aosctl build failed (attempt ${attempt}/2, exit ${status}); retrying once..." >&2
+        fi
+
+        attempt=$((attempt + 1))
+    done
+
+    echo "aosctl build failed after 2 attempts (exit ${status})." >&2
+    return "$status"
+}
+
+binary_is_stale() {
+    [ ! -f "$AOSCTL_BIN" ] && return 0
+
+    if [ -f "$AOSCTL_MANIFEST" ] && [ "$AOSCTL_MANIFEST" -nt "$AOSCTL_BIN" ]; then
+        return 0
+    fi
+
+    if [ -f "Cargo.lock" ] && [ "Cargo.lock" -nt "$AOSCTL_BIN" ]; then
+        return 0
+    fi
+
+    if [ -d "$AOSCTL_SRC_DIR" ] && find "$AOSCTL_SRC_DIR" -type f -name '*.rs' -newer "$AOSCTL_BIN" -print -quit | grep -q .; then
+        return 0
+    fi
+
+    return 1
+}
+
+precheck_failure=""
+integrity_freshness_precheck() {
+    precheck_failure=""
+
+    if [ ! -f "$AOSCTL_BIN" ]; then
+        precheck_failure="binary_missing"
+        return 1
+    fi
+
+    if [ ! -x "$AOSCTL_BIN" ]; then
+        precheck_failure="binary_not_executable"
+        return 1
+    fi
+
+    if [ ! -s "$AOSCTL_BIN" ]; then
+        precheck_failure="binary_empty"
+        return 1
+    fi
+
+    if binary_is_stale; then
+        precheck_failure="binary_stale"
+        return 1
+    fi
+
+    return 0
+}
+
+emit_integrity_diagnostics() {
+    local reason="$1"
+    local exists=0
+    local executable=0
+    local nonempty=0
+    local stale=0
+
+    [ -f "$AOSCTL_BIN" ] && exists=1
+    [ -x "$AOSCTL_BIN" ] && executable=1
+    [ -s "$AOSCTL_BIN" ] && nonempty=1
+    if binary_is_stale; then
+        stale=1
+    fi
+
+    {
+        echo "aosctl_integrity_precheck=failed"
+        echo "reason=${reason}"
+        echo "binary=${AOSCTL_BIN}"
+        echo "exists=${exists}"
+        echo "executable=${executable}"
+        echo "nonempty=${nonempty}"
+        echo "stale=${stale}"
+        echo "manifest=${AOSCTL_MANIFEST}"
+        echo "src_dir=${AOSCTL_SRC_DIR}"
+    } >&2
+}
+
+# If the user or agent explicitly wants to rebuild, they can pass --rebuild
+rebuild_reason=""
+if [[ "${1:-}" == "--rebuild" ]]; then
+    shift
+    rebuild_reason="explicit --rebuild flag"
+elif [ ! -x "$AOSCTL_BIN" ] || [ ! -s "$AOSCTL_BIN" ]; then
+    rebuild_reason="missing or non-executable binary"
+elif binary_is_stale; then
+    rebuild_reason="source inputs newer than binary"
+fi
+
+if [ -n "$rebuild_reason" ]; then
+    build_aosctl "$rebuild_reason" || exit $?
+fi
+
+if ! integrity_freshness_precheck; then
+    build_aosctl "integrity/freshness precheck (${precheck_failure})" || exit $?
+fi
+
+if ! integrity_freshness_precheck; then
+    emit_integrity_diagnostics "$precheck_failure"
+    exit "$PRECHECK_FAILURE_CODE"
+fi
+
+exec "$AOSCTL_BIN" "$@"

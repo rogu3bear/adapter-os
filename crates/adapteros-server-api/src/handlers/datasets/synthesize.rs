@@ -3,6 +3,7 @@
 //! This module provides the API endpoint for converting uploaded documents
 //! into structured training datasets using the synthesis model.
 
+use super::helpers::resolve_source_derived_dataset_name;
 use crate::api_error::ApiError;
 use crate::auth::Claims;
 use crate::permissions::{require_permission, Permission};
@@ -339,9 +340,16 @@ pub async fn synthesize_dataset(
     let created_by = Some(claims.sub.as_str());
     let workspace_id = request.workspace_id.as_deref();
 
+    let chunk_sources: Vec<&str> = request
+        .chunks
+        .iter()
+        .map(|chunk| chunk.source.as_str())
+        .collect();
+    let dataset_name = resolve_source_derived_dataset_name(None, &chunk_sources);
+
     let (dataset_id, dataset_version_id, storage_path, hash_b3) = persist_synthesis_results(
         &state,
-        &request.name,
+        &dataset_name,
         request.description.as_deref(),
         &training_examples,
         tenant_id,
@@ -405,7 +413,7 @@ pub async fn synthesize_dataset(
     let response = SynthesizeDatasetResponse {
         dataset_id: dataset_id.clone(),
         dataset_version_id,
-        name: request.name.clone(),
+        name: dataset_name,
         chunks_processed: final_stats.chunks_processed,
         total_examples: training_examples.len(),
         examples_by_type: ExampleCounts {

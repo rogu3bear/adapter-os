@@ -101,7 +101,7 @@ async fn ready_model_happy_path_inference_and_routing() {
     .bind(&claims.tenant_id)
     .bind(manifest_hash)
     .bind("{}")
-    .execute(state.db.pool())
+    .execute(state.db.pool_result().expect("db pool"))
     .await
     .expect("seed manifest");
 
@@ -111,7 +111,7 @@ async fn ready_model_happy_path_inference_and_routing() {
     .bind("node-1")
     .bind("node-1.local")
     .bind("http://localhost:0")
-    .execute(state.db.pool())
+    .execute(state.db.pool_result().expect("db pool"))
     .await
     .expect("seed node");
 
@@ -123,7 +123,7 @@ async fn ready_model_happy_path_inference_and_routing() {
     .bind("plan-b3")
     .bind(manifest_hash)
     .bind("layout-hash")
-    .execute(state.db.pool())
+    .execute(state.db.pool_result().expect("db pool"))
     .await
     .expect("seed plan");
 

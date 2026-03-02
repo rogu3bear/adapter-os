@@ -50,15 +50,15 @@ AOS_CONFIG_PATH="${CONFIG_DIR}/cp.toml" \
 AOS_BACKUP_ROOT="${BACKUP_ROOT}" \
 AOS_BACKUP_KEY_PATH="${KEY_PATH}" \
 AOS_BACKUP_RETENTION_DAYS=1 \
-  "${SCRIPT_DIR}/backup.sh"
+  bash "${SCRIPT_DIR}/backup.sh"
 
 AOS_BACKUP_ROOT="${BACKUP_ROOT}" \
 AOS_BACKUP_KEY_PATH="${KEY_PATH}" \
-  "${SCRIPT_DIR}/verify-backups.sh"
+  bash "${SCRIPT_DIR}/verify-backups.sh"
 
 AOS_BACKUP_ROOT="${BACKUP_ROOT}" \
 AOS_BACKUP_KEY_PATH="${KEY_PATH}" \
 AOS_TARGET_ROOT="${TARGET_ROOT}" \
-  "${SCRIPT_DIR}/test-restore.sh"
+  bash "${SCRIPT_DIR}/test-restore.sh"
 
 echo "CI smoke completed successfully"

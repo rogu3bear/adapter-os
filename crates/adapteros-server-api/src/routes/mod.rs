@@ -17,8 +17,8 @@ use crate::middleware::error_code_enforcement::ErrorCodeEnforcementLayer;
 use crate::middleware::policy_enforcement::policy_enforcement_middleware;
 use crate::middleware::versioning;
 use crate::middleware::{
-    auth_middleware, client_ip_middleware, csrf_middleware, optional_auth_middleware,
-    tenant_route_guard_middleware, worker_uid_middleware,
+    api_prefix_compat_middleware, auth_middleware, client_ip_middleware, csrf_middleware,
+    optional_auth_middleware, tenant_route_guard_middleware, worker_uid_middleware,
 };
 use crate::middleware_security::{
     cors_layer, drain_middleware, rate_limiting_middleware, request_size_limit_middleware,
@@ -244,6 +244,7 @@ use utoipa_swagger_ui::SwaggerUi;
         handlers::datasets::apply_dataset_version_trust_override,
         handlers::datasets::update_dataset_version_safety,
         handlers::datasets::delete_dataset,
+        handlers::datasets::update_dataset,
         handlers::datasets::get_dataset_files,
         handlers::datasets::get_dataset_statistics,
         handlers::datasets::validate_dataset,
@@ -306,7 +307,8 @@ use utoipa_swagger_ui::SwaggerUi;
         handlers::system_state::get_system_state,
         handlers::adapters::get_quality_metrics,
         handlers::adapters::get_adapter_metrics,
-        handlers::adapters::get_system_metrics,
+        handlers::metrics::get_system_metrics,
+        handlers::inference_metrics::get_inference_metrics_handler,
         handlers::metrics::get_code_metrics,
         handlers::metrics::compare_metrics,
         handlers::metrics_time_series::get_metrics_time_series,
@@ -495,6 +497,7 @@ use utoipa_swagger_ui::SwaggerUi;
         handlers::upsert_adapter_repository_policy,
         handlers::archive_adapter_repository,
         handlers::adapters::list_adapter_versions,
+        handlers::checkout_adapter_version_handler,
         handlers::rollback_adapter_version_handler,
         handlers::resolve_adapter_version_handler,
         handlers::create_draft_version,
@@ -723,7 +726,7 @@ use utoipa_swagger_ui::SwaggerUi;
         handlers::routing_decisions::SessionRouterViewResponse,
         handlers::routing_decisions::SessionStep,
         handlers::routing_decisions::AdapterFired,
-        handlers::diagnostics::DeterminismStatusResponse,
+        adapteros_api_types::diagnostics::DeterminismStatusResponse,
         handlers::diagnostics::QuarantineStatusResponse,
         handlers::diagnostics::QuarantinedAdapter,
         // Diagnostics run types
@@ -1850,6 +1853,10 @@ pub fn build(state: AppState) -> Router {
             get(handlers::datasets::get_dataset),
         )
         .route(
+            "/v1/datasets/{dataset_id}/adapters",
+            get(handlers::datasets::get_dataset_adapters),
+        )
+        .route(
             "/v1/datasets/{dataset_id}/versions",
             get(handlers::datasets::list_dataset_versions)
                 .post(handlers::datasets::create_dataset_version),
@@ -1869,6 +1876,10 @@ pub fn build(state: AppState) -> Router {
         .route(
             "/v1/datasets/{dataset_id}/versions/{version_id}/safety",
             post(handlers::datasets::update_dataset_version_safety),
+        )
+        .route(
+            "/v1/datasets/{dataset_id}",
+            patch(handlers::datasets::update_dataset),
         )
         .route(
             "/v1/datasets/{dataset_id}",
@@ -2118,7 +2129,11 @@ pub fn build(state: AppState) -> Router {
         )
         .route(
             "/v1/metrics/system",
-            get(handlers::adapters::get_system_metrics),
+            get(handlers::metrics::get_system_metrics),
+        )
+        .route(
+            "/v1/metrics/inference",
+            get(handlers::inference_metrics::get_inference_metrics_handler),
         )
         .route(
             "/v1/metrics/code",
@@ -2507,6 +2522,19 @@ pub fn build(state: AppState) -> Router {
             "/v1/stream/metrics",
             get(handlers::streams::system_metrics_stream),
         )
+        .route("/v1/stream/alerts", get(handlers::streams::alerts_stream))
+        .route(
+            "/v1/stream/anomalies",
+            get(handlers::streams::anomalies_stream),
+        )
+        .route(
+            "/v1/stream/dashboard",
+            get(handlers::streams::dashboard_stream),
+        )
+        .route(
+            "/v1/stream/dashboard/{dashboard_id}",
+            get(handlers::streams::dashboard_metrics_stream),
+        )
         .route(
             "/v1/stream/telemetry",
             get(handlers::streams::telemetry_events_stream),
@@ -2846,6 +2874,7 @@ pub fn build(state: AppState) -> Router {
             crate::middleware::observability_middleware,
         )) // Logging + error envelope
         .layer(CompressionLayer::new()) // Response compression (gzip, br, deflate)
+        .layer(axum::middleware::from_fn(api_prefix_compat_middleware)) // /api/v1 -> /v1 compatibility rewrite + deprecation headers
         .layer(axum::middleware::from_fn(request_id::request_id_middleware)) // Request ID tracking (outermost)
         .with_state(state.clone());
 

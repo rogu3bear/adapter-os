@@ -1047,7 +1047,7 @@ mod consensus_and_partition {
         .bind(serde_json::to_string(&isolated_peers).unwrap_or_default())
         .bind(serde_json::to_string(&reachable_peers).unwrap_or_default())
         .bind("node-0")
-        .execute(db.pool())
+        .execute(db.pool_result()?)
         .await?;
 
         // Resolve partition

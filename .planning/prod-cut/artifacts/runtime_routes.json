@@ -1,0 +1,3919 @@
+{
+  "generated_at": "2026-03-02T08:27:13.852712+00:00",
+  "routes": [
+    {
+      "domain": "slice_e_residual",
+      "excluded_from_openapi_coverage": false,
+      "route": "/admin/lifecycle/request-maintenance",
+      "shape": "/admin/lifecycle/request-maintenance"
+    },
+    {
+      "domain": "slice_e_residual",
+      "excluded_from_openapi_coverage": false,
+      "route": "/admin/lifecycle/request-shutdown",
+      "shape": "/admin/lifecycle/request-shutdown"
+    },
+    {
+      "domain": "slice_e_residual",
+      "excluded_from_openapi_coverage": false,
+      "route": "/admin/lifecycle/safe-restart",
+      "shape": "/admin/lifecycle/safe-restart"
+    },
+    {
+      "domain": "slice_e_residual",
+      "excluded_from_openapi_coverage": true,
+      "route": "/docs",
+      "shape": "/docs"
+    },
+    {
+      "domain": "slice_e_residual",
+      "excluded_from_openapi_coverage": false,
+      "route": "/healthz",
+      "shape": "/healthz"
+    },
+    {
+      "domain": "slice_e_residual",
+      "excluded_from_openapi_coverage": false,
+      "route": "/healthz/all",
+      "shape": "/healthz/all"
+    },
+    {
+      "domain": "slice_e_residual",
+      "excluded_from_openapi_coverage": false,
+      "route": "/healthz/{component}",
+      "shape": "/healthz/{}"
+    },
+    {
+      "domain": "slice_e_residual",
+      "excluded_from_openapi_coverage": true,
+      "route": "/internal/models",
+      "shape": "/internal/models"
+    },
+    {
+      "domain": "slice_e_residual",
+      "excluded_from_openapi_coverage": false,
+      "route": "/metrics",
+      "shape": "/metrics"
+    },
+    {
+      "domain": "slice_e_residual",
+      "excluded_from_openapi_coverage": false,
+      "route": "/readyz",
+      "shape": "/readyz"
+    },
+    {
+      "domain": "slice_e_residual",
+      "excluded_from_openapi_coverage": true,
+      "route": "/system/ready",
+      "shape": "/system/ready"
+    },
+    {
+      "domain": "slice_e_residual",
+      "excluded_from_openapi_coverage": false,
+      "route": "/v1/activity/events",
+      "shape": "/v1/activity/events"
+    },
+    {
+      "domain": "slice_e_residual",
+      "excluded_from_openapi_coverage": false,
+      "route": "/v1/activity/feed",
+      "shape": "/v1/activity/feed"
+    },
+    {
+      "domain": "slice_a_adapters_repos",
+      "excluded_from_openapi_coverage": false,
+      "route": "/v1/adapter-repositories",
+      "shape": "/v1/adapter-repositories"
+    },
+    {
+      "domain": "slice_a_adapters_repos",
+      "excluded_from_openapi_coverage": false,
+      "route": "/v1/adapter-repositories/{repo_id}",
+      "shape": "/v1/adapter-repositories/{}"
+    },
+    {
+      "domain": "slice_a_adapters_repos",
+      "excluded_from_openapi_coverage": false,
+      "route": "/v1/adapter-repositories/{repo_id}/archive",
+      "shape": "/v1/adapter-repositories/{}/archive"
+    },
+    {
+      "domain": "slice_a_adapters_repos",
+      "excluded_from_openapi_coverage": false,
+      "route": "/v1/adapter-repositories/{repo_id}/policy",
+      "shape": "/v1/adapter-repositories/{}/policy"
+    },
+    {
+      "domain": "slice_a_adapters_repos",
+      "excluded_from_openapi_coverage": false,
+      "route": "/v1/adapter-repositories/{repo_id}/resolve-version",
+      "shape": "/v1/adapter-repositories/{}/resolve-version"
+    },
+    {
+      "domain": "slice_a_adapters_repos",
+      "excluded_from_openapi_coverage": false,
+      "route": "/v1/adapter-repositories/{repo_id}/versions",
+      "shape": "/v1/adapter-repositories/{}/versions"
+    },
+    {
+      "domain": "slice_a_adapters_repos",
+      "excluded_from_openapi_coverage": true,
+      "route": "/v1/adapter-repositories/{repo_id}/versions/checkout",
+      "shape": "/v1/adapter-repositories/{}/versions/checkout"
+    },
+    {
+      "domain": "slice_a_adapters_repos",
+      "excluded_from_openapi_coverage": false,
+      "route": "/v1/adapter-repositories/{repo_id}/versions/rollback",
+      "shape": "/v1/adapter-repositories/{}/versions/rollback"
+    },
+    {
+      "domain": "slice_a_adapters_repos",
+      "excluded_from_openapi_coverage": false,
+      "route": "/v1/adapter-stacks",
+      "shape": "/v1/adapter-stacks"
+    },
+    {
+      "domain": "slice_a_adapters_repos",
+      "excluded_from_openapi_coverage": false,
+      "route": "/v1/adapter-stacks/deactivate",
+      "shape": "/v1/adapter-stacks/deactivate"
+    },
+    {
+      "domain": "slice_a_adapters_repos",
+      "excluded_from_openapi_coverage": false,
+      "route": "/v1/adapter-stacks/{id}",
+      "shape": "/v1/adapter-stacks/{}"
+    },
+    {
+      "domain": "slice_a_adapters_repos",
+      "excluded_from_openapi_coverage": false,
+      "route": "/v1/adapter-stacks/{id}/activate",
+      "shape": "/v1/adapter-stacks/{}/activate"
+    },
+    {
+      "domain": "slice_a_adapters_repos",
+      "excluded_from_openapi_coverage": false,
+      "route": "/v1/adapter-stacks/{id}/history",
+      "shape": "/v1/adapter-stacks/{}/history"
+    },
+    {
+      "domain": "slice_a_adapters_repos",
+      "excluded_from_openapi_coverage": false,
+      "route": "/v1/adapter-stacks/{id}/policies",
+      "shape": "/v1/adapter-stacks/{}/policies"
+    },
+    {
+      "domain": "slice_a_adapters_repos",
+      "excluded_from_openapi_coverage": false,
+      "route": "/v1/adapter-versions/draft",
+      "shape": "/v1/adapter-versions/draft"
+    },
+    {
+      "domain": "slice_a_adapters_repos",
+      "excluded_from_openapi_coverage": false,
+      "route": "/v1/adapter-versions/{version_id}",
+      "shape": "/v1/adapter-versions/{}"
+    },
+    {
+      "domain": "slice_a_adapters_repos",
+      "excluded_from_openapi_coverage": false,
+      "route": "/v1/adapter-versions/{version_id}/promote",
+      "shape": "/v1/adapter-versions/{}/promote"
+    },
+    {
+      "domain": "slice_a_adapters_repos",
+      "excluded_from_openapi_coverage": false,
+      "route": "/v1/adapter-versions/{version_id}/tag",
+      "shape": "/v1/adapter-versions/{}/tag"
+    },
+    {
+      "domain": "slice_a_adapters_repos",
+      "excluded_from_openapi_coverage": false,
+      "route": "/v1/adapter-versions/{version_id}/weight",
+      "shape": "/v1/adapter-versions/{}/weight"
+    },
+    {
+      "domain": "slice_e_residual",
+      "excluded_from_openapi_coverage": false,
+      "route": "/v1/adapteros/receipts/{digest}",
+      "shape": "/v1/adapteros/receipts/{}"
+    },
+    {
+      "domain": "slice_e_residual",
+      "excluded_from_openapi_coverage": false,
+      "route": "/v1/adapteros/replay",
+      "shape": "/v1/adapteros/replay"
+    },
+    {
+      "domain": "slice_e_residual",
+      "excluded_from_openapi_coverage": true,
+      "route": "/v1/adapteros/sessions/mint",
+      "shape": "/v1/adapteros/sessions/mint"
+    },
+    {
+      "domain": "slice_a_adapters_repos",
+      "excluded_from_openapi_coverage": false,
+      "route": "/v1/adapters",
+      "shape": "/v1/adapters"
+    },
+    {
+      "domain": "slice_a_adapters_repos",
+      "excluded_from_openapi_coverage": false,
+      "route": "/v1/adapters/category-policies",
+      "shape": "/v1/adapters/category-policies"
+    },
+    {
+      "domain": "slice_a_adapters_repos",
+      "excluded_from_openapi_coverage": false,
+      "route": "/v1/adapters/category-policies/{category}",
+      "shape": "/v1/adapters/category-policies/{}"
+    },
+    {
+      "domain": "slice_a_adapters_repos",
+      "excluded_from_openapi_coverage": false,
+      "route": "/v1/adapters/directory/upsert",
+      "shape": "/v1/adapters/directory/upsert"
+    },
+    {
+      "domain": "slice_a_adapters_repos",
+      "excluded_from_openapi_coverage": false,
+      "route": "/v1/adapters/from-dataset/{dataset_id}",
+      "shape": "/v1/adapters/from-dataset/{}"
+    },
+    {
+      "domain": "slice_a_adapters_repos",
+      "excluded_from_openapi_coverage": false,
+      "route": "/v1/adapters/import",
+      "shape": "/v1/adapters/import"
+    },
+    {
+      "domain": "slice_a_adapters_repos",
+      "excluded_from_openapi_coverage": true,
+      "route": "/v1/adapters/in-flight",
+      "shape": "/v1/adapters/in-flight"
+    },
+    {
+      "domain": "slice_a_adapters_repos",
+      "excluded_from_openapi_coverage": false,
+      "route": "/v1/adapters/next-revision/{tenant}/{domain}/{purpose}",
+      "shape": "/v1/adapters/next-revision/{}/{}/{}"
+    },
+    {
+      "domain": "slice_a_adapters_repos",
+      "excluded_from_openapi_coverage": false,
+      "route": "/v1/adapters/register",
+      "shape": "/v1/adapters/register"
+    },
+    {
+      "domain": "slice_a_adapters_repos",
+      "excluded_from_openapi_coverage": false,
+      "route": "/v1/adapters/swap",
+      "shape": "/v1/adapters/swap"
+    },
+    {
+      "domain": "slice_a_adapters_repos",
+      "excluded_from_openapi_coverage": false,
+      "route": "/v1/adapters/validate-name",
+      "shape": "/v1/adapters/validate-name"
+    },
+    {
+      "domain": "slice_a_adapters_repos",
+      "excluded_from_openapi_coverage": false,
+      "route": "/v1/adapters/verify-gpu",
+      "shape": "/v1/adapters/verify-gpu"
+    },
+    {
+      "domain": "slice_a_adapters_repos",
+      "excluded_from_openapi_coverage": false,
+      "route": "/v1/adapters/{adapter_id}",
+      "shape": "/v1/adapters/{}"
+    },
+    {
+      "domain": "slice_a_adapters_repos",
+      "excluded_from_openapi_coverage": false,
+      "route": "/v1/adapters/{adapter_id}/activate",
+      "shape": "/v1/adapters/{}/activate"
+    },
+    {
+      "domain": "slice_a_adapters_repos",
+      "excluded_from_openapi_coverage": false,
+      "route": "/v1/adapters/{adapter_id}/activations",
+      "shape": "/v1/adapters/{}/activations"
+    },
+    {
+      "domain": "slice_a_adapters_repos",
+      "excluded_from_openapi_coverage": false,
+      "route": "/v1/adapters/{adapter_id}/archive",
+      "shape": "/v1/adapters/{}/archive"
+    },
+    {
+      "domain": "slice_a_adapters_repos",
+      "excluded_from_openapi_coverage": false,
+      "route": "/v1/adapters/{adapter_id}/detail",
+      "shape": "/v1/adapters/{}/detail"
+    },
+    {
+      "domain": "slice_a_adapters_repos",
+      "excluded_from_openapi_coverage": false,
+      "route": "/v1/adapters/{adapter_id}/duplicate",
+      "shape": "/v1/adapters/{}/duplicate"
+    },
+    {
+      "domain": "slice_a_adapters_repos",
+      "excluded_from_openapi_coverage": true,
+      "route": "/v1/adapters/{adapter_id}/encryption",
+      "shape": "/v1/adapters/{}/encryption"
+    },
+    {
+      "domain": "slice_a_adapters_repos",
+      "excluded_from_openapi_coverage": false,
+      "route": "/v1/adapters/{adapter_id}/evidence",
+      "shape": "/v1/adapters/{}/evidence"
+    },
+    {
+      "domain": "slice_a_adapters_repos",
+      "excluded_from_openapi_coverage": false,
+      "route": "/v1/adapters/{adapter_id}/export",
+      "shape": "/v1/adapters/{}/export"
+    },
+    {
+      "domain": "slice_a_adapters_repos",
+      "excluded_from_openapi_coverage": false,
+      "route": "/v1/adapters/{adapter_id}/health",
+      "shape": "/v1/adapters/{}/health"
+    },
+    {
+      "domain": "slice_a_adapters_repos",
+      "excluded_from_openapi_coverage": false,
+      "route": "/v1/adapters/{adapter_id}/lifecycle/demote",
+      "shape": "/v1/adapters/{}/lifecycle/demote"
+    },
+    {
+      "domain": "slice_a_adapters_repos",
+      "excluded_from_openapi_coverage": false,
+      "route": "/v1/adapters/{adapter_id}/lifecycle/promote",
+      "shape": "/v1/adapters/{}/lifecycle/promote"
+    },
+    {
+      "domain": "slice_a_adapters_repos",
+      "excluded_from_openapi_coverage": false,
+      "route": "/v1/adapters/{adapter_id}/lineage",
+      "shape": "/v1/adapters/{}/lineage"
+    },
+    {
+      "domain": "slice_a_adapters_repos",
+      "excluded_from_openapi_coverage": false,
+      "route": "/v1/adapters/{adapter_id}/load",
+      "shape": "/v1/adapters/{}/load"
+    },
+    {
+      "domain": "slice_a_adapters_repos",
+      "excluded_from_openapi_coverage": false,
+      "route": "/v1/adapters/{adapter_id}/manifest",
+      "shape": "/v1/adapters/{}/manifest"
+    },
+    {
+      "domain": "slice_a_adapters_repos",
+      "excluded_from_openapi_coverage": false,
+      "route": "/v1/adapters/{adapter_id}/pin",
+      "shape": "/v1/adapters/{}/pin"
+    },
+    {
+      "domain": "slice_a_adapters_repos",
+      "excluded_from_openapi_coverage": true,
+      "route": "/v1/adapters/{adapter_id}/provenance",
+      "shape": "/v1/adapters/{}/provenance"
+    },
+    {
+      "domain": "slice_a_adapters_repos",
+      "excluded_from_openapi_coverage": false,
+      "route": "/v1/adapters/{adapter_id}/state/promote",
+      "shape": "/v1/adapters/{}/state/promote"
+    },
+    {
+      "domain": "slice_a_adapters_repos",
+      "excluded_from_openapi_coverage": false,
+      "route": "/v1/adapters/{adapter_id}/stats",
+      "shape": "/v1/adapters/{}/stats"
+    },
+    {
+      "domain": "slice_a_adapters_repos",
+      "excluded_from_openapi_coverage": false,
+      "route": "/v1/adapters/{adapter_id}/training-export",
+      "shape": "/v1/adapters/{}/training-export"
+    },
+    {
+      "domain": "slice_a_adapters_repos",
+      "excluded_from_openapi_coverage": false,
+      "route": "/v1/adapters/{adapter_id}/training-snapshot",
+      "shape": "/v1/adapters/{}/training-snapshot"
+    },
+    {
+      "domain": "slice_a_adapters_repos",
+      "excluded_from_openapi_coverage": false,
+      "route": "/v1/adapters/{adapter_id}/unload",
+      "shape": "/v1/adapters/{}/unload"
+    },
+    {
+      "domain": "slice_a_adapters_repos",
+      "excluded_from_openapi_coverage": false,
+      "route": "/v1/adapters/{adapter_id}/usage",
+      "shape": "/v1/adapters/{}/usage"
+    },
+    {
+      "domain": "slice_e_residual",
+      "excluded_from_openapi_coverage": false,
+      "route": "/v1/admin/config",
+      "shape": "/v1/admin/config"
+    },
+    {
+      "domain": "slice_e_residual",
+      "excluded_from_openapi_coverage": false,
+      "route": "/v1/admin/status",
+      "shape": "/v1/admin/status"
+    },
+    {
+      "domain": "slice_e_residual",
+      "excluded_from_openapi_coverage": false,
+      "route": "/v1/admin/users",
+      "shape": "/v1/admin/users"
+    },
+    {
+      "domain": "slice_e_residual",
+      "excluded_from_openapi_coverage": false,
+      "route": "/v1/admin/users/{user_id}",
+      "shape": "/v1/admin/users/{}"
+    },
+    {
+      "domain": "slice_d_auth_tenant",
+      "excluded_from_openapi_coverage": false,
+      "route": "/v1/api-keys",
+      "shape": "/v1/api-keys"
+    },
+    {
+      "domain": "slice_d_auth_tenant",
+      "excluded_from_openapi_coverage": false,
+      "route": "/v1/api-keys/{id}",
+      "shape": "/v1/api-keys/{}"
+    },
+    {
+      "domain": "slice_e_residual",
+      "excluded_from_openapi_coverage": false,
+      "route": "/v1/audit/chain",
+      "shape": "/v1/audit/chain"
+    },
+    {
+      "domain": "slice_e_residual",
+      "excluded_from_openapi_coverage": false,
+      "route": "/v1/audit/chain/verify",
+      "shape": "/v1/audit/chain/verify"
+    },
+    {
+      "domain": "slice_e_residual",
+      "excluded_from_openapi_coverage": false,
+      "route": "/v1/audit/compliance",
+      "shape": "/v1/audit/compliance"
+    },
+    {
+      "domain": "slice_e_residual",
+      "excluded_from_openapi_coverage": false,
+      "route": "/v1/audit/federation",
+      "shape": "/v1/audit/federation"
+    },
+    {
+      "domain": "slice_e_residual",
+      "excluded_from_openapi_coverage": false,
+      "route": "/v1/audit/logs",
+      "shape": "/v1/audit/logs"
+    },
+    {
+      "domain": "slice_e_residual",
+      "excluded_from_openapi_coverage": false,
+      "route": "/v1/audit/policy-decisions",
+      "shape": "/v1/audit/policy-decisions"
+    },
+    {
+      "domain": "slice_e_residual",
+      "excluded_from_openapi_coverage": false,
+      "route": "/v1/audit/policy-decisions/verify-chain",
+      "shape": "/v1/audit/policy-decisions/verify-chain"
+    },
+    {
+      "domain": "slice_e_residual",
+      "excluded_from_openapi_coverage": false,
+      "route": "/v1/audits",
+      "shape": "/v1/audits"
+    },
+    {
+      "domain": "slice_d_auth_tenant",
+      "excluded_from_openapi_coverage": false,
+      "route": "/v1/auth/bootstrap",
+      "shape": "/v1/auth/bootstrap"
+    },
+    {
+      "domain": "slice_d_auth_tenant",
+      "excluded_from_openapi_coverage": false,
+      "route": "/v1/auth/config",
+      "shape": "/v1/auth/config"
+    },
+    {
+      "domain": "slice_d_auth_tenant",
+      "excluded_from_openapi_coverage": false,
+      "route": "/v1/auth/dev-bypass",
+      "shape": "/v1/auth/dev-bypass"
+    },
+    {
+      "domain": "slice_d_auth_tenant",
+      "excluded_from_openapi_coverage": false,
+      "route": "/v1/auth/health",
+      "shape": "/v1/auth/health"
+    },
+    {
+      "domain": "slice_d_auth_tenant",
+      "excluded_from_openapi_coverage": false,
+      "route": "/v1/auth/login",
+      "shape": "/v1/auth/login"
+    },
+    {
+      "domain": "slice_d_auth_tenant",
+      "excluded_from_openapi_coverage": false,
+      "route": "/v1/auth/logout",
+      "shape": "/v1/auth/logout"
+    },
+    {
+      "domain": "slice_d_auth_tenant",
+      "excluded_from_openapi_coverage": false,
+      "route": "/v1/auth/me",
+      "shape": "/v1/auth/me"
+    },
+    {
+      "domain": "slice_d_auth_tenant",
+      "excluded_from_openapi_coverage": false,
+      "route": "/v1/auth/mfa/disable",
+      "shape": "/v1/auth/mfa/disable"
+    },
+    {
+      "domain": "slice_d_auth_tenant",
+      "excluded_from_openapi_coverage": false,
+      "route": "/v1/auth/mfa/start",
+      "shape": "/v1/auth/mfa/start"
+    },
+    {
+      "domain": "slice_d_auth_tenant",
+      "excluded_from_openapi_coverage": false,
+      "route": "/v1/auth/mfa/status",
+      "shape": "/v1/auth/mfa/status"
+    },
+    {
+      "domain": "slice_d_auth_tenant",
+      "excluded_from_openapi_coverage": false,
+      "route": "/v1/auth/mfa/verify",
+      "shape": "/v1/auth/mfa/verify"
+    },
+    {
+      "domain": "slice_d_auth_tenant",
+      "excluded_from_openapi_coverage": false,
+      "route": "/v1/auth/refresh",
+      "shape": "/v1/auth/refresh"
+    },
+    {
+      "domain": "slice_d_auth_tenant",
+      "excluded_from_openapi_coverage": false,
+      "route": "/v1/auth/register",
+      "shape": "/v1/auth/register"
+    },
+    {
+      "domain": "slice_d_auth_tenant",
+      "excluded_from_openapi_coverage": false,
+      "route": "/v1/auth/sessions",
+      "shape": "/v1/auth/sessions"
+    },
+    {
+      "domain": "slice_d_auth_tenant",
+      "excluded_from_openapi_coverage": true,
+      "route": "/v1/auth/sessions/{jti}",
+      "shape": "/v1/auth/sessions/{}"
+    },
+    {
+      "domain": "slice_d_auth_tenant",
+      "excluded_from_openapi_coverage": false,
+      "route": "/v1/auth/tenants",
+      "shape": "/v1/auth/tenants"
+    },
+    {
+      "domain": "slice_d_auth_tenant",
+      "excluded_from_openapi_coverage": false,
+      "route": "/v1/auth/tenants/switch",
+      "shape": "/v1/auth/tenants/switch"
+    },
+    {
+      "domain": "slice_e_residual",
+      "excluded_from_openapi_coverage": false,
+      "route": "/v1/batches",
+      "shape": "/v1/batches"
+    },
+    {
+      "domain": "slice_e_residual",
+      "excluded_from_openapi_coverage": false,
+      "route": "/v1/batches/{batch_id}",
+      "shape": "/v1/batches/{}"
+    },
+    {
+      "domain": "slice_e_residual",
+      "excluded_from_openapi_coverage": false,
+      "route": "/v1/batches/{batch_id}/items",
+      "shape": "/v1/batches/{}/items"
+    },
+    {
+      "domain": "slice_e_residual",
+      "excluded_from_openapi_coverage": false,
+      "route": "/v1/chat/categories",
+      "shape": "/v1/chat/categories"
+    },
+    {
+      "domain": "slice_e_residual",
+      "excluded_from_openapi_coverage": false,
+      "route": "/v1/chat/categories/{category_id}",
+      "shape": "/v1/chat/categories/{}"
+    },
+    {
+      "domain": "slice_e_residual",
+      "excluded_from_openapi_coverage": false,
+      "route": "/v1/chat/completions",
+      "shape": "/v1/chat/completions"
+    },
+    {
+      "domain": "slice_e_residual",
+      "excluded_from_openapi_coverage": false,
+      "route": "/v1/chat/messages/{message_id}/evidence",
+      "shape": "/v1/chat/messages/{}/evidence"
+    },
+    {
+      "domain": "slice_e_residual",
+      "excluded_from_openapi_coverage": false,
+      "route": "/v1/chat/sessions",
+      "shape": "/v1/chat/sessions"
+    },
+    {
+      "domain": "slice_e_residual",
+      "excluded_from_openapi_coverage": false,
+      "route": "/v1/chat/sessions/archived",
+      "shape": "/v1/chat/sessions/archived"
+    },
+    {
+      "domain": "slice_e_residual",
+      "excluded_from_openapi_coverage": false,
+      "route": "/v1/chat/sessions/search",
+      "shape": "/v1/chat/sessions/search"
+    },
+    {
+      "domain": "slice_e_residual",
+      "excluded_from_openapi_coverage": false,
+      "route": "/v1/chat/sessions/shared-with-me",
+      "shape": "/v1/chat/sessions/shared-with-me"
+    },
+    {
+      "domain": "slice_e_residual",
+      "excluded_from_openapi_coverage": false,
+      "route": "/v1/chat/sessions/trash",
+      "shape": "/v1/chat/sessions/trash"
+    },
+    {
+      "domain": "slice_e_residual",
+      "excluded_from_openapi_coverage": false,
+      "route": "/v1/chat/sessions/{session_id}",
+      "shape": "/v1/chat/sessions/{}"
+    },
+    {
+      "domain": "slice_e_residual",
+      "excluded_from_openapi_coverage": false,
+      "route": "/v1/chat/sessions/{session_id}/archive",
+      "shape": "/v1/chat/sessions/{}/archive"
+    },
+    {
+      "domain": "slice_e_residual",
+      "excluded_from_openapi_coverage": false,
+      "route": "/v1/chat/sessions/{session_id}/category",
+      "shape": "/v1/chat/sessions/{}/category"
+    },
+    {
+      "domain": "slice_e_residual",
+      "excluded_from_openapi_coverage": false,
+      "route": "/v1/chat/sessions/{session_id}/collection",
+      "shape": "/v1/chat/sessions/{}/collection"
+    },
+    {
+      "domain": "slice_e_residual",
+      "excluded_from_openapi_coverage": false,
+      "route": "/v1/chat/sessions/{session_id}/fork",
+      "shape": "/v1/chat/sessions/{}/fork"
+    },
+    {
+      "domain": "slice_e_residual",
+      "excluded_from_openapi_coverage": false,
+      "route": "/v1/chat/sessions/{session_id}/messages",
+      "shape": "/v1/chat/sessions/{}/messages"
+    },
+    {
+      "domain": "slice_e_residual",
+      "excluded_from_openapi_coverage": false,
+      "route": "/v1/chat/sessions/{session_id}/permanent",
+      "shape": "/v1/chat/sessions/{}/permanent"
+    },
+    {
+      "domain": "slice_e_residual",
+      "excluded_from_openapi_coverage": false,
+      "route": "/v1/chat/sessions/{session_id}/provenance",
+      "shape": "/v1/chat/sessions/{}/provenance"
+    },
+    {
+      "domain": "slice_e_residual",
+      "excluded_from_openapi_coverage": false,
+      "route": "/v1/chat/sessions/{session_id}/restore",
+      "shape": "/v1/chat/sessions/{}/restore"
+    },
+    {
+      "domain": "slice_e_residual",
+      "excluded_from_openapi_coverage": false,
+      "route": "/v1/chat/sessions/{session_id}/shares",
+      "shape": "/v1/chat/sessions/{}/shares"
+    },
+    {
+      "domain": "slice_e_residual",
+      "excluded_from_openapi_coverage": false,
+      "route": "/v1/chat/sessions/{session_id}/shares/{share_id}",
+      "shape": "/v1/chat/sessions/{}/shares/{}"
+    },
+    {
+      "domain": "slice_e_residual",
+      "excluded_from_openapi_coverage": false,
+      "route": "/v1/chat/sessions/{session_id}/summary",
+      "shape": "/v1/chat/sessions/{}/summary"
+    },
+    {
+      "domain": "slice_e_residual",
+      "excluded_from_openapi_coverage": false,
+      "route": "/v1/chat/sessions/{session_id}/tags",
+      "shape": "/v1/chat/sessions/{}/tags"
+    },
+    {
+      "domain": "slice_e_residual",
+      "excluded_from_openapi_coverage": false,
+      "route": "/v1/chat/sessions/{session_id}/tags/{tag_id}",
+      "shape": "/v1/chat/sessions/{}/tags/{}"
+    },
+    {
+      "domain": "slice_e_residual",
+      "excluded_from_openapi_coverage": false,
+      "route": "/v1/chat/tags",
+      "shape": "/v1/chat/tags"
+    },
+    {
+      "domain": "slice_e_residual",
+      "excluded_from_openapi_coverage": false,
+      "route": "/v1/chat/tags/{tag_id}",
+      "shape": "/v1/chat/tags/{}"
+    },
+    {
+      "domain": "slice_e_residual",
+      "excluded_from_openapi_coverage": false,
+      "route": "/v1/chats/from-training-job",
+      "shape": "/v1/chats/from-training-job"
+    },
+    {
+      "domain": "slice_e_residual",
+      "excluded_from_openapi_coverage": false,
+      "route": "/v1/cli/owner-run",
+      "shape": "/v1/cli/owner-run"
+    },
+    {
+      "domain": "slice_e_residual",
+      "excluded_from_openapi_coverage": false,
+      "route": "/v1/code-policy",
+      "shape": "/v1/code-policy"
+    },
+    {
+      "domain": "slice_e_residual",
+      "excluded_from_openapi_coverage": false,
+      "route": "/v1/code/commit-delta",
+      "shape": "/v1/code/commit-delta"
+    },
+    {
+      "domain": "slice_e_residual",
+      "excluded_from_openapi_coverage": false,
+      "route": "/v1/code/register-repo",
+      "shape": "/v1/code/register-repo"
+    },
+    {
+      "domain": "slice_e_residual",
+      "excluded_from_openapi_coverage": false,
+      "route": "/v1/code/repositories",
+      "shape": "/v1/code/repositories"
+    },
+    {
+      "domain": "slice_e_residual",
+      "excluded_from_openapi_coverage": false,
+      "route": "/v1/code/repositories/{repo_id}",
+      "shape": "/v1/code/repositories/{}"
+    },
+    {
+      "domain": "slice_e_residual",
+      "excluded_from_openapi_coverage": false,
+      "route": "/v1/code/scan",
+      "shape": "/v1/code/scan"
+    },
+    {
+      "domain": "slice_e_residual",
+      "excluded_from_openapi_coverage": false,
+      "route": "/v1/code/scan/{job_id}",
+      "shape": "/v1/code/scan/{}"
+    },
+    {
+      "domain": "slice_e_residual",
+      "excluded_from_openapi_coverage": false,
+      "route": "/v1/collections",
+      "shape": "/v1/collections"
+    },
+    {
+      "domain": "slice_e_residual",
+      "excluded_from_openapi_coverage": false,
+      "route": "/v1/collections/{id}",
+      "shape": "/v1/collections/{}"
+    },
+    {
+      "domain": "slice_e_residual",
+      "excluded_from_openapi_coverage": false,
+      "route": "/v1/collections/{id}/documents",
+      "shape": "/v1/collections/{}/documents"
+    },
+    {
+      "domain": "slice_e_residual",
+      "excluded_from_openapi_coverage": false,
+      "route": "/v1/collections/{id}/documents/{doc_id}",
+      "shape": "/v1/collections/{}/documents/{}"
+    },
+    {
+      "domain": "slice_e_residual",
+      "excluded_from_openapi_coverage": false,
+      "route": "/v1/commits",
+      "shape": "/v1/commits"
+    },
+    {
+      "domain": "slice_e_residual",
+      "excluded_from_openapi_coverage": false,
+      "route": "/v1/commits/{sha}",
+      "shape": "/v1/commits/{}"
+    },
+    {
+      "domain": "slice_e_residual",
+      "excluded_from_openapi_coverage": false,
+      "route": "/v1/commits/{sha}/diff",
+      "shape": "/v1/commits/{}/diff"
+    },
+    {
+      "domain": "slice_e_residual",
+      "excluded_from_openapi_coverage": false,
+      "route": "/v1/completions",
+      "shape": "/v1/completions"
+    },
+    {
+      "domain": "slice_e_residual",
+      "excluded_from_openapi_coverage": false,
+      "route": "/v1/contacts",
+      "shape": "/v1/contacts"
+    },
+    {
+      "domain": "slice_e_residual",
+      "excluded_from_openapi_coverage": false,
+      "route": "/v1/contacts/{id}",
+      "shape": "/v1/contacts/{}"
+    },
+    {
+      "domain": "slice_e_residual",
+      "excluded_from_openapi_coverage": false,
+      "route": "/v1/contacts/{id}/interactions",
+      "shape": "/v1/contacts/{}/interactions"
+    },
+    {
+      "domain": "slice_e_residual",
+      "excluded_from_openapi_coverage": false,
+      "route": "/v1/cp/promote",
+      "shape": "/v1/cp/promote"
+    },
+    {
+      "domain": "slice_e_residual",
+      "excluded_from_openapi_coverage": false,
+      "route": "/v1/cp/promote/dry-run",
+      "shape": "/v1/cp/promote/dry-run"
+    },
+    {
+      "domain": "slice_e_residual",
+      "excluded_from_openapi_coverage": false,
+      "route": "/v1/cp/promotion-gates/{cpid}",
+      "shape": "/v1/cp/promotion-gates/{}"
+    },
+    {
+      "domain": "slice_e_residual",
+      "excluded_from_openapi_coverage": false,
+      "route": "/v1/cp/promotions",
+      "shape": "/v1/cp/promotions"
+    },
+    {
+      "domain": "slice_e_residual",
+      "excluded_from_openapi_coverage": false,
+      "route": "/v1/cp/rollback",
+      "shape": "/v1/cp/rollback"
+    },
+    {
+      "domain": "slice_e_residual",
+      "excluded_from_openapi_coverage": false,
+      "route": "/v1/dashboard/config",
+      "shape": "/v1/dashboard/config"
+    },
+    {
+      "domain": "slice_e_residual",
+      "excluded_from_openapi_coverage": false,
+      "route": "/v1/dashboard/config/reset",
+      "shape": "/v1/dashboard/config/reset"
+    },
+    {
+      "domain": "slice_e_residual",
+      "excluded_from_openapi_coverage": false,
+      "route": "/v1/datasets",
+      "shape": "/v1/datasets"
+    },
+    {
+      "domain": "slice_e_residual",
+      "excluded_from_openapi_coverage": false,
+      "route": "/v1/datasets/by-codebase/{codebase_id}/versions",
+      "shape": "/v1/datasets/by-codebase/{}/versions"
+    },
+    {
+      "domain": "slice_e_residual",
+      "excluded_from_openapi_coverage": false,
+      "route": "/v1/datasets/chunked-upload/cleanup",
+      "shape": "/v1/datasets/chunked-upload/cleanup"
+    },
+    {
+      "domain": "slice_e_residual",
+      "excluded_from_openapi_coverage": false,
+      "route": "/v1/datasets/chunked-upload/initiate",
+      "shape": "/v1/datasets/chunked-upload/initiate"
+    },
+    {
+      "domain": "slice_e_residual",
+      "excluded_from_openapi_coverage": false,
+      "route": "/v1/datasets/chunked-upload/sessions",
+      "shape": "/v1/datasets/chunked-upload/sessions"
+    },
+    {
+      "domain": "slice_e_residual",
+      "excluded_from_openapi_coverage": false,
+      "route": "/v1/datasets/chunked-upload/{session_id}",
+      "shape": "/v1/datasets/chunked-upload/{}"
+    },
+    {
+      "domain": "slice_e_residual",
+      "excluded_from_openapi_coverage": false,
+      "route": "/v1/datasets/chunked-upload/{session_id}/chunk",
+      "shape": "/v1/datasets/chunked-upload/{}/chunk"
+    },
+    {
+      "domain": "slice_e_residual",
+      "excluded_from_openapi_coverage": false,
+      "route": "/v1/datasets/chunked-upload/{session_id}/complete",
+      "shape": "/v1/datasets/chunked-upload/{}/complete"
+    },
+    {
+      "domain": "slice_e_residual",
+      "excluded_from_openapi_coverage": false,
+      "route": "/v1/datasets/chunked-upload/{session_id}/status",
+      "shape": "/v1/datasets/chunked-upload/{}/status"
+    },
+    {
+      "domain": "slice_e_residual",
+      "excluded_from_openapi_coverage": false,
+      "route": "/v1/datasets/from-chat",
+      "shape": "/v1/datasets/from-chat"
+    },
+    {
+      "domain": "slice_e_residual",
+      "excluded_from_openapi_coverage": false,
+      "route": "/v1/datasets/from-documents",
+      "shape": "/v1/datasets/from-documents"
+    },
+    {
+      "domain": "slice_e_residual",
+      "excluded_from_openapi_coverage": false,
+      "route": "/v1/datasets/from-text",
+      "shape": "/v1/datasets/from-text"
+    },
+    {
+      "domain": "slice_e_residual",
+      "excluded_from_openapi_coverage": false,
+      "route": "/v1/datasets/synthesize",
+      "shape": "/v1/datasets/synthesize"
+    },
+    {
+      "domain": "slice_e_residual",
+      "excluded_from_openapi_coverage": true,
+      "route": "/v1/datasets/upload",
+      "shape": "/v1/datasets/upload"
+    },
+    {
+      "domain": "slice_e_residual",
+      "excluded_from_openapi_coverage": false,
+      "route": "/v1/datasets/upload/progress",
+      "shape": "/v1/datasets/upload/progress"
+    },
+    {
+      "domain": "slice_e_residual",
+      "excluded_from_openapi_coverage": false,
+      "route": "/v1/datasets/{dataset_id}",
+      "shape": "/v1/datasets/{}"
+    },
+    {
+      "domain": "slice_e_residual",
+      "excluded_from_openapi_coverage": true,
+      "route": "/v1/datasets/{dataset_id}/adapters",
+      "shape": "/v1/datasets/{}/adapters"
+    },
+    {
+      "domain": "slice_e_residual",
+      "excluded_from_openapi_coverage": false,
+      "route": "/v1/datasets/{dataset_id}/evidence",
+      "shape": "/v1/datasets/{}/evidence"
+    },
+    {
+      "domain": "slice_e_residual",
+      "excluded_from_openapi_coverage": false,
+      "route": "/v1/datasets/{dataset_id}/files",
+      "shape": "/v1/datasets/{}/files"
+    },
+    {
+      "domain": "slice_e_residual",
+      "excluded_from_openapi_coverage": false,
+      "route": "/v1/datasets/{dataset_id}/preprocess",
+      "shape": "/v1/datasets/{}/preprocess"
+    },
+    {
+      "domain": "slice_e_residual",
+      "excluded_from_openapi_coverage": false,
+      "route": "/v1/datasets/{dataset_id}/preprocess/status",
+      "shape": "/v1/datasets/{}/preprocess/status"
+    },
+    {
+      "domain": "slice_e_residual",
+      "excluded_from_openapi_coverage": false,
+      "route": "/v1/datasets/{dataset_id}/preview",
+      "shape": "/v1/datasets/{}/preview"
+    },
+    {
+      "domain": "slice_e_residual",
+      "excluded_from_openapi_coverage": false,
+      "route": "/v1/datasets/{dataset_id}/statistics",
+      "shape": "/v1/datasets/{}/statistics"
+    },
+    {
+      "domain": "slice_e_residual",
+      "excluded_from_openapi_coverage": false,
+      "route": "/v1/datasets/{dataset_id}/trust_override",
+      "shape": "/v1/datasets/{}/trust_override"
+    },
+    {
+      "domain": "slice_e_residual",
+      "excluded_from_openapi_coverage": false,
+      "route": "/v1/datasets/{dataset_id}/validate",
+      "shape": "/v1/datasets/{}/validate"
+    },
+    {
+      "domain": "slice_e_residual",
+      "excluded_from_openapi_coverage": false,
+      "route": "/v1/datasets/{dataset_id}/versions",
+      "shape": "/v1/datasets/{}/versions"
+    },
+    {
+      "domain": "slice_e_residual",
+      "excluded_from_openapi_coverage": false,
+      "route": "/v1/datasets/{dataset_id}/versions/{revision}",
+      "shape": "/v1/datasets/{}/versions/{}"
+    },
+    {
+      "domain": "slice_e_residual",
+      "excluded_from_openapi_coverage": false,
+      "route": "/v1/datasets/{dataset_id}/versions/{version_id}/safety",
+      "shape": "/v1/datasets/{}/versions/{}/safety"
+    },
+    {
+      "domain": "slice_e_residual",
+      "excluded_from_openapi_coverage": false,
+      "route": "/v1/datasets/{dataset_id}/versions/{version_id}/trust-override",
+      "shape": "/v1/datasets/{}/versions/{}/trust-override"
+    },
+    {
+      "domain": "slice_e_residual",
+      "excluded_from_openapi_coverage": false,
+      "route": "/v1/debug/coreml_verification_status",
+      "shape": "/v1/debug/coreml_verification_status"
+    },
+    {
+      "domain": "slice_e_residual",
+      "excluded_from_openapi_coverage": false,
+      "route": "/v1/dev/bootstrap",
+      "shape": "/v1/dev/bootstrap"
+    },
+    {
+      "domain": "slice_e_residual",
+      "excluded_from_openapi_coverage": false,
+      "route": "/v1/diag/bundle",
+      "shape": "/v1/diag/bundle"
+    },
+    {
+      "domain": "slice_e_residual",
+      "excluded_from_openapi_coverage": false,
+      "route": "/v1/diag/bundle/{export_id}",
+      "shape": "/v1/diag/bundle/{}"
+    },
+    {
+      "domain": "slice_e_residual",
+      "excluded_from_openapi_coverage": false,
+      "route": "/v1/diag/bundle/{export_id}/download",
+      "shape": "/v1/diag/bundle/{}/download"
+    },
+    {
+      "domain": "slice_e_residual",
+      "excluded_from_openapi_coverage": false,
+      "route": "/v1/diag/bundle/{export_id}/signature",
+      "shape": "/v1/diag/bundle/{}/signature"
+    },
+    {
+      "domain": "slice_e_residual",
+      "excluded_from_openapi_coverage": false,
+      "route": "/v1/diag/diff",
+      "shape": "/v1/diag/diff"
+    },
+    {
+      "domain": "slice_e_residual",
+      "excluded_from_openapi_coverage": false,
+      "route": "/v1/diag/export",
+      "shape": "/v1/diag/export"
+    },
+    {
+      "domain": "slice_e_residual",
+      "excluded_from_openapi_coverage": false,
+      "route": "/v1/diag/runs",
+      "shape": "/v1/diag/runs"
+    },
+    {
+      "domain": "slice_e_residual",
+      "excluded_from_openapi_coverage": false,
+      "route": "/v1/diag/runs/{trace_id}",
+      "shape": "/v1/diag/runs/{}"
+    },
+    {
+      "domain": "slice_e_residual",
+      "excluded_from_openapi_coverage": false,
+      "route": "/v1/diag/runs/{trace_id}/events",
+      "shape": "/v1/diag/runs/{}/events"
+    },
+    {
+      "domain": "slice_e_residual",
+      "excluded_from_openapi_coverage": false,
+      "route": "/v1/diagnostics/determinism-status",
+      "shape": "/v1/diagnostics/determinism-status"
+    },
+    {
+      "domain": "slice_e_residual",
+      "excluded_from_openapi_coverage": false,
+      "route": "/v1/diagnostics/quarantine-status",
+      "shape": "/v1/diagnostics/quarantine-status"
+    },
+    {
+      "domain": "slice_e_residual",
+      "excluded_from_openapi_coverage": false,
+      "route": "/v1/discrepancies",
+      "shape": "/v1/discrepancies"
+    },
+    {
+      "domain": "slice_e_residual",
+      "excluded_from_openapi_coverage": false,
+      "route": "/v1/discrepancies/export",
+      "shape": "/v1/discrepancies/export"
+    },
+    {
+      "domain": "slice_e_residual",
+      "excluded_from_openapi_coverage": false,
+      "route": "/v1/discrepancies/{id}",
+      "shape": "/v1/discrepancies/{}"
+    },
+    {
+      "domain": "slice_e_residual",
+      "excluded_from_openapi_coverage": false,
+      "route": "/v1/discrepancies/{id}/resolve",
+      "shape": "/v1/discrepancies/{}/resolve"
+    },
+    {
+      "domain": "slice_e_residual",
+      "excluded_from_openapi_coverage": false,
+      "route": "/v1/documents",
+      "shape": "/v1/documents"
+    },
+    {
+      "domain": "slice_e_residual",
+      "excluded_from_openapi_coverage": false,
+      "route": "/v1/documents/failed",
+      "shape": "/v1/documents/failed"
+    },
+    {
+      "domain": "slice_e_residual",
+      "excluded_from_openapi_coverage": false,
+      "route": "/v1/documents/upload",
+      "shape": "/v1/documents/upload"
+    },
+    {
+      "domain": "slice_e_residual",
+      "excluded_from_openapi_coverage": false,
+      "route": "/v1/documents/{id}",
+      "shape": "/v1/documents/{}"
+    },
+    {
+      "domain": "slice_e_residual",
+      "excluded_from_openapi_coverage": false,
+      "route": "/v1/documents/{id}/chunks",
+      "shape": "/v1/documents/{}/chunks"
+    },
+    {
+      "domain": "slice_e_residual",
+      "excluded_from_openapi_coverage": false,
+      "route": "/v1/documents/{id}/download",
+      "shape": "/v1/documents/{}/download"
+    },
+    {
+      "domain": "slice_e_residual",
+      "excluded_from_openapi_coverage": false,
+      "route": "/v1/documents/{id}/process",
+      "shape": "/v1/documents/{}/process"
+    },
+    {
+      "domain": "slice_e_residual",
+      "excluded_from_openapi_coverage": false,
+      "route": "/v1/documents/{id}/retry",
+      "shape": "/v1/documents/{}/retry"
+    },
+    {
+      "domain": "slice_e_residual",
+      "excluded_from_openapi_coverage": false,
+      "route": "/v1/domain-adapters",
+      "shape": "/v1/domain-adapters"
+    },
+    {
+      "domain": "slice_e_residual",
+      "excluded_from_openapi_coverage": false,
+      "route": "/v1/domain-adapters/{adapter_id}",
+      "shape": "/v1/domain-adapters/{}"
+    },
+    {
+      "domain": "slice_e_residual",
+      "excluded_from_openapi_coverage": false,
+      "route": "/v1/domain-adapters/{adapter_id}/execute",
+      "shape": "/v1/domain-adapters/{}/execute"
+    },
+    {
+      "domain": "slice_e_residual",
+      "excluded_from_openapi_coverage": false,
+      "route": "/v1/domain-adapters/{adapter_id}/load",
+      "shape": "/v1/domain-adapters/{}/load"
+    },
+    {
+      "domain": "slice_e_residual",
+      "excluded_from_openapi_coverage": false,
+      "route": "/v1/domain-adapters/{adapter_id}/manifest",
+      "shape": "/v1/domain-adapters/{}/manifest"
+    },
+    {
+      "domain": "slice_e_residual",
+      "excluded_from_openapi_coverage": false,
+      "route": "/v1/domain-adapters/{adapter_id}/test",
+      "shape": "/v1/domain-adapters/{}/test"
+    },
+    {
+      "domain": "slice_e_residual",
+      "excluded_from_openapi_coverage": false,
+      "route": "/v1/domain-adapters/{adapter_id}/unload",
+      "shape": "/v1/domain-adapters/{}/unload"
+    },
+    {
+      "domain": "slice_e_residual",
+      "excluded_from_openapi_coverage": false,
+      "route": "/v1/embeddings",
+      "shape": "/v1/embeddings"
+    },
+    {
+      "domain": "slice_e_residual",
+      "excluded_from_openapi_coverage": false,
+      "route": "/v1/embeddings/benchmarks",
+      "shape": "/v1/embeddings/benchmarks"
+    },
+    {
+      "domain": "slice_e_residual",
+      "excluded_from_openapi_coverage": false,
+      "route": "/v1/error-alerts/history",
+      "shape": "/v1/error-alerts/history"
+    },
+    {
+      "domain": "slice_e_residual",
+      "excluded_from_openapi_coverage": false,
+      "route": "/v1/error-alerts/rules",
+      "shape": "/v1/error-alerts/rules"
+    },
+    {
+      "domain": "slice_e_residual",
+      "excluded_from_openapi_coverage": false,
+      "route": "/v1/error-alerts/rules/{id}",
+      "shape": "/v1/error-alerts/rules/{}"
+    },
+    {
+      "domain": "slice_e_residual",
+      "excluded_from_openapi_coverage": false,
+      "route": "/v1/error-alerts/{id}/acknowledge",
+      "shape": "/v1/error-alerts/{}/acknowledge"
+    },
+    {
+      "domain": "slice_e_residual",
+      "excluded_from_openapi_coverage": false,
+      "route": "/v1/error-alerts/{id}/resolve",
+      "shape": "/v1/error-alerts/{}/resolve"
+    },
+    {
+      "domain": "slice_e_residual",
+      "excluded_from_openapi_coverage": false,
+      "route": "/v1/error-buckets",
+      "shape": "/v1/error-buckets"
+    },
+    {
+      "domain": "slice_e_residual",
+      "excluded_from_openapi_coverage": false,
+      "route": "/v1/errors",
+      "shape": "/v1/errors"
+    },
+    {
+      "domain": "slice_e_residual",
+      "excluded_from_openapi_coverage": false,
+      "route": "/v1/errors/{error_id}",
+      "shape": "/v1/errors/{}"
+    },
+    {
+      "domain": "slice_e_residual",
+      "excluded_from_openapi_coverage": false,
+      "route": "/v1/evidence",
+      "shape": "/v1/evidence"
+    },
+    {
+      "domain": "slice_e_residual",
+      "excluded_from_openapi_coverage": false,
+      "route": "/v1/evidence/runs/{run_id}/export",
+      "shape": "/v1/evidence/runs/{}/export"
+    },
+    {
+      "domain": "slice_e_residual",
+      "excluded_from_openapi_coverage": false,
+      "route": "/v1/evidence/{id}",
+      "shape": "/v1/evidence/{}"
+    },
+    {
+      "domain": "slice_e_residual",
+      "excluded_from_openapi_coverage": false,
+      "route": "/v1/federation/quarantine",
+      "shape": "/v1/federation/quarantine"
+    },
+    {
+      "domain": "slice_e_residual",
+      "excluded_from_openapi_coverage": false,
+      "route": "/v1/federation/release-quarantine",
+      "shape": "/v1/federation/release-quarantine"
+    },
+    {
+      "domain": "slice_e_residual",
+      "excluded_from_openapi_coverage": false,
+      "route": "/v1/federation/status",
+      "shape": "/v1/federation/status"
+    },
+    {
+      "domain": "slice_e_residual",
+      "excluded_from_openapi_coverage": false,
+      "route": "/v1/federation/sync-status",
+      "shape": "/v1/federation/sync-status"
+    },
+    {
+      "domain": "slice_e_residual",
+      "excluded_from_openapi_coverage": false,
+      "route": "/v1/filesystem/browse",
+      "shape": "/v1/filesystem/browse"
+    },
+    {
+      "domain": "slice_e_residual",
+      "excluded_from_openapi_coverage": false,
+      "route": "/v1/filesystem/content",
+      "shape": "/v1/filesystem/content"
+    },
+    {
+      "domain": "slice_e_residual",
+      "excluded_from_openapi_coverage": false,
+      "route": "/v1/fim/completions",
+      "shape": "/v1/fim/completions"
+    },
+    {
+      "domain": "slice_e_residual",
+      "excluded_from_openapi_coverage": false,
+      "route": "/v1/git/branches",
+      "shape": "/v1/git/branches"
+    },
+    {
+      "domain": "slice_e_residual",
+      "excluded_from_openapi_coverage": false,
+      "route": "/v1/git/checkout",
+      "shape": "/v1/git/checkout"
+    },
+    {
+      "domain": "slice_e_residual",
+      "excluded_from_openapi_coverage": false,
+      "route": "/v1/git/commit",
+      "shape": "/v1/git/commit"
+    },
+    {
+      "domain": "slice_e_residual",
+      "excluded_from_openapi_coverage": false,
+      "route": "/v1/git/log",
+      "shape": "/v1/git/log"
+    },
+    {
+      "domain": "slice_e_residual",
+      "excluded_from_openapi_coverage": false,
+      "route": "/v1/git/repositories",
+      "shape": "/v1/git/repositories"
+    },
+    {
+      "domain": "slice_e_residual",
+      "excluded_from_openapi_coverage": false,
+      "route": "/v1/git/repositories/{repo_id}/analysis",
+      "shape": "/v1/git/repositories/{}/analysis"
+    },
+    {
+      "domain": "slice_e_residual",
+      "excluded_from_openapi_coverage": false,
+      "route": "/v1/git/repositories/{repo_id}/train",
+      "shape": "/v1/git/repositories/{}/train"
+    },
+    {
+      "domain": "slice_e_residual",
+      "excluded_from_openapi_coverage": false,
+      "route": "/v1/git/sessions/start",
+      "shape": "/v1/git/sessions/start"
+    },
+    {
+      "domain": "slice_e_residual",
+      "excluded_from_openapi_coverage": false,
+      "route": "/v1/git/sessions/{session_id}/end",
+      "shape": "/v1/git/sessions/{}/end"
+    },
+    {
+      "domain": "slice_e_residual",
+      "excluded_from_openapi_coverage": false,
+      "route": "/v1/git/stage",
+      "shape": "/v1/git/stage"
+    },
+    {
+      "domain": "slice_e_residual",
+      "excluded_from_openapi_coverage": false,
+      "route": "/v1/git/status",
+      "shape": "/v1/git/status"
+    },
+    {
+      "domain": "slice_e_residual",
+      "excluded_from_openapi_coverage": false,
+      "route": "/v1/git/unstage",
+      "shape": "/v1/git/unstage"
+    },
+    {
+      "domain": "slice_e_residual",
+      "excluded_from_openapi_coverage": false,
+      "route": "/v1/git/working-diff",
+      "shape": "/v1/git/working-diff"
+    },
+    {
+      "domain": "slice_e_residual",
+      "excluded_from_openapi_coverage": false,
+      "route": "/v1/git/working-status",
+      "shape": "/v1/git/working-status"
+    },
+    {
+      "domain": "slice_e_residual",
+      "excluded_from_openapi_coverage": false,
+      "route": "/v1/git/working-tree/discard",
+      "shape": "/v1/git/working-tree/discard"
+    },
+    {
+      "domain": "slice_e_residual",
+      "excluded_from_openapi_coverage": false,
+      "route": "/v1/git/working-tree/stage",
+      "shape": "/v1/git/working-tree/stage"
+    },
+    {
+      "domain": "slice_e_residual",
+      "excluded_from_openapi_coverage": false,
+      "route": "/v1/git/working-tree/unstage",
+      "shape": "/v1/git/working-tree/unstage"
+    },
+    {
+      "domain": "slice_e_residual",
+      "excluded_from_openapi_coverage": false,
+      "route": "/v1/golden/compare",
+      "shape": "/v1/golden/compare"
+    },
+    {
+      "domain": "slice_e_residual",
+      "excluded_from_openapi_coverage": false,
+      "route": "/v1/golden/runs",
+      "shape": "/v1/golden/runs"
+    },
+    {
+      "domain": "slice_e_residual",
+      "excluded_from_openapi_coverage": false,
+      "route": "/v1/golden/runs/{name}",
+      "shape": "/v1/golden/runs/{}"
+    },
+    {
+      "domain": "slice_e_residual",
+      "excluded_from_openapi_coverage": false,
+      "route": "/v1/golden/{run_id}/approve",
+      "shape": "/v1/golden/{}/approve"
+    },
+    {
+      "domain": "slice_e_residual",
+      "excluded_from_openapi_coverage": false,
+      "route": "/v1/golden/{run_id}/ci-attestation",
+      "shape": "/v1/golden/{}/ci-attestation"
+    },
+    {
+      "domain": "slice_e_residual",
+      "excluded_from_openapi_coverage": false,
+      "route": "/v1/golden/{run_id}/gates",
+      "shape": "/v1/golden/{}/gates"
+    },
+    {
+      "domain": "slice_e_residual",
+      "excluded_from_openapi_coverage": false,
+      "route": "/v1/golden/{run_id}/promote",
+      "shape": "/v1/golden/{}/promote"
+    },
+    {
+      "domain": "slice_e_residual",
+      "excluded_from_openapi_coverage": false,
+      "route": "/v1/golden/{run_id}/promotion",
+      "shape": "/v1/golden/{}/promotion"
+    },
+    {
+      "domain": "slice_e_residual",
+      "excluded_from_openapi_coverage": false,
+      "route": "/v1/golden/{stage}/rollback",
+      "shape": "/v1/golden/{}/rollback"
+    },
+    {
+      "domain": "slice_e_residual",
+      "excluded_from_openapi_coverage": false,
+      "route": "/v1/infer",
+      "shape": "/v1/infer"
+    },
+    {
+      "domain": "slice_e_residual",
+      "excluded_from_openapi_coverage": false,
+      "route": "/v1/infer/batch",
+      "shape": "/v1/infer/batch"
+    },
+    {
+      "domain": "slice_e_residual",
+      "excluded_from_openapi_coverage": false,
+      "route": "/v1/infer/paused",
+      "shape": "/v1/infer/paused"
+    },
+    {
+      "domain": "slice_e_residual",
+      "excluded_from_openapi_coverage": false,
+      "route": "/v1/infer/stream",
+      "shape": "/v1/infer/stream"
+    },
+    {
+      "domain": "slice_e_residual",
+      "excluded_from_openapi_coverage": false,
+      "route": "/v1/infer/stream/progress",
+      "shape": "/v1/infer/stream/progress"
+    },
+    {
+      "domain": "slice_e_residual",
+      "excluded_from_openapi_coverage": false,
+      "route": "/v1/infer/{inference_id}/review",
+      "shape": "/v1/infer/{}/review"
+    },
+    {
+      "domain": "slice_e_residual",
+      "excluded_from_openapi_coverage": false,
+      "route": "/v1/infer/{inference_id}/state",
+      "shape": "/v1/infer/{}/state"
+    },
+    {
+      "domain": "slice_e_residual",
+      "excluded_from_openapi_coverage": false,
+      "route": "/v1/inference/{trace_id}/provenance",
+      "shape": "/v1/inference/{}/provenance"
+    },
+    {
+      "domain": "slice_e_residual",
+      "excluded_from_openapi_coverage": false,
+      "route": "/v1/invariants",
+      "shape": "/v1/invariants"
+    },
+    {
+      "domain": "slice_c_training_jobs_checkpoints",
+      "excluded_from_openapi_coverage": false,
+      "route": "/v1/jobs",
+      "shape": "/v1/jobs"
+    },
+    {
+      "domain": "slice_c_training_jobs_checkpoints",
+      "excluded_from_openapi_coverage": true,
+      "route": "/v1/jobs/{job_id}",
+      "shape": "/v1/jobs/{}"
+    },
+    {
+      "domain": "slice_e_residual",
+      "excluded_from_openapi_coverage": false,
+      "route": "/v1/logs/query",
+      "shape": "/v1/logs/query"
+    },
+    {
+      "domain": "slice_e_residual",
+      "excluded_from_openapi_coverage": false,
+      "route": "/v1/logs/stream",
+      "shape": "/v1/logs/stream"
+    },
+    {
+      "domain": "slice_e_residual",
+      "excluded_from_openapi_coverage": false,
+      "route": "/v1/memory/adapters",
+      "shape": "/v1/memory/adapters"
+    },
+    {
+      "domain": "slice_e_residual",
+      "excluded_from_openapi_coverage": false,
+      "route": "/v1/memory/uma-breakdown",
+      "shape": "/v1/memory/uma-breakdown"
+    },
+    {
+      "domain": "slice_e_residual",
+      "excluded_from_openapi_coverage": false,
+      "route": "/v1/memory/usage",
+      "shape": "/v1/memory/usage"
+    },
+    {
+      "domain": "slice_e_residual",
+      "excluded_from_openapi_coverage": false,
+      "route": "/v1/meta",
+      "shape": "/v1/meta"
+    },
+    {
+      "domain": "slice_e_residual",
+      "excluded_from_openapi_coverage": true,
+      "route": "/v1/metrics",
+      "shape": "/v1/metrics"
+    },
+    {
+      "domain": "slice_e_residual",
+      "excluded_from_openapi_coverage": false,
+      "route": "/v1/metrics/adapters",
+      "shape": "/v1/metrics/adapters"
+    },
+    {
+      "domain": "slice_e_residual",
+      "excluded_from_openapi_coverage": false,
+      "route": "/v1/metrics/code",
+      "shape": "/v1/metrics/code"
+    },
+    {
+      "domain": "slice_e_residual",
+      "excluded_from_openapi_coverage": false,
+      "route": "/v1/metrics/compare",
+      "shape": "/v1/metrics/compare"
+    },
+    {
+      "domain": "slice_e_residual",
+      "excluded_from_openapi_coverage": true,
+      "route": "/v1/metrics/current",
+      "shape": "/v1/metrics/current"
+    },
+    {
+      "domain": "slice_e_residual",
+      "excluded_from_openapi_coverage": false,
+      "route": "/v1/metrics/inference",
+      "shape": "/v1/metrics/inference"
+    },
+    {
+      "domain": "slice_e_residual",
+      "excluded_from_openapi_coverage": false,
+      "route": "/v1/metrics/quality",
+      "shape": "/v1/metrics/quality"
+    },
+    {
+      "domain": "slice_e_residual",
+      "excluded_from_openapi_coverage": false,
+      "route": "/v1/metrics/series",
+      "shape": "/v1/metrics/series"
+    },
+    {
+      "domain": "slice_e_residual",
+      "excluded_from_openapi_coverage": false,
+      "route": "/v1/metrics/snapshot",
+      "shape": "/v1/metrics/snapshot"
+    },
+    {
+      "domain": "slice_e_residual",
+      "excluded_from_openapi_coverage": false,
+      "route": "/v1/metrics/system",
+      "shape": "/v1/metrics/system"
+    },
+    {
+      "domain": "slice_e_residual",
+      "excluded_from_openapi_coverage": false,
+      "route": "/v1/metrics/time-series",
+      "shape": "/v1/metrics/time-series"
+    },
+    {
+      "domain": "slice_e_residual",
+      "excluded_from_openapi_coverage": false,
+      "route": "/v1/model-server/drain",
+      "shape": "/v1/model-server/drain"
+    },
+    {
+      "domain": "slice_e_residual",
+      "excluded_from_openapi_coverage": false,
+      "route": "/v1/model-server/status",
+      "shape": "/v1/model-server/status"
+    },
+    {
+      "domain": "slice_e_residual",
+      "excluded_from_openapi_coverage": false,
+      "route": "/v1/model-server/warmup",
+      "shape": "/v1/model-server/warmup"
+    },
+    {
+      "domain": "slice_e_residual",
+      "excluded_from_openapi_coverage": false,
+      "route": "/v1/models",
+      "shape": "/v1/models"
+    },
+    {
+      "domain": "slice_e_residual",
+      "excluded_from_openapi_coverage": false,
+      "route": "/v1/models/download-progress",
+      "shape": "/v1/models/download-progress"
+    },
+    {
+      "domain": "slice_e_residual",
+      "excluded_from_openapi_coverage": false,
+      "route": "/v1/models/import",
+      "shape": "/v1/models/import"
+    },
+    {
+      "domain": "slice_e_residual",
+      "excluded_from_openapi_coverage": false,
+      "route": "/v1/models/status",
+      "shape": "/v1/models/status"
+    },
+    {
+      "domain": "slice_e_residual",
+      "excluded_from_openapi_coverage": false,
+      "route": "/v1/models/status/all",
+      "shape": "/v1/models/status/all"
+    },
+    {
+      "domain": "slice_e_residual",
+      "excluded_from_openapi_coverage": false,
+      "route": "/v1/models/{model_id}",
+      "shape": "/v1/models/{}"
+    },
+    {
+      "domain": "slice_e_residual",
+      "excluded_from_openapi_coverage": false,
+      "route": "/v1/models/{model_id}/load",
+      "shape": "/v1/models/{}/load"
+    },
+    {
+      "domain": "slice_e_residual",
+      "excluded_from_openapi_coverage": false,
+      "route": "/v1/models/{model_id}/status",
+      "shape": "/v1/models/{}/status"
+    },
+    {
+      "domain": "slice_e_residual",
+      "excluded_from_openapi_coverage": false,
+      "route": "/v1/models/{model_id}/unload",
+      "shape": "/v1/models/{}/unload"
+    },
+    {
+      "domain": "slice_e_residual",
+      "excluded_from_openapi_coverage": false,
+      "route": "/v1/models/{model_id}/validate",
+      "shape": "/v1/models/{}/validate"
+    },
+    {
+      "domain": "slice_e_residual",
+      "excluded_from_openapi_coverage": false,
+      "route": "/v1/monitoring/alerts",
+      "shape": "/v1/monitoring/alerts"
+    },
+    {
+      "domain": "slice_e_residual",
+      "excluded_from_openapi_coverage": false,
+      "route": "/v1/monitoring/alerts/{alert_id}/acknowledge",
+      "shape": "/v1/monitoring/alerts/{}/acknowledge"
+    },
+    {
+      "domain": "slice_e_residual",
+      "excluded_from_openapi_coverage": false,
+      "route": "/v1/monitoring/alerts/{alert_id}/resolve",
+      "shape": "/v1/monitoring/alerts/{}/resolve"
+    },
+    {
+      "domain": "slice_e_residual",
+      "excluded_from_openapi_coverage": false,
+      "route": "/v1/monitoring/anomalies",
+      "shape": "/v1/monitoring/anomalies"
+    },
+    {
+      "domain": "slice_e_residual",
+      "excluded_from_openapi_coverage": false,
+      "route": "/v1/monitoring/anomalies/{anomaly_id}/status",
+      "shape": "/v1/monitoring/anomalies/{}/status"
+    },
+    {
+      "domain": "slice_e_residual",
+      "excluded_from_openapi_coverage": false,
+      "route": "/v1/monitoring/dashboards",
+      "shape": "/v1/monitoring/dashboards"
+    },
+    {
+      "domain": "slice_e_residual",
+      "excluded_from_openapi_coverage": false,
+      "route": "/v1/monitoring/health-metrics",
+      "shape": "/v1/monitoring/health-metrics"
+    },
+    {
+      "domain": "slice_e_residual",
+      "excluded_from_openapi_coverage": false,
+      "route": "/v1/monitoring/reports",
+      "shape": "/v1/monitoring/reports"
+    },
+    {
+      "domain": "slice_e_residual",
+      "excluded_from_openapi_coverage": false,
+      "route": "/v1/monitoring/rules",
+      "shape": "/v1/monitoring/rules"
+    },
+    {
+      "domain": "slice_e_residual",
+      "excluded_from_openapi_coverage": false,
+      "route": "/v1/monitoring/rules/{rule_id}",
+      "shape": "/v1/monitoring/rules/{}"
+    },
+    {
+      "domain": "slice_e_residual",
+      "excluded_from_openapi_coverage": false,
+      "route": "/v1/nodes",
+      "shape": "/v1/nodes"
+    },
+    {
+      "domain": "slice_e_residual",
+      "excluded_from_openapi_coverage": false,
+      "route": "/v1/nodes/register",
+      "shape": "/v1/nodes/register"
+    },
+    {
+      "domain": "slice_e_residual",
+      "excluded_from_openapi_coverage": false,
+      "route": "/v1/nodes/{node_id}",
+      "shape": "/v1/nodes/{}"
+    },
+    {
+      "domain": "slice_e_residual",
+      "excluded_from_openapi_coverage": false,
+      "route": "/v1/nodes/{node_id}/details",
+      "shape": "/v1/nodes/{}/details"
+    },
+    {
+      "domain": "slice_e_residual",
+      "excluded_from_openapi_coverage": false,
+      "route": "/v1/nodes/{node_id}/offline",
+      "shape": "/v1/nodes/{}/offline"
+    },
+    {
+      "domain": "slice_e_residual",
+      "excluded_from_openapi_coverage": false,
+      "route": "/v1/nodes/{node_id}/ping",
+      "shape": "/v1/nodes/{}/ping"
+    },
+    {
+      "domain": "slice_e_residual",
+      "excluded_from_openapi_coverage": false,
+      "route": "/v1/notifications",
+      "shape": "/v1/notifications"
+    },
+    {
+      "domain": "slice_e_residual",
+      "excluded_from_openapi_coverage": false,
+      "route": "/v1/notifications/read-all",
+      "shape": "/v1/notifications/read-all"
+    },
+    {
+      "domain": "slice_e_residual",
+      "excluded_from_openapi_coverage": false,
+      "route": "/v1/notifications/summary",
+      "shape": "/v1/notifications/summary"
+    },
+    {
+      "domain": "slice_e_residual",
+      "excluded_from_openapi_coverage": false,
+      "route": "/v1/notifications/{notification_id}/read",
+      "shape": "/v1/notifications/{}/read"
+    },
+    {
+      "domain": "slice_e_residual",
+      "excluded_from_openapi_coverage": false,
+      "route": "/v1/orchestration/analyze",
+      "shape": "/v1/orchestration/analyze"
+    },
+    {
+      "domain": "slice_e_residual",
+      "excluded_from_openapi_coverage": false,
+      "route": "/v1/orchestration/config",
+      "shape": "/v1/orchestration/config"
+    },
+    {
+      "domain": "slice_e_residual",
+      "excluded_from_openapi_coverage": false,
+      "route": "/v1/orchestration/metrics",
+      "shape": "/v1/orchestration/metrics"
+    },
+    {
+      "domain": "slice_e_residual",
+      "excluded_from_openapi_coverage": false,
+      "route": "/v1/orchestration/sessions",
+      "shape": "/v1/orchestration/sessions"
+    },
+    {
+      "domain": "slice_e_residual",
+      "excluded_from_openapi_coverage": false,
+      "route": "/v1/patch/propose",
+      "shape": "/v1/patch/propose"
+    },
+    {
+      "domain": "slice_e_residual",
+      "excluded_from_openapi_coverage": false,
+      "route": "/v1/plans",
+      "shape": "/v1/plans"
+    },
+    {
+      "domain": "slice_e_residual",
+      "excluded_from_openapi_coverage": false,
+      "route": "/v1/plans/build",
+      "shape": "/v1/plans/build"
+    },
+    {
+      "domain": "slice_e_residual",
+      "excluded_from_openapi_coverage": false,
+      "route": "/v1/plans/compare",
+      "shape": "/v1/plans/compare"
+    },
+    {
+      "domain": "slice_e_residual",
+      "excluded_from_openapi_coverage": false,
+      "route": "/v1/plans/{plan_id}/details",
+      "shape": "/v1/plans/{}/details"
+    },
+    {
+      "domain": "slice_e_residual",
+      "excluded_from_openapi_coverage": false,
+      "route": "/v1/plans/{plan_id}/manifest",
+      "shape": "/v1/plans/{}/manifest"
+    },
+    {
+      "domain": "slice_e_residual",
+      "excluded_from_openapi_coverage": false,
+      "route": "/v1/plans/{plan_id}/rebuild",
+      "shape": "/v1/plans/{}/rebuild"
+    },
+    {
+      "domain": "slice_e_residual",
+      "excluded_from_openapi_coverage": false,
+      "route": "/v1/plugins",
+      "shape": "/v1/plugins"
+    },
+    {
+      "domain": "slice_e_residual",
+      "excluded_from_openapi_coverage": false,
+      "route": "/v1/plugins/{name}",
+      "shape": "/v1/plugins/{}"
+    },
+    {
+      "domain": "slice_e_residual",
+      "excluded_from_openapi_coverage": false,
+      "route": "/v1/plugins/{name}/disable",
+      "shape": "/v1/plugins/{}/disable"
+    },
+    {
+      "domain": "slice_e_residual",
+      "excluded_from_openapi_coverage": false,
+      "route": "/v1/plugins/{name}/enable",
+      "shape": "/v1/plugins/{}/enable"
+    },
+    {
+      "domain": "slice_e_residual",
+      "excluded_from_openapi_coverage": false,
+      "route": "/v1/policies",
+      "shape": "/v1/policies"
+    },
+    {
+      "domain": "slice_e_residual",
+      "excluded_from_openapi_coverage": false,
+      "route": "/v1/policies/apply",
+      "shape": "/v1/policies/apply"
+    },
+    {
+      "domain": "slice_e_residual",
+      "excluded_from_openapi_coverage": false,
+      "route": "/v1/policies/assign",
+      "shape": "/v1/policies/assign"
+    },
+    {
+      "domain": "slice_e_residual",
+      "excluded_from_openapi_coverage": false,
+      "route": "/v1/policies/assignments",
+      "shape": "/v1/policies/assignments"
+    },
+    {
+      "domain": "slice_e_residual",
+      "excluded_from_openapi_coverage": false,
+      "route": "/v1/policies/compare",
+      "shape": "/v1/policies/compare"
+    },
+    {
+      "domain": "slice_e_residual",
+      "excluded_from_openapi_coverage": false,
+      "route": "/v1/policies/validate",
+      "shape": "/v1/policies/validate"
+    },
+    {
+      "domain": "slice_e_residual",
+      "excluded_from_openapi_coverage": false,
+      "route": "/v1/policies/violations",
+      "shape": "/v1/policies/violations"
+    },
+    {
+      "domain": "slice_e_residual",
+      "excluded_from_openapi_coverage": false,
+      "route": "/v1/policies/{cpid}",
+      "shape": "/v1/policies/{}"
+    },
+    {
+      "domain": "slice_e_residual",
+      "excluded_from_openapi_coverage": false,
+      "route": "/v1/policies/{cpid}/export",
+      "shape": "/v1/policies/{}/export"
+    },
+    {
+      "domain": "slice_e_residual",
+      "excluded_from_openapi_coverage": false,
+      "route": "/v1/policies/{cpid}/sign",
+      "shape": "/v1/policies/{}/sign"
+    },
+    {
+      "domain": "slice_e_residual",
+      "excluded_from_openapi_coverage": false,
+      "route": "/v1/policies/{cpid}/verify",
+      "shape": "/v1/policies/{}/verify"
+    },
+    {
+      "domain": "slice_e_residual",
+      "excluded_from_openapi_coverage": false,
+      "route": "/v1/policy/quarantine/clear",
+      "shape": "/v1/policy/quarantine/clear"
+    },
+    {
+      "domain": "slice_e_residual",
+      "excluded_from_openapi_coverage": false,
+      "route": "/v1/policy/quarantine/rollback",
+      "shape": "/v1/policy/quarantine/rollback"
+    },
+    {
+      "domain": "slice_e_residual",
+      "excluded_from_openapi_coverage": false,
+      "route": "/v1/policy/quarantine/status",
+      "shape": "/v1/policy/quarantine/status"
+    },
+    {
+      "domain": "slice_e_residual",
+      "excluded_from_openapi_coverage": true,
+      "route": "/v1/prefix-templates",
+      "shape": "/v1/prefix-templates"
+    },
+    {
+      "domain": "slice_e_residual",
+      "excluded_from_openapi_coverage": true,
+      "route": "/v1/prefix-templates/{template_id}",
+      "shape": "/v1/prefix-templates/{}"
+    },
+    {
+      "domain": "slice_e_residual",
+      "excluded_from_openapi_coverage": false,
+      "route": "/v1/promotions/{id}",
+      "shape": "/v1/promotions/{}"
+    },
+    {
+      "domain": "slice_b_stacks_provenance_security",
+      "excluded_from_openapi_coverage": true,
+      "route": "/v1/provenance/{certificate_id}",
+      "shape": "/v1/provenance/{}"
+    },
+    {
+      "domain": "slice_b_stacks_provenance_security",
+      "excluded_from_openapi_coverage": false,
+      "route": "/v1/provenance/{certificate_id}/verify",
+      "shape": "/v1/provenance/{}/verify"
+    },
+    {
+      "domain": "slice_e_residual",
+      "excluded_from_openapi_coverage": false,
+      "route": "/v1/registry/status",
+      "shape": "/v1/registry/status"
+    },
+    {
+      "domain": "slice_e_residual",
+      "excluded_from_openapi_coverage": false,
+      "route": "/v1/replay",
+      "shape": "/v1/replay"
+    },
+    {
+      "domain": "slice_e_residual",
+      "excluded_from_openapi_coverage": false,
+      "route": "/v1/replay/check/{inference_id}",
+      "shape": "/v1/replay/check/{}"
+    },
+    {
+      "domain": "slice_e_residual",
+      "excluded_from_openapi_coverage": false,
+      "route": "/v1/replay/history/{inference_id}",
+      "shape": "/v1/replay/history/{}"
+    },
+    {
+      "domain": "slice_e_residual",
+      "excluded_from_openapi_coverage": false,
+      "route": "/v1/replay/sessions",
+      "shape": "/v1/replay/sessions"
+    },
+    {
+      "domain": "slice_e_residual",
+      "excluded_from_openapi_coverage": false,
+      "route": "/v1/replay/sessions/{id}",
+      "shape": "/v1/replay/sessions/{}"
+    },
+    {
+      "domain": "slice_e_residual",
+      "excluded_from_openapi_coverage": false,
+      "route": "/v1/replay/sessions/{id}/execute",
+      "shape": "/v1/replay/sessions/{}/execute"
+    },
+    {
+      "domain": "slice_e_residual",
+      "excluded_from_openapi_coverage": false,
+      "route": "/v1/replay/sessions/{id}/verify",
+      "shape": "/v1/replay/sessions/{}/verify"
+    },
+    {
+      "domain": "slice_e_residual",
+      "excluded_from_openapi_coverage": false,
+      "route": "/v1/replay/verify/bundle",
+      "shape": "/v1/replay/verify/bundle"
+    },
+    {
+      "domain": "slice_e_residual",
+      "excluded_from_openapi_coverage": false,
+      "route": "/v1/replay/verify/trace",
+      "shape": "/v1/replay/verify/trace"
+    },
+    {
+      "domain": "slice_a_adapters_repos",
+      "excluded_from_openapi_coverage": false,
+      "route": "/v1/repos",
+      "shape": "/v1/repos"
+    },
+    {
+      "domain": "slice_a_adapters_repos",
+      "excluded_from_openapi_coverage": false,
+      "route": "/v1/repos/{repo_id}",
+      "shape": "/v1/repos/{}"
+    },
+    {
+      "domain": "slice_a_adapters_repos",
+      "excluded_from_openapi_coverage": true,
+      "route": "/v1/repos/{repo_id}/rollback/{branch}",
+      "shape": "/v1/repos/{}/rollback/{}"
+    },
+    {
+      "domain": "slice_a_adapters_repos",
+      "excluded_from_openapi_coverage": false,
+      "route": "/v1/repos/{repo_id}/timeline",
+      "shape": "/v1/repos/{}/timeline"
+    },
+    {
+      "domain": "slice_a_adapters_repos",
+      "excluded_from_openapi_coverage": false,
+      "route": "/v1/repos/{repo_id}/training-jobs",
+      "shape": "/v1/repos/{}/training-jobs"
+    },
+    {
+      "domain": "slice_a_adapters_repos",
+      "excluded_from_openapi_coverage": false,
+      "route": "/v1/repos/{repo_id}/versions",
+      "shape": "/v1/repos/{}/versions"
+    },
+    {
+      "domain": "slice_a_adapters_repos",
+      "excluded_from_openapi_coverage": false,
+      "route": "/v1/repos/{repo_id}/versions/{version_id}",
+      "shape": "/v1/repos/{}/versions/{}"
+    },
+    {
+      "domain": "slice_a_adapters_repos",
+      "excluded_from_openapi_coverage": false,
+      "route": "/v1/repos/{repo_id}/versions/{version_id}/promote",
+      "shape": "/v1/repos/{}/versions/{}/promote"
+    },
+    {
+      "domain": "slice_a_adapters_repos",
+      "excluded_from_openapi_coverage": false,
+      "route": "/v1/repos/{repo_id}/versions/{version_id}/tag",
+      "shape": "/v1/repos/{}/versions/{}/tag"
+    },
+    {
+      "domain": "slice_a_adapters_repos",
+      "excluded_from_openapi_coverage": false,
+      "route": "/v1/repos/{repo_id}/versions/{version_id}/train",
+      "shape": "/v1/repos/{}/versions/{}/train"
+    },
+    {
+      "domain": "slice_a_adapters_repos",
+      "excluded_from_openapi_coverage": false,
+      "route": "/v1/repositories",
+      "shape": "/v1/repositories"
+    },
+    {
+      "domain": "slice_e_residual",
+      "excluded_from_openapi_coverage": false,
+      "route": "/v1/reviews/paused",
+      "shape": "/v1/reviews/paused"
+    },
+    {
+      "domain": "slice_e_residual",
+      "excluded_from_openapi_coverage": false,
+      "route": "/v1/reviews/submit",
+      "shape": "/v1/reviews/submit"
+    },
+    {
+      "domain": "slice_e_residual",
+      "excluded_from_openapi_coverage": false,
+      "route": "/v1/reviews/{pause_id}",
+      "shape": "/v1/reviews/{}"
+    },
+    {
+      "domain": "slice_e_residual",
+      "excluded_from_openapi_coverage": false,
+      "route": "/v1/reviews/{pause_id}/context",
+      "shape": "/v1/reviews/{}/context"
+    },
+    {
+      "domain": "slice_e_residual",
+      "excluded_from_openapi_coverage": false,
+      "route": "/v1/routing-rules",
+      "shape": "/v1/routing-rules"
+    },
+    {
+      "domain": "slice_e_residual",
+      "excluded_from_openapi_coverage": false,
+      "route": "/v1/routing-rules/identity/{identity_dataset_id}",
+      "shape": "/v1/routing-rules/identity/{}"
+    },
+    {
+      "domain": "slice_e_residual",
+      "excluded_from_openapi_coverage": false,
+      "route": "/v1/routing-rules/{rule_id}",
+      "shape": "/v1/routing-rules/{}"
+    },
+    {
+      "domain": "slice_e_residual",
+      "excluded_from_openapi_coverage": false,
+      "route": "/v1/routing/chain",
+      "shape": "/v1/routing/chain"
+    },
+    {
+      "domain": "slice_e_residual",
+      "excluded_from_openapi_coverage": false,
+      "route": "/v1/routing/debug",
+      "shape": "/v1/routing/debug"
+    },
+    {
+      "domain": "slice_e_residual",
+      "excluded_from_openapi_coverage": false,
+      "route": "/v1/routing/decisions",
+      "shape": "/v1/routing/decisions"
+    },
+    {
+      "domain": "slice_e_residual",
+      "excluded_from_openapi_coverage": false,
+      "route": "/v1/routing/decisions/{id}",
+      "shape": "/v1/routing/decisions/{}"
+    },
+    {
+      "domain": "slice_e_residual",
+      "excluded_from_openapi_coverage": false,
+      "route": "/v1/routing/history",
+      "shape": "/v1/routing/history"
+    },
+    {
+      "domain": "slice_e_residual",
+      "excluded_from_openapi_coverage": false,
+      "route": "/v1/routing/sessions/{request_id}",
+      "shape": "/v1/routing/sessions/{}"
+    },
+    {
+      "domain": "slice_e_residual",
+      "excluded_from_openapi_coverage": false,
+      "route": "/v1/runs/{run_id}/evidence",
+      "shape": "/v1/runs/{}/evidence"
+    },
+    {
+      "domain": "slice_e_residual",
+      "excluded_from_openapi_coverage": false,
+      "route": "/v1/runtime/session",
+      "shape": "/v1/runtime/session"
+    },
+    {
+      "domain": "slice_e_residual",
+      "excluded_from_openapi_coverage": false,
+      "route": "/v1/runtime/sessions",
+      "shape": "/v1/runtime/sessions"
+    },
+    {
+      "domain": "slice_e_residual",
+      "excluded_from_openapi_coverage": false,
+      "route": "/v1/search",
+      "shape": "/v1/search"
+    },
+    {
+      "domain": "slice_b_stacks_provenance_security",
+      "excluded_from_openapi_coverage": true,
+      "route": "/v1/security/key-rotations",
+      "shape": "/v1/security/key-rotations"
+    },
+    {
+      "domain": "slice_e_residual",
+      "excluded_from_openapi_coverage": false,
+      "route": "/v1/services/essential/start",
+      "shape": "/v1/services/essential/start"
+    },
+    {
+      "domain": "slice_e_residual",
+      "excluded_from_openapi_coverage": false,
+      "route": "/v1/services/essential/stop",
+      "shape": "/v1/services/essential/stop"
+    },
+    {
+      "domain": "slice_e_residual",
+      "excluded_from_openapi_coverage": false,
+      "route": "/v1/services/{service_id}/logs",
+      "shape": "/v1/services/{}/logs"
+    },
+    {
+      "domain": "slice_e_residual",
+      "excluded_from_openapi_coverage": false,
+      "route": "/v1/services/{service_id}/restart",
+      "shape": "/v1/services/{}/restart"
+    },
+    {
+      "domain": "slice_e_residual",
+      "excluded_from_openapi_coverage": false,
+      "route": "/v1/services/{service_id}/start",
+      "shape": "/v1/services/{}/start"
+    },
+    {
+      "domain": "slice_e_residual",
+      "excluded_from_openapi_coverage": false,
+      "route": "/v1/services/{service_id}/stop",
+      "shape": "/v1/services/{}/stop"
+    },
+    {
+      "domain": "slice_e_residual",
+      "excluded_from_openapi_coverage": false,
+      "route": "/v1/settings",
+      "shape": "/v1/settings"
+    },
+    {
+      "domain": "slice_e_residual",
+      "excluded_from_openapi_coverage": false,
+      "route": "/v1/setup/migrate",
+      "shape": "/v1/setup/migrate"
+    },
+    {
+      "domain": "slice_e_residual",
+      "excluded_from_openapi_coverage": false,
+      "route": "/v1/setup/models/discover",
+      "shape": "/v1/setup/models/discover"
+    },
+    {
+      "domain": "slice_e_residual",
+      "excluded_from_openapi_coverage": false,
+      "route": "/v1/setup/models/seed",
+      "shape": "/v1/setup/models/seed"
+    },
+    {
+      "domain": "slice_b_stacks_provenance_security",
+      "excluded_from_openapi_coverage": false,
+      "route": "/v1/stacks/validate-name",
+      "shape": "/v1/stacks/validate-name"
+    },
+    {
+      "domain": "slice_e_residual",
+      "excluded_from_openapi_coverage": false,
+      "route": "/v1/status",
+      "shape": "/v1/status"
+    },
+    {
+      "domain": "slice_e_residual",
+      "excluded_from_openapi_coverage": false,
+      "route": "/v1/storage/kv-isolation/health",
+      "shape": "/v1/storage/kv-isolation/health"
+    },
+    {
+      "domain": "slice_e_residual",
+      "excluded_from_openapi_coverage": false,
+      "route": "/v1/storage/kv-isolation/scan",
+      "shape": "/v1/storage/kv-isolation/scan"
+    },
+    {
+      "domain": "slice_e_residual",
+      "excluded_from_openapi_coverage": false,
+      "route": "/v1/storage/mode",
+      "shape": "/v1/storage/mode"
+    },
+    {
+      "domain": "slice_e_residual",
+      "excluded_from_openapi_coverage": false,
+      "route": "/v1/storage/stats",
+      "shape": "/v1/storage/stats"
+    },
+    {
+      "domain": "slice_e_residual",
+      "excluded_from_openapi_coverage": false,
+      "route": "/v1/storage/tenant-usage",
+      "shape": "/v1/storage/tenant-usage"
+    },
+    {
+      "domain": "slice_e_residual",
+      "excluded_from_openapi_coverage": false,
+      "route": "/v1/stream/activity/{workspace_id}",
+      "shape": "/v1/stream/activity/{}"
+    },
+    {
+      "domain": "slice_e_residual",
+      "excluded_from_openapi_coverage": false,
+      "route": "/v1/stream/adapters",
+      "shape": "/v1/stream/adapters"
+    },
+    {
+      "domain": "slice_e_residual",
+      "excluded_from_openapi_coverage": true,
+      "route": "/v1/stream/alerts",
+      "shape": "/v1/stream/alerts"
+    },
+    {
+      "domain": "slice_e_residual",
+      "excluded_from_openapi_coverage": true,
+      "route": "/v1/stream/anomalies",
+      "shape": "/v1/stream/anomalies"
+    },
+    {
+      "domain": "slice_e_residual",
+      "excluded_from_openapi_coverage": false,
+      "route": "/v1/stream/boot-progress",
+      "shape": "/v1/stream/boot-progress"
+    },
+    {
+      "domain": "slice_e_residual",
+      "excluded_from_openapi_coverage": false,
+      "route": "/v1/stream/client-errors",
+      "shape": "/v1/stream/client-errors"
+    },
+    {
+      "domain": "slice_e_residual",
+      "excluded_from_openapi_coverage": false,
+      "route": "/v1/stream/contacts",
+      "shape": "/v1/stream/contacts"
+    },
+    {
+      "domain": "slice_e_residual",
+      "excluded_from_openapi_coverage": true,
+      "route": "/v1/stream/dashboard",
+      "shape": "/v1/stream/dashboard"
+    },
+    {
+      "domain": "slice_e_residual",
+      "excluded_from_openapi_coverage": true,
+      "route": "/v1/stream/dashboard/{dashboard_id}",
+      "shape": "/v1/stream/dashboard/{}"
+    },
+    {
+      "domain": "slice_e_residual",
+      "excluded_from_openapi_coverage": false,
+      "route": "/v1/stream/discovery",
+      "shape": "/v1/stream/discovery"
+    },
+    {
+      "domain": "slice_e_residual",
+      "excluded_from_openapi_coverage": false,
+      "route": "/v1/stream/file-changes",
+      "shape": "/v1/stream/file-changes"
+    },
+    {
+      "domain": "slice_e_residual",
+      "excluded_from_openapi_coverage": false,
+      "route": "/v1/stream/messages/{workspace_id}",
+      "shape": "/v1/stream/messages/{}"
+    },
+    {
+      "domain": "slice_e_residual",
+      "excluded_from_openapi_coverage": false,
+      "route": "/v1/stream/metrics",
+      "shape": "/v1/stream/metrics"
+    },
+    {
+      "domain": "slice_e_residual",
+      "excluded_from_openapi_coverage": false,
+      "route": "/v1/stream/notifications",
+      "shape": "/v1/stream/notifications"
+    },
+    {
+      "domain": "slice_e_residual",
+      "excluded_from_openapi_coverage": false,
+      "route": "/v1/stream/reviews",
+      "shape": "/v1/stream/reviews"
+    },
+    {
+      "domain": "slice_e_residual",
+      "excluded_from_openapi_coverage": false,
+      "route": "/v1/stream/stack-policies/{id}",
+      "shape": "/v1/stream/stack-policies/{}"
+    },
+    {
+      "domain": "slice_e_residual",
+      "excluded_from_openapi_coverage": false,
+      "route": "/v1/stream/telemetry",
+      "shape": "/v1/stream/telemetry"
+    },
+    {
+      "domain": "slice_e_residual",
+      "excluded_from_openapi_coverage": false,
+      "route": "/v1/stream/trace-receipts",
+      "shape": "/v1/stream/trace-receipts"
+    },
+    {
+      "domain": "slice_e_residual",
+      "excluded_from_openapi_coverage": false,
+      "route": "/v1/stream/training",
+      "shape": "/v1/stream/training"
+    },
+    {
+      "domain": "slice_e_residual",
+      "excluded_from_openapi_coverage": false,
+      "route": "/v1/stream/workers",
+      "shape": "/v1/stream/workers"
+    },
+    {
+      "domain": "slice_e_residual",
+      "excluded_from_openapi_coverage": true,
+      "route": "/v1/streams/contacts",
+      "shape": "/v1/streams/contacts"
+    },
+    {
+      "domain": "slice_e_residual",
+      "excluded_from_openapi_coverage": true,
+      "route": "/v1/streams/discovery",
+      "shape": "/v1/streams/discovery"
+    },
+    {
+      "domain": "slice_e_residual",
+      "excluded_from_openapi_coverage": true,
+      "route": "/v1/streams/file-changes",
+      "shape": "/v1/streams/file-changes"
+    },
+    {
+      "domain": "slice_e_residual",
+      "excluded_from_openapi_coverage": true,
+      "route": "/v1/streams/training",
+      "shape": "/v1/streams/training"
+    },
+    {
+      "domain": "slice_e_residual",
+      "excluded_from_openapi_coverage": false,
+      "route": "/v1/system/boot-attestation",
+      "shape": "/v1/system/boot-attestation"
+    },
+    {
+      "domain": "slice_e_residual",
+      "excluded_from_openapi_coverage": false,
+      "route": "/v1/system/integrity",
+      "shape": "/v1/system/integrity"
+    },
+    {
+      "domain": "slice_e_residual",
+      "excluded_from_openapi_coverage": false,
+      "route": "/v1/system/memory",
+      "shape": "/v1/system/memory"
+    },
+    {
+      "domain": "slice_e_residual",
+      "excluded_from_openapi_coverage": false,
+      "route": "/v1/system/memory/gpu",
+      "shape": "/v1/system/memory/gpu"
+    },
+    {
+      "domain": "slice_e_residual",
+      "excluded_from_openapi_coverage": false,
+      "route": "/v1/system/overview",
+      "shape": "/v1/system/overview"
+    },
+    {
+      "domain": "slice_e_residual",
+      "excluded_from_openapi_coverage": false,
+      "route": "/v1/system/pilot-status",
+      "shape": "/v1/system/pilot-status"
+    },
+    {
+      "domain": "slice_e_residual",
+      "excluded_from_openapi_coverage": false,
+      "route": "/v1/system/probe-health",
+      "shape": "/v1/system/probe-health"
+    },
+    {
+      "domain": "slice_e_residual",
+      "excluded_from_openapi_coverage": false,
+      "route": "/v1/system/resource-usage",
+      "shape": "/v1/system/resource-usage"
+    },
+    {
+      "domain": "slice_e_residual",
+      "excluded_from_openapi_coverage": false,
+      "route": "/v1/system/state",
+      "shape": "/v1/system/state"
+    },
+    {
+      "domain": "slice_e_residual",
+      "excluded_from_openapi_coverage": false,
+      "route": "/v1/system/status",
+      "shape": "/v1/system/status"
+    },
+    {
+      "domain": "slice_e_residual",
+      "excluded_from_openapi_coverage": false,
+      "route": "/v1/system/verify-boot-attestation",
+      "shape": "/v1/system/verify-boot-attestation"
+    },
+    {
+      "domain": "slice_e_residual",
+      "excluded_from_openapi_coverage": false,
+      "route": "/v1/telemetry/bundles",
+      "shape": "/v1/telemetry/bundles"
+    },
+    {
+      "domain": "slice_e_residual",
+      "excluded_from_openapi_coverage": false,
+      "route": "/v1/telemetry/bundles/purge",
+      "shape": "/v1/telemetry/bundles/purge"
+    },
+    {
+      "domain": "slice_e_residual",
+      "excluded_from_openapi_coverage": false,
+      "route": "/v1/telemetry/bundles/{bundle_id}/export",
+      "shape": "/v1/telemetry/bundles/{}/export"
+    },
+    {
+      "domain": "slice_e_residual",
+      "excluded_from_openapi_coverage": false,
+      "route": "/v1/telemetry/bundles/{bundle_id}/verify",
+      "shape": "/v1/telemetry/bundles/{}/verify"
+    },
+    {
+      "domain": "slice_e_residual",
+      "excluded_from_openapi_coverage": false,
+      "route": "/v1/telemetry/client-errors",
+      "shape": "/v1/telemetry/client-errors"
+    },
+    {
+      "domain": "slice_e_residual",
+      "excluded_from_openapi_coverage": false,
+      "route": "/v1/telemetry/client-errors/anonymous",
+      "shape": "/v1/telemetry/client-errors/anonymous"
+    },
+    {
+      "domain": "slice_e_residual",
+      "excluded_from_openapi_coverage": false,
+      "route": "/v1/telemetry/client-errors/stats",
+      "shape": "/v1/telemetry/client-errors/stats"
+    },
+    {
+      "domain": "slice_e_residual",
+      "excluded_from_openapi_coverage": false,
+      "route": "/v1/telemetry/client-errors/{id}",
+      "shape": "/v1/telemetry/client-errors/{}"
+    },
+    {
+      "domain": "slice_e_residual",
+      "excluded_from_openapi_coverage": false,
+      "route": "/v1/telemetry/events/recent",
+      "shape": "/v1/telemetry/events/recent"
+    },
+    {
+      "domain": "slice_e_residual",
+      "excluded_from_openapi_coverage": false,
+      "route": "/v1/telemetry/events/recent/stream",
+      "shape": "/v1/telemetry/events/recent/stream"
+    },
+    {
+      "domain": "slice_e_residual",
+      "excluded_from_openapi_coverage": false,
+      "route": "/v1/telemetry/routing",
+      "shape": "/v1/telemetry/routing"
+    },
+    {
+      "domain": "slice_d_auth_tenant",
+      "excluded_from_openapi_coverage": false,
+      "route": "/v1/tenants",
+      "shape": "/v1/tenants"
+    },
+    {
+      "domain": "slice_d_auth_tenant",
+      "excluded_from_openapi_coverage": false,
+      "route": "/v1/tenants/{tenant_id}",
+      "shape": "/v1/tenants/{}"
+    },
+    {
+      "domain": "slice_d_auth_tenant",
+      "excluded_from_openapi_coverage": false,
+      "route": "/v1/tenants/{tenant_id}/adapters",
+      "shape": "/v1/tenants/{}/adapters"
+    },
+    {
+      "domain": "slice_d_auth_tenant",
+      "excluded_from_openapi_coverage": false,
+      "route": "/v1/tenants/{tenant_id}/archive",
+      "shape": "/v1/tenants/{}/archive"
+    },
+    {
+      "domain": "slice_d_auth_tenant",
+      "excluded_from_openapi_coverage": false,
+      "route": "/v1/tenants/{tenant_id}/default-stack",
+      "shape": "/v1/tenants/{}/default-stack"
+    },
+    {
+      "domain": "slice_d_auth_tenant",
+      "excluded_from_openapi_coverage": true,
+      "route": "/v1/tenants/{tenant_id}/encryption/keys",
+      "shape": "/v1/tenants/{}/encryption/keys"
+    },
+    {
+      "domain": "slice_d_auth_tenant",
+      "excluded_from_openapi_coverage": true,
+      "route": "/v1/tenants/{tenant_id}/encryption/keys/{key_id}",
+      "shape": "/v1/tenants/{}/encryption/keys/{}"
+    },
+    {
+      "domain": "slice_d_auth_tenant",
+      "excluded_from_openapi_coverage": true,
+      "route": "/v1/tenants/{tenant_id}/encryption/status",
+      "shape": "/v1/tenants/{}/encryption/status"
+    },
+    {
+      "domain": "slice_d_auth_tenant",
+      "excluded_from_openapi_coverage": false,
+      "route": "/v1/tenants/{tenant_id}/events",
+      "shape": "/v1/tenants/{}/events"
+    },
+    {
+      "domain": "slice_d_auth_tenant",
+      "excluded_from_openapi_coverage": false,
+      "route": "/v1/tenants/{tenant_id}/execution-policy",
+      "shape": "/v1/tenants/{}/execution-policy"
+    },
+    {
+      "domain": "slice_d_auth_tenant",
+      "excluded_from_openapi_coverage": false,
+      "route": "/v1/tenants/{tenant_id}/execution-policy/history",
+      "shape": "/v1/tenants/{}/execution-policy/history"
+    },
+    {
+      "domain": "slice_d_auth_tenant",
+      "excluded_from_openapi_coverage": false,
+      "route": "/v1/tenants/{tenant_id}/execution-policy/{policy_id}",
+      "shape": "/v1/tenants/{}/execution-policy/{}"
+    },
+    {
+      "domain": "slice_d_auth_tenant",
+      "excluded_from_openapi_coverage": false,
+      "route": "/v1/tenants/{tenant_id}/manifests/{manifest_hash}",
+      "shape": "/v1/tenants/{}/manifests/{}"
+    },
+    {
+      "domain": "slice_d_auth_tenant",
+      "excluded_from_openapi_coverage": false,
+      "route": "/v1/tenants/{tenant_id}/metrics",
+      "shape": "/v1/tenants/{}/metrics"
+    },
+    {
+      "domain": "slice_d_auth_tenant",
+      "excluded_from_openapi_coverage": false,
+      "route": "/v1/tenants/{tenant_id}/pause",
+      "shape": "/v1/tenants/{}/pause"
+    },
+    {
+      "domain": "slice_d_auth_tenant",
+      "excluded_from_openapi_coverage": false,
+      "route": "/v1/tenants/{tenant_id}/policies",
+      "shape": "/v1/tenants/{}/policies"
+    },
+    {
+      "domain": "slice_d_auth_tenant",
+      "excluded_from_openapi_coverage": false,
+      "route": "/v1/tenants/{tenant_id}/policy-bindings",
+      "shape": "/v1/tenants/{}/policy-bindings"
+    },
+    {
+      "domain": "slice_d_auth_tenant",
+      "excluded_from_openapi_coverage": false,
+      "route": "/v1/tenants/{tenant_id}/policy-bindings/{policy_pack_id}/toggle",
+      "shape": "/v1/tenants/{}/policy-bindings/{}/toggle"
+    },
+    {
+      "domain": "slice_d_auth_tenant",
+      "excluded_from_openapi_coverage": false,
+      "route": "/v1/tenants/{tenant_id}/revoke-all-tokens",
+      "shape": "/v1/tenants/{}/revoke-all-tokens"
+    },
+    {
+      "domain": "slice_d_auth_tenant",
+      "excluded_from_openapi_coverage": false,
+      "route": "/v1/tenants/{tenant_id}/router/config",
+      "shape": "/v1/tenants/{}/router/config"
+    },
+    {
+      "domain": "slice_d_auth_tenant",
+      "excluded_from_openapi_coverage": false,
+      "route": "/v1/tenants/{tenant_id}/router/weights",
+      "shape": "/v1/tenants/{}/router/weights"
+    },
+    {
+      "domain": "slice_d_auth_tenant",
+      "excluded_from_openapi_coverage": false,
+      "route": "/v1/tenants/{tenant_id}/router/weights/reset",
+      "shape": "/v1/tenants/{}/router/weights/reset"
+    },
+    {
+      "domain": "slice_d_auth_tenant",
+      "excluded_from_openapi_coverage": true,
+      "route": "/v1/tenants/{tenant_id}/settings",
+      "shape": "/v1/tenants/{}/settings"
+    },
+    {
+      "domain": "slice_d_auth_tenant",
+      "excluded_from_openapi_coverage": false,
+      "route": "/v1/tenants/{tenant_id}/usage",
+      "shape": "/v1/tenants/{}/usage"
+    },
+    {
+      "domain": "slice_e_residual",
+      "excluded_from_openapi_coverage": true,
+      "route": "/v1/tokenize",
+      "shape": "/v1/tokenize"
+    },
+    {
+      "domain": "slice_e_residual",
+      "excluded_from_openapi_coverage": false,
+      "route": "/v1/topology",
+      "shape": "/v1/topology"
+    },
+    {
+      "domain": "slice_e_residual",
+      "excluded_from_openapi_coverage": false,
+      "route": "/v1/traces/inference",
+      "shape": "/v1/traces/inference"
+    },
+    {
+      "domain": "slice_e_residual",
+      "excluded_from_openapi_coverage": false,
+      "route": "/v1/traces/inference/{trace_id}",
+      "shape": "/v1/traces/inference/{}"
+    },
+    {
+      "domain": "slice_e_residual",
+      "excluded_from_openapi_coverage": false,
+      "route": "/v1/traces/search",
+      "shape": "/v1/traces/search"
+    },
+    {
+      "domain": "slice_e_residual",
+      "excluded_from_openapi_coverage": false,
+      "route": "/v1/traces/{trace_id}",
+      "shape": "/v1/traces/{}"
+    },
+    {
+      "domain": "slice_c_training_jobs_checkpoints",
+      "excluded_from_openapi_coverage": false,
+      "route": "/v1/training/backend-readiness",
+      "shape": "/v1/training/backend-readiness"
+    },
+    {
+      "domain": "slice_c_training_jobs_checkpoints",
+      "excluded_from_openapi_coverage": true,
+      "route": "/v1/training/checkpoints/verify",
+      "shape": "/v1/training/checkpoints/verify"
+    },
+    {
+      "domain": "slice_c_training_jobs_checkpoints",
+      "excluded_from_openapi_coverage": false,
+      "route": "/v1/training/dataset_versions/{dataset_version_id}/manifest",
+      "shape": "/v1/training/dataset_versions/{}/manifest"
+    },
+    {
+      "domain": "slice_c_training_jobs_checkpoints",
+      "excluded_from_openapi_coverage": false,
+      "route": "/v1/training/dataset_versions/{dataset_version_id}/rows",
+      "shape": "/v1/training/dataset_versions/{}/rows"
+    },
+    {
+      "domain": "slice_c_training_jobs_checkpoints",
+      "excluded_from_openapi_coverage": false,
+      "route": "/v1/training/datasets/from-upload",
+      "shape": "/v1/training/datasets/from-upload"
+    },
+    {
+      "domain": "slice_c_training_jobs_checkpoints",
+      "excluded_from_openapi_coverage": true,
+      "route": "/v1/training/datasets/from-upload/async",
+      "shape": "/v1/training/datasets/from-upload/async"
+    },
+    {
+      "domain": "slice_c_training_jobs_checkpoints",
+      "excluded_from_openapi_coverage": false,
+      "route": "/v1/training/datasets/generate",
+      "shape": "/v1/training/datasets/generate"
+    },
+    {
+      "domain": "slice_c_training_jobs_checkpoints",
+      "excluded_from_openapi_coverage": false,
+      "route": "/v1/training/jobs",
+      "shape": "/v1/training/jobs"
+    },
+    {
+      "domain": "slice_c_training_jobs_checkpoints",
+      "excluded_from_openapi_coverage": false,
+      "route": "/v1/training/jobs/batch-status",
+      "shape": "/v1/training/jobs/batch-status"
+    },
+    {
+      "domain": "slice_c_training_jobs_checkpoints",
+      "excluded_from_openapi_coverage": false,
+      "route": "/v1/training/jobs/{job_id}",
+      "shape": "/v1/training/jobs/{}"
+    },
+    {
+      "domain": "slice_c_training_jobs_checkpoints",
+      "excluded_from_openapi_coverage": false,
+      "route": "/v1/training/jobs/{job_id}/cancel",
+      "shape": "/v1/training/jobs/{}/cancel"
+    },
+    {
+      "domain": "slice_c_training_jobs_checkpoints",
+      "excluded_from_openapi_coverage": false,
+      "route": "/v1/training/jobs/{job_id}/chat_bootstrap",
+      "shape": "/v1/training/jobs/{}/chat_bootstrap"
+    },
+    {
+      "domain": "slice_c_training_jobs_checkpoints",
+      "excluded_from_openapi_coverage": true,
+      "route": "/v1/training/jobs/{job_id}/checkpoints/{epoch}/verify",
+      "shape": "/v1/training/jobs/{}/checkpoints/{}/verify"
+    },
+    {
+      "domain": "slice_c_training_jobs_checkpoints",
+      "excluded_from_openapi_coverage": false,
+      "route": "/v1/training/jobs/{job_id}/export/coreml",
+      "shape": "/v1/training/jobs/{}/export/coreml"
+    },
+    {
+      "domain": "slice_c_training_jobs_checkpoints",
+      "excluded_from_openapi_coverage": false,
+      "route": "/v1/training/jobs/{job_id}/logs",
+      "shape": "/v1/training/jobs/{}/logs"
+    },
+    {
+      "domain": "slice_c_training_jobs_checkpoints",
+      "excluded_from_openapi_coverage": false,
+      "route": "/v1/training/jobs/{job_id}/metrics",
+      "shape": "/v1/training/jobs/{}/metrics"
+    },
+    {
+      "domain": "slice_c_training_jobs_checkpoints",
+      "excluded_from_openapi_coverage": true,
+      "route": "/v1/training/jobs/{job_id}/priority",
+      "shape": "/v1/training/jobs/{}/priority"
+    },
+    {
+      "domain": "slice_c_training_jobs_checkpoints",
+      "excluded_from_openapi_coverage": false,
+      "route": "/v1/training/jobs/{job_id}/progress",
+      "shape": "/v1/training/jobs/{}/progress"
+    },
+    {
+      "domain": "slice_c_training_jobs_checkpoints",
+      "excluded_from_openapi_coverage": false,
+      "route": "/v1/training/jobs/{job_id}/report",
+      "shape": "/v1/training/jobs/{}/report"
+    },
+    {
+      "domain": "slice_c_training_jobs_checkpoints",
+      "excluded_from_openapi_coverage": false,
+      "route": "/v1/training/jobs/{job_id}/retry",
+      "shape": "/v1/training/jobs/{}/retry"
+    },
+    {
+      "domain": "slice_c_training_jobs_checkpoints",
+      "excluded_from_openapi_coverage": false,
+      "route": "/v1/training/preprocessed-cache",
+      "shape": "/v1/training/preprocessed-cache"
+    },
+    {
+      "domain": "slice_c_training_jobs_checkpoints",
+      "excluded_from_openapi_coverage": false,
+      "route": "/v1/training/preprocessed-cache/count",
+      "shape": "/v1/training/preprocessed-cache/count"
+    },
+    {
+      "domain": "slice_c_training_jobs_checkpoints",
+      "excluded_from_openapi_coverage": true,
+      "route": "/v1/training/preprocessed-cache/{dataset_id}",
+      "shape": "/v1/training/preprocessed-cache/{}"
+    },
+    {
+      "domain": "slice_c_training_jobs_checkpoints",
+      "excluded_from_openapi_coverage": false,
+      "route": "/v1/training/preprocessing/status",
+      "shape": "/v1/training/preprocessing/status"
+    },
+    {
+      "domain": "slice_c_training_jobs_checkpoints",
+      "excluded_from_openapi_coverage": false,
+      "route": "/v1/training/queue",
+      "shape": "/v1/training/queue"
+    },
+    {
+      "domain": "slice_c_training_jobs_checkpoints",
+      "excluded_from_openapi_coverage": false,
+      "route": "/v1/training/repos/{repo_id}/versions/{version_id}/promote",
+      "shape": "/v1/training/repos/{}/versions/{}/promote"
+    },
+    {
+      "domain": "slice_c_training_jobs_checkpoints",
+      "excluded_from_openapi_coverage": false,
+      "route": "/v1/training/sessions",
+      "shape": "/v1/training/sessions"
+    },
+    {
+      "domain": "slice_c_training_jobs_checkpoints",
+      "excluded_from_openapi_coverage": false,
+      "route": "/v1/training/start",
+      "shape": "/v1/training/start"
+    },
+    {
+      "domain": "slice_c_training_jobs_checkpoints",
+      "excluded_from_openapi_coverage": false,
+      "route": "/v1/training/templates",
+      "shape": "/v1/training/templates"
+    },
+    {
+      "domain": "slice_c_training_jobs_checkpoints",
+      "excluded_from_openapi_coverage": false,
+      "route": "/v1/training/templates/{template_id}",
+      "shape": "/v1/training/templates/{}"
+    },
+    {
+      "domain": "slice_e_tutorials",
+      "excluded_from_openapi_coverage": false,
+      "route": "/v1/tutorials",
+      "shape": "/v1/tutorials"
+    },
+    {
+      "domain": "slice_e_tutorials",
+      "excluded_from_openapi_coverage": false,
+      "route": "/v1/tutorials/{tutorial_id}/complete",
+      "shape": "/v1/tutorials/{}/complete"
+    },
+    {
+      "domain": "slice_e_tutorials",
+      "excluded_from_openapi_coverage": false,
+      "route": "/v1/tutorials/{tutorial_id}/dismiss",
+      "shape": "/v1/tutorials/{}/dismiss"
+    },
+    {
+      "domain": "slice_e_residual",
+      "excluded_from_openapi_coverage": false,
+      "route": "/v1/ui/config",
+      "shape": "/v1/ui/config"
+    },
+    {
+      "domain": "slice_e_residual",
+      "excluded_from_openapi_coverage": true,
+      "route": "/v1/ui/traces/inference/{trace_id}",
+      "shape": "/v1/ui/traces/inference/{}"
+    },
+    {
+      "domain": "slice_e_residual",
+      "excluded_from_openapi_coverage": false,
+      "route": "/v1/verdicts",
+      "shape": "/v1/verdicts"
+    },
+    {
+      "domain": "slice_e_residual",
+      "excluded_from_openapi_coverage": false,
+      "route": "/v1/verdicts/derive",
+      "shape": "/v1/verdicts/derive"
+    },
+    {
+      "domain": "slice_e_residual",
+      "excluded_from_openapi_coverage": false,
+      "route": "/v1/verdicts/{inference_id}",
+      "shape": "/v1/verdicts/{}"
+    },
+    {
+      "domain": "slice_e_residual",
+      "excluded_from_openapi_coverage": true,
+      "route": "/v1/version",
+      "shape": "/v1/version"
+    },
+    {
+      "domain": "slice_e_residual",
+      "excluded_from_openapi_coverage": false,
+      "route": "/v1/workers",
+      "shape": "/v1/workers"
+    },
+    {
+      "domain": "slice_e_residual",
+      "excluded_from_openapi_coverage": false,
+      "route": "/v1/workers/fatal",
+      "shape": "/v1/workers/fatal"
+    },
+    {
+      "domain": "slice_e_residual",
+      "excluded_from_openapi_coverage": false,
+      "route": "/v1/workers/health/summary",
+      "shape": "/v1/workers/health/summary"
+    },
+    {
+      "domain": "slice_e_residual",
+      "excluded_from_openapi_coverage": false,
+      "route": "/v1/workers/heartbeat",
+      "shape": "/v1/workers/heartbeat"
+    },
+    {
+      "domain": "slice_e_residual",
+      "excluded_from_openapi_coverage": false,
+      "route": "/v1/workers/register",
+      "shape": "/v1/workers/register"
+    },
+    {
+      "domain": "slice_e_residual",
+      "excluded_from_openapi_coverage": false,
+      "route": "/v1/workers/spawn",
+      "shape": "/v1/workers/spawn"
+    },
+    {
+      "domain": "slice_e_residual",
+      "excluded_from_openapi_coverage": false,
+      "route": "/v1/workers/status",
+      "shape": "/v1/workers/status"
+    },
+    {
+      "domain": "slice_e_residual",
+      "excluded_from_openapi_coverage": false,
+      "route": "/v1/workers/{worker_id}",
+      "shape": "/v1/workers/{}"
+    },
+    {
+      "domain": "slice_e_residual",
+      "excluded_from_openapi_coverage": false,
+      "route": "/v1/workers/{worker_id}/crashes",
+      "shape": "/v1/workers/{}/crashes"
+    },
+    {
+      "domain": "slice_e_residual",
+      "excluded_from_openapi_coverage": false,
+      "route": "/v1/workers/{worker_id}/debug",
+      "shape": "/v1/workers/{}/debug"
+    },
+    {
+      "domain": "slice_e_residual",
+      "excluded_from_openapi_coverage": false,
+      "route": "/v1/workers/{worker_id}/detail",
+      "shape": "/v1/workers/{}/detail"
+    },
+    {
+      "domain": "slice_e_residual",
+      "excluded_from_openapi_coverage": false,
+      "route": "/v1/workers/{worker_id}/drain",
+      "shape": "/v1/workers/{}/drain"
+    },
+    {
+      "domain": "slice_e_residual",
+      "excluded_from_openapi_coverage": false,
+      "route": "/v1/workers/{worker_id}/history",
+      "shape": "/v1/workers/{}/history"
+    },
+    {
+      "domain": "slice_e_residual",
+      "excluded_from_openapi_coverage": false,
+      "route": "/v1/workers/{worker_id}/incidents",
+      "shape": "/v1/workers/{}/incidents"
+    },
+    {
+      "domain": "slice_e_residual",
+      "excluded_from_openapi_coverage": false,
+      "route": "/v1/workers/{worker_id}/logs",
+      "shape": "/v1/workers/{}/logs"
+    },
+    {
+      "domain": "slice_e_residual",
+      "excluded_from_openapi_coverage": false,
+      "route": "/v1/workers/{worker_id}/restart",
+      "shape": "/v1/workers/{}/restart"
+    },
+    {
+      "domain": "slice_e_residual",
+      "excluded_from_openapi_coverage": false,
+      "route": "/v1/workers/{worker_id}/stop",
+      "shape": "/v1/workers/{}/stop"
+    },
+    {
+      "domain": "slice_e_residual",
+      "excluded_from_openapi_coverage": false,
+      "route": "/v1/workers/{worker_id}/troubleshoot",
+      "shape": "/v1/workers/{}/troubleshoot"
+    },
+    {
+      "domain": "slice_e_residual",
+      "excluded_from_openapi_coverage": false,
+      "route": "/v1/workspaces",
+      "shape": "/v1/workspaces"
+    },
+    {
+      "domain": "slice_e_residual",
+      "excluded_from_openapi_coverage": false,
+      "route": "/v1/workspaces/me",
+      "shape": "/v1/workspaces/me"
+    },
+    {
+      "domain": "slice_e_residual",
+      "excluded_from_openapi_coverage": false,
+      "route": "/v1/workspaces/{workspace_id}",
+      "shape": "/v1/workspaces/{}"
+    },
+    {
+      "domain": "slice_e_residual",
+      "excluded_from_openapi_coverage": false,
+      "route": "/v1/workspaces/{workspace_id}/active",
+      "shape": "/v1/workspaces/{}/active"
+    },
+    {
+      "domain": "slice_e_residual",
+      "excluded_from_openapi_coverage": false,
+      "route": "/v1/workspaces/{workspace_id}/active-state",
+      "shape": "/v1/workspaces/{}/active-state"
+    },
+    {
+      "domain": "slice_e_residual",
+      "excluded_from_openapi_coverage": false,
+      "route": "/v1/workspaces/{workspace_id}/members",
+      "shape": "/v1/workspaces/{}/members"
+    },
+    {
+      "domain": "slice_e_residual",
+      "excluded_from_openapi_coverage": false,
+      "route": "/v1/workspaces/{workspace_id}/members/{member_id}",
+      "shape": "/v1/workspaces/{}/members/{}"
+    },
+    {
+      "domain": "slice_e_residual",
+      "excluded_from_openapi_coverage": false,
+      "route": "/v1/workspaces/{workspace_id}/resources",
+      "shape": "/v1/workspaces/{}/resources"
+    },
+    {
+      "domain": "slice_e_residual",
+      "excluded_from_openapi_coverage": false,
+      "route": "/v1/workspaces/{workspace_id}/resources/{resource_id}",
+      "shape": "/v1/workspaces/{}/resources/{}"
+    },
+    {
+      "domain": "slice_e_residual",
+      "excluded_from_openapi_coverage": false,
+      "route": "/version",
+      "shape": "/version"
+    }
+  ],
+  "source": "crates/adapteros-server-api/src/routes/mod.rs",
+  "tiers": {
+    "health": [
+      "/healthz",
+      "/readyz",
+      "/version"
+    ],
+    "internal": [
+      "/v1/tenants/{tenant_id}/manifests/{manifest_hash}",
+      "/v1/workers/fatal",
+      "/v1/workers/heartbeat",
+      "/v1/workers/register",
+      "/v1/workers/status"
+    ],
+    "optional_auth": [
+      "/v1/models/status",
+      "/v1/topology"
+    ],
+    "protected": [
+      "/admin/lifecycle/request-maintenance",
+      "/admin/lifecycle/request-shutdown",
+      "/admin/lifecycle/safe-restart",
+      "/internal/models",
+      "/v1/activity/events",
+      "/v1/activity/feed",
+      "/v1/adapter-repositories",
+      "/v1/adapter-repositories/{repo_id}",
+      "/v1/adapter-repositories/{repo_id}/archive",
+      "/v1/adapter-repositories/{repo_id}/policy",
+      "/v1/adapter-repositories/{repo_id}/resolve-version",
+      "/v1/adapter-repositories/{repo_id}/versions",
+      "/v1/adapter-repositories/{repo_id}/versions/checkout",
+      "/v1/adapter-repositories/{repo_id}/versions/rollback",
+      "/v1/adapter-stacks",
+      "/v1/adapter-stacks/deactivate",
+      "/v1/adapter-stacks/{id}",
+      "/v1/adapter-stacks/{id}/activate",
+      "/v1/adapter-stacks/{id}/history",
+      "/v1/adapter-stacks/{id}/policies",
+      "/v1/adapter-versions/draft",
+      "/v1/adapter-versions/{version_id}",
+      "/v1/adapter-versions/{version_id}/promote",
+      "/v1/adapter-versions/{version_id}/tag",
+      "/v1/adapter-versions/{version_id}/weight",
+      "/v1/adapteros/receipts/{digest}",
+      "/v1/adapteros/replay",
+      "/v1/adapteros/sessions/mint",
+      "/v1/adapters",
+      "/v1/adapters/category-policies",
+      "/v1/adapters/category-policies/{category}",
+      "/v1/adapters/directory/upsert",
+      "/v1/adapters/from-dataset/{dataset_id}",
+      "/v1/adapters/import",
+      "/v1/adapters/in-flight",
+      "/v1/adapters/next-revision/{tenant}/{domain}/{purpose}",
+      "/v1/adapters/register",
+      "/v1/adapters/swap",
+      "/v1/adapters/validate-name",
+      "/v1/adapters/verify-gpu",
+      "/v1/adapters/{adapter_id}",
+      "/v1/adapters/{adapter_id}/activate",
+      "/v1/adapters/{adapter_id}/activations",
+      "/v1/adapters/{adapter_id}/archive",
+      "/v1/adapters/{adapter_id}/detail",
+      "/v1/adapters/{adapter_id}/duplicate",
+      "/v1/adapters/{adapter_id}/encryption",
+      "/v1/adapters/{adapter_id}/evidence",
+      "/v1/adapters/{adapter_id}/export",
+      "/v1/adapters/{adapter_id}/health",
+      "/v1/adapters/{adapter_id}/lifecycle/demote",
+      "/v1/adapters/{adapter_id}/lifecycle/promote",
+      "/v1/adapters/{adapter_id}/lineage",
+      "/v1/adapters/{adapter_id}/load",
+      "/v1/adapters/{adapter_id}/manifest",
+      "/v1/adapters/{adapter_id}/pin",
+      "/v1/adapters/{adapter_id}/provenance",
+      "/v1/adapters/{adapter_id}/state/promote",
+      "/v1/adapters/{adapter_id}/stats",
+      "/v1/adapters/{adapter_id}/training-export",
+      "/v1/adapters/{adapter_id}/training-snapshot",
+      "/v1/adapters/{adapter_id}/unload",
+      "/v1/adapters/{adapter_id}/usage",
+      "/v1/admin/config",
+      "/v1/admin/status",
+      "/v1/admin/users",
+      "/v1/admin/users/{user_id}",
+      "/v1/api-keys",
+      "/v1/api-keys/{id}",
+      "/v1/audit/logs",
+      "/v1/audit/policy-decisions",
+      "/v1/audit/policy-decisions/verify-chain",
+      "/v1/auth/logout",
+      "/v1/auth/me",
+      "/v1/auth/mfa/disable",
+      "/v1/auth/mfa/start",
+      "/v1/auth/mfa/status",
+      "/v1/auth/mfa/verify",
+      "/v1/auth/sessions",
+      "/v1/auth/sessions/{jti}",
+      "/v1/auth/tenants",
+      "/v1/auth/tenants/switch",
+      "/v1/batches",
+      "/v1/batches/{batch_id}",
+      "/v1/batches/{batch_id}/items",
+      "/v1/chat/categories",
+      "/v1/chat/categories/{category_id}",
+      "/v1/chat/completions",
+      "/v1/chat/messages/{message_id}/evidence",
+      "/v1/chat/sessions",
+      "/v1/chat/sessions/archived",
+      "/v1/chat/sessions/search",
+      "/v1/chat/sessions/shared-with-me",
+      "/v1/chat/sessions/trash",
+      "/v1/chat/sessions/{session_id}",
+      "/v1/chat/sessions/{session_id}/archive",
+      "/v1/chat/sessions/{session_id}/category",
+      "/v1/chat/sessions/{session_id}/collection",
+      "/v1/chat/sessions/{session_id}/fork",
+      "/v1/chat/sessions/{session_id}/messages",
+      "/v1/chat/sessions/{session_id}/permanent",
+      "/v1/chat/sessions/{session_id}/provenance",
+      "/v1/chat/sessions/{session_id}/restore",
+      "/v1/chat/sessions/{session_id}/shares",
+      "/v1/chat/sessions/{session_id}/shares/{share_id}",
+      "/v1/chat/sessions/{session_id}/summary",
+      "/v1/chat/sessions/{session_id}/tags",
+      "/v1/chat/sessions/{session_id}/tags/{tag_id}",
+      "/v1/chat/tags",
+      "/v1/chat/tags/{tag_id}",
+      "/v1/chats/from-training-job",
+      "/v1/cli/owner-run",
+      "/v1/code-policy",
+      "/v1/code/commit-delta",
+      "/v1/code/register-repo",
+      "/v1/code/repositories",
+      "/v1/code/repositories/{repo_id}",
+      "/v1/code/scan",
+      "/v1/code/scan/{job_id}",
+      "/v1/collections",
+      "/v1/collections/{id}",
+      "/v1/collections/{id}/documents",
+      "/v1/collections/{id}/documents/{doc_id}",
+      "/v1/commits",
+      "/v1/commits/{sha}",
+      "/v1/commits/{sha}/diff",
+      "/v1/completions",
+      "/v1/contacts",
+      "/v1/contacts/{id}",
+      "/v1/contacts/{id}/interactions",
+      "/v1/cp/promote",
+      "/v1/cp/promote/dry-run",
+      "/v1/cp/promotion-gates/{cpid}",
+      "/v1/cp/promotions",
+      "/v1/cp/rollback",
+      "/v1/dashboard/config",
+      "/v1/dashboard/config/reset",
+      "/v1/datasets",
+      "/v1/datasets/by-codebase/{codebase_id}/versions",
+      "/v1/datasets/chunked-upload/cleanup",
+      "/v1/datasets/chunked-upload/initiate",
+      "/v1/datasets/chunked-upload/sessions",
+      "/v1/datasets/chunked-upload/{session_id}",
+      "/v1/datasets/chunked-upload/{session_id}/chunk",
+      "/v1/datasets/chunked-upload/{session_id}/complete",
+      "/v1/datasets/chunked-upload/{session_id}/status",
+      "/v1/datasets/from-chat",
+      "/v1/datasets/from-documents",
+      "/v1/datasets/from-text",
+      "/v1/datasets/synthesize",
+      "/v1/datasets/upload",
+      "/v1/datasets/upload/progress",
+      "/v1/datasets/{dataset_id}",
+      "/v1/datasets/{dataset_id}/adapters",
+      "/v1/datasets/{dataset_id}/evidence",
+      "/v1/datasets/{dataset_id}/files",
+      "/v1/datasets/{dataset_id}/preprocess",
+      "/v1/datasets/{dataset_id}/preprocess/status",
+      "/v1/datasets/{dataset_id}/preview",
+      "/v1/datasets/{dataset_id}/statistics",
+      "/v1/datasets/{dataset_id}/trust_override",
+      "/v1/datasets/{dataset_id}/validate",
+      "/v1/datasets/{dataset_id}/versions",
+      "/v1/datasets/{dataset_id}/versions/{revision}",
+      "/v1/datasets/{dataset_id}/versions/{version_id}/safety",
+      "/v1/datasets/{dataset_id}/versions/{version_id}/trust-override",
+      "/v1/debug/coreml_verification_status",
+      "/v1/diag/bundle",
+      "/v1/diag/bundle/{export_id}",
+      "/v1/diag/bundle/{export_id}/download",
+      "/v1/diag/bundle/{export_id}/signature",
+      "/v1/diag/diff",
+      "/v1/diag/export",
+      "/v1/diag/runs",
+      "/v1/diag/runs/{trace_id}",
+      "/v1/diag/runs/{trace_id}/events",
+      "/v1/diagnostics/determinism-status",
+      "/v1/diagnostics/quarantine-status",
+      "/v1/discrepancies",
+      "/v1/discrepancies/export",
+      "/v1/discrepancies/{id}",
+      "/v1/discrepancies/{id}/resolve",
+      "/v1/documents",
+      "/v1/documents/failed",
+      "/v1/documents/upload",
+      "/v1/documents/{id}",
+      "/v1/documents/{id}/chunks",
+      "/v1/documents/{id}/download",
+      "/v1/documents/{id}/process",
+      "/v1/documents/{id}/retry",
+      "/v1/domain-adapters",
+      "/v1/domain-adapters/{adapter_id}",
+      "/v1/domain-adapters/{adapter_id}/execute",
+      "/v1/domain-adapters/{adapter_id}/load",
+      "/v1/domain-adapters/{adapter_id}/manifest",
+      "/v1/domain-adapters/{adapter_id}/test",
+      "/v1/domain-adapters/{adapter_id}/unload",
+      "/v1/embeddings",
+      "/v1/embeddings/benchmarks",
+      "/v1/error-alerts/history",
+      "/v1/error-alerts/rules",
+      "/v1/error-alerts/rules/{id}",
+      "/v1/error-alerts/{id}/acknowledge",
+      "/v1/error-alerts/{id}/resolve",
+      "/v1/error-buckets",
+      "/v1/errors",
+      "/v1/errors/{error_id}",
+      "/v1/evidence",
+      "/v1/evidence/runs/{run_id}/export",
+      "/v1/evidence/{id}",
+      "/v1/federation/quarantine",
+      "/v1/federation/release-quarantine",
+      "/v1/federation/status",
+      "/v1/federation/sync-status",
+      "/v1/filesystem/browse",
+      "/v1/filesystem/content",
+      "/v1/fim/completions",
+      "/v1/git/branches",
+      "/v1/git/checkout",
+      "/v1/git/commit",
+      "/v1/git/log",
+      "/v1/git/repositories",
+      "/v1/git/repositories/{repo_id}/analysis",
+      "/v1/git/repositories/{repo_id}/train",
+      "/v1/git/sessions/start",
+      "/v1/git/sessions/{session_id}/end",
+      "/v1/git/stage",
+      "/v1/git/status",
+      "/v1/git/unstage",
+      "/v1/git/working-diff",
+      "/v1/git/working-status",
+      "/v1/git/working-tree/discard",
+      "/v1/git/working-tree/stage",
+      "/v1/git/working-tree/unstage",
+      "/v1/golden/compare",
+      "/v1/golden/runs",
+      "/v1/golden/runs/{name}",
+      "/v1/golden/{run_id}/approve",
+      "/v1/golden/{run_id}/ci-attestation",
+      "/v1/golden/{run_id}/gates",
+      "/v1/golden/{run_id}/promote",
+      "/v1/golden/{run_id}/promotion",
+      "/v1/golden/{stage}/rollback",
+      "/v1/infer",
+      "/v1/infer/batch",
+      "/v1/infer/paused",
+      "/v1/infer/stream",
+      "/v1/infer/stream/progress",
+      "/v1/infer/{inference_id}/review",
+      "/v1/infer/{inference_id}/state",
+      "/v1/inference/{trace_id}/provenance",
+      "/v1/jobs",
+      "/v1/jobs/{job_id}",
+      "/v1/logs/query",
+      "/v1/logs/stream",
+      "/v1/memory/adapters",
+      "/v1/memory/uma-breakdown",
+      "/v1/memory/usage",
+      "/v1/metrics/adapters",
+      "/v1/metrics/code",
+      "/v1/metrics/compare",
+      "/v1/metrics/current",
+      "/v1/metrics/inference",
+      "/v1/metrics/quality",
+      "/v1/metrics/series",
+      "/v1/metrics/snapshot",
+      "/v1/metrics/system",
+      "/v1/metrics/time-series",
+      "/v1/model-server/drain",
+      "/v1/model-server/status",
+      "/v1/model-server/warmup",
+      "/v1/models",
+      "/v1/models/download-progress",
+      "/v1/models/import",
+      "/v1/models/status/all",
+      "/v1/models/{model_id}",
+      "/v1/models/{model_id}/load",
+      "/v1/models/{model_id}/status",
+      "/v1/models/{model_id}/unload",
+      "/v1/models/{model_id}/validate",
+      "/v1/monitoring/alerts",
+      "/v1/monitoring/alerts/{alert_id}/acknowledge",
+      "/v1/monitoring/alerts/{alert_id}/resolve",
+      "/v1/monitoring/anomalies",
+      "/v1/monitoring/anomalies/{anomaly_id}/status",
+      "/v1/monitoring/dashboards",
+      "/v1/monitoring/health-metrics",
+      "/v1/monitoring/reports",
+      "/v1/monitoring/rules",
+      "/v1/monitoring/rules/{rule_id}",
+      "/v1/nodes",
+      "/v1/nodes/register",
+      "/v1/nodes/{node_id}",
+      "/v1/nodes/{node_id}/details",
+      "/v1/nodes/{node_id}/offline",
+      "/v1/nodes/{node_id}/ping",
+      "/v1/notifications",
+      "/v1/notifications/read-all",
+      "/v1/notifications/summary",
+      "/v1/notifications/{notification_id}/read",
+      "/v1/orchestration/analyze",
+      "/v1/orchestration/config",
+      "/v1/orchestration/metrics",
+      "/v1/orchestration/sessions",
+      "/v1/patch/propose",
+      "/v1/plans",
+      "/v1/plans/build",
+      "/v1/plans/compare",
+      "/v1/plans/{plan_id}/details",
+      "/v1/plans/{plan_id}/manifest",
+      "/v1/plans/{plan_id}/rebuild",
+      "/v1/plugins",
+      "/v1/plugins/{name}",
+      "/v1/plugins/{name}/disable",
+      "/v1/plugins/{name}/enable",
+      "/v1/policies",
+      "/v1/policies/apply",
+      "/v1/policies/assign",
+      "/v1/policies/assignments",
+      "/v1/policies/compare",
+      "/v1/policies/validate",
+      "/v1/policies/violations",
+      "/v1/policies/{cpid}",
+      "/v1/policies/{cpid}/export",
+      "/v1/policies/{cpid}/sign",
+      "/v1/policies/{cpid}/verify",
+      "/v1/policy/quarantine/clear",
+      "/v1/policy/quarantine/rollback",
+      "/v1/policy/quarantine/status",
+      "/v1/prefix-templates",
+      "/v1/prefix-templates/{template_id}",
+      "/v1/promotions/{id}",
+      "/v1/provenance/{certificate_id}",
+      "/v1/registry/status",
+      "/v1/replay",
+      "/v1/replay/check/{inference_id}",
+      "/v1/replay/history/{inference_id}",
+      "/v1/replay/sessions",
+      "/v1/replay/sessions/{id}",
+      "/v1/replay/sessions/{id}/execute",
+      "/v1/replay/sessions/{id}/verify",
+      "/v1/replay/verify/bundle",
+      "/v1/replay/verify/trace",
+      "/v1/repos",
+      "/v1/repos/{repo_id}",
+      "/v1/repos/{repo_id}/rollback/{branch}",
+      "/v1/repos/{repo_id}/timeline",
+      "/v1/repos/{repo_id}/training-jobs",
+      "/v1/repos/{repo_id}/versions",
+      "/v1/repos/{repo_id}/versions/{version_id}",
+      "/v1/repos/{repo_id}/versions/{version_id}/promote",
+      "/v1/repos/{repo_id}/versions/{version_id}/tag",
+      "/v1/repos/{repo_id}/versions/{version_id}/train",
+      "/v1/repositories",
+      "/v1/reviews/paused",
+      "/v1/reviews/submit",
+      "/v1/reviews/{pause_id}",
+      "/v1/reviews/{pause_id}/context",
+      "/v1/routing-rules",
+      "/v1/routing-rules/identity/{identity_dataset_id}",
+      "/v1/routing-rules/{rule_id}",
+      "/v1/routing/chain",
+      "/v1/routing/debug",
+      "/v1/routing/decisions",
+      "/v1/routing/decisions/{id}",
+      "/v1/routing/history",
+      "/v1/routing/sessions/{request_id}",
+      "/v1/runs/{run_id}/evidence",
+      "/v1/runtime/session",
+      "/v1/runtime/sessions",
+      "/v1/security/key-rotations",
+      "/v1/services/essential/start",
+      "/v1/services/essential/stop",
+      "/v1/services/{service_id}/logs",
+      "/v1/services/{service_id}/restart",
+      "/v1/services/{service_id}/start",
+      "/v1/services/{service_id}/stop",
+      "/v1/settings",
+      "/v1/setup/migrate",
+      "/v1/setup/models/discover",
+      "/v1/setup/models/seed",
+      "/v1/stacks/validate-name",
+      "/v1/storage/kv-isolation/health",
+      "/v1/storage/kv-isolation/scan",
+      "/v1/storage/mode",
+      "/v1/storage/stats",
+      "/v1/storage/tenant-usage",
+      "/v1/stream/activity/{workspace_id}",
+      "/v1/stream/adapters",
+      "/v1/stream/alerts",
+      "/v1/stream/anomalies",
+      "/v1/stream/boot-progress",
+      "/v1/stream/client-errors",
+      "/v1/stream/contacts",
+      "/v1/stream/dashboard",
+      "/v1/stream/dashboard/{dashboard_id}",
+      "/v1/stream/discovery",
+      "/v1/stream/file-changes",
+      "/v1/stream/messages/{workspace_id}",
+      "/v1/stream/metrics",
+      "/v1/stream/notifications",
+      "/v1/stream/reviews",
+      "/v1/stream/stack-policies/{id}",
+      "/v1/stream/telemetry",
+      "/v1/stream/trace-receipts",
+      "/v1/stream/training",
+      "/v1/stream/workers",
+      "/v1/streams/contacts",
+      "/v1/streams/discovery",
+      "/v1/streams/file-changes",
+      "/v1/streams/training",
+      "/v1/system/boot-attestation",
+      "/v1/system/integrity",
+      "/v1/system/memory",
+      "/v1/system/memory/gpu",
+      "/v1/system/overview",
+      "/v1/system/pilot-status",
+      "/v1/system/resource-usage",
+      "/v1/system/state",
+      "/v1/system/status",
+      "/v1/system/verify-boot-attestation",
+      "/v1/telemetry/bundles",
+      "/v1/telemetry/bundles/purge",
+      "/v1/telemetry/bundles/{bundle_id}/export",
+      "/v1/telemetry/bundles/{bundle_id}/verify",
+      "/v1/telemetry/client-errors",
+      "/v1/telemetry/client-errors/stats",
+      "/v1/telemetry/client-errors/{id}",
+      "/v1/telemetry/events/recent",
+      "/v1/telemetry/events/recent/stream",
+      "/v1/telemetry/routing",
+      "/v1/tenants",
+      "/v1/tenants/{tenant_id}",
+      "/v1/tenants/{tenant_id}/adapters",
+      "/v1/tenants/{tenant_id}/archive",
+      "/v1/tenants/{tenant_id}/default-stack",
+      "/v1/tenants/{tenant_id}/encryption/keys",
+      "/v1/tenants/{tenant_id}/encryption/keys/{key_id}",
+      "/v1/tenants/{tenant_id}/encryption/status",
+      "/v1/tenants/{tenant_id}/events",
+      "/v1/tenants/{tenant_id}/execution-policy",
+      "/v1/tenants/{tenant_id}/execution-policy/history",
+      "/v1/tenants/{tenant_id}/execution-policy/{policy_id}",
+      "/v1/tenants/{tenant_id}/metrics",
+      "/v1/tenants/{tenant_id}/pause",
+      "/v1/tenants/{tenant_id}/policies",
+      "/v1/tenants/{tenant_id}/policy-bindings",
+      "/v1/tenants/{tenant_id}/policy-bindings/{policy_pack_id}/toggle",
+      "/v1/tenants/{tenant_id}/revoke-all-tokens",
+      "/v1/tenants/{tenant_id}/router/config",
+      "/v1/tenants/{tenant_id}/router/weights",
+      "/v1/tenants/{tenant_id}/router/weights/reset",
+      "/v1/tenants/{tenant_id}/settings",
+      "/v1/tenants/{tenant_id}/usage",
+      "/v1/tokenize",
+      "/v1/traces/inference",
+      "/v1/traces/inference/{trace_id}",
+      "/v1/traces/search",
+      "/v1/traces/{trace_id}",
+      "/v1/training/backend-readiness",
+      "/v1/training/checkpoints/verify",
+      "/v1/training/dataset_versions/{dataset_version_id}/manifest",
+      "/v1/training/dataset_versions/{dataset_version_id}/rows",
+      "/v1/training/datasets/from-upload",
+      "/v1/training/datasets/from-upload/async",
+      "/v1/training/datasets/generate",
+      "/v1/training/jobs",
+      "/v1/training/jobs/batch-status",
+      "/v1/training/jobs/{job_id}",
+      "/v1/training/jobs/{job_id}/cancel",
+      "/v1/training/jobs/{job_id}/chat_bootstrap",
+      "/v1/training/jobs/{job_id}/checkpoints/{epoch}/verify",
+      "/v1/training/jobs/{job_id}/export/coreml",
+      "/v1/training/jobs/{job_id}/logs",
+      "/v1/training/jobs/{job_id}/metrics",
+      "/v1/training/jobs/{job_id}/priority",
+      "/v1/training/jobs/{job_id}/progress",
+      "/v1/training/jobs/{job_id}/report",
+      "/v1/training/jobs/{job_id}/retry",
+      "/v1/training/preprocessed-cache",
+      "/v1/training/preprocessed-cache/count",
+      "/v1/training/preprocessed-cache/{dataset_id}",
+      "/v1/training/preprocessing/status",
+      "/v1/training/queue",
+      "/v1/training/repos/{repo_id}/versions/{version_id}/promote",
+      "/v1/training/sessions",
+      "/v1/training/start",
+      "/v1/training/templates",
+      "/v1/training/templates/{template_id}",
+      "/v1/tutorials",
+      "/v1/tutorials/{tutorial_id}/complete",
+      "/v1/tutorials/{tutorial_id}/dismiss",
+      "/v1/ui/traces/inference/{trace_id}",
+      "/v1/verdicts",
+      "/v1/verdicts/derive",
+      "/v1/verdicts/{inference_id}",
+      "/v1/workers",
+      "/v1/workers/health/summary",
+      "/v1/workers/spawn",
+      "/v1/workers/{worker_id}",
+      "/v1/workers/{worker_id}/crashes",
+      "/v1/workers/{worker_id}/debug",
+      "/v1/workers/{worker_id}/detail",
+      "/v1/workers/{worker_id}/drain",
+      "/v1/workers/{worker_id}/history",
+      "/v1/workers/{worker_id}/incidents",
+      "/v1/workers/{worker_id}/logs",
+      "/v1/workers/{worker_id}/restart",
+      "/v1/workers/{worker_id}/stop",
+      "/v1/workers/{worker_id}/troubleshoot",
+      "/v1/workspaces",
+      "/v1/workspaces/me",
+      "/v1/workspaces/{workspace_id}",
+      "/v1/workspaces/{workspace_id}/active",
+      "/v1/workspaces/{workspace_id}/active-state",
+      "/v1/workspaces/{workspace_id}/members",
+      "/v1/workspaces/{workspace_id}/members/{member_id}",
+      "/v1/workspaces/{workspace_id}/resources",
+      "/v1/workspaces/{workspace_id}/resources/{resource_id}"
+    ],
+    "public": [
+      "/docs",
+      "/healthz/all",
+      "/healthz/{component}",
+      "/metrics",
+      "/system/ready",
+      "/v1/auth/bootstrap",
+      "/v1/auth/config",
+      "/v1/auth/dev-bypass",
+      "/v1/auth/health",
+      "/v1/auth/login",
+      "/v1/auth/refresh",
+      "/v1/auth/register",
+      "/v1/dev/bootstrap",
+      "/v1/invariants",
+      "/v1/meta",
+      "/v1/metrics",
+      "/v1/provenance/{certificate_id}/verify",
+      "/v1/search",
+      "/v1/status",
+      "/v1/system/probe-health",
+      "/v1/telemetry/client-errors/anonymous",
+      "/v1/ui/config",
+      "/v1/version"
+    ],
+    "spoke_audit": [
+      "/v1/audit/chain",
+      "/v1/audit/chain/verify",
+      "/v1/audit/compliance",
+      "/v1/audit/federation",
+      "/v1/audits"
+    ]
+  }
+}

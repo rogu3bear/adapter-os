@@ -61,7 +61,7 @@ impl Db {
         .bind(params.expected_hash)
         .bind(params.actual_hash)
         .bind(params.message)
-        .execute(self.pool())
+        .execute(self.pool_result()?)
         .await
         .map_err(db_err("insert storage reconciliation issue"))?;
         Ok(id)
@@ -81,7 +81,7 @@ impl Db {
             "#,
         )
         .bind(limit)
-        .fetch_all(self.pool())
+        .fetch_all(self.pool_result()?)
         .await
         .map_err(db_err("list storage reconciliation issues"))?;
         Ok(issues)
@@ -92,7 +92,7 @@ impl Db {
             "UPDATE storage_reconciliation_issues SET resolved_at = datetime('now') WHERE id = ?",
         )
         .bind(issue_id)
-        .execute(self.pool())
+        .execute(self.pool_result()?)
         .await
         .map_err(db_err("resolve storage issue"))?;
         Ok(())

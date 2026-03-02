@@ -31,7 +31,7 @@ async fn init_test_db() -> Result<Arc<Db>> {
     std::env::set_var("AOS_SKIP_MIGRATION_SIGNATURES", "1");
 
     let db = Arc::new(Db::connect(":memory:").await?);
-    let pool = db.pool();
+    let pool = db.pool_result().unwrap();
 
     // Create inference_traces table
     sqlx::query(
@@ -109,7 +109,33 @@ async fn init_test_db() -> Result<Arc<Db>> {
             receipt_parity_verified INTEGER,
             tenant_id TEXT,
             created_at TEXT,
-            copy_bytes INTEGER
+            copy_bytes INTEGER,
+            tokenizer_hash_b3 BLOB,
+            tokenizer_version TEXT,
+            tokenizer_normalization TEXT,
+            model_build_hash_b3 BLOB,
+            adapter_build_hash_b3 BLOB,
+            decode_algo TEXT,
+            temperature_q15 INTEGER,
+            top_p_q15 INTEGER,
+            top_k INTEGER,
+            seed_digest_b3 BLOB,
+            sampling_backend TEXT,
+            thread_count INTEGER,
+            reduction_strategy TEXT,
+            stop_eos_q15 INTEGER,
+            stop_window_digest_b3 BLOB,
+            cache_scope TEXT,
+            cached_prefix_digest_b3 BLOB,
+            cached_prefix_len INTEGER,
+            cache_key_b3 BLOB,
+            retrieval_merkle_root_b3 BLOB,
+            retrieval_order_digest_b3 BLOB,
+            tool_call_inputs_digest_b3 BLOB,
+            tool_call_outputs_digest_b3 BLOB,
+            disclosure_level TEXT,
+            receipt_signing_kid TEXT,
+            receipt_signed_at TEXT
         );
         "#,
     )
@@ -322,7 +348,7 @@ async fn test_stop_controller_budget_max_persisted_to_receipt() -> Result<()> {
          FROM inference_trace_receipts WHERE trace_id = ?",
     )
     .bind(&trace_id)
-    .fetch_one(db.pool())
+    .fetch_one(db.pool_result().unwrap())
     .await?;
 
     assert_eq!(stored_receipt.0.as_deref(), Some("BUDGET_MAX"));
@@ -455,7 +481,7 @@ async fn test_stop_controller_completion_confident_persisted() -> Result<()> {
          FROM inference_trace_receipts WHERE trace_id = ?",
     )
     .bind(&trace_id)
-    .fetch_one(db.pool())
+    .fetch_one(db.pool_result().unwrap())
     .await?;
 
     assert_eq!(stored.0.as_deref(), Some("COMPLETION_CONFIDENT"));
@@ -577,7 +603,7 @@ async fn test_stop_controller_repetition_guard_persisted() -> Result<()> {
     let stored: (Option<String>,) =
         sqlx::query_as("SELECT stop_reason_code FROM inference_trace_receipts WHERE trace_id = ?")
             .bind(&trace_id)
-            .fetch_one(db.pool())
+            .fetch_one(db.pool_result().unwrap())
             .await?;
 
     assert_eq!(stored.0.as_deref(), Some("REPETITION_GUARD"));
@@ -701,7 +727,7 @@ async fn test_stop_controller_length_eos_persisted() -> Result<()> {
          FROM inference_trace_receipts WHERE trace_id = ?",
     )
     .bind(&trace_id)
-    .fetch_one(db.pool())
+    .fetch_one(db.pool_result().unwrap())
     .await?;
 
     assert_eq!(stored.0.as_deref(), Some("LENGTH"));
@@ -1134,7 +1160,7 @@ async fn test_stop_policy_digest_committed_to_merkle_bundle() -> Result<()> {
     let stored: (Vec<u8>,) =
         sqlx::query_as("SELECT receipt_digest FROM inference_trace_receipts WHERE trace_id = ?")
             .bind(&trace_id)
-            .fetch_one(db.pool())
+            .fetch_one(db.pool_result().unwrap())
             .await?;
 
     let receipt_digest_bytes: [u8; 32] = stored
@@ -1250,7 +1276,7 @@ async fn test_stop_policy_digest_committed_to_merkle_bundle() -> Result<()> {
     let stored2: (Vec<u8>,) =
         sqlx::query_as("SELECT receipt_digest FROM inference_trace_receipts WHERE trace_id = ?")
             .bind(&trace_id2)
-            .fetch_one(db.pool())
+            .fetch_one(db.pool_result().unwrap())
             .await?;
 
     let receipt_digest_bytes2: [u8; 32] = stored2

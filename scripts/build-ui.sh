@@ -13,6 +13,7 @@ set -euo pipefail
 
 SCRIPT_DIR="$(cd "$(dirname "${BASH_SOURCE[0]}")" && pwd)"
 ROOT_DIR="$(cd "$SCRIPT_DIR/.." && pwd)"
+source "$ROOT_DIR/scripts/lib/build-targets.sh"
 UI_DIR="$ROOT_DIR/crates/adapteros-ui"
 STATIC_DIR="$ROOT_DIR/crates/adapteros-server/static"
 
@@ -274,6 +275,10 @@ fi
 
 echo "=== Building adapterOS UI (WASM) ==="
 echo "Directory: $UI_DIR"
+UI_TARGET_DIR="$(aos_export_cargo_target ui)"
+aos_prune_incremental_if_needed ui || true
+aos_print_build_context ui
+mkdir -p "$STATIC_DIR"
 
 # Check trunk
 if ! command -v trunk &> /dev/null; then
@@ -286,7 +291,12 @@ cd "$UI_DIR"
 echo "Running: trunk build --release"
 # trunk treats NO_COLOR as a boolean; some environments set NO_COLOR=1 which is
 # rejected by newer trunk (expects true/false).
-NO_COLOR=true trunk build --release
+if aos_is_truthy "${AOS_BUILD_USE_SCCACHE:-1}"; then
+    NO_COLOR=true trunk build --release
+else
+    # Explicitly disable wrapper for troubleshooting parity with script-level policy.
+    NO_COLOR=true RUSTC_WRAPPER= trunk build --release
+fi
 
 # Ensure auxiliary static assets exist (service worker + fonts).
 #
@@ -308,6 +318,8 @@ if [[ -f "$UI_DIR/dist/sw.js" ]]; then
 fi
 
 # Apply build metadata + versioned asset naming
+# Guard against missing path after aggressive cleans.
+mkdir -p "$STATIC_DIR"
 apply_asset_versioning
 
 INDEX_FILE="$STATIC_DIR/index.html"
@@ -452,6 +464,12 @@ update_integrity_attr() {
     fi
 }
 
+strip_preload_integrity_attr() {
+    local index_file="$1"
+    perl -0pi -e 's|(<link[^>]*rel="preload"[^>]*?)\s+integrity="sha384-[^"]+"([^>]*>)|${1}${2}|g' "$index_file"
+    echo "Removed integrity attributes from preload links"
+}
+
 if command -v openssl >/dev/null 2>&1 && command -v perl >/dev/null 2>&1 && [[ -f "$INDEX_FILE" ]]; then
     echo ""
     echo "=== Updating Subresource Integrity Digests ==="
@@ -464,6 +482,7 @@ if command -v openssl >/dev/null 2>&1 && command -v perl >/dev/null 2>&1 && [[ -
     for css_file in "$STATIC_DIR"/*.css; do
         update_integrity_attr "$INDEX_FILE" "$css_file"
     done
+    strip_preload_integrity_attr "$INDEX_FILE"
 else
     echo ""
     echo "Skipping SRI update (missing openssl/perl or index.html)"

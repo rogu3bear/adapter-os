@@ -554,7 +554,7 @@ async fn test_workers_share_model_server() {
     use adapteros_lora_worker::model_server_client::{ModelServerClient, ModelServerClientConfig};
 
     // 1. Create client config for Model Server
-    let config = ModelServerClientConfig::with_addr("http://127.0.0.1:50051");
+    let config = ModelServerClientConfig::with_addr("http://127.0.0.1:18085");
 
     // 2. Create two worker clients
     let client1 = ModelServerClient::new(config.clone());

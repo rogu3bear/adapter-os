@@ -1,16 +1,17 @@
 //! Main service supervisor implementation
 
 use crate::auth::AuthService;
-use crate::config::SupervisorConfig;
+use crate::config::{RestartPolicy, RestartPolicyType, SupervisorConfig};
 use crate::error::{Result, SupervisorError};
 use crate::health::{HealthCheck, HealthMonitor, HealthResult};
-use crate::service::{ManagedService, ServiceStatus};
+use crate::service::{ManagedService, ServiceState, ServiceStatus};
 use adapteros_config::path_resolver::resolve_supervisor_signing_key_path;
-use std::collections::HashMap;
+use std::collections::{HashMap, VecDeque};
 use std::path::Path;
 use std::sync::Arc;
+use std::time::Instant;
 use tokio::sync::RwLock;
-use tracing::{error, info, warn};
+use tracing::{debug, error, info, warn};
 
 /// Health check wrapper for ManagedService
 struct ManagedServiceHealthCheck(Arc<ManagedService>);
@@ -27,6 +28,40 @@ impl HealthCheck for ManagedServiceHealthCheck {
             Ok(crate::service::HealthStatus::Checking) => HealthResult::Unknown,
             Err(e) => HealthResult::Unhealthy(e.to_string()),
         }
+    }
+}
+
+#[derive(Default)]
+struct ServiceRemediationState {
+    restart_attempts: VecDeque<Instant>,
+    cooldown_until: Option<Instant>,
+}
+
+impl ServiceRemediationState {
+    fn prune_window(&mut self, now: Instant, window: std::time::Duration) {
+        while let Some(oldest) = self.restart_attempts.front().copied() {
+            if now.duration_since(oldest) > window {
+                self.restart_attempts.pop_front();
+            } else {
+                break;
+            }
+        }
+    }
+}
+
+fn should_attempt_auto_restart(policy: &RestartPolicy, state: &ServiceState) -> bool {
+    if matches!(
+        state,
+        ServiceState::Starting | ServiceState::Stopping | ServiceState::Restarting
+    ) {
+        return false;
+    }
+
+    match policy.policy {
+        RestartPolicyType::Never => false,
+        RestartPolicyType::Always => true,
+        RestartPolicyType::OnFailure => !matches!(state, ServiceState::Stopped),
+        RestartPolicyType::UnlessStopped => !matches!(state, ServiceState::Stopped),
     }
 }
 
@@ -89,6 +124,7 @@ impl ServiceSupervisor {
 
         // Start health monitoring
         supervisor.health_monitor.start_monitoring();
+        supervisor.start_autonomous_remediation_loop();
 
         Ok(supervisor)
     }
@@ -115,6 +151,120 @@ impl ServiceSupervisor {
         }
 
         Ok(())
+    }
+
+    fn start_autonomous_remediation_loop(&self) {
+        let services = Arc::clone(&self.services);
+        let health_monitor = Arc::clone(&self.health_monitor);
+        let service_configs = self.config.services.clone();
+        let interval_seconds = self.config.monitoring.health_check_interval_seconds.max(1);
+
+        tokio::spawn(async move {
+            let mut ticker =
+                tokio::time::interval(std::time::Duration::from_secs(interval_seconds));
+            let mut remediation_state: HashMap<String, ServiceRemediationState> = HashMap::new();
+
+            loop {
+                ticker.tick().await;
+
+                let health_statuses = health_monitor.get_all_statuses().await;
+
+                for (service_id, service_config) in &service_configs {
+                    let health_result = health_statuses
+                        .get(service_id)
+                        .cloned()
+                        .unwrap_or(HealthResult::Unknown);
+
+                    match health_result {
+                        HealthResult::Healthy => {
+                            remediation_state.remove(service_id);
+                            continue;
+                        }
+                        HealthResult::Unhealthy(_) => {}
+                        HealthResult::Unknown => continue,
+                    }
+
+                    let service = {
+                        let guard = services.read().await;
+                        guard.get(service_id).cloned()
+                    };
+
+                    let Some(service) = service else {
+                        continue;
+                    };
+
+                    let runtime_status = service.status().await;
+                    let restart_policy = &service_config.restart_policy;
+                    if !should_attempt_auto_restart(restart_policy, &runtime_status.state) {
+                        continue;
+                    }
+
+                    let now = Instant::now();
+                    let entry = remediation_state.entry(service_id.clone()).or_default();
+                    entry.prune_window(now, restart_policy.window_duration());
+
+                    if let Some(cooldown_until) = entry.cooldown_until {
+                        if now < cooldown_until {
+                            debug!(
+                                service_id = %service_id,
+                                cooldown_remaining_secs = cooldown_until.duration_since(now).as_secs(),
+                                "Autonomous remediation cooldown active; skipping restart"
+                            );
+                            continue;
+                        }
+                        entry.cooldown_until = None;
+                    }
+
+                    let max_attempts = restart_policy.max_attempts_in_window();
+                    if entry.restart_attempts.len() as u32 >= max_attempts {
+                        let cooldown = restart_policy.escalation_cooldown();
+                        entry.cooldown_until = Some(now + cooldown);
+                        error!(
+                            service_id = %service_id,
+                            attempts_in_window = entry.restart_attempts.len(),
+                            max_attempts = max_attempts,
+                            window_seconds = restart_policy.window_duration().as_secs(),
+                            cooldown_seconds = cooldown.as_secs(),
+                            "Restart budget exhausted; escalating unhealthy service"
+                        );
+                        continue;
+                    }
+
+                    let attempt_number = entry.restart_attempts.len() as u32 + 1;
+                    info!(
+                        service_id = %service_id,
+                        attempt = attempt_number,
+                        max_attempts = max_attempts,
+                        "Autonomous remediation restart requested"
+                    );
+
+                    let restart_result = service.restart().await;
+                    entry.restart_attempts.push_back(now);
+                    let cooldown = restart_policy.cooldown_for_attempt(attempt_number);
+                    entry.cooldown_until = Some(now + cooldown);
+
+                    match restart_result {
+                        Ok(()) => {
+                            info!(
+                                service_id = %service_id,
+                                attempt = attempt_number,
+                                cooldown_seconds = cooldown.as_secs(),
+                                "Autonomous remediation restart succeeded"
+                            );
+                        }
+                        Err(e) => {
+                            warn!(
+                                service_id = %service_id,
+                                attempt = attempt_number,
+                                cooldown_seconds = cooldown.as_secs(),
+                                error = %e,
+                                "Autonomous remediation restart failed"
+                            );
+                        }
+                    }
+                }
+            }
+        });
     }
 
     /// Get authentication service

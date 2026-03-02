@@ -110,7 +110,7 @@ impl Db {
             "#,
         )
         .bind(tenant_id)
-        .fetch_optional(self.pool())
+        .fetch_optional(self.pool_result()?)
         .await
         .map_err(db_err("get execution policy"))?;
 
@@ -211,7 +211,7 @@ impl Db {
             "#,
         )
         .bind(tenant_id)
-        .execute(self.pool())
+        .execute(self.pool_result()?)
         .await
         .map_err(db_err("deactivate existing policy"))?;
 
@@ -236,7 +236,7 @@ impl Db {
             0i32
         })
         .bind(created_by)
-        .execute(self.pool())
+        .execute(self.pool_result()?)
         .await
         .map_err(db_err("create execution policy"))?;
 
@@ -278,7 +278,7 @@ impl Db {
             "#,
         )
         .bind(policy_id)
-        .fetch_optional(self.pool())
+        .fetch_optional(self.pool_result()?)
         .await
         .map_err(db_err("get policy for update"))?
         .ok_or_else(|| {
@@ -308,7 +308,7 @@ impl Db {
             "#,
         )
         .bind(policy_id)
-        .execute(self.pool())
+        .execute(self.pool_result()?)
         .await
         .map_err(db_err("deactivate execution policy"))?;
 
@@ -348,7 +348,7 @@ impl Db {
         )
         .bind(tenant_id)
         .bind(limit)
-        .fetch_all(self.pool())
+        .fetch_all(self.pool_result()?)
         .await
         .map_err(db_err("get execution policy history"))?;
 
@@ -361,7 +361,7 @@ impl Db {
             "SELECT COALESCE(MAX(version), 0) FROM tenant_execution_policies WHERE tenant_id = ?",
         )
         .bind(tenant_id)
-        .fetch_one(self.pool())
+        .fetch_one(self.pool_result()?)
         .await
         .map_err(db_err("get max policy version"))?;
 
@@ -382,7 +382,7 @@ impl Db {
 
         let result = sqlx::query("DELETE FROM tenant_execution_policies WHERE tenant_id = ?")
             .bind(tenant_id)
-            .execute(self.pool())
+            .execute(self.pool_result()?)
             .await
             .map_err(db_err("delete execution policies"))?;
 

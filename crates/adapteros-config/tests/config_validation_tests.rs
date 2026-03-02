@@ -207,7 +207,7 @@ fn test_schema_default_values_exist() {
 
     // Critical defaults that should always be set
     let server_port = schema.get_variable("AOS_SERVER_PORT").unwrap();
-    assert_eq!(server_port.default.as_deref(), Some("8080"));
+    assert_eq!(server_port.default.as_deref(), Some("18080"));
 
     let log_level = schema.get_variable("AOS_LOG_LEVEL").unwrap();
     assert_eq!(log_level.default.as_deref(), Some("info"));
@@ -310,7 +310,7 @@ fn test_validate_integer_float_value() {
         })
         .build();
 
-    let err = validate_value(&var, "8080.5").unwrap_err();
+    let err = validate_value(&var, "18080.5").unwrap_err();
     assert!(err.message.contains("Cannot parse"));
 }
 
@@ -520,7 +520,7 @@ fn test_schema_validate_all_with_valid_values() {
     let mut values = HashMap::new();
 
     // Add valid values
-    values.insert("AOS_SERVER_PORT".to_string(), "8080".to_string());
+    values.insert("AOS_SERVER_PORT".to_string(), "18080".to_string());
     values.insert("AOS_MODEL_BACKEND".to_string(), "mlx".to_string());
     values.insert("AOS_LOG_LEVEL".to_string(), "info".to_string());
 
@@ -626,7 +626,7 @@ fn test_config_variable_display_value_sensitive() {
 fn test_config_variable_display_value_non_sensitive() {
     let var = ConfigVariable::new("AOS_SERVER_PORT").build();
 
-    assert_eq!(var.display_value("8080"), "8080");
+    assert_eq!(var.display_value("18080"), "18080");
 }
 
 #[test]

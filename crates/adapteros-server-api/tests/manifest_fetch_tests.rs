@@ -27,7 +27,7 @@ async fn fetch_manifest_by_hash_returns_yaml_and_hash() {
     let db = Db::connect("sqlite::memory:").await.unwrap();
     db.migrate().await.unwrap();
     sqlx::query("INSERT INTO tenants (id, name, itar_flag) VALUES ('default','Default',0)")
-        .execute(db.pool())
+        .execute(db.pool_result().expect("db pool"))
         .await
         .unwrap();
 

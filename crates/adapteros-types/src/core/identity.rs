@@ -3,33 +3,8 @@
 use serde::{Deserialize, Serialize};
 use uuid::Uuid;
 
-/// Tenant identifier
-#[derive(Debug, Clone, PartialEq, Eq, Hash, Serialize, Deserialize)]
-pub struct TenantId(pub String);
-
-impl TenantId {
-    /// Create a new tenant ID
-    pub fn new(id: impl Into<String>) -> Self {
-        Self(id.into())
-    }
-
-    /// Get the inner string
-    pub fn as_str(&self) -> &str {
-        &self.0
-    }
-}
-
-impl From<String> for TenantId {
-    fn from(s: String) -> Self {
-        Self(s)
-    }
-}
-
-impl From<&str> for TenantId {
-    fn from(s: &str) -> Self {
-        Self(s.to_string())
-    }
-}
+// TenantId intentionally not defined here — use the validated
+// `adapteros_core::TenantId` which includes path-traversal protection.
 
 /// User identifier
 #[derive(Debug, Clone, PartialEq, Eq, Hash, Serialize, Deserialize)]

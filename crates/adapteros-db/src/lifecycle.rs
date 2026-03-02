@@ -343,7 +343,7 @@ impl Db {
              ORDER BY alh.created_at DESC",
         )
         .bind(adapter_id)
-        .fetch_all(self.pool())
+        .fetch_all(self.pool_result()?)
         .await
         .map_err(|e| AosError::Database(e.to_string()))?;
 
@@ -373,7 +373,7 @@ impl Db {
              ORDER BY created_at DESC",
         )
         .bind(stack_id)
-        .fetch_all(self.pool())
+        .fetch_all(self.pool_result()?)
         .await
         .map_err(|e| AosError::Database(e.to_string()))?;
 
@@ -395,7 +395,7 @@ impl Db {
                AND adapter_ids_json LIKE ?",
         )
         .bind(format!("%{}%", adapter_id))
-        .fetch_all(self.pool())
+        .fetch_all(self.pool_result()?)
         .await
         .map_err(|e| AosError::Database(e.to_string()))?
         .into_iter()
@@ -436,7 +436,7 @@ impl Db {
             "SELECT * FROM adapters WHERE lifecycle_state = ? ORDER BY created_at DESC",
         )
         .bind(lifecycle_state)
-        .fetch_all(self.pool())
+        .fetch_all(self.pool_result()?)
         .await
         .map_err(|e| AosError::Database(e.to_string()))?;
 
@@ -452,7 +452,7 @@ impl Db {
             "SELECT * FROM adapter_stacks WHERE lifecycle_state = ? ORDER BY created_at DESC",
         )
         .bind(lifecycle_state)
-        .fetch_all(self.pool())
+        .fetch_all(self.pool_result()?)
         .await
         .map_err(|e| AosError::Database(e.to_string()))?;
 
@@ -522,7 +522,7 @@ mod tests {
             "UPDATE adapters SET aos_file_path = 'path/to.aos', aos_file_hash = 'hash123', content_hash_b3 = 'content123', repo_id = 'repo-1', metadata_json = '{\"branch\":\"main\"}' WHERE adapter_id = ?",
         )
         .bind("test-adapter")
-        .execute(db.pool())
+        .execute(db.pool_result().unwrap())
         .await
         .unwrap();
 
@@ -530,7 +530,7 @@ mod tests {
             sqlx::query("UPDATE adapters SET lifecycle_state = ? WHERE adapter_id = ?")
                 .bind(state)
                 .bind("test-adapter")
-                .execute(db.pool())
+                .execute(db.pool_result().unwrap())
                 .await
                 .unwrap();
         }
@@ -588,7 +588,7 @@ mod tests {
             "UPDATE adapters SET aos_file_path = 'path/to.aos', aos_file_hash = 'hash123', content_hash_b3 = 'content123', repo_id = 'repo-1', metadata_json = '{\"branch\":\"main\"}' WHERE adapter_id = ?",
         )
         .bind("test-adapter")
-        .execute(db.pool())
+        .execute(db.pool_result().unwrap())
         .await
         .unwrap();
 
@@ -598,7 +598,7 @@ mod tests {
         )
         .bind(&tenant_id)
         .bind("test-adapter")
-        .execute(db.pool())
+        .execute(db.pool_result().unwrap())
         .await
         .unwrap();
 
@@ -606,7 +606,7 @@ mod tests {
             sqlx::query("UPDATE adapters SET lifecycle_state = ? WHERE adapter_id = ?")
                 .bind(state)
                 .bind("test-adapter")
-                .execute(db.pool())
+                .execute(db.pool_result().unwrap())
                 .await
                 .unwrap();
         }
@@ -649,7 +649,7 @@ mod tests {
              VALUES ('stack-1', ?, 'stack.test.stack1', '[\"adapter-1\"]', 'Sequential', 'active')"
         )
         .bind(&tenant_id)
-        .execute(db.pool())
+        .execute(db.pool_result().unwrap())
         .await
         .unwrap();
 

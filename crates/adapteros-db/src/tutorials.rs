@@ -29,7 +29,7 @@ impl Db {
         )
         .bind(user_id)
         .bind(tutorial_id)
-        .fetch_optional(self.pool())
+        .fetch_optional(self.pool_result()?)
         .await
         .map_err(|e| AosError::Database(e.to_string()))?;
         Ok(status)
@@ -46,7 +46,7 @@ impl Db {
             "#,
         )
         .bind(user_id)
-        .fetch_all(self.pool())
+        .fetch_all(self.pool_result()?)
         .await
         .map_err(|e| AosError::Database(e.to_string()))?;
         Ok(statuses)
@@ -64,7 +64,7 @@ impl Db {
         )
         .bind(user_id)
         .bind(tutorial_id)
-        .execute(self.pool())
+        .execute(self.pool_result()?)
         .await
         .map_err(|e| AosError::Database(e.to_string()))?;
 
@@ -78,7 +78,7 @@ impl Db {
             )
             .bind(user_id)
             .bind(tutorial_id)
-            .execute(self.pool())
+            .execute(self.pool_result()?)
             .await
             .map_err(|e| AosError::Database(e.to_string()))?;
         }
@@ -103,7 +103,7 @@ impl Db {
                 )
                 .bind(user_id)
                 .bind(tutorial_id)
-                .execute(self.pool())
+                .execute(self.pool_result()?)
                 .await
                 .map_err(|e| AosError::Database(e.to_string()))?;
             } else {
@@ -116,7 +116,7 @@ impl Db {
                 )
                 .bind(user_id)
                 .bind(tutorial_id)
-                .execute(self.pool())
+                .execute(self.pool_result()?)
                 .await
                 .map_err(|e| AosError::Database(e.to_string()))?;
             }
@@ -137,7 +137,7 @@ impl Db {
         )
         .bind(user_id)
         .bind(tutorial_id)
-        .execute(self.pool())
+        .execute(self.pool_result()?)
         .await
         .map_err(|e| AosError::Database(e.to_string()))?;
 
@@ -151,7 +151,7 @@ impl Db {
             )
             .bind(user_id)
             .bind(tutorial_id)
-            .execute(self.pool())
+            .execute(self.pool_result()?)
             .await
             .map_err(|e| AosError::Database(e.to_string()))?;
         }
@@ -176,7 +176,7 @@ impl Db {
                 )
                 .bind(user_id)
                 .bind(tutorial_id)
-                .execute(self.pool())
+                .execute(self.pool_result()?)
                 .await
                 .map_err(|e| AosError::Database(e.to_string()))?;
             } else {
@@ -189,7 +189,7 @@ impl Db {
                 )
                 .bind(user_id)
                 .bind(tutorial_id)
-                .execute(self.pool())
+                .execute(self.pool_result()?)
                 .await
                 .map_err(|e| AosError::Database(e.to_string()))?;
             }

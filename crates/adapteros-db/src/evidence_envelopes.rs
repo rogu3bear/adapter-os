@@ -137,7 +137,7 @@ impl Db {
         )
         .bind(tenant_id)
         .bind(scope_str)
-        .fetch_optional(self.pool())
+        .fetch_optional(self.pool_result()?)
         .await
         .db_err("fetch evidence chain tail")?;
 
@@ -327,7 +327,7 @@ impl Db {
             "#,
         )
         .bind(id)
-        .fetch_optional(self.pool())
+        .fetch_optional(self.pool_result()?)
         .await
         .db_err("fetch evidence envelope by id")?;
 
@@ -372,7 +372,7 @@ impl Db {
         .bind(tenant_id)
         .bind(scope_str)
         .bind(&root_hex)
-        .fetch_optional(self.pool())
+        .fetch_optional(self.pool_result()?)
         .await
         .db_err("fetch evidence envelope by root")?;
 
@@ -440,7 +440,7 @@ impl Db {
         }
 
         let rows = query
-            .fetch_all(self.pool())
+            .fetch_all(self.pool_result()?)
             .await
             .db_err("query evidence envelopes")?;
 
@@ -520,7 +520,7 @@ impl Db {
         let tenants: Vec<String> = sqlx::query_scalar(
             "SELECT DISTINCT tenant_id FROM evidence_envelopes ORDER BY tenant_id",
         )
-        .fetch_all(self.pool())
+        .fetch_all(self.pool_result()?)
         .await
         .db_err("fetch distinct tenant IDs for evidence envelopes")?;
 
@@ -588,7 +588,7 @@ impl Db {
         }
 
         let row = query
-            .fetch_one(self.pool())
+            .fetch_one(self.pool_result()?)
             .await
             .db_err("count evidence envelopes")?;
         let count: i64 = row.get("count");
@@ -604,7 +604,7 @@ impl Db {
     pub async fn delete_tenant_evidence_envelopes(&self, tenant_id: &str) -> Result<u64> {
         let result = sqlx::query("DELETE FROM evidence_envelopes WHERE tenant_id = ?")
             .bind(tenant_id)
-            .execute(self.pool())
+            .execute(self.pool_result()?)
             .await
             .db_err("delete tenant evidence envelopes")?;
 

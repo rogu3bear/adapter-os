@@ -209,7 +209,7 @@ impl DefaultAdapterService {
         old_state_str: &str,
         new_state_str: &str,
         reason: &str,
-        lifecycle_manager: &Option<Arc<Mutex<adapteros_lora_lifecycle::LifecycleManager>>>,
+        lifecycle_manager: &Option<Arc<adapteros_lora_lifecycle::LifecycleManager>>,
         is_promotion: bool,
     ) -> Result<String> {
         let consistency = self.state.db.check_adapter_consistency(adapter_id).await?;
@@ -224,7 +224,7 @@ impl DefaultAdapterService {
         }
 
         if let Some(ref lifecycle) = lifecycle_manager {
-            let manager = lifecycle.lock().await;
+            let manager = lifecycle;
 
             if let Some(adapter_idx) = manager.get_adapter_idx(adapter_id) {
                 // Execute state transition via lifecycle manager

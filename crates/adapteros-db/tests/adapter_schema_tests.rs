@@ -20,11 +20,11 @@ async fn setup_test_db() -> Db {
     sqlx::query(
         "INSERT OR IGNORE INTO tenants (id, name) VALUES ('default-tenant', 'Default Test Tenant')",
     )
-    .execute(db.pool())
+    .execute(db.pool_result().unwrap())
     .await
     .unwrap();
     sqlx::query("INSERT OR IGNORE INTO tenants (id, name) VALUES ('system', 'System')")
-        .execute(db.pool())
+        .execute(db.pool_result().unwrap())
         .await
         .unwrap();
 
@@ -41,7 +41,7 @@ async fn set_adapter_active_for_test(db: &Db, adapter_id: &str) {
     )
     .bind(&unique_content_hash)
     .bind(adapter_id)
-    .execute(db.pool())
+    .execute(db.pool_result().unwrap())
     .await
     .unwrap();
 
@@ -49,18 +49,18 @@ async fn set_adapter_active_for_test(db: &Db, adapter_id: &str) {
     // 1. validate_adapter_lifecycle_state_update - validates state is valid enum value
     // 2. enforce_adapter_lifecycle_transitions - enforces state machine rules
     sqlx::query("DROP TRIGGER IF EXISTS validate_adapter_lifecycle_state_update")
-        .execute(db.pool())
+        .execute(db.pool_result().unwrap())
         .await
         .unwrap();
     sqlx::query("DROP TRIGGER IF EXISTS enforce_adapter_lifecycle_transitions")
-        .execute(db.pool())
+        .execute(db.pool_result().unwrap())
         .await
         .unwrap();
 
     // Directly update to active state
     sqlx::query("UPDATE adapters SET lifecycle_state = 'active' WHERE adapter_id = ?")
         .bind(adapter_id)
-        .execute(db.pool())
+        .execute(db.pool_result().unwrap())
         .await
         .unwrap();
 

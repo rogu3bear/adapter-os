@@ -553,7 +553,7 @@ impl Db {
         sqlx::query("UPDATE tenants SET name = ?, updated_at = datetime('now') WHERE id = ?")
             .bind(new_name)
             .bind(id)
-            .execute(self.pool())
+            .execute(self.pool_result()?)
             .await
             .map_err(|e| AosError::Database(e.to_string()))?;
 
@@ -573,7 +573,7 @@ impl Db {
         sqlx::query("UPDATE tenants SET itar_flag = ?, updated_at = datetime('now') WHERE id = ?")
             .bind(itar_flag)
             .bind(id)
-            .execute(self.pool())
+            .execute(self.pool_result()?)
             .await
             .map_err(|e| AosError::Database(e.to_string()))?;
 
@@ -594,7 +594,7 @@ impl Db {
             "UPDATE tenants SET status = 'paused', updated_at = datetime('now') WHERE id = ?",
         )
         .bind(id)
-        .execute(self.pool())
+        .execute(self.pool_result()?)
         .await
         .map_err(|e| AosError::Database(e.to_string()))?;
 
@@ -674,7 +674,7 @@ impl Db {
             "UPDATE tenants SET status = 'active', updated_at = datetime('now') WHERE id = ?",
         )
         .bind(id)
-        .execute(self.pool())
+        .execute(self.pool_result()?)
         .await
         .map_err(|e| AosError::Database(e.to_string()))?;
 
@@ -709,7 +709,7 @@ impl Db {
         .bind(max_storage_gb)
         .bind(rate_limit_rpm)
         .bind(id)
-        .execute(self.pool())
+        .execute(self.pool_result()?)
         .await
         .map_err(|e| AosError::Database(format!("Failed to update tenant limits: {}", e)))?;
 
@@ -751,7 +751,7 @@ impl Db {
         .bind(max_kv_cache_bytes)
         .bind(kv_residency_policy_id)
         .bind(id)
-        .execute(self.pool())
+        .execute(self.pool_result()?)
         .await
         .map_err(|e| AosError::Database(format!("Failed to update tenant KV quota: {}", e)))?;
 
@@ -775,7 +775,7 @@ impl Db {
         let json: Option<String> =
             sqlx::query_scalar("SELECT default_pinned_adapter_ids FROM tenants WHERE id = ?")
                 .bind(tenant_id)
-                .fetch_optional(self.pool())
+                .fetch_optional(self.pool_result()?)
                 .await
                 .map_err(|e| {
                     AosError::Database(format!("Failed to get tenant pinned adapters: {}", e))
@@ -809,7 +809,7 @@ impl Db {
         )
         .bind(&json)
         .bind(tenant_id)
-        .execute(self.pool())
+        .execute(self.pool_result()?)
         .await
         .map_err(|e| {
             AosError::Database(format!("Failed to set tenant pinned adapters: {}", e))
@@ -861,7 +861,7 @@ impl Db {
         let adapter_count =
             sqlx::query("SELECT COUNT(*) as cnt FROM adapters WHERE tenant_id = ? AND active = 1")
                 .bind(tenant_id)
-                .fetch_one(self.pool())
+                .fetch_one(self.pool_result()?)
                 .await
                 .db_err("count adapters")?
                 .get::<i32, _>(0);
@@ -871,7 +871,7 @@ impl Db {
             "SELECT COUNT(*) as cnt FROM training_jobs WHERE tenant_id = ? AND status = 'running'",
         )
         .bind(tenant_id)
-        .fetch_one(self.pool())
+        .fetch_one(self.pool_result()?)
         .await
         .db_err("count training jobs")?
         .get::<i32, _>(0);
@@ -883,7 +883,7 @@ impl Db {
              AND created_at >= datetime('now', '-24 hours')",
         )
         .bind(tenant_id)
-        .fetch_optional(self.pool())
+        .fetch_optional(self.pool_result()?)
         .await
         .db_err("count inference operations")?
         .map(|row| row.get::<i32, _>(0))
@@ -922,7 +922,7 @@ impl Db {
             "SELECT COALESCE(SUM(file_size_bytes), 0) FROM adapters WHERE tenant_id = ?",
         )
         .bind(tenant_id)
-        .fetch_one(self.pool())
+        .fetch_one(self.pool_result()?)
         .await
         .db_err("sum adapter storage")?
         .get(0);
@@ -931,7 +931,7 @@ impl Db {
         let document_bytes: i64 =
             sqlx::query("SELECT COALESCE(SUM(file_size), 0) FROM documents WHERE tenant_id = ?")
                 .bind(tenant_id)
-                .fetch_one(self.pool())
+                .fetch_one(self.pool_result()?)
                 .await
                 .db_err("sum document storage")?
                 .get(0);
@@ -948,7 +948,7 @@ impl Db {
         sqlx::query("INSERT OR REPLACE INTO tenant_snapshots (tenant_id, state_hash, created_at) VALUES (?, ?, datetime('now'))")
             .bind(tenant_id)
             .bind(state_hash.to_hex())
-            .execute(self.pool())
+            .execute(self.pool_result()?)
             .await
             .map_err(|e| AosError::Database(e.to_string()))?;
         Ok(())
@@ -957,7 +957,7 @@ impl Db {
     pub async fn get_tenant_snapshot_hash(&self, tenant_id: &str) -> Result<Option<B3Hash>> {
         let hash_str = sqlx::query("SELECT state_hash FROM tenant_snapshots WHERE tenant_id = ? ORDER BY created_at DESC LIMIT 1")
             .bind(tenant_id)
-            .fetch_optional(self.pool())
+            .fetch_optional(self.pool_result()?)
             .await
             .map_err(|e| AosError::Database(e.to_string()))?
             .map(|row| row.get::<String, _>(0));
@@ -999,7 +999,7 @@ impl Db {
         let mut policies_rs = Vec::new();
         let rows = sqlx::query("SELECT name, rules_json FROM router_policies WHERE tenant_id = ?")
             .bind(tenant_id)
-            .fetch_all(self.pool())
+            .fetch_all(self.pool_result()?)
             .await
             .db_err("query policies")?;
 
@@ -1026,7 +1026,7 @@ impl Db {
             "SELECT key, value_json FROM tenant_configs WHERE tenant_id = ? ORDER BY key",
         )
         .bind(tenant_id)
-        .fetch_all(self.pool())
+        .fetch_all(self.pool_result()?)
         .await
         .db_err("query configs")?;
 
@@ -1076,7 +1076,7 @@ impl Db {
     pub async fn get_default_stack(&self, tenant_id: &str) -> Result<Option<String>> {
         let stack_id = sqlx::query("SELECT default_stack_id FROM tenants WHERE id = ?")
             .bind(tenant_id)
-            .fetch_optional(self.pool())
+            .fetch_optional(self.pool_result()?)
             .await
             .map_err(|e| AosError::Database(format!("Failed to get default stack: {}", e)))?
             .and_then(|row| row.get::<Option<String>, _>(0));
@@ -1098,7 +1098,7 @@ impl Db {
         sqlx::query("UPDATE tenants SET default_stack_id = ? WHERE id = ?")
             .bind(stack_id)
             .bind(tenant_id)
-            .execute(self.pool())
+            .execute(self.pool_result()?)
             .await
             .map_err(|e| AosError::Database(format!("Failed to set default stack: {}", e)))?;
 
@@ -1117,7 +1117,7 @@ impl Db {
     pub async fn clear_default_stack(&self, tenant_id: &str) -> Result<()> {
         sqlx::query("UPDATE tenants SET default_stack_id = NULL WHERE id = ?")
             .bind(tenant_id)
-            .execute(self.pool())
+            .execute(self.pool_result()?)
             .await
             .map_err(|e| AosError::Database(format!("Failed to clear default stack: {}", e)))?;
 
@@ -1146,7 +1146,7 @@ impl Db {
         .bind(tenant_id)
         .bind(policy_id)
         .bind(assigned_by)
-        .execute(self.pool())
+        .execute(self.pool_result()?)
         .await
         .map_err(|e| AosError::Database(format!("Failed to assign policy to tenant: {}", e)))?;
         Ok(())
@@ -1166,7 +1166,7 @@ impl Db {
         .bind(tenant_id)
         .bind(adapter_id)
         .bind(assigned_by)
-        .execute(self.pool())
+        .execute(self.pool_result()?)
         .await
         .map_err(|e| AosError::Database(format!("Failed to assign adapter to tenant: {}", e)))?;
         Ok(())

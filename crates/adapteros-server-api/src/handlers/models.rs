@@ -6,6 +6,9 @@
 use crate::api_error::{ApiError, ApiResult};
 use crate::audit_helper::{log_failure_or_warn, log_success_or_warn};
 use crate::auth::Claims;
+use crate::control_plane::model_worker_lifecycle_reducer::{
+    ModelWorkerLifecycleEvent, ModelWorkerLifecycleReducer,
+};
 use crate::ip_extraction::ClientIp;
 use crate::middleware::require_any_role;
 use crate::model_status::aggregate_status;
@@ -81,6 +84,20 @@ use axum::{
 };
 use serde::{Deserialize, Serialize};
 use utoipa::ToSchema;
+
+fn model_lifecycle_reducer(state: &AppState) -> ModelWorkerLifecycleReducer {
+    ModelWorkerLifecycleReducer::from_env(state.db.clone())
+}
+
+async fn reduce_model_lifecycle_event(
+    state: &AppState,
+    event: ModelWorkerLifecycleEvent,
+) -> Result<(), String> {
+    model_lifecycle_reducer(state)
+        .reduce(event)
+        .await
+        .map_err(|e| format!("lifecycle reducer error: {}", e))
+}
 
 async fn model_allowed_roots() -> Result<Vec<PathBuf>, String> {
     let location = resolve_base_model_location(None, None, false).map_err(|e| e.to_string())?;
@@ -212,12 +229,18 @@ async fn enforce_hot_swap_gate(
     tenant_id: &str,
     incoming_model_id: &str,
 ) -> Result<(), String> {
-    let in_flight = state.in_flight_requests.load(Ordering::Relaxed);
-    if in_flight > 0 {
-        return Err(format!(
-            "Hot-swap gate closed: {} in-flight requests; retry after traffic drains",
-            in_flight
-        ));
+    // Check actual inference operations in flight, not raw HTTP request count.
+    // The raw `in_flight_requests` counter includes SSE streams, health polls,
+    // and UI asset requests — none of which conflict with model loads.
+    // Only active inference operations (running/paused) are unsafe to interrupt.
+    if let Some(ref tracker) = state.inference_state_tracker {
+        let active = tracker.count_active();
+        if active > 0 {
+            return Err(format!(
+                "Hot-swap gate closed: {} active inference(s); retry after they complete",
+                active
+            ));
+        }
     }
 
     let active_state = state
@@ -231,7 +254,7 @@ async fn enforce_hot_swap_gate(
             if active_model_id != incoming_model_id {
                 if let Some(status) = state
                     .db
-                    .get_base_model_status(tenant_id)
+                    .get_base_model_status_for_model(tenant_id, &active_model_id)
                     .await
                     .map_err(|e| format!("Failed to check base model status: {}", e))?
                 {
@@ -317,17 +340,22 @@ async fn fallback_to_last_known_good_base_model(
         {
             Ok(resp) if resp.status == "loaded" || resp.status == "already_loaded" => {
                 let memory_mb = resp.memory_usage_mb.unwrap_or(4096);
-                state
-                    .db
-                    .update_base_model_status(
-                        tenant_id,
-                        &fallback_model_id,
-                        ModelLoadStatus::Ready.as_str(),
-                        None,
-                        Some(memory_mb),
-                    )
-                    .await
-                    .map_err(|e| format!("Failed to update fallback model status: {}", e))?;
+                reduce_model_lifecycle_event(
+                    state,
+                    ModelWorkerLifecycleEvent::ModelSwitchResult {
+                        tenant_id: tenant_id.to_string(),
+                        worker_id: Some(worker_id.clone()),
+                        from_model_id: None,
+                        to_model_id: Some(fallback_model_id.clone()),
+                        to_model_hash_b3: None,
+                        success: true,
+                        error: None,
+                        memory_usage_mb: Some(memory_mb),
+                        reason: "fallback model restored after switch failure".to_string(),
+                    },
+                )
+                .await
+                .map_err(|e| format!("Failed to update fallback model status: {}", e))?;
                 state
                     .metrics_exporter
                     .set_model_loaded_gauge(&fallback_model_id, tenant_id, true);
@@ -558,6 +586,7 @@ pub async fn load_model(
     Path(model_id): Path<String>,
 ) -> ApiResult<ModelStatusResponse> {
     use tracing::{debug, error, info, warn};
+    let model_load_started = std::time::Instant::now();
 
     let request_id = crate::request_id::get_request_id().unwrap_or_else(|| "unknown".to_string());
 
@@ -611,7 +640,7 @@ pub async fn load_model(
     })?;
     let matching: Vec<_> = all_statuses
         .iter()
-        .filter(|s| s.model_id == model_id)
+        .filter(|s| s.tenant_id == tenant_id.as_str() && s.model_id == model_id)
         .collect();
     let aggregated = aggregate_status(matching.iter().copied());
     let state_before = aggregated.status;
@@ -625,9 +654,13 @@ pub async fn load_model(
     );
 
     if state_before.is_ready() {
+        // Unconditionally set the active model when load succeeds.
+        // `set_active_base_model_if_empty` would skip if a stale model ID is
+        // already set, leaving the workspace pointing at a model that is no
+        // longer loaded — which permanently blocks inference readiness.
         if let Err(e) = state
             .db
-            .set_active_base_model_if_empty(tenant_id, &model_id, state.manifest_hash.as_deref())
+            .set_active_base_model(tenant_id, &model_id, state.manifest_hash.as_deref())
             .await
         {
             error!(
@@ -706,28 +739,29 @@ pub async fn load_model(
         );
     }
 
-    // Update status to "loading" first (idempotent ensure)
-    state
-        .db
-        .update_base_model_status(
-            tenant_id,
-            &model_id,
-            ModelLoadStatus::Loading.as_str(),
-            None,
-            None,
+    // Update status to "loading" first (idempotent ensure) via reducer.
+    reduce_model_lifecycle_event(
+        &state,
+        ModelWorkerLifecycleEvent::ModelLoadRequested {
+            tenant_id: tenant_id.to_string(),
+            model_id: model_id.clone(),
+            worker_id: None,
+            model_hash_b3: Some(model.hash_b3.clone()),
+            reason: "control-plane model load requested".to_string(),
+        },
+    )
+    .await
+    .map_err(|e| {
+        error!("Failed to transition model status to loading: {}", e);
+        (
+            StatusCode::INTERNAL_SERVER_ERROR,
+            Json(
+                ErrorResponse::new("failed to update model status")
+                    .with_code("INTERNAL_ERROR")
+                    .with_string_details(e),
+            ),
         )
-        .await
-        .map_err(|e| {
-            error!("Failed to update model status to loading: {}", e);
-            (
-                StatusCode::INTERNAL_SERVER_ERROR,
-                Json(
-                    ErrorResponse::new("failed to update model status")
-                        .with_code("INTERNAL_ERROR")
-                        .with_string_details(e.to_string()),
-                ),
-            )
-        })?;
+    })?;
     state
         .metrics_exporter
         .set_model_loaded_gauge(&model_id, tenant_id, false);
@@ -767,16 +801,21 @@ pub async fn load_model(
         let now = now.clone();
         let client_ip = client_ip.clone();
         async move {
-            let _ = state
-                .db
-                .update_base_model_status(
-                    tenant_id,
-                    &model_id,
-                    ModelLoadStatus::Error.as_str(),
-                    Some(&err_msg),
-                    None,
-                )
-                .await;
+            let _ = reduce_model_lifecycle_event(
+                &state,
+                ModelWorkerLifecycleEvent::ModelSwitchResult {
+                    tenant_id: tenant_id.to_string(),
+                    worker_id: None,
+                    from_model_id: None,
+                    to_model_id: Some(model_id.clone()),
+                    to_model_hash_b3: None,
+                    success: false,
+                    error: Some(err_msg.clone()),
+                    memory_usage_mb: None,
+                    reason: "model load failed before worker switch completed".to_string(),
+                },
+            )
+            .await;
             let _ = state
                 .db
                 .update_model_operation(&op_id, "failed", Some(&err_msg), Some(&now), None)
@@ -1000,7 +1039,7 @@ pub async fn load_model(
                 }
             }
         }
-    } else if let Some(worker_id) = loaded_via_worker_id {
+    } else if let Some(ref worker_id) = loaded_via_worker_id {
         info!(
             model_id = %model_id,
             worker_id = %worker_id,
@@ -1010,18 +1049,19 @@ pub async fn load_model(
 
     let estimated_memory_mb = memory_mb.unwrap_or(4096);
 
-    // Update status based on worker response
-    if let Err(e) = state
-        .db
-        .update_base_model_status(
-            tenant_id,
-            &model_id,
-            final_status.as_str(),
-            load_error.as_deref(),
-            Some(estimated_memory_mb),
-        )
-        .await
-    {
+    // Update status based on worker response via reducer.
+    let switch_event = ModelWorkerLifecycleEvent::ModelSwitchResult {
+        tenant_id: tenant_id.to_string(),
+        worker_id: loaded_via_worker_id.clone(),
+        from_model_id: None,
+        to_model_id: Some(model_id.clone()),
+        to_model_hash_b3: Some(model.hash_b3.clone()),
+        success: matches!(final_status, ModelLoadStatus::Ready),
+        error: load_error.clone(),
+        memory_usage_mb: Some(estimated_memory_mb),
+        reason: "worker model switch result".to_string(),
+    };
+    if let Err(e) = reduce_model_lifecycle_event(&state, switch_event).await {
         error!(
             model_id = %model_id,
             request_id = %request_id,
@@ -1047,6 +1087,11 @@ pub async fn load_model(
         state
             .metrics_exporter
             .record_model_load(&model_id, tenant_id, false);
+        state.metrics_exporter.record_model_load_duration(
+            &model_id,
+            tenant_id,
+            model_load_started.elapsed().as_secs_f64(),
+        );
         let response = build_model_status_response(
             &state,
             model_id,
@@ -1054,7 +1099,7 @@ pub async fn load_model(
             model.model_path,
             ModelLoadStatus::Error,
             None,
-            Some(e.to_string()),
+            Some(e),
             Some(estimated_memory_mb),
             false,
         )
@@ -1086,6 +1131,11 @@ pub async fn load_model(
         state
             .metrics_exporter
             .record_model_load(&model_id, tenant_id, false);
+        state.metrics_exporter.record_model_load_duration(
+            &model_id,
+            tenant_id,
+            model_load_started.elapsed().as_secs_f64(),
+        );
         let response = build_model_status_response(
             &state,
             model_id,
@@ -1130,10 +1180,15 @@ pub async fn load_model(
     state
         .metrics_exporter
         .record_model_load(&model_id, tenant_id, true);
+    state.metrics_exporter.record_model_load_duration(
+        &model_id,
+        tenant_id,
+        model_load_started.elapsed().as_secs_f64(),
+    );
 
     if let Err(e) = state
         .db
-        .set_active_base_model_if_empty(tenant_id, &model_id, state.manifest_hash.as_deref())
+        .set_active_base_model(tenant_id, &model_id, state.manifest_hash.as_deref())
         .await
     {
         error!(
@@ -1259,7 +1314,7 @@ pub async fn unload_model(
     })?;
     let matching: Vec<_> = all_statuses
         .iter()
-        .filter(|s| s.model_id == model_id)
+        .filter(|s| s.tenant_id == tenant_id.as_str() && s.model_id == model_id)
         .collect();
     let aggregated = aggregate_status(matching.iter().copied());
     let state_before = aggregated.status;
@@ -1335,22 +1390,22 @@ pub async fn unload_model(
             )
         })?;
 
-    // Transition to unloading then no-model
-    if let Err(e) = state
-        .db
-        .update_base_model_status(
-            tenant_id,
-            &model_id,
-            ModelLoadStatus::Unloading.as_str(),
-            None,
-            None,
-        )
-        .await
+    // Transition to unloading then no-model via reducer.
+    if let Err(e) = reduce_model_lifecycle_event(
+        &state,
+        ModelWorkerLifecycleEvent::ModelUnloadRequested {
+            tenant_id: tenant_id.to_string(),
+            model_id: model_id.clone(),
+            worker_id: None,
+            reason: "control-plane model unload requested".to_string(),
+        },
+    )
+    .await
     {
         error!("Failed to update model status to unloading: {}", e);
         let _ = state
             .db
-            .update_model_operation(&op_id, "failed", Some(&e.to_string()), Some(&now), None)
+            .update_model_operation(&op_id, "failed", Some(&e), Some(&now), None)
             .await;
         log_failure_or_warn(
             &state.db,
@@ -1372,7 +1427,7 @@ pub async fn unload_model(
             model.model_path,
             ModelLoadStatus::Error,
             None,
-            Some(e.to_string()),
+            Some(e),
             None,
             false,
         )
@@ -1380,22 +1435,146 @@ pub async fn unload_model(
         return Ok(Json(response));
     }
 
-    if let Err(e) = state
-        .db
-        .update_base_model_status(
-            tenant_id,
-            &model_id,
-            ModelLoadStatus::NoModel.as_str(),
-            None,
-            None,
+    let worker_candidates = get_worker_socket_paths(&state, tenant_id).await;
+    if worker_candidates.is_empty() {
+        let err_msg = "No worker available to unload model".to_string();
+        let _ = reduce_model_lifecycle_event(
+            &state,
+            ModelWorkerLifecycleEvent::ModelSwitchResult {
+                tenant_id: tenant_id.to_string(),
+                worker_id: None,
+                from_model_id: Some(model_id.clone()),
+                to_model_id: None,
+                to_model_hash_b3: None,
+                success: false,
+                error: Some(err_msg.clone()),
+                memory_usage_mb: None,
+                reason: "model unload failed: no worker available".to_string(),
+            },
         )
-        .await
+        .await;
+        let _ = state
+            .db
+            .update_model_operation(&op_id, "failed", Some(&err_msg), Some(&now), None)
+            .await;
+        return Ok(Json(
+            build_model_status_response(
+                &state,
+                model_id,
+                model.name,
+                model.model_path,
+                ModelLoadStatus::Error,
+                None,
+                Some(err_msg),
+                None,
+                false,
+            )
+            .await,
+        ));
+    }
+
+    let uds_client = UdsClient::new(Duration::from_secs(60));
+    let mut unload_success = false;
+    let mut unload_error: Option<String> = None;
+    for (uds_path, worker_id) in &worker_candidates {
+        match uds_client.unload_model(uds_path).await {
+            Ok(resp)
+                if matches!(
+                    resp.status.as_str(),
+                    "unloaded" | "already_unloaded" | "no-model"
+                ) =>
+            {
+                unload_success = true;
+                let _ = reduce_model_lifecycle_event(
+                    &state,
+                    ModelWorkerLifecycleEvent::ModelSwitchResult {
+                        tenant_id: tenant_id.to_string(),
+                        worker_id: Some(worker_id.clone()),
+                        from_model_id: Some(model_id.clone()),
+                        to_model_id: None,
+                        to_model_hash_b3: None,
+                        success: true,
+                        error: None,
+                        memory_usage_mb: resp.memory_usage_mb,
+                        reason: "worker model unload completed".to_string(),
+                    },
+                )
+                .await;
+                break;
+            }
+            Ok(resp) => {
+                unload_error = Some(format!(
+                    "worker={} status={} error={}",
+                    worker_id,
+                    resp.status,
+                    resp.error.unwrap_or_default()
+                ));
+            }
+            Err(err) => {
+                unload_error = Some(format!("worker={} error={}", worker_id, err));
+            }
+        }
+    }
+
+    if !unload_success {
+        let err_msg =
+            unload_error.unwrap_or_else(|| "Model unload failed on all workers".to_string());
+        let _ = reduce_model_lifecycle_event(
+            &state,
+            ModelWorkerLifecycleEvent::ModelSwitchResult {
+                tenant_id: tenant_id.to_string(),
+                worker_id: None,
+                from_model_id: Some(model_id.clone()),
+                to_model_id: None,
+                to_model_hash_b3: None,
+                success: false,
+                error: Some(err_msg.clone()),
+                memory_usage_mb: None,
+                reason: "worker model unload failed".to_string(),
+            },
+        )
+        .await;
+        let _ = state
+            .db
+            .update_model_operation(&op_id, "failed", Some(&err_msg), Some(&now), None)
+            .await;
+        return Ok(Json(
+            build_model_status_response(
+                &state,
+                model_id,
+                model.name,
+                model.model_path,
+                ModelLoadStatus::Error,
+                None,
+                Some(err_msg),
+                None,
+                false,
+            )
+            .await,
+        ));
+    }
+
+    if let Err(e) = reduce_model_lifecycle_event(
+        &state,
+        ModelWorkerLifecycleEvent::ModelSwitchResult {
+            tenant_id: tenant_id.to_string(),
+            worker_id: None,
+            from_model_id: Some(model_id.clone()),
+            to_model_id: None,
+            to_model_hash_b3: None,
+            success: true,
+            error: None,
+            memory_usage_mb: None,
+            reason: "model unload completed".to_string(),
+        },
+    )
+    .await
     {
         error!("Failed to update model status to no-model: {}", e);
         // Log operation failure
         let _ = state
             .db
-            .update_model_operation(&op_id, "failed", Some(&e.to_string()), Some(&now), None)
+            .update_model_operation(&op_id, "failed", Some(&e), Some(&now), None)
             .await;
         // Audit log: model unload failure
         log_failure_or_warn(
@@ -1418,7 +1597,7 @@ pub async fn unload_model(
             model.model_path,
             ModelLoadStatus::Error,
             None,
-            Some(e.to_string()),
+            Some(e),
             None,
             false,
         )
@@ -1565,7 +1744,7 @@ pub async fn get_model_status(
     // Find the status record for this model (most recent)
     let status = all_statuses
         .iter()
-        .filter(|s| s.model_id == model_id)
+        .filter(|s| s.tenant_id == tenant_id.as_str() && s.model_id == model_id)
         .collect::<Vec<_>>();
 
     let aggregated = aggregate_status(status.iter().copied());

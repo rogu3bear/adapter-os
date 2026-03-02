@@ -362,10 +362,10 @@ pub async fn upsert_directory_adapter(
 
             // Use lifecycle manager if available
             if let Some(ref lifecycle) = state.lifecycle_manager {
-                let mut manager = lifecycle.lock().await;
+                let manager = lifecycle;
 
                 // Load adapter (updates internal state only)
-                if let Err(e) = manager.get_or_reload(&adapter_id) {
+                if let Err(e) = manager.get_or_reload_async(&adapter_id).await {
                     tracing::warn!(adapter_id = %adapter_id, error = %e, "Failed to load adapter via lifecycle manager");
                     // Fallback: update DB state to indicate load failure
                     let _ = state
@@ -505,7 +505,7 @@ fn serialize_lora_weights_to_safetensors(
     )
     .map_err(|e| format!("failed to build lora_b tensor: {}", e))?;
 
-    safetensors::serialize([("lora_a", lora_a), ("lora_b", lora_b)], &None)
+    safetensors::serialize([("lora_a", lora_a), ("lora_b", lora_b)], None)
         .map_err(|e| format!("failed to serialize safetensors: {}", e))
 }
 

@@ -32,7 +32,7 @@ async fn insert_test_tenant(db: &Db, tenant_id: &str) {
     )
     .bind(tenant_id)
     .bind(format!("Tenant {}", tenant_id))
-    .execute(db.pool())
+    .execute(db.pool_result().unwrap())
     .await
     .unwrap();
 }
@@ -612,7 +612,7 @@ async fn test_verify_evidence_chain_detects_corruption() {
     .bind(B3Hash::hash(b"corrupted-root").to_hex())
     .bind("tenant-1")
     .bind(2)
-    .execute(db.pool())
+    .execute(db.pool_result().unwrap())
     .await
     .unwrap();
 

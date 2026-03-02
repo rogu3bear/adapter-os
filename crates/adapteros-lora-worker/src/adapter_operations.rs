@@ -11,6 +11,7 @@ use crate::{
 };
 use adapteros_core::{AosError, Result};
 use adapteros_lora_kernel_api::FusedKernels;
+use adapteros_lora_lifecycle::AdapterHeatState;
 use std::collections::{HashMap, HashSet};
 
 /// Worker methods for adapter operations
@@ -77,6 +78,8 @@ impl<K: FusedKernels + crate::StrictnessControl + Send + Sync + 'static> Worker<
         &mut self,
         command: AdapterCommand,
     ) -> Result<AdapterCommandResult> {
+        let command_for_lifecycle = command.clone();
+
         if let AdapterCommand::Preload { ref adapter_id, .. } = &command {
             // Check live pressure before attempting to load another adapter.
             let pressure_before: MemoryPressureLevel =
@@ -104,7 +107,62 @@ impl<K: FusedKernels + crate::StrictnessControl + Send + Sync + 'static> Worker<
             ensure_preload_allowed(pressure_before, pressure_after)?;
         }
 
-        self.hotswap.execute(command).await
+        let result = self.hotswap.execute(command).await?;
+        self.sync_lifecycle_after_adapter_command(&command_for_lifecycle, &result)
+            .await?;
+        Ok(result)
+    }
+
+    async fn sync_lifecycle_after_adapter_command(
+        &self,
+        command: &AdapterCommand,
+        result: &AdapterCommandResult,
+    ) -> Result<()> {
+        if !result.success {
+            return Ok(());
+        }
+
+        let lifecycle = self.lifecycle.lock().await;
+        match command {
+            AdapterCommand::Preload { adapter_id, .. } => {
+                if let Some(adapter_idx) = lifecycle.get_adapter_idx(adapter_id) {
+                    lifecycle
+                        .update_adapter_state(adapter_idx, AdapterHeatState::Cold, "worker_preload")
+                        .await?;
+                }
+            }
+            AdapterCommand::Swap {
+                add_ids,
+                remove_ids,
+                ..
+            } => {
+                for adapter_id in remove_ids {
+                    if let Some(adapter_idx) = lifecycle.get_adapter_idx(adapter_id) {
+                        lifecycle
+                            .update_adapter_state(
+                                adapter_idx,
+                                AdapterHeatState::Unloaded,
+                                "worker_swap_remove",
+                            )
+                            .await?;
+                    }
+                }
+                for adapter_id in add_ids {
+                    if let Some(adapter_idx) = lifecycle.get_adapter_idx(adapter_id) {
+                        lifecycle
+                            .update_adapter_state(
+                                adapter_idx,
+                                AdapterHeatState::Warm,
+                                "worker_swap_add",
+                            )
+                            .await?;
+                    }
+                }
+            }
+            AdapterCommand::Rollback | AdapterCommand::VerifyStack => {}
+        }
+
+        Ok(())
     }
 
     /// Verify GPU buffers for all loaded adapters

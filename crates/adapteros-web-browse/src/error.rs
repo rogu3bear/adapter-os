@@ -1,5 +1,6 @@
 //! Error types for web browse service
 
+use adapteros_core::recovery::RecoveryClassifier;
 use std::time::Duration;
 use thiserror::Error;
 
@@ -140,6 +141,24 @@ pub fn is_retriable_status(status: u16) -> bool {
     }
 }
 
+impl RecoveryClassifier for WebBrowseError {
+    fn is_retryable(&self) -> bool {
+        self.is_retriable()
+    }
+
+    fn counts_as_failure(&self) -> bool {
+        self.is_retriable()
+    }
+
+    fn recommended_delay(&self) -> Option<Duration> {
+        self.retry_after_hint()
+    }
+
+    fn should_fallback(&self) -> bool {
+        false
+    }
+}
+
 impl From<reqwest::Error> for WebBrowseError {
     fn from(err: reqwest::Error) -> Self {
         if err.is_timeout() {
@@ -171,3 +190,7 @@ impl From<reqwest::Error> for WebBrowseError {
 
 // Using impl_error_from_for! macro for simple conversions
 adapteros_core::impl_error_from_for!(WebBrowseError: url::ParseError => InvalidUrl);
+adapteros_core::impl_error_from_for!(
+    WebBrowseError: adapteros_core::AosError => ConfigError,
+    prefix = "DB error"
+);

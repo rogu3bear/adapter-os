@@ -6,8 +6,10 @@ authors.workspace = true
 license.workspace = true
 
 [features]
-# multi-backend is default because training requires MLX FFI for base model forward pass
-default = ["multi-backend"]
+# mlx is default because training requires MLX FFI for base model forward pass
+# NOTE: runtime code gates on cfg(feature = "mlx"), not cfg(feature = "multi-backend"),
+# so the default must be "mlx" (which implies "multi-backend") for workspace builds.
+default = ["mlx"]
 deterministic-only = []
 telemetry-sysinfo = ["dep:sysinfo"]
 # Backend feature flags
@@ -46,7 +48,7 @@ base-model-training = ["multi-backend"]
 # Model server mode: Workers connect to shared Model Server instead of loading model locally
 #   - Reduces GPU memory usage by ~65% (one model copy instead of N)
 #   - Requires adapteros-model-server running
-model-server = ["dep:adapteros-model-server", "dep:tonic"]
+model-server = ["dep:adapteros-model-server", "dep:tonic", "dep:tower", "dep:hyper-util"]
 # Residency testing features
 ci-residency = []                    # Enable standard CI residency tests
 hardware-residency = []             # Enable hardware residency tests (Mac Studio)
@@ -67,6 +69,7 @@ adapteros-db = { path = "../adapteros-db" }
 adapteros-policy = { path = "../adapteros-policy" }
 adapteros-lora-router = { path = "../adapteros-lora-router" }
 adapteros-lora-kernel-api = { path = "../adapteros-lora-kernel-api" }
+adapteros-inference-contract = { path = "../adapteros-inference-contract" }
 adapteros-lora-kernel-coreml = { path = "../adapteros-lora-kernel-coreml", optional = true }
 # Use C++ FFI for real MLX inference (primary/only supported path)
 adapteros-lora-mlx-ffi = { path = "../adapteros-lora-mlx-ffi", optional = true, features = ["mlx"] }
@@ -95,23 +98,21 @@ safetensors = { workspace = true }
 memmap2 = { workspace = true }
 once_cell = { workspace = true }
 half = "2.3"
-crossbeam = { workspace = true }
 parking_lot = { workspace = true }
 rand = { workspace = true }
 rand_chacha = "0.3"
 zeroize = { version = "1.7", features = ["derive"] }
-bytemuck = "1.14"
 tracing = { workspace = true }
 uuid = { version = "1.0", features = ["v4", "v7", "serde"] }
 regex = "1.0"
 tokio-util = { version = "0.7", features = ["time"] }
 hkdf = "0.12"
-sha2 = "0.10"
 hex = { workspace = true }
 base64 = { version = "0.21" }
 async-trait = "0.1"
 futures-util = { workspace = true }
 anyhow = { workspace = true }
+fs2 = { workspace = true }
 serde_yaml = "0.9"
 toml = { workspace = true }
 blake3 = { workspace = true }
@@ -134,6 +135,8 @@ clap = { workspace = true }
 tracing-subscriber = { version = "0.3", features = ["env-filter", "json"] }
 tracing-appender = "0.2"
 tonic = { version = "0.12", optional = true }
+tower = { workspace = true, optional = true }
+hyper-util = { workspace = true, optional = true }
 [[bin]]
 name = "aos-worker"
 path = "src/bin/aos_worker.rs"

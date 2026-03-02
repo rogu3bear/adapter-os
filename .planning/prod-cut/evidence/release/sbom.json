@@ -1,0 +1,13 @@
+{
+  "schema": "adapteros-bundle-sbom-v1",
+  "build": {
+    "build_id": "cb463a6431b4",
+    "git_sha": "cb463a6431b4d2cd5abe6e84f4288e28292c6bd7",
+    "build_timestamp": "2026-03-02T06:20:41Z",
+    "source_date_epoch": "1772432441",
+    "workspace_hash": "07eecb5e66643157c39aed73c3e74336fcf4b4683b791b3a53123b60f5ecdeb1"
+  },
+  "artifacts": [
+    {"path":"artifacts/aos-worker","hash":"093ddd619a6439ea336687866e30f9ffe4d02a7e50356764c8d024a8bfd2f1c9","hash_algo":"blake3","kind":"binary"},{"path":"artifacts/aosctl","hash":"8b0695543280b582c87e8fb52af3be207bc090fe2bf0847214e2957c760eac81","hash_algo":"blake3","kind":"binary"}
+  ]
+}

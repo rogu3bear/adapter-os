@@ -571,7 +571,7 @@ impl BaselineService {
             expires_at: baseline.expires_at,
         };
 
-        PerformanceBaseline::upsert(self.db.pool(), baseline_request).await?;
+        PerformanceBaseline::upsert(self.db.pool_result()?, baseline_request).await?;
 
         // Log baseline calculation to telemetry
         if let Err(e) = self.telemetry_writer.log(
@@ -612,7 +612,7 @@ impl BaselineService {
         let deleted_count =
             sqlx::query("DELETE FROM process_performance_baselines WHERE expires_at < ?")
                 .bind(&cutoff_time_str)
-                .execute(self.db.pool())
+                .execute(self.db.pool_result()?)
                 .await
                 .map_err(|e| {
                     adapteros_core::AosError::Database(format!(
@@ -644,13 +644,13 @@ impl BaselineService {
             limit: Some(10000), // Get up to 10k recent metrics
         };
 
-        ProcessHealthMetric::query(self.db.pool(), filters).await
+        ProcessHealthMetric::query(self.db.pool_result()?, filters).await
     }
 
     /// Get active tenants
     async fn get_active_tenants(&self) -> Result<Vec<TenantInfo>> {
         let rows = sqlx::query("SELECT id FROM tenants")
-            .fetch_all(self.db.pool())
+            .fetch_all(self.db.pool_result()?)
             .await
             .map_err(|e| {
                 adapteros_core::AosError::Database(format!("Failed to get tenants: {}", e))
@@ -673,7 +673,7 @@ impl BaselineService {
     async fn get_active_workers_for_tenant(&self, tenant_id: &str) -> Result<Vec<WorkerInfo>> {
         let rows = sqlx::query("SELECT id FROM workers WHERE tenant_id = ? AND status = 'active'")
             .bind(tenant_id)
-            .fetch_all(self.db.pool())
+            .fetch_all(self.db.pool_result()?)
             .await
             .map_err(|e| {
                 adapteros_core::AosError::Database(format!("Failed to get workers: {}", e))

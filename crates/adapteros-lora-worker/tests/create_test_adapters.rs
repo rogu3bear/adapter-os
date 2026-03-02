@@ -49,6 +49,8 @@ async fn create_test_adapter_fixtures() -> Result<()> {
         preferred_backend: None,
         require_gpu: false,
         checkpoint_interval: None,
+        use_gpu_backward: false,
+        validation_split: 0.0,
         ..Default::default()
     };
 
@@ -84,6 +86,8 @@ async fn create_test_adapter_fixtures() -> Result<()> {
         preferred_backend: None,
         require_gpu: false,
         checkpoint_interval: None,
+        use_gpu_backward: false,
+        validation_split: 0.0,
         ..Default::default()
     };
 
@@ -143,6 +147,8 @@ async fn create_test_adapter_fixtures() -> Result<()> {
             preferred_backend: None,
             require_gpu: false,
             checkpoint_interval: None,
+            use_gpu_backward: false,
+            validation_split: 0.0,
             ..Default::default()
         };
 

@@ -165,6 +165,7 @@ impl SseConnection {
     }
 
     /// Connect and start receiving events
+    #[allow(clippy::result_large_err)]
     pub fn connect<F>(&self, on_event: F) -> Result<(), crate::api::ApiError>
     where
         F: Fn(SseEvent) + Clone + 'static,
@@ -175,6 +176,7 @@ impl SseConnection {
     }
 
     /// Connect and subscribe to specific event types.
+    #[allow(clippy::result_large_err)]
     pub fn connect_with_event_types<F>(
         &self,
         event_types: &[&str],
@@ -291,6 +293,7 @@ fn encode_component(value: &str) -> String {
         .unwrap_or_else(|| value.to_string())
 }
 
+#[allow(clippy::result_large_err)]
 fn create_event_source(
     url: &str,
     config: &CircuitBreakerConfig,
@@ -304,6 +307,7 @@ fn create_event_source(
     })
 }
 
+#[allow(clippy::result_large_err)]
 fn connect_with_handler(
     ctx: SseContext,
     handler: Rc<dyn Fn(SseEvent)>,
@@ -1130,9 +1134,9 @@ pub fn use_adapter_lifecycle_sse() -> (RwSignal<SseState>, impl Fn()) {
                         "Branch '{}' rolled back to version {}.",
                         branch, target_version_id
                     ),
-                    "View timeline",
+                    "Open audit trail",
                     &format!(
-                        "/repositories/{}?timeline_event_id={}",
+                        "/audit?repo_id={}&timeline_event_id={}",
                         repo_id, timeline_event_id
                     ),
                 );
@@ -1153,6 +1157,11 @@ pub fn use_training_lifecycle_sse() -> (RwSignal<SseState>, impl Fn()) {
 
     let refetch = use_refetch();
 
+    // Progress rail context is only available in HudShell, not classic Shell.
+    let progress_rail = leptos::prelude::use_context::<
+        leptos::prelude::RwSignal<crate::signals::ProgressRailState>,
+    >();
+
     use_sse("/v1/stream/training", move |event: SseEvent| {
         let data = event.data.trim();
         if data.is_empty() || data == "[DONE]" {
@@ -1161,6 +1170,49 @@ pub fn use_training_lifecycle_sse() -> (RwSignal<SseState>, impl Fn()) {
 
         if let Ok(parsed) = serde_json::from_str::<TrainingLifecycleEvent>(data) {
             refetch.dispatch_training_event(&parsed);
+
+            // Update progress rail when HUD shell is active
+            if let Some(rail) = progress_rail {
+                match &parsed {
+                    TrainingLifecycleEvent::JobStarted { .. } => {
+                        rail.set(crate::signals::ProgressRailState {
+                            progress: Some(0.0),
+                            label: Some("Training started".to_string()),
+                        });
+                    }
+                    TrainingLifecycleEvent::EpochCompleted {
+                        epoch,
+                        total_epochs,
+                        ..
+                    } => {
+                        let frac = if *total_epochs > 0 {
+                            *epoch as f32 / *total_epochs as f32
+                        } else {
+                            0.0
+                        };
+                        rail.set(crate::signals::ProgressRailState {
+                            progress: Some(frac),
+                            label: Some(format!("Epoch {epoch}/{total_epochs}")),
+                        });
+                    }
+                    TrainingLifecycleEvent::JobCompleted { .. } => {
+                        rail.set(crate::signals::ProgressRailState {
+                            progress: Some(1.0),
+                            label: Some("Training complete".to_string()),
+                        });
+                        // Clear after brief hold for completion animation
+                        // local variable removed
+                        wasm_bindgen_futures::spawn_local(async move {
+                            gloo_timers::future::TimeoutFuture::new(500).await;
+                            rail.set(crate::signals::ProgressRailState::default());
+                        });
+                    }
+                    TrainingLifecycleEvent::JobFailed { .. } => {
+                        rail.set(crate::signals::ProgressRailState::default());
+                    }
+                    _ => {}
+                }
+            }
         }
     })
 }

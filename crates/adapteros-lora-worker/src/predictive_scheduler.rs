@@ -869,7 +869,7 @@ mod tests {
         for _ in 0..5 {
             scheduler.evaluate(snap(0.3, vec![], vec![], 100));
         }
-        let decisions = scheduler.evaluate(snap(0.3, vec![], vec![], 100));
+        let _decisions = scheduler.evaluate(snap(0.3, vec![], vec![], 100));
 
         let (inf, train) = scheduler.current_slots();
         assert!(
@@ -901,7 +901,7 @@ mod tests {
             scheduler.evaluate(snap(0.3, vec![], vec![], q));
         }
 
-        let decisions = scheduler.evaluate(snap(0.3, vec![], vec![], 0));
+        let _decisions = scheduler.evaluate(snap(0.3, vec![], vec![], 0));
         let (inf, train) = scheduler.current_slots();
 
         // With queue at 0, training should be at minimum
@@ -940,7 +940,7 @@ mod tests {
         };
         let mut scheduler = PredictiveScheduler::new(cfg);
 
-        for i in 0..20 {
+        for _ in 0..20 {
             scheduler.evaluate(snap(0.3, vec![], vec![], 0));
         }
 

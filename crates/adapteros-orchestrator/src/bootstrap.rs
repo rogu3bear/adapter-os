@@ -65,7 +65,7 @@ impl Default for BootstrapConfig {
             max_diff_lines: 100,
             auto_apply: false,
             require_human_review: true,
-            adapters_root: PathBuf::from("var/adapters"),
+            adapters_root: adapteros_core::rebase_var_path("var/adapters"),
             ingestion_config: IngestionConfig::default(),
         }
     }

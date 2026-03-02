@@ -2,15 +2,18 @@
 # API Endpoint Audit Script for Team 6 (API & Integration) - Tasks A1-A4
 # Audits all REST API endpoints for RBAC, audit logging, and OpenAPI documentation
 #
+# LEGACY: This script may be replaced by scripts/contracts/check_api_surface.py
+# or CI checks. Kept for MVP_PROD_CHECKLIST compatibility.
+#
 # Usage: ./scripts/audit_api_endpoints.sh
 #
-# Output: reports/api_audit_report.md
+# Output: var/reports/api_audits/api_audit_report.md
 
 set -e
 
 SCRIPT_DIR="$(cd "$(dirname "${BASH_SOURCE[0]}")" && pwd)"
 PROJECT_ROOT="$(cd "$SCRIPT_DIR/.." && pwd)"
-REPORT_DIR="$PROJECT_ROOT/reports"
+REPORT_DIR="$PROJECT_ROOT/var/reports/api_audits"
 REPORT_FILE="$REPORT_DIR/api_audit_report.md"
 
 mkdir -p "$REPORT_DIR"

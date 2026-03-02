@@ -1,0 +1,84 @@
+{
+  "schema_version": 1,
+  "manifest_id": "governance-required-status-checks-v1.1.4-graduation",
+  "canonical_policy": {
+    "name": "required_status_checks",
+    "strict_required": true,
+    "required_contexts": [
+      "CI",
+      "Stability Gate",
+      "Integration Tests",
+      "Cross-Hardware Determinism",
+      "Migration Testing",
+      "Security Regression Tests",
+      "Check Merge Conflicts",
+      "FFI AddressSanitizer (push)"
+    ]
+  },
+  "targets": [
+    {
+      "id": "canonical-main",
+      "repo": "rogu3bear/adapter-os",
+      "branch": "main",
+      "owner": "governance",
+      "probe_context": "FFI AddressSanitizer (push)",
+      "approved_exceptions": [
+        {
+          "type": "blocked_external",
+          "reason": "Private-repository plan/visibility currently blocks branch-protection required-check API operations (HTTP 403)."
+        }
+      ]
+    },
+    {
+      "id": "jkca-web-main",
+      "repo": "rogu3bear/jkca-web",
+      "branch": "main",
+      "owner": "governance",
+      "probe_context": "FFI AddressSanitizer (push)",
+      "approved_exceptions": [
+        {
+          "type": "blocked_external",
+          "reason": "Branch-protection required-check API capability is externally restricted for this private repository context."
+        },
+        {
+          "type": "drifted",
+          "reason": "Parity onboarding pending for this repository; drift is explicitly approved during staged rollout."
+        }
+      ]
+    },
+    {
+      "id": "jkca-agent-main",
+      "repo": "rogu3bear/jkca-agent",
+      "branch": "main",
+      "owner": "governance",
+      "probe_context": "FFI AddressSanitizer (push)",
+      "approved_exceptions": [
+        {
+          "type": "blocked_external",
+          "reason": "Branch-protection required-check API capability is externally restricted for this private repository context."
+        },
+        {
+          "type": "drifted",
+          "reason": "Parity onboarding pending for this repository; drift is explicitly approved during staged rollout."
+        }
+      ]
+    },
+    {
+      "id": "scopic-web-main",
+      "repo": "rogu3bear/scopic-web",
+      "branch": "main",
+      "owner": "governance",
+      "probe_context": "FFI AddressSanitizer (push)",
+      "approved_exceptions": [
+        {
+          "type": "blocked_external",
+          "reason": "Branch-protection required-check API capability is externally restricted for this private repository context."
+        },
+        {
+          "type": "drifted",
+          "reason": "Parity onboarding pending for this repository; drift is explicitly approved during staged rollout."
+        }
+      ]
+    }
+  ]
+}

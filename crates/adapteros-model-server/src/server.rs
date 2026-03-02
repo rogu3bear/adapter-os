@@ -216,7 +216,7 @@ impl ModelServer {
             .into());
         }
 
-        let addr: SocketAddr = "127.0.0.1:50051".parse()?;
+        let addr: SocketAddr = "127.0.0.1:18085".parse()?;
 
         info!(
             socket_path = %self.config.socket_path.display(),
@@ -799,7 +799,7 @@ mod tests {
         ];
 
         // Serialize to safetensors format
-        let serialized = serialize(tensors, &None).unwrap();
+        let serialized = serialize(tensors, None).unwrap();
 
         // Parse it back
         let (parsed_a, parsed_b, scale) = parse_adapter_weights(&serialized).unwrap();
@@ -834,7 +834,7 @@ mod tests {
             ),
         ];
 
-        let serialized = serialize(tensors, &None).unwrap();
+        let serialized = serialize(tensors, None).unwrap();
         let (parsed_a, parsed_b, _) = parse_adapter_weights(&serialized).unwrap();
 
         assert_eq!(parsed_a.len(), 4);

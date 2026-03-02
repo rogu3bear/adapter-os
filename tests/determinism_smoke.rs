@@ -136,7 +136,7 @@ async fn init_in_memory_db() -> Result<Arc<Db>> {
     std::env::set_var("AOS_SKIP_MIGRATION_SIGNATURES", "1");
 
     let db = Arc::new(Db::connect(":memory:").await?);
-    let pool = db.pool();
+    let pool = db.pool_result().unwrap();
 
     // Minimal schema needed for trace recording.
     sqlx::query(
@@ -213,7 +213,33 @@ async fn init_in_memory_db() -> Result<Arc<Db>> {
             receipt_parity_verified INTEGER,
             tenant_id TEXT,
             created_at TEXT,
-            copy_bytes INTEGER
+            copy_bytes INTEGER,
+            tokenizer_hash_b3 BLOB,
+            tokenizer_version TEXT,
+            tokenizer_normalization TEXT,
+            model_build_hash_b3 BLOB,
+            adapter_build_hash_b3 BLOB,
+            decode_algo TEXT,
+            temperature_q15 INTEGER,
+            top_p_q15 INTEGER,
+            top_k INTEGER,
+            seed_digest_b3 BLOB,
+            sampling_backend TEXT,
+            thread_count INTEGER,
+            reduction_strategy TEXT,
+            stop_eos_q15 INTEGER,
+            stop_window_digest_b3 BLOB,
+            cache_scope TEXT,
+            cached_prefix_digest_b3 BLOB,
+            cached_prefix_len INTEGER,
+            cache_key_b3 BLOB,
+            retrieval_merkle_root_b3 BLOB,
+            retrieval_order_digest_b3 BLOB,
+            tool_call_inputs_digest_b3 BLOB,
+            tool_call_outputs_digest_b3 BLOB,
+            disclosure_level TEXT,
+            receipt_signing_kid TEXT,
+            receipt_signed_at TEXT
         );
         "#,
     )
@@ -310,7 +336,7 @@ async fn run_trace_once(
     let token_count: i64 =
         sqlx::query("SELECT COUNT(*) AS cnt FROM inference_trace_tokens WHERE trace_id = ?")
             .bind(&receipt.trace_id)
-            .fetch_one(db.pool())
+            .fetch_one(db.pool_result().unwrap())
             .await?
             .get("cnt");
 

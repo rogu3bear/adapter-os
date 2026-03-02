@@ -7,12 +7,13 @@ use crate::api::{
     ModelArchitectureSummary, ModelListResponse, ModelLoadStatus, ModelStatusResponse,
     ModelWithStatsResponse, SeedModelRequest,
 };
+use crate::components::layout::nav_group_label_for_route;
 use crate::components::{
     AsyncBoundary, Badge, BadgeVariant, Button, ButtonVariant, Card, ConfirmationDialog,
-    ConfirmationSeverity, CopyableId, Dialog, ErrorDisplay, FormField, Input, ListEmptyCard,
-    LoadingDisplay, PageBreadcrumbItem, PageScaffold, PageScaffoldActions,
-    PageScaffoldPrimaryAction, Select, SkeletonTable, Spinner, SplitPanel, StatusVariant, Table,
-    TableBody, TableCell, TableHead, TableHeader, TableRow,
+    ConfirmationSeverity, CopyableId, Dialog, EmptyState, EmptyStateVariant, ErrorDisplay,
+    FormField, Input, LoadingDisplay, PageBreadcrumbItem, PageScaffold, PageScaffoldActions,
+    PageScaffoldInspector, PageScaffoldPrimaryAction, Select, SkeletonTable, Spinner, SplitPanel,
+    StatusVariant, Table, TableBody, TableCell, TableHead, TableHeader, TableRow,
 };
 use crate::constants::ui_language;
 use crate::hooks::{
@@ -21,7 +22,8 @@ use crate::hooks::{
 };
 use crate::pages::training::utils::format_backend;
 use crate::signals::{
-    try_use_route_context, use_auth, use_notifications, use_refetch_signal, RefetchTopic,
+    try_use_route_context, use_auth, use_notifications, use_refetch_signal, use_ui_profile,
+    RefetchTopic,
 };
 use crate::utils::{format_bytes, format_datetime, humanize};
 use leptos::prelude::*;
@@ -180,6 +182,8 @@ fn registered_as_fallback(reg: &ModelListResponse) -> MergedModelsData {
 /// Models management page
 #[component]
 pub fn Models() -> impl IntoView {
+    let nav_label =
+        nav_group_label_for_route(use_ui_profile().get_untracked(), "/models").unwrap_or("Build");
     // Shared selection state
     let sel = crate::components::use_split_panel_selection_state();
     let selected_id = sel.selected_id;
@@ -296,9 +300,10 @@ pub fn Models() -> impl IntoView {
         <PageScaffold
             title=ui_language::BASE_MODEL_REGISTRY
             breadcrumbs=vec![
-                PageBreadcrumbItem::new("Deploy", "/models"),
+                PageBreadcrumbItem::new(nav_label, "/models"),
                 PageBreadcrumbItem::current(ui_language::BASE_MODEL_REGISTRY),
             ]
+            full_width=true
         >
             <PageScaffoldPrimaryAction slot>
                 <Button
@@ -316,6 +321,78 @@ pub fn Models() -> impl IntoView {
                     "Refresh"
                 </Button>
             </PageScaffoldActions>
+            <PageScaffoldInspector slot>
+                <div class="context-rail">
+                    <section class="context-rail-section">
+                        <p class="context-rail-eyebrow">"Context"</p>
+                        <h2 class="context-rail-title">"Models"</h2>
+                        <p class="context-rail-copy">
+                            "Keep registry status and active memory usage visible while selecting model details."
+                        </p>
+                    </section>
+                    <section class="context-rail-section">
+                        <h3 class="context-rail-heading">"Current view"</h3>
+                        <dl class="context-rail-kv">
+                            <div>
+                                <dt>"Registered models"</dt>
+                                <dd>
+                                    {move || {
+                                        match merged.try_get() {
+                                            Some(LoadingState::Loaded(data)) => data.rows.len().to_string(),
+                                            _ => "Loading".to_string(),
+                                        }
+                                    }}
+                                </dd>
+                            </div>
+                            <div>
+                                <dt>"Active in memory"</dt>
+                                <dd>
+                                    {move || {
+                                        match merged.try_get() {
+                                            Some(LoadingState::Loaded(data)) => data.active_model_count.to_string(),
+                                            _ => "Loading".to_string(),
+                                        }
+                                    }}
+                                </dd>
+                            </div>
+                            <div>
+                                <dt>"Memory reserved"</dt>
+                                <dd>
+                                    {move || {
+                                        match merged.try_get() {
+                                            Some(LoadingState::Loaded(data)) => format!("{} MB", data.total_memory_mb),
+                                            _ => "Loading".to_string(),
+                                        }
+                                    }}
+                                </dd>
+                            </div>
+                            <div>
+                                <dt>"Selected model"</dt>
+                                <dd class="context-rail-value-mono">
+                                    {move || {
+                                        selected_id
+                                            .try_get()
+                                            .flatten()
+                                            .unwrap_or_else(|| "None".to_string())
+                                    }}
+                                </dd>
+                            </div>
+                        </dl>
+                    </section>
+                    <section class="context-rail-section">
+                        <h3 class="context-rail-heading">"Next step"</h3>
+                        <p class="context-rail-copy">
+                            {move || {
+                                if selected_id.try_get().flatten().is_some() {
+                                    "Inspect capabilities and resource usage in the detail pane."
+                                } else {
+                                    "Select a model to inspect details, or register a new base model."
+                                }
+                            }}
+                        </p>
+                    </section>
+                </div>
+            </PageScaffoldInspector>
 
             <SeedModelDialog
                 open=show_import_dialog
@@ -325,7 +402,7 @@ pub fn Models() -> impl IntoView {
             <SplitPanel
                 has_selection=sel.has_selection
                 on_close=sel.on_close
-                back_label="Back to Base Model Registry"
+                back_label="Back to Models"
                 list_panel=move || {
                     let on_select = sel.on_select;
                     view! {
@@ -356,7 +433,7 @@ pub fn Models() -> impl IntoView {
                                         }.into_any()
                                     }
                                     LoadingState::Error(e) => {
-                                        if matches!(&e, ApiError::Forbidden(_)) {
+                                        if matches!(e.as_ref(), ApiError::Forbidden(_)) {
                                             view! {
                                                 <Card>
                                                     <div class="py-6 px-4 text-sm text-muted-foreground">
@@ -413,10 +490,13 @@ fn ModelList(
 
         return if has_active_context {
             view! {
-                <ListEmptyCard
-                    title="Worker connected, model pending"
-                    description="A worker is active but no model has been registered yet. Import a model or run `aosctl models seed` from the CLI.".to_string()
-                />
+                <Card>
+                    <EmptyState
+                        variant=EmptyStateVariant::Empty
+                        title="Worker connected, model pending".to_string()
+                        description="A worker is active but no model has been registered yet. Import a model or run `aosctl models seed` from the CLI.".to_string()
+                    />
+                </Card>
                 <div class="flex justify-center mt-4">
                     <Button
                         variant=ButtonVariant::Primary
@@ -429,10 +509,13 @@ fn ModelList(
             .into_any()
         } else {
             view! {
-                <ListEmptyCard
-                    title="No base models registered"
-                    description="Import a model to get started, or run `aosctl models seed` from the CLI.".to_string()
-                />
+                <Card>
+                    <EmptyState
+                        variant=EmptyStateVariant::Empty
+                        title="No base models registered".to_string()
+                        description="Import a model to get started, or run `aosctl models seed` from the CLI.".to_string()
+                    />
+                </Card>
                 <div class="flex justify-center mt-4">
                     <Button
                         variant=ButtonVariant::Primary
@@ -511,9 +594,15 @@ fn ModelList(
                                     <TableCell>
                                         <div>
                                             <p class="font-medium">{row.model_name.clone()}</p>
-                                            <p class="text-xs text-muted-foreground font-mono">
-                                                {adapteros_id::short_id(&row.model_id)}
-                                            </p>
+                                            {if row.model_id != row.model_name {
+                                                view! {
+                                                    <p class="text-xs text-muted-foreground font-mono">
+                                                        {adapteros_id::short_id(&row.model_id)}
+                                                    </p>
+                                                }.into_any()
+                                            } else {
+                                                ().into_any()
+                                            }}
                                         </div>
                                     </TableCell>
                                     <TableCell>
@@ -962,7 +1051,7 @@ fn ModelDetailContent(
                         }}
                         {move || system_not_ready.get().then(|| view! {
                             <p class="text-xs text-muted-foreground">
-                                "System is not ready \u{2014} check the Dashboard for status."
+                                "System is not ready \u{2014} check System for status."
                             </p>
                         })}
                     </div>
@@ -971,7 +1060,7 @@ fn ModelDetailContent(
                 {if is_loading {
                     Some(view! {
                         <p class="text-xs text-muted-foreground">
-                            "Base model is loading. Prompt Studio will unlock when activation completes."
+                            "Model is loading. Chat unlocks when activation completes."
                         </p>
                     })
                 } else if is_unloading {
@@ -983,7 +1072,7 @@ fn ModelDetailContent(
                 } else if !model.is_loaded {
                     Some(view! {
                         <p class="text-xs text-muted-foreground">
-                            "Activate keeps this base model hot in memory so Prompt Studio can respond instantly."
+                            "Activate keeps this model hot in memory so Chat can respond instantly."
                         </p>
                     })
                 } else {
@@ -1033,7 +1122,7 @@ fn ModelDetailContent(
                     view! {
                         <div class="flex justify-between">
                             <span class="text-muted-foreground">"Path"</span>
-                            <span class="font-mono text-xs truncate max-w-60" title=path>{path_display}</span>
+                            <span class="font-mono text-xs break-all text-right max-w-[65%]" title=path>{path_display}</span>
                         </div>
                     }
                 })}
@@ -1215,6 +1304,8 @@ fn ModelDetailContent(
 /// Standalone model detail page
 #[component]
 pub fn ModelDetail() -> impl IntoView {
+    let nav_label =
+        nav_group_label_for_route(use_ui_profile().get_untracked(), "/models").unwrap_or("Build");
     let params = use_params_map();
 
     let model_id = Memo::new(move |_| {
@@ -1291,12 +1382,13 @@ pub fn ModelDetail() -> impl IntoView {
 
     view! {
         <PageScaffold
-            title="Base Model Details"
+            title="Model Details"
             breadcrumbs=vec![
-                PageBreadcrumbItem::new("Deploy", "/models"),
+                PageBreadcrumbItem::new(nav_label, "/models"),
                 PageBreadcrumbItem::new(ui_language::BASE_MODEL_REGISTRY, "/models"),
                 PageBreadcrumbItem::current(model_name_for_breadcrumb.get()),
             ]
+            full_width=true
         >
             <PageScaffoldActions slot>
                 <Button
@@ -1404,7 +1496,7 @@ fn SeedModelDialog(open: RwSignal<bool>, on_imported: Callback<()>) -> impl Into
                         notifications.success_with_action(
                             "Base model registered",
                             "Compatibility checks are in progress.",
-                            "Open Base Model Registry",
+                            "Open Models",
                             "/models",
                         );
                         on_imported.run(());
@@ -1428,7 +1520,7 @@ fn SeedModelDialog(open: RwSignal<bool>, on_imported: Callback<()>) -> impl Into
     view! {
         <Dialog
             open=open
-            title="Register New Base".to_string()
+            title="Add Model".to_string()
             description="Register a base model from the local filesystem".to_string()
         >
             <div class="space-y-4 overflow-y-auto" style="max-height: 60vh">
@@ -1439,7 +1531,7 @@ fn SeedModelDialog(open: RwSignal<bool>, on_imported: Callback<()>) -> impl Into
                     />
                 </FormField>
 
-                <FormField label="Registry Name" name="model_name" help="Display name shown in the Base Model Registry (optional)".to_string()>
+                <FormField label="Registry Name" name="model_name" help="Display name shown in Models (optional)".to_string()>
                     <Input
                         value=model_name
                         placeholder="Auto-derived from path".to_string()

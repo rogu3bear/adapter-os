@@ -111,12 +111,11 @@ fn build_error_payload(error: &ApiError) -> String {
         payload.push_str(&format!("Failure Code: {}\n", fc.as_str()));
     }
 
-    if let ApiError::Structured {
-        details: Some(d), ..
-    } = error
-    {
-        if let Ok(json) = serde_json::to_string_pretty(d) {
-            payload.push_str(&format!("\nDetails:\n{}\n", json));
+    if let ApiError::Structured { details, .. } = error {
+        if let Some(d) = details.as_ref().as_ref() {
+            if let Ok(json) = serde_json::to_string_pretty(d) {
+                payload.push_str(&format!("\nDetails:\n{}\n", json));
+            }
         }
     }
 
@@ -160,12 +159,13 @@ fn copy_to_clipboard(
 /// - Copy error action for server/network errors (5xx)
 #[component]
 pub fn ErrorDisplay(
-    /// The error to display
-    error: ApiError,
+    /// The error to display (accepts ApiError or Box<ApiError>)
+    error: impl Into<ApiError>,
     /// Optional retry callback
     #[prop(optional)]
     on_retry: Option<Callback<()>>,
 ) -> impl IntoView {
+    let error: ApiError = error.into();
     let error_code = error.code().map(|s| s.to_string());
     let error_message = error.user_message();
     let raw_error_message = error.to_string();
@@ -175,7 +175,7 @@ pub fn ErrorDisplay(
 
     // Extract details if this is a structured error
     let details = match &error {
-        ApiError::Structured { details, .. } => details.clone(),
+        ApiError::Structured { details, .. } => (**details).clone(),
         _ => None,
     };
 
@@ -570,7 +570,7 @@ pub fn NotFoundSurface(
 ) -> impl IntoView {
     let code_text = code.unwrap_or_else(|| "404".to_string());
     let container_class = if class.is_empty() {
-        "flex min-h-[40vh] flex-col items-center justify-center px-4".to_string()
+        "flex min-h-[20vh] flex-col items-center justify-center px-4".to_string()
     } else {
         format!("flex flex-col items-center justify-center px-4 {class}")
     };
@@ -949,7 +949,7 @@ where
                     render(data).into_any()
                 }
                 crate::hooks::LoadingState::Error(e) => {
-                    render_error(e, on_retry).into_any()
+                    render_error(*e, on_retry).into_any()
                 }
             }
         }}

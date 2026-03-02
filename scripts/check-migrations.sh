@@ -6,6 +6,11 @@
 #
 # This is a lightweight CI/preflight guard. To regenerate signatures:
 #   ./scripts/sign_migrations.sh
+#
+# Canonical role in migration checks:
+# - scripts/check-migrations.sh: signatures + duplicate-number gate
+# - scripts/check_migrations.sh: numbering, gaps, collisions
+# - scripts/db/check_migrations.sh: CI/test wrapper that orchestrates both
 
 set -euo pipefail
 

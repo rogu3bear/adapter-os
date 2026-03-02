@@ -60,6 +60,19 @@ pub use adapteros_types::training::{
     LoraTier, TrainingBackendKind, TrainingBackendPolicy, TRAINING_DATA_CONTRACT_VERSION,
 };
 
+/// Canonicalize training contract versions accepted at API boundaries.
+///
+/// Legacy aliases:
+/// - `v1` -> `1.0`
+pub fn canonical_training_contract_version(raw: &str) -> String {
+    let trimmed = raw.trim();
+    if trimmed.eq_ignore_ascii_case("v1") {
+        TRAINING_DATA_CONTRACT_VERSION.to_string()
+    } else {
+        trimmed.to_string()
+    }
+}
+
 // ===== Trust State Normalization =====
 
 /// Canonical tokens for public trust state surfaces.
@@ -360,6 +373,12 @@ pub struct DatasetVersionTrustSnapshot {
     pub dataset_version_id: String,
     #[serde(skip_serializing_if = "Option::is_none")]
     pub trust_at_training_time: Option<String>,
+    /// Parent dataset ID (resolved from dataset_version_id)
+    #[serde(skip_serializing_if = "Option::is_none")]
+    pub dataset_id: Option<String>,
+    /// Dataset display name (resolved from dataset_id)
+    #[serde(skip_serializing_if = "Option::is_none")]
+    pub dataset_name: Option<String>,
 }
 
 #[cfg(feature = "server")]
@@ -544,8 +563,15 @@ pub struct CreateTrainingJobRequest {
 
 #[cfg(feature = "server")]
 impl TrainingConfigRequest {
+    pub fn normalize_contract_version(&mut self) {
+        self.training_contract_version =
+            canonical_training_contract_version(&self.training_contract_version);
+    }
+
     pub fn validate(&self) -> Result<(), Vec<String>> {
         let mut errors = Vec::new();
+        let normalized_contract =
+            canonical_training_contract_version(&self.training_contract_version);
 
         if self.rank == 0 {
             errors.push("rank must be > 0".to_string());
@@ -559,7 +585,7 @@ impl TrainingConfigRequest {
         if self.learning_rate <= 0.0 {
             errors.push("learning_rate must be > 0".to_string());
         }
-        if self.training_contract_version != TRAINING_DATA_CONTRACT_VERSION {
+        if normalized_contract != TRAINING_DATA_CONTRACT_VERSION {
             errors.push(format!(
                 "training_contract_version must be {}",
                 TRAINING_DATA_CONTRACT_VERSION
@@ -1102,6 +1128,8 @@ impl From<TrainingJob> for TrainingJobResponse {
                     .map(|snapshot| DatasetVersionTrustSnapshot {
                         dataset_version_id: snapshot.dataset_version_id,
                         trust_at_training_time: snapshot.trust_at_training_time,
+                        dataset_id: snapshot.dataset_id,
+                        dataset_name: snapshot.dataset_name,
                     })
                     .collect()
             }),
@@ -1227,6 +1255,8 @@ mod tests {
             adapteros_types::training::DatasetVersionTrustSnapshot {
                 dataset_version_id: "ds-ver-1".to_string(),
                 trust_at_training_time: Some("allowed".to_string()),
+                dataset_id: Some("dataset-1".to_string()),
+                dataset_name: Some("Dataset One".to_string()),
             },
         ]);
         job.data_lineage_mode = Some(adapteros_types::training::DataLineageMode::Versioned);
@@ -1238,6 +1268,8 @@ mod tests {
         let trust = resp.dataset_version_trust.expect("dataset_version_trust");
         assert_eq!(trust[0].dataset_version_id, "ds-ver-1");
         assert_eq!(trust[0].trust_at_training_time.as_deref(), Some("allowed"));
+        assert_eq!(trust[0].dataset_id.as_deref(), Some("dataset-1"));
+        assert_eq!(trust[0].dataset_name.as_deref(), Some("Dataset One"));
         assert!(!resp.synthetic_mode);
         assert_eq!(resp.data_lineage_mode, Some(DataLineageMode::Versioned));
     }

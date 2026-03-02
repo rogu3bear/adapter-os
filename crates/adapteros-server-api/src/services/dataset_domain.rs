@@ -429,6 +429,8 @@ impl DatasetDomainService {
     fn finalize_manifest(
         dataset_id: &str,
         dataset_version_id: &str,
+        repo_commit: Option<String>,
+        openapi_hash: Option<String>,
         hash_b3: &str,
         kept: usize,
         dropped: usize,
@@ -461,12 +463,45 @@ impl DatasetDomainService {
             dataset_version_id: dataset_version_id.to_string(),
             training_contract_version: adapteros_types::training::TRAINING_DATA_CONTRACT_VERSION
                 .to_string(),
+            repo_commit,
+            openapi_hash,
             hash_b3: hash_b3.to_string(),
             total_rows: kept,
             dropped_rows: dropped,
             splits,
             normalization: notes,
         }
+    }
+
+    fn resolve_repo_commit(dataset: &TrainingDataset) -> Option<String> {
+        dataset
+            .commit_sha
+            .as_deref()
+            .map(str::trim)
+            .filter(|s| !s.is_empty())
+            .map(|s| s.to_string())
+            .or_else(|| {
+                std::env::var("GIT_COMMIT")
+                    .ok()
+                    .filter(|s| !s.trim().is_empty())
+            })
+            .or_else(|| {
+                std::env::var("BUILD_ID")
+                    .ok()
+                    .filter(|s| !s.trim().is_empty())
+            })
+    }
+
+    fn resolve_openapi_hash() -> Option<String> {
+        for candidate in ["openapi.json", "docs/api/openapi.json"] {
+            let path = Path::new(candidate);
+            if path.exists() {
+                if let Ok(hash) = B3Hash::hash_file(path) {
+                    return Some(hash.to_hex());
+                }
+            }
+        }
+        None
     }
 
     async fn write_manifest(manifest_path: &Path, manifest: &DatasetManifest) -> Result<()> {
@@ -510,8 +545,8 @@ impl DatasetDomain for DatasetDomainService {
             .get_training_dataset(&request.dataset_id)
             .await?
             .ok_or_else(|| AosError::NotFound("Dataset not found".into()))?;
-        if let Some(ds_tenant) = dataset.tenant_id {
-            if ds_tenant != request.tenant_id {
+        if let Some(ds_tenant) = dataset.tenant_id.as_ref() {
+            if ds_tenant != &request.tenant_id {
                 return Err(AosError::Authz(
                     "Dataset belongs to different tenant".into(),
                 ));
@@ -578,6 +613,8 @@ impl DatasetDomain for DatasetDomainService {
         let manifest = Self::finalize_manifest(
             &request.dataset_id,
             &version_id,
+            Self::resolve_repo_commit(&dataset),
+            Self::resolve_openapi_hash(),
             &hash,
             kept,
             dropped,
@@ -802,6 +839,8 @@ mod tests {
         let manifest = DatasetDomainService::finalize_manifest(
             "ds",
             "v1",
+            None,
+            None,
             "hash",
             kept,
             dropped,

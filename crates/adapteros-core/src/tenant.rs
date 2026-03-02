@@ -29,8 +29,9 @@ use std::hash::Hash;
 
 /// Validation regex: alphanumeric start/end, hyphens and underscores allowed in middle
 /// Length: 1-64 characters
-static TENANT_ID_REGEX: Lazy<Regex> =
-    Lazy::new(|| Regex::new(r"^[a-zA-Z0-9]([a-zA-Z0-9_-]{0,62}[a-zA-Z0-9])?$").unwrap());
+static TENANT_ID_REGEX: Lazy<Regex> = Lazy::new(|| {
+    Regex::new(r"^[a-zA-Z0-9]([a-zA-Z0-9_-]{0,62}[a-zA-Z0-9])?$").expect("valid regex")
+});
 
 /// Strongly-typed tenant identifier
 ///

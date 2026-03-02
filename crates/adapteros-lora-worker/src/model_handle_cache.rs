@@ -252,6 +252,83 @@ impl<'a> Drop for ActiveGuard<'a> {
     }
 }
 
+/// RAII guard for cross-process model load serialization
+struct CrossProcessLoadGuard {
+    file: Option<std::fs::File>,
+    lock_path: std::path::PathBuf,
+    key_hex: String,
+}
+
+impl CrossProcessLoadGuard {
+    fn acquire(key_hex: String) -> Self {
+        let var_dir = adapteros_core::resolve_var_dir();
+        let lock_dir = var_dir.join("run").join("aos-locks");
+
+        if let Err(e) = std::fs::create_dir_all(&lock_dir) {
+            tracing::warn!(error = %e, dir = %lock_dir.display(), "Failed to create lock directory, proceeding without cross-process lock");
+            return Self {
+                file: None,
+                lock_path: std::path::PathBuf::new(),
+                key_hex,
+            };
+        }
+
+        let lock_path = lock_dir.join(format!("model_load_{}.lock", key_hex));
+
+        let file = match std::fs::OpenOptions::new()
+            .read(true)
+            .write(true)
+            .create(true)
+            .truncate(true)
+            .open(&lock_path)
+        {
+            Ok(f) => f,
+            Err(e) => {
+                tracing::warn!(error = %e, path = %lock_path.display(), "Failed to open lock file, proceeding without cross-process lock");
+                return Self {
+                    file: None,
+                    lock_path,
+                    key_hex,
+                };
+            }
+        };
+
+        use fs2::FileExt;
+        tracing::info!(key = %key_hex, path = %lock_path.display(), "Acquiring cross-process model load lock...");
+        let start_wait = std::time::Instant::now();
+
+        if let Err(e) = file.lock_exclusive() {
+            tracing::warn!(error = %e, path = %lock_path.display(), "Failed to acquire exclusive file lock, proceeding anyway");
+            return Self {
+                file: None,
+                lock_path,
+                key_hex,
+            };
+        }
+
+        tracing::info!(key = %key_hex, waited = ?start_wait.elapsed(), "Acquired cross-process model load lock");
+
+        Self {
+            file: Some(file),
+            lock_path,
+            key_hex,
+        }
+    }
+}
+
+impl Drop for CrossProcessLoadGuard {
+    fn drop(&mut self) {
+        if let Some(file) = self.file.take() {
+            use fs2::FileExt;
+            if let Err(e) = file.unlock() {
+                tracing::warn!(error = %e, path = %self.lock_path.display(), "Failed to unlock cross-process model load lock");
+            } else {
+                tracing::debug!(key = %self.key_hex, "Released cross-process model load lock");
+            }
+        }
+    }
+}
+
 /// Cached model entry with metadata
 pub struct CachedModelEntry {
     /// The cached model handle
@@ -724,8 +801,16 @@ impl ModelHandleCache {
 
         tracing::info!(key = %key.short_hex(), "Model cache miss, loading from disk");
 
+        // Acquire cross-process lock via RAII guard to safely stagger loads
+        // The guard will automatically release the lock when it goes out of scope (even on panic)
+        let _load_guard = CrossProcessLoadGuard::acquire(key.short_hex());
+
         // Run the loader
         let loader_result = loader();
+
+        // Explicitly drop guard here (optional, but clarifies scope)
+        drop(_load_guard);
+
         if let Err(ref e) = loader_result {
             self.notify_error(key, e);
             self.emit_model_load_failure(key, e);

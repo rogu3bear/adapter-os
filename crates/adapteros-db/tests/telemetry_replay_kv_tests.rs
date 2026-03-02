@@ -40,7 +40,7 @@ async fn create_dual_write_db() -> (Db, TempDir, TempDir) {
         );
     "#,
     )
-    .execute(db.pool())
+    .execute(db.pool_result().unwrap())
     .await
     .unwrap();
 
@@ -82,7 +82,7 @@ async fn create_dual_write_db() -> (Db, TempDir, TempDir) {
         );
     "#,
     )
-    .execute(db.pool())
+    .execute(db.pool_result().unwrap())
     .await
     .unwrap();
 
@@ -91,12 +91,12 @@ async fn create_dual_write_db() -> (Db, TempDir, TempDir) {
         r#"INSERT OR IGNORE INTO plans (id, tenant_id, plan_id_b3, manifest_hash_b3, kernel_hashes_json, created_at)
            VALUES ('plan-1', 'default-tenant', 'plan-b3', 'manifest-b3', '[]', datetime('now'))"#,
     )
-    .execute(db.pool())
+    .execute(db.pool_result().unwrap())
     .await
     .unwrap();
     // Default tenant for FK
     sqlx::query("INSERT INTO tenants (id, name) VALUES ('default-tenant', 'Default Test Tenant')")
-        .execute(db.pool())
+        .execute(db.pool_result().unwrap())
         .await
         .unwrap();
 
@@ -293,7 +293,7 @@ async fn telemetry_drift_detection_on_sql_mismatch() {
     // Introduce SQL drift
     sqlx::query("UPDATE telemetry_events SET event_data = '{\"k\":\"sql\"}' WHERE id = ?")
         .bind(&id)
-        .execute(db.pool())
+        .execute(db.pool_result().unwrap())
         .await
         .unwrap();
 
@@ -367,7 +367,7 @@ async fn replay_drift_detection_on_sql_mismatch() {
         "UPDATE inference_replay_metadata SET manifest_hash = 'sql-hash' WHERE inference_id = ?",
     )
     .bind(&replay_params.inference_id)
-    .execute(db.pool())
+    .execute(db.pool_result().unwrap())
     .await
     .unwrap();
 

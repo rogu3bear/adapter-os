@@ -19,7 +19,7 @@
 //! let mode = if production {
 //!     BindMode::Uds { socket_path: "/var/run/aos/cp.sock".to_string() }
 //! } else {
-//!     BindMode::Tcp { addr: "127.0.0.1:8080".parse().unwrap() }
+//!     BindMode::Tcp { addr: "127.0.0.1:18080".parse().unwrap() }
 //! };
 //!
 //! let config = ServerConfig {
@@ -214,8 +214,6 @@ pub async fn bind_and_serve(
             info!(url = %format!("http://{}:{}/api/", display_addr.ip(), display_addr.port()), "API available");
             warn!("Development mode: TCP binding enabled. Set production_mode=true for UDS-only");
 
-            precheck_tcp_port(addr)?;
-
             // Bind first, fail fast if port in use
             let listener = match tokio::net::TcpListener::bind(addr).await {
                 Ok(l) => l,
@@ -291,7 +289,6 @@ async fn serve_and_shutdown(
 ) -> Result<(), BindError> {
     // Mark ready - binding succeeded
     boot_state.ready().await;
-    boot_state.fully_ready().await;
 
     // Serve with graceful shutdown
     match listener {
@@ -466,8 +463,16 @@ async fn handle_coordinated_shutdown(
                     // Don't return error - partial failures are acceptable
                     Ok(())
                 }
-                _ => {
-                    error!(error = %e, "Shutdown error");
+                ShutdownError::Timeout => {
+                    error!("Overall shutdown timeout exceeded — force exiting");
+                    std::process::exit(1);
+                }
+                ShutdownError::ComponentError { ref component } => {
+                    error!(component = %component, "Component shutdown error");
+                    std::process::exit(1);
+                }
+                ShutdownError::JoinError(ref je) => {
+                    error!(error = %je, "Task join error during shutdown");
                     std::process::exit(1);
                 }
             }
@@ -531,7 +536,7 @@ mod tests {
     fn test_bind_error_display() {
         let err = BindError::PortInUse {
             port: 8080,
-            addr: "127.0.0.1:8080".parse().unwrap(),
+            addr: "127.0.0.1:18080".parse().unwrap(),
         };
         assert!(err.to_string().contains("8080"));
         assert!(err.to_string().contains("lsof"));

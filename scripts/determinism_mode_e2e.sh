@@ -10,7 +10,7 @@
 # Environment:
 #   TOKEN            - Bearer token for API calls (required)
 #   ADAPTER_ID       - Adapter ID to include in the stack (required)
-#   AOS_BASE_URL     - API base URL (default: http://localhost:8080)
+#   AOS_BASE_URL     - API base URL (default: http://localhost:18080)
 #   STACK_NAME       - Optional name for the test stack
 #   TEST_PROMPT      - Optional prompt text (default: "What is 2+2?")
 #   DETERMINISM_SEED - Seed used for strict determinism comparison (default: 12345)
@@ -40,7 +40,7 @@ if [[ -z "${ADAPTER_ID:-}" ]]; then
   exit 1
 fi
 
-BASE_URL="${AOS_BASE_URL:-http://localhost:${AOS_SERVER_PORT:-8080}}"
+BASE_URL="${AOS_BASE_URL:-http://localhost:${AOS_SERVER_PORT:-18080}}"
 STACK_NAME="${STACK_NAME:-determinism-test-stack-$(date +%s)}"
 PROMPT="${TEST_PROMPT:-What is 2+2?}"
 SEED="${DETERMINISM_SEED:-12345}"

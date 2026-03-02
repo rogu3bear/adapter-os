@@ -273,15 +273,6 @@ macro_rules! impl_error_from_for {
         }
     };
 
-    // With custom transform
-    ($target:ty: $source:ty => $variant:ident, $transform:expr) => {
-        impl From<$source> for $target {
-            fn from(err: $source) -> Self {
-                <$target>::$variant($transform(err))
-            }
-        }
-    };
-
     // With prefix
     ($target:ty: $source:ty => $variant:ident, prefix = $prefix:literal) => {
         impl From<$source> for $target {
@@ -300,6 +291,15 @@ macro_rules! impl_error_from_for {
                     $prefix,
                     $crate::error_macros::format_error_chain(&err)
                 ))
+            }
+        }
+    };
+
+    // With custom transform - must come after prefix variants
+    ($target:ty: $source:ty => $variant:ident, $transform:expr) => {
+        impl From<$source> for $target {
+            fn from(err: $source) -> Self {
+                <$target>::$variant($transform(err))
             }
         }
     };
@@ -398,6 +398,22 @@ mod tests {
         let local_err: LocalError = err.into();
         match local_err {
             LocalError::Parse(msg) => assert!(msg.contains("invalid")),
+        }
+    }
+
+    #[derive(Debug, PartialEq)]
+    enum LocalPrefixError {
+        Config(String),
+    }
+
+    impl_error_from_for!(LocalPrefixError: PrefixError => Config, prefix = "Local config error");
+
+    #[test]
+    fn test_impl_error_from_for_prefix() {
+        let source = PrefixError("invalid path".to_string());
+        let local_err: LocalPrefixError = source.into();
+        match local_err {
+            LocalPrefixError::Config(msg) => assert_eq!(msg, "Local config error: invalid path"),
         }
     }
 

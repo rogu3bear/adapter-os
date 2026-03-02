@@ -22,7 +22,7 @@ async fn create_test_tenant(db: &Db, tenant_id: &str) -> Result<()> {
     sqlx::query("INSERT INTO tenants (id, name, itar_flag) VALUES (?, ?, 0)")
         .bind(tenant_id)
         .bind(tenant_id)
-        .execute(db.pool())
+        .execute(db.pool_result()?)
         .await
         .map_err(|e| AosError::Database(format!("Failed to create tenant: {}", e)))?;
     Ok(())
@@ -219,7 +219,7 @@ async fn test_get_document_chunks_enforces_tenant_isolation() -> Result<()> {
     .bind(&chunk1_id)
     .bind("tenant-a")
     .bind(&doc_id)
-    .execute(db.pool())
+    .execute(db.pool_result()?)
     .await?;
 
     sqlx::query(
@@ -229,7 +229,7 @@ async fn test_get_document_chunks_enforces_tenant_isolation() -> Result<()> {
     .bind(&chunk2_id)
     .bind("tenant-a")
     .bind(&doc_id)
-    .execute(db.pool())
+    .execute(db.pool_result()?)
     .await?;
 
     // Tenant-a can access their chunks

@@ -236,7 +236,7 @@ fn bench_memory_patterns(c: &mut Criterion) {
     // Test memory pool efficiency with adapter loading
     group.bench_function("memory_pool_adapter_lifecycle", |b| {
         b.iter(|| {
-            let backend = create_benchmark_backend();
+            let mut backend = create_benchmark_backend();
 
             // Load adapter
             let adapter = create_mock_adapter("adapter", 16);
@@ -386,7 +386,7 @@ fn bench_regression_memory_baseline(c: &mut Criterion) {
     });
 
     group.bench_function("baseline_adapter_load", |b| {
-        let backend = create_benchmark_backend();
+        let mut backend = create_benchmark_backend();
 
         b.iter(|| {
             let adapter = create_mock_adapter("adapter", 16);

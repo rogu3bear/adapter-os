@@ -31,12 +31,6 @@ mod model_loading {
     use adapteros_lora_mlx_ffi::{MLXFFIModel, ModelConfig};
     use std::path::PathBuf;
 
-    /// Get path to test fixtures
-    #[allow(dead_code)]
-    fn fixtures_dir() -> PathBuf {
-        PathBuf::from(env!("CARGO_MANIFEST_DIR")).join("tests/fixtures")
-    }
-
     /// Check if MLX is available on the system
     fn mlx_is_available() -> bool {
         std::process::Command::new("sh")

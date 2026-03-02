@@ -24,7 +24,7 @@ async fn latest_trusted_version_skips_blocked_head() -> Result<()> {
     sqlx::query("UPDATE training_datasets SET tenant_id = ? WHERE id = ?")
         .bind(&tenant_id)
         .bind(&dataset_id)
-        .execute(db.pool())
+        .execute(db.pool_result()?)
         .await?;
 
     // v1 is valid and should be trusted
@@ -113,7 +113,7 @@ async fn version_storage_path_prefers_single_file_match() -> Result<()> {
     sqlx::query("UPDATE training_datasets SET tenant_id = ? WHERE id = ?")
         .bind(&tenant_id)
         .bind(&dataset_id)
-        .execute(db.pool())
+        .execute(db.pool_result()?)
         .await?;
 
     db.add_dataset_file(

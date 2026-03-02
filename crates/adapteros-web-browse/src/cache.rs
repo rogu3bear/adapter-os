@@ -163,7 +163,7 @@ impl WebBrowseCache {
         )
         .bind(key)
         .bind(&now)
-        .fetch_optional(db.pool())
+        .fetch_optional(db.pool_result()?)
         .await
         .map_err(|e| {
             tracing::warn!(error = %e, "L2 cache get failed");
@@ -216,7 +216,7 @@ impl WebBrowseCache {
         .bind(&entry.response_json)
         .bind(&created_at)
         .bind(&expires_at)
-        .execute(db.pool())
+        .execute(db.pool_result()?)
         .await
         .map_err(|e| {
             tracing::warn!(error = %e, "L2 cache set failed");
@@ -235,7 +235,7 @@ impl WebBrowseCache {
 
         sqlx::query("DELETE FROM web_browse_cache WHERE cache_key = ?")
             .bind(key)
-            .execute(db.pool())
+            .execute(db.pool_result()?)
             .await
             .map_err(|e| {
                 tracing::warn!(error = %e, "L2 cache invalidate failed");
@@ -256,7 +256,7 @@ impl WebBrowseCache {
 
         sqlx::query("DELETE FROM web_browse_cache WHERE tenant_id = ?")
             .bind(tenant_id)
-            .execute(db.pool())
+            .execute(db.pool_result()?)
             .await
             .map_err(|e| {
                 tracing::warn!(error = %e, "L2 cache clear tenant failed");
@@ -393,7 +393,7 @@ impl WebBrowseCache {
             sqlx::query("DELETE FROM web_browse_cache WHERE query_type = ? AND tenant_id = ?")
                 .bind(query_type)
                 .bind(tenant_id)
-                .execute(db.pool())
+                .execute(db.pool_result()?)
                 .await
                 .map_err(|e| {
                     tracing::warn!(error = %e, "L2 cache invalidate by query type failed");

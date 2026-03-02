@@ -8,6 +8,7 @@
 use crate::api_error::{ApiError, ApiResult};
 use crate::auth::Claims;
 use crate::handlers::testkit::e2e_enabled;
+use crate::inference_core::resolve_determinism_mode;
 use crate::ip_extraction::ClientIp;
 use crate::permissions::{require_permission, Permission};
 use crate::security::validate_tenant_isolation;
@@ -15,12 +16,12 @@ use crate::services::{DefaultTrainingService, TrainingService};
 use crate::state::AppState;
 use crate::types::*;
 use crate::worker_capabilities::parse_worker_capabilities;
-use adapteros_api_types::training::canonical_trust_state;
-use adapteros_config::resolve_worker_socket_for_cp;
+use adapteros_api_types::training::{canonical_training_contract_version, canonical_trust_state};
 use adapteros_config::ModelConfig;
 use adapteros_core::defaults::DEFAULT_TRAINING_REPORTS_SUBDIR;
-use adapteros_core::AosError;
-use adapteros_db::adapter_repositories::AdapterRepository;
+use adapteros_core::version::AlgorithmVersionBundle;
+use adapteros_core::{AosError, DeterminismMode};
+use adapteros_db::adapter_repositories::{draft_version_label, AdapterRepository};
 use adapteros_db::training_jobs::TrainingJobRecord;
 use adapteros_db::CreateDraftVersionParams as CreateDraftAdapterVersionParams;
 #[cfg(all(target_os = "macos", feature = "coreml-backend"))]
@@ -60,7 +61,6 @@ use utoipa::IntoParams;
 const METRIC_LINEAGE_REQUIRED: &str = "training_jobs_rejected_lineage_required";
 const METRIC_TRUST_BLOCKED: &str = "training_jobs_rejected_trust_blocked";
 const METRIC_TRUST_NEEDS_APPROVAL: &str = "training_jobs_rejected_trust_needs_approval";
-const METRIC_UNKNOWN_STATUS: &str = "training_jobs_unknown_status_detected";
 const METRIC_ENDPOINT_JOBS: &str = "training_endpoint_jobs_requests";
 const METRIC_ENDPOINT_START: &str = "training_endpoint_start_requests";
 
@@ -580,8 +580,8 @@ fn choose_auto_backend(
     require_gpu: bool,
 ) -> Option<TrainingBackendKind> {
     [
-        TrainingBackendKind::CoreML,
         TrainingBackendKind::Mlx,
+        TrainingBackendKind::CoreML,
         TrainingBackendKind::Metal,
         TrainingBackendKind::Cpu,
     ]
@@ -770,7 +770,7 @@ async fn load_base_model_readiness(
 ) -> Result<Option<TrainingBaseModelReadiness>, ApiError> {
     let status_record = state
         .db
-        .get_base_model_status(tenant_id)
+        .get_effective_base_model_status_for_tenant(tenant_id)
         .await
         .map_err(ApiError::db_error)?;
 
@@ -855,6 +855,89 @@ pub(crate) async fn resolve_base_model_path(
 struct GuardrailError {
     code: &'static str,
     message: String,
+}
+
+fn normalize_algorithm_version(
+    value: Option<i64>,
+    fallback: u32,
+    label: &str,
+    dataset_version_id: &str,
+) -> Result<u32, GuardrailError> {
+    match value {
+        Some(v) if v > 0 => Ok(v as u32),
+        Some(v) => Err(GuardrailError {
+            code: "DATASET_ALGO_VERSION_INVALID",
+            message: format!(
+                "Dataset version {} has invalid {} algorithm version {}",
+                dataset_version_id, label, v
+            ),
+        }),
+        None => Ok(fallback),
+    }
+}
+
+async fn validate_dataset_algorithm_compatibility_preflight(
+    state: &AppState,
+    dataset_version: &adapteros_db::training_datasets::TrainingDatasetVersion,
+) -> Result<(), GuardrailError> {
+    let legacy = AlgorithmVersionBundle::legacy();
+    let current = AlgorithmVersionBundle::current();
+
+    let inputs = state
+        .db
+        .get_dataset_hash_inputs_by_content_hash(
+            &dataset_version.dataset_id,
+            &dataset_version.hash_b3,
+        )
+        .await
+        .map_err(|e| GuardrailError {
+            code: "DATASET_HASH_INPUTS_ERROR",
+            message: format!(
+                "Failed to load dataset hash inputs for {}: {}",
+                dataset_version.id, e
+            ),
+        })?;
+
+    let bundle = if let Some(inputs) = inputs {
+        AlgorithmVersionBundle {
+            hkdf_version: normalize_algorithm_version(
+                inputs.hkdf_version,
+                legacy.hkdf_version,
+                "hkdf",
+                &dataset_version.id,
+            )?,
+            parser_version: normalize_algorithm_version(
+                inputs.parser_version,
+                legacy.parser_version,
+                "parser",
+                &dataset_version.id,
+            )?,
+            path_normalization_version: normalize_algorithm_version(
+                inputs.path_normalization_version,
+                legacy.path_normalization_version,
+                "path_normalization",
+                &dataset_version.id,
+            )?,
+            codegraph_version: inputs.codegraph_version.clone(),
+            hash_algorithm_version: current.hash_algorithm_version,
+        }
+    } else {
+        legacy
+    };
+
+    let (compatible, warnings) = bundle.check_with_warnings();
+    if !compatible {
+        return Err(GuardrailError {
+            code: "DATASET_ALGO_VERSION_MISMATCH",
+            message: format!(
+                "Dataset version {} algorithm versions incompatible: {}",
+                dataset_version.id,
+                warnings.join("; ")
+            ),
+        });
+    }
+
+    Ok(())
 }
 
 fn validate_training_guardrails(
@@ -961,10 +1044,150 @@ fn validate_training_guardrails(
     Ok(())
 }
 
+async fn resolve_training_effective_determinism_mode(
+    state: &AppState,
+    tenant_id: &str,
+) -> Result<DeterminismMode, ApiError> {
+    let stack_mode = if let Some(default_stack_id) = state
+        .db
+        .get_default_stack(tenant_id)
+        .await
+        .map_err(ApiError::db_error)?
+    {
+        state
+            .db
+            .get_stack(tenant_id, &default_stack_id)
+            .await
+            .map_err(ApiError::db_error)?
+            .and_then(|stack| stack.determinism_mode)
+    } else {
+        None
+    };
+
+    let execution_policy = state
+        .db
+        .get_execution_policy_or_default(tenant_id)
+        .await
+        .map_err(ApiError::db_error)?;
+    let tenant_mode = if execution_policy.is_implicit {
+        None
+    } else {
+        Some(execution_policy.determinism.default_mode.as_str())
+    };
+
+    let global_mode = {
+        let cfg = state
+            .config
+            .read()
+            .map_err(|_| ApiError::internal("config lock poisoned"))?;
+        cfg.general
+            .as_ref()
+            .and_then(|g| g.determinism_mode)
+            .unwrap_or(DeterminismMode::Strict)
+    };
+
+    Ok(resolve_determinism_mode(
+        stack_mode.as_deref(),
+        tenant_mode,
+        global_mode.as_str(),
+    ))
+}
+
+fn is_bit_identical_mode(mode: DeterminismMode) -> bool {
+    mode == DeterminismMode::Strict
+}
+
+fn enforce_bit_identical_training_backend_allowlist(
+    effective_mode: DeterminismMode,
+    config: &mut adapteros_orchestrator::TrainingConfig,
+    capabilities: &BackendCapabilities,
+) -> Result<(), GuardrailError> {
+    if !is_bit_identical_mode(effective_mode) {
+        return Ok(());
+    }
+
+    if !capabilities.has_mlx {
+        return Err(GuardrailError {
+            code: "BIT_IDENTICAL_BACKEND_MLX_REQUIRED",
+            message:
+                "Bit-identical training requires MLX backend, but MLX is unavailable on this host"
+                    .to_string(),
+        });
+    }
+
+    match config.preferred_backend {
+        None | Some(TrainingBackendKind::Auto) => {
+            config.preferred_backend = Some(TrainingBackendKind::Mlx);
+            config.coreml_training_fallback = None;
+            Ok(())
+        }
+        Some(TrainingBackendKind::Mlx) => Ok(()),
+        Some(other) => Err(GuardrailError {
+            code: "BIT_IDENTICAL_BACKEND_MLX_REQUIRED",
+            message: format!(
+                "Bit-identical training requires MLX backend; requested backend {} is not allowed",
+                other.as_str()
+            ),
+        }),
+    }
+}
+
+fn enforce_bit_identical_backend_readiness(
+    effective_mode: DeterminismMode,
+    requested_backend: TrainingBackendKind,
+    capabilities: &BackendCapabilities,
+    plan: &mut BackendPlan,
+) {
+    if !is_bit_identical_mode(effective_mode) {
+        return;
+    }
+
+    plan.resolved_backend = TrainingBackendKind::Mlx;
+    plan.fallback_backend = None;
+
+    if !capabilities.has_mlx {
+        plan.ready = false;
+        plan.fallback_reason = Some("bit_identical_mlx_unavailable".to_string());
+        plan.warnings.push(
+            "Bit-identical determinism mode requires MLX backend, but MLX is unavailable"
+                .to_string(),
+        );
+        return;
+    }
+
+    if !matches!(
+        requested_backend,
+        TrainingBackendKind::Auto | TrainingBackendKind::Mlx
+    ) {
+        plan.ready = false;
+        plan.fallback_reason = Some("bit_identical_backend_mlx_required".to_string());
+        plan.warnings.push(format!(
+            "Bit-identical determinism mode requires MLX backend; requested {} is disallowed",
+            requested_backend.as_str()
+        ));
+    } else {
+        plan.ready = true;
+        plan.fallback_reason = None;
+    }
+}
+
 pub(crate) async fn ensure_training_worker_capable(
     state: &AppState,
     tenant_id: &str,
 ) -> Result<(), (StatusCode, Json<ErrorResponse>)> {
+    let degraded_marker = adapteros_core::rebase_var_path("var/run/training-worker.degraded");
+    if degraded_marker.exists() {
+        return Err((
+            StatusCode::SERVICE_UNAVAILABLE,
+            Json(
+                ErrorResponse::new(
+                    "Training worker is in degraded mode. Resolve worker attach failures before starting training.",
+                )
+                .with_code("TRAINING_WORKER_DEGRADED"),
+            ),
+        ));
+    }
+
     let workers = state
         .db
         .list_healthy_workers_by_tenant(tenant_id)
@@ -991,7 +1214,17 @@ pub(crate) async fn ensure_training_worker_capable(
         ));
     }
 
-    let has_gpu_backward = workers.into_iter().any(|worker| {
+    let now = Utc::now();
+    let has_fresh_gpu_backward = workers.into_iter().any(|worker| {
+        let is_recent = worker
+            .last_seen_at
+            .as_deref()
+            .and_then(parse_worker_last_seen_utc)
+            .map(|last_seen| now.signed_duration_since(last_seen).num_seconds() <= 90)
+            .unwrap_or(false);
+        if !is_recent {
+            return false;
+        }
         parse_worker_capabilities(
             worker.capabilities_json.as_deref(),
             worker.backend.as_deref(),
@@ -1001,12 +1234,12 @@ pub(crate) async fn ensure_training_worker_capable(
         .unwrap_or(false)
     });
 
-    if !has_gpu_backward {
+    if !has_fresh_gpu_backward {
         return Err((
             StatusCode::SERVICE_UNAVAILABLE,
             Json(
                 ErrorResponse::new(
-                    "No registered worker advertises gpu_backward support. Training requires GPU backward.",
+                    "No fresh healthy worker advertises gpu_backward support. Training requires a live GPU-backward capable worker heartbeat.",
                 )
                 .with_code("WORKER_CAPABILITY_MISSING"),
             ),
@@ -1129,7 +1362,20 @@ pub(crate) async fn start_training_from_dataset(
 
     let mut config_req = config.unwrap_or_else(default_dataset_to_training_config);
     config_req.base_model_path = Some(base_model_path);
-    let config = training_config_from_request(config_req);
+    let mut config = training_config_from_request(config_req);
+    let effective_mode =
+        resolve_training_effective_determinism_mode(state, &claims.tenant_id).await?;
+    if let Err(err) = enforce_bit_identical_training_backend_allowlist(
+        effective_mode,
+        &mut config,
+        &detect_capabilities(),
+    ) {
+        return Err(ApiError::new(
+            StatusCode::BAD_REQUEST,
+            err.code,
+            err.message,
+        ));
+    }
 
     let post_actions = post_actions.unwrap_or_else(default_training_post_actions);
     let post_actions_json = serde_json::to_string(&post_actions)
@@ -1232,6 +1478,48 @@ async fn record_training_rejection_metric(state: &AppState, series: &str) {
         .await;
 }
 
+fn extract_non_empty_json_string(value: Option<&serde_json::Value>) -> Option<String> {
+    value
+        .and_then(|v| v.as_str())
+        .map(|s| s.trim().to_string())
+        .filter(|s| !s.is_empty())
+}
+
+fn resolve_terminal_training_error_fields(
+    status: &str,
+    progress_data: Option<&serde_json::Value>,
+    metadata_data: Option<&serde_json::Value>,
+) -> (Option<String>, Option<String>) {
+    let progress_error_message =
+        extract_non_empty_json_string(progress_data.and_then(|p| p.get("error_message")));
+    let progress_error_code =
+        extract_non_empty_json_string(progress_data.and_then(|p| p.get("error_code")));
+
+    let metadata_error_message = extract_non_empty_json_string(metadata_data.and_then(|m| {
+        m.get("failure_reason")
+            .or_else(|| m.get("error_message"))
+            .or_else(|| m.get("error"))
+    }));
+    let metadata_error_code =
+        extract_non_empty_json_string(metadata_data.and_then(|m| m.get("error_code")));
+
+    let resolved_error_message = progress_error_message
+        .or(metadata_error_message)
+        .or_else(|| {
+            if status.eq_ignore_ascii_case("failed") {
+                Some(
+                    "Training failed; terminal reason was not persisted by legacy execution path. Re-run with current runtime for full failure details."
+                        .to_string(),
+                )
+            } else {
+                None
+            }
+        });
+    let resolved_error_code = progress_error_code.or(metadata_error_code);
+
+    (resolved_error_message, resolved_error_code)
+}
+
 fn record_to_training_job(
     record: TrainingJobRecord,
 ) -> Result<adapteros_orchestrator::TrainingJob, String> {
@@ -1308,6 +1596,15 @@ fn record_to_training_job(
         .and_then(|p| p.get("tokens_per_second"))
         .and_then(|v| v.as_f64())
         .unwrap_or(0.0) as f32;
+    let metadata_data: Option<serde_json::Value> = record
+        .metadata_json
+        .as_ref()
+        .and_then(|json| serde_json::from_str(json).ok());
+    let (resolved_error_message, resolved_error_code) = resolve_terminal_training_error_fields(
+        &record.status,
+        progress_data.as_ref(),
+        metadata_data.as_ref(),
+    );
 
     let lora_tier = parse_lora_tier(record.lora_tier.as_deref());
 
@@ -1349,8 +1646,8 @@ fn record_to_training_job(
         created_at: record.created_at.unwrap_or_else(|| Utc::now().to_rfc3339()),
         started_at: Some(record.started_at),
         completed_at: record.completed_at,
-        error_message: None,
-        error_code: None,
+        error_message: resolved_error_message,
+        error_code: resolved_error_code,
         artifact_path: record.artifact_path,
         adapter_id: record.adapter_id,
         weights_hash_b3: record.weights_hash_b3,
@@ -1408,6 +1705,85 @@ fn record_to_training_job(
         manifest_per_layer_hashes: None,
         signature_status: None,
     })
+}
+
+async fn load_authoritative_training_job(
+    state: &AppState,
+    job_id: &str,
+) -> Result<adapteros_orchestrator::TrainingJob, (StatusCode, Json<ErrorResponse>)> {
+    let service_job = state.training_service.get_job(job_id).await.ok();
+
+    let db_record = match state.db.get_training_job(job_id).await {
+        Ok(record) => record,
+        Err(db_err) => {
+            if let Some(job) = service_job {
+                warn!(
+                    job_id = %job_id,
+                    error = %db_err,
+                    status = %job.status,
+                    "Failed to load training job from DB; falling back to in-memory state"
+                );
+                return Ok(job);
+            }
+
+            error!(job_id = %job_id, error = %db_err, "Failed to load training job from DB");
+            return Err((
+                StatusCode::INTERNAL_SERVER_ERROR,
+                Json(
+                    ErrorResponse::new(format!("Failed to get job: {}", db_err))
+                        .with_code("DATABASE_ERROR"),
+                ),
+            ));
+        }
+    };
+
+    let db_job = match db_record {
+        Some(record) => Some(record_to_training_job(record).map_err(|parse_err| {
+            error!(job_id = %job_id, error = %parse_err, "Failed to decode persisted training job status");
+            (
+                StatusCode::INTERNAL_SERVER_ERROR,
+                Json(
+                    ErrorResponse::new("Training job has invalid persisted status")
+                        .with_code("INVALID_JOB_STATUS")
+                        .with_string_details(parse_err),
+                ),
+            )
+        })?),
+        None => None,
+    };
+
+    select_authoritative_training_job(job_id, service_job, db_job).ok_or_else(|| {
+        (
+            StatusCode::NOT_FOUND,
+            Json(
+                ErrorResponse::new(format!("Training job not found: {}", job_id))
+                    .with_code("NOT_FOUND"),
+            ),
+        )
+    })
+}
+
+fn select_authoritative_training_job(
+    job_id: &str,
+    service_job: Option<adapteros_orchestrator::TrainingJob>,
+    db_job: Option<adapteros_orchestrator::TrainingJob>,
+) -> Option<adapteros_orchestrator::TrainingJob> {
+    match (db_job, service_job) {
+        (Some(db), Some(service)) => {
+            if db.status != service.status {
+                warn!(
+                    job_id = %job_id,
+                    db_status = %db.status,
+                    service_status = %service.status,
+                    "Training status divergence detected; using persisted DB status"
+                );
+            }
+            Some(db)
+        }
+        (Some(db), None) => Some(db),
+        (None, Some(service)) => Some(service),
+        (None, None) => None,
+    }
 }
 
 /// List training jobs with optional filters
@@ -1561,7 +1937,7 @@ pub async fn list_training_jobs(
 pub async fn create_training_job(
     State(state): State<AppState>,
     Extension(claims): Extension<Claims>,
-    Json(req): Json<CreateTrainingJobRequest>,
+    Json(mut req): Json<CreateTrainingJobRequest>,
 ) -> Result<(StatusCode, Json<TrainingJobResponse>), (StatusCode, Json<ErrorResponse>)> {
     state
         .metrics_registry
@@ -1612,8 +1988,33 @@ pub async fn create_training_job(
         ));
     }
 
+    req.params.normalize_contract_version();
     let base_model_id = req.base_model_id.trim().to_string();
     let base_model_path = resolve_base_model_path(&state, &workspace_id, &base_model_id).await?;
+    let base_model = state
+        .db
+        .get_model_for_tenant(&claims.tenant_id, &base_model_id)
+        .await
+        .map_err(|e| {
+            (
+                StatusCode::INTERNAL_SERVER_ERROR,
+                Json(
+                    ErrorResponse::new("Failed to load base model")
+                        .with_code("DATABASE_ERROR")
+                        .with_string_details(e.to_string()),
+                ),
+            )
+        })?
+        .ok_or_else(|| {
+            (
+                StatusCode::NOT_FOUND,
+                Json(
+                    ErrorResponse::new("Base model not found")
+                        .with_code("NOT_FOUND")
+                        .with_string_details(base_model_id.clone()),
+                ),
+            )
+        })?;
     // Worker registration/capability is tenant-scoped (not workspace-scoped).
     // Using workspace_id here can produce false negatives for non-default workspaces.
     ensure_training_worker_capable(&state, &claims.tenant_id).await?;
@@ -1799,6 +2200,28 @@ pub async fn create_training_job(
                 )
             })?,
     };
+    let dataset_version = state
+        .db
+        .get_training_dataset_version_for_tenant(&dataset_version_id, &claims.tenant_id)
+        .await
+        .map_err(|e| {
+            (
+                StatusCode::INTERNAL_SERVER_ERROR,
+                Json(
+                    ErrorResponse::new("failed to load dataset version")
+                        .with_code("DATASET_ERROR")
+                        .with_string_details(e.to_string()),
+                ),
+            )
+        })?;
+    if let Some(version) = dataset_version.as_ref() {
+        if let Err(e) = validate_dataset_algorithm_compatibility_preflight(&state, version).await {
+            return Err((
+                StatusCode::BAD_REQUEST,
+                Json(ErrorResponse::new(&e.message).with_code(e.code)),
+            ));
+        }
+    }
 
     let adapter_name = req.adapter_name.clone().unwrap_or_else(|| {
         format!(
@@ -1833,8 +2256,74 @@ pub async fn create_training_job(
         .as_ref()
         .map(|adapter_type| serde_json::json!({ "adapter_type": adapter_type }).to_string());
 
+    if let Some(repo_id) = req.repo_id.as_deref() {
+        let repo = state
+            .db
+            .get_adapter_repository(&claims.tenant_id, repo_id)
+            .await
+            .map_err(|e| {
+                (
+                    StatusCode::INTERNAL_SERVER_ERROR,
+                    Json(
+                        ErrorResponse::new("Failed to load repository")
+                            .with_code("DATABASE_ERROR")
+                            .with_string_details(e.to_string()),
+                    ),
+                )
+            })?
+            .ok_or_else(|| {
+                (
+                    StatusCode::NOT_FOUND,
+                    Json(
+                        ErrorResponse::new("Repository not found")
+                            .with_code("NOT_FOUND")
+                            .with_string_details(repo_id.to_string()),
+                    ),
+                )
+            })?;
+        if let Err(e) =
+            validate_training_guardrails(&req.params, &repo, &base_model, dataset_version.as_ref())
+        {
+            let status = match e.code {
+                "DATASET_UNTRUSTED" => StatusCode::FORBIDDEN,
+                _ => StatusCode::BAD_REQUEST,
+            };
+            return Err((
+                status,
+                Json(ErrorResponse::new(&e.message).with_code(e.code)),
+            ));
+        }
+    } else if let Err(errors) = req.params.validate() {
+        return Err((
+            StatusCode::BAD_REQUEST,
+            Json(
+                ErrorResponse::new("invalid training params")
+                    .with_code("INVALID_CONFIG")
+                    .with_string_details(errors.join("; ")),
+            ),
+        ));
+    }
+
     let mut config = training_config_from_request(req.params.clone());
     config.base_model_path = Some(base_model_path);
+    let effective_mode = resolve_training_effective_determinism_mode(&state, &claims.tenant_id)
+        .await
+        .map_err(|e| {
+            (
+                e.status,
+                Json(ErrorResponse::new(&e.message).with_code(e.code.as_ref())),
+            )
+        })?;
+    if let Err(err) = enforce_bit_identical_training_backend_allowlist(
+        effective_mode,
+        &mut config,
+        &detect_capabilities(),
+    ) {
+        return Err((
+            StatusCode::BAD_REQUEST,
+            Json(ErrorResponse::new(&err.message).with_code(err.code)),
+        ));
+    }
     let dataset_version_ids = vec![CoreDatasetVersionSelection {
         dataset_version_id,
         weight: 1.0,
@@ -1924,86 +2413,7 @@ pub async fn get_training_job(
         .await
         .map_err(<(StatusCode, Json<ErrorResponse>)>::from)?;
 
-    let job = match state.training_service.get_job(&job_id).await {
-        Ok(job) => job,
-        Err(e) => {
-            error!(job_id = %job_id, error = %e, "Failed to get training job");
-            let error_str = e.to_string();
-            let not_found = error_str.contains("not found") || error_str.contains("NotFound");
-            if not_found && e2e_enabled() {
-                match state.db.get_training_job(&job_id).await {
-                    Ok(Some(record)) => match record_to_training_job(record) {
-                        Ok(job) => job,
-                        Err(parse_err) => {
-                            record_training_rejection_metric(&state, METRIC_UNKNOWN_STATUS).await;
-                            error!(
-                                job_id = %job_id,
-                                error = %parse_err,
-                                "Failed to decode persisted training job status"
-                            );
-                            return Err((
-                                StatusCode::INTERNAL_SERVER_ERROR,
-                                Json(
-                                    ErrorResponse::new("Training job has invalid persisted status")
-                                        .with_code("INVALID_JOB_STATUS")
-                                        .with_string_details(parse_err),
-                                ),
-                            ));
-                        }
-                    },
-                    Ok(None) => {
-                        return Err((
-                            StatusCode::NOT_FOUND,
-                            Json(
-                                ErrorResponse::new(format!("Training job not found: {}", job_id))
-                                    .with_code("NOT_FOUND"),
-                            ),
-                        ));
-                    }
-                    Err(db_err) => {
-                        error!(job_id = %job_id, error = %db_err, "Failed to load training job from DB");
-                        let error_str = db_err.to_string();
-                        if error_str.contains("not found") || error_str.contains("NotFound") {
-                            return Err((
-                                StatusCode::NOT_FOUND,
-                                Json(
-                                    ErrorResponse::new(format!(
-                                        "Training job not found: {}",
-                                        job_id
-                                    ))
-                                    .with_code("NOT_FOUND"),
-                                ),
-                            ));
-                        }
-
-                        return Err((
-                            StatusCode::INTERNAL_SERVER_ERROR,
-                            Json(
-                                ErrorResponse::new(format!("Failed to get job: {}", db_err))
-                                    .with_code("DATABASE_ERROR"),
-                            ),
-                        ));
-                    }
-                }
-            } else if not_found {
-                return Err((
-                    StatusCode::NOT_FOUND,
-                    Json(
-                        ErrorResponse::new(format!("Training job not found: {}", job_id))
-                            .with_code("NOT_FOUND"),
-                    ),
-                ));
-            } else {
-                return Err((
-                    StatusCode::INTERNAL_SERVER_ERROR,
-                    Json(
-                        ErrorResponse::new(format!("Failed to get job: {}", e))
-                            .with_code("DATABASE_ERROR"),
-                    ),
-                ));
-            }
-        }
-    };
+    let job = load_authoritative_training_job(&state, &job_id).await?;
 
     // CRITICAL: Validate tenant isolation - non-admin users can only access their own tenant's jobs
     if let Some(ref job_tenant_id) = job.tenant_id {
@@ -2108,6 +2518,14 @@ pub async fn get_training_backend_readiness(
 
     let capabilities = detect_capabilities();
     let coreml = build_coreml_readiness(&capabilities);
+    let effective_mode = resolve_training_effective_determinism_mode(&state, &claims.tenant_id)
+        .await
+        .map_err(|e| {
+            (
+                e.status,
+                Json(ErrorResponse::new(&e.message).with_code(e.code.as_ref())),
+            )
+        })?;
     let mut plan = plan_backend_readiness(
         requested_backend,
         backend_policy,
@@ -2115,6 +2533,12 @@ pub async fn get_training_backend_readiness(
         require_gpu,
         &capabilities,
         &coreml,
+    );
+    enforce_bit_identical_backend_readiness(
+        effective_mode,
+        requested_backend,
+        &capabilities,
+        &mut plan,
     );
     let base_model = load_base_model_readiness(&state, &claims.tenant_id).await?;
 
@@ -2431,7 +2855,7 @@ pub async fn start_training(
     State(state): State<AppState>,
     Extension(claims): Extension<Claims>,
     Extension(client_ip): Extension<ClientIp>,
-    Json(request): Json<StartTrainingRequest>,
+    Json(mut request): Json<StartTrainingRequest>,
 ) -> Result<(StatusCode, Json<TrainingJobResponse>), (StatusCode, Json<ErrorResponse>)> {
     state
         .metrics_registry
@@ -2443,6 +2867,9 @@ pub async fn start_training(
 
     // Create training service instance
     let service = DefaultTrainingService::new(Arc::new(state.clone()));
+
+    request.config.training_contract_version =
+        canonical_training_contract_version(&request.config.training_contract_version);
 
     // Validate adapter name
     if request.adapter_name.is_empty() {
@@ -2465,6 +2892,38 @@ pub async fn start_training(
     let base_model_id = request.base_model_id.trim().to_string();
     let base_model_path =
         resolve_base_model_path(&state, &claims.tenant_id, &base_model_id).await?;
+
+    if let Some(active_state) = state
+        .db
+        .get_workspace_active_state(&claims.tenant_id)
+        .await
+        .map_err(|e| {
+            (
+                StatusCode::INTERNAL_SERVER_ERROR,
+                Json(
+                    ErrorResponse::new("Failed to load active workspace state")
+                        .with_code("DATABASE_ERROR")
+                        .with_string_details(e.to_string()),
+                ),
+            )
+        })?
+    {
+        if let Some(active_model_id) = active_state.active_base_model_id {
+            if active_model_id != base_model_id {
+                return Err((
+                    StatusCode::BAD_REQUEST,
+                    Json(
+                        ErrorResponse::new(format!(
+                            "base_model_id '{}' does not match active workspace model '{}'",
+                            base_model_id, active_model_id
+                        ))
+                        .with_code("ACTIVE_MODEL_MISMATCH"),
+                    ),
+                ));
+            }
+        }
+    }
+
     ensure_training_worker_capable(&state, &claims.tenant_id).await?;
 
     // Enforce tenant isolation and commit provenance for system repositories
@@ -2647,6 +3106,35 @@ pub async fn start_training(
             status_code,
             Json(ErrorResponse::new(&error_message).with_code(error_code)),
         ));
+    }
+
+    if let Some(dataset_versions) = request.dataset_version_ids.as_ref() {
+        for selection in dataset_versions {
+            if let Some(version) = state
+                .db
+                .get_training_dataset_version(&selection.dataset_version_id)
+                .await
+                .map_err(|e| {
+                    (
+                        StatusCode::INTERNAL_SERVER_ERROR,
+                        Json(
+                            ErrorResponse::new("Failed to load dataset version")
+                                .with_code("DATABASE_ERROR")
+                                .with_string_details(e.to_string()),
+                        ),
+                    )
+                })?
+            {
+                if let Err(e) =
+                    validate_dataset_algorithm_compatibility_preflight(&state, &version).await
+                {
+                    return Err((
+                        StatusCode::BAD_REQUEST,
+                        Json(ErrorResponse::new(&e.message).with_code(e.code)),
+                    ));
+                }
+            }
+        }
     }
 
     // Use service to check if training can start (capacity + memory pressure)
@@ -2996,6 +3484,24 @@ pub async fn start_training(
             ));
         }
     }
+    let effective_mode = resolve_training_effective_determinism_mode(&state, &claims.tenant_id)
+        .await
+        .map_err(|e| {
+            (
+                e.status,
+                Json(ErrorResponse::new(&e.message).with_code(e.code.as_ref())),
+            )
+        })?;
+    if let Err(err) = enforce_bit_identical_training_backend_allowlist(
+        effective_mode,
+        &mut config,
+        &detect_capabilities(),
+    ) {
+        return Err((
+            StatusCode::BAD_REQUEST,
+            Json(ErrorResponse::new(&err.message).with_code(err.code)),
+        ));
+    }
     let requested_backend = config.preferred_backend.map(|b| b.to_string());
 
     if matches!(
@@ -3305,7 +3811,7 @@ pub async fn start_training(
                 ),
             )
         })?;
-    let version_label = format!("draft-{}", &adapter_version_id[..8]);
+    let version_label = draft_version_label(&adapter_version_id);
 
     let versioning_context = TrainingVersioningContext {
         adapter_version_id: adapter_version_id.clone(),
@@ -3603,6 +4109,92 @@ mod tests {
         );
     }
 
+    #[test]
+    fn backend_readiness_auto_prefers_mlx_when_available() {
+        let capabilities = caps(true, true, true, true);
+        let coreml = build_coreml_readiness(&capabilities);
+        let plan = plan_backend_readiness(
+            TrainingBackendKind::Auto,
+            TrainingBackendPolicy::Auto,
+            None,
+            false,
+            &capabilities,
+            &coreml,
+        );
+
+        assert!(plan.ready);
+        assert_eq!(plan.resolved_backend, TrainingBackendKind::Mlx);
+    }
+
+    #[test]
+    fn backend_readiness_auto_falls_to_coreml_when_mlx_unavailable() {
+        let capabilities = caps(true, true, true, false);
+        let coreml = build_coreml_readiness(&capabilities);
+        let plan = plan_backend_readiness(
+            TrainingBackendKind::Auto,
+            TrainingBackendPolicy::Auto,
+            None,
+            false,
+            &capabilities,
+            &coreml,
+        );
+
+        assert!(plan.ready);
+        assert_eq!(plan.resolved_backend, TrainingBackendKind::CoreML);
+    }
+
+    #[test]
+    fn bit_identical_allowlist_rejects_non_mlx_backend() {
+        let capabilities = caps(true, true, true, true);
+        let mut cfg = adapteros_orchestrator::TrainingConfig::default();
+        cfg.preferred_backend = Some(TrainingBackendKind::CoreML);
+
+        let err = enforce_bit_identical_training_backend_allowlist(
+            DeterminismMode::Strict,
+            &mut cfg,
+            &capabilities,
+        )
+        .unwrap_err();
+
+        assert_eq!(err.code, "BIT_IDENTICAL_BACKEND_MLX_REQUIRED");
+        assert!(err.message.contains("requires MLX"));
+    }
+
+    #[test]
+    fn bit_identical_allowlist_normalizes_auto_to_mlx() {
+        let capabilities = caps(true, true, true, true);
+        let mut cfg = adapteros_orchestrator::TrainingConfig::default();
+        cfg.preferred_backend = Some(TrainingBackendKind::Auto);
+        cfg.coreml_training_fallback = Some(TrainingBackendKind::CoreML);
+
+        let result = enforce_bit_identical_training_backend_allowlist(
+            DeterminismMode::Strict,
+            &mut cfg,
+            &capabilities,
+        );
+
+        assert!(result.is_ok());
+        assert_eq!(cfg.preferred_backend, Some(TrainingBackendKind::Mlx));
+        assert!(cfg.coreml_training_fallback.is_none());
+    }
+
+    #[test]
+    fn bit_identical_allowlist_fails_when_mlx_unavailable() {
+        let capabilities = caps(true, true, true, false);
+        let mut cfg = adapteros_orchestrator::TrainingConfig::default();
+        cfg.preferred_backend = Some(TrainingBackendKind::Mlx);
+
+        let err = enforce_bit_identical_training_backend_allowlist(
+            DeterminismMode::Strict,
+            &mut cfg,
+            &capabilities,
+        )
+        .unwrap_err();
+
+        assert_eq!(err.code, "BIT_IDENTICAL_BACKEND_MLX_REQUIRED");
+        assert!(err.message.contains("MLX is unavailable"));
+    }
+
     fn dummy_model(id: &str) -> adapteros_db::models::Model {
         adapteros_db::models::Model {
             id: id.to_string(),
@@ -3813,6 +4405,107 @@ mod tests {
         let err = validate_training_guardrails(&config, &repo, &model, Some(&dsv)).unwrap_err();
         assert_eq!(err.code, "BASE_MODEL_HASH_MISMATCH");
         assert!(err.message.contains("Dataset manifest base_model_hash_b3"));
+    }
+
+    fn sample_job(id: &str, status: TrainingJobStatus) -> adapteros_orchestrator::TrainingJob {
+        let mut job = adapteros_orchestrator::TrainingJob::new(
+            id.to_string(),
+            "adapter-sample".to_string(),
+            adapteros_types::training::TrainingConfig::default(),
+        );
+        job.status = status;
+        job
+    }
+
+    #[test]
+    fn authoritative_selection_prefers_db_when_both_exist() {
+        let selected = select_authoritative_training_job(
+            "job-shadow",
+            Some(sample_job("job-shadow", TrainingJobStatus::Running)),
+            Some(sample_job("job-shadow", TrainingJobStatus::Pending)),
+        )
+        .expect("authoritative job should be selected");
+
+        assert_eq!(selected.status, TrainingJobStatus::Pending);
+    }
+
+    #[test]
+    fn authoritative_selection_falls_back_to_service_when_db_missing() {
+        let selected = select_authoritative_training_job(
+            "job-memory-only",
+            Some(sample_job("job-memory-only", TrainingJobStatus::Running)),
+            None,
+        )
+        .expect("service job should be selected");
+
+        assert_eq!(selected.status, TrainingJobStatus::Running);
+    }
+
+    #[test]
+    fn authoritative_selection_none_when_no_sources_exist() {
+        assert!(
+            select_authoritative_training_job("job-missing", None, None).is_none(),
+            "missing jobs should remain missing"
+        );
+    }
+
+    #[test]
+    fn build_training_status_logs_includes_status_line() {
+        let logs = build_training_status_logs(&sample_job("job-log", TrainingJobStatus::Cancelled));
+        assert!(
+            logs.iter().any(|line| line == "Status: cancelled"),
+            "status line should be present in logs payload"
+        );
+    }
+
+    #[test]
+    fn resolve_terminal_error_fields_prefers_progress_values() {
+        let progress = serde_json::json!({
+            "error_message": "progress failure",
+            "error_code": "PROGRESS_CODE"
+        });
+        let metadata = serde_json::json!({
+            "failure_reason": "metadata failure",
+            "error_code": "METADATA_CODE"
+        });
+
+        let (message, code) =
+            resolve_terminal_training_error_fields("failed", Some(&progress), Some(&metadata));
+
+        assert_eq!(message.as_deref(), Some("progress failure"));
+        assert_eq!(code.as_deref(), Some("PROGRESS_CODE"));
+    }
+
+    #[test]
+    fn resolve_terminal_error_fields_uses_metadata_when_progress_blank() {
+        let progress = serde_json::json!({
+            "error_message": "   ",
+            "error_code": ""
+        });
+        let metadata = serde_json::json!({
+            "failure_reason": "metadata failure",
+            "error_code": "TRAINING_EXECUTION_FAILED"
+        });
+
+        let (message, code) =
+            resolve_terminal_training_error_fields("failed", Some(&progress), Some(&metadata));
+
+        assert_eq!(message.as_deref(), Some("metadata failure"));
+        assert_eq!(code.as_deref(), Some("TRAINING_EXECUTION_FAILED"));
+    }
+
+    #[test]
+    fn resolve_terminal_error_fields_emits_legacy_failed_fallback() {
+        let (message, code) = resolve_terminal_training_error_fields("failed", None, None);
+
+        assert!(
+            message
+                .as_deref()
+                .unwrap_or_default()
+                .contains("terminal reason was not persisted"),
+            "failed jobs without persisted reason should emit legacy fallback"
+        );
+        assert!(code.is_none());
     }
 }
 
@@ -4112,28 +4805,8 @@ pub async fn cancel_training(
         .await
         .map_err(<(StatusCode, Json<ErrorResponse>)>::from)?;
 
-    // CRITICAL: Fetch job first to validate tenant isolation before cancellation
-    let job = state.training_service.get_job(&job_id).await.map_err(|e| {
-        error!(job_id = %job_id, error = %e, "Failed to get training job for cancellation");
-        let error_str = e.to_string();
-        if error_str.contains("not found") || error_str.contains("NotFound") {
-            (
-                StatusCode::NOT_FOUND,
-                Json(
-                    ErrorResponse::new(format!("Training job not found: {}", job_id))
-                        .with_code("NOT_FOUND"),
-                ),
-            )
-        } else {
-            (
-                StatusCode::INTERNAL_SERVER_ERROR,
-                Json(
-                    ErrorResponse::new(format!("Failed to get job: {}", e))
-                        .with_code("DATABASE_ERROR"),
-                ),
-            )
-        }
-    })?;
+    // CRITICAL: Fetch job first to validate tenant isolation before cancellation.
+    let job = load_authoritative_training_job(&state, &job_id).await?;
 
     // CRITICAL: Validate tenant isolation - non-admin users can only cancel their own tenant's jobs
     if let Some(ref job_tenant_id) = job.tenant_id {
@@ -4151,52 +4824,41 @@ pub async fn cancel_training(
 
     // Create UDS client for worker communication
     let uds_client = adapteros_client::UdsClient::default();
-    let socket_path = resolve_worker_socket_for_cp().map_err(|e| {
-        error!(job_id = %job_id, error = %e, "Failed to resolve worker socket for CP");
-        (
-            StatusCode::INTERNAL_SERVER_ERROR,
-            Json(
-                ErrorResponse::new(format!("Invalid worker socket path: {}", e))
-                    .with_code("CONFIG_ERROR"),
-            ),
-        )
-    })?;
-    let socket_path_str = socket_path.path.to_string_lossy().to_string();
-    info!(
-        job_id = %job_id,
-        socket_path = %socket_path_str,
-        socket_source = %socket_path.source,
-        "Resolved worker socket for training cancel"
-    );
 
     state
         .training_service
-        .cancel_job(&job_id, Some(&uds_client), Some(&socket_path_str))
+        .cancel_job(&job_id, Some(&uds_client), None)
         .await
         .map_err(|e| {
             error!(job_id = %job_id, error = %e, "Failed to cancel training job");
 
-            // Audit log: training cancel failure
-            tokio::task::block_in_place(|| {
-                tokio::runtime::Handle::current().block_on(async {
-                    if let Err(audit_err) = crate::audit_helper::log_failure(
-                        &state.db,
-                        &claims,
-                        crate::audit_helper::actions::TRAINING_CANCEL,
-                        crate::audit_helper::resources::TRAINING_JOB,
-                        Some(&job_id),
-                        &e.to_string(),
-                        Some(client_ip.0.as_str()),
-                    )
-                    .await
-                    {
-                        tracing::warn!(error = %audit_err, "Audit log failed");
-                    }
-                })
+            let error_str = e.to_string();
+            // Fire-and-forget audit logging to avoid requiring a multi-thread runtime.
+            let audit_db = state.db.clone();
+            let audit_claims = claims.clone();
+            let audit_job_id = job_id.clone();
+            let audit_client_ip = client_ip.0.clone();
+            let audit_error = error_str.clone();
+            tokio::spawn(async move {
+                if let Err(audit_err) = crate::audit_helper::log_failure(
+                    &audit_db,
+                    &audit_claims,
+                    crate::audit_helper::actions::TRAINING_CANCEL,
+                    crate::audit_helper::resources::TRAINING_JOB,
+                    Some(&audit_job_id),
+                    &audit_error,
+                    Some(audit_client_ip.as_str()),
+                )
+                .await
+                {
+                    tracing::warn!(error = %audit_err, "Audit log failed");
+                }
             });
 
-            let error_str = e.to_string();
-            if error_str.contains("cannot be cancelled") || error_str.contains("already") {
+            if error_str.contains("cannot be cancelled")
+                || error_str.contains("already")
+                || error_str.contains("not confirmed")
+            {
                 (
                     StatusCode::CONFLICT,
                     Json(
@@ -4262,16 +4924,7 @@ pub async fn retry_training(
         .map_err(<(StatusCode, Json<ErrorResponse>)>::from)?;
 
     // Get the original job
-    let original_job = state.training_service.get_job(&job_id).await.map_err(|e| {
-        error!(job_id = %job_id, error = %e, "Failed to get training job for retry");
-        (
-            StatusCode::NOT_FOUND,
-            Json(
-                ErrorResponse::new(format!("Training job not found: {}", job_id))
-                    .with_code("NOT_FOUND"),
-            ),
-        )
-    })?;
+    let original_job = load_authoritative_training_job(&state, &job_id).await?;
 
     // Validate tenant isolation
     if let Some(ref job_tenant_id) = original_job.tenant_id {
@@ -4379,23 +5032,27 @@ pub async fn retry_training(
         .map_err(|e| {
             error!(original_job_id = %job_id, error = %e, "Failed to create retry job");
 
-            // Audit log: retry failure
-            tokio::task::block_in_place(|| {
-                tokio::runtime::Handle::current().block_on(async {
-                    if let Err(audit_err) = crate::audit_helper::log_failure(
-                        &state.db,
-                        &claims,
-                        crate::audit_helper::actions::TRAINING_START,
-                        crate::audit_helper::resources::TRAINING_JOB,
-                        Some(&job_id),
-                        &e.to_string(),
-                        Some(client_ip.0.as_str()),
-                    )
-                    .await
-                    {
-                        tracing::warn!(error = %audit_err, "Audit log failed");
-                    }
-                })
+            let error_str = e.to_string();
+            // Fire-and-forget audit logging to avoid requiring a multi-thread runtime.
+            let audit_db = state.db.clone();
+            let audit_claims = claims.clone();
+            let audit_job_id = job_id.clone();
+            let audit_client_ip = client_ip.0.clone();
+            let audit_error = error_str.clone();
+            tokio::spawn(async move {
+                if let Err(audit_err) = crate::audit_helper::log_failure(
+                    &audit_db,
+                    &audit_claims,
+                    crate::audit_helper::actions::TRAINING_START,
+                    crate::audit_helper::resources::TRAINING_JOB,
+                    Some(&audit_job_id),
+                    &audit_error,
+                    Some(audit_client_ip.as_str()),
+                )
+                .await
+                {
+                    tracing::warn!(error = %audit_err, "Audit log failed");
+                }
             });
 
             (
@@ -4465,7 +5122,12 @@ pub async fn get_chat_bootstrap(
         .await
         .map_err(<(StatusCode, Json<ErrorResponse>)>::from)?;
 
-    // Try in-memory first (for running jobs), fall back to DB (for completed jobs after restart)
+    let authoritative_job = load_authoritative_training_job(&state, &job_id).await?;
+    let status_str = format!("{:?}", authoritative_job.status).to_lowercase();
+    let dataset_version_id = authoritative_job
+        .dataset_version_ids
+        .as_ref()
+        .and_then(|v| v.first().map(|s| s.dataset_version_id.clone()));
     let (
         stack_id,
         adapter_name,
@@ -4475,71 +5137,20 @@ pub async fn get_chat_bootstrap(
         tenant_id,
         adapter_id,
         dataset_id,
-        status_str,
         adapter_version_id,
-        dataset_version_id,
-    ) = match state.training_service.get_job(&job_id).await {
-        Ok(job) => {
-            let status_str = format!("{:?}", job.status).to_lowercase();
-            // Extract first dataset_version_id from the list if available
-            let dataset_ver_id = job
-                .dataset_version_ids
-                .as_ref()
-                .and_then(|v| v.first().map(|s| s.dataset_version_id.clone()));
-            (
-                job.stack_id,
-                job.adapter_name,
-                job.base_model_id,
-                job.collection_id,
-                job.status == TrainingJobStatus::Completed,
-                job.tenant_id,
-                job.adapter_id,
-                job.dataset_id,
-                status_str,
-                job.adapter_version_id,
-                dataset_ver_id,
-            )
-        }
-        Err(_) => {
-            // Fall back to database for completed jobs not in memory (e.g., after server restart)
-            let db_job = state.db.get_training_job(&job_id).await.map_err(|e| {
-                error!(job_id = %job_id, error = %e, "Failed to get training job from DB");
-                (
-                    StatusCode::INTERNAL_SERVER_ERROR,
-                    Json(
-                        ErrorResponse::new(format!("Failed to get job: {}", e))
-                            .with_code("DATABASE_ERROR"),
-                    ),
-                )
-            })?;
-
-            let job = db_job.ok_or_else(|| {
-                (
-                    StatusCode::NOT_FOUND,
-                    Json(
-                        ErrorResponse::new(format!("Training job not found: {}", job_id))
-                            .with_code("NOT_FOUND"),
-                    ),
-                )
-            })?;
-
-            (
-                job.stack_id,
-                job.adapter_name.unwrap_or_default(),
-                job.base_model_id,
-                job.collection_id,
-                job.status == "completed",
-                job.tenant_id,
-                job.adapter_id,
-                job.dataset_id,
-                job.status.clone(),
-                // Use produced_version_id as adapter_version_id from DB record
-                job.produced_version_id,
-                // dataset_version_id not directly stored on DB record, will be None
-                None,
-            )
-        }
-    };
+    ) = (
+        authoritative_job.stack_id,
+        authoritative_job.adapter_name,
+        authoritative_job.base_model_id,
+        authoritative_job.collection_id,
+        authoritative_job.status == TrainingJobStatus::Completed,
+        authoritative_job.tenant_id,
+        authoritative_job.adapter_id,
+        authoritative_job.dataset_id,
+        authoritative_job
+            .adapter_version_id
+            .or(authoritative_job.produced_version_id),
+    );
 
     // Tenant isolation check - require tenant_id for security
     let tid = tenant_id.as_deref().ok_or_else(|| {
@@ -4619,7 +5230,7 @@ pub async fn create_chat_from_training_job(
 {
     require_permission(&claims, Permission::InferenceExecute)?;
 
-    // Try in-memory first, fall back to DB for completed jobs after server restart
+    let job = load_authoritative_training_job(&state, &req.training_job_id).await?;
     let (
         stack_id_opt,
         adapter_name,
@@ -4628,57 +5239,15 @@ pub async fn create_chat_from_training_job(
         tenant_id,
         adapter_id,
         dataset_id,
-    ) = match state.training_service.get_job(&req.training_job_id).await {
-        Ok(job) => (
-            job.stack_id,
-            job.adapter_name,
-            job.collection_id,
-            job.status == TrainingJobStatus::Completed,
-            job.tenant_id,
-            job.adapter_id,
-            job.dataset_id,
-        ),
-        Err(_) => {
-            // Fall back to database
-            let db_job = state
-                    .db
-                    .get_training_job(&req.training_job_id)
-                    .await
-                    .map_err(|e| {
-                        error!(job_id = %req.training_job_id, error = %e, "Failed to get training job from DB");
-                        (
-                            StatusCode::INTERNAL_SERVER_ERROR,
-                            Json(
-                                ErrorResponse::new(format!("Failed to get job: {}", e))
-                                    .with_code("DATABASE_ERROR"),
-                            ),
-                        )
-                    })?;
-
-            let job = db_job.ok_or_else(|| {
-                (
-                    StatusCode::NOT_FOUND,
-                    Json(
-                        ErrorResponse::new(format!(
-                            "Training job not found: {}",
-                            req.training_job_id
-                        ))
-                        .with_code("NOT_FOUND"),
-                    ),
-                )
-            })?;
-
-            (
-                job.stack_id,
-                job.adapter_name.unwrap_or_default(),
-                job.collection_id.clone(),
-                job.status == "completed",
-                job.tenant_id,
-                job.adapter_id,
-                job.dataset_id,
-            )
-        }
-    };
+    ) = (
+        job.stack_id,
+        job.adapter_name,
+        job.collection_id,
+        job.status == TrainingJobStatus::Completed,
+        job.tenant_id,
+        job.adapter_id,
+        job.dataset_id,
+    );
 
     // Tenant isolation check - require tenant_id for security
     let tid = tenant_id.as_deref().ok_or_else(|| {
@@ -4769,6 +5338,196 @@ pub async fn create_chat_from_training_job(
 // Training Queue Status Handler
 // ============================================================================
 
+#[derive(Debug, Clone)]
+struct QueueJobSnapshot {
+    id: String,
+    adapter_name: String,
+    status: String,
+    progress_pct: f32,
+    created_at: String,
+    started_at: Option<String>,
+    tenant_id: Option<String>,
+}
+
+fn parse_rfc3339_utc(value: &str) -> Option<chrono::DateTime<Utc>> {
+    chrono::DateTime::parse_from_rfc3339(value)
+        .ok()
+        .map(|dt| dt.with_timezone(&Utc))
+}
+
+fn parse_worker_last_seen_utc(value: &str) -> Option<chrono::DateTime<Utc>> {
+    parse_rfc3339_utc(value).or_else(|| {
+        chrono::NaiveDateTime::parse_from_str(value, "%Y-%m-%d %H:%M:%S")
+            .ok()
+            .map(|naive| chrono::DateTime::<Utc>::from_naive_utc_and_offset(naive, Utc))
+    })
+}
+
+fn queue_snapshot_from_record(record: TrainingJobRecord) -> QueueJobSnapshot {
+    let progress_pct = serde_json::from_str::<serde_json::Value>(&record.progress_json)
+        .ok()
+        .and_then(|v| {
+            v.get("progress_pct")
+                .and_then(|val| val.as_f64())
+                .or_else(|| v.get("percent").and_then(|val| val.as_f64()))
+        })
+        .unwrap_or(0.0) as f32;
+    let started_at = if record.started_at.is_empty() {
+        None
+    } else {
+        Some(record.started_at.clone())
+    };
+    let created_at = record
+        .created_at
+        .clone()
+        .unwrap_or_else(|| record.started_at.clone());
+
+    QueueJobSnapshot {
+        id: record.id,
+        adapter_name: record.adapter_name.unwrap_or_default(),
+        status: record.status,
+        progress_pct,
+        created_at,
+        started_at,
+        tenant_id: record.tenant_id,
+    }
+}
+
+fn queue_snapshot_from_training_job(job: adapteros_orchestrator::TrainingJob) -> QueueJobSnapshot {
+    QueueJobSnapshot {
+        id: job.id,
+        adapter_name: job.adapter_name,
+        status: job.status.to_string(),
+        progress_pct: job.progress_pct,
+        created_at: job.created_at,
+        started_at: job.started_at,
+        tenant_id: job.tenant_id,
+    }
+}
+
+fn build_training_queue_response(
+    pending: Vec<QueueJobSnapshot>,
+    running: Vec<QueueJobSnapshot>,
+    is_admin: bool,
+) -> adapteros_api_types::training::TrainingQueueResponse {
+    let now = Utc::now();
+
+    let mut total_wait_secs = 0.0;
+    let mut max_wait_time_secs: Option<f64> = None;
+    for job in pending.iter() {
+        if let Some(created_at) = parse_rfc3339_utc(&job.created_at) {
+            let wait_secs = (now - created_at).num_seconds() as f64;
+            total_wait_secs += wait_secs;
+            if max_wait_time_secs.is_none() || wait_secs > max_wait_time_secs.unwrap_or(0.0) {
+                max_wait_time_secs = Some(wait_secs);
+            }
+        }
+    }
+
+    let pending_jobs = pending
+        .iter()
+        .take(10)
+        .map(
+            |job| adapteros_api_types::training::TrainingQueueJobSummary {
+                id: job.id.clone(),
+                adapter_name: job.adapter_name.clone(),
+                status: job.status.clone(),
+                progress_pct: job.progress_pct,
+                created_at: job.created_at.clone(),
+                started_at: None,
+                tenant_id: if is_admin {
+                    job.tenant_id.clone()
+                } else {
+                    None
+                },
+            },
+        )
+        .collect::<Vec<_>>();
+
+    let mut total_duration_secs = 0.0;
+    let running_jobs = running
+        .iter()
+        .map(|job| {
+            if let Some(started) = job.started_at.as_deref().and_then(parse_rfc3339_utc) {
+                total_duration_secs += (now - started).num_seconds() as f64;
+            }
+
+            adapteros_api_types::training::TrainingQueueJobSummary {
+                id: job.id.clone(),
+                adapter_name: job.adapter_name.clone(),
+                status: job.status.clone(),
+                progress_pct: job.progress_pct,
+                created_at: job.created_at.clone(),
+                started_at: job.started_at.clone(),
+                tenant_id: if is_admin {
+                    job.tenant_id.clone()
+                } else {
+                    None
+                },
+            }
+        })
+        .collect::<Vec<_>>();
+
+    let pending_count = pending.len();
+    let running_count = running.len();
+    let queue_depth = pending_count + running_count;
+    let avg_wait_time_secs = if pending_count > 0 {
+        total_wait_secs / pending_count as f64
+    } else {
+        0.0
+    };
+    let avg_training_duration_secs = if running_count > 0 {
+        total_duration_secs / running_count as f64
+    } else {
+        0.0
+    };
+
+    adapteros_api_types::training::TrainingQueueResponse {
+        schema_version: adapteros_api_types::API_SCHEMA_VERSION.to_string(),
+        queue_depth,
+        pending_count,
+        running_count,
+        avg_wait_time_secs,
+        max_wait_time_secs,
+        avg_training_duration_secs,
+        pending_jobs,
+        running_jobs,
+    }
+}
+
+async fn load_queue_from_in_memory_fallback(
+    state: &AppState,
+    claims: &Claims,
+    is_admin: bool,
+) -> Result<(Vec<QueueJobSnapshot>, Vec<QueueJobSnapshot>), (StatusCode, Json<ErrorResponse>)> {
+    let jobs = state.training_service.list_jobs().await.map_err(|e| {
+        error!(error = %e, "Failed to list in-memory training jobs for queue fallback");
+        (
+            StatusCode::INTERNAL_SERVER_ERROR,
+            Json(
+                ErrorResponse::new(format!("Failed to query queue: {}", e))
+                    .with_code("DATABASE_ERROR"),
+            ),
+        )
+    })?;
+
+    let mut pending = Vec::new();
+    let mut running = Vec::new();
+    for job in jobs {
+        if !is_admin && job.tenant_id.as_deref() != Some(&claims.tenant_id) {
+            continue;
+        }
+
+        match job.status {
+            TrainingJobStatus::Pending => pending.push(queue_snapshot_from_training_job(job)),
+            TrainingJobStatus::Running => running.push(queue_snapshot_from_training_job(job)),
+            _ => {}
+        }
+    }
+
+    Ok((pending, running))
+}
+
 /// Get current training queue status
 ///
 /// Returns queue depth, pending/running counts, and wait time estimates.
@@ -4793,166 +5552,69 @@ pub async fn get_training_queue(
 
     let is_admin = claims.role == "admin" || claims.role == "operator";
 
-    // Get pending jobs
-    let pending_records = state
-        .db
-        .list_training_jobs_by_status("pending")
-        .await
-        .map_err(|e| {
-            error!(error = %e, "Failed to list pending training jobs");
-            (
-                StatusCode::INTERNAL_SERVER_ERROR,
-                Json(
-                    ErrorResponse::new(format!("Failed to query queue: {}", e))
-                        .with_code("DATABASE_ERROR"),
-                ),
-            )
-        })?;
+    let (pending, running, source) = match (
+        state.db.list_training_jobs_by_status("pending").await,
+        state.db.list_training_jobs_by_status("running").await,
+    ) {
+        (Ok(pending_records), Ok(running_records)) => {
+            let pending_records: Vec<_> = if is_admin {
+                pending_records
+            } else {
+                pending_records
+                    .into_iter()
+                    .filter(|job| job.tenant_id.as_deref() == Some(&claims.tenant_id))
+                    .collect()
+            };
 
-    // Get running jobs
-    let running_records = state
-        .db
-        .list_training_jobs_by_status("running")
-        .await
-        .map_err(|e| {
-            error!(error = %e, "Failed to list running training jobs");
-            (
-                StatusCode::INTERNAL_SERVER_ERROR,
-                Json(
-                    ErrorResponse::new(format!("Failed to query queue: {}", e))
-                        .with_code("DATABASE_ERROR"),
-                ),
-            )
-        })?;
+            let running_records: Vec<_> = if is_admin {
+                running_records
+            } else {
+                running_records
+                    .into_iter()
+                    .filter(|job| job.tenant_id.as_deref() == Some(&claims.tenant_id))
+                    .collect()
+            };
 
-    // Filter by tenant if not admin
-    let pending_records: Vec<_> = if is_admin {
-        pending_records
-    } else {
-        pending_records
-            .into_iter()
-            .filter(|job| job.tenant_id.as_deref() == Some(&claims.tenant_id))
-            .collect()
-    };
-
-    let running_records: Vec<_> = if is_admin {
-        running_records
-    } else {
-        running_records
-            .into_iter()
-            .filter(|job| job.tenant_id.as_deref() == Some(&claims.tenant_id))
-            .collect()
-    };
-
-    let now = Utc::now();
-
-    // Calculate wait times for pending jobs
-    let mut total_wait_secs = 0.0;
-    let mut max_wait_time_secs: Option<f64> = None;
-
-    for job in pending_records.iter() {
-        if let Some(created_at) = job
-            .created_at
-            .as_ref()
-            .and_then(|s| chrono::DateTime::parse_from_rfc3339(s).ok())
-            .map(|dt| dt.with_timezone(&Utc))
-        {
-            let wait_secs = (now - created_at).num_seconds() as f64;
-            total_wait_secs += wait_secs;
-            if max_wait_time_secs.is_none() || wait_secs > max_wait_time_secs.unwrap_or(0.0) {
-                max_wait_time_secs = Some(wait_secs);
-            }
+            let pending = pending_records
+                .into_iter()
+                .map(queue_snapshot_from_record)
+                .collect();
+            let running = running_records
+                .into_iter()
+                .map(queue_snapshot_from_record)
+                .collect();
+            (pending, running, "db")
         }
-    }
-
-    let pending_jobs: Vec<adapteros_api_types::training::TrainingQueueJobSummary> = pending_records
-        .iter()
-        .take(10)
-        .map(
-            |job| adapteros_api_types::training::TrainingQueueJobSummary {
-                id: job.id.clone(),
-                adapter_name: job.adapter_name.clone().unwrap_or_default(),
-                status: job.status.clone(),
-                progress_pct: 0.0,
-                created_at: job.created_at.clone().unwrap_or_default(),
-                started_at: None,
-                tenant_id: if is_admin {
-                    job.tenant_id.clone()
-                } else {
-                    None
-                },
-            },
-        )
-        .collect();
-
-    let avg_wait_time_secs = if !pending_records.is_empty() {
-        total_wait_secs / pending_records.len() as f64
-    } else {
-        0.0
-    };
-
-    // Calculate training durations for running jobs
-    let mut total_duration_secs = 0.0;
-    let running_jobs: Vec<adapteros_api_types::training::TrainingQueueJobSummary> = running_records
-        .iter()
-        .map(|job| {
-            let started_at = chrono::DateTime::parse_from_rfc3339(&job.started_at)
-                .ok()
-                .map(|dt| dt.with_timezone(&Utc));
-
-            if let Some(started) = started_at {
-                let duration_secs = (now - started).num_seconds() as f64;
-                total_duration_secs += duration_secs;
+        (pending_result, running_result) => {
+            if let Err(err) = pending_result {
+                warn!(
+                    error = %err,
+                    "Failed to list pending training jobs from DB; falling back to in-memory queue state"
+                );
+            }
+            if let Err(err) = running_result {
+                warn!(
+                    error = %err,
+                    "Failed to list running training jobs from DB; falling back to in-memory queue state"
+                );
             }
 
-            // Parse progress from JSON
-            let progress_pct = serde_json::from_str::<serde_json::Value>(&job.progress_json)
-                .ok()
-                .and_then(|v| v.get("progress_pct")?.as_f64())
-                .unwrap_or(0.0) as f32;
-
-            adapteros_api_types::training::TrainingQueueJobSummary {
-                id: job.id.clone(),
-                adapter_name: job.adapter_name.clone().unwrap_or_default(),
-                status: job.status.clone(),
-                progress_pct,
-                created_at: job.created_at.clone().unwrap_or_default(),
-                started_at: Some(job.started_at.clone()),
-                tenant_id: if is_admin {
-                    job.tenant_id.clone()
-                } else {
-                    None
-                },
-            }
-        })
-        .collect();
-
-    let avg_training_duration_secs = if !running_records.is_empty() {
-        total_duration_secs / running_records.len() as f64
-    } else {
-        0.0
+            let (pending, running) =
+                load_queue_from_in_memory_fallback(&state, &claims, is_admin).await?;
+            (pending, running, "in_memory_fallback")
+        }
     };
 
-    let queue_depth = pending_records.len() + running_records.len();
-
+    let response = build_training_queue_response(pending, running, is_admin);
     info!(
-        pending = pending_records.len(),
-        running = running_records.len(),
-        queue_depth = queue_depth,
+        pending = response.pending_count,
+        running = response.running_count,
+        queue_depth = response.queue_depth,
+        source = source,
         "Training queue status retrieved"
     );
 
-    Ok(Json(adapteros_api_types::training::TrainingQueueResponse {
-        schema_version: adapteros_api_types::API_SCHEMA_VERSION.to_string(),
-        queue_depth,
-        pending_count: pending_records.len(),
-        running_count: running_records.len(),
-        avg_wait_time_secs,
-        max_wait_time_secs,
-        avg_training_duration_secs,
-        pending_jobs,
-        running_jobs,
-    }))
+    Ok(Json(response))
 }
 
 // ============================================================================
@@ -5078,6 +5740,38 @@ pub struct TrainingMetricsQuery {
     pub limit: Option<i64>,
 }
 
+fn build_training_status_logs(job: &adapteros_orchestrator::TrainingJob) -> Vec<String> {
+    let mut logs = vec![
+        "=== Training Job Status ===".to_string(),
+        format!("Job ID: {}", job.id),
+        format!("Status: {}", job.status),
+    ];
+
+    if !job.created_at.is_empty() {
+        logs.push(format!("Created: {}", job.created_at));
+    }
+    if let Some(started) = job.started_at.as_ref().filter(|s| !s.is_empty()) {
+        logs.push(format!("Started: {}", started));
+    }
+    if let Some(completed) = job.completed_at.as_ref().filter(|s| !s.is_empty()) {
+        logs.push(format!("Completed: {}", completed));
+    }
+
+    if job.progress_pct > 0.0 || job.current_epoch > 0 {
+        logs.push(format!("Progress: {:.1}%", job.progress_pct));
+    }
+    if job.total_epochs > 0 {
+        logs.push(format!(
+            "Step: {} / {}",
+            job.current_epoch, job.total_epochs
+        ));
+    }
+
+    logs.push("".to_string());
+    logs.push("Note: Stdout/stderr logs are not persisted. Use GET /v1/training/jobs/{job_id}/metrics for training metrics.".to_string());
+    logs
+}
+
 /// Get training logs for a job
 ///
 /// Note: Training stdout/stderr logs are not currently persisted in the database.
@@ -5104,23 +5798,7 @@ pub async fn get_training_logs(
         .await
         .map_err(<(StatusCode, Json<ErrorResponse>)>::from)?;
 
-    let job = state.db.get_training_job(&job_id).await.map_err(|e| {
-        (
-            StatusCode::INTERNAL_SERVER_ERROR,
-            Json(
-                ErrorResponse::new("Failed to get training job")
-                    .with_code("INTERNAL_ERROR")
-                    .with_string_details(e.to_string()),
-            ),
-        )
-    })?;
-
-    let job = job.ok_or_else(|| {
-        (
-            StatusCode::NOT_FOUND,
-            Json(ErrorResponse::new("Training job not found").with_code("NOT_FOUND")),
-        )
-    })?;
+    let job = load_authoritative_training_job(&state, &job_id).await?;
 
     // Validate tenant isolation: job must belong to caller's tenant
     if job.tenant_id.as_deref() != Some(&claims.tenant_id) {
@@ -5130,41 +5808,7 @@ pub async fn get_training_logs(
         ));
     }
 
-    // Build informative status response (logs are not persisted in DB)
-    let mut logs = vec![
-        "=== Training Job Status ===".to_string(),
-        format!("Job ID: {}", job.id),
-        format!("Status: {}", job.status),
-    ];
-
-    if let Some(created) = &job.created_at {
-        logs.push(format!("Created: {}", created));
-    }
-    if !job.started_at.is_empty() {
-        logs.push(format!("Started: {}", job.started_at));
-    }
-    if let Some(completed) = &job.completed_at {
-        logs.push(format!("Completed: {}", completed));
-    }
-
-    // Parse and include progress if available
-    if !job.progress_json.is_empty() {
-        if let Ok(progress) = serde_json::from_str::<serde_json::Value>(&job.progress_json) {
-            if let Some(pct) = progress.get("percent").and_then(|v| v.as_f64()) {
-                logs.push(format!("Progress: {:.1}%", pct));
-            }
-            if let Some(step) = progress.get("current_step").and_then(|v| v.as_i64()) {
-                if let Some(total) = progress.get("total_steps").and_then(|v| v.as_i64()) {
-                    logs.push(format!("Step: {} / {}", step, total));
-                }
-            }
-        }
-    }
-
-    logs.push("".to_string());
-    logs.push("Note: Stdout/stderr logs are not persisted. Use GET /v1/training/jobs/{job_id}/metrics for training metrics.".to_string());
-
-    Ok(Json(logs))
+    Ok(Json(build_training_status_logs(&job)))
 }
 
 /// Get training metrics for a job

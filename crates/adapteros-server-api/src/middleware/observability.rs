@@ -537,8 +537,9 @@ fn derive_hint(code: &str, message: &str, detail: Option<&str>, _status: StatusC
     if code_upper == "TRAINING_START_FAILED"
         || code_upper == "TRAINING_ERROR"
         || code_upper == "WORKER_CAPABILITY_MISSING"
+        || code_upper == "TRAINING_WORKER_DEGRADED"
     {
-        return "Training could not start: ensure a worker with training capabilities is running (`./start worker`)"
+        return "Training could not start: clear training-worker degraded state and ensure a fresh gpu_backward-capable worker heartbeat before retry"
             .to_string();
     }
 

@@ -224,7 +224,7 @@ pub enum StorageCommand {
     /// Trigger a KV isolation scan via the control plane API
     KvIsolationScan {
         /// Control plane base URL
-        #[arg(long, env = "AOS_SERVER_URL", default_value = "http://localhost:8080")]
+        #[arg(long, env = "AOS_SERVER_URL", default_value = "http://localhost:18080")]
         server_url: String,
 
         /// Bearer token (optional, uses Authorization header)
@@ -255,7 +255,7 @@ pub enum StorageCommand {
     /// Fetch last KV isolation scan health via the control plane API
     KvIsolationHealth {
         /// Control plane base URL
-        #[arg(long, env = "AOS_SERVER_URL", default_value = "http://localhost:8080")]
+        #[arg(long, env = "AOS_SERVER_URL", default_value = "http://localhost:18080")]
         server_url: String,
 
         /// Bearer token (optional, uses Authorization header)
@@ -957,6 +957,7 @@ async fn verify_consistency(
                 MigrationDomain::PolicyAudit => issues.extend(db.diff_policy_audit().await?),
                 MigrationDomain::TrainingJobs => issues.extend(db.diff_training_jobs().await?),
                 MigrationDomain::ChatSessions => issues.extend(db.diff_chat_sessions().await?),
+                MigrationDomain::TenantPolicyBindings => {}
             }
         }
     }
@@ -1388,9 +1389,10 @@ fn parse_domains(domains: Option<&str>) -> Result<Vec<MigrationDomain>> {
                 "policy_audit" => MigrationDomain::PolicyAudit,
                 "training_jobs" => MigrationDomain::TrainingJobs,
                 "chat_sessions" => MigrationDomain::ChatSessions,
+                "tenant_policy_bindings" => MigrationDomain::TenantPolicyBindings,
                 other => {
                     return Err(adapteros_core::AosError::Config(format!(
-                        "Unknown domain '{}'. Valid: adapters, tenants, stacks, plans, auth_sessions, runtime_sessions, rag_artifacts, policy_audit, training_jobs, chat_sessions",
+                        "Unknown domain '{}'. Valid: adapters, tenants, stacks, plans, auth_sessions, runtime_sessions, rag_artifacts, policy_audit, training_jobs, chat_sessions, tenant_policy_bindings",
                         other,
                     )))
                 }
@@ -1415,6 +1417,7 @@ fn default_domains() -> Vec<MigrationDomain> {
         MigrationDomain::PolicyAudit,
         MigrationDomain::TrainingJobs,
         MigrationDomain::ChatSessions,
+        MigrationDomain::TenantPolicyBindings,
     ]
 }
 

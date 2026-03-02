@@ -9,11 +9,8 @@ use std::{io, time::Duration};
 use tokio::time::sleep;
 use tracing::{error, info};
 
-mod app;
-mod ui;
-
-use app::App;
-use ui::draw;
+use adapteros_tui::app::App;
+use adapteros_tui::ui::draw;
 
 #[tokio::main]
 async fn main() -> Result<()> {

@@ -305,7 +305,7 @@ pub async fn load_model(
     })?;
     let matching: Vec<_> = all_statuses
         .iter()
-        .filter(|s| s.model_id == model_id)
+        .filter(|s| s.tenant_id == tenant_id.as_str() && s.model_id == model_id)
         .collect();
     let aggregated = aggregate_status(matching.iter().copied());
     let state_before = aggregated.status;
@@ -325,11 +325,7 @@ pub async fn load_model(
         if state_before.is_ready() {
             if let Err(e) = state
                 .db
-                .set_active_base_model_if_empty(
-                    tenant_id,
-                    &model_id,
-                    state.manifest_hash.as_deref(),
-                )
+                .set_active_base_model(tenant_id, &model_id, state.manifest_hash.as_deref())
                 .await
             {
                 error!(
@@ -740,7 +736,7 @@ pub async fn load_model(
 
     if let Err(e) = state
         .db
-        .set_active_base_model_if_empty(tenant_id, &model_id, state.manifest_hash.as_deref())
+        .set_active_base_model(tenant_id, &model_id, state.manifest_hash.as_deref())
         .await
     {
         error!(
@@ -863,7 +859,7 @@ pub async fn unload_model(
     })?;
     let matching: Vec<_> = all_statuses
         .iter()
-        .filter(|s| s.model_id == model_id)
+        .filter(|s| s.tenant_id == tenant_id.as_str() && s.model_id == model_id)
         .collect();
     let aggregated = aggregate_status(matching.iter().copied());
     let state_before = aggregated.status;
@@ -1187,7 +1183,7 @@ pub async fn get_model_status(
     // Find the status record for this model (most recent)
     let status = all_statuses
         .iter()
-        .filter(|s| s.model_id == model_id)
+        .filter(|s| s.tenant_id == tenant_id.as_str() && s.model_id == model_id)
         .collect::<Vec<_>>();
 
     let aggregated = aggregate_status(status.iter().copied());

@@ -94,7 +94,7 @@ cd <repo-root>
 
 ```bash
 # Server URL
-export MPLORA_TEST_URL="http://localhost:9443"
+export MPLORA_TEST_URL="http://localhost:18080"
 
 # Tenant tokens (optional)
 export TENANT_A_TOKEN="your-token-a"
@@ -257,7 +257,7 @@ Memory Usage:
 
 **Solutions**:
 - Verify server is running: `cargo run --bin adapteros-server`
-- Check server URL: `export MPLORA_TEST_URL=http://localhost:9443`
+- Check server URL: `export MPLORA_TEST_URL=http://localhost:18080`
 - Verify network connectivity
 - Check firewall settings
 

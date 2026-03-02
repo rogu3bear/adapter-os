@@ -1,0 +1,117 @@
+{
+  "name": "multi_model_management_v1",
+  "description": "Multi-model management dataset for adapterOS. Covers model-adapter compatibility enforcement via BLAKE3 hashing, multi-model serving with VRAM partitioning and request routing, model upgrade workflows with adapter retraining strategies, live model switching with request draining and adapter migration, and architecture-specific adapter configuration across Llama, Qwen, Mistral, and Phi3 families. 1500 examples with production-realistic scenarios.",
+  "version": "1.0.0",
+  "category": "mlx",
+  "scope": "system",
+  "tier": "critical",
+  "rank": 9,
+  "alpha": 16.0,
+  "target_modules": [
+    "gate_proj",
+    "q_proj",
+    "k_proj",
+    "v_proj"
+  ],
+  "entries": [
+    {
+      "path": "multi-model.jsonl",
+      "format": "jsonl",
+      "weight": 1.0,
+      "role": "positive",
+      "notes": "1500 multi-model management examples across five subcategories: model-adapter compatibility (300), multi-model serving (300), model upgrade workflow (300), model switching (300), architecture differences (300)"
+    }
+  ],
+  "provenance": {
+    "masterplan_sections": [
+      "docs/architecture/MasterPlan.md#model-registry",
+      "docs/architecture/MasterPlan.md#adapter-hot-swap",
+      "docs/architecture/MasterPlan.md#multi-model-serving",
+      "AGENTS.md#worker"
+    ],
+    "created_by": "multi-model-management-dataset-generator",
+    "created_at": "2026-02-26T00:00:00Z",
+    "last_reviewed_at": "2026-02-26T00:00:00Z",
+    "review_notes": "Synthetic dataset with production-realistic multi-model management scenarios. All BLAKE3 hashes, VRAM budgets, and architecture parameters derived from real model configurations (Llama-3.2-3B, Qwen2.5-7B, Mistral-7B, Phi-3-mini)."
+  },
+  "evaluation_gates": [
+    "base_model_hash verification references BLAKE3 and 64-hex-character format",
+    "Dimension mismatch errors cite specific lora_A/lora_B shape incompatibility",
+    "VRAM partitioning accounts for KV cache, adapter weights, and system overhead",
+    "Model upgrade workflows identify all adapters requiring retraining",
+    "Live model switching describes drain-unload-load-verify sequence",
+    "Architecture comparisons cite correct hidden_size, num_layers, num_attention_heads for named models",
+    "GQA vs MHA differences are correctly attributed to num_key_value_heads",
+    "Request routing correctly maps tenant/task to base model instance"
+  ],
+  "intent": "Train the adapter to reason about multi-model management in adapterOS: how BLAKE3 hashes enforce model-adapter compatibility, how multiple base models are served simultaneously with VRAM partitioning, how model upgrades invalidate existing adapters and require retraining, how live model switching drains requests and migrates adapters, and how architectural differences between model families affect LoRA adapter configuration.",
+  "subcategory_breakdown": {
+    "model_adapter_compatibility": {
+      "count": 300,
+      "subcategories": [
+        "hash_verification_at_load",
+        "dimension_mismatch_detection",
+        "manifest_hash_format",
+        "cross_model_rejection",
+        "hash_computation_pipeline"
+      ],
+      "hash_algorithm": "BLAKE3",
+      "hash_length_hex": 64
+    },
+    "multi_model_serving": {
+      "count": 300,
+      "subcategories": [
+        "vram_partitioning",
+        "request_routing",
+        "tenant_model_binding",
+        "concurrent_model_loading",
+        "resource_isolation"
+      ],
+      "vram_budgets_gb": [8, 16, 24, 32, 48, 64]
+    },
+    "model_upgrade_workflow": {
+      "count": 300,
+      "subcategories": [
+        "version_migration_planning",
+        "adapter_retraining_strategy",
+        "rollback_procedures",
+        "hash_invalidation_cascade",
+        "staged_upgrade_execution"
+      ]
+    },
+    "model_switching": {
+      "count": 300,
+      "subcategories": [
+        "request_draining",
+        "adapter_unload_sequence",
+        "model_weight_swap",
+        "kv_cache_invalidation",
+        "post_switch_verification"
+      ]
+    },
+    "architecture_differences": {
+      "count": 300,
+      "subcategories": [
+        "hidden_dim_comparison",
+        "attention_head_layout",
+        "gqa_vs_mha",
+        "intermediate_size_impact",
+        "lora_rank_sizing"
+      ],
+      "architectures_covered": [
+        "LlamaForCausalLM",
+        "Qwen2ForCausalLM",
+        "MistralForCausalLM",
+        "Phi3ForCausalLM"
+      ]
+    }
+  },
+  "statistics": {
+    "total_examples": 1500,
+    "architectures_covered": ["LlamaForCausalLM", "Qwen2ForCausalLM", "MistralForCausalLM", "Phi3ForCausalLM"],
+    "model_sizes_covered": ["1.5B", "3B", "7B", "8B", "14B"],
+    "vram_budgets_gb": [8, 16, 24, 32, 48, 64],
+    "hidden_dims_covered": [2048, 2560, 3072, 3584, 4096, 5120],
+    "avg_quality_score": 0.94
+  }
+}

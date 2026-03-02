@@ -80,6 +80,68 @@ pub fn map_validation_status(status: &str) -> DatasetValidationStatus {
     }
 }
 
+pub fn resolve_source_derived_dataset_name(
+    requested_name: Option<&str>,
+    source_file_names: &[&str],
+) -> String {
+    if let Some(name) = requested_name.map(str::trim) {
+        if !name.is_empty() && !looks_generic_dataset_name(name) {
+            return name.to_string();
+        }
+    }
+
+    build_source_dataset_name(source_file_names)
+}
+
+fn build_source_dataset_name(source_file_names: &[&str]) -> String {
+    let mut source_names: Vec<String> = source_file_names
+        .iter()
+        .map(|name| name.trim())
+        .filter(|name| !name.is_empty())
+        .map(ToString::to_string)
+        .collect();
+
+    if source_names.is_empty() {
+        return "Uploaded dataset".to_string();
+    }
+
+    source_names.sort_by(|a, b| {
+        a.to_ascii_lowercase()
+            .cmp(&b.to_ascii_lowercase())
+            .then_with(|| a.cmp(b))
+    });
+
+    let primary_source = &source_names[0];
+    if source_names.len() == 1 {
+        format!("Upload from {}", primary_source)
+    } else {
+        format!(
+            "Upload from {} (+{} files)",
+            primary_source,
+            source_names.len() - 1
+        )
+    }
+}
+
+fn looks_generic_dataset_name(name: &str) -> bool {
+    let lower = name.trim().to_ascii_lowercase();
+    lower == "dataset"
+        || lower == "dataset name"
+        || lower == "new dataset"
+        || lower == "upload dataset"
+        || lower == "uploaded dataset"
+        || lower == "text-dataset"
+        || lower == "training-dataset"
+        || lower == "chat-dataset"
+        || lower == "chat-selection"
+        || lower.starts_with("dataset ")
+        || lower.starts_with("dataset_")
+        || lower.starts_with("dataset-")
+        || lower.starts_with("text_dataset_")
+        || lower.starts_with("chat_dataset_")
+        || lower.starts_with("chat-learning-")
+}
+
 pub fn map_validation_errors(errors: Option<String>) -> Option<Vec<String>> {
     errors.map(|raw| {
         if let Ok(values) = serde_json::from_str::<Vec<String>>(&raw) {
@@ -813,7 +875,7 @@ mod path_policy_tests {
     fn path_policy_error_is_structured() {
         let path = std::env::temp_dir().join("..").join("escape");
         let err = path_policy_error(&path, "outside allowed roots");
-        assert_eq!(err.code, "PATH_POLICY_VIOLATION");
+        assert_eq!(err.code, "BAD_REQUEST");
         let details = err.details.expect("details present");
         let serialized = details.to_string();
         assert!(serialized.contains("escape"));
@@ -873,5 +935,39 @@ mod safety_scan_tests {
             outcome.anomaly.status().as_str(),
             "warn" | "block"
         ));
+    }
+}
+
+#[cfg(test)]
+mod dataset_name_tests {
+    use super::resolve_source_derived_dataset_name;
+
+    #[test]
+    fn keeps_explicit_human_name() {
+        let resolved = resolve_source_derived_dataset_name(
+            Some("Customer Support Corpus v2"),
+            &["tickets.jsonl"],
+        );
+        assert_eq!(resolved, "Customer Support Corpus v2");
+    }
+
+    #[test]
+    fn rewrites_generic_name_to_source_name() {
+        let resolved =
+            resolve_source_derived_dataset_name(Some("Dataset 12345678"), &["faq_export.jsonl"]);
+        assert_eq!(resolved, "Upload from faq_export.jsonl");
+    }
+
+    #[test]
+    fn summarizes_multi_file_sources() {
+        let resolved =
+            resolve_source_derived_dataset_name(Some("dataset"), &["zeta.csv", "alpha.csv"]);
+        assert_eq!(resolved, "Upload from alpha.csv (+1 files)");
+    }
+
+    #[test]
+    fn handles_empty_name_and_no_files() {
+        let resolved = resolve_source_derived_dataset_name(Some("   "), &[]);
+        assert_eq!(resolved, "Uploaded dataset");
     }
 }

@@ -40,7 +40,7 @@ impl Db {
         .bind(&id)
         .bind(hostname)
         .bind(agent_endpoint)
-        .execute(self.pool())
+        .execute(self.pool_result()?)
         .await
         .db_err("register node")?;
         Ok(id)
@@ -49,7 +49,7 @@ impl Db {
     pub async fn update_node_heartbeat(&self, id: &str) -> Result<()> {
         sqlx::query("UPDATE nodes SET last_seen_at = datetime('now') WHERE id = ?")
             .bind(id)
-            .execute(self.pool())
+            .execute(self.pool_result()?)
             .await
             .db_err("update node heartbeat")?;
         Ok(())
@@ -59,7 +59,7 @@ impl Db {
         let nodes = sqlx::query_as::<_, NodeRow>(
             "SELECT id, hostname, agent_endpoint, status, last_seen_at, labels_json, created_at FROM nodes ORDER BY created_at DESC"
         )
-        .fetch_all(self.pool())
+        .fetch_all(self.pool_result()?)
         .await
         .db_err("list nodes")?;
         Ok(nodes.into_iter().map(Node::from).collect())
@@ -70,7 +70,7 @@ impl Db {
             "SELECT id, hostname, agent_endpoint, status, last_seen_at, labels_json, created_at FROM nodes WHERE id = ?"
         )
         .bind(id)
-        .fetch_optional(self.pool())
+        .fetch_optional(self.pool_result()?)
         .await
         .db_err("get node")?;
         Ok(node.map(Node::from))
@@ -80,7 +80,7 @@ impl Db {
         sqlx::query("UPDATE nodes SET status = ?, last_seen_at = datetime('now') WHERE id = ?")
             .bind(status)
             .bind(id)
-            .execute(self.pool())
+            .execute(self.pool_result()?)
             .await
             .db_err("update node status")?;
         Ok(())
@@ -90,7 +90,7 @@ impl Db {
     pub async fn delete_node(&self, id: &str) -> Result<()> {
         sqlx::query("DELETE FROM nodes WHERE id = ?")
             .bind(id)
-            .execute(self.pool())
+            .execute(self.pool_result()?)
             .await
             .map_err(|e| AosError::Database(format!("Failed to delete node: {}", e)))?;
         Ok(())
@@ -102,7 +102,7 @@ impl Db {
             "SELECT adapter_id FROM adapters WHERE node_id = ? AND (current_state IN ('warm', 'hot', 'resident') OR load_state IN ('loaded', 'warm'))",
         )
         .bind(node_id)
-        .fetch_all(self.pool())
+        .fetch_all(self.pool_result()?)
         .await
         .db_err("get node loaded adapters")?;
 
@@ -117,7 +117,7 @@ impl Db {
         let is_primary =
             sqlx::query_scalar::<_, i64>("SELECT COALESCE(is_primary, 0) FROM nodes WHERE id = ?")
                 .bind(node_id)
-                .fetch_optional(self.pool())
+                .fetch_optional(self.pool_result()?)
                 .await
                 .db_err("check if node is primary")?
                 .unwrap_or(0);
@@ -132,7 +132,7 @@ impl Db {
              FROM nodes WHERE id = ?",
         )
         .bind(node_id)
-        .fetch_optional(self.pool())
+        .fetch_optional(self.pool_result()?)
         .await
         .db_err("get node detail")?;
 
@@ -153,7 +153,7 @@ impl Db {
              WHERE w.node_id = ? AND w.status = 'healthy'",
         )
         .bind(node_id)
-        .fetch_all(self.pool())
+        .fetch_all(self.pool_result()?)
         .await
         .db_err("get node adapters from workers")?;
 
@@ -166,7 +166,7 @@ impl Db {
             "SELECT COUNT(*) FROM federation_config WHERE primary_node_id = ?",
         )
         .bind(node_id)
-        .fetch_one(self.pool())
+        .fetch_one(self.pool_result()?)
         .await
         .unwrap_or(0);
 

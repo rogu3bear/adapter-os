@@ -18,18 +18,31 @@ async fn seed_dataset_version(
     trust_state: &str,
     hash_b3: &str,
 ) {
+    let canonical_hash = if hash_b3.len() == 64 && hash_b3.chars().all(|c| c.is_ascii_hexdigit()) {
+        hash_b3.to_string()
+    } else {
+        adapteros_core::B3Hash::hash(hash_b3.as_bytes()).to_hex()
+    };
+
+    sqlx::query("INSERT OR IGNORE INTO tenants (id, name, itar_flag) VALUES (?, ?, 0)")
+        .bind(tenant_id)
+        .bind(format!("tenant-{tenant_id}"))
+        .execute(db.pool_result().unwrap())
+        .await
+        .unwrap();
+
     let _ = db
         .create_training_dataset_with_id(
             dataset_id,
             "orch-dataset",
             Some("desc"),
             "jsonl",
-            hash_b3,
+            &canonical_hash,
             "var/orch-dataset",
-            Some("tester"),
+            None,
             None,
             Some("ready"),
-            Some(hash_b3),
+            Some(&canonical_hash),
             None,
         )
         .await
@@ -42,13 +55,23 @@ async fn seed_dataset_version(
             Some(tenant_id),
             Some("v1"),
             "var/orch-dataset/version",
-            hash_b3,
+            &canonical_hash,
             None,
             None,
-            Some("tester"),
+            None,
         )
         .await
         .unwrap();
+
+    let mut hash_inputs = adapteros_db::training_datasets::CreateDatasetHashInputsParams::new(
+        &canonical_hash,
+        1,
+        1,
+        0,
+    );
+    hash_inputs.dataset_id = Some(dataset_id.to_string());
+    hash_inputs.tenant_id = Some(tenant_id.to_string());
+    db.record_dataset_hash_inputs(&hash_inputs).await.unwrap();
 
     sqlx::query(
         "UPDATE training_dataset_versions SET trust_state = ?, overall_trust_status = ? WHERE id = ?",
@@ -56,7 +79,7 @@ async fn seed_dataset_version(
     .bind(trust_state)
     .bind(trust_state)
     .bind(version_id)
-    .execute(db.pool())
+    .execute(db.pool_result().unwrap())
     .await
     .unwrap();
 }

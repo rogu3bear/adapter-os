@@ -265,7 +265,7 @@ impl EvidenceTracker {
                 .bind(&kernel_tolerance_json)
                 .bind(evidence.seed_hash.to_string())
                 .bind(&metadata_json)
-                .execute(db.pool())
+                .execute(db.pool_result()?)
                 .await
                 .map_err(|e| AosError::Database(format!("Failed to insert evidence: {}", e)))?;
             }

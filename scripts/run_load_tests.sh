@@ -14,7 +14,7 @@ BLUE='\033[0;34m'
 NC='\033[0m' # No Color
 
 # Default configuration
-DEFAULT_TEST_URL="http://localhost:9443"
+DEFAULT_TEST_URL="http://localhost:18080"
 DEFAULT_REQUESTS=100
 DEFAULT_CONCURRENCY=20
 LOG_DIR="var/load_test_results"

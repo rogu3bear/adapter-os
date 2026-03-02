@@ -1,0 +1,61 @@
+{
+  "name": "structured_telemetry_v1",
+  "description": "adapterOS structured telemetry training data: canonical event schemas, correlation ID threading across full request flows, and log level classification including borderline cases.",
+  "version": "1.0.0",
+  "category": "metrics",
+  "scope": "global",
+  "tier": "critical",
+  "rank": 6,
+  "alpha": 6.0,
+  "target_modules": [
+    "gate_proj",
+    "up_proj",
+    "o_proj"
+  ],
+  "entries": [
+    {
+      "path": "structured-telemetry.jsonl",
+      "format": "jsonl",
+      "weight": 1.0,
+      "role": "supervised",
+      "notes": "700 examples across three categories: canonical_schema (250), correlation_threading (250), log_level_classification (200). Every example is grounded in the actual adapterOS event type catalog and component naming from the codebase."
+    }
+  ],
+  "provenance": {
+    "masterplan_sections": [
+      "crates/adapteros-core/src/telemetry.rs",
+      "crates/adapteros-core/src/plugin_events.rs",
+      "crates/adapteros-core/src/lifecycle.rs",
+      "crates/adapteros-plugin-advanced-metrics/src/metrics.rs",
+      "crates/adapteros-metrics-exporter/src/lib.rs",
+      "crates/adapteros-lora-worker/src/patch_telemetry.rs",
+      "training/datasets/metrics/README.md"
+    ],
+    "created_by": "structured-telemetry-dataset-generator",
+    "created_at": "2026-02-26T00:00:00Z",
+    "last_reviewed_at": "2026-02-26T00:00:00Z",
+    "review_notes": "All event types, component names, and field schemas sourced directly from the adapterOS codebase. Correlation ID threading examples model real request lifecycle flows. Log level borderline cases cover the ambiguous thresholds documented in the telemetry ruleset."
+  },
+  "evaluation_gates": [
+    "event_type field uses dot-separated namespace matching the canonical catalog",
+    "component field is a valid adapterOS crate/subsystem name",
+    "log_level is exactly one of: trace, debug, info, warn, error",
+    "timestamp_us is a u64 microsecond epoch integer",
+    "correlation_id is present for all request-scoped events",
+    "all required fields for the event type are present in metadata",
+    "correlation threading examples contain all events in the correct sequential order",
+    "log level classification includes the reasoning, not just the level"
+  ],
+  "intent": "Teach adapters to emit correct, fully-typed telemetry events; thread correlation IDs correctly across all hops of a request; and choose the right log level including borderline cases like memory at 82% or entropy near floor.",
+  "subcategories": {
+    "canonical_schema": "Given an event type, produce the complete correct JSON event with all required and optional fields. Covers barrier, lifecycle, router, ledger, observability, and plugin event subsystems.",
+    "correlation_threading": "Given a scenario description, produce all events emitted during the complete request flow in order, each carrying the same correlation_id with correct event types and log levels.",
+    "log_level_classification": "Given a scenario, assign the correct log level (trace/debug/info/warn/error) and explain why. Heavy emphasis on borderline cases where the answer is non-obvious."
+  },
+  "example_counts": {
+    "canonical_schema": 250,
+    "correlation_threading": 250,
+    "log_level_classification": 200,
+    "total": 700
+  }
+}

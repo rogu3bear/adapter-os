@@ -16,7 +16,7 @@ use adapteros_core::B3Hash;
 use adapteros_db::training_datasets::{CreateDatasetFileParams, DatasetFile, TrainingDataset};
 use adapteros_storage::{ByteStorage, FsByteStorage, StorageKey};
 use axum::{
-    extract::{Path, State},
+    extract::{Path, Query, State},
     http::{header, StatusCode},
     response::IntoResponse,
     Extension, Json,
@@ -465,13 +465,20 @@ pub struct DatasetFileContentPath {
     pub file_id: String,
 }
 
+#[derive(Debug, Default, serde::Deserialize)]
+pub struct DatasetFileContentQuery {
+    /// When true, return content-disposition inline instead of attachment.
+    pub inline: Option<bool>,
+}
+
 /// Stream file content from a dataset
 #[utoipa::path(
     get,
     path = "/v1/datasets/{dataset_id}/files/{file_id}/content",
     params(
         ("dataset_id" = String, Path, description = "Dataset ID"),
-        ("file_id" = String, Path, description = "File ID")
+        ("file_id" = String, Path, description = "File ID"),
+        ("inline" = Option<bool>, Query, description = "Set content-disposition to inline")
     ),
     responses(
         (status = 200, description = "File content streamed successfully"),
@@ -485,6 +492,7 @@ pub async fn get_dataset_file_content(
     State(state): State<AppState>,
     Extension(claims): Extension<Claims>,
     Path(path): Path<DatasetFileContentPath>,
+    Query(query): Query<DatasetFileContentQuery>,
 ) -> Result<impl IntoResponse, ApiError> {
     require_permission(&claims, Permission::DatasetView)?;
     let dataset_id = crate::id_resolver::resolve_any_id(&state.db, &path.dataset_id).await?;
@@ -540,8 +548,12 @@ pub async fn get_dataset_file_content(
         .as_deref()
         .unwrap_or("application/octet-stream");
 
-    // Set Content-Disposition for download with original filename
-    let content_disposition = format!("attachment; filename=\"{}\"", file.file_name);
+    // Default remains attachment for existing behavior; inline is opt-in for embedded viewers.
+    let content_disposition = if query.inline.unwrap_or(false) {
+        format!("inline; filename=\"{}\"", file.file_name)
+    } else {
+        format!("attachment; filename=\"{}\"", file.file_name)
+    };
 
     let headers = [
         (header::CONTENT_TYPE, content_type.to_string()),
@@ -1081,7 +1093,8 @@ pub async fn get_dataset_files_for_workspace(
     params(
         ("workspace_id" = String, Path, description = "Workspace ID"),
         ("dataset_id" = String, Path, description = "Dataset ID"),
-        ("file_id" = String, Path, description = "File ID")
+        ("file_id" = String, Path, description = "File ID"),
+        ("inline" = Option<bool>, Query, description = "Set content-disposition to inline")
     ),
     responses(
         (status = 200, description = "File content streamed successfully"),
@@ -1095,6 +1108,7 @@ pub async fn get_dataset_file_content_for_workspace(
     State(state): State<AppState>,
     Extension(claims): Extension<Claims>,
     Path(path): Path<WorkspaceDatasetFileContentPath>,
+    Query(query): Query<DatasetFileContentQuery>,
 ) -> Result<impl IntoResponse, ApiError> {
     require_permission(&claims, Permission::DatasetView)?;
 
@@ -1144,8 +1158,12 @@ pub async fn get_dataset_file_content_for_workspace(
         .as_deref()
         .unwrap_or("application/octet-stream");
 
-    // Set Content-Disposition for download with original filename
-    let content_disposition = format!("attachment; filename=\"{}\"", file.file_name);
+    // Default remains attachment for existing behavior; inline is opt-in for embedded viewers.
+    let content_disposition = if query.inline.unwrap_or(false) {
+        format!("inline; filename=\"{}\"", file.file_name)
+    } else {
+        format!("attachment; filename=\"{}\"", file.file_name)
+    };
 
     let headers = [
         (header::CONTENT_TYPE, content_type.to_string()),

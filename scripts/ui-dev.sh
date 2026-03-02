@@ -1,8 +1,8 @@
 #!/usr/bin/env bash
 #
 # UI dev server runner that respects the canonical port env vars:
-# - AOS_UI_PORT (default 3200)
-# - AOS_SERVER_PORT (default 8080)
+# - AOS_UI_PORT (default 18081)
+# - AOS_SERVER_PORT (default 18080)
 # - AOS_SERVER_URL (optional full override, e.g. http://127.0.0.1:8180)
 #
 # Why: crates/adapteros-ui/Trunk.toml cannot interpolate env vars in proxy targets,
@@ -17,6 +17,9 @@
 set -euo pipefail
 
 ROOT="$(cd "$(dirname "${BASH_SOURCE[0]}")/.." && pwd)"
+source "${ROOT}/scripts/lib/build-targets.sh"
+source "${ROOT}/scripts/lib/ports.sh"
+aos_apply_port_pane_defaults
 UI_DIR="${ROOT}/crates/adapteros-ui"
 VAR_DIR="${ROOT}/var/trunk"
 CFG_PATH="${VAR_DIR}/Trunk.dev.toml"
@@ -36,9 +39,13 @@ normalize_backend_url() {
   echo "$raw"
 }
 
-UI_PORT="${AOS_UI_PORT:-3200}"
-BACKEND_URL="${AOS_SERVER_URL:-http://localhost:${AOS_SERVER_PORT:-8080}}"
+UI_PORT="${AOS_UI_PORT:-18081}"
+BACKEND_URL="${AOS_SERVER_URL:-http://localhost:${AOS_SERVER_PORT:-18080}}"
 BACKEND_URL="$(normalize_backend_url "$BACKEND_URL")"
+UI_TARGET_DIR="$(aos_export_cargo_target ui)"
+
+aos_prune_incremental_if_needed ui || true
+aos_print_build_context ui
 
 mkdir -p "$VAR_DIR"
 mkdir -p "$DIST_DIR"
@@ -67,7 +74,7 @@ watch = [
   "${ROOT}/crates/adapteros-ui/dist/components",
   "${ROOT}/crates/adapteros-ui/dist/sw.js",
 ]
-ignore = ["${ROOT}/crates/adapteros-ui/target"]
+ignore = ["${ROOT}/crates/adapteros-ui/target", "${UI_TARGET_DIR}"]
 
 [serve]
 port = ${UI_PORT}
@@ -80,4 +87,9 @@ proxy = [
 EOF
 
 cd "$UI_DIR"
-exec trunk serve --config "$CFG_PATH" "$@"
+if aos_is_truthy "${AOS_BUILD_USE_SCCACHE:-1}"; then
+  exec trunk serve --config "$CFG_PATH" "$@"
+else
+  # Explicitly disable wrapper for troubleshooting parity with script-level policy.
+  exec env RUSTC_WRAPPER= trunk serve --config "$CFG_PATH" "$@"
+fi

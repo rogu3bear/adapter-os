@@ -181,6 +181,8 @@ pub(crate) async fn package_and_register_adapter(
     data_spec_hash_for_training: Option<&str>,
     tokenizer_hash_b3: Option<&str>,
     training_config_hash: Option<&str>,
+    training_receipt_schema_version: Option<u8>,
+    training_receipt_digest_b3: Option<&str>,
     trainer_seed: u64,
     db: Option<&adapteros_db::Db>,
 ) -> Result<()> {
@@ -223,6 +225,15 @@ pub(crate) async fn package_and_register_adapter(
     }
     if let Some(hash) = training_config_hash {
         package_metadata.insert("training_config_hash".to_string(), hash.to_string());
+    }
+    if let Some(version) = training_receipt_schema_version {
+        package_metadata.insert(
+            "training_receipt_schema_version".to_string(),
+            version.to_string(),
+        );
+    }
+    if let Some(digest) = training_receipt_digest_b3 {
+        package_metadata.insert("training_receipt_digest_b3".to_string(), digest.to_string());
     }
     if let Some(corr) = correlation_id.clone() {
         package_metadata.insert("correlation_id".to_string(), corr);
@@ -440,6 +451,18 @@ pub(crate) async fn package_and_register_adapter(
     }
     if let Some(hash) = training_config_hash {
         artifact_metadata.insert("training_config_hash".to_string(), serde_json::json!(hash));
+    }
+    if let Some(version) = training_receipt_schema_version {
+        artifact_metadata.insert(
+            "training_receipt_schema_version".to_string(),
+            serde_json::json!(version),
+        );
+    }
+    if let Some(digest) = training_receipt_digest_b3 {
+        artifact_metadata.insert(
+            "training_receipt_digest_b3".to_string(),
+            serde_json::json!(digest),
+        );
     }
     artifact_metadata.insert(
         "determinism_tier".to_string(),
@@ -751,8 +774,8 @@ pub(crate) async fn package_and_register_adapter(
                             .get_adapter_repository_policy(tenant_for_repo, &repo_id)
                             .await
                         {
-                            if policy.autopromote_coreml {
-                                if database
+                            if policy.autopromote_coreml
+                                && database
                                     .promote_adapter_version(
                                         tenant_for_repo,
                                         &repo_id,
@@ -762,9 +785,8 @@ pub(crate) async fn package_and_register_adapter(
                                     )
                                     .await
                                     .is_ok()
-                                {
-                                    policy_promoted = true;
-                                }
+                            {
+                                policy_promoted = true;
                             }
                         }
                     }
@@ -839,7 +861,18 @@ pub(crate) async fn package_and_register_adapter(
         }
 
         let adapter_tenant_id = tenant_id.unwrap_or(tenant);
-        let versioning_repo_id = versioning_snapshot.and_then(|v| v.repo_id.as_deref());
+        let versioning_repo_id = versioning_snapshot.and_then(|v| {
+            let has_code_provenance = v
+                .code_commit_sha
+                .as_ref()
+                .map(|sha| !sha.trim().is_empty())
+                .unwrap_or(false);
+            if has_code_provenance {
+                v.repo_id.as_deref()
+            } else {
+                None
+            }
+        });
         let versioning_adapter_version_id =
             versioning_snapshot.and_then(|v| v.adapter_version_id.as_deref());
         let base_model_lookup_tenant = base_model_tenant_or_workspace_id
@@ -950,7 +983,7 @@ pub(crate) async fn package_and_register_adapter(
             .tenant_id(adapter_tenant_id)
             .adapter_id(&packaged.adapter_id)
             .name(adapter_name)
-            .hash_b3(&packaged.hash_b3)
+            .hash_b3(&packaged.manifest.weights_hash)
             .rank(orchestrator_cfg.rank as i32)
             .tier(&post_actions.tier)
             .alpha(orchestrator_cfg.alpha as f64)
@@ -962,7 +995,7 @@ pub(crate) async fn package_and_register_adapter(
             .purpose(Some(group))
             .base_model_id(base_model_id_for_registration)
             .manifest_schema_version(Some(packaged.manifest.version.clone()))
-            .content_hash_b3(Some(packaged.hash_b3.clone()))
+            .content_hash_b3::<String>(None)
             .aos_file_path(Some(final_aos_path_str.clone()))
             .aos_file_hash(Some(final_aos_hash.clone()))
             .provenance_json(match serde_json::to_string(&packaged.manifest.metadata) {
@@ -1028,6 +1061,23 @@ pub(crate) async fn package_and_register_adapter(
                         job_id = %job_id,
                         error = %e,
                         "Failed to update job artifact metadata (non-fatal)"
+                    );
+                }
+
+                if let Err(e) = database
+                    .transition_adapter_lifecycle(
+                        &packaged.adapter_id,
+                        "training",
+                        "training_started",
+                        "system",
+                    )
+                    .await
+                {
+                    warn!(
+                        job_id = %job_id,
+                        adapter_id = %packaged.adapter_id,
+                        error = %e,
+                        "Failed to mark adapter training after registration"
                     );
                 }
 
@@ -1422,8 +1472,8 @@ pub(crate) async fn package_and_register_adapter(
                         .get_adapter_repository_policy(tenant_for_repo, &repo_id)
                         .await
                     {
-                        if policy.autopromote_coreml {
-                            if database
+                        if policy.autopromote_coreml
+                            && database
                                 .promote_adapter_version(
                                     tenant_for_repo,
                                     &repo_id,
@@ -1433,9 +1483,8 @@ pub(crate) async fn package_and_register_adapter(
                                 )
                                 .await
                                 .is_ok()
-                            {
-                                policy_promoted = true;
-                            }
+                        {
+                            policy_promoted = true;
                         }
                     }
                 }

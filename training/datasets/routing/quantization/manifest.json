@@ -1,0 +1,48 @@
+{
+  "name": "q15_quantization_v1",
+  "category": "routing",
+  "subcategory": "quantization",
+  "version": "1.0.0",
+  "description": "Training examples for Q15 fixed-point gate score quantization used in deterministic adapter routing.",
+  "files": [
+    {
+      "path": "q15-quantization.jsonl",
+      "format": "jsonl",
+      "count": 800,
+      "subcategories": {
+        "encode_decode_roundtrip": 200,
+        "boundary_values": 200,
+        "quantization_error_impact_tie": 100,
+        "quantization_error_impact_no_tie": 100,
+        "sort_stability_order_changed": 100,
+        "sort_stability_order_preserved": 100
+      }
+    }
+  ],
+  "schema": {
+    "input": "string",
+    "target": "string",
+    "metadata": {
+      "quality": "float [0,1]",
+      "label": "positive | negative",
+      "subcategory": "string"
+    }
+  },
+  "domain": {
+    "format": "Q15",
+    "scale": 32768,
+    "resolution": 0.000030517578125,
+    "range_min": -1.0,
+    "range_max": 0.999969482421875,
+    "int_min": -32768,
+    "int_max": 32767,
+    "encode": "round(f * 32768) clamped to [-32768, 32767]",
+    "decode": "i16 / 32768.0"
+  },
+  "quality": {
+    "min": 0.95,
+    "mean": 0.97
+  },
+  "created": "2026-02-26",
+  "gate": "Q15"
+}

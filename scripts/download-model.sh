@@ -1,7 +1,7 @@
 #!/usr/bin/env bash
-# Download Mistral 7B Instruct v0.3 model for adapterOS
+# Download Qwen3.5-27B model for adapterOS
 #
-# This script downloads the MLX-optimized Mistral 7B Instruct v0.3 model from Hugging Face
+# This script downloads the Qwen3.5-27B model from Hugging Face
 # and sets up the model directory structure required by adapterOS.
 #
 # Copyright: © 2025 JKCA / James KC Auchterlonie. All rights reserved.
@@ -19,11 +19,11 @@ NC='\033[0m' # No Color
 SCRIPT_DIR="$(cd "$(dirname "${BASH_SOURCE[0]}")" && pwd)"
 REPO_ROOT="$(cd "$SCRIPT_DIR/.." && pwd)"
 MODEL_DIR="$REPO_ROOT/var/models"
-MODEL_NAME="Llama-3.2-3B-Instruct-4bit"
+MODEL_NAME="Qwen3.5-27B"
 MODEL_PATH="$MODEL_DIR/$MODEL_NAME"
 
-# Hugging Face model ID (4-bit quantized version - public, no auth required)
-HF_MODEL_ID="mlx-community/Llama-3.2-3B-Instruct-4bit"
+# Hugging Face model ID
+HF_MODEL_ID="Qwen/Qwen3.5-27B"
 
 echo -e "${BLUE}═══════════════════════════════════════════════════════════════${NC}"
 echo -e "${BLUE}  adapterOS Model Downloader${NC}"
@@ -91,7 +91,7 @@ echo ""
 echo -e "${BLUE}Downloading: $HF_MODEL_ID${NC}"
 echo -e "${BLUE}Destination: $MODEL_PATH${NC}"
 echo ""
-echo -e "${YELLOW}Note: This will download ~3.8GB of model weights${NC}"
+echo -e "${YELLOW}Note: This will download a large base model (multi-GB)${NC}"
 echo -e "${YELLOW}      Download time depends on your internet connection${NC}"
 echo ""
 
@@ -196,7 +196,7 @@ echo ""
 echo -e "${GREEN}Next steps:${NC}"
 echo -e "${BLUE}  1.${NC} Build the project: ${YELLOW}cargo build --release${NC}"
 echo -e "${BLUE}  2.${NC} Start the server:  ${YELLOW}cargo run --release -p adapteros-server-api${NC}"
-echo -e "${BLUE}  3.${NC} Run inference:     ${YELLOW}curl -X POST http://localhost:8080/v1/infer \\${NC}"
+echo -e "${BLUE}  3.${NC} Run inference:     ${YELLOW}curl -X POST http://localhost:18080/v1/infer \\${NC}"
 echo -e "                         ${YELLOW}-H \"Content-Type: application/json\" \\${NC}"
 echo -e "                         ${YELLOW}-d '{\"prompt\": \"Hello\", \"max_tokens\": 50}'${NC}"
 echo ""

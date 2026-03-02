@@ -22,11 +22,12 @@ fn test_route_paths_exist() {
         "/chat",
         "/adapters",
         "/runs",
-        "/repositories",
+        "/documents",
         "/training",
         "/workers",
         "/system",
         "/settings",
+        "/models",
     ];
 
     for route in routes {
@@ -42,9 +43,9 @@ fn test_nested_route_patterns() {
         "/adapters/:id",
         "/training/:id",
         "/runs/:id",
-        "/repositories/:id",
-        "/workers/:worker_id",
-        "/reviews/:pause_id",
+        "/documents/:id",
+        "/workers/:id",
+        "/models/:id",
     ];
 
     for route in nested_routes {
@@ -67,13 +68,9 @@ fn test_path_building() {
     let run_path = format!("/runs/{}", run_id);
     assert_eq!(run_path, "/runs/trace-fixture");
 
-    let repo_id = "repo-e2e";
-    let repo_path = format!("/repositories/{}", repo_id);
-    assert_eq!(repo_path, "/repositories/repo-e2e");
-
-    let review_pause_id = "newer";
-    let review_path = format!("/reviews/{}", review_pause_id);
-    assert_eq!(review_path, "/reviews/newer");
+    let doc_id = "doc-e2e";
+    let doc_path = format!("/documents/{}", doc_id);
+    assert_eq!(doc_path, "/documents/doc-e2e");
 }
 
 #[wasm_bindgen_test]
@@ -107,9 +104,7 @@ fn test_protected_routes_list() {
 #[wasm_bindgen_test]
 fn test_public_routes_list() {
     // Routes that don't require authentication
-    let mut public = vec!["/login", "/safe"];
-    #[cfg(feature = "dev-routes")]
-    public.push("/style-audit");
+    let public = vec!["/login", "/safe"];
 
     for route in public {
         assert!(route.starts_with('/'));

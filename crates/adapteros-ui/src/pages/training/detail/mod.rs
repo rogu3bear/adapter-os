@@ -194,16 +194,14 @@ pub fn TrainingJobDetail(
         .filter(|p| p == &"/chat" || p.starts_with("/chat/"))
         .cloned();
     let return_button = return_to.map(|path| {
-        let label = if path == "/chat" || path.starts_with("/chat/") {
-            "Back to Conversation"
+        let (label, href) = if path == "/chat" || path.starts_with("/chat/") {
+            ("Back to Conversation", path)
         } else if path == "/adapters" || path.starts_with("/adapters/") {
-            "Back to Skill Library"
-        } else if path == "/datasets" || path.starts_with("/datasets/") {
-            "Back to Datasets"
+            ("Back to Adapters", path)
         } else {
-            "Go Back"
+            ("Go Back", path)
         };
-        (label, path)
+        (label, href)
     });
 
     view! {
@@ -211,7 +209,7 @@ pub fn TrainingJobDetail(
             // Header with close button
             <div class="flex items-start justify-between gap-4">
                 <div>
-                    <p class="text-sm text-muted-foreground">"Skill build"</p>
+                    <p class="text-sm text-muted-foreground">"Adapter build"</p>
                     <h2 class="heading-3 leading-tight">{job_id.clone()}</h2>
                 </div>
                 <div class="flex items-center gap-2">
@@ -235,15 +233,15 @@ pub fn TrainingJobDetail(
                         </ButtonLink>
                     })}
                     <button
-                        class="text-muted-foreground hover:text-foreground focus:outline-none focus:ring-2 focus:ring-ring focus:ring-offset-2 rounded"
+                        class="btn btn-ghost btn-icon-sm"
                         aria-label="Close"
                         type="button"
                         on:click=move |_| on_close()
                     >
                         <svg
                             xmlns="http://www.w3.org/2000/svg"
-                            width="24"
-                            height="24"
+                            width="18"
+                            height="18"
                             viewBox="0 0 24 24"
                             fill="none"
                             stroke="currentColor"
@@ -345,10 +343,12 @@ pub fn JobDetailContent(
     let adapter_link = adapter_id_for_detail
         .clone()
         .map(|id| (format!("Adapter {}", id), format!("/adapters/{}", id)));
-    let dataset_link = job
-        .dataset_id
-        .clone()
-        .map(|ds| (format!("Dataset {}", ds), format!("/datasets/{}", ds)));
+    let dataset_link = job.dataset_id.clone().map(|ds| {
+        (
+            format!("Dataset {}", ds),
+            format!("/training?open_wizard=1&dataset_id={}", ds),
+        )
+    });
 
     let is_running = status == "running";
     let is_pending = status == "pending";
@@ -522,44 +522,41 @@ pub fn JobDetailContent(
             </div>
 
             // Tab Navigation
-            <div class="border-b">
-                <nav class="-mb-px flex space-x-6 overflow-x-auto" role="tablist" aria-label="Training job details">
+            <nav class="tab-nav -mb-px" role="tablist" aria-label="Training job details">
+                <TabButton
+                    tab=DetailTab::Overview
+                    label="Overview".to_string()
+                    active=active_tab
+                />
+                <TabButton
+                    tab=DetailTab::Configuration
+                    label="Configuration".to_string()
+                    active=active_tab
+                />
+                <TabButton
+                    tab=DetailTab::Backend
+                    label="Backend".to_string()
+                    active=active_tab
+                />
+                <TabButton
+                    tab=DetailTab::Export
+                    label="Export".to_string()
+                    active=active_tab
+                />
+                {show_metrics_tab.then(|| view! {
                     <TabButton
-                        tab=DetailTab::Overview
-                        label="Overview".to_string()
+                        tab=DetailTab::Metrics
+                        label=if is_running { "Live Metrics".to_string() } else { "Final Metrics".to_string() }
                         active=active_tab
                     />
-                    <TabButton
-                        tab=DetailTab::Configuration
-                        label="Configuration".to_string()
-                        active=active_tab
-                    />
-                    <TabButton
-                        tab=DetailTab::Backend
-                        label="Backend".to_string()
-                        active=active_tab
-                    />
-                    <TabButton
-                        tab=DetailTab::Export
-                        label="Export".to_string()
-                        active=active_tab
-                    />
-                    {show_metrics_tab.then(|| view! {
-                        <TabButton
-                            tab=DetailTab::Metrics
-                            label=if is_running { "Live Metrics".to_string() } else { "Final Metrics".to_string() }
-                            active=active_tab
-                        />
-                    })}
-                </nav>
-            </div>
+                })}
+            </nav>
 
             // Tab Panels
             <TabPanel tab=DetailTab::Overview active=active_tab>
                 <OverviewTabContent
                     job=job.clone()
                     job_id=job_id_for_detail.clone()
-                    adapter_id=adapter_id_for_detail.clone()
                 />
             </TabPanel>
 

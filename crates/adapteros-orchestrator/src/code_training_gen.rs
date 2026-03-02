@@ -927,7 +927,7 @@ use crate::foo::Bar;
             metadata: BTreeMap::new(),
             weight: 1.0,
         };
-        let h1 = CodeTrainingGenerator::hash_pairs(&[pair.clone()]);
+        let h1 = CodeTrainingGenerator::hash_pairs(std::slice::from_ref(&pair));
         let h2 = CodeTrainingGenerator::hash_pairs(&[pair]);
         assert_eq!(h1, h2);
     }

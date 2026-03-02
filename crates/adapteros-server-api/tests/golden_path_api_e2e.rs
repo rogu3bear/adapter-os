@@ -1001,7 +1001,7 @@ async fn register_worker(
     .bind(&node_id)
     .bind("test-node")
     .bind("http://localhost:0")
-    .execute(db.pool())
+    .execute(db.pool_result()?)
     .await?;
 
     adapteros_db::sqlx::query(
@@ -1011,7 +1011,7 @@ async fn register_worker(
     .bind(tenant_id)
     .bind(&manifest_hash)
     .bind("{}")
-    .execute(db.pool())
+    .execute(db.pool_result()?)
     .await?;
 
     adapteros_db::sqlx::query(
@@ -1023,7 +1023,7 @@ async fn register_worker(
     .bind(&manifest_hash)
     .bind("[]")
     .bind("layout-b3:test")
-    .execute(db.pool())
+    .execute(db.pool_result()?)
     .await?;
 
     let backend_kind = backend

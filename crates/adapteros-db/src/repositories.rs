@@ -106,26 +106,6 @@ impl Db {
         }
     }
 
-    #[allow(dead_code)]
-    fn meta_to_kv(meta: &CodeGraphMetadata) -> CodeGraphMetadataKv {
-        CodeGraphMetadataKv {
-            id: meta.id.clone(),
-            repo_id: meta.repo_id.clone(),
-            commit_sha: meta.commit_sha.clone(),
-            hash_b3: meta.hash_b3.clone(),
-            file_count: meta.file_count,
-            symbol_count: meta.symbol_count,
-            test_count: meta.test_count,
-            languages_json: meta.languages_json.clone(),
-            frameworks_json: meta.frameworks_json.clone(),
-            size_bytes: meta.size_bytes,
-            symbol_index_hash: meta.symbol_index_hash.clone(),
-            vector_index_hash: meta.vector_index_hash.clone(),
-            test_map_hash: meta.test_map_hash.clone(),
-            created_at: meta.created_at.clone(),
-        }
-    }
-
     fn meta_from_kv(meta: CodeGraphMetadataKv) -> CodeGraphMetadata {
         CodeGraphMetadata {
             id: meta.id,
@@ -142,21 +122,6 @@ impl Db {
             vector_index_hash: meta.vector_index_hash,
             test_map_hash: meta.test_map_hash,
             created_at: meta.created_at,
-        }
-    }
-
-    #[allow(dead_code)]
-    fn scan_to_kv(job: &ScanJob) -> ScanJobKv {
-        ScanJobKv {
-            id: job.id.clone(),
-            repo_id: job.repo_id.clone(),
-            commit_sha: job.commit_sha.clone(),
-            status: job.status.clone(),
-            current_stage: job.current_stage.clone(),
-            progress_pct: job.progress_pct,
-            error_message: job.error_message.clone(),
-            started_at: job.started_at.clone(),
-            completed_at: job.completed_at.clone(),
         }
     }
 
@@ -203,7 +168,7 @@ impl Db {
             .bind(&languages_json)
             .bind(&languages_json)
             .bind(default_branch)
-            .execute(self.pool())
+            .execute(self.pool_result()?)
             .await
             .map_err(db_err("register repository"))?;
 
@@ -270,7 +235,7 @@ impl Db {
             "#,
         )
         .bind(id)
-        .fetch_one(self.pool())
+        .fetch_one(self.pool_result()?)
         .await
         .map_err(db_err("get repository"))?;
 
@@ -306,7 +271,7 @@ impl Db {
         )
         .bind(tenant_id)
         .bind(repo_id)
-        .fetch_optional(self.pool())
+        .fetch_optional(self.pool_result()?)
         .await
         .map_err(db_err("get repository by repo_id"))?;
 
@@ -350,7 +315,7 @@ impl Db {
         .bind(tenant_id)
         .bind(limit)
         .bind(offset)
-        .fetch_all(self.pool())
+        .fetch_all(self.pool_result()?)
         .await
         .map_err(db_err("list repositories"))?;
 
@@ -373,7 +338,7 @@ impl Db {
         let count: i64 =
             sqlx::query_scalar("SELECT COUNT(*) FROM repositories WHERE tenant_id = ?")
                 .bind(tenant_id)
-                .fetch_one(self.pool())
+                .fetch_one(self.pool_result()?)
                 .await
                 .map_err(db_err("count repositories"))?;
 
@@ -392,7 +357,7 @@ impl Db {
             )
             .bind(status)
             .bind(id)
-            .execute(self.pool())
+            .execute(self.pool_result()?)
             .await
             .map_err(db_err("update repository status"))?;
         }
@@ -431,7 +396,7 @@ impl Db {
             .bind(commit_sha)
             .bind(graph_hash)
             .bind(id)
-            .execute(self.pool())
+            .execute(self.pool_result()?)
             .await
             .map_err(db_err("update repository scan"))?;
         }
@@ -467,7 +432,7 @@ impl Db {
             )
             .bind(&frameworks_json)
             .bind(id)
-            .execute(self.pool())
+            .execute(self.pool_result()?)
             .await
             .map_err(|e| {
                 AosError::Database(format!("Failed to update repository frameworks: {}", e))
@@ -583,7 +548,7 @@ impl Db {
             .bind(symbol_index_hash)
             .bind(vector_index_hash)
             .bind(test_map_hash)
-            .execute(self.pool())
+            .execute(self.pool_result()?)
             .await
             .map_err(db_err("store code graph metadata"))?;
         }
@@ -649,7 +614,7 @@ impl Db {
         )
         .bind(repo_id)
         .bind(commit_sha)
-        .fetch_optional(self.pool())
+        .fetch_optional(self.pool_result()?)
         .await
         .map_err(db_err("get code graph metadata"))?;
 
@@ -685,7 +650,7 @@ impl Db {
             "#,
         )
         .bind(repo_id)
-        .fetch_optional(self.pool())
+        .fetch_optional(self.pool_result()?)
         .await
         .map_err(|e| {
             AosError::Database(format!("Failed to get latest code graph metadata: {}", e))
@@ -710,7 +675,7 @@ impl Db {
             .bind(&id)
             .bind(repo_id)
             .bind(commit_sha)
-            .execute(self.pool())
+            .execute(self.pool_result()?)
             .await
             .map_err(db_err("create scan job"))?;
         }
@@ -766,7 +731,7 @@ impl Db {
             .bind(error_message)
             .bind(status)
             .bind(job_id)
-            .execute(self.pool())
+            .execute(self.pool_result()?)
             .await
             .map_err(db_err("update scan job progress"))?;
         }
@@ -809,7 +774,7 @@ impl Db {
             "#,
         )
         .bind(job_id)
-        .fetch_optional(self.pool())
+        .fetch_optional(self.pool_result()?)
         .await
         .map_err(db_err("get scan job"))?;
 
@@ -846,7 +811,7 @@ impl Db {
         )
         .bind(repo_id)
         .bind(limit)
-        .fetch_all(self.pool())
+        .fetch_all(self.pool_result()?)
         .await
         .map_err(db_err("list scan jobs"))?;
 

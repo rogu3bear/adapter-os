@@ -29,7 +29,7 @@ async fn test_all_migrations_apply_cleanly() -> Result<()> {
 
     // Query the sqlx migrations table to verify migrations were applied
     let migration_count: i64 = sqlx::query_scalar("SELECT COUNT(*) FROM _sqlx_migrations")
-        .fetch_one(db.pool())
+        .fetch_one(db.pool_result()?)
         .await
         .unwrap_or(0);
 
@@ -45,7 +45,7 @@ async fn test_all_migrations_apply_cleanly() -> Result<()> {
     let failed_count: i64 = sqlx::query_scalar(
         "SELECT COUNT(*) FROM _sqlx_migrations WHERE success = 0 OR success IS NULL",
     )
-    .fetch_one(db.pool())
+    .fetch_one(db.pool_result()?)
     .await
     .unwrap_or(1);
 
@@ -137,7 +137,7 @@ async fn test_core_tables_exist() -> Result<()> {
 
     let mut existing_tables = HashSet::new();
     let rows = sqlx::query("SELECT name FROM sqlite_master WHERE type='table'")
-        .fetch_all(db.pool())
+        .fetch_all(db.pool_result()?)
         .await?;
 
     for row in rows {
@@ -200,7 +200,7 @@ async fn test_foreign_key_constraints_exist() -> Result<()> {
 
     // Enable foreign key constraint checking
     sqlx::query("PRAGMA foreign_keys = ON")
-        .execute(db.pool())
+        .execute(db.pool_result()?)
         .await?;
 
     // Define critical foreign key relationships to verify
@@ -216,7 +216,7 @@ async fn test_foreign_key_constraints_exist() -> Result<()> {
     for (table, col, ref_table, ref_col) in &critical_fks {
         // Query table_info to check constraint
         let rows = sqlx::query(&format!("PRAGMA foreign_key_list({})", table))
-            .fetch_all(db.pool())
+            .fetch_all(db.pool_result()?)
             .await?;
 
         let mut found = false;
@@ -253,7 +253,7 @@ async fn test_cascade_delete_behavior() -> Result<()> {
     // Verify CASCADE constraints are defined in schema
     // by checking the foreign key definitions
     let rows = sqlx::query("PRAGMA foreign_key_list(adapters)")
-        .fetch_all(db.pool())
+        .fetch_all(db.pool_result()?)
         .await?;
 
     let mut found_cascade = false;
@@ -275,7 +275,7 @@ async fn test_cascade_delete_behavior() -> Result<()> {
     if !found_cascade {
         let rows =
             sqlx::query("SELECT sql FROM sqlite_master WHERE type='table' AND name='adapters'")
-                .fetch_all(db.pool())
+                .fetch_all(db.pool_result()?)
                 .await?;
 
         for row in rows {
@@ -304,7 +304,7 @@ async fn test_adapter_stack_related_tables_schema() -> Result<()> {
 
     // Verify adapters table has all critical columns
     let rows = sqlx::query("PRAGMA table_info(adapters)")
-        .fetch_all(db.pool())
+        .fetch_all(db.pool_result()?)
         .await?;
 
     let mut adapter_columns = HashSet::new();
@@ -372,7 +372,7 @@ async fn test_routing_decisions_table_schema() -> Result<()> {
     let exists: bool = sqlx::query_scalar(
         "SELECT EXISTS(SELECT 1 FROM sqlite_master WHERE type='table' AND name='routing_decisions')"
     )
-    .fetch_one(db.pool())
+    .fetch_one(db.pool_result()?)
     .await?;
 
     if !exists {
@@ -383,7 +383,7 @@ async fn test_routing_decisions_table_schema() -> Result<()> {
 
     // Verify routing_decisions table has critical columns
     let rows = sqlx::query("PRAGMA table_info(routing_decisions)")
-        .fetch_all(db.pool())
+        .fetch_all(db.pool_result()?)
         .await?;
 
     let mut rd_columns = HashSet::new();
@@ -415,7 +415,7 @@ async fn test_activity_events_table_schema() -> Result<()> {
 
     // Query activity_events table info
     let rows = sqlx::query("PRAGMA table_info(activity_events)")
-        .fetch_all(db.pool())
+        .fetch_all(db.pool_result()?)
         .await?;
 
     let mut event_columns = HashSet::new();
@@ -449,7 +449,7 @@ async fn test_process_access_controls_schema() -> Result<()> {
 
     // Query process_access_controls table info
     let rows = sqlx::query("PRAGMA table_info(process_access_controls)")
-        .fetch_all(db.pool())
+        .fetch_all(db.pool_result()?)
         .await?;
 
     let mut pac_columns = HashSet::new();
@@ -507,7 +507,7 @@ async fn test_artifacts_table_schema_includes_stored_path() -> Result<()> {
     let db = create_test_db().await?;
 
     let rows = sqlx::query("PRAGMA table_info(artifacts)")
-        .fetch_all(db.pool())
+        .fetch_all(db.pool_result()?)
         .await?;
 
     let mut artifact_columns = HashSet::new();
@@ -561,7 +561,7 @@ async fn test_critical_indexes_exist() -> Result<()> {
             "SELECT EXISTS(SELECT 1 FROM sqlite_master WHERE type='index' AND name=?)",
         )
         .bind(index_name)
-        .fetch_one(db.pool())
+        .fetch_one(db.pool_result()?)
         .await?;
 
         if !exists {
@@ -588,7 +588,7 @@ async fn test_data_type_compatibility() -> Result<()> {
     // Verify critical data types by checking table schema
     // Get adapters table column types
     let rows = sqlx::query("PRAGMA table_info(adapters)")
-        .fetch_all(db.pool())
+        .fetch_all(db.pool_result()?)
         .await?;
 
     let mut column_types = std::collections::HashMap::new();
@@ -636,7 +636,7 @@ async fn test_unique_constraints() -> Result<()> {
 
     // Disable foreign key constraints to avoid schema migration issues
     sqlx::query("PRAGMA foreign_keys = OFF")
-        .execute(db.pool())
+        .execute(db.pool_result()?)
         .await?;
 
     let test_tenant_id = "test-unique-tenant-001";
@@ -645,7 +645,7 @@ async fn test_unique_constraints() -> Result<()> {
     sqlx::query("INSERT INTO tenants (id, name) VALUES (?, ?)")
         .bind(test_tenant_id)
         .bind("Test Unique Tenant")
-        .execute(db.pool())
+        .execute(db.pool_result()?)
         .await?;
 
     // Insert first adapter with unique hash
@@ -662,7 +662,7 @@ async fn test_unique_constraints() -> Result<()> {
     .bind(8)
     .bind(16.0)
     .bind("[]")
-    .execute(db.pool())
+    .execute(db.pool_result()?)
     .await?;
 
     // Try to insert second adapter with same hash (should fail due to UNIQUE constraint)
@@ -678,7 +678,7 @@ async fn test_unique_constraints() -> Result<()> {
     .bind(8)
     .bind(16.0)
     .bind("[]")
-    .execute(db.pool())
+    .execute(db.pool_result()?)
     .await;
 
     assert!(
@@ -701,7 +701,7 @@ async fn test_check_constraints() -> Result<()> {
     sqlx::query("INSERT INTO tenants (id, name) VALUES (?, ?)")
         .bind(test_tenant_id)
         .bind("Test Check Tenant")
-        .execute(db.pool())
+        .execute(db.pool_result()?)
         .await?;
 
     // Try to insert adapter with invalid tier (should fail CHECK constraint)
@@ -717,7 +717,7 @@ async fn test_check_constraints() -> Result<()> {
     .bind(8)
     .bind(16.0)
     .bind("[]")
-    .execute(db.pool())
+    .execute(db.pool_result()?)
     .await;
 
     assert!(
@@ -736,7 +736,7 @@ async fn test_workspace_relationships() -> Result<()> {
 
     // Enable foreign key constraints
     sqlx::query("PRAGMA foreign_keys = ON")
-        .execute(db.pool())
+        .execute(db.pool_result()?)
         .await?;
 
     let test_user_id = "test-workspace-user-001";
@@ -751,14 +751,14 @@ async fn test_workspace_relationships() -> Result<()> {
     .bind("Workspace User")
     .bind("hashed_password")
     .bind("operator")
-    .execute(db.pool())
+    .execute(db.pool_result()?)
     .await?;
 
     // Insert test tenant
     sqlx::query("INSERT INTO tenants (id, name) VALUES (?, ?)")
         .bind(test_tenant_id)
         .bind("Test Workspace Tenant")
-        .execute(db.pool())
+        .execute(db.pool_result()?)
         .await?;
 
     // Insert test workspace
@@ -771,13 +771,13 @@ async fn test_workspace_relationships() -> Result<()> {
     .bind("Test Workspace")
     .bind("A workspace for testing")
     .bind(test_user_id)
-    .execute(db.pool())
+    .execute(db.pool_result()?)
     .await?;
 
     // Verify workspace was created
     let count: i64 = sqlx::query_scalar("SELECT COUNT(*) FROM workspaces WHERE id = ?")
         .bind(workspace_id)
-        .fetch_one(db.pool())
+        .fetch_one(db.pool_result()?)
         .await?;
     assert_eq!(count, 1, "Workspace should exist");
 
@@ -794,14 +794,14 @@ async fn test_system_metrics_schema() -> Result<()> {
     let exists: bool = sqlx::query_scalar(
         "SELECT EXISTS(SELECT 1 FROM sqlite_master WHERE type='table' AND name='system_metrics')",
     )
-    .fetch_one(db.pool())
+    .fetch_one(db.pool_result()?)
     .await?;
 
     assert!(exists, "system_metrics table should exist");
 
     // Query table info
     let rows = sqlx::query("PRAGMA table_info(system_metrics)")
-        .fetch_all(db.pool())
+        .fetch_all(db.pool_result()?)
         .await?;
 
     let mut metrics_columns = HashSet::new();
@@ -825,7 +825,7 @@ async fn test_migration_history_recorded() -> Result<()> {
     // Query migration history
     let rows =
         sqlx::query("SELECT version, description, success FROM _sqlx_migrations ORDER BY version")
-            .fetch_all(db.pool())
+            .fetch_all(db.pool_result()?)
             .await?;
 
     assert!(!rows.is_empty(), "Migration history should not be empty");
@@ -921,17 +921,17 @@ async fn test_schema_validation_summary() -> Result<()> {
         "SELECT COUNT(*) FROM sqlite_master WHERE type='table' AND name NOT LIKE 'sqlite_%' \
          AND name NOT LIKE '_sqlx_%'",
     )
-    .fetch_one(db.pool())
+    .fetch_one(db.pool_result()?)
     .await?;
 
     let index_count: i64 = sqlx::query_scalar(
         "SELECT COUNT(*) FROM sqlite_master WHERE type='index' AND name NOT LIKE 'sqlite_%'",
     )
-    .fetch_one(db.pool())
+    .fetch_one(db.pool_result()?)
     .await?;
 
     let migration_count: i64 = sqlx::query_scalar("SELECT COUNT(*) FROM _sqlx_migrations")
-        .fetch_one(db.pool())
+        .fetch_one(db.pool_result()?)
         .await?;
 
     println!("\n╔════════════════════════════════════════════════════════╗");

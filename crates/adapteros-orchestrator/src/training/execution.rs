@@ -7,6 +7,7 @@ use std::sync::Arc;
 
 use adapteros_config::ModelConfig;
 use adapteros_core::{AosError, B3Hash, GuardLogLevel, Result, SeedMode, SeedScopeGuard};
+use adapteros_db::training_jobs::TrainingProgress;
 use adapteros_db::ProtectedDb;
 use adapteros_deterministic_exec::spawn_deterministic;
 use adapteros_lora_worker::training::trainer::{EpochMetrics as WorkerEpochMetrics, OptimizerType};
@@ -35,6 +36,42 @@ use crate::training::pipeline::{
 use crate::training::report::write_training_report;
 use crate::training::versioning::VersioningSnapshot;
 use crate::training_dataset_integration::TrainingFramingPolicy;
+
+const DEV_FAILFAST_ENV: &str = "ADAPTEROS_DEV_TRAINING_FAILFAST";
+const DEV_FAILFAST_REASON_ENV: &str = "ADAPTEROS_DEV_TRAINING_FAILFAST_REASON";
+
+fn parse_dev_failfast_enabled(raw: &str) -> bool {
+    matches!(
+        raw.trim().to_ascii_lowercase().as_str(),
+        "1" | "true" | "yes" | "on"
+    )
+}
+
+fn deterministic_dev_failfast_reason() -> Option<String> {
+    if !cfg!(debug_assertions) {
+        return None;
+    }
+
+    let enabled = std::env::var(DEV_FAILFAST_ENV)
+        .map(|raw| parse_dev_failfast_enabled(&raw))
+        .unwrap_or(false);
+    if !enabled {
+        return None;
+    }
+
+    Some(
+        std::env::var(DEV_FAILFAST_REASON_ENV)
+            .ok()
+            .map(|s| s.trim().to_string())
+            .filter(|s| !s.is_empty())
+            .unwrap_or_else(|| {
+                format!(
+                    "Deterministic dev fail-fast triggered via {}",
+                    DEV_FAILFAST_ENV
+                )
+            }),
+    )
+}
 
 /// Background runner for a single training job. Converts orchestrator config into worker trainer
 /// config, runs training with per-epoch callback, packages weights, registers adapter, and
@@ -166,6 +203,12 @@ pub(crate) async fn run_training_job(
     let outcome: Result<()> = async move {
         let job_id = job_id_for_run;
 
+        // Deterministic dev fail-fast probe for operational verification.
+        // This is intentionally debug-only and explicitly opt-in via env flag.
+        if let Some(reason) = deterministic_dev_failfast_reason() {
+            return Err(AosError::Validation(reason));
+        }
+
         // Parse post-actions configuration (defaults if not provided or invalid)
         let post_actions: PostActions = match post_actions_json.as_ref() {
             Some(json) => match serde_json::from_str(json) {
@@ -250,9 +293,9 @@ pub(crate) async fn run_training_job(
             hidden_state_layer: orchestrator_cfg.hidden_state_layer.clone(),
             validation_split: orchestrator_cfg.validation_split.unwrap_or(0.0),
             preprocessing: map_preprocessing_config_opt(orchestrator_cfg.preprocessing.clone()),
-            targets: vec!["q_proj".to_string(), "v_proj".to_string()],
-            multi_module_training: false,
-            lora_layer_indices: vec![],
+            targets: orchestrator_cfg.targets.clone(),
+            multi_module_training: orchestrator_cfg.multi_module_training,
+            lora_layer_indices: orchestrator_cfg.lora_layer_indices.clone(),
             mlx_version: None, // Will be populated during trainer initialization
         };
 
@@ -1620,6 +1663,12 @@ pub(crate) async fn run_training_job(
                 }
 
                 // Package and register adapter.
+                let training_receipt_schema_version =
+                    pipeline.receipt_v1().canonical_receipt_schema_version;
+                let training_receipt_digest_b3 = pipeline
+                    .receipt_v1()
+                    .canonical_receipt_digest_b3
+                    .as_deref();
                 if let Err(err) = package_and_register_adapter(
                     jobs_ref.clone(),
                     &job_id,
@@ -1643,6 +1692,8 @@ pub(crate) async fn run_training_job(
                     data_spec_hash_for_training.as_deref(),
                     Some(tokenizer_hash_b3.as_str()),
                     Some(pipeline_training_config_hash.as_str()),
+                    training_receipt_schema_version,
+                    training_receipt_digest_b3,
                     trainer.training_seed(),
                     db_for_packaging.as_ref(),
                 )
@@ -1717,6 +1768,28 @@ pub(crate) async fn run_training_job(
 
                 // Persist failure status and retryable flag to DB
                 if let Some(database) = &db {
+                    if let Err(db_err) = database
+                        .update_training_progress(
+                            &job_id,
+                            &TrainingProgress {
+                                progress_pct: 0.0,
+                                current_epoch: 0,
+                                total_epochs: 0,
+                                current_loss: 0.0,
+                                learning_rate: 0.0,
+                                tokens_per_second: 0.0,
+                                error_message: Some(error_str.clone()),
+                            },
+                        )
+                        .await
+                    {
+                        warn!(
+                            job_id = %job_id,
+                            error = %db_err,
+                            "Failed to persist training failure progress payload to DB (non-fatal)"
+                        );
+                    }
+
                     if let Err(e) = database.update_training_status(&job_id, "failed").await {
                         warn!(
                             job_id = %job_id,
@@ -1768,6 +1841,30 @@ pub(crate) async fn run_training_job(
         }
 
         if let Some(database) = db_for_state.as_ref() {
+            if let Some(ref error_message) = reason {
+                if let Err(db_err) = database
+                    .update_training_progress(
+                        &job_id,
+                        &TrainingProgress {
+                            progress_pct: 0.0,
+                            current_epoch: 0,
+                            total_epochs: 0,
+                            current_loss: 0.0,
+                            learning_rate: 0.0,
+                            tokens_per_second: 0.0,
+                            error_message: Some(error_message.clone()),
+                        },
+                    )
+                    .await
+                {
+                    warn!(
+                        job_id = %job_id,
+                        error = %db_err,
+                        "Failed to persist terminal failure progress payload to DB (non-fatal)"
+                    );
+                }
+            }
+
             if let Err(e) = database.update_training_status(&job_id, "failed").await {
                 warn!(
                     job_id = %job_id,

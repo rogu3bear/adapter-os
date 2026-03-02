@@ -59,7 +59,7 @@ use std::collections::HashSet;
 #[derive(Debug, Clone, Serialize, Deserialize)]
 pub struct ProductionReadinessConfig {
     /// Maximum unwrap calls per 100 lines of code
-    /// Default: 5.0 for production, 20.0 for development
+    /// Default: 0.0 for production (strict ban), 20.0 for development
     pub max_unwrap_density: f32,
 
     /// Maximum unsafe blocks outside FFI modules
@@ -787,10 +787,8 @@ pub fn scan_source_code(
 
         code_lines += 1;
 
-        // Count unwrap and expect calls
-        let unwrap_count = line.matches(".unwrap()").count()
-            + line.matches(".unwrap_or_else").count()
-            + line.matches(".expect(").count();
+        // Count unwrap and expect calls (do not count safe variants like unwrap_or_else)
+        let unwrap_count = line.matches(".unwrap()").count() + line.matches(".expect(").count();
         ctx.unwrap_count += unwrap_count;
 
         // Check for unsafe blocks

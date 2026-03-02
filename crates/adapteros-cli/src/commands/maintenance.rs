@@ -4,12 +4,12 @@
 //! - `aosctl maintenance gc-bundles` – prune telemetry bundles on disk
 //! - `aosctl maintenance gc-adapters` – garbage collect archived adapter .aos files
 //!
-//! Semantics follow `scripts/gc_bundles.sh`:
+//! Semantics follow the former `scripts/gc_bundles.sh` (removed; use this command):
 //! - Keep last K bundles per CPID
 //! - Preserve bundles referenced by open incidents
 //! - Preserve promotion bundles
 //!
-//! [source: scripts/gc_bundles.sh L1-L140]
+//! [source: aosctl maintenance gc-bundles]
 
 use crate::output::OutputWriter;
 use adapteros_db::sqlx;
@@ -135,7 +135,7 @@ async fn gc_bundles(args: GcBundlesArgs, output: &OutputWriter) -> Result<()> {
     let db = Db::connect(db_path_str)
         .await
         .with_context(|| format!("connecting to database {}", db_path.display()))?;
-    let pool = db.pool();
+    let pool = db.pool_result()?;
 
     // Incident-referenced bundles
     let incident_bundles: HashSet<String> = sqlx::query_scalar::<_, String>(

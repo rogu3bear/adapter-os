@@ -578,7 +578,7 @@ impl HealthEvent {
 
 // Platform-specific memory and CPU time functions
 #[cfg(target_os = "macos")]
-fn get_process_memory() -> Result<u64> {
+pub(crate) fn get_process_memory() -> Result<u64> {
     use std::process::Command;
 
     let output = match Command::new("ps")
@@ -612,7 +612,7 @@ fn get_process_memory() -> Result<u64> {
 }
 
 #[cfg(target_os = "linux")]
-fn get_process_memory() -> Result<u64> {
+pub(crate) fn get_process_memory() -> Result<u64> {
     use std::fs;
 
     let status = fs::read_to_string("/proc/self/status")?;
@@ -632,7 +632,7 @@ fn get_process_memory() -> Result<u64> {
 }
 
 #[cfg(not(any(target_os = "macos", target_os = "linux")))]
-fn get_process_memory() -> Result<u64> {
+pub(crate) fn get_process_memory() -> Result<u64> {
     // Fallback for unsupported platforms
     Ok(0)
 }

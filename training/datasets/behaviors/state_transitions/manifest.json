@@ -1,0 +1,108 @@
+{
+  "name": "state_transitions_v1",
+  "description": "Adapter lifecycle state transition training data covering valid promotions, valid demotions, invalid transitions, and full lifecycle traces. Encodes the Unloaded→Cold→Warm→Hot→Resident state machine with activation thresholds, inactivity timeouts, memory pressure eviction rules, and Resident pin protection.",
+  "version": "1.0.0",
+  "category": "behaviors",
+  "scope": "global",
+  "tier": "critical",
+  "rank": 1,
+  "alpha": 8.0,
+  "target_modules": [
+    "gate_proj",
+    "up_proj",
+    "down_proj",
+    "o_proj"
+  ],
+  "entries": [
+    {
+      "path": "state-transitions.jsonl",
+      "format": "jsonl",
+      "weight": 1.0,
+      "role": "primary",
+      "notes": "850 examples: 200 valid promotions, 200 valid demotions, 200 invalid transitions (negative label), 250 full lifecycle traces. Shuffled."
+    }
+  ],
+  "stats": {
+    "total_examples": 850,
+    "label_breakdown": {
+      "positive": 650,
+      "negative": 200
+    },
+    "subcategory_breakdown": {
+      "cold_to_warm": 65,
+      "warm_to_hot": 65,
+      "hot_to_resident": 70,
+      "hot_to_warm": 90,
+      "warm_to_cold": 90,
+      "resident_to_hot": 20,
+      "illegal_skip_forward": 20,
+      "illegal_skip": 130,
+      "illegal_misc": 30,
+      "resident_demotion_without_unpin": 20,
+      "trace_full_lifecycle_A": 25,
+      "trace_quick_eviction_B": 25,
+      "trace_inactivity_cascade_C": 25,
+      "trace_resident_protection_D": 25,
+      "trace_daily_traffic_pattern_E": 25,
+      "trace_pin_ttl_reuse_F": 25,
+      "trace_cold_eviction_before_promotion_G": 25,
+      "trace_traffic_oscillation_H": 25,
+      "trace_memory_snapshot_trace_I": 25,
+      "trace_immediate_pin_J": 25
+    }
+  },
+  "domain": {
+    "state_machine": {
+      "states": ["Unloaded", "Cold", "Warm", "Hot", "Resident"],
+      "memory_mb": {
+        "Unloaded": 0,
+        "Cold": 100,
+        "Warm": 150,
+        "Hot": 200,
+        "Resident": 200
+      },
+      "activation_latency_ms": {
+        "Unloaded": 500,
+        "Cold": 50,
+        "Warm": 5,
+        "Hot": 1,
+        "Resident": 0
+      },
+      "promotion_thresholds": {
+        "cold_to_warm": "activation_pct > 30%",
+        "warm_to_hot": "activation_pct > 60%",
+        "hot_to_resident": "explicit pin call"
+      },
+      "demotion_thresholds": {
+        "hot_to_warm": "inactivity > 15 minutes",
+        "warm_to_cold": "inactivity > 30 minutes",
+        "resident_to_hot": "explicit unpin call"
+      },
+      "eviction_rules": {
+        "trigger": "memory pressure > 85%",
+        "priority": "Cold first, then Warm",
+        "resident_exempt": true,
+        "hot_exempt_under_normal_pressure": true
+      }
+    }
+  },
+  "provenance": {
+    "created_by": "state-transitions-dataset-generator",
+    "created_at": "2026-02-26T00:00:00Z",
+    "last_reviewed_at": "2026-02-26T00:00:00Z",
+    "review_notes": "Hand-authored generator with deterministic seed (42). Covers all valid/invalid transition pairs, boundary conditions, and realistic operational traces."
+  },
+  "evaluation_gates": [
+    "All positive examples describe transitions that comply with the state machine",
+    "All negative examples correctly identify the violation and the valid path",
+    "No state skipping in any positive example",
+    "Resident adapters only demoted via explicit unpin in positive examples",
+    "Memory deltas are consistent with state memory table",
+    "Lifecycle traces are internally consistent (no contradictions between steps)"
+  ],
+  "quality": {
+    "min_quality_score": 0.87,
+    "target_quality_score": 0.93,
+    "label_balance": "positive:negative = 650:200 (3.25:1)"
+  }
+}

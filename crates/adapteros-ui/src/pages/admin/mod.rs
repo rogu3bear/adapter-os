@@ -73,9 +73,10 @@ pub fn Admin() -> impl IntoView {
             title="Administration"
             subtitle="Manage users, roles, and organization settings"
             breadcrumbs=vec![
-                PageBreadcrumbItem::new("Org", "/admin"),
+                PageBreadcrumbItem::new("System", "/admin"),
                 PageBreadcrumbItem::current("Administration"),
             ]
+            full_width=true
         >
             <PageScaffoldActions slot>
                 {move || {

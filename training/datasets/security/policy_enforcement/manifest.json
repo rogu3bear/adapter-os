@@ -1,0 +1,79 @@
+{
+  "name": "policy_enforcement_v1",
+  "description": "Comprehensive policy enforcement dataset covering all 23 canonical adapterOS policies. Includes policy descriptions, violation detection, policy interaction scenarios, enforcement mechanism details, and policy evolution patterns. 2500 expert-grade examples across 5 categories with technically precise targets grounded in the actual crate implementations.",
+  "version": "1.0.0",
+  "category": "security",
+  "scope": "system",
+  "tier": "critical",
+  "rank": 1,
+  "alpha": 8.0,
+  "target_modules": ["gate_proj", "up_proj", "down_proj"],
+  "entries": [
+    {
+      "path": "policy-enforcement.jsonl",
+      "format": "jsonl",
+      "weight": 1.0,
+      "role": "mixed",
+      "notes": "2500 policy enforcement examples across 5 categories: description (500), violation detection (500), policy interaction (500), enforcement mechanisms (500), policy evolution (500)"
+    }
+  ],
+  "provenance": {
+    "masterplan_sections": [
+      "crates/adapteros-policy/src/packs/egress.rs",
+      "crates/adapteros-policy/src/packs/determinism.rs",
+      "crates/adapteros-policy/src/packs/router.rs",
+      "crates/adapteros-policy/src/packs/evidence.rs",
+      "crates/adapteros-policy/src/packs/telemetry.rs",
+      "crates/adapteros-policy/src/packs/naming_policy.rs",
+      "crates/adapteros-policy/src/packs/isolation.rs",
+      "crates/adapteros-policy/src/packs/memory.rs",
+      "crates/adapteros-policy/src/policy_pack.rs",
+      "crates/adapteros-policy/src/registry.rs"
+    ],
+    "created_by": "policy-enforcement-dataset-task",
+    "created_at": "2026-02-26T00:00:00Z",
+    "last_reviewed_at": "2026-02-26T00:00:00Z",
+    "review_notes": "Security-tier dataset for training policy enforcement understanding across all 23 canonical policies. Sources: actual Rust implementation code in adapteros-policy crate."
+  },
+  "evaluation_gates": [
+    "Policy identification accuracy >= 98%",
+    "Violation detection precision >= 95%",
+    "Policy interaction reasoning coherence >= 90%",
+    "Enforcement mechanism technical accuracy >= 95%",
+    "Policy evolution scenario completeness >= 90%"
+  ],
+  "intent": "Train the model to understand, identify, and reason about adapterOS policy enforcement including violation detection, policy interactions, enforcement mechanisms, and policy lifecycle management.",
+  "policy_coverage": {
+    "egress": 109,
+    "determinism": 109,
+    "router": 109,
+    "evidence": 109,
+    "telemetry": 109,
+    "naming": 109,
+    "isolation": 109,
+    "memory": 109,
+    "lifecycle": 109,
+    "heartbeat": 109,
+    "pinning": 109,
+    "versioning": 109,
+    "signing": 109,
+    "rbac": 109,
+    "replay": 109,
+    "training": 109,
+    "stack": 109,
+    "migration": 109,
+    "content": 109,
+    "quota": 109,
+    "ttl": 109,
+    "barrier": 109,
+    "federation": 106
+  },
+  "category_distribution": {
+    "policy_description": 500,
+    "violation_detection": 500,
+    "policy_interaction": 500,
+    "enforcement_mechanisms": 500,
+    "policy_evolution": 500,
+    "total_examples": 2500
+  }
+}

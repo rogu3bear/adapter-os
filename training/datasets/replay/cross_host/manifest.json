@@ -1,0 +1,18 @@
+{
+  "name": "cross_host_verification_v1",
+  "category": "replay",
+  "description": "Training examples for cross-host replay verification in adapterOS. Covers consistency proofs, divergence detection, and federation metadata usage.",
+  "version": "1.0.0",
+  "created": "2026-02-26",
+  "subcategories": [
+    "consistency_proof",
+    "divergence_detection",
+    "federation_metadata"
+  ],
+  "target_count": 450,
+  "distribution": {
+    "consistency_proof": 150,
+    "divergence_detection": 150,
+    "federation_metadata": 150
+  }
+}

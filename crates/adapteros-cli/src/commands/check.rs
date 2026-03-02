@@ -22,8 +22,8 @@ pub struct CheckCommand {
 pub enum CheckSubcommand {
     /// Post-reboot startup verification (requires running server)
     Startup {
-        /// Server URL (defaults to AOS_SERVER_URL env var or http://localhost:8080)
-        #[arg(long, env = "AOS_SERVER_URL", default_value = "http://localhost:8080")]
+        /// Server URL (defaults to AOS_SERVER_URL env var or http://localhost:18080)
+        #[arg(long, env = "AOS_SERVER_URL", default_value = "http://localhost:18080")]
         server_url: String,
 
         /// Timeout in seconds

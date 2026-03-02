@@ -8,13 +8,43 @@ use crate::auth::Claims;
 use crate::permissions::{require_permission, Permission};
 use crate::state::AppState;
 use crate::types::ErrorResponse;
+use adapteros_api_types::API_SCHEMA_VERSION;
+use adapteros_core::error_codes;
 use axum::{extract::State, http::StatusCode, Extension, Json};
 use serde::{Deserialize, Serialize};
-use sqlx::Row;
-use tracing::warn;
+use utoipa::ToSchema;
+
+fn is_schema_contract_violation(message: &str) -> bool {
+    message.contains("no such table")
+        || message.contains("no such column")
+        || message.contains("has no column named")
+}
+
+fn map_metrics_db_error<E: std::fmt::Display>(error: E) -> (StatusCode, Json<ErrorResponse>) {
+    let message = error.to_string();
+    if is_schema_contract_violation(&message) {
+        return (
+            StatusCode::SERVICE_UNAVAILABLE,
+            Json(
+                ErrorResponse::new("schema contract violation")
+                    .with_code(error_codes::SCHEMA_CONTRACT_VIOLATION)
+                    .with_string_details(message),
+            ),
+        );
+    }
+
+    (
+        StatusCode::INTERNAL_SERVER_ERROR,
+        Json(
+            ErrorResponse::new("database error")
+                .with_code("DATABASE_ERROR")
+                .with_string_details(message),
+        ),
+    )
+}
 
 /// Inference metrics response
-#[derive(Debug, Clone, Serialize, Deserialize)]
+#[derive(Debug, Clone, Serialize, Deserialize, ToSchema)]
 #[serde(rename_all = "snake_case")]
 pub struct InferenceMetricsResponse {
     pub schema_version: String,
@@ -31,7 +61,7 @@ pub struct InferenceMetricsResponse {
 }
 
 /// Adapter metrics response
-#[derive(Debug, Clone, Serialize, Deserialize)]
+#[derive(Debug, Clone, Serialize, Deserialize, ToSchema)]
 #[serde(rename_all = "snake_case")]
 pub struct AdapterMetricsResponse {
     pub schema_version: String,
@@ -39,7 +69,7 @@ pub struct AdapterMetricsResponse {
 }
 
 /// Individual adapter metric
-#[derive(Debug, Clone, Serialize, Deserialize)]
+#[derive(Debug, Clone, Serialize, Deserialize, ToSchema)]
 #[serde(rename_all = "snake_case")]
 pub struct AdapterMetricItem {
     pub adapter_id: String,
@@ -79,16 +109,12 @@ pub async fn get_inference_metrics_handler(
     let pool = state.db.pool();
 
     // Query total requests from routing_decisions (most reliable inference counter)
-    let total_requests: i64 = sqlx::query_scalar(
-        "SELECT COUNT(*) FROM routing_decisions WHERE tenant_id = ?",
-    )
-    .bind(&claims.tenant_id)
-    .fetch_one(pool)
-    .await
-    .unwrap_or_else(|e| {
-        warn!(tenant_id = %claims.tenant_id, error = %e, "Failed to query total requests from routing_decisions");
-        0
-    });
+    let total_requests: i64 =
+        sqlx::query_scalar("SELECT COUNT(*) FROM routing_decisions WHERE tenant_id = ?")
+            .bind(&claims.tenant_id)
+            .fetch_one(pool)
+            .await
+            .map_err(map_metrics_db_error)?;
 
     // Query failed requests (those with null or error status in request_log if available)
     let failed_requests: i64 = sqlx::query_scalar(
@@ -97,10 +123,7 @@ pub async fn get_inference_metrics_handler(
     .bind(&claims.tenant_id)
     .fetch_one(pool)
     .await
-    .unwrap_or_else(|e| {
-        warn!(tenant_id = %claims.tenant_id, error = %e, "Failed to query failed requests from request_log");
-        0
-    });
+    .map_err(map_metrics_db_error)?;
 
     let successful_requests = (total_requests - failed_requests).max(0);
 
@@ -113,10 +136,7 @@ pub async fn get_inference_metrics_handler(
     .bind(&claims.tenant_id)
     .fetch_one(pool)
     .await
-    .unwrap_or_else(|e| {
-        warn!(tenant_id = %claims.tenant_id, error = %e, "Failed to query total tokens from telemetry_events");
-        0
-    });
+    .map_err(map_metrics_db_error)?;
 
     // Calculate tokens per second from last 5 minutes
     let tokens_last_5min: i64 = sqlx::query_scalar(
@@ -128,10 +148,7 @@ pub async fn get_inference_metrics_handler(
     .bind(&claims.tenant_id)
     .fetch_one(pool)
     .await
-    .unwrap_or_else(|e| {
-        warn!(tenant_id = %claims.tenant_id, error = %e, "Failed to query tokens from last 5 minutes");
-        0
-    });
+    .map_err(map_metrics_db_error)?;
 
     let tokens_per_second = (tokens_last_5min as f64) / 300.0;
 
@@ -144,12 +161,10 @@ pub async fn get_inference_metrics_handler(
     .bind(&claims.tenant_id)
     .fetch_all(pool)
     .await
-    .unwrap_or_else(|e| {
-        warn!(tenant_id = %claims.tenant_id, error = %e, "Failed to query latency percentiles from routing_decisions");
-        Vec::new()
-    });
+    .map_err(map_metrics_db_error)?;
 
-    let (latency_p50_ms, latency_p95_ms, latency_p99_ms, latency_mean_ms) = if latencies.is_empty() {
+    let (latency_p50_ms, latency_p95_ms, latency_p99_ms, latency_mean_ms) = if latencies.is_empty()
+    {
         (0, 0, 0, 0.0)
     } else {
         let len = latencies.len();
@@ -171,7 +186,7 @@ pub async fn get_inference_metrics_handler(
         .as_secs();
 
     Ok(Json(InferenceMetricsResponse {
-        schema_version: "1.0".to_string(),
+        schema_version: API_SCHEMA_VERSION.to_string(),
         total_requests: total_requests as u64,
         successful_requests: successful_requests as u64,
         failed_requests: failed_requests as u64,
@@ -218,28 +233,15 @@ pub async fn get_adapter_metrics_handler(
         .db
         .list_adapters_for_tenant(&claims.tenant_id)
         .await
-        .map_err(|e| {
-            (
-                StatusCode::INTERNAL_SERVER_ERROR,
-                Json(
-                    ErrorResponse::new("failed to list adapters")
-                        .with_code("DATABASE_ERROR")
-                        .with_string_details(e.to_string()),
-                ),
-            )
-        })?;
+        .map_err(map_metrics_db_error)?;
 
     // Get total inference count for percentage calculation
-    let total_inferences: i64 = sqlx::query_scalar(
-        "SELECT COUNT(*) FROM routing_decisions WHERE tenant_id = ?",
-    )
-    .bind(&claims.tenant_id)
-    .fetch_one(state.db.pool())
-    .await
-    .unwrap_or_else(|e| {
-        warn!(tenant_id = %claims.tenant_id, error = %e, "Failed to query total inferences for adapter metrics");
-        0
-    });
+    let total_inferences: i64 =
+        sqlx::query_scalar("SELECT COUNT(*) FROM routing_decisions WHERE tenant_id = ?")
+            .bind(&claims.tenant_id)
+            .fetch_one(state.db.pool())
+            .await
+            .map_err(map_metrics_db_error)?;
 
     let mut adapter_metrics = Vec::new();
 
@@ -254,10 +256,7 @@ pub async fn get_adapter_metrics_handler(
             .db
             .get_adapter_stats(&claims.tenant_id, &adapter_id)
             .await
-            .unwrap_or_else(|e| {
-                warn!(tenant_id = %claims.tenant_id, adapter_id = %adapter_id, error = %e, "Failed to get adapter stats");
-                (0, 0, 0.0)
-            });
+            .map_err(map_metrics_db_error)?;
 
         let selection_percentage = if total_inferences > 0 {
             (selected as f64 / total_inferences as f64) * 100.0

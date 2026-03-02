@@ -3,9 +3,11 @@
 //! Global chat state that persists across page navigation.
 //! Supports both non-streaming and SSE streaming inference.
 
-use crate::api::{api_base_url, report_error_with_toast, ApiClient, ApiError};
+use crate::api::{api_base_url, ApiClient, ApiError};
 use crate::signals::perf_logging_enabled;
-use adapteros_api_types::inference::ContextRequest;
+use adapteros_api_types::inference::{
+    AdapterAttachment, Citation, ContextRequest, DegradedNotice, DocumentLink as ApiDocumentLink,
+};
 use chrono::{DateTime, Utc};
 #[cfg(target_arch = "wasm32")]
 use gloo_timers::callback::Timeout;
@@ -13,6 +15,7 @@ use leptos::prelude::*;
 use send_wrapper::SendWrapper;
 use serde::{Deserialize, Serialize};
 use std::cell::RefCell;
+use std::collections::HashSet;
 use std::rc::Rc;
 use std::sync::Arc;
 use wasm_bindgen::prelude::*;
@@ -39,9 +42,6 @@ const VERIFIED_TEMPERATURE: f32 = 0.0;
 /// Maximum number of sessions to retain in localStorage.
 const MAX_SESSIONS: usize = 20;
 
-/// LocalStorage key for chat context toggles.
-const CONTEXT_TOGGLES_KEY: &str = "adapteros_chat_context_toggles";
-
 /// LocalStorage key for chat sessions.
 const SESSIONS_STORAGE_KEY: &str = "adapteros_chat_sessions";
 
@@ -51,6 +51,9 @@ const DEV_ECHO_NO_WORKER_PREFIX: &str = "[DEV ECHO] No inference worker availabl
 /// LocalStorage key for default pinned adapters (persisted across sessions).
 #[allow(dead_code)]
 const PINNED_ADAPTERS_KEY: &str = "adapteros_pinned_adapters";
+/// LocalStorage key for chat context toggles.
+#[cfg(target_arch = "wasm32")]
+const CONTEXT_TOGGLES_KEY: &str = "adapteros_context_toggles";
 
 /// Threshold at which a "nearing capacity" warning is shown.
 const OVERFLOW_WARNING_THRESHOLD: usize = 80;
@@ -102,9 +105,14 @@ pub struct StreamingInferRequest {
     pub temperature: Option<f32>,
     #[serde(skip_serializing_if = "Option::is_none")]
     pub adapters: Option<Vec<String>>,
+    /// Explicit mode intent from chat UI.
+    pub bit_identical: bool,
     /// Context toggles for additional prompt context (PRD-002 Phase 2)
     #[serde(skip_serializing_if = "Option::is_none")]
     pub context: Option<ContextRequest>,
+    /// Collection ID for scoped RAG retrieval.
+    #[serde(skip_serializing_if = "Option::is_none")]
+    pub collection_id: Option<String>,
     /// Enable reasoning mode: semantic router for mid-stream adapter swaps (prefers CoreML for ANE-accelerated embedder)
     #[serde(skip_serializing_if = "Option::is_none")]
     pub reasoning_mode: Option<bool>,
@@ -133,9 +141,35 @@ enum InferenceEvent {
         completion_tokens: Option<u32>,
         #[serde(default)]
         backend_used: Option<String>,
+        #[serde(default)]
+        citations: Option<Vec<Citation>>,
+        #[serde(default)]
+        document_links: Option<Vec<ApiDocumentLink>>,
+        #[serde(default)]
+        adapters_used: Option<Vec<String>>,
+        #[serde(default)]
+        unavailable_pinned_adapters: Option<Vec<String>>,
+        #[serde(default)]
+        pinned_routing_fallback: Option<String>,
+        #[serde(default)]
+        adapter_attachments: Option<Vec<AdapterAttachment>>,
+        #[serde(default)]
+        degraded_notices: Option<Vec<DegradedNotice>>,
+        #[serde(default)]
+        fallback_triggered: bool,
+        #[serde(default)]
+        fallback_backend: Option<String>,
+        #[serde(default, skip_serializing_if = "Vec::is_empty")]
+        policy_warnings: Vec<ChatPolicyWarning>,
     },
     /// Error occurred
-    Error { message: String },
+    Error {
+        message: String,
+        #[serde(default)]
+        recoverable: Option<bool>,
+        #[serde(default)]
+        code: Option<String>,
+    },
     /// Inference paused for human review
     Paused {
         /// Unique pause ID for resume correlation
@@ -216,7 +250,44 @@ struct ParsedSseEvent {
     completion_tokens: Option<u32>,
     adapter_states: Option<Vec<AdapterStateInfo>>,
     backend_used: Option<String>,
+    citations: Option<Vec<ChatCitation>>,
+    document_links: Option<Vec<ChatDocumentLink>>,
+    adapters_used: Option<Vec<String>>,
+    policy_warnings: Option<Vec<ChatPolicyWarning>>,
+    unavailable_pinned_adapters: Option<Vec<String>>,
+    pinned_routing_fallback: Option<String>,
+    adapter_attachments: Option<Vec<AdapterAttachment>>,
+    degraded_notices: Option<Vec<DegradedNotice>>,
+    fallback_triggered: Option<bool>,
+    fallback_backend: Option<String>,
+    error_message: Option<String>,
+    error_code: Option<String>,
+    error_retryable: Option<bool>,
     pause_info: Option<PauseInfo>,
+}
+
+#[derive(Debug, Clone, Default, Deserialize)]
+struct StreamFinishedPayload {
+    #[serde(default)]
+    citations: Option<Vec<Citation>>,
+    #[serde(default)]
+    document_links: Option<Vec<ApiDocumentLink>>,
+    #[serde(default)]
+    adapters_used: Option<Vec<String>>,
+    #[serde(default)]
+    unavailable_pinned_adapters: Option<Vec<String>>,
+    #[serde(default)]
+    pinned_routing_fallback: Option<String>,
+    #[serde(default)]
+    adapter_attachments: Option<Vec<AdapterAttachment>>,
+    #[serde(default)]
+    degraded_notices: Option<Vec<DegradedNotice>>,
+    #[serde(default)]
+    fallback_triggered: bool,
+    #[serde(default)]
+    fallback_backend: Option<String>,
+    #[serde(default, skip_serializing_if = "Vec::is_empty")]
+    policy_warnings: Vec<ChatPolicyWarning>,
 }
 
 /// Trace info returned from stream_inference
@@ -228,6 +299,16 @@ pub struct StreamTraceInfo {
     pub prompt_tokens: Option<u32>,
     pub completion_tokens: Option<u32>,
     pub backend_used: Option<String>,
+    pub citations: Option<Vec<ChatCitation>>,
+    pub document_links: Option<Vec<ChatDocumentLink>>,
+    pub adapters_used: Vec<String>,
+    pub policy_warnings: Option<Vec<ChatPolicyWarning>>,
+    pub unavailable_pinned_adapters: Option<Vec<String>>,
+    pub pinned_routing_fallback: Option<String>,
+    pub adapter_attachments: Option<Vec<AdapterAttachment>>,
+    pub degraded_notices: Vec<DegradedNotice>,
+    pub fallback_triggered: bool,
+    pub fallback_backend: Option<String>,
 }
 
 /// Streaming status notice for the UI.
@@ -296,6 +377,60 @@ pub struct StreamRecovery {
 // Chat Message Types
 // ============================================================================
 
+/// Lightweight citation metadata stored on chat messages.
+#[derive(Debug, Clone, PartialEq, Serialize, Deserialize)]
+pub struct ChatCitation {
+    pub citation_id: Option<String>,
+    pub file_path: String,
+    pub chunk_id: String,
+    pub offset_start: u64,
+    pub offset_end: u64,
+    pub page_number: Option<u32>,
+    pub relevance_score: Option<f64>,
+    pub rank: Option<u32>,
+}
+
+fn map_api_citations(citations: Vec<Citation>) -> Vec<ChatCitation> {
+    citations
+        .into_iter()
+        .map(|citation| ChatCitation {
+            citation_id: citation.citation_id,
+            file_path: citation.file_path,
+            chunk_id: citation.chunk_id,
+            offset_start: citation.offset_start,
+            offset_end: citation.offset_end,
+            page_number: citation.page_number,
+            relevance_score: citation.relevance_score,
+            rank: citation.rank,
+        })
+        .collect()
+}
+
+/// Lightweight document-link metadata stored on chat messages.
+#[derive(Debug, Clone, PartialEq, Serialize, Deserialize)]
+pub struct ChatDocumentLink {
+    pub document_id: String,
+    pub document_name: String,
+    pub download_url: String,
+    pub adapter_id: Option<String>,
+    pub dataset_version_id: Option<String>,
+    pub source_file: Option<String>,
+}
+
+fn map_api_document_links(document_links: Vec<ApiDocumentLink>) -> Vec<ChatDocumentLink> {
+    document_links
+        .into_iter()
+        .map(|link| ChatDocumentLink {
+            document_id: link.document_id,
+            document_name: link.document_name,
+            download_url: link.download_url,
+            adapter_id: link.adapter_id,
+            dataset_version_id: link.dataset_version_id,
+            source_file: link.source_file,
+        })
+        .collect()
+}
+
 /// Message delivery status for queue UX
 #[derive(Debug, Clone, Copy, PartialEq, Eq, Default)]
 pub enum MessageStatus {
@@ -322,6 +457,38 @@ pub enum PendingPhase {
     Informative,
     /// > 3× typical wait: shows time estimate
     Estimated,
+}
+
+/// Replay proof status for a chat message (Feature 1: "Why did you say that?").
+#[derive(Debug, Clone, PartialEq)]
+pub enum ChatReplayStatus {
+    /// Replay is available at the given fidelity.
+    Available {
+        /// "exact", "approximate", or "degraded".
+        mode: String,
+    },
+    /// Replay has been executed; result is ready for display.
+    Completed {
+        /// "exact", "semantic", or "divergent".
+        match_status: String,
+        /// Replay execution ID for linking to full results.
+        replay_id: String,
+    },
+    /// Replay is currently in progress.
+    Loading,
+    /// Replay is not available for this inference.
+    Unavailable { reason: String },
+}
+
+/// Lightweight policy warning for UI display (Feature 5).
+#[derive(Debug, Clone, PartialEq, Serialize, Deserialize)]
+pub struct ChatPolicyWarning {
+    /// Policy name (e.g., "Evidence", "Egress").
+    pub policy_name: String,
+    /// Human-readable description.
+    pub message: String,
+    /// "info" or "advisory".
+    pub severity: String,
 }
 
 /// A single chat message with optional trace information
@@ -357,6 +524,35 @@ pub struct ChatMessage {
     pub completion_tokens: Option<u32>,
     /// Backend used for inference (e.g., "coreml", "mlx")
     pub backend_used: Option<String>,
+    /// Citations returned for this assistant message (memory-only).
+    pub citations: Option<Vec<ChatCitation>>,
+    /// Clickable source document links for this assistant message (memory-only).
+    pub document_links: Option<Vec<ChatDocumentLink>>,
+    /// Lightweight persisted marker that citations existed.
+    pub has_citations: bool,
+    /// Adapter IDs that were active during this inference
+    pub adapters_used: Option<Vec<String>>,
+    /// Pinned adapters that were unavailable during this inference.
+    pub unavailable_pinned_adapters: Option<Vec<String>>,
+    /// Routing fallback mode used when pinned adapters were unavailable.
+    pub pinned_routing_fallback: Option<String>,
+    /// Whether worker fallback occurred and may have changed semantics.
+    pub fallback_triggered: bool,
+    /// Backend selected after fallback when different from requested.
+    pub fallback_backend: Option<String>,
+    /// Adapter attachment details (reason + exact version metadata).
+    pub adapter_attachments: Vec<AdapterAttachment>,
+    /// Degraded/failure notices for trust detail rendering.
+    pub degraded_notices: Vec<DegradedNotice>,
+
+    // ---- Groundwork fields for upcoming features ----
+    /// Replay proof status for "Why did you say that?" button (Feature 1).
+    /// None = not yet checked, Some = replay state.
+    pub replay_status: Option<ChatReplayStatus>,
+
+    /// Policy warnings surfaced on this response (Feature 5).
+    /// Non-blocking advisory warnings from the policy engine.
+    pub policy_warnings: Vec<ChatPolicyWarning>,
 }
 
 impl ChatMessage {
@@ -377,6 +573,18 @@ impl ChatMessage {
             prompt_tokens: None,
             completion_tokens: None,
             backend_used: None,
+            citations: None,
+            document_links: None,
+            has_citations: false,
+            adapters_used: None,
+            unavailable_pinned_adapters: None,
+            pinned_routing_fallback: None,
+            fallback_triggered: false,
+            fallback_backend: None,
+            adapter_attachments: Vec::new(),
+            degraded_notices: Vec::new(),
+            replay_status: None,
+            policy_warnings: Vec::new(),
         }
     }
 
@@ -398,6 +606,18 @@ impl ChatMessage {
             prompt_tokens: None,
             completion_tokens: None,
             backend_used: None,
+            citations: None,
+            document_links: None,
+            has_citations: false,
+            adapters_used: None,
+            unavailable_pinned_adapters: None,
+            pinned_routing_fallback: None,
+            fallback_triggered: false,
+            fallback_backend: None,
+            adapter_attachments: Vec::new(),
+            degraded_notices: Vec::new(),
+            replay_status: None,
+            policy_warnings: Vec::new(),
         }
     }
 
@@ -418,6 +638,18 @@ impl ChatMessage {
             prompt_tokens: None,
             completion_tokens: None,
             backend_used: None,
+            citations: None,
+            document_links: None,
+            has_citations: false,
+            adapters_used: None,
+            unavailable_pinned_adapters: None,
+            pinned_routing_fallback: None,
+            fallback_triggered: false,
+            fallback_backend: None,
+            adapter_attachments: Vec::new(),
+            degraded_notices: Vec::new(),
+            replay_status: None,
+            policy_warnings: Vec::new(),
         }
     }
 
@@ -438,6 +670,18 @@ impl ChatMessage {
             prompt_tokens: None,
             completion_tokens: None,
             backend_used: None,
+            citations: None,
+            document_links: None,
+            has_citations: false,
+            adapters_used: None,
+            unavailable_pinned_adapters: None,
+            pinned_routing_fallback: None,
+            fallback_triggered: false,
+            fallback_backend: None,
+            adapter_attachments: Vec::new(),
+            degraded_notices: Vec::new(),
+            replay_status: None,
+            policy_warnings: Vec::new(),
         }
     }
 
@@ -484,7 +728,7 @@ impl ChatTarget {
 }
 
 /// Context toggles for additional prompt metadata
-#[derive(Debug, Clone, Default, Serialize, Deserialize)]
+#[derive(Debug, Clone, Serialize, Deserialize)]
 pub struct ContextToggles {
     /// Include current page selection (adapter/job/worker)
     pub current_page: bool,
@@ -497,7 +741,19 @@ pub struct ContextToggles {
     pub reasoning_mode: bool,
 }
 
+impl Default for ContextToggles {
+    fn default() -> Self {
+        Self {
+            current_page: true,
+            recent_logs: false,
+            system_snapshot: false,
+            reasoning_mode: false,
+        }
+    }
+}
+
 /// Load context toggles from localStorage, falling back to defaults.
+#[cfg(target_arch = "wasm32")]
 fn load_context_toggles() -> ContextToggles {
     let Some(window) = web_sys::window() else {
         return ContextToggles::default();
@@ -512,7 +768,13 @@ fn load_context_toggles() -> ContextToggles {
     serde_json::from_str(&data).unwrap_or_default()
 }
 
+#[cfg(not(target_arch = "wasm32"))]
+fn load_context_toggles() -> ContextToggles {
+    ContextToggles::default()
+}
+
 /// Save context toggles to localStorage.
+#[cfg(target_arch = "wasm32")]
 fn save_context_toggles(toggles: &ContextToggles) {
     let Some(window) = web_sys::window() else {
         return;
@@ -525,6 +787,9 @@ fn save_context_toggles(toggles: &ContextToggles) {
         let _ = storage.set_item(CONTEXT_TOGGLES_KEY, &json);
     }
 }
+
+#[cfg(not(target_arch = "wasm32"))]
+fn save_context_toggles(_toggles: &ContextToggles) {}
 
 /// Save default pinned adapters to localStorage.
 #[cfg(target_arch = "wasm32")]
@@ -620,6 +885,16 @@ pub struct ChatState {
     pub session_pinned_adapters: Vec<String>,
     /// Session-local mode toggle (Fast/Verified)
     pub verified_mode: bool,
+    /// Last bit-identical run was blocked by strict adapter pin validation.
+    pub bit_identical_mode_blocked: bool,
+    /// Last run indicated adapter fallback/degrade semantics.
+    pub bit_identical_mode_degraded: bool,
+    /// Session-scoped active collection for RAG retrieval.
+    pub active_collection_id: Option<String>,
+    /// Persistent user knowledge collection.
+    pub knowledge_collection_id: Option<String>,
+    /// Adapter IDs from the latest assistant response.
+    pub last_response_adapter_set: HashSet<String>,
     /// Streaming status notice for the UI
     pub stream_notice: Option<StreamNotice>,
     /// If the current stream is paused awaiting human review, store correlation info
@@ -818,6 +1093,11 @@ impl Default for ChatState {
             pinned_adapters: load_pinned_adapters(),
             session_pinned_adapters: Vec::new(),
             verified_mode: false,
+            bit_identical_mode_blocked: false,
+            bit_identical_mode_degraded: false,
+            active_collection_id: None,
+            knowledge_collection_id: None,
+            last_response_adapter_set: HashSet::new(),
             stream_notice: None,
             paused_inference: None,
             stream_recovery: None,
@@ -956,6 +1236,16 @@ impl ChatAction {
             .await
     }
 
+    /// Get a specific backend session by ID for deep-link confirmation.
+    pub async fn get_backend_session(
+        &self,
+        session_id: &str,
+    ) -> Result<BackendChatSession, ApiError> {
+        self.client
+            .get::<BackendChatSession>(&format!("/v1/chat/sessions/{}", session_id))
+            .await
+    }
+
     /// Fetch messages for a specific backend session (for backfilling stubs).
     pub async fn fetch_session_messages(
         &self,
@@ -1054,6 +1344,7 @@ impl ChatAction {
     pub fn set_session_id(&self, session_id: Option<String>) {
         let _ = self.state.try_update(|s| {
             s.session_id = session_id;
+            s.last_response_adapter_set.clear();
         });
     }
 
@@ -1144,6 +1435,8 @@ impl ChatAction {
             s.error = None;
             s.stream_notice = Some(notice);
             s.paused_inference = None;
+            s.bit_identical_mode_blocked = false;
+            s.bit_identical_mode_degraded = false;
         });
 
         // Build the prompt with context and history
@@ -1196,6 +1489,7 @@ impl ChatAction {
             reasoning_mode,
             session_id,
             verified_mode,
+            selected_collection_id,
         ) = {
             let current = self.state.get_untracked();
             let context = ContextRequest {
@@ -1231,6 +1525,10 @@ impl ChatAction {
                 current.context.reasoning_mode,
                 current.session_id.clone(),
                 current.verified_mode,
+                current
+                    .active_collection_id
+                    .clone()
+                    .or(current.knowledge_collection_id.clone()),
             )
         };
 
@@ -1286,7 +1584,9 @@ impl ChatAction {
                 max_tokens,
                 temperature,
                 adapters,
+                bit_identical: verified_mode,
                 context: Some(context_request),
+                collection_id: selected_collection_id,
                 reasoning_mode: reasoning_mode_opt,
                 backend: backend_opt,
             };
@@ -1311,12 +1611,100 @@ impl ChatAction {
                                     last.prompt_tokens = trace_info.prompt_tokens;
                                     last.completion_tokens = trace_info.completion_tokens;
                                     last.backend_used = trace_info.backend_used;
+                                    let citations =
+                                        trace_info.citations.clone().unwrap_or_default();
+                                    last.has_citations = !citations.is_empty();
+                                    last.citations = (!citations.is_empty()).then_some(citations);
+                                    let document_links =
+                                        trace_info.document_links.clone().unwrap_or_default();
+                                    last.document_links =
+                                        (!document_links.is_empty()).then_some(document_links);
+                                    last.adapters_used = if trace_info.adapters_used.is_empty() {
+                                        None
+                                    } else {
+                                        Some(trace_info.adapters_used.clone())
+                                    };
+                                    last.unavailable_pinned_adapters =
+                                        trace_info.unavailable_pinned_adapters.clone();
+                                    last.pinned_routing_fallback =
+                                        trace_info.pinned_routing_fallback.clone();
+                                    last.fallback_triggered = trace_info.fallback_triggered;
+                                    last.fallback_backend = trace_info.fallback_backend.clone();
+                                    last.adapter_attachments =
+                                        trace_info.adapter_attachments.clone().unwrap_or_default();
+                                    last.degraded_notices = trace_info.degraded_notices.clone();
+                                    last.policy_warnings =
+                                        trace_info.policy_warnings.clone().unwrap_or_default();
                                 }
                             }
+                        }
+                        if s.verified_mode
+                            && (trace_info.pinned_routing_fallback.is_some()
+                                || trace_info.fallback_triggered)
+                        {
+                            s.bit_identical_mode_degraded = true;
                         }
                         if remove_empty_assistant {
                             s.messages.pop();
                         }
+                        let current_set: HashSet<String> =
+                            trace_info.adapters_used.iter().cloned().collect();
+                        if !remove_empty_assistant
+                            && !current_set.is_empty()
+                            && !s.last_response_adapter_set.is_empty()
+                            && current_set != s.last_response_adapter_set
+                        {
+                            let mut added: Vec<String> = current_set
+                                .difference(&s.last_response_adapter_set)
+                                .cloned()
+                                .collect();
+                            let mut removed: Vec<String> = s
+                                .last_response_adapter_set
+                                .difference(&current_set)
+                                .cloned()
+                                .collect();
+                            added.sort();
+                            removed.sort();
+                            if !added.is_empty() || !removed.is_empty() {
+                                let mut parts = Vec::new();
+                                if !added.is_empty() {
+                                    parts.push(format!("+{}", added.join(", +")));
+                                }
+                                if !removed.is_empty() {
+                                    parts.push(format!("-{}", removed.join(", -")));
+                                }
+                                s.messages.push(ChatMessage {
+                                    id: readable_id("msg", "adapter-change"),
+                                    role: "system".to_string(),
+                                    content: format!("Adapters changed: {}", parts.join(" ")),
+                                    timestamp: crate::utils::now_utc(),
+                                    is_streaming: false,
+                                    status: MessageStatus::Complete,
+                                    queued_at: None,
+                                    pending_phase: PendingPhase::Calm,
+                                    pending_reason: None,
+                                    trace_id: None,
+                                    latency_ms: None,
+                                    token_count: None,
+                                    prompt_tokens: None,
+                                    completion_tokens: None,
+                                    backend_used: None,
+                                    citations: None,
+                                    document_links: None,
+                                    has_citations: false,
+                                    adapters_used: None,
+                                    unavailable_pinned_adapters: None,
+                                    pinned_routing_fallback: None,
+                                    fallback_triggered: false,
+                                    fallback_backend: None,
+                                    adapter_attachments: Vec::new(),
+                                    degraded_notices: Vec::new(),
+                                    replay_status: None,
+                                    policy_warnings: Vec::new(),
+                                });
+                            }
+                        }
+                        s.last_response_adapter_set = current_set;
                         let keep_notice = s
                             .stream_notice
                             .as_ref()
@@ -1359,6 +1747,12 @@ impl ChatAction {
                         });
                     } else {
                         let notice = stream_notice_from_failure(&failure);
+                        let degraded_notice = degraded_notice_from_failure(&failure);
+                        let strict_pin_failure = matches!(
+                            failure.code.as_deref(),
+                            Some("BIT_IDENTICAL_ADAPTER_PIN_REQUIRED")
+                                | Some("BIT_IDENTICAL_ADAPTER_PIN_INVALID")
+                        );
                         // Remove empty assistant message on error; keep partial otherwise
                         // Use try_update to avoid panic if signal is disposed during navigation
                         let _ = state.try_update(|s| {
@@ -1378,8 +1772,25 @@ impl ChatAction {
                             } else if let Some(id) = partial_id {
                                 mark_partial_assistant(s, &id);
                             }
+                            if let Some(degraded) = degraded_notice.clone() {
+                                if let Some(last) = s.messages.last_mut() {
+                                    if last.role == "assistant" {
+                                        last.degraded_notices.push(degraded);
+                                    }
+                                }
+                            }
                             s.error = Some(failure.message.clone());
-                            s.stream_notice = Some(notice);
+                            s.stream_notice = if strict_pin_failure {
+                                Some(StreamNotice::error(
+                                    "Run blocked: adapter version not pinned.",
+                                    false,
+                                ))
+                            } else {
+                                Some(notice)
+                            };
+                            if strict_pin_failure {
+                                s.bit_identical_mode_blocked = true;
+                            }
                         });
                     }
                 }
@@ -1478,6 +1889,8 @@ impl ChatAction {
     pub fn set_verified_mode(&self, verified: bool) {
         let _ = self.state.try_update(|s| {
             s.verified_mode = verified;
+            s.bit_identical_mode_blocked = false;
+            s.bit_identical_mode_degraded = false;
         });
         let state = self.state.get_untracked();
         if let Some(id) = state.session_id.clone() {
@@ -1520,6 +1933,20 @@ impl ChatAction {
         });
     }
 
+    /// Set or clear active collection for session-scoped RAG.
+    pub fn set_active_collection_id(&self, collection_id: Option<String>) {
+        let _ = self.state.try_update(|s| {
+            s.active_collection_id = collection_id;
+        });
+    }
+
+    /// Set or clear persistent knowledge collection.
+    pub fn set_knowledge_collection_id(&self, collection_id: Option<String>) {
+        let _ = self.state.try_update(|s| {
+            s.knowledge_collection_id = collection_id;
+        });
+    }
+
     /// Clear all messages
     pub fn clear_messages(&self) {
         let _ = self.state.try_update(|s| {
@@ -1529,6 +1956,8 @@ impl ChatAction {
             s.active_adapters.clear();
             s.suggested_adapters.clear();
             s.selected_adapter = None;
+            s.active_collection_id = None;
+            s.last_response_adapter_set.clear();
             // Keep persistent pins; they represent user intent across sessions.
             // Clear session-only pins since they're tied to the current session.
             s.session_pinned_adapters.clear();
@@ -1541,6 +1970,13 @@ impl ChatAction {
             s.adapter_state_confirmed = false;
             s.total_messages_evicted = 0;
             s.overflow_dismissed = false;
+        });
+    }
+
+    /// Append an arbitrary message (e.g. system notice) to the conversation.
+    pub fn append_message(&self, message: ChatMessage) {
+        let _ = self.state.try_update(|s| {
+            s.messages.push(message);
         });
     }
 
@@ -1645,6 +2081,19 @@ impl ChatAction {
                         prompt_tokens: m.prompt_tokens,
                         completion_tokens: m.completion_tokens,
                         backend_used: m.backend_used,
+                        citations: None,
+                        document_links: None,
+                        has_citations: m.has_citations,
+                        adapters_used: (!m.adapters_used.is_empty()).then_some(m.adapters_used),
+                        unavailable_pinned_adapters: (!m.unavailable_pinned_adapters.is_empty())
+                            .then_some(m.unavailable_pinned_adapters),
+                        pinned_routing_fallback: m.pinned_routing_fallback,
+                        fallback_triggered: m.fallback_triggered,
+                        fallback_backend: m.fallback_backend,
+                        adapter_attachments: m.adapter_attachments,
+                        degraded_notices: m.degraded_notices,
+                        replay_status: None,
+                        policy_warnings: m.policy_warnings,
                     }
                 })
                 .collect();
@@ -2085,6 +2534,51 @@ fn parse_sse_envelope(event_data: &str) -> Option<SseEnvelope> {
     })
 }
 
+/// Decode streamed bytes into UTF-8 text while preserving split multibyte
+/// sequences across chunk boundaries.
+fn decode_utf8_stream_chunk(bytes: &[u8], pending: &mut Vec<u8>) -> String {
+    pending.extend_from_slice(bytes);
+    let mut decoded = String::new();
+
+    loop {
+        match std::str::from_utf8(pending.as_slice()) {
+            Ok(valid) => {
+                decoded.push_str(valid);
+                pending.clear();
+                break;
+            }
+            Err(err) => {
+                let valid_up_to = err.valid_up_to();
+                if valid_up_to > 0 {
+                    // safe: valid_up_to comes from UTF-8 parser boundary
+                    if let Ok(valid) = std::str::from_utf8(&pending[..valid_up_to]) {
+                        decoded.push_str(valid);
+                    }
+                }
+
+                match err.error_len() {
+                    Some(error_len) => {
+                        let invalid_end = (valid_up_to + error_len).min(pending.len());
+                        decoded
+                            .push_str(&String::from_utf8_lossy(&pending[valid_up_to..invalid_end]));
+                        pending.drain(..invalid_end);
+                        if pending.is_empty() {
+                            break;
+                        }
+                    }
+                    None => {
+                        // Incomplete multibyte sequence at chunk end. Keep tail buffered.
+                        pending.drain(..valid_up_to);
+                        break;
+                    }
+                }
+            }
+        }
+    }
+
+    decoded
+}
+
 /// Parse an SSE payload and extract token content plus trace info.
 fn parse_sse_payload_with_info(data: &str) -> ParsedSseEvent {
     let mut result = ParsedSseEvent::default();
@@ -2107,6 +2601,16 @@ fn parse_sse_payload_with_info(data: &str) -> ParsedSseEvent {
                 prompt_tokens,
                 completion_tokens,
                 backend_used,
+                citations,
+                document_links,
+                adapters_used,
+                unavailable_pinned_adapters,
+                pinned_routing_fallback,
+                adapter_attachments,
+                degraded_notices,
+                fallback_triggered,
+                fallback_backend,
+                policy_warnings,
             } => {
                 result.trace_id = trace_id;
                 result.latency_ms = Some(latency_ms);
@@ -2114,18 +2618,25 @@ fn parse_sse_payload_with_info(data: &str) -> ParsedSseEvent {
                 result.prompt_tokens = prompt_tokens;
                 result.completion_tokens = completion_tokens;
                 result.backend_used = backend_used;
+                result.citations = citations.map(map_api_citations);
+                result.document_links = document_links.map(map_api_document_links);
+                result.adapters_used = adapters_used;
+                result.unavailable_pinned_adapters = unavailable_pinned_adapters;
+                result.pinned_routing_fallback = pinned_routing_fallback;
+                result.adapter_attachments = adapter_attachments;
+                result.degraded_notices = degraded_notices;
+                result.fallback_triggered = Some(fallback_triggered);
+                result.fallback_backend = fallback_backend;
+                result.policy_warnings = (!policy_warnings.is_empty()).then_some(policy_warnings);
             }
-            InferenceEvent::Error { message } => {
-                web_sys::console::error_1(&JsValue::from_str(&format!(
-                    "Stream error: {}",
-                    message
-                )));
-                report_error_with_toast(
-                    &ApiError::Server(message),
-                    "Inference stream error",
-                    None,
-                    true,
-                );
+            InferenceEvent::Error {
+                message,
+                recoverable,
+                code,
+            } => {
+                result.error_message = Some(message);
+                result.error_retryable = recoverable;
+                result.error_code = code;
             }
             InferenceEvent::Paused {
                 pause_id,
@@ -2189,7 +2700,7 @@ fn stream_failure_fallback_label(failure: &StreamFailure) -> String {
             code: code.to_string(),
             failure_code: None,
             hint: None,
-            details: None,
+            details: Box::new(None),
             request_id: None,
             error_id: None,
             fingerprint: None,
@@ -2234,13 +2745,20 @@ fn stream_notice_from_failure(failure: &StreamFailure) -> StreamNotice {
             | "WORKER_ID_UNAVAILABLE"
     ) {
         // Worker-specific issue - retry may route to different worker
-        "No workers available".to_string()
+        "Worker unavailable. Response was not generated.".to_string()
     } else if matches!(code, "SERVICE_UNAVAILABLE") {
         if message_lower.contains("worker") {
-            "No workers available".to_string()
+            "Worker unavailable. Response was not generated.".to_string()
         } else {
             "Service temporarily unavailable".to_string()
         }
+    } else if matches!(code, "ADAPTER_NOT_LOADABLE" | "ADAPTER_NOT_FOUND") {
+        "Adapter attach failed. Response was not generated.".to_string()
+    } else if matches!(
+        code,
+        "BIT_IDENTICAL_ADAPTER_PIN_REQUIRED" | "BIT_IDENTICAL_ADAPTER_PIN_INVALID"
+    ) {
+        "Bit-Identical requires pinned adapter versions".to_string()
     } else if matches!(
         code,
         "DUPLICATE_REQUEST" | "IDEMPOTENCY_CONFLICT" | "IDEMPOTENCY_TIMEOUT"
@@ -2267,6 +2785,36 @@ fn stream_notice_from_failure(failure: &StreamFailure) -> StreamNotice {
         StreamNotice::warning(label, true)
     } else {
         StreamNotice::error(label, false)
+    }
+}
+
+fn degraded_notice_from_failure(failure: &StreamFailure) -> Option<DegradedNotice> {
+    let code = failure.code.as_deref().unwrap_or("");
+    match code {
+        "WORKER_DEGRADED"
+        | "WORKER_NOT_AVAILABLE"
+        | "NO_COMPATIBLE_WORKER"
+        | "WORKER_ID_UNAVAILABLE" => Some(DegradedNotice {
+            kind: adapteros_api_types::inference::DegradedNoticeKind::WorkerUnavailable,
+            level: adapteros_api_types::inference::DegradedNoticeLevel::Critical,
+            message: "Worker unavailable. Response was not generated.".to_string(),
+            meaning_changed: true,
+        }),
+        "ADAPTER_NOT_LOADABLE" | "ADAPTER_NOT_FOUND" => Some(DegradedNotice {
+            kind: adapteros_api_types::inference::DegradedNoticeKind::AttachFailure,
+            level: adapteros_api_types::inference::DegradedNoticeLevel::Critical,
+            message: "Adapter attach failed. Response was not generated.".to_string(),
+            meaning_changed: true,
+        }),
+        "BIT_IDENTICAL_ADAPTER_PIN_REQUIRED" | "BIT_IDENTICAL_ADAPTER_PIN_INVALID" => {
+            Some(DegradedNotice {
+                kind: adapteros_api_types::inference::DegradedNoticeKind::BlockedPins,
+                level: adapteros_api_types::inference::DegradedNoticeLevel::Warning,
+                message: "Run blocked: adapter version not pinned.".to_string(),
+                meaning_changed: true,
+            })
+        }
+        _ => None,
     }
 }
 
@@ -2388,6 +2936,7 @@ async fn stream_inference_to_state(
         .map_err(|_| StreamFailure::new("Failed to get reader", None, false))?;
 
     let mut buffer = String::new();
+    let mut pending_utf8_bytes = Vec::new();
     let mut trace_info = StreamTraceInfo::default();
     let mut latency_timer = ProgressiveLatencyTimer::start(state);
 
@@ -2433,7 +2982,7 @@ async fn stream_inference_to_state(
 
         let array = js_sys::Uint8Array::new(&value);
         let bytes: Vec<u8> = array.to_vec();
-        let chunk = String::from_utf8_lossy(&bytes).to_string();
+        let chunk = decode_utf8_stream_chunk(&bytes, &mut pending_utf8_bytes);
 
         buffer.push_str(&chunk);
 
@@ -2475,6 +3024,22 @@ async fn stream_inference_to_state(
             }
 
             if event_type == "stream_finished" {
+                if let Ok(payload) = serde_json::from_str::<StreamFinishedPayload>(&data) {
+                    trace_info.citations = payload.citations.map(map_api_citations);
+                    trace_info.document_links = payload.document_links.map(map_api_document_links);
+                    if let Some(adapters_used) = payload.adapters_used {
+                        trace_info.adapters_used = adapters_used;
+                    }
+                    trace_info.unavailable_pinned_adapters = payload.unavailable_pinned_adapters;
+                    trace_info.pinned_routing_fallback = payload.pinned_routing_fallback;
+                    trace_info.adapter_attachments = payload.adapter_attachments;
+                    trace_info.degraded_notices = payload.degraded_notices.unwrap_or_default();
+                    trace_info.fallback_triggered = payload.fallback_triggered;
+                    trace_info.fallback_backend = payload.fallback_backend;
+                    if !payload.policy_warnings.is_empty() {
+                        trace_info.policy_warnings = Some(payload.policy_warnings);
+                    }
+                }
                 continue;
             }
 
@@ -2503,6 +3068,13 @@ async fn stream_inference_to_state(
             }
 
             let parsed = parse_sse_payload_with_info(&data);
+            if let Some(message) = parsed.error_message {
+                return Err(StreamFailure::new(
+                    message,
+                    parsed.error_code,
+                    parsed.error_retryable.unwrap_or(false),
+                ));
+            }
 
             if let Some(token_content) = parsed.token {
                 if is_dev_worker_unavailable_echo(&token_content) {
@@ -2546,9 +3118,7 @@ async fn stream_inference_to_state(
                 if is_first_token {
                     let elapsed = stream_started_at.elapsed();
                     if perf_enabled {
-                        web_sys::console::log_1(
-                            &format!("[perf] stream first token: {}ms", elapsed.as_millis()).into(),
-                        );
+                        crate::debug_log!("[perf] stream first token: {}ms", elapsed.as_millis());
                     }
                     first_token_logged = true;
                     // Show brief TTFT badge (only if latency was noticeable)
@@ -2578,6 +3148,36 @@ async fn stream_inference_to_state(
             }
             if parsed.backend_used.is_some() {
                 trace_info.backend_used = parsed.backend_used;
+            }
+            if parsed.citations.is_some() {
+                trace_info.citations = parsed.citations;
+            }
+            if parsed.document_links.is_some() {
+                trace_info.document_links = parsed.document_links;
+            }
+            if let Some(adapters_used) = parsed.adapters_used {
+                trace_info.adapters_used = adapters_used;
+            }
+            if let Some(policy_warnings) = parsed.policy_warnings {
+                trace_info.policy_warnings = Some(policy_warnings);
+            }
+            if parsed.unavailable_pinned_adapters.is_some() {
+                trace_info.unavailable_pinned_adapters = parsed.unavailable_pinned_adapters;
+            }
+            if parsed.pinned_routing_fallback.is_some() {
+                trace_info.pinned_routing_fallback = parsed.pinned_routing_fallback;
+            }
+            if parsed.adapter_attachments.is_some() {
+                trace_info.adapter_attachments = parsed.adapter_attachments;
+            }
+            if let Some(mut notices) = parsed.degraded_notices {
+                trace_info.degraded_notices.append(&mut notices);
+            }
+            if parsed.fallback_triggered.is_some() {
+                trace_info.fallback_triggered = parsed.fallback_triggered.unwrap_or(false);
+            }
+            if parsed.fallback_backend.is_some() {
+                trace_info.fallback_backend = parsed.fallback_backend;
             }
 
             // Update active adapters from adapter state info (merge by adapter_id)
@@ -2611,6 +3211,18 @@ async fn stream_inference_to_state(
                 }
             }
 
+            if trace_info.pinned_routing_fallback.is_some() || trace_info.fallback_triggered {
+                let fallback_message = if trace_info.fallback_triggered {
+                    "Semantic fallback changed execution path."
+                } else {
+                    "Pinned routing was overridden."
+                };
+                let _ = try_update_state(state, |s| {
+                    s.bit_identical_mode_degraded = true;
+                    s.stream_notice = Some(StreamNotice::warning(fallback_message, false));
+                });
+            }
+
             // Handle pause events (human-in-the-loop review)
             if let Some(pause_info) = parsed.pause_info {
                 // Build a descriptive pause message for the UI
@@ -2639,12 +3251,19 @@ async fn stream_inference_to_state(
                 }
                 latency_timer.cancel();
                 // Log pause event for debugging
-                web_sys::console::log_1(&JsValue::from_str(&format!(
+                crate::debug_log!(
                     "[Pause] id={}, inference={}, trigger={}",
-                    pause_info.pause_id, pause_info.inference_id, pause_info.trigger_kind
-                )));
+                    pause_info.pause_id,
+                    pause_info.inference_id,
+                    pause_info.trigger_kind
+                );
             }
         }
+    }
+
+    if !pending_utf8_bytes.is_empty() {
+        buffer.push_str(&String::from_utf8_lossy(&pending_utf8_bytes));
+        pending_utf8_bytes.clear();
     }
 
     latency_timer.cancel();
@@ -2676,6 +3295,18 @@ async fn stream_inference_to_state(
 
     // Explicitly release the reader lock to clean up resources
     reader.release_lock();
+
+    // Snapshot active adapters for per-message attribution
+    if trace_info.adapters_used.is_empty() {
+        if let Some(current_state) = state.try_get_untracked() {
+            trace_info.adapters_used = current_state
+                .active_adapters
+                .iter()
+                .filter(|a| a.is_active)
+                .map(|a| a.adapter_id.clone())
+                .collect();
+        }
+    }
 
     Ok(trace_info)
 }
@@ -2745,6 +3376,33 @@ pub struct StoredMessage {
     /// Backend used for inference (e.g., "coreml", "mlx")
     #[serde(skip_serializing_if = "Option::is_none")]
     pub backend_used: Option<String>,
+    /// Persisted lightweight citation marker. Citation payload stays memory-only.
+    #[serde(default)]
+    pub has_citations: bool,
+    /// Adapter IDs active during inference
+    #[serde(default, skip_serializing_if = "Vec::is_empty")]
+    pub adapters_used: Vec<String>,
+    /// Pinned adapters that were unavailable during this inference.
+    #[serde(default, skip_serializing_if = "Vec::is_empty")]
+    pub unavailable_pinned_adapters: Vec<String>,
+    /// Routing fallback mode used when pinned adapters were unavailable.
+    #[serde(skip_serializing_if = "Option::is_none")]
+    pub pinned_routing_fallback: Option<String>,
+    /// Whether backend fallback occurred and may have changed semantics.
+    #[serde(default)]
+    pub fallback_triggered: bool,
+    /// Backend selected after fallback (if different from requested).
+    #[serde(skip_serializing_if = "Option::is_none")]
+    pub fallback_backend: Option<String>,
+    /// Adapter attachment details (reason + exact version metadata).
+    #[serde(default, skip_serializing_if = "Vec::is_empty")]
+    pub adapter_attachments: Vec<AdapterAttachment>,
+    /// Degraded/failure notices for trust detail rendering.
+    #[serde(default, skip_serializing_if = "Vec::is_empty")]
+    pub degraded_notices: Vec<DegradedNotice>,
+    /// Policy warnings surfaced on this response (Feature 5).
+    #[serde(default, skip_serializing_if = "Vec::is_empty")]
+    pub policy_warnings: Vec<ChatPolicyWarning>,
 }
 
 /// Manager for chat sessions in localStorage
@@ -2890,6 +3548,15 @@ impl ChatSessionsManager {
                 prompt_tokens: None,
                 completion_tokens: None,
                 backend_used: None,
+                has_citations: false,
+                adapters_used: Vec::new(),
+                unavailable_pinned_adapters: Vec::new(),
+                pinned_routing_fallback: None,
+                fallback_triggered: false,
+                fallback_backend: None,
+                adapter_attachments: Vec::new(),
+                degraded_notices: Vec::new(),
+                policy_warnings: Vec::new(),
             })
             .collect();
         // Update title from first user message if still default
@@ -3078,6 +3745,19 @@ impl ChatSessionsManager {
                         prompt_tokens: m.prompt_tokens,
                         completion_tokens: m.completion_tokens,
                         backend_used: m.backend_used.clone(),
+                        has_citations: m.has_citations
+                            || m.citations.as_ref().is_some_and(|c| !c.is_empty()),
+                        adapters_used: m.adapters_used.clone().unwrap_or_default(),
+                        unavailable_pinned_adapters: m
+                            .unavailable_pinned_adapters
+                            .clone()
+                            .unwrap_or_default(),
+                        pinned_routing_fallback: m.pinned_routing_fallback.clone(),
+                        fallback_triggered: m.fallback_triggered,
+                        fallback_backend: m.fallback_backend.clone(),
+                        adapter_attachments: m.adapter_attachments.clone(),
+                        degraded_notices: m.degraded_notices.clone(),
+                        policy_warnings: m.policy_warnings.clone(),
                     }
                 })
                 .collect(),
@@ -3161,7 +3841,9 @@ fn sessions_to_meta_for_archive(
             message_count: s.messages.len(),
             preview: s
                 .messages
-                .last()
+                .iter()
+                .rev()
+                .find(|m| m.role != "system")
                 .map(|m| truncate_string(&m.content, 100))
                 .unwrap_or_default(),
             archived: s.archived,
@@ -3201,7 +3883,9 @@ mod tests {
             max_tokens: None,
             temperature: None,
             adapters: None,
+            bit_identical: false,
             context: None,
+            collection_id: None,
             reasoning_mode: Some(true),
             backend: None,
         };
@@ -3209,6 +3893,25 @@ mod tests {
         let json = serde_json::to_string(&req).expect("serialize");
         assert!(json.contains("\"session_id\":\"session-123\""));
         assert!(json.contains("\"reasoning_mode\":true"));
+        assert!(json.contains("\"bit_identical\":false"));
+    }
+
+    #[test]
+    fn parse_sse_done_event_extracts_policy_warnings() {
+        let payload = r#"{
+            "event":"Done",
+            "total_tokens":12,
+            "latency_ms":34,
+            "policy_warnings":[
+                {"policy_name":"Evidence","message":"Missing citation","severity":"advisory"}
+            ]
+        }"#;
+
+        let parsed = parse_sse_payload_with_info(payload);
+        let warnings = parsed.policy_warnings.expect("policy warnings parsed");
+        assert_eq!(warnings.len(), 1);
+        assert_eq!(warnings[0].policy_name, "Evidence");
+        assert_eq!(warnings[0].severity, "advisory");
     }
 
     #[test]
@@ -3278,6 +3981,15 @@ mod tests {
                     prompt_tokens: None,
                     completion_tokens: None,
                     backend_used: None,
+                    has_citations: false,
+                    adapters_used: Vec::new(),
+                    unavailable_pinned_adapters: Vec::new(),
+                    pinned_routing_fallback: None,
+                    fallback_triggered: false,
+                    fallback_backend: None,
+                    adapter_attachments: Vec::new(),
+                    degraded_notices: Vec::new(),
+                    policy_warnings: Vec::new(),
                 }],
                 archived: false,
                 verified_mode: false,
@@ -3352,6 +4064,15 @@ mod tests {
                 prompt_tokens: None,
                 completion_tokens: None,
                 backend_used: None,
+                has_citations: false,
+                adapters_used: Vec::new(),
+                unavailable_pinned_adapters: Vec::new(),
+                pinned_routing_fallback: None,
+                fallback_triggered: false,
+                fallback_backend: None,
+                adapter_attachments: Vec::new(),
+                degraded_notices: Vec::new(),
+                policy_warnings: Vec::new(),
             }],
             archived: false,
             verified_mode: false,
@@ -3374,6 +4095,15 @@ mod tests {
                 prompt_tokens: None,
                 completion_tokens: None,
                 backend_used: None,
+                has_citations: false,
+                adapters_used: Vec::new(),
+                unavailable_pinned_adapters: Vec::new(),
+                pinned_routing_fallback: None,
+                fallback_triggered: false,
+                fallback_backend: None,
+                adapter_attachments: Vec::new(),
+                degraded_notices: Vec::new(),
+                policy_warnings: Vec::new(),
             }],
             archived: true,
             verified_mode: false,
@@ -3396,6 +4126,15 @@ mod tests {
                 prompt_tokens: None,
                 completion_tokens: None,
                 backend_used: None,
+                has_citations: false,
+                adapters_used: Vec::new(),
+                unavailable_pinned_adapters: Vec::new(),
+                pinned_routing_fallback: None,
+                fallback_triggered: false,
+                fallback_backend: None,
+                adapter_attachments: Vec::new(),
+                degraded_notices: Vec::new(),
+                policy_warnings: Vec::new(),
             }],
             archived: false,
             verified_mode: false,
@@ -3481,6 +4220,29 @@ mod tests {
             assert_eq!(notice.tone, StreamNoticeTone::Warning);
             assert!(notice.retryable);
         }
+
+        #[test]
+        fn degraded_notice_marks_worker_unavailable_as_critical_failure() {
+            let failure = StreamFailure::new(
+                "worker down",
+                Some("WORKER_NOT_AVAILABLE".to_string()),
+                true,
+            );
+            let notice = degraded_notice_from_failure(&failure).expect("notice should exist");
+            assert_eq!(
+                notice.kind,
+                adapteros_api_types::inference::DegradedNoticeKind::WorkerUnavailable
+            );
+            assert_eq!(
+                notice.level,
+                adapteros_api_types::inference::DegradedNoticeLevel::Critical
+            );
+            assert!(notice.meaning_changed);
+            assert_eq!(
+                notice.message,
+                "Worker unavailable. Response was not generated."
+            );
+        }
     }
 
     /// Tests for disposed signal safety in async contexts
@@ -3512,6 +4274,11 @@ mod tests {
                 pinned_adapters: Vec::new(),
                 session_pinned_adapters: Vec::new(),
                 verified_mode: false,
+                bit_identical_mode_blocked: false,
+                bit_identical_mode_degraded: false,
+                active_collection_id: None,
+                knowledge_collection_id: None,
+                last_response_adapter_set: HashSet::new(),
                 stream_notice: None,
                 paused_inference: None,
                 stream_recovery: None,
@@ -3543,6 +4310,18 @@ mod tests {
                 prompt_tokens: None,
                 completion_tokens: None,
                 backend_used: None,
+                citations: None,
+                document_links: None,
+                has_citations: false,
+                adapters_used: None,
+                unavailable_pinned_adapters: None,
+                pinned_routing_fallback: None,
+                fallback_triggered: false,
+                fallback_backend: None,
+                adapter_attachments: Vec::new(),
+                degraded_notices: Vec::new(),
+                replay_status: None,
+                policy_warnings: Vec::new(),
             }
         }
 
@@ -3564,6 +4343,18 @@ mod tests {
                 prompt_tokens: None,
                 completion_tokens: None,
                 backend_used: None,
+                citations: None,
+                document_links: None,
+                has_citations: false,
+                adapters_used: None,
+                unavailable_pinned_adapters: None,
+                pinned_routing_fallback: None,
+                fallback_triggered: false,
+                fallback_backend: None,
+                adapter_attachments: Vec::new(),
+                degraded_notices: Vec::new(),
+                replay_status: None,
+                policy_warnings: Vec::new(),
             }
         }
 
@@ -3717,6 +4508,18 @@ mod tests {
                     prompt_tokens: None,
                     completion_tokens: None,
                     backend_used: None,
+                    citations: None,
+                    document_links: None,
+                    has_citations: false,
+                    adapters_used: None,
+                    unavailable_pinned_adapters: None,
+                    pinned_routing_fallback: None,
+                    fallback_triggered: false,
+                    fallback_backend: None,
+                    adapter_attachments: Vec::new(),
+                    degraded_notices: Vec::new(),
+                    replay_status: None,
+                    policy_warnings: Vec::new(),
                 })
                 .collect()
         }
@@ -3739,6 +4542,11 @@ mod tests {
                 pinned_adapters: Vec::new(),
                 session_pinned_adapters: Vec::new(),
                 verified_mode: false,
+                bit_identical_mode_blocked: false,
+                bit_identical_mode_degraded: false,
+                active_collection_id: None,
+                knowledge_collection_id: None,
+                last_response_adapter_set: HashSet::new(),
                 stream_notice: None,
                 paused_inference: None,
                 stream_recovery: None,
@@ -3815,13 +4623,13 @@ mod tests {
 
         #[test]
         fn stage_thresholds_are_ordered() {
-            assert!(LATENCY_STAGE_1_MS < LATENCY_STAGE_2_MS);
-            assert!(LATENCY_STAGE_2_MS < LATENCY_STAGE_3_MS);
+            const { assert!(LATENCY_STAGE_1_MS < LATENCY_STAGE_2_MS) };
+            const { assert!(LATENCY_STAGE_2_MS < LATENCY_STAGE_3_MS) };
         }
 
         #[test]
         fn ttft_display_duration_is_positive() {
-            assert!(TTFT_DISPLAY_MS > 0);
+            const { assert!(TTFT_DISPLAY_MS > 0) };
         }
 
         fn test_state() -> ChatState {
@@ -3842,6 +4650,11 @@ mod tests {
                 pinned_adapters: Vec::new(),
                 session_pinned_adapters: Vec::new(),
                 verified_mode: false,
+                bit_identical_mode_blocked: false,
+                bit_identical_mode_degraded: false,
+                active_collection_id: None,
+                knowledge_collection_id: None,
+                last_response_adapter_set: HashSet::new(),
                 stream_notice: None,
                 paused_inference: None,
                 stream_recovery: None,
@@ -3929,6 +4742,30 @@ mod tests {
         #[test]
         fn handles_empty_string() {
             assert_eq!(truncate_string("", 5), "");
+        }
+    }
+
+    mod utf8_stream_decode_tests {
+        use super::*;
+
+        #[test]
+        fn preserves_incomplete_multibyte_between_chunks() {
+            let mut pending = Vec::new();
+            let first = decode_utf8_stream_chunk(b"Hello \xF0\x9F", &mut pending);
+            assert_eq!(first, "Hello ");
+            assert!(!pending.is_empty());
+
+            let second = decode_utf8_stream_chunk(b"\x91\x8B world", &mut pending);
+            assert_eq!(second, "👋 world");
+            assert!(pending.is_empty());
+        }
+
+        #[test]
+        fn tolerates_invalid_bytes_lossily() {
+            let mut pending = Vec::new();
+            let decoded = decode_utf8_stream_chunk(&[b'f', b'o', 0x80, b'o'], &mut pending);
+            assert_eq!(decoded, "fo�o");
+            assert!(pending.is_empty());
         }
     }
 }

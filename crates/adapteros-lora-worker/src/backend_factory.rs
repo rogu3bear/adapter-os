@@ -1310,7 +1310,9 @@ fn create_model_server_backend(model_path: &Path) -> Result<KernelBox> {
     use crate::model_server_client::ModelServerClientConfig;
 
     // Get Model Server configuration from effective config
-    let (server_addr, vocab_size) = if let Some(cfg) = adapteros_config::try_effective_config() {
+    let (client_config, endpoint_label, vocab_size) = if let Some(cfg) =
+        adapteros_config::try_effective_config()
+    {
         if !cfg.model_server.enabled {
             return Err(AosError::Config(
                 "Model Server backend requested but model_server.enabled is false in config. \
@@ -1318,7 +1320,19 @@ fn create_model_server_backend(model_path: &Path) -> Result<KernelBox> {
                     .to_string(),
             ));
         }
-        let addr = cfg.model_server.server_addr.clone();
+        let (client_config, endpoint_label) = match cfg.model_server.socket_path.clone() {
+            Some(socket_path) => {
+                let label = format!("unix://{}", socket_path.display());
+                (
+                    ModelServerClientConfig::from_socket_path(socket_path),
+                    label,
+                )
+            }
+            None => {
+                let addr = cfg.model_server.server_addr.clone();
+                (ModelServerClientConfig::with_addr(&addr), addr)
+            }
+        };
 
         // Try to get vocab size from model config
         let vocab =
@@ -1333,7 +1347,7 @@ fn create_model_server_backend(model_path: &Path) -> Result<KernelBox> {
                 151936 // Qwen default
             };
 
-        (addr, vocab)
+        (client_config, endpoint_label, vocab)
     } else {
         return Err(AosError::Config(
             "Model Server backend requires effective config to be initialized. \
@@ -1344,14 +1358,11 @@ fn create_model_server_backend(model_path: &Path) -> Result<KernelBox> {
 
     info!(
         backend = "model_server",
-        server_addr = %server_addr,
+        endpoint = %endpoint_label,
         vocab_size = vocab_size,
         model_path = %model_path.display(),
         "Creating Model Server kernel backend"
     );
-
-    // Create client configuration
-    let client_config = ModelServerClientConfig::with_addr(&server_addr);
 
     // Generate a session ID for KV cache management
     let session_id = adapteros_id::TypedId::new(adapteros_id::IdPrefix::Ses).to_string();

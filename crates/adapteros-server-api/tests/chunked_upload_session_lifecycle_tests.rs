@@ -22,7 +22,7 @@ async fn fetch_session_status(state: &AppState, session_id: &str) -> (String, Op
         "SELECT status, error_message FROM dataset_upload_sessions WHERE session_id = ?",
     )
     .bind(session_id)
-    .fetch_one(state.db.pool())
+    .fetch_one(state.db.pool_result().expect("db pool"))
     .await
     .expect("session row");
     let status: String = row.get("status");
@@ -62,7 +62,7 @@ async fn cleanup_marks_stale_session_failed() {
     .bind(0_i64)
     .bind("uploading")
     .bind(temp_dir.to_string_lossy().to_string())
-    .execute(state.db.pool())
+    .execute(state.db.pool_result().expect("db pool"))
     .await
     .expect("insert session");
 

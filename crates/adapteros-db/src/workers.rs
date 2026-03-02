@@ -235,7 +235,7 @@ impl Db {
              WHERE tenant_id = ?",
         )
         .bind(tenant_id)
-        .fetch_all(self.pool())
+        .fetch_all(self.pool_result()?)
         .await
         .map_err(|e| AosError::Database(e.to_string()))?;
         Ok(workers)
@@ -247,7 +247,7 @@ impl Db {
              FROM workers
              ORDER BY started_at DESC",
         )
-        .fetch_all(self.pool())
+        .fetch_all(self.pool_result()?)
         .await
         .map_err(|e| AosError::Database(e.to_string()))?;
         Ok(workers)
@@ -261,7 +261,7 @@ impl Db {
              ORDER BY started_at DESC",
         )
         .bind(node_id)
-        .fetch_all(self.pool())
+        .fetch_all(self.pool_result()?)
         .await
         .map_err(|e| AosError::Database(e.to_string()))?;
         Ok(workers)
@@ -278,7 +278,7 @@ impl Db {
              WHERE status = 'active'
              ORDER BY started_at DESC",
         )
-        .fetch_all(self.pool())
+        .fetch_all(self.pool_result()?)
         .await
         .map_err(|e| AosError::Database(e.to_string()))?;
         Ok(workers)
@@ -317,7 +317,7 @@ impl Db {
         .bind(&params.uds_path)
         .bind(params.pid)
         .bind(&params.status)
-        .execute(self.pool())
+        .execute(self.pool_result()?)
         .await
         .map_err(|e| AosError::Database(e.to_string()))?;
         Ok(())
@@ -340,7 +340,7 @@ impl Db {
         .bind(tenant_id)
         .bind(node_id)
         .bind(plan_id)
-        .execute(self.pool())
+        .execute(self.pool_result()?)
         .await
         .map_err(|e| {
             AosError::Database(format!(
@@ -359,27 +359,28 @@ impl Db {
         Ok(())
     }
 
-    /// Update worker heartbeat and optionally status/tokenizer metadata
+    /// Update worker heartbeat and optional tokenizer metadata.
+    ///
+    /// Worker lifecycle status transitions must flow through
+    /// `transition_worker_status()` for state-machine validation and audit history.
     pub async fn update_worker_heartbeat(
         &self,
         id: &str,
-        status: Option<&str>,
+        _status: Option<&str>,
         tokenizer_hash_b3: Option<&str>,
         tokenizer_vocab_size: Option<i64>,
     ) -> Result<()> {
         let result = sqlx::query(
             "UPDATE workers SET
-                status = COALESCE(?, status),
                 tokenizer_hash_b3 = COALESCE(?, tokenizer_hash_b3),
                 tokenizer_vocab_size = COALESCE(?, tokenizer_vocab_size),
                 last_seen_at = datetime('now')
              WHERE id = ?",
         )
-        .bind(status)
         .bind(tokenizer_hash_b3)
         .bind(tokenizer_vocab_size)
         .bind(id)
-        .execute(self.pool())
+        .execute(self.pool_result()?)
         .await
         .map_err(|e| AosError::Database(e.to_string()))?;
 
@@ -397,7 +398,7 @@ impl Db {
              WHERE id = ?",
         )
         .bind(worker_id)
-        .fetch_optional(self.pool())
+        .fetch_optional(self.pool_result()?)
         .await
         .map_err(|e| AosError::Database(e.to_string()))?;
         Ok(worker)
@@ -419,7 +420,7 @@ impl Db {
         )
         .bind(worker_id)
         .bind(tenant_id)
-        .fetch_optional(self.pool())
+        .fetch_optional(self.pool_result()?)
         .await
         .map_err(|e| AosError::Database(e.to_string()))?;
         Ok(worker)
@@ -431,7 +432,7 @@ impl Db {
             "SELECT COUNT(*) FROM training_jobs WHERE worker_id = ? AND status = 'running'",
         )
         .bind(worker_id)
-        .fetch_one(self.pool())
+        .fetch_one(self.pool_result()?)
         .await
         .map_err(|e| {
             AosError::Database(format!("Failed to check worker training status: {}", e))
@@ -449,7 +450,7 @@ impl Db {
             "SELECT COUNT(*) FROM routing_decisions WHERE worker_id = ?",
         )
         .bind(worker_id)
-        .fetch_one(self.pool())
+        .fetch_one(self.pool_result()?)
         .await
         .unwrap_or(0);
 
@@ -462,7 +463,7 @@ impl Db {
             "SELECT COUNT(*) FROM audit_logs WHERE resource_id = ? AND status = 'error'",
         )
         .bind(worker_id)
-        .fetch_one(self.pool())
+        .fetch_one(self.pool_result()?)
         .await
         .unwrap_or(0);
 
@@ -475,7 +476,7 @@ impl Db {
             "SELECT AVG(latency_ms) FROM routing_decisions WHERE worker_id = ?",
         )
         .bind(worker_id)
-        .fetch_one(self.pool())
+        .fetch_one(self.pool_result()?)
         .await
         .unwrap_or(None);
 
@@ -491,7 +492,7 @@ impl Db {
              ORDER BY created_at DESC",
         )
         .bind(worker_id)
-        .fetch_all(self.pool())
+        .fetch_all(self.pool_result()?)
         .await
         .map_err(|e| AosError::Database(format!("Failed to get worker training tasks: {}", e)))?;
 
@@ -503,11 +504,11 @@ impl Db {
         let worker = sqlx::query_as::<_, WorkerDetail>(
             "SELECT id, tenant_id, node_id, plan_id, status, pid, uds_path,
                     memory_headroom_pct, k_current, adapters_loaded_json,
-                    started_at, last_heartbeat_at
+                    started_at, last_seen_at
              FROM workers WHERE id = ?",
         )
         .bind(worker_id)
-        .fetch_optional(self.pool())
+        .fetch_optional(self.pool_result()?)
         .await
         .map_err(|e| AosError::Database(format!("Failed to get worker detail: {}", e)))?;
 
@@ -526,7 +527,7 @@ impl Db {
         )
         .bind(worker_id)
         .bind(event_type)
-        .fetch_one(self.pool())
+        .fetch_one(self.pool_result()?)
         .await
         .unwrap_or(0);
 
@@ -548,7 +549,7 @@ impl Db {
         .bind(worker_id)
         .bind(event_type)
         .bind(format!("-{}", minutes))
-        .fetch_one(self.pool())
+        .fetch_one(self.pool_result()?)
         .await
         .unwrap_or(0);
 
@@ -562,14 +563,14 @@ impl Db {
         minutes: i32,
     ) -> Result<Option<f64>> {
         let avg = sqlx::query_scalar::<_, Option<f64>>(
-            "SELECT AVG(CAST(json_extract(payload, '$.latency_ms') AS REAL))
+            "SELECT AVG(CAST(json_extract(event_data, '$.latency_ms') AS REAL))
              FROM telemetry_events
              WHERE worker_id = ? AND event_type = 'inference_complete'
              AND timestamp > datetime('now', ? || ' minutes')",
         )
         .bind(worker_id)
         .bind(format!("-{}", minutes))
-        .fetch_one(self.pool())
+        .fetch_one(self.pool_result()?)
         .await
         .unwrap_or(None);
 
@@ -587,7 +588,7 @@ impl Db {
              WHERE worker_id = ? AND status IN ('running', 'pending')",
         )
         .bind(worker_id)
-        .fetch_all(self.pool())
+        .fetch_all(self.pool_result()?)
         .await
         .map_err(|e| AosError::Database(format!("Failed to get active training tasks: {}", e)))?;
 
@@ -624,7 +625,7 @@ impl Db {
         .bind(consecutive_slow_responses)
         .bind(consecutive_failures)
         .bind(worker_id)
-        .execute(self.pool())
+        .execute(self.pool_result()?)
         .await
         .map_err(|e| {
             AosError::Database(format!("Failed to update worker health metrics: {}", e))
@@ -641,7 +642,7 @@ impl Db {
              FROM workers WHERE id = ?",
         )
         .bind(worker_id)
-        .fetch_optional(self.pool())
+        .fetch_optional(self.pool_result()?)
         .await
         .map_err(|e| AosError::Database(format!("Failed to get worker health: {}", e)))?;
 
@@ -655,7 +656,7 @@ impl Db {
              FROM workers WHERE health_status = ? ORDER BY started_at DESC",
         )
         .bind(health_status)
-        .fetch_all(self.pool())
+        .fetch_all(self.pool_result()?)
         .await
         .map_err(|e| AosError::Database(format!("Failed to list workers by health: {}", e)))?;
 
@@ -671,7 +672,7 @@ impl Db {
              ORDER BY avg_latency_ms ASC NULLS LAST",
         )
         .bind(tenant_id)
-        .fetch_all(self.pool())
+        .fetch_all(self.pool_result()?)
         .await
         .map_err(|e| AosError::Database(format!("Failed to list healthy workers: {}", e)))?;
 
@@ -731,7 +732,7 @@ impl Db {
         .bind(reason)
         .bind(backtrace_snippet)
         .bind(latency_at_incident_ms)
-        .execute(self.pool())
+        .execute(self.pool_result()?)
         .await
         .map_err(|e| AosError::Database(format!("Failed to insert worker incident: {}", e)))?;
 
@@ -756,7 +757,7 @@ impl Db {
         )
         .bind(worker_id)
         .bind(limit)
-        .fetch_all(self.pool())
+        .fetch_all(self.pool_result()?)
         .await
         .map_err(|e| AosError::Database(format!("Failed to list worker incidents: {}", e)))?;
 
@@ -781,7 +782,7 @@ impl Db {
         )
         .bind(tenant_id)
         .bind(limit)
-        .fetch_all(self.pool())
+        .fetch_all(self.pool_result()?)
         .await
         .map_err(|e| AosError::Database(format!("Failed to list tenant incidents: {}", e)))?;
 
@@ -794,7 +795,7 @@ impl Db {
             "SELECT COUNT(*) FROM worker_incidents WHERE worker_id = ?",
         )
         .bind(worker_id)
-        .fetch_one(self.pool())
+        .fetch_one(self.pool_result()?)
         .await
         .map_err(|e| AosError::Database(format!("Failed to count worker incidents: {}", e)))?;
 
@@ -810,7 +811,7 @@ impl Db {
         )
         .bind(worker_id)
         .bind(format!("-{}", hours))
-        .fetch_one(self.pool())
+        .fetch_one(self.pool_result()?)
         .await
         .map_err(|e| AosError::Database(format!("Failed to count recent incidents: {}", e)))?;
 
@@ -844,7 +845,7 @@ pub struct WorkerDetail {
     pub k_current: Option<i32>,
     pub adapters_loaded_json: Option<String>,
     pub started_at: String,
-    pub last_heartbeat_at: Option<String>,
+    pub last_seen_at: Option<String>,
 }
 
 /// Active training task record
@@ -1093,7 +1094,7 @@ impl Db {
 
         sqlx::query("UPDATE workers SET registered_at = COALESCE(registered_at, datetime('now')) WHERE id = ?")
             .bind(&params.worker_id)
-            .execute(self.pool())
+            .execute(self.pool_result()?)
             .await
             .map_err(|e| AosError::Database(format!("Failed to stamp registered_at: {}", e)))?;
 
@@ -1205,6 +1206,9 @@ impl Db {
         let history_id = crate::new_id(adapteros_id::IdPrefix::Wrk);
 
         // Insert history record (regardless of validity)
+        let from_status_canonical = from_status.as_str();
+        let to_status_canonical = to_status.as_str();
+
         sqlx::query(
             "INSERT INTO worker_status_history
              (id, worker_id, tenant_id, from_status, to_status, reason, actor, valid_transition)
@@ -1213,8 +1217,8 @@ impl Db {
         .bind(&history_id)
         .bind(worker_id)
         .bind(&tenant_id)
-        .bind(&current_status)
-        .bind(new_status)
+        .bind(from_status_canonical)
+        .bind(to_status_canonical)
         .bind(reason)
         .bind(actor)
         .bind(if is_valid { 1 } else { 0 })
@@ -1227,10 +1231,13 @@ impl Db {
             let audit_id = crate::new_id(adapteros_id::IdPrefix::Aud);
             let metadata = serde_json::json!({
                 "worker_id": worker_id,
-                "from_status": current_status,
-                "to_status": new_status,
+                "from_status": from_status_canonical,
+                "to_status": to_status_canonical,
                 "reason": reason,
-                "error": format!("Invalid transition: {} -> {}", current_status, new_status)
+                "error": format!(
+                    "Invalid transition: {} -> {}",
+                    from_status_canonical, to_status_canonical
+                )
             });
             let actor_str = actor.unwrap_or("system");
 
@@ -1254,9 +1261,9 @@ impl Db {
 
             return Err(AosError::Lifecycle(format!(
                 "Invalid worker transition: {} -> {}. Valid transitions from {}: {:?}",
-                current_status,
-                new_status,
-                current_status,
+                from_status_canonical,
+                to_status_canonical,
+                from_status_canonical,
                 from_status.valid_transitions()
             )));
         }
@@ -1271,9 +1278,9 @@ impl Db {
                 registered_at = CASE WHEN ? = 'registered' THEN COALESCE(registered_at, datetime('now')) ELSE registered_at END
              WHERE id = ?",
         )
-        .bind(new_status)
+        .bind(to_status_canonical)
         .bind(reason)
-        .bind(new_status)
+        .bind(to_status_canonical)
         .bind(worker_id)
         .execute(&mut *tx)
         .await
@@ -1311,7 +1318,7 @@ impl Db {
              ORDER BY avg_latency_ms ASC NULLS LAST",
         )
         .bind(manifest_hash)
-        .fetch_all(self.pool())
+        .fetch_all(self.pool_result()?)
         .await
         .map_err(|e| AosError::Database(format!("Failed to list compatible workers: {}", e)))?;
 
@@ -1386,7 +1393,7 @@ impl Db {
         )
         .bind(manifest_hash)
         .bind(tenant_id)
-        .fetch_all(self.pool())
+        .fetch_all(self.pool_result()?)
         .await
         .map_err(|e| {
             AosError::Database(format!(
@@ -1458,7 +1465,7 @@ impl Db {
                AND (health_status IS NULL OR health_status IN ('healthy', 'unknown'))
              ORDER BY avg_latency_ms ASC NULLS LAST",
         )
-        .fetch_all(self.pool())
+        .fetch_all(self.pool_result()?)
         .await
         .map_err(|e| AosError::Database(format!("Failed to list serving workers: {}", e)))?;
 
@@ -1518,7 +1525,7 @@ impl Db {
         )
         .bind(worker_id)
         .bind(limit)
-        .fetch_all(self.pool())
+        .fetch_all(self.pool_result()?)
         .await
         .map_err(|e| AosError::Database(format!("Failed to get worker status history: {}", e)))?;
 
@@ -1537,7 +1544,7 @@ impl Db {
              FROM workers WHERE id = ?",
         )
         .bind(worker_id)
-        .fetch_optional(self.pool())
+        .fetch_optional(self.pool_result()?)
         .await
         .map_err(|e| AosError::Database(format!("Failed to get worker with binding: {}", e)))?;
 
@@ -1548,7 +1555,7 @@ impl Db {
     pub async fn worker_exists(&self, worker_id: &str) -> Result<bool> {
         let count = sqlx::query_scalar::<_, i64>("SELECT COUNT(*) FROM workers WHERE id = ?")
             .bind(worker_id)
-            .fetch_one(self.pool())
+            .fetch_one(self.pool_result()?)
             .await
             .map_err(|e| AosError::Database(format!("Failed to check worker existence: {}", e)))?;
 
@@ -1619,7 +1626,7 @@ impl Db {
                AND COALESCE(last_transition_at, last_seen_at, started_at) < datetime('now', ?)",
         )
         .bind(&cutoff)
-        .execute(self.pool())
+        .execute(self.pool_result()?)
         .await
         .map_err(|e| AosError::Database(format!("Failed to purge terminal workers: {}", e)))?;
 
@@ -1642,7 +1649,7 @@ impl Db {
              WHERE worker_id = ? AND valid_transition = 0",
         )
         .bind(worker_id)
-        .fetch_one(self.pool())
+        .fetch_one(self.pool_result()?)
         .await
         .map_err(|e| AosError::Database(format!("Failed to count invalid transitions: {}", e)))?;
 
@@ -1663,7 +1670,7 @@ mod tests {
             "INSERT OR IGNORE INTO tenants (id, name, created_at)
              VALUES ('default', 'default', datetime('now'))",
         )
-        .execute(db.pool())
+        .execute(db.pool_result().unwrap())
         .await
         .expect("tenant insert should succeed");
 
@@ -1671,7 +1678,7 @@ mod tests {
             "INSERT OR IGNORE INTO nodes (id, hostname, agent_endpoint, status, last_seen_at, labels_json, created_at)
              VALUES ('node-01', 'test-host', 'http://localhost:9000', 'active', datetime('now'), '{}', datetime('now'))",
         )
-        .execute(db.pool())
+        .execute(db.pool_result().unwrap())
         .await
         .expect("node insert should succeed");
 
@@ -1679,7 +1686,7 @@ mod tests {
             "INSERT OR IGNORE INTO manifests (id, tenant_id, hash_b3, body_json)
              VALUES ('test-manifest-id', 'default', 'test-manifest-hash', '{}')",
         )
-        .execute(db.pool())
+        .execute(db.pool_result().unwrap())
         .await
         .expect("manifest insert should succeed");
 
@@ -1687,7 +1694,7 @@ mod tests {
             "INSERT OR IGNORE INTO plans (id, tenant_id, plan_id_b3, manifest_hash_b3, kernel_hashes_json, layout_hash_b3)
              VALUES ('test-plan', 'default', 'test-plan-hash', 'test-manifest-hash', '{}', 'layout-hash')",
         )
-        .execute(db.pool())
+        .execute(db.pool_result().unwrap())
         .await
         .expect("plan insert should succeed");
     }
@@ -1903,6 +1910,18 @@ mod tests {
     async fn get_worker_telemetry_count_recent_excludes_old_rows() {
         std::env::set_var("AOS_SKIP_MIGRATION_SIGNATURES", "1");
         let db = Db::new_in_memory().await.expect("db init should succeed");
+        seed_worker_fk_dependencies(&db).await;
+
+        sqlx::query(
+            "INSERT OR IGNORE INTO workers
+             (id, tenant_id, node_id, plan_id, uds_path, pid, status, manifest_hash_b3, schema_version, api_version, started_at, registered_at, last_transition_at)
+             VALUES
+             ('worker-recent', 'default', 'node-01', 'test-plan', '/var/run/worker-recent.sock', 2001, 'healthy', 'test-manifest-hash', '1.0.0', '1.0.0', datetime('now'), datetime('now'), datetime('now')),
+             ('worker-other', 'default', 'node-01', 'test-plan', '/var/run/worker-other.sock', 2002, 'healthy', 'test-manifest-hash', '1.0.0', '1.0.0', datetime('now'), datetime('now'), datetime('now'))",
+        )
+        .execute(db.pool_result().unwrap())
+        .await
+        .expect("worker insert should succeed");
 
         sqlx::query(
             "CREATE TABLE IF NOT EXISTS telemetry_events (
@@ -1910,23 +1929,23 @@ mod tests {
                 worker_id TEXT NOT NULL,
                 tenant_id TEXT NOT NULL,
                 event_type TEXT NOT NULL,
-                payload TEXT,
+                event_data TEXT NOT NULL,
                 timestamp TEXT NOT NULL DEFAULT (datetime('now'))
             )",
         )
-        .execute(db.pool())
+        .execute(db.pool_result().unwrap())
         .await
         .expect("create telemetry_events table should succeed");
 
         sqlx::query(
-            "INSERT INTO telemetry_events (id, worker_id, tenant_id, event_type, payload, timestamp)
+            "INSERT INTO telemetry_events (id, worker_id, tenant_id, event_type, event_data, timestamp)
              VALUES
              ('recent-match', 'worker-recent', 'default', 'inference_complete', '{}', datetime('now', '-30 seconds')),
              ('old-match', 'worker-recent', 'default', 'inference_complete', '{}', datetime('now', '-3 minutes')),
              ('recent-other-event', 'worker-recent', 'default', 'other_event', '{}', datetime('now', '-30 seconds')),
              ('recent-other-worker', 'worker-other', 'default', 'inference_complete', '{}', datetime('now', '-30 seconds'))",
         )
-        .execute(db.pool())
+        .execute(db.pool_result().unwrap())
         .await
         .expect("insert telemetry rows should succeed");
 
@@ -1955,7 +1974,7 @@ mod tests {
              ('worker-error', 'default', 'node-01', 'test-plan', '/var/run/error.sock', 1002, 'error', 'test-manifest-hash', '1.0.0', '1.0.0', datetime('now', '-30 days'), datetime('now', '-30 days'), datetime('now', '-30 days')),
              ('worker-healthy', 'default', 'node-01', 'test-plan', '/var/run/healthy.sock', 1003, 'healthy', 'test-manifest-hash', '1.0.0', '1.0.0', datetime('now', '-30 days'), datetime('now', '-30 days'), datetime('now', '-30 days'))",
         )
-        .execute(db.pool())
+        .execute(db.pool_result().unwrap())
         .await
         .expect("worker insert should succeed");
 
@@ -1968,18 +1987,18 @@ mod tests {
         let stopped_count = sqlx::query_scalar::<_, i64>(
             "SELECT COUNT(*) FROM workers WHERE id = 'worker-stopped'",
         )
-        .fetch_one(db.pool())
+        .fetch_one(db.pool_result().unwrap())
         .await
         .expect("query should succeed");
         let error_count =
             sqlx::query_scalar::<_, i64>("SELECT COUNT(*) FROM workers WHERE id = 'worker-error'")
-                .fetch_one(db.pool())
+                .fetch_one(db.pool_result().unwrap())
                 .await
                 .expect("query should succeed");
         let healthy_count = sqlx::query_scalar::<_, i64>(
             "SELECT COUNT(*) FROM workers WHERE id = 'worker-healthy'",
         )
-        .fetch_one(db.pool())
+        .fetch_one(db.pool_result().unwrap())
         .await
         .expect("query should succeed");
 
@@ -2026,7 +2045,7 @@ mod tests {
         let count = sqlx::query_scalar::<_, i64>(
             "SELECT COUNT(*) FROM workers WHERE id = 'worker-healthy'",
         )
-        .fetch_one(db.pool())
+        .fetch_one(db.pool_result().unwrap())
         .await
         .expect("query should succeed");
         assert_eq!(count, 1, "non-terminal worker should remain");
@@ -2050,7 +2069,7 @@ mod tests {
             .bind(uds)
             .bind(pid)
             .bind(status)
-            .execute(db.pool())
+            .execute(db.pool_result().unwrap())
             .await
             .expect("worker insert should succeed");
 
@@ -2060,7 +2079,7 @@ mod tests {
 
             let count = sqlx::query_scalar::<_, i64>("SELECT COUNT(*) FROM workers WHERE id = ?")
                 .bind(worker_id)
-                .fetch_one(db.pool())
+                .fetch_one(db.pool_result().unwrap())
                 .await
                 .expect("query should succeed");
             assert_eq!(count, 0, "terminal worker should be deleted");

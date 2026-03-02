@@ -209,6 +209,8 @@ pub mod failure_codes {
     pub const MODEL_SERVER_FAILED: &str = "MODEL_SERVER_FAILED";
     /// Startup recovery failed
     pub const STARTUP_RECOVERY_FAILED: &str = "STARTUP_RECOVERY_FAILED";
+    /// Shutdown signal received during boot
+    pub const SHUTDOWN_DURING_BOOT: &str = "SHUTDOWN_DURING_BOOT";
 }
 
 /// Degraded state reason for non-critical dependency failures

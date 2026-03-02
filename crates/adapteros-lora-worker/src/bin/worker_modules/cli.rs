@@ -60,8 +60,33 @@ pub struct Args {
     #[arg(long, env = "WORKER_ID")]
     pub worker_id: Option<String>,
 
+    /// Maximum number of tokens allowed per inference request.
+    /// Acts as a hard worker-level ceiling over the manifest's policy.
+    #[arg(long, env = "AOS_MAX_TOKENS_LIMIT")]
+    pub max_tokens_limit: Option<usize>,
+
+    /// Thread pool size for handling concurrent worker tasks
+    #[arg(long, env = "AOS_LIMIT_THREAD_POOL_SIZE")]
+    pub thread_pool_size: Option<usize>,
+
+    /// Maximum total process memory allowed (MB)
+    #[arg(long, env = "AOS_LIMIT_MAX_TOTAL_MEMORY_MB")]
+    pub max_total_memory_mb: Option<u64>,
+
+    /// Jitter factor (0.0 - 1.0) for randomizing retry hints
+    #[arg(long, env = "AOS_LIMIT_JITTER_FACTOR")]
+    pub jitter_factor: Option<f64>,
+
+    /// Base retry hint in milliseconds for throttling clients
+    #[arg(long, env = "AOS_LIMIT_BASE_RETRY_HINT_MS")]
+    pub base_retry_hint_ms: Option<u64>,
+
+    /// Maximum retry hint in milliseconds for throttling clients
+    #[arg(long, env = "AOS_LIMIT_MAX_RETRY_HINT_MS")]
+    pub max_retry_hint_ms: Option<u64>,
+
     /// Control plane URL for fatal error reporting
-    #[arg(long, env = "AOS_CP_URL", default_value = "http://127.0.0.1:8080")]
+    #[arg(long, env = "AOS_CP_URL", default_value = "http://127.0.0.1:18080")]
     pub cp_url: String,
     /// Enable backend coordinator (primary + fallback) for runtime failover
     #[arg(long, env = "AOS_COORDINATOR_ENABLED", default_value_t = false)]

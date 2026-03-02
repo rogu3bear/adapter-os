@@ -199,11 +199,9 @@ impl ModelLoader {
         let lm_head_weight = self.load_tensor(&tensors, "lm_head.weight")?;
 
         // Load transformer layers
-        let mut layers = Vec::new();
-        for i in 0..config.num_layers {
-            let layer = self.load_transformer_layer(&tensors, i)?;
-            layers.push(layer);
-        }
+        let layers = (0..config.num_layers)
+            .map(|i| self.load_transformer_layer(&tensors, i))
+            .collect::<Result<Vec<TransformerLayer>>>()?;
 
         Ok(QwenModel {
             embedding_weight,

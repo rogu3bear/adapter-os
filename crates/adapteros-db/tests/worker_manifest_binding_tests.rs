@@ -27,7 +27,7 @@ async fn ensure_test_infrastructure(db: &Db, tenant_id: &str) {
         )
         .bind(tenant_id)
         .bind(tenant_id)
-        .execute(&*db.pool())
+        .execute(db.pool_result().expect("db pool available"))
         .await
         .expect("Failed to ensure tenant exists");
     }
@@ -37,7 +37,7 @@ async fn ensure_test_infrastructure(db: &Db, tenant_id: &str) {
         "INSERT OR IGNORE INTO nodes (id, hostname, agent_endpoint, status, last_seen_at, labels_json, created_at)
          VALUES ('node-01', 'test-host', 'http://localhost:9000', 'active', datetime('now'), '{}', datetime('now'))",
     )
-    .execute(&*db.pool())
+    .execute(db.pool_result().expect("db pool available"))
     .await
     .expect("Failed to ensure node exists");
 
@@ -47,7 +47,7 @@ async fn ensure_test_infrastructure(db: &Db, tenant_id: &str) {
          VALUES ('test-manifest-id', ?, 'test-manifest-hash', '{}')",
     )
     .bind(DEFAULT_TENANT_ID) // manifests need valid tenant_id
-    .execute(&*db.pool())
+    .execute(db.pool_result().expect("db pool available"))
     .await
     .expect("Failed to ensure manifest exists");
 
@@ -57,7 +57,7 @@ async fn ensure_test_infrastructure(db: &Db, tenant_id: &str) {
          VALUES ('test-plan', ?, 'test-plan-hash', 'test-manifest-hash', '{}', 'layout-hash')",
     )
     .bind(DEFAULT_TENANT_ID) // plans need valid tenant_id
-    .execute(&*db.pool())
+    .execute(db.pool_result().expect("db pool available"))
     .await
     .expect("Failed to ensure plan exists");
 }
@@ -86,7 +86,7 @@ async fn insert_test_worker(
     .bind(status)
     .bind(manifest_hash)
     .bind(schema_version)
-    .execute(&*db.pool())
+    .execute(db.pool_result().expect("db pool available"))
     .await
     .expect("Failed to insert test worker");
 }
@@ -298,7 +298,7 @@ async fn test_worker_with_null_schema_excluded() {
          VALUES ('worker-null-schema', ?, 'node-01', 'test-plan', '/var/run/w2.sock', 5002, 'healthy', 'test-manifest', NULL, datetime('now'))"
     )
     .bind(DEFAULT_TENANT_ID)
-    .execute(&*db.pool())
+    .execute(db.pool_result().expect("db pool available"))
     .await
     .expect("Failed to insert legacy worker");
 
@@ -411,7 +411,7 @@ async fn invalid_transition_creates_audit_and_preserves_status() {
         "SELECT COUNT(*) FROM audit_logs WHERE resource_id = ? AND action = 'WorkerLifecycleViolation'",
     )
     .bind("worker-invalid")
-    .fetch_one(db.pool())
+    .fetch_one(db.pool_result().expect("db pool available"))
     .await
     .expect("audit fetch");
     assert_eq!(audit_count.0, 1);

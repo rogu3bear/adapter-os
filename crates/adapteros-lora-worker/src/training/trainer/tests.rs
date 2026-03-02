@@ -9,6 +9,7 @@ use rand::SeedableRng;
 use rand_chacha::ChaCha20Rng;
 use std::collections::BTreeMap;
 use std::path::{Path, PathBuf};
+use std::sync::{Mutex, MutexGuard, OnceLock};
 use tempfile::TempDir;
 
 fn new_test_tempdir() -> TempDir {
@@ -16,6 +17,43 @@ fn new_test_tempdir() -> TempDir {
         .prefix("aos-test-")
         .tempdir()
         .expect("create temp dir")
+}
+
+static ENV_LOCK: OnceLock<Mutex<()>> = OnceLock::new();
+
+fn env_lock() -> MutexGuard<'static, ()> {
+    let lock = ENV_LOCK.get_or_init(|| Mutex::new(()));
+    match lock.lock() {
+        Ok(guard) => guard,
+        Err(poisoned) => poisoned.into_inner(),
+    }
+}
+
+struct ForcedGpuBackendGuard {
+    _lock: MutexGuard<'static, ()>,
+    previous: Option<String>,
+}
+
+impl ForcedGpuBackendGuard {
+    fn set(value: &str) -> Self {
+        let lock = env_lock();
+        let previous = std::env::var("AOS_FORCE_GPU_BACKEND").ok();
+        std::env::set_var("AOS_FORCE_GPU_BACKEND", value);
+        Self {
+            _lock: lock,
+            previous,
+        }
+    }
+}
+
+impl Drop for ForcedGpuBackendGuard {
+    fn drop(&mut self) {
+        if let Some(previous) = self.previous.as_deref() {
+            std::env::set_var("AOS_FORCE_GPU_BACKEND", previous);
+        } else {
+            std::env::remove_var("AOS_FORCE_GPU_BACKEND");
+        }
+    }
 }
 
 fn make_prepared(example: &TrainingExample, hidden_dim: usize) -> coreml_pipeline::PreparedExample {
@@ -320,7 +358,7 @@ fn test_backend_candidates_require_gpu_error_when_none() {
 
 #[test]
 fn test_coreml_preference_without_gpu_uses_cpu_and_reason() {
-    std::env::set_var("AOS_FORCE_GPU_BACKEND", "none");
+    let _backend = ForcedGpuBackendGuard::set("none");
     let config = TrainingConfig {
         preferred_backend: Some(TrainingBackend::CoreML),
         coreml_fallback_backend: Some(TrainingBackend::Mlx),
@@ -343,12 +381,11 @@ fn test_coreml_preference_without_gpu_uses_cpu_and_reason() {
             || reason.contains("cpu"),
         "expected backend reason to indicate CPU fallback, got: {reason}"
     );
-    std::env::remove_var("AOS_FORCE_GPU_BACKEND");
 }
 
 #[test]
 fn test_init_kernels_disables_gpu_backward_when_mlx_unavailable_and_gpu_optional() {
-    std::env::set_var("AOS_FORCE_GPU_BACKEND", "none");
+    let _backend = ForcedGpuBackendGuard::set("none");
 
     let mut trainer = MicroLoRATrainer::new_for_test(TrainingConfig {
         require_gpu: false,
@@ -372,13 +409,11 @@ fn test_init_kernels_disables_gpu_backward_when_mlx_unavailable_and_gpu_optional
         reason.contains("gpu_backward_disabled_missing_mlx"),
         "expected fallback reason, got: {reason}"
     );
-
-    std::env::remove_var("AOS_FORCE_GPU_BACKEND");
 }
 
 #[test]
 fn test_init_kernels_errors_when_gpu_backward_requires_mlx_and_gpu_required() {
-    std::env::set_var("AOS_FORCE_GPU_BACKEND", "coreml");
+    let _backend = ForcedGpuBackendGuard::set("coreml");
 
     let mut trainer = MicroLoRATrainer::new_for_test(TrainingConfig {
         require_gpu: true,
@@ -396,8 +431,6 @@ fn test_init_kernels_errors_when_gpu_backward_requires_mlx_and_gpu_required() {
             .contains("GPU backward requires MLX backend"),
         "unexpected error: {error}"
     );
-
-    std::env::remove_var("AOS_FORCE_GPU_BACKEND");
 }
 
 #[test]
@@ -414,22 +447,20 @@ fn test_coreml_latency_metrics_tracking() {
 
 #[test]
 fn test_available_backends_detection() {
-    std::env::set_var("AOS_FORCE_GPU_BACKEND", "cpu");
+    let _backend = ForcedGpuBackendGuard::set("cpu");
     let backends = MicroLoRATrainer::detect_available_backends();
     // At minimum, CPU should always be available
     assert!(!backends.is_empty());
     let has_cpu = backends.iter().any(|(b, _)| *b == TrainingBackend::Cpu);
     assert!(has_cpu, "CPU backend should always be available");
-    std::env::remove_var("AOS_FORCE_GPU_BACKEND");
 }
 
 #[test]
 fn test_describe_available_backends() {
-    std::env::set_var("AOS_FORCE_GPU_BACKEND", "cpu");
+    let _backend = ForcedGpuBackendGuard::set("cpu");
     let desc = MicroLoRATrainer::describe_available_backends();
     assert!(desc.contains("Available training backends:"));
     assert!(desc.contains("CPU")); // At minimum, CPU should be listed
-    std::env::remove_var("AOS_FORCE_GPU_BACKEND");
 }
 
 #[test]
@@ -672,8 +703,12 @@ fn test_backend_selection_priority() {
 
 #[test]
 fn test_device_policy_prefers_coreml_first() {
-    std::env::set_var("AOS_FORCE_GPU_BACKEND", "all");
-    let mut trainer = MicroLoRATrainer::new_for_test(TrainingConfig::default()).unwrap();
+    let _backend = ForcedGpuBackendGuard::set("all");
+    let config = TrainingConfig {
+        use_gpu_backward: false,
+        ..Default::default()
+    };
+    let mut trainer = MicroLoRATrainer::new_for_test(config).unwrap();
     let availability = BackendAvailability {
         coreml: true,
         mlx: true,
@@ -688,7 +723,6 @@ fn test_device_policy_prefers_coreml_first() {
         "CoreML should be first when available"
     );
     assert!(candidates.contains(&TrainingBackend::Cpu));
-    std::env::remove_var("AOS_FORCE_GPU_BACKEND");
 }
 
 // ========================================================================
@@ -1822,11 +1856,11 @@ fn test_compute_proxy_loss_and_grad_basic() {
         "perfect predictions should give near-zero loss, got {loss}"
     );
     // All grads in the usable range should be near-zero
-    for i in 0..3 {
+    for (i, value) in grad.iter().take(3).enumerate() {
         assert!(
-            grad[i].abs() < 1e-10,
+            value.abs() < 1e-10,
             "grad[{i}] should be near-zero, got {}",
-            grad[i]
+            value
         );
     }
 }
@@ -1966,9 +2000,9 @@ fn test_compute_proxy_loss_and_grad_truncates_to_min_len() {
     assert_eq!(count, 2);
     assert!(loss.abs() < 1e-10, "matched values should give ~0 loss");
     // Positions beyond usable should remain zero
-    for i in 2..8 {
+    for (i, value) in grad.iter().enumerate().skip(2) {
         assert!(
-            (grad[i] - 0.0).abs() < 1e-10,
+            (*value - 0.0).abs() < 1e-10,
             "grad[{i}] beyond usable should be 0"
         );
     }
@@ -2088,9 +2122,9 @@ fn test_apply_proxy_update_clamps_large_updates() {
         .unwrap();
 
     // Each weight update should be clamped. Check that changes are bounded.
-    for r in 0..2 {
-        for h in 0..4 {
-            let diff = (weights.lora_a[r][h] - before_a[r][h]).abs();
+    for (r, before_row) in before_a.iter().take(2).enumerate() {
+        for (h, before_value) in before_row.iter().take(4).enumerate() {
+            let diff = (weights.lora_a[r][h] - *before_value).abs();
             assert!(
                 diff <= 0.1 + 1e-6,
                 "lora_a[{r}][{h}] update {diff} exceeds MAX_UPDATE=0.1"

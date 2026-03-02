@@ -15,6 +15,7 @@ set -e
 
 SCRIPT_DIR="$(cd "$(dirname "${BASH_SOURCE[0]}")" && pwd)"
 PROJECT_ROOT="$(dirname "$SCRIPT_DIR")"
+source "$PROJECT_ROOT/scripts/lib/ports.sh"
 
 # =============================================================================
 # Load Environment
@@ -48,6 +49,8 @@ elif [ -f "$PROJECT_ROOT/.env" ]; then
     set +a
 fi
 
+aos_apply_port_pane_defaults
+
 # =============================================================================
 # Configuration
 # =============================================================================
@@ -60,12 +63,19 @@ WORKER_PID_FILE="$PID_DIR/worker.pid"
 SECD_PID_FILE="$PID_DIR/secd.pid"
 NODE_PID_FILE="$PID_DIR/node.pid"
 QUARANTINE_DIR="$PID_DIR/quarantine"
+SHARED_SERVICE_LOCK_DIR="$PROJECT_ROOT/var/run/service-control.lock"
+TRAINING_WORKER_DEGRADED_FILE="$PROJECT_ROOT/var/run/training-worker.degraded"
+BACKEND_SUPERVISION_STATE_FILE="$PROJECT_ROOT/var/run/backend-supervision.state"
+BACKEND_LAUNCHD_LABEL="${AOS_BACKEND_LAUNCHD_LABEL:-com.adapteros.backend}"
+BACKEND_LAUNCHD_DOMAIN="gui/$(id -u)"
+BACKEND_LAUNCHD_TARGET="${BACKEND_LAUNCHD_DOMAIN}/${BACKEND_LAUNCHD_LABEL}"
 
 # Log file locations
 LOG_DIR="$PROJECT_ROOT/var/logs"
 BACKEND_LOG="$LOG_DIR/backend.log"
 UI_LOG="$LOG_DIR/ui.log"
 WORKER_LOG="$LOG_DIR/worker.log"
+WORKER_RESTART_LOG="$LOG_DIR/worker-restarts.log"
 SECD_LOG="$LOG_DIR/secd.log"
 NODE_LOG="$LOG_DIR/node.log"
 SCRIPT_LOG="$LOG_DIR/service-manager.log"
@@ -74,30 +84,38 @@ SCRIPT_LOG="$LOG_DIR/service-manager.log"
 SECD_SOCKET="$PROJECT_ROOT/var/run/aos-secd.sock"
 
 # Port configuration for node
-NODE_PORT="${AOS_NODE_PORT:-9443}"
+NODE_PORT="${AOS_NODE_PORT:-18083}"
 
 # Canonical dev model (single source of truth)
-DEFAULT_MODEL_DIR="/var/models/Llama-3.2-3B-Instruct-4bit"
-DEFAULT_MANIFEST_PATH="$PROJECT_ROOT/manifests/llama3.2-3b-instruct-4bit.yaml"
+# Must match .env values: AOS_BASE_MODEL_ID, AOS_MODEL_PATH, AOS_WORKER_MANIFEST
+DEFAULT_MODEL_DIR="$PROJECT_ROOT/var/models/Qwen3.5-27B"
+DEFAULT_MANIFEST_PATH="$PROJECT_ROOT/manifests/qwen7b-4bit-mlx-base-only.yaml"
 # Manifest hash is loaded from .env (DEFAULT_MANIFEST_HASH or AOS_MANIFEST_HASH)
 # No hardcoded fallback - .env is the single source of truth for the hash value
 DEFAULT_MANIFEST_HASH="${DEFAULT_MANIFEST_HASH:-${AOS_MANIFEST_HASH:-}}"
 
 # Worker database tracking
 WORKER_ID_FILE="$PID_DIR/worker.id"
+WORKER_START_TS_FILE="$PID_DIR/worker.start_ts"
+WORKER_RESTART_COUNT_FILE="$PID_DIR/worker.restart_count"
 DATABASE_PATH="${AOS_DATABASE_URL:-sqlite://var/aos-cp.sqlite3}"
-# Extract SQLite path from DATABASE_URL if it's a sqlite:// URL
+# Extract SQLite path from DATABASE_URL if it's a sqlite URL.
+# Accept both sqlite://... and sqlite:... forms for compatibility.
 if [[ "$DATABASE_PATH" == sqlite://* ]]; then
     DATABASE_PATH="${DATABASE_PATH#sqlite://}"
+elif [[ "$DATABASE_PATH" == sqlite:* ]]; then
+    DATABASE_PATH="${DATABASE_PATH#sqlite:}"
 fi
+DATABASE_PATH="${DATABASE_PATH%%\?*}"
+DATABASE_PATH="${DATABASE_PATH%%#*}"
 # If still relative, make it absolute relative to PROJECT_ROOT
 if [[ "$DATABASE_PATH" != /* ]]; then
     DATABASE_PATH="$PROJECT_ROOT/$DATABASE_PATH"
 fi
 
 # Port configuration
-BACKEND_PORT="${AOS_SERVER_PORT:-8080}"
-UI_PORT="${AOS_UI_PORT:-3200}"
+BACKEND_PORT="${AOS_SERVER_PORT:-18080}"
+UI_PORT="${AOS_UI_PORT:-18081}"
 
 # Timeouts (in seconds)
 GRACEFUL_TIMEOUT=120
@@ -146,7 +164,10 @@ rotate_log_if_large() {
 # Rotate a log file to .prev if it is non-empty.
 # Usage: rotate_log <file>
 rotate_log() {
-    [ -s "$1" ] && mv "$1" "${1}.prev"
+    if [ -s "$1" ]; then
+        mv "$1" "${1}.prev"
+    fi
+    return 0
 }
 
 # =============================================================================
@@ -192,11 +213,69 @@ ensure_dirs() {
     ensure_backend_log_alias
 }
 
+is_backend_launchd_managed() {
+    if [ "${AOS_FORCE_SERVICE_MANAGER_BACKEND:-0}" = "1" ]; then
+        return 1
+    fi
+    command -v launchctl >/dev/null 2>&1 || return 1
+    launchctl print "$BACKEND_LAUNCHD_TARGET" >/dev/null 2>&1
+}
+
+kickstart_backend_launchd() {
+    command -v launchctl >/dev/null 2>&1 || return 1
+    launchctl kickstart -k "$BACKEND_LAUNCHD_TARGET" >/dev/null 2>&1
+}
+
+wait_for_backend_health() {
+    local health_wait_secs="${1:-20}"
+    if ! [[ "$health_wait_secs" =~ ^[0-9]+$ ]]; then
+        health_wait_secs=20
+    fi
+
+    local waited=0
+    while [ "$waited" -lt "$health_wait_secs" ]; do
+        if curl -s "http://127.0.0.1:$BACKEND_PORT/healthz" >/dev/null 2>&1; then
+            return 0
+        fi
+        sleep 1
+        waited=$((waited + 1))
+    done
+    return 1
+}
+
+acquire_service_control_lock() {
+    if [ "${AOS_SERVICE_CONTROL_LOCK_HELD:-0}" = "1" ]; then
+        return 0
+    fi
+    mkdir -p "$PROJECT_ROOT/var/run"
+    if mkdir "$SHARED_SERVICE_LOCK_DIR" 2>/dev/null; then
+        trap 'rmdir "$SHARED_SERVICE_LOCK_DIR" >/dev/null 2>&1 || true' EXIT
+        return 0
+    fi
+
+    if [ -d "$SHARED_SERVICE_LOCK_DIR" ]; then
+        local holders
+        holders="$(pgrep -f 'service-manager\.sh|aos-launchd-ensure\.sh' || true)"
+        holders="$(printf '%s\n' "$holders" | awk -v self="$$" 'NF && $1 != self')"
+        if [ -z "$holders" ]; then
+            warning_msg "Detected stale service control lock; reaping"
+            rmdir "$SHARED_SERVICE_LOCK_DIR" >/dev/null 2>&1 || true
+            if mkdir "$SHARED_SERVICE_LOCK_DIR" 2>/dev/null; then
+                trap 'rmdir "$SHARED_SERVICE_LOCK_DIR" >/dev/null 2>&1 || true' EXIT
+                return 0
+            fi
+        fi
+    fi
+
+    warning_msg "Service control lock is held; another service operation is in progress"
+    return 1
+}
+
 ensure_backend_log_alias() {
     local alias="$LOG_DIR/server.log"
 
     if [ -L "$alias" ]; then
-        ln -sfn "backend.log" "$alias"
+        ln -sfn "backend.log" "$alias" 2>/dev/null || true
         return
     fi
 
@@ -211,7 +290,7 @@ ensure_backend_log_alias() {
     fi
 
     if [ ! -e "$alias" ]; then
-        ln -s "backend.log" "$alias"
+        ln -sfn "backend.log" "$alias" 2>/dev/null || true
     fi
 }
 
@@ -459,6 +538,21 @@ get_pid() {
     fi
 }
 
+record_worker_restart_event() {
+    local reason="$1"
+    local exit_code="${2:-na}"
+    local attempt="${3:-0}"
+    local ts
+    ts="$(date -Iseconds)"
+
+    mkdir -p "$LOG_DIR" "$PID_DIR"
+    printf "[%s] reason=%s exit_code=%s attempt=%s\n" "$ts" "$reason" "$exit_code" "$attempt" >>"$WORKER_RESTART_LOG"
+    if [[ "$attempt" =~ ^[0-9]+$ ]]; then
+        echo "$attempt" > "$WORKER_RESTART_COUNT_FILE"
+    fi
+    return 0
+}
+
 # Wait for process to stop with timeout
 wait_for_stop() {
     local pid="$1"
@@ -575,6 +669,88 @@ get_active_dev_flags() {
     echo "${active[*]}"
 }
 
+# Ensure dev binaries are built at most once per script invocation.
+DEV_BINARIES_ENSURED=0
+
+build_debug_binary_if_missing() {
+    local binary_label="$1"
+    local binary_path="$2"
+    shift 2
+    local build_cmd_display="$*"
+
+    if [ -f "$binary_path" ]; then
+        return 0
+    fi
+
+    local safe_label="${binary_label// /-}"
+    local build_log="$LOG_DIR/build-${safe_label}.log"
+    status_msg "Dev mode: missing $binary_label binary; building ($build_cmd_display)"
+
+    if ! "$@" >"$build_log" 2>&1; then
+        error_msg "Failed to build $binary_label. Command: $build_cmd_display"
+        error_msg "Build log: $build_log"
+        return 1
+    fi
+
+    if [ ! -f "$binary_path" ]; then
+        error_msg "Build completed but $binary_label binary is still missing at $binary_path"
+        error_msg "Build log: $build_log"
+        return 1
+    fi
+
+    return 0
+}
+
+ensure_dev_binaries_once() {
+    if ! is_dev_mode; then
+        return 0
+    fi
+
+    if [ "${DEV_BINARIES_ENSURED:-0}" = "1" ]; then
+        return 0
+    fi
+    DEV_BINARIES_ENSURED=1
+
+    ensure_dirs
+
+    if ! command -v cargo >/dev/null 2>&1; then
+        error_msg "cargo not found. Install Rust toolchain or disable dev flags in .env."
+        return 1
+    fi
+
+    local worker_backend="${AOS_MODEL_BACKEND:-mlx}"
+    local -a worker_build_cmd=(cargo build -p adapteros-lora-worker)
+    if [ "$worker_backend" = "mlx" ]; then
+        worker_build_cmd+=(--features mlx)
+    elif [ "$worker_backend" = "coreml" ]; then
+        worker_build_cmd+=(--features coreml-backend,mlx)
+    fi
+
+    build_debug_binary_if_missing \
+        "backend" \
+        "$PROJECT_ROOT/target/debug/aos-server" \
+        cargo build -p adapteros-server || return 1
+
+    build_debug_binary_if_missing \
+        "worker" \
+        "$PROJECT_ROOT/target/debug/aos-worker" \
+        "${worker_build_cmd[@]}" || return 1
+
+    if [ "${SKIP_SECD:-0}" != "1" ]; then
+        build_debug_binary_if_missing \
+            "secd" \
+            "$PROJECT_ROOT/target/debug/aos-secd" \
+            cargo build -p adapteros-secd || return 1
+    fi
+
+    if [ "${SKIP_NODE:-0}" != "1" ]; then
+        build_debug_binary_if_missing \
+            "node" \
+            "$PROJECT_ROOT/target/debug/aos-node" \
+            cargo build -p adapteros-node || return 1
+    fi
+}
+
 # Select the appropriate server binary based on dev flags.
 # In dev mode (dev flags set): prefer debug binary (required for dev flags)
 # In prod mode (no dev flags): prefer release binary (optimized)
@@ -662,6 +838,46 @@ start_backend() {
     cleanup_stale_artifacts
     status_msg "Starting Backend Server (port $BACKEND_PORT)..."
 
+    if is_backend_launchd_managed; then
+        warning_msg "Backend is launchd-managed ($BACKEND_LAUNCHD_TARGET); routing start to launchctl"
+        if ! kickstart_backend_launchd; then
+            error_msg "Failed to kickstart launchd backend service ($BACKEND_LAUNCHD_TARGET)"
+            return 1
+        fi
+
+        local health_wait_secs="${AOS_BACKEND_HEALTH_WAIT_SECS:-20}"
+        if wait_for_backend_health "$health_wait_secs"; then
+            success_msg "Backend started via launchd ($BACKEND_LAUNCHD_TARGET)"
+        else
+            warning_msg "Backend launchd service started, but health endpoint not ready after ${health_wait_secs}s"
+        fi
+        return 0
+    fi
+
+    # Fast path: backend already running by canonical PID file.
+    if is_running "$BACKEND_PID_FILE" "aos-server"; then
+        local pid=$(get_pid "$BACKEND_PID_FILE")
+        warning_msg "Backend is already running (PID: $pid)"
+        return 0
+    fi
+
+    # Fast path: backend listener already active even if PID file drifted.
+    local port_pid
+    port_pid=$(lsof -nP -i :"$BACKEND_PORT" -sTCP:LISTEN -t 2>/dev/null | head -1)
+    if [ -n "${port_pid:-}" ] && kill -0 "$port_pid" 2>/dev/null; then
+        local actual
+        actual=$(ps -p "$port_pid" -o comm= 2>/dev/null | xargs basename 2>/dev/null || echo "")
+        if [ -n "$actual" ] && [[ "$actual" == *"aos-server"* ]]; then
+            echo "$port_pid" > "$BACKEND_PID_FILE"
+            if curl -s "http://127.0.0.1:$BACKEND_PORT/healthz" > /dev/null 2>&1; then
+                warning_msg "Backend is already running and healthy (PID: $port_pid)"
+            else
+                warning_msg "Backend is already running (health pending) (PID: $port_pid)"
+            fi
+            return 0
+        fi
+    fi
+
     # Run preflight checks unless bypassed
     if [ -z "${AOS_SKIP_PREFLIGHT:-}" ]; then
         if ! run_preflight_checks; then
@@ -670,12 +886,6 @@ start_backend() {
         fi
     else
         warning_msg "Preflight checks bypassed (AOS_SKIP_PREFLIGHT is set)"
-    fi
-
-    if is_running "$BACKEND_PID_FILE" "aos-server"; then
-        local pid=$(get_pid "$BACKEND_PID_FILE")
-        warning_msg "Backend is already running (PID: $pid)"
-        return 0
     fi
 
     if ! ensure_port_free "$BACKEND_PORT" "Backend API"; then
@@ -778,12 +988,53 @@ start_backend() {
         return 1
     fi
 
+    # Wait for health endpoint readiness (best-effort, bounded).
+    local health_wait_secs="${AOS_BACKEND_HEALTH_WAIT_SECS:-20}"
+    if ! [[ "$health_wait_secs" =~ ^[0-9]+$ ]]; then
+        health_wait_secs=20
+    fi
+    local waited=0
+    while [ "$waited" -lt "$health_wait_secs" ]; do
+        if curl -s "http://127.0.0.1:$BACKEND_PORT/healthz" > /dev/null 2>&1; then
+            break
+        fi
+        if ! kill -0 "$pid" 2>/dev/null; then
+            error_msg "Backend exited before health endpoint became ready. Check logs: $BACKEND_LOG"
+            [ "${AOS_BOOT_VERBOSE:-0}" = "1" ] && tail -30 "$BACKEND_LOG"
+            rm -f "$BACKEND_PID_FILE"
+            return 1
+        fi
+        sleep 1
+        waited=$((waited + 1))
+    done
+
+    if [ "$waited" -ge "$health_wait_secs" ]; then
+        warning_msg "Backend process started but health endpoint not ready after ${health_wait_secs}s"
+    fi
+
     success_msg "Backend started (PID: $pid, Port: $BACKEND_PORT)"
     return 0
 }
 
 restart_backend() {
     local mode="${1:-graceful}"
+
+    if is_backend_launchd_managed; then
+        status_msg "Restarting Backend Server via launchd..."
+        if ! kickstart_backend_launchd; then
+            error_msg "Failed to restart launchd backend service ($BACKEND_LAUNCHD_TARGET)"
+            return 1
+        fi
+
+        local health_wait_secs="${AOS_BACKEND_HEALTH_WAIT_SECS:-20}"
+        if wait_for_backend_health "$health_wait_secs"; then
+            success_msg "Backend restarted via launchd ($BACKEND_LAUNCHD_TARGET)"
+        else
+            warning_msg "Backend launchd service restarted, but health endpoint not ready after ${health_wait_secs}s"
+        fi
+        return 0
+    fi
+
     status_msg "Restarting Backend Server (mode: ${mode})..."
     stop_backend "$mode"
     start_backend
@@ -791,6 +1042,16 @@ restart_backend() {
 
 stop_backend() {
     local mode="${1:-graceful}"
+
+    if is_backend_launchd_managed; then
+        status_msg "Stopping Backend (launchd-managed: $BACKEND_LAUNCHD_TARGET)..."
+        if launchctl bootout "$BACKEND_LAUNCHD_TARGET" 2>/dev/null; then
+            success_msg "Backend stopped via launchctl"
+        else
+            warning_msg "launchctl bootout failed (service may already be stopped)"
+        fi
+        return 0
+    fi
 
     local pid=""
     if is_running "$BACKEND_PID_FILE" "aos-server"; then
@@ -850,6 +1111,11 @@ stop_ui() {
 # =============================================================================
 # Database Helper Functions
 # =============================================================================
+# Only two DB operations remain:
+#   - cleanup_stale_workers: Marks workers as crashed when their PID is dead.
+#     Operates on rows created by worker HTTP registration. Called from status.
+# Future work: Move stale-worker cleanup to aosctl maintenance or a background task.
+# =============================================================================
 
 # Check if database is accessible
 check_database() {
@@ -860,284 +1126,10 @@ check_database() {
     return 0
 }
 
-# Generate UUID with fallback
-generate_uuid() {
-    if command -v uuidgen > /dev/null 2>&1; then
-        uuidgen | tr '[:upper:]' '[:lower:]'
-    else
-        # Fallback: use date + random
-        echo "$(date +%s)-$(od -An -N4 -tu4 /dev/urandom | tr -d ' ')"
-    fi
-}
-
 # Escape single quotes for SQL (basic protection)
+# Used by cleanup_stale_workers.
 sql_escape() {
     echo "$1" | sed "s/'/''/g"
-}
-
-# Validate foreign key exists
-validate_foreign_key() {
-    local table="$1"
-    local column="$2"
-    local value="$3"
-    
-    if ! check_database; then
-        return 1
-    fi
-    
-    local escaped_value=$(sql_escape "$value")
-    local count=$(sqlite3 "$DATABASE_PATH" "SELECT COUNT(*) FROM $table WHERE $column='$escaped_value';" 2>&1)
-    
-    if [ $? -eq 0 ] && [ "$count" -gt 0 ]; then
-        return 0
-    fi
-    return 1
-}
-
-# Ensure default plan exists, return plan_id
-ensure_default_plan() {
-    if ! check_database; then
-        warning_msg "Database not accessible, skipping plan check"
-        return 1
-    fi
-
-    # Validate tenant exists
-    if ! validate_foreign_key "tenants" "id" "default"; then
-        warning_msg "Default tenant does not exist in database"
-        return 1
-    fi
-
-    # Check if any plan exists for default tenant (with retry for race conditions)
-    local existing_plan=""
-    local retries=3
-    while [ $retries -gt 0 ]; do
-        existing_plan=$(sqlite3 "$DATABASE_PATH" "SELECT id FROM plans WHERE tenant_id='default' LIMIT 1;" 2>&1)
-        if [ $? -eq 0 ] && [ -n "$existing_plan" ]; then
-            echo "$existing_plan"
-            return 0
-        fi
-        sleep 0.1
-        ((retries--))
-    done
-
-    # Try to create a default plan if manifest exists
-    local manifest_hash=$(sqlite3 "$DATABASE_PATH" "SELECT hash_b3 FROM manifests WHERE tenant_id='default' LIMIT 1;" 2>&1)
-    if [ $? -ne 0 ] || [ -z "$manifest_hash" ]; then
-        warning_msg "No manifests found in database, cannot create default plan"
-        return 1
-    fi
-
-    # Validate manifest exists
-    if ! validate_foreign_key "manifests" "hash_b3" "$manifest_hash"; then
-        warning_msg "Manifest hash not found in manifests table"
-        return 1
-    fi
-
-    # Generate plan_id_b3 (use a deterministic hash based on manifest + tenant)
-    local plan_id_b3=$(echo -n "default-plan-$manifest_hash" | shasum -a 256 | cut -d' ' -f1)
-    local plan_id="plan-default-$(echo "$plan_id_b3" | cut -c1-8)"
-    
-    # Create minimal plan (escape values for SQL)
-    local escaped_plan_id=$(sql_escape "$plan_id")
-    local escaped_plan_id_b3=$(sql_escape "$plan_id_b3")
-    local escaped_manifest_hash=$(sql_escape "$manifest_hash")
-    local kernel_hashes_json='{"router":"default","executor":"default"}'
-    local escaped_kernel_hashes=$(sql_escape "$kernel_hashes_json")
-    local layout_hash_b3=$(echo -n "default-layout" | shasum -a 256 | cut -d' ' -f1)
-    local escaped_layout_hash=$(sql_escape "$layout_hash_b3")
-    local metadata_json='{"display_name":"Default Local Development Plan"}'
-    local escaped_metadata=$(sql_escape "$metadata_json")
-
-    # Try to insert plan (handle race condition)
-    local insert_result=$(sqlite3 "$DATABASE_PATH" <<EOF 2>&1
-INSERT INTO plans (id, tenant_id, plan_id_b3, manifest_hash_b3, kernel_hashes_json, layout_hash_b3, metadata_json, created_at)
-VALUES ('$escaped_plan_id', 'default', '$escaped_plan_id_b3', '$escaped_manifest_hash', '$escaped_kernel_hashes', '$escaped_layout_hash', '$escaped_metadata', datetime('now'));
-EOF
-)
-    local insert_status=$?
-
-    if [ $insert_status -eq 0 ] && [ -z "$insert_result" ]; then
-        success_msg "Created default plan: $plan_id"
-        echo "$plan_id"
-        return 0
-    else
-        # Check if plan was created by another process (race condition)
-        existing_plan=$(sqlite3 "$DATABASE_PATH" "SELECT id FROM plans WHERE tenant_id='default' LIMIT 1;" 2>&1)
-        if [ $? -eq 0 ] && [ -n "$existing_plan" ]; then
-            success_msg "Plan already exists (created by another process): $existing_plan"
-            echo "$existing_plan"
-            return 0
-        fi
-        
-        if [ -n "$insert_result" ]; then
-            warning_msg "Failed to create default plan: $insert_result"
-        else
-            warning_msg "Failed to create default plan (unknown error)"
-        fi
-        return 1
-    fi
-}
-
-# Register worker in database
-register_worker_in_db() {
-    local pid="$1"
-    local uds_path="$2"
-
-    if ! check_database; then
-        warning_msg "Database not accessible, skipping worker registration"
-        return 1
-    fi
-
-    # Get or create default plan
-    local plan_id=$(ensure_default_plan)
-    if [ -z "$plan_id" ]; then
-        warning_msg "Cannot register worker: no plan available"
-        return 1
-    fi
-
-    # Validate plan exists
-    if ! validate_foreign_key "plans" "id" "$plan_id"; then
-        warning_msg "Plan validation failed: $plan_id"
-        return 1
-    fi
-
-    # Generate worker ID
-    local worker_id=$(generate_uuid)
-    
-    # Get default tenant and node
-    local tenant_id="default"
-    
-    # Validate tenant exists
-    if ! validate_foreign_key "tenants" "id" "$tenant_id"; then
-        warning_msg "Tenant validation failed: $tenant_id"
-        return 1
-    fi
-    
-    # Get or create node
-    local node_id=$(sqlite3 "$DATABASE_PATH" "SELECT id FROM nodes LIMIT 1;" 2>&1)
-    if [ $? -ne 0 ] || [ -z "$node_id" ]; then
-        # Create a local node if none exists
-        local hostname_val=$(hostname)
-        node_id="node-local-$(echo "$hostname_val" | tr '[:upper:]' '[:lower:]' | tr -d ' ' | tr -d '.' | cut -c1-20)"
-        
-        local escaped_node_id=$(sql_escape "$node_id")
-        local escaped_hostname=$(sql_escape "$hostname_val")
-        
-        local node_result=$(sqlite3 "$DATABASE_PATH" <<EOF 2>&1
-INSERT OR IGNORE INTO nodes (id, hostname, agent_endpoint, status, created_at)
-VALUES ('$escaped_node_id', '$escaped_hostname', 'http://127.0.0.1:8081', 'active', datetime('now'));
-EOF
-)
-        local node_status=$?
-        
-        if [ $node_status -eq 0 ]; then
-            # Verify node was created
-            if validate_foreign_key "nodes" "id" "$node_id"; then
-                success_msg "Created local node: $node_id"
-            else
-                # Try to get existing node (race condition)
-                node_id=$(sqlite3 "$DATABASE_PATH" "SELECT id FROM nodes LIMIT 1;" 2>&1)
-                if [ -z "$node_id" ]; then
-                    warning_msg "Failed to create or find node: $node_result"
-                    return 1
-                fi
-            fi
-        else
-            warning_msg "Failed to create node: $node_result"
-            # Try to get existing node
-            node_id=$(sqlite3 "$DATABASE_PATH" "SELECT id FROM nodes LIMIT 1;" 2>&1)
-            if [ -z "$node_id" ]; then
-                return 1
-            fi
-        fi
-    fi
-
-    # Validate node exists
-    if ! validate_foreign_key "nodes" "id" "$node_id"; then
-        warning_msg "Node validation failed: $node_id"
-        return 1
-    fi
-
-    # Escape values for SQL
-    local escaped_worker_id=$(sql_escape "$worker_id")
-    local escaped_tenant_id=$(sql_escape "$tenant_id")
-    local escaped_node_id=$(sql_escape "$node_id")
-    local escaped_plan_id=$(sql_escape "$plan_id")
-    local escaped_uds_path=$(sql_escape "$uds_path")
-
-    # Register worker
-    local insert_result=$(sqlite3 "$DATABASE_PATH" <<EOF 2>&1
-INSERT INTO workers (id, tenant_id, node_id, plan_id, uds_path, pid, status, started_at)
-VALUES ('$escaped_worker_id', '$escaped_tenant_id', '$escaped_node_id', '$escaped_plan_id', '$escaped_uds_path', $pid, 'starting', datetime('now'));
-EOF
-)
-    local insert_status=$?
-
-    if [ $insert_status -eq 0 ] && [ -z "$insert_result" ]; then
-        echo "$worker_id" > "$WORKER_ID_FILE"
-        success_msg "Registered worker in database: $worker_id"
-        return 0
-    else
-        if [ -n "$insert_result" ]; then
-            warning_msg "Failed to register worker in database: $insert_result"
-        else
-            warning_msg "Failed to register worker in database (unknown error)"
-        fi
-        return 1
-    fi
-}
-
-# Update worker status in database
-update_worker_status() {
-    local new_status="$1"
-
-    # Validate status value
-    case "$new_status" in
-        starting|serving|draining|stopped|crashed)
-            ;;
-        *)
-            warning_msg "Invalid worker status: $new_status"
-            return 1
-            ;;
-    esac
-
-    if ! check_database; then
-        return 1
-    fi
-
-    if [ ! -f "$WORKER_ID_FILE" ]; then
-        # No worker_id file, worker wasn't registered
-        return 0
-    fi
-
-    local worker_id=$(cat "$WORKER_ID_FILE" 2>/dev/null)
-    if [ -z "$worker_id" ]; then
-        return 0
-    fi
-
-    # Escape values for SQL
-    local escaped_status=$(sql_escape "$new_status")
-    local escaped_worker_id=$(sql_escape "$worker_id")
-
-    local update_result=$(sqlite3 "$DATABASE_PATH" <<EOF 2>&1
-UPDATE workers SET status='$escaped_status', last_seen_at=datetime('now') WHERE id='$escaped_worker_id';
-EOF
-)
-    local update_status=$?
-
-    if [ $update_status -eq 0 ] && [ -z "$update_result" ]; then
-        if [ "$new_status" = "stopped" ] || [ "$new_status" = "crashed" ]; then
-            rm -f "$WORKER_ID_FILE"
-        fi
-        return 0
-    else
-        if [ -n "$update_result" ]; then
-            warning_msg "Failed to update worker status to $new_status: $update_result"
-        else
-            warning_msg "Failed to update worker status to $new_status (unknown error)"
-        fi
-        return 1
-    fi
 }
 
 # Clean up stale worker records
@@ -1192,7 +1184,15 @@ start_worker() {
     # Check if worker socket already exists and is in use
     local worker_sock="$PROJECT_ROOT/var/run/worker.sock"
     if [ -S "$worker_sock" ]; then
-        local existing_pid=$(lsof -t "$worker_sock" 2>/dev/null | head -1)
+        if is_running "$WORKER_PID_FILE"; then
+            local existing_pid
+            existing_pid=$(get_pid "$WORKER_PID_FILE")
+            warning_msg "Worker socket already in use (PID: $existing_pid)"
+            return 0
+        fi
+
+        local existing_pid
+        existing_pid=$(lsof -t "$worker_sock" 2>/dev/null | head -1)
         if [ -n "$existing_pid" ] && kill -0 "$existing_pid" 2>/dev/null; then
             warning_msg "Worker socket already in use (PID: $existing_pid)"
             echo "$existing_pid" > "$WORKER_PID_FILE"
@@ -1204,47 +1204,42 @@ start_worker() {
         fi
     fi
 
-    if is_running "$WORKER_PID_FILE" "aos-worker"; then
-        local pid=$(get_pid "$WORKER_PID_FILE")
-        warning_msg "Worker is already running (PID: $pid)"
-        return 0
+    if is_running "$WORKER_PID_FILE"; then
+        local pid
+        pid=$(get_pid "$WORKER_PID_FILE")
+
+        # PID exists but socket is missing. Keep a grace window for slow startup,
+        # then recycle the stuck process so supervisor can recover.
+        local now_ts started_ts elapsed stale_grace
+        now_ts=$(date +%s)
+        started_ts=0
+        if [ -f "$WORKER_START_TS_FILE" ]; then
+            started_ts=$(cat "$WORKER_START_TS_FILE" 2>/dev/null || echo 0)
+        fi
+        if ! [[ "$started_ts" =~ ^[0-9]+$ ]] || [ "$started_ts" -le 0 ]; then
+            started_ts="$now_ts"
+            echo "$started_ts" > "$WORKER_START_TS_FILE"
+        fi
+
+        elapsed=$((now_ts - started_ts))
+        stale_grace="${AOS_WORKER_STALE_GRACE_SECS:-180}"
+        if ! [[ "$stale_grace" =~ ^[0-9]+$ ]] || [ "$stale_grace" -lt 30 ]; then
+            stale_grace=180
+        fi
+
+        if [ "$elapsed" -lt "$stale_grace" ]; then
+            warning_msg "Worker is still initializing without socket (PID: $pid, elapsed=${elapsed}s, grace=${stale_grace}s)"
+            return 0
+        fi
+
+        warning_msg "Worker stuck without socket; recycling process (PID: $pid, elapsed=${elapsed}s)"
+        stop_process "$pid" "Worker" "$WORKER_TIMEOUT" "immediate" || true
+        rm -f "$WORKER_PID_FILE"
+        rm -f "$WORKER_START_TS_FILE"
+        rm -f "$worker_sock"
     fi
 
     status_msg "Starting Inference Worker..."
-
-    # Determinism/stability: MLX worker support is gated by compiled features.
-    # In dev mode, proactively build the worker with the MLX feature when MLX is requested.
-    # This avoids the common failure mode where `cargo build -p adapteros-lora-worker` produced
-    # a binary that can parse `--backend mlx` but cannot initialize MLX at runtime.
-    local backend="${AOS_MODEL_BACKEND:-mlx}"
-    if is_dev_mode && [ "$backend" = "mlx" ] && [ "${AOS_WORKER_AUTO_BUILD_MLX:-1}" != "0" ]; then
-        if command -v cargo >/dev/null 2>&1; then
-            status_msg "Ensuring worker built with MLX support (cargo build -p adapteros-lora-worker --features mlx)..."
-            cargo build -p adapteros-lora-worker --features mlx >/dev/null 2>&1 || {
-                error_msg "Failed to build worker with MLX support."
-                error_msg "Try: cargo build -p adapteros-lora-worker --features mlx"
-                return 1
-            }
-        else
-            warning_msg "cargo not found; cannot auto-build MLX worker. Install Rust toolchain or build manually."
-        fi
-    fi
-
-    # CoreML backend is also feature-gated (coreml-backend) and is not part of
-    # the default worker feature set. In dev mode, proactively build it when
-    # requested so demo boots don't silently fall back to Metal/CPU.
-    if is_dev_mode && [ "$backend" = "coreml" ] && [ "${AOS_WORKER_AUTO_BUILD_COREML:-1}" != "0" ]; then
-        if command -v cargo >/dev/null 2>&1; then
-            status_msg "Ensuring worker built with CoreML+MLX support (cargo build -p adapteros-lora-worker --features coreml-backend,mlx)..."
-            cargo build -p adapteros-lora-worker --features coreml-backend,mlx >/dev/null 2>&1 || {
-                error_msg "Failed to build worker with CoreML+MLX support."
-                error_msg "Try: cargo build -p adapteros-lora-worker --features coreml-backend,mlx"
-                return 1
-            }
-        else
-            warning_msg "cargo not found; cannot auto-build CoreML worker. Install Rust toolchain or build manually."
-        fi
-    fi
 
     # Select binary based on dev mode (dev flags → debug binary, prod → release)
     local worker_bin=""
@@ -1259,7 +1254,7 @@ start_worker() {
     local uds_path="${AOS_WORKER_SOCKET:-$PROJECT_ROOT/var/run/worker.sock}"
     # Default to MLX; requires worker to be built with multi-backend/MLX features.
     # Override via AOS_MODEL_BACKEND=metal|coreml if MLX is unavailable.
-    backend="${AOS_MODEL_BACKEND:-mlx}"
+    local backend="${AOS_MODEL_BACKEND:-mlx}"
 
     if [ "$backend" = "mock" ]; then
         error_msg "Mock backend is sunset (no stubs). Set AOS_MODEL_BACKEND=mlx|coreml|metal."
@@ -1327,12 +1322,13 @@ start_worker() {
     disown "$pid" 2>/dev/null || true
 
     echo "$pid" > "$WORKER_PID_FILE"
+    date +%s > "$WORKER_START_TS_FILE"
 
-    # Wait for socket to be created (configurable timeout, default 150 seconds).
-    # Must exceed the strict-mode verifying key load deadline (120s) since the
-    # UDS socket is bound after key loading completes.
+    # Wait for socket to be created (configurable timeout, default 300 seconds).
+    # Must exceed strict-mode key/material initialization on cold boots since
+    # the UDS socket is bound only after startup initialization completes.
     local waited=0
-    local timeout="${AOS_WORKER_TIMEOUT:-150}"
+    local timeout="${AOS_WORKER_TIMEOUT:-300}"
     local log_interval=5
     while [ $waited -lt "$timeout" ]; do
         # Early exit: check if process died during startup
@@ -1340,7 +1336,8 @@ start_worker() {
             error_msg "Worker process died during startup. Check logs: $WORKER_LOG"
             [ "${AOS_BOOT_VERBOSE:-0}" = "1" ] && tail -25 "$WORKER_LOG"
             rm -f "$WORKER_PID_FILE"
-            update_worker_status "crashed" || true
+            rm -f "$WORKER_START_TS_FILE"
+            true  # Worker self-registers via HTTP; no shell-level status update
             return 1
         fi
 
@@ -1363,16 +1360,26 @@ start_worker() {
 
     # Check if process is still running
     if kill -0 "$pid" 2>/dev/null; then
+        # Final race check: socket may appear at the timeout boundary.
+        if [ -S "$uds_path" ]; then
+            success_msg "Worker started at timeout boundary (PID: $pid, Socket: $uds_path)"
+            return 0
+        fi
+
         # Process is running but socket never created - this is a failure
         error_msg "Worker process running but socket never created after ${timeout}s (PID: $pid, Socket: $uds_path)"
         error_msg "This usually indicates a startup error. Check logs: $WORKER_LOG"
-        # Don't register worker in DB since it's not functional
-        update_worker_status "failed" || true
+        stop_process "$pid" "Worker" "$WORKER_TIMEOUT" "immediate" || true
+        rm -f "$WORKER_PID_FILE"
+        rm -f "$WORKER_START_TS_FILE"
+        # Worker self-registers via HTTP; no shell-level status update
+        true
         return 1
     else
         error_msg "Worker failed to start. Check logs: $WORKER_LOG"
         rm -f "$WORKER_PID_FILE"
-        update_worker_status "crashed" || true
+        rm -f "$WORKER_START_TS_FILE"
+        true  # Worker self-registers via HTTP; no shell-level status update
         return 1
     fi
 }
@@ -1395,7 +1402,7 @@ stop_worker() {
     fi
 
     local pid=""
-    if is_running "$WORKER_PID_FILE" "aos-worker"; then
+    if is_running "$WORKER_PID_FILE"; then
         pid=$(get_pid "$WORKER_PID_FILE")
     elif [ -n "$socket_pid" ]; then
         pid="$socket_pid"
@@ -1404,22 +1411,23 @@ stop_worker() {
         status_msg "Worker is not running"
         rm -f "$worker_sock"
         rm -f "$WORKER_PID_FILE"
-        # Clean up any stale database records
-        update_worker_status "stopped" || true
+        rm -f "$WORKER_START_TS_FILE"
+        # Worker self-registers via HTTP; no shell-level status update
+        true
         return 0
     fi
 
-    # Update status to draining before stopping
-    update_worker_status "draining" || true
+    # Worker self-registers via HTTP; status transitions handled by control plane
 
     stop_process "$pid" "Worker" "$WORKER_TIMEOUT" "$mode"
     
-    # Update status to stopped after process terminates
-    update_worker_status "stopped" || true
+    # Worker status transitions handled by control plane
+    true
     
     # Clean up socket and PID file
     rm -f "$worker_sock"
     rm -f "$WORKER_PID_FILE"
+    rm -f "$WORKER_START_TS_FILE"
 }
 
 # =============================================================================
@@ -1430,6 +1438,9 @@ start_worker_with_restart() {
     local max_restarts=3
     local restart_count=0
     local backoff_base=5  # seconds
+
+    mkdir -p "$PID_DIR"
+    echo "0" > "$WORKER_RESTART_COUNT_FILE"
 
     while true; do
         # Start worker
@@ -1468,6 +1479,7 @@ start_worker_with_restart() {
             elif [ "$exit_code" -eq 2 ]; then
                 # Transient error - restart with backoff
                 restart_count=$((restart_count + 1))
+                record_worker_restart_event "transient_exit" "$exit_code" "$restart_count" || true
 
                 if [ "$restart_count" -ge "$max_restarts" ]; then
                     error_msg "Worker restart limit reached ($max_restarts attempts), giving up"
@@ -1481,6 +1493,7 @@ start_worker_with_restart() {
             else
                 # Unknown exit code - treat as transient
                 restart_count=$((restart_count + 1))
+                record_worker_restart_event "unknown_exit" "$exit_code" "$restart_count" || true
 
                 if [ "$restart_count" -ge "$max_restarts" ]; then
                     error_msg "Worker restart limit reached ($max_restarts attempts), giving up"
@@ -1494,6 +1507,7 @@ start_worker_with_restart() {
         else
             # Worker failed to start
             restart_count=$((restart_count + 1))
+            record_worker_restart_event "start_failure" "start_failed" "$restart_count" || true
 
             if [ "$restart_count" -ge "$max_restarts" ]; then
                 error_msg "Worker failed to start after $max_restarts attempts, giving up"
@@ -1799,6 +1813,19 @@ show_status() {
 ================================${NC}"
     echo ""
 
+    local backend_ownership="service-manager"
+    local launchd_runs=""
+    local launchd_last_exit=""
+    if command -v launchctl >/dev/null 2>&1; then
+        local launchd_dump
+        launchd_dump=$(launchctl print "$BACKEND_LAUNCHD_TARGET" 2>/dev/null || true)
+        if [ -n "${launchd_dump:-}" ]; then
+            backend_ownership="launchd"
+            launchd_runs=$(printf '%s\n' "$launchd_dump" | awk -F'= ' '/runs =/{gsub(/ /, "", $2); print $2; exit}')
+            launchd_last_exit=$(printf '%s\n' "$launchd_dump" | awk -F'= ' '/last exit code =/{gsub(/ /, "", $2); print $2; exit}')
+        fi
+    fi
+
     # Backend status
     local backend_running=0
     if is_running "$BACKEND_PID_FILE" "aos-server"; then
@@ -1831,6 +1858,42 @@ show_status() {
             echo -e "          ${YELLOW}Health endpoint not responding${NC}"
         fi
     fi
+    echo -e "          ${WHITE}Ownership mode: ${backend_ownership}${NC}"
+
+    local backend_restart_count=""
+    local backend_last_restart_cause=""
+    local backend_last_restart_ts=""
+    if [ -f "$BACKEND_SUPERVISION_STATE_FILE" ]; then
+        backend_restart_count=$(awk -F= '/^restart_count=/{print $2}' "$BACKEND_SUPERVISION_STATE_FILE" 2>/dev/null | tail -1)
+        backend_last_restart_cause=$(awk -F= '/^last_restart_cause=/{print $2}' "$BACKEND_SUPERVISION_STATE_FILE" 2>/dev/null | tail -1)
+        backend_last_restart_ts=$(awk -F= '/^last_restart_ts=/{print $2}' "$BACKEND_SUPERVISION_STATE_FILE" 2>/dev/null | tail -1)
+    fi
+
+    if [ "$backend_ownership" = "launchd" ] && [[ "${launchd_runs:-}" =~ ^[0-9]+$ ]]; then
+        if [ "$launchd_runs" -gt 0 ]; then
+            backend_restart_count=$((launchd_runs - 1))
+        else
+            backend_restart_count=0
+        fi
+    fi
+
+    if [ -z "${backend_restart_count:-}" ]; then
+        backend_restart_count=0
+    fi
+
+    if [ -z "${backend_last_restart_cause:-}" ]; then
+        if [ "$backend_ownership" = "launchd" ] && [[ "${launchd_last_exit:-}" =~ ^[0-9]+$ ]] && [ "$launchd_last_exit" -ne 0 ]; then
+            backend_last_restart_cause="launchd_auto_restart_exit_${launchd_last_exit}"
+        else
+            backend_last_restart_cause="none_recorded"
+        fi
+    fi
+
+    if [ -n "${backend_last_restart_ts:-}" ]; then
+        echo -e "          ${WHITE}Backend restarts: ${backend_restart_count} (last cause: ${backend_last_restart_cause} at ${backend_last_restart_ts})${NC}"
+    else
+        echo -e "          ${WHITE}Backend restarts: ${backend_restart_count} (last cause: ${backend_last_restart_cause})${NC}"
+    fi
 
     # UI status
     if is_running "$UI_PID_FILE"; then
@@ -1850,9 +1913,18 @@ show_status() {
     local worker_pid=""
     local db_status=""
     local worker_id=""
+    local restart_count_hint=""
     
     # Clean up stale workers first
     cleanup_stale_workers || true
+
+    if [ -f "$WORKER_RESTART_COUNT_FILE" ]; then
+        local restart_count_value
+        restart_count_value=$(cat "$WORKER_RESTART_COUNT_FILE" 2>/dev/null || echo "0")
+        if [[ "$restart_count_value" =~ ^[0-9]+$ ]] && [ "$restart_count_value" -gt 0 ]; then
+            restart_count_hint=" ${YELLOW}[restarts: $restart_count_value]${NC}"
+        fi
+    fi
     
     # Get database status if available
     if check_database && [ -f "$WORKER_ID_FILE" ]; then
@@ -1867,7 +1939,11 @@ show_status() {
     fi
     
     if [ -S "$worker_sock" ]; then
-        worker_pid=$(lsof -t "$worker_sock" 2>/dev/null | head -1)
+        if is_running "$WORKER_PID_FILE"; then
+            worker_pid=$(get_pid "$WORKER_PID_FILE")
+        else
+            worker_pid=$(lsof -t "$worker_sock" 2>/dev/null | head -1)
+        fi
         if [ -n "$worker_pid" ] && kill -0 "$worker_pid" 2>/dev/null; then
             local status_line="${GREEN}[RUNNING]${NC} Inference Worker (PID: $worker_pid, Socket: $worker_sock)"
             if [ -n "$db_status" ]; then
@@ -1876,15 +1952,21 @@ show_status() {
             if [ -n "$worker_id" ]; then
                 status_line="$status_line ${WHITE}(ID: ${worker_id:0:8}...)${NC}"
             fi
+            if [ -n "$restart_count_hint" ]; then
+                status_line="$status_line$restart_count_hint"
+            fi
             echo -e "$status_line"
         else
             echo -e "${YELLOW}[STALE]${NC} Worker socket exists but process not found"
         fi
-    elif is_running "$WORKER_PID_FILE" "aos-worker"; then
+    elif is_running "$WORKER_PID_FILE"; then
         local pid=$(get_pid "$WORKER_PID_FILE")
         local status_line="${YELLOW}[STARTING]${NC} Inference Worker (PID: $pid, socket not ready)"
         if [ -n "$db_status" ]; then
             status_line="$status_line ${CYAN}[DB: $db_status]${NC}"
+        fi
+        if [ -n "$restart_count_hint" ]; then
+            status_line="$status_line$restart_count_hint"
         fi
         echo -e "$status_line"
     else
@@ -1893,6 +1975,15 @@ show_status() {
             status_line="$status_line ${YELLOW}[DB: $db_status]${NC}"
         fi
         echo -e "$status_line"
+    fi
+
+    if [ -f "$TRAINING_WORKER_DEGRADED_FILE" ]; then
+        local training_degraded_reason
+        training_degraded_reason=$(head -n 1 "$TRAINING_WORKER_DEGRADED_FILE" 2>/dev/null || true)
+        if [ -z "$training_degraded_reason" ]; then
+            training_degraded_reason="managed training worker fallback active"
+        fi
+        echo -e "          ${YELLOW}Training worker degraded: ${training_degraded_reason}${NC}"
     fi
 
     # SecD status
@@ -2026,8 +2117,24 @@ COMMAND="$1"
 SERVICE="${2:-}"
 MODE="${3:-graceful}"
 
+LOCK_REQUIRED=0
+case "$COMMAND" in
+    start|stop|restart|start-all|stop-all|start-backend)
+        LOCK_REQUIRED=1
+        ;;
+esac
+
+if [ "$LOCK_REQUIRED" -eq 1 ]; then
+    if ! acquire_service_control_lock; then
+        exit 1
+    fi
+fi
+
 case "$COMMAND" in
     start)
+        if ! ensure_dev_binaries_once; then
+            exit 1
+        fi
         case "$SERVICE" in
             backend)
                 start_backend
@@ -2089,6 +2196,9 @@ case "$COMMAND" in
         esac
         ;;
     restart)
+        if ! ensure_dev_binaries_once; then
+            exit 1
+        fi
         case "$SERVICE" in
             backend)
                 restart_backend "$MODE"
@@ -2121,6 +2231,9 @@ case "$COMMAND" in
         show_status
         ;;
     start-all)
+        if ! ensure_dev_binaries_once; then
+            exit 1
+        fi
         # Start all services (backend + UI + worker)
         echo -e "${CYAN}
 ================================
@@ -2136,6 +2249,9 @@ case "$COMMAND" in
         stop_all "${SERVICE:-graceful}"
         ;;
     start-backend)
+        if ! ensure_dev_binaries_once; then
+            exit 1
+        fi
         # Start backend only (shortcut)
         start_backend
         ;;

@@ -39,7 +39,7 @@ async fn create_test_repo(
     .bind(&repo_id)
     .bind(tenant_id)
     .bind(name)
-    .execute(state.db.pool())
+    .execute(state.db.pool_result()?)
     .await?;
 
     Ok(repo_id)
@@ -67,7 +67,7 @@ async fn create_test_adapter_version(
     .bind(repo_id)
     .bind(version)
     .bind(release_state)
-    .execute(state.db.pool())
+    .execute(state.db.pool_result()?)
     .await?;
 
     Ok(version_id)
@@ -88,7 +88,7 @@ async fn test_create_repo() {
          VALUES ('qwen2.5-7b', ?, 'Qwen 2.5 7B', 'test_hash_123', 'config_hash', 'tok_hash', 'tok_cfg_hash')",
     )
     .bind(&claims.tenant_id)
-    .execute(state.db.pool())
+    .execute(state.db.pool_result().expect("db pool"))
     .await
     .unwrap();
 
@@ -325,7 +325,7 @@ async fn test_list_repos_tenant_isolation() {
     adapteros_db::sqlx::query("INSERT OR IGNORE INTO tenants (id, name) VALUES (?, ?)")
         .bind("tenant-2")
         .bind("Test Tenant 2")
-        .execute(state.db.pool())
+        .execute(state.db.pool_result().expect("db pool"))
         .await
         .unwrap();
     create_test_repo(&state, "tenant-2", "tenant2-repo")
@@ -362,7 +362,7 @@ async fn test_get_repo_tenant_isolation() {
     adapteros_db::sqlx::query("INSERT OR IGNORE INTO tenants (id, name) VALUES (?, ?)")
         .bind("tenant-2")
         .bind("Test Tenant 2")
-        .execute(state.db.pool())
+        .execute(state.db.pool_result().expect("db pool"))
         .await
         .unwrap();
 
@@ -400,7 +400,7 @@ async fn test_update_archived_repo_rejected() {
     .bind(&repo_id)
     .bind(&claims.tenant_id)
     .bind("archived-repo")
-    .execute(state.db.pool())
+    .execute(state.db.pool_result().expect("db pool"))
     .await
     .unwrap();
 

@@ -1,28 +1,8 @@
-#!/bin/bash
-# Setup git hooks for adapterOS development
-# This ensures consistent code quality across the team
+#!/usr/bin/env bash
+set -euo pipefail
 
-set -e
+SCRIPT_DIR="$(cd "$(dirname "${BASH_SOURCE[0]}")" && pwd)"
+CANONICAL="$SCRIPT_DIR/install_git_hooks.sh"
 
-echo "🔧 Setting up git hooks for adapterOS..."
-
-# Configure git to use our custom hooks directory
-git config core.hooksPath .githooks
-
-# Test that the hook works
-echo "🧪 Testing pre-commit hook..."
-if .githooks/pre-commit; then
-    echo "✅ Git hooks configured successfully!"
-    echo ""
-    echo "💡 Tips:"
-    echo "  - The pre-commit hook runs on every commit"
-    echo "  - To skip hooks: git commit --no-verify"
-    echo "  - To test hooks manually: .githooks/pre-commit"
-else
-    echo "❌ Hook setup failed!"
-    exit 1
-fi
-
-
-
-
+echo "[DEPRECATED] use scripts/install_git_hooks.sh; compatibility path will be removed after 2026-06-30" >&2
+exec "$CANONICAL" "$@"

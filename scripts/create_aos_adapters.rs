@@ -162,7 +162,7 @@ fn package_adapter(
         }
 
         // Re-serialize (in real impl, would be Q15 format)
-        serialize(quantized_tensors, &metadata)?
+        serialize(quantized_tensors, metadata)?
     } else {
         weights_data.clone()
     };
@@ -324,7 +324,7 @@ fn create_creative_adapter(source_dir: &Path, output_dir: &Path) -> Result<()> {
     }
 
     // Serialize modified weights
-    let new_weights = serialize(varied_tensors, &metadata)?;
+    let new_weights = serialize(varied_tensors, metadata)?;
 
     // Create output directory
     fs::create_dir_all(output_dir)?;

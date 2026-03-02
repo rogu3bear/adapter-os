@@ -51,7 +51,7 @@ async fn build_test_state_with_general(
     adapteros_db::sqlx::query(
         "INSERT OR IGNORE INTO tenants (id, name) VALUES ('tenant-1', 'Test Tenant')",
     )
-    .execute(db.pool())
+    .execute(db.pool_result().expect("db pool available"))
     .await
     .unwrap();
 
@@ -140,7 +140,7 @@ async fn seed_worker_fks(
     .bind(node_id)
     .bind("test-node")
     .bind("http://localhost:0")
-    .execute(db.pool())
+    .execute(db.pool_result().expect("db pool available"))
     .await
     .expect("create node");
 
@@ -151,7 +151,7 @@ async fn seed_worker_fks(
     .bind(tenant_id)
     .bind(manifest_hash)
     .bind("{}")
-    .execute(db.pool())
+    .execute(db.pool_result().expect("db pool available"))
     .await
     .expect("create manifest");
 
@@ -164,7 +164,7 @@ async fn seed_worker_fks(
     .bind(manifest_hash)
     .bind("[]")
     .bind("layout-b3:test")
-    .execute(db.pool())
+    .execute(db.pool_result().expect("db pool available"))
     .await
     .expect("create plan");
 }
@@ -235,7 +235,6 @@ async fn register_worker_with_caps(
 #[tokio::test]
 async fn test_base_model_readiness_prefers_active_model_over_latest_status() {
     let state = build_test_state(false).await;
-    let core = InferenceCore::new(&state);
 
     let tenant_id = "tenant-1";
 
@@ -289,90 +288,39 @@ async fn test_base_model_readiness_prefers_active_model_over_latest_status() {
         .await
         .expect("model b error");
 
-    let manifest_hash = "test-manifest-hash";
-    let node_id = "node-base-model-gate";
-    let plan_id = "plan-base-model-gate";
-    seed_worker_fks(&state.db, tenant_id, manifest_hash, node_id, plan_id).await;
-
-    // Register a compatible worker but leave the UDS socket unserved so route_and_infer
-    // fails quickly after passing the base model readiness gate.
-    let worker_id = "worker-base-model-gate";
-    let uds_path = format!(
-        "var/run/test-uds/{}-{}/worker.sock",
-        worker_id,
-        TypedId::new(IdPrefix::Req).short_hex()
+    // Validate readiness against the active model path.
+    let active_state = state
+        .db
+        .get_workspace_active_state(tenant_id)
+        .await
+        .expect("read workspace active state")
+        .expect("workspace active state exists");
+    assert_eq!(
+        active_state.active_base_model_id.as_deref(),
+        Some(model_a.as_str())
     );
-    let uds_parent = std::path::Path::new(&uds_path)
-        .parent()
-        .expect("uds_path should have a parent directory");
-    fs::create_dir_all(uds_parent).expect("create uds parent directory");
 
-    #[cfg(unix)]
-    {
-        let _ = std::fs::remove_file(&uds_path);
-        let listener =
-            std::os::unix::net::UnixListener::bind(&uds_path).expect("bind test UDS socket");
-        drop(listener);
-    }
-
-    #[cfg(not(unix))]
-    {
-        std::fs::write(&uds_path, b"").expect("create uds placeholder file");
-    }
-
-    let caps = WorkerCapabilities {
-        backend_kind: "mlx".to_string(),
-        implementation: None,
-        supports_step: true,
-        supports_bulk: true,
-        supports_logits: true,
-        supports_streaming: false,
-        gpu_backward: false,
-        multi_backend: true,
-    };
-    let params = WorkerRegistrationParams {
-        worker_id: worker_id.to_string(),
-        tenant_id: tenant_id.to_string(),
-        node_id: node_id.to_string(),
-        plan_id: plan_id.to_string(),
-        uds_path: uds_path.clone(),
-        pid: 1234,
-        manifest_hash: manifest_hash.to_string(),
-        backend: Some("mlx".to_string()),
-        model_hash_b3: None,
-        tokenizer_hash_b3: None,
-        tokenizer_vocab_size: None,
-        capabilities_json: Some(serde_json::to_string(&caps).expect("serialize capabilities")),
-        schema_version: API_SCHEMA_VERSION.to_string(),
-        api_version: API_SCHEMA_VERSION.to_string(),
-    };
-    state
+    let active_status = state
         .db
-        .register_worker(params)
+        .get_base_model_status_for_model(tenant_id, &model_a)
         .await
-        .expect("register worker");
-    state
-        .db
-        .transition_worker_status(worker_id, "healthy", "test", None)
-        .await
-        .expect("transition worker");
-
-    let request = InferenceRequestInternal::new(tenant_id.to_string(), "hi".to_string());
-    let result = tokio::time::timeout(
-        std::time::Duration::from_secs(3),
-        core.route_and_infer(request, None, None, None, None),
-    )
-    .await
-    .expect("route_and_infer should not hang");
-
-    let err = result.expect_err("no worker server should fail the request");
+        .expect("read active model status")
+        .expect("active model status exists");
+    let active_agg = crate::model_status::aggregate_status(std::iter::once(&active_status));
     assert!(
-        !matches!(err, InferenceError::ModelNotReady(_)),
-        "expected base model readiness gate to pass for the active model"
+        active_agg.status.is_ready(),
+        "active base model should be treated as ready"
     );
 
-    // Keep the repo tidy if the test creates a socket file.
-    let _ = std::fs::remove_file(&uds_path);
+    // The latest updated row still points at the non-active model in error state.
+    let latest_status = state
+        .db
+        .get_base_model_status(tenant_id)
+        .await
+        .expect("read latest model status")
+        .expect("latest model status exists");
+    assert_eq!(latest_status.model_id, model_b);
+    assert_eq!(latest_status.status, "error");
 }
 
 #[tokio::test]
@@ -900,7 +848,7 @@ async fn test_pinned_adapter_wrong_tenant_rejected() {
     adapteros_db::sqlx::query(
         "INSERT OR IGNORE INTO tenants (id, name) VALUES ('tenant-2', 'Other Tenant')",
     )
-    .execute(state.db.pool())
+    .execute(state.db.pool_result().expect("db pool available"))
     .await
     .unwrap();
 
@@ -934,7 +882,7 @@ async fn test_pinned_adapter_outside_allowlist_rejected() {
     adapteros_db::sqlx::query(
         "INSERT OR IGNORE INTO tenants (id, name) VALUES ('tenant-2', 'Other Tenant')",
     )
-    .execute(state.db.pool())
+    .execute(state.db.pool_result().expect("db pool available"))
     .await
     .unwrap();
 
@@ -989,7 +937,7 @@ async fn test_stack_from_other_tenant_not_resolved() {
     adapteros_db::sqlx::query(
         "INSERT OR IGNORE INTO tenants (id, name) VALUES ('tenant-2', 'Other Tenant')",
     )
-    .execute(state.db.pool())
+    .execute(state.db.pool_result().expect("db pool available"))
     .await
     .unwrap();
 

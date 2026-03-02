@@ -5,6 +5,9 @@ use crate::policy_mask::PolicyMask;
 use adapteros_core::determinism::{DeterminismContext, DeterminismSource};
 use adapteros_core::seed::{derive_seed_full, hash_adapter_dir};
 use adapteros_core::B3Hash;
+use rand::Rng;
+use rand_chacha::ChaCha20Rng;
+use rand_core::SeedableRng;
 use smallvec::SmallVec;
 use std::path::Path;
 
@@ -32,6 +35,20 @@ fn seeded_priors(seed: [u8; 32], len: usize) -> Vec<f32> {
     }
 
     priors
+}
+
+fn adaptive_order_from_ctx(ctx: &DeterminismContext, adapter_info: &[AdapterInfo]) -> Vec<u16> {
+    let mut rng = ChaCha20Rng::from_seed(ctx.router_tiebreak_seed());
+    let tie_breakers: Vec<u64> = (0..adapter_info.len()).map(|_| rng.gen()).collect();
+
+    let mut indices: Vec<usize> = (0..adapter_info.len()).collect();
+    indices.sort_by(|a, b| {
+        tie_breakers[*a]
+            .cmp(&tie_breakers[*b])
+            .then(adapter_info[*a].stable_id.cmp(&adapter_info[*b].stable_id))
+    });
+
+    indices.into_iter().map(|i| i as u16).collect()
 }
 
 #[test]
@@ -832,6 +849,79 @@ fn adaptive_routing_uses_context_for_tie_breakers() {
     assert_eq!(
         decision_a.gates_q15, decision_b.gates_q15,
         "Gates should also remain deterministic under the same tie-break seed"
+    );
+}
+
+#[test]
+fn adaptive_routing_applies_seeded_order_for_exact_ties() {
+    const ADAPTER_COUNT: usize = 8;
+    const TOP_K: usize = 3;
+
+    let mut router_a = Router::new_with_weights(RouterWeights::default(), TOP_K, 1.0, 0.02);
+    let mut router_b = Router::new_with_weights(RouterWeights::default(), TOP_K, 1.0, 0.02);
+    router_a.set_routing_determinism_mode(true);
+    router_b.set_routing_determinism_mode(true);
+
+    let priors = vec![0.5f32; ADAPTER_COUNT];
+    let adapter_info: Vec<AdapterInfo> = (0..ADAPTER_COUNT)
+        .map(|i| AdapterInfo {
+            id: format!("adaptive_tie_adapter_{}", i),
+            stable_id: (i as u64) + 1,
+            framework: None,
+            languages: vec![],
+            tier: "default".to_string(),
+            ..Default::default()
+        })
+        .collect();
+    let policy_mask = mask_all(&adapter_info);
+
+    let ctx_a = DeterminismContext::new(
+        [1u8; 32],
+        None,
+        adapteros_core::SeedMode::BestEffort,
+        adapteros_types::adapters::metadata::RoutingDeterminismMode::Adaptive,
+        DeterminismSource::DerivedFromRequest,
+    );
+    let ctx_b = DeterminismContext::new(
+        [2u8; 32],
+        None,
+        adapteros_core::SeedMode::BestEffort,
+        adapteros_types::adapters::metadata::RoutingDeterminismMode::Adaptive,
+        DeterminismSource::DerivedFromRequest,
+    );
+
+    let expected_a = adaptive_order_from_ctx(&ctx_a, &adapter_info);
+    let expected_b = adaptive_order_from_ctx(&ctx_b, &adapter_info);
+    let mut expected_selected_a = expected_a[..TOP_K].to_vec();
+    let mut expected_selected_b = expected_b[..TOP_K].to_vec();
+    expected_selected_a.sort_unstable();
+    expected_selected_b.sort_unstable();
+    assert_ne!(
+        expected_selected_a, expected_selected_b,
+        "Different adaptive seeds should produce distinct top-k selections on exact ties"
+    );
+
+    let decision_a = router_a
+        .route_with_adapter_info_with_ctx(&[], &priors, &adapter_info, &policy_mask, Some(&ctx_a))
+        .expect("router decision");
+    let decision_b = router_b
+        .route_with_adapter_info_with_ctx(&[], &priors, &adapter_info, &policy_mask, Some(&ctx_b))
+        .expect("router decision");
+
+    let mut selected_a = decision_a.indices.to_vec();
+    let mut selected_b = decision_b.indices.to_vec();
+    selected_a.sort_unstable();
+    selected_b.sort_unstable();
+
+    assert_eq!(
+        selected_a.as_slice(),
+        expected_selected_a.as_slice(),
+        "Adaptive routing should select the seeded top-k subset for exact ties"
+    );
+    assert_eq!(
+        selected_b.as_slice(),
+        expected_selected_b.as_slice(),
+        "Adaptive routing should select the seeded top-k subset for exact ties"
     );
 }
 

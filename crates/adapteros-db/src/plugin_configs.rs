@@ -137,21 +137,6 @@ impl Db {
             .map_err(|e| AosError::Database(format!("Failed to list plugin configs: {}", e)))
     }
 
-    #[allow(dead_code)]
-    async fn sql_list_tenant_enables(&self, tenant_id: &str) -> Result<Vec<PluginTenantEnable>> {
-        let Some(pool) = self.pool_opt() else {
-            return Ok(Vec::new());
-        };
-
-        sqlx::query_as::<_, PluginTenantEnable>(
-            "SELECT * FROM plugin_tenant_enables WHERE tenant_id = ? ORDER BY plugin_name",
-        )
-        .bind(tenant_id)
-        .fetch_all(pool)
-        .await
-        .map_err(|e| AosError::Database(format!("Failed to list tenant plugin enables: {}", e)))
-    }
-
     /// Get plugin configuration by plugin name
     ///
     /// Returns `None` if plugin configuration does not exist.
@@ -479,7 +464,7 @@ impl Db {
         )
         .bind(plugin_name)
         .bind(tenant_id)
-        .fetch_optional(self.pool())
+        .fetch_optional(self.pool_result()?)
         .await
         .map_err(|e| {
             AosError::Database(format!("Failed to check existing tenant override: {}", e))
@@ -490,7 +475,7 @@ impl Db {
             sqlx::query("UPDATE plugin_tenant_enables SET enabled = ? WHERE id = ?")
                 .bind(false)
                 .bind(&existing_record.id)
-                .execute(self.pool())
+                .execute(self.pool_result()?)
                 .await
                 .map_err(|e| {
                     AosError::Database(format!("Failed to disable tenant plugin: {}", e))
@@ -505,7 +490,7 @@ impl Db {
             .bind(plugin_name)
             .bind(tenant_id)
             .bind(false)
-            .execute(self.pool())
+            .execute(self.pool_result()?)
             .await
             .map_err(|e| AosError::Database(format!("Failed to insert tenant plugin override: {}", e)))?;
         }
@@ -535,7 +520,7 @@ impl Db {
             "SELECT * FROM plugin_tenant_enables WHERE tenant_id = ? ORDER BY plugin_name",
         )
         .bind(tenant_id)
-        .fetch_all(self.pool())
+        .fetch_all(self.pool_result()?)
         .await
         .map_err(|e| AosError::Database(format!("Failed to list tenant plugin enables: {}", e)))
     }

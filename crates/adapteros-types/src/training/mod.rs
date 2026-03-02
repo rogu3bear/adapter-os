@@ -71,6 +71,12 @@ pub struct DatasetVersionTrustSnapshot {
     /// Trust state captured at training time.
     #[serde(skip_serializing_if = "Option::is_none")]
     pub trust_at_training_time: Option<String>,
+    /// Parent dataset ID (resolved from dataset_version_id)
+    #[serde(skip_serializing_if = "Option::is_none")]
+    pub dataset_id: Option<String>,
+    /// Dataset display name (resolved from dataset_id)
+    #[serde(skip_serializing_if = "Option::is_none")]
+    pub dataset_name: Option<String>,
 }
 
 /// Lineage quality for training data provenance.

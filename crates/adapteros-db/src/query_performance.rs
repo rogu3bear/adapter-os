@@ -1016,7 +1016,7 @@ pub async fn generate_multi_tenant_dataset(
         sqlx::query("INSERT INTO tenants (id, name) VALUES (?, ?)")
             .bind(&tenant_id)
             .bind(format!("Performance Test Tenant {}", tenant_num))
-            .execute(db.pool())
+            .execute(db.pool_result()?)
             .await?;
 
         tenant_ids.push(tenant_id);
@@ -1072,7 +1072,7 @@ pub async fn generate_multi_tenant_dataset(
             .bind(rng.gen_range(0..1000))
             .bind(memory_bytes as i64)
             .bind(created_at.to_rfc3339())
-            .execute(db.pool())
+            .execute(db.pool_result()?)
             .await?;
 
             total_adapters_created += 1;
@@ -1148,11 +1148,15 @@ pub async fn run_concurrency_performance_test(
                 let query_start = Instant::now();
 
                 // Execute tenant-scoped adapter listing query
+                let pool = match db.pool_opt() {
+                    Some(p) => p,
+                    None => break,
+                };
                 let result = sqlx::query(
                     "SELECT * FROM adapters WHERE tenant_id = ? AND active = 1 ORDER BY tier ASC, created_at DESC"
                 )
                 .bind(tenant_id)
-                .fetch_all(db.pool())
+                .fetch_all(pool)
                 .await;
 
                 let execution_time = query_start.elapsed();

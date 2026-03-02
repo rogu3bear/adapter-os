@@ -287,7 +287,7 @@ impl TestConfig {
     /// Load test configuration from environment
     pub fn from_env() -> Self {
         let base_url = std::env::var("MPLORA_TEST_URL")
-            .unwrap_or_else(|_| "http://localhost:9443".to_string());
+            .unwrap_or_else(|_| "http://localhost:18080".to_string());
 
         let mut tenant_configs = HashMap::new();
 

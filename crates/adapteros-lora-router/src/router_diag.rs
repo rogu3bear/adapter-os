@@ -370,6 +370,7 @@ mod tests {
             tier: "tier_1".to_string(),
             scope_path: None,
             lora_tier: None,
+            version_weight: 1.0,
             base_model: None,
             recommended_for_moe: false,
             reasoning_specialties: vec![],

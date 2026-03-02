@@ -44,6 +44,11 @@ fn validate_branch_classification(value: &str) -> Result<()> {
     }
 }
 
+/// Canonical label for draft adapter versions.
+pub fn draft_version_label(version_id: &str) -> String {
+    format!("draft-{}", version_id)
+}
+
 #[derive(Debug, Clone, Serialize, Deserialize, sqlx::FromRow)]
 pub struct AdapterRepository {
     pub id: String,
@@ -551,7 +556,7 @@ impl Db {
             .bind(&id)
             .bind(repo_id)
             .bind(tenant_id)
-            .fetch_optional(self.pool())
+            .fetch_optional(self.pool_result()?)
             .await
             .map_err(|e| AosError::Database(e.to_string()))?;
 
@@ -644,7 +649,7 @@ impl Db {
         .bind(tenant_id)
         .bind(repo_id)
         .bind(limit as i64)
-        .fetch_all(self.pool())
+        .fetch_all(self.pool_result()?)
         .await
         .map_err(|e| AosError::Database(e.to_string()))?;
 
@@ -805,7 +810,7 @@ impl Db {
                     .bind(repo_id)
                     .bind(tenant_id)
                     .bind(branch)
-                    .fetch_optional(self.pool())
+                    .fetch_optional(self.pool_result()?)
                     .await
                     .map_err(|e| AosError::Database(e.to_string()))?;
 
@@ -828,7 +833,7 @@ impl Db {
                         .bind(tenant_id)
                         .bind(branch)
                         .bind(version_id)
-                        .fetch_optional(self.pool())
+                        .fetch_optional(self.pool_result()?)
                         .await
                         .map_err(|e| AosError::Database(e.to_string()))?;
 
@@ -891,7 +896,7 @@ impl Db {
         .bind(default_branch)
         .bind(params.created_by)
         .bind(params.description)
-        .execute(self.pool())
+        .execute(self.pool_result()?)
         .await
         .map_err(|e| AosError::Database(e.to_string()))?;
 
@@ -913,7 +918,7 @@ impl Db {
         )
         .bind(repo_id)
         .bind(tenant_id)
-        .fetch_optional(self.pool())
+        .fetch_optional(self.pool_result()?)
         .await
         .map_err(|e| AosError::Database(e.to_string()))?;
 
@@ -960,7 +965,7 @@ impl Db {
 
         let repos = qb
             .build_query_as::<AdapterRepository>()
-            .fetch_all(self.pool())
+            .fetch_all(self.pool_result()?)
             .await
             .map_err(|e| AosError::Database(e.to_string()))?;
 
@@ -994,7 +999,7 @@ impl Db {
         )
         .bind(repo_id)
         .bind(tenant_id)
-        .fetch_optional(self.pool())
+        .fetch_optional(self.pool_result()?)
         .await
         .map_err(|e| AosError::Database(e.to_string()))?
         .map(AdapterRepositoryPolicy::try_from)
@@ -1039,7 +1044,7 @@ impl Db {
         .bind(coreml_mode)
         .bind(repo_tier)
         .bind(params.auto_rollback_on_trust_regress)
-        .execute(self.pool())
+        .execute(self.pool_result()?)
         .await
         .map_err(|e| AosError::Database(e.to_string()))?;
 
@@ -1053,7 +1058,7 @@ impl Db {
                 .bind(params.repo_id)
                 .bind(params.tenant_id)
                 .map(|row: sqlx::sqlite::SqliteRow| row.get::<i64, _>("archived"))
-                .fetch_optional(self.pool())
+                .fetch_optional(self.pool_result()?)
                 .await
                 .map_err(|e| AosError::Database(e.to_string()))?;
 
@@ -1225,7 +1230,7 @@ impl Db {
         )
         .bind(params.repo_id)
         .bind(params.tenant_id)
-        .fetch_optional(self.pool())
+        .fetch_optional(self.pool_result()?)
         .await
         .map_err(|e| AosError::Database(e.to_string()))?;
 
@@ -1254,7 +1259,7 @@ impl Db {
             )
             .bind(parent)
             .bind(params.tenant_id)
-            .fetch_optional(self.pool())
+            .fetch_optional(self.pool_result()?)
             .await
             .map_err(|e| AosError::Database(e.to_string()))?;
 
@@ -1273,8 +1278,8 @@ impl Db {
         }
 
         let id = new_id(IdPrefix::Rep);
-        // Draft versions get a deterministic placeholder version string to satisfy uniqueness.
-        let version_label = format!("draft-{}", &id[..8]);
+        // Keep draft labels unique per version id to avoid repo+branch+version collisions.
+        let version_label = draft_version_label(&id);
         let branch = if params.branch.is_empty() {
             default_branch
         } else {
@@ -1381,7 +1386,7 @@ impl Db {
         )
         .bind(version_id)
         .bind(tenant_id)
-        .fetch_optional(self.pool())
+        .fetch_optional(self.pool_result()?)
         .await
         .map_err(|e| AosError::Database(e.to_string()))?;
 
@@ -1430,7 +1435,7 @@ impl Db {
 
         let versions: Vec<AdapterVersion> = qb
             .build_query_as()
-            .fetch_all(self.pool())
+            .fetch_all(self.pool_result()?)
             .await
             .map_err(|e| AosError::Database(e.to_string()))?;
 
@@ -1570,7 +1575,7 @@ impl Db {
         .bind(params.runtime_state)
         .bind(params.worker_id)
         .bind(params.last_error)
-        .execute(self.pool())
+        .execute(self.pool_result()?)
         .await
         .map_err(|e| AosError::Database(e.to_string()))?;
 
@@ -1589,7 +1594,7 @@ impl Db {
             "#,
         )
         .bind(version_id)
-        .fetch_optional(self.pool())
+        .fetch_optional(self.pool_result()?)
         .await
         .map_err(|e| AosError::Database(e.to_string()))?;
 
@@ -1828,7 +1833,7 @@ impl Db {
             "#,
         )
         .bind(version_id)
-        .fetch_all(self.pool())
+        .fetch_all(self.pool_result()?)
         .await
         .map_err(|e| AosError::Database(e.to_string()))?;
 
@@ -1871,7 +1876,7 @@ impl Db {
             "#,
         )
         .bind(version_id)
-        .fetch_all(self.pool())
+        .fetch_all(self.pool_result()?)
         .await
         .map_err(|e| AosError::Database(e.to_string()))?;
 
@@ -2012,7 +2017,7 @@ impl Db {
         .bind(repo_id)
         .bind(tenant_id)
         .bind(branch)
-        .fetch_optional(self.pool())
+        .fetch_optional(self.pool_result()?)
         .await
         .map_err(|e| AosError::Database(e.to_string()))?;
 
@@ -2628,7 +2633,7 @@ impl Db {
         .bind(&version.repo_id)
         .bind(tenant_id)
         .bind(tag_name)
-        .execute(self.pool())
+        .execute(self.pool_result()?)
         .await
         .map_err(|e| AosError::Database(e.to_string()))?;
 
@@ -2646,7 +2651,7 @@ impl Db {
         )
         .bind(repo_id)
         .bind(tenant_id)
-        .execute(self.pool())
+        .execute(self.pool_result()?)
         .await
         .map_err(|e| AosError::Database(e.to_string()))?;
 
@@ -2676,7 +2681,7 @@ impl Db {
         .bind(tenant_id)
         .bind(repo_id)
         .bind(branch)
-        .fetch_optional(self.pool())
+        .fetch_optional(self.pool_result()?)
         .await
         .map_err(|e| AosError::Database(e.to_string()))?
         {
@@ -2709,7 +2714,7 @@ impl Db {
         .bind(repo_id)
         .bind(tenant_id)
         .bind(tag)
-        .fetch_optional(self.pool())
+        .fetch_optional(self.pool_result()?)
         .await
         .map_err(|e| AosError::Database(e.to_string()))?;
 
@@ -2745,7 +2750,7 @@ impl Db {
         .bind(repo_id)
         .bind(branch)
         .bind(version)
-        .fetch_optional(self.pool())
+        .fetch_optional(self.pool_result()?)
         .await
         .map_err(|e| AosError::Database(e.to_string()))?;
 
@@ -2767,7 +2772,7 @@ impl Db {
             "#,
         )
         .bind(tenant_id)
-        .fetch_all(self.pool())
+        .fetch_all(self.pool_result()?)
         .await
         .map_err(|e| AosError::Database(e.to_string()))?;
         Ok(rows)
@@ -2806,7 +2811,7 @@ impl Db {
         let count: i64 =
             sqlx::query_scalar("SELECT COUNT(*) as cnt FROM adapter_versions WHERE tenant_id = ?")
                 .bind(tenant_id)
-                .fetch_one(self.pool())
+                .fetch_one(self.pool_result()?)
                 .await
                 .unwrap_or(0);
         Ok(count)
@@ -2854,7 +2859,7 @@ impl Db {
             )
             .bind(ds_version_id)
             .bind(tenant_id)
-            .fetch_optional(self.pool())
+            .fetch_optional(self.pool_result()?)
             .await
             .map_err(|e| AosError::Database(e.to_string()))?;
 
@@ -2875,7 +2880,7 @@ impl Db {
             )
             .bind(version_id)
             .bind(ds_version_id)
-            .fetch_optional(self.pool())
+            .fetch_optional(self.pool_result()?)
             .await
             .map_err(|e| AosError::Database(e.to_string()))?;
 
@@ -2918,7 +2923,7 @@ impl Db {
         .bind(version_id)
         .bind(tenant_id)
         .bind(repo_id)
-        .execute(self.pool())
+        .execute(self.pool_result()?)
         .await
         .map_err(|e| AosError::Database(format!("Failed to publish adapter version: {}", e)))?;
 
@@ -2942,7 +2947,7 @@ impl Db {
         )
         .bind(version_id)
         .bind(tenant_id)
-        .execute(self.pool())
+        .execute(self.pool_result()?)
         .await
         .map_err(|e| AosError::Database(format!("Failed to archive adapter version: {}", e)))?;
 
@@ -2965,7 +2970,7 @@ impl Db {
         )
         .bind(version_id)
         .bind(tenant_id)
-        .execute(self.pool())
+        .execute(self.pool_result()?)
         .await
         .map_err(|e| AosError::Database(format!("Failed to unarchive adapter version: {}", e)))?;
 
@@ -2996,7 +3001,7 @@ impl Db {
         )
         .bind(version_id)
         .bind(tenant_id)
-        .fetch_optional(self.pool())
+        .fetch_optional(self.pool_result()?)
         .await
         .map_err(|e| AosError::Database(format!("Failed to get attach mode: {}", e)))?;
 
@@ -3022,7 +3027,7 @@ impl Db {
         )
         .bind(version_id)
         .bind(tenant_id)
-        .fetch_optional(self.pool())
+        .fetch_optional(self.pool_result()?)
         .await
         .map_err(|e| AosError::Database(format!("Failed to get adapter version: {}", e)))?;
 

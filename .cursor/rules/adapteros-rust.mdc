@@ -20,6 +20,21 @@ do_thing().map_err(|e| tracing::error!(%e, "do_thing failed"))?;
 - Use `Result<T, AosError>`; see `crates/adapteros-core/src/error.rs`.
 - New error conditions need codes in `error_codes.rs`.
 
+## SSE Event Contract
+
+- Server SSE events in `streaming_infer.rs` and UI `InferenceEvent` in `signals/chat.rs` must stay in sync.
+- New UI event fields must use `#[serde(default)]` for backward compatibility.
+- When adding fields to SSE events, update corresponding Playwright SSE helpers and mocks in `tests/playwright/`.
+
+## Error Code Governance
+
+- Canonical source: `crates/adapteros-core/src/error_codes.rs`.
+- Do not introduce new raw string literal error codes in handlers.
+- Prefer canonical constants or canonicalization helper paths:
+  - `crates/adapteros-server-api/src/error_code_normalization.rs`
+  - `crates/adapteros-server-api/src/api_error.rs`
+- Run `bash scripts/check_error_code_drift.sh` after error-path changes.
+
 ## Logging
 
 - Prefer `tracing` macros over `println!`.

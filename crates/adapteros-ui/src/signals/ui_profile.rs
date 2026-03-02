@@ -1,6 +1,7 @@
 //! UI profile configuration state.
 
 use super::settings::use_settings;
+#[cfg(all(feature = "hydrate", target_arch = "wasm32"))]
 use crate::boot_log;
 use adapteros_api_types::UiProfile;
 use leptos::prelude::*;
@@ -30,6 +31,7 @@ pub fn provide_ui_profile_context() {
     provide_context(state);
 
     let client = crate::api::use_api_client();
+    #[cfg(all(feature = "hydrate", target_arch = "wasm32"))]
     wasm_bindgen_futures::spawn_local(async move {
         match client.get_ui_config().await {
             Ok(resp) => {
@@ -46,6 +48,11 @@ pub fn provide_ui_profile_context() {
             }
         }
     });
+    #[cfg(not(all(feature = "hydrate", target_arch = "wasm32")))]
+    {
+        let _ = client;
+        state.update(|s| s.loaded = true);
+    }
 }
 
 /// Access UI profile context.

@@ -52,6 +52,7 @@ adapteros-orchestrator = { path = "../adapteros-orchestrator" }
 adapteros-model-hub = { path = "../adapteros-model-hub" }
 adapteros-ingest-docs = { path = "../adapteros-ingest-docs", optional = true }
 adapteros-api-types = { path = "../adapteros-api-types" }
+adapteros-ui = { path = "../adapteros-ui", default-features = false, features = ["ssr"] }
 # Workspace dependencies
 anyhow.workspace = true
 blake3.workspace = true
@@ -82,10 +83,13 @@ opentelemetry = { workspace = true }
 opentelemetry_sdk = { workspace = true }
 opentelemetry-otlp = { workspace = true }
 tracing-opentelemetry = { workspace = true }
+mimalloc = "0.1"
 mime_guess = "2.0"
 uuid = { version = "1.6", features = ["v7"] }
 chrono = "0.4"
 sqlx = { workspace = true, default-features = false, features = ["sqlite", "runtime-tokio"] }
+leptos = { version = "0.7", default-features = false, features = ["ssr"] }
+leptos_router = { version = "0.7", default-features = false, features = ["ssr"] }
 [target.'cfg(unix)'.dependencies]
 libc = "0.2"
 [dev-dependencies]

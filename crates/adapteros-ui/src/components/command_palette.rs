@@ -3,11 +3,13 @@
 //! A Ctrl+K modal for keyboard-first navigation and actions.
 
 use crate::components::search_results::{SearchEmptyState, SearchResultsList};
+use crate::components::IconX;
 use crate::search::{RecentItem, SearchAction};
 use crate::signals::search::use_search;
 use leptos::ev::KeyboardEvent;
 use leptos::prelude::*;
 use leptos_router::hooks::use_navigate;
+use urlencoding::encode;
 
 /// Command Palette modal component
 #[component]
@@ -101,8 +103,7 @@ pub fn CommandPalette() -> impl IntoView {
         <Show when=move || search_for_when.command_palette_open.get()>
             // Backdrop
             <div
-                class="fixed inset-0 z-50 bg-black/50 backdrop-blur-sm"
-                style="animation: fadeIn 100ms ease-out"
+                class="fixed inset-0 z-50 bg-black/50 backdrop-blur-sm command-palette-backdrop"
                 on:click={
                     let search = search_for_backdrop.clone();
                     move |_| search.close()
@@ -111,16 +112,15 @@ pub fn CommandPalette() -> impl IntoView {
 
             // Palette container
             <div
-                class="fixed left-1/2 top-1/4 -translate-x-1/2 z-50 w-full max-w-xl"
-                style="animation: slideDown 150ms ease-out"
+                class="fixed left-1/2 top-1/4 -translate-x-1/2 z-50 w-full max-w-xl command-palette-panel"
                 role="dialog"
                 aria-modal="true"
                 aria-label="Command Deck"
             >
                 // Focus trap: start sentinel
                 <div
+                    class="focus-sentinel"
                     tabindex="0"
-                    style="position:absolute;width:1px;height:1px;overflow:hidden;clip:rect(0,0,0,0)"
                     aria-hidden="true"
                     on:focus={
                         let input_ref = input_ref;
@@ -206,8 +206,8 @@ pub fn CommandPalette() -> impl IntoView {
                             node_ref=input_ref
                             type="text"
                             class="flex-1 bg-transparent text-base outline-none placeholder:text-muted-foreground"
-                            placeholder="Find pages, restore points, signed logs, and actions..."
-                            aria-label="Search pages, restore points, signed logs, and actions"
+                            placeholder="Find pages, execution records, execution receipts, and actions..."
+                            aria-label="Search pages, execution records, execution receipts, and actions"
                             prop:value={
                                 let search = search_for_value.clone();
                                 move || search.query.get()
@@ -242,17 +242,7 @@ pub fn CommandPalette() -> impl IntoView {
                                             search.results.set(Vec::new());
                                         }
                                     >
-                                        <svg
-                                            xmlns="http://www.w3.org/2000/svg"
-                                            class="h-4 w-4"
-                                            fill="none"
-                                            viewBox="0 0 24 24"
-                                            stroke="currentColor"
-                                            stroke-width="2"
-                                            aria-hidden="true"
-                                        >
-                                            <path stroke-linecap="round" stroke-linejoin="round" d="M6 18L18 6M6 6l12 12"/>
-                                        </svg>
+                                        <IconX class="h-4 w-4"/>
                                     </button>
                                 })
                             } else {
@@ -348,8 +338,8 @@ pub fn CommandPalette() -> impl IntoView {
                 </div>
                 // Focus trap: end sentinel
                 <div
+                    class="focus-sentinel"
                     tabindex="0"
-                    style="position:absolute;width:1px;height:1px;overflow:hidden;clip:rect(0,0,0,0)"
                     aria-hidden="true"
                     on:focus={
                         let input_ref = input_ref;
@@ -446,8 +436,10 @@ fn RecentItemsList(
 
 /// Execute a command by key
 fn execute_command(command: &str) {
+    use crate::api::use_api_client;
     use crate::signals::auth::AuthContext;
     use crate::signals::chat::ChatContext;
+    use crate::signals::RouteContext;
 
     match command {
         "toggle-chat" => {
@@ -486,6 +478,63 @@ fn execute_command(command: &str) {
                 let _ = window.location().set_href("/training?open_wizard=1");
             }
         }
+        "run-promote-selected-adapter" => {
+            if let Some(adapter_id) = selected_adapter_id() {
+                if let Some(window) = web_sys::window() {
+                    let target = format!(
+                        "/update-center?adapter_id={}&command=run-promote",
+                        encode(&adapter_id)
+                    );
+                    let _ = window.location().set_href(&target);
+                }
+            } else if let Some(window) = web_sys::window() {
+                let _ = window.location().set_href("/update-center");
+            }
+        }
+        "run-checkout-selected-adapter" => {
+            if let Some(adapter_id) = selected_adapter_id() {
+                if let Some(window) = web_sys::window() {
+                    let target = format!(
+                        "/update-center?adapter_id={}&command=run-checkout",
+                        encode(&adapter_id)
+                    );
+                    let _ = window.location().set_href(&target);
+                }
+            } else if let Some(window) = web_sys::window() {
+                let _ = window.location().set_href("/update-center");
+            }
+        }
+        "feed-dataset-selected-adapter" => {
+            if let Some(adapter_id) = selected_adapter_id() {
+                let client = use_api_client();
+                wasm_bindgen_futures::spawn_local(async move {
+                    let target = match client.get_adapter(&adapter_id).await {
+                        Ok(adapter) => {
+                            if let Some(repo_id) = adapter.repo_id {
+                                format!(
+                                    "/training?open_wizard=1&repo_id={}&return_to=%2Fupdate-center",
+                                    encode(&repo_id)
+                                )
+                            } else {
+                                format!(
+                                    "/update-center?adapter_id={}&command=feed-dataset",
+                                    encode(&adapter_id)
+                                )
+                            }
+                        }
+                        Err(_) => format!(
+                            "/update-center?adapter_id={}&command=feed-dataset",
+                            encode(&adapter_id)
+                        ),
+                    };
+                    if let Some(window) = web_sys::window() {
+                        let _ = window.location().set_href(&target);
+                    }
+                });
+            } else if let Some(window) = web_sys::window() {
+                let _ = window.location().set_href("/update-center");
+            }
+        }
         "refresh" => {
             if let Some(window) = web_sys::window() {
                 let _ = window.location().reload();
@@ -501,6 +550,29 @@ fn execute_command(command: &str) {
         other => {
             tracing::warn!(command = other, "Unhandled command palette action");
         }
+    }
+
+    fn selected_adapter_id() -> Option<String> {
+        use_context::<RouteContext>()
+            .and_then(|ctx| {
+                ctx.selected_entity.get_untracked().and_then(|entity| {
+                    if entity.entity_type == "adapter" {
+                        Some(entity.entity_id)
+                    } else {
+                        None
+                    }
+                })
+            })
+            .or_else(|| {
+                web_sys::window().and_then(|window| {
+                    window.location().search().ok().and_then(|search| {
+                        web_sys::UrlSearchParams::new_with_str(&search)
+                            .ok()
+                            .and_then(|params| params.get("adapter_id"))
+                            .filter(|adapter_id| !adapter_id.is_empty())
+                    })
+                })
+            })
     }
 }
 

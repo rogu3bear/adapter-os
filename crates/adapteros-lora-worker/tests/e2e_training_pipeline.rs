@@ -52,6 +52,8 @@ async fn test_e2e_minimal_training() {
         preferred_backend: Some(TrainingBackend::Cpu),
         max_gpu_memory_mb: 0,
         checkpoint_interval: None,
+        use_gpu_backward: false,
+        validation_split: 0.0,
         ..Default::default()
     };
 
@@ -92,6 +94,8 @@ async fn test_e2e_full_pipeline() {
         preferred_backend: Some(TrainingBackend::Cpu),
         max_gpu_memory_mb: 0,
         checkpoint_interval: None,
+        use_gpu_backward: false,
+        validation_split: 0.0,
         ..Default::default()
     };
 
@@ -211,6 +215,8 @@ async fn test_e2e_deterministic_training() {
         epochs: 1,
         require_gpu: false,
         preferred_backend: Some(TrainingBackend::Cpu),
+        use_gpu_backward: false,
+        validation_split: 0.0,
         ..Default::default()
     };
 

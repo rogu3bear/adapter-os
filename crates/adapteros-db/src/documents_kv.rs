@@ -167,37 +167,6 @@ impl DocumentKvRepository {
         Ok(())
     }
 
-    #[allow(dead_code)]
-    async fn remove_chunk_index(
-        &self,
-        tenant_id: &str,
-        document_id: &str,
-        chunk_id: &str,
-    ) -> Result<()> {
-        let key = Self::chunk_index_key(tenant_id, document_id);
-        if let Some(bytes) = self
-            .backend
-            .get(&key)
-            .await
-            .map_err(|e| AosError::Database(format!("Failed to load chunk index: {}", e)))?
-        {
-            let mut ids: Vec<String> =
-                serde_json::from_slice(&bytes).map_err(AosError::Serialization)?;
-            ids.retain(|v| v != chunk_id);
-            if ids.is_empty() {
-                if let Err(e) = self.backend.delete(&key).await {
-                    tracing::warn!(key, error = %e, "failed to delete empty chunk index");
-                }
-            } else {
-                let payload = serde_json::to_vec(&ids).map_err(AosError::Serialization)?;
-                self.backend.set(&key, payload).await.map_err(|e| {
-                    AosError::Database(format!("Failed to update chunk index: {}", e))
-                })?;
-            }
-        }
-        Ok(())
-    }
-
     /// Store a document.
     pub async fn put_document(&self, doc: &DocumentKv) -> Result<()> {
         let payload = serde_json::to_vec(doc).map_err(AosError::Serialization)?;

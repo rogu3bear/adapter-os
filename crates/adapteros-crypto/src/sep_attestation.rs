@@ -689,7 +689,11 @@ fn verify_root_ca(
     }
 
     // Get the root certificate (last in chain)
-    let root_der = attestation.certificate_chain.last().unwrap();
+    let root_der = attestation.certificate_chain.last().ok_or_else(|| {
+        AosError::Crypto(
+            "Attestation chain is empty but was expected to contain certificates".to_string(),
+        )
+    })?;
     let (_, root_cert) = X509Certificate::from_der(root_der)
         .map_err(|e| AosError::Crypto(format!("Failed to parse root certificate: {:?}", e)))?;
 

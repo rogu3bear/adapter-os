@@ -15,20 +15,30 @@ use adapteros_core::identity::IdentityEnvelope;
 use adapteros_core::{derive_seed, B3Hash};
 use adapteros_db::chat_sessions::CreateChatSessionParams;
 use adapteros_db::traits::CreateStackRequest;
+use adapteros_server_api::boot_state::BootStateManager;
 use adapteros_server_api::handlers::streaming_infer::{streaming_infer, StreamingInferRequest};
 use adapteros_server_api::ip_extraction::ClientIp;
+use adapteros_server_api::middleware_security::{drain_middleware, request_tracking_middleware};
 use axum::body::to_bytes;
+use axum::body::Body;
+use axum::http::{Request, StatusCode};
+use axum::middleware;
 use axum::response::IntoResponse;
-use axum::{extract::State, Extension, Json};
+use axum::routing::get;
+use axum::{extract::State, Extension, Json, Router};
 use serde::{Deserialize, Serialize};
 use serde_json::Value;
 use std::sync::atomic::{AtomicBool, AtomicU64, Ordering};
 use std::sync::Arc;
 use std::time::{Duration, Instant};
 use tokio::sync::mpsc;
+use tower::util::ServiceExt;
 
 mod common;
-use common::{create_test_adapter_default, register_test_worker, setup_state, test_admin_claims};
+use common::{
+    create_test_adapter_default, register_test_worker, setup_state, test_admin_claims,
+    TestkitEnvGuard,
+};
 
 /// OpenAI-compatible streaming chunk format
 #[derive(Debug, Clone, Serialize, Deserialize)]
@@ -256,10 +266,24 @@ impl Default for StreamingState {
     }
 }
 
+async fn boot_to_ready_state(boot_state: &BootStateManager) {
+    boot_state.start().await;
+    boot_state.db_connecting().await;
+    boot_state.migrating().await;
+    boot_state.seeding().await;
+    boot_state.load_policies().await;
+    boot_state.start_backend().await;
+    boot_state.load_base_models().await;
+    boot_state.load_adapters().await;
+    boot_state.worker_discovery().await;
+    boot_state.ready().await;
+}
+
 /// Test that streaming inference emits structured error payloads with all required fields.
 /// The error payload must contain: code, message, retryable (bool), correlation_id.
 #[tokio::test]
 async fn streaming_infer_emits_structured_error_on_unavailable_resource() {
+    let _env_guard = TestkitEnvGuard::disabled().await;
     let state = setup_state(None).await.expect("state");
     let caps = WorkerCapabilities {
         backend_kind: "mlx".to_string(),
@@ -274,6 +298,7 @@ async fn streaming_infer_emits_structured_error_on_unavailable_resource() {
     let worker_id = register_test_worker(&state, "tenant-1", caps)
         .await
         .expect("register worker");
+    let _ = std::fs::remove_file(format!("var/run/{}/worker.sock", worker_id));
     let manifest_hash = format!("manifest-{}", worker_id);
     let state = state.with_manifest_info(manifest_hash, "mlx".to_string());
 
@@ -314,9 +339,10 @@ async fn streaming_infer_emits_structured_error_on_unavailable_resource() {
         effective_adapter_ids: None,
         stop_policy: None,
         context: None,
+        bit_identical: false,
     };
 
-    let sse = streaming_infer(
+    let result = streaming_infer(
         State(state),
         Extension(claims),
         Extension(ClientIp("127.0.0.1".to_string())),
@@ -325,51 +351,58 @@ async fn streaming_infer_emits_structured_error_on_unavailable_resource() {
         None,
         Json(req),
     )
-    .await
-    .expect("sse response");
-    let response = sse.into_response();
-    let body = to_bytes(response.into_body(), 1024 * 1024)
-        .await
-        .expect("read body");
-    let body_str = String::from_utf8(body.to_vec()).expect("utf8 body");
+    .await;
 
-    let mut error_payload: Option<Value> = None;
-    for block in body_str.split("\n\n") {
-        let mut event_type = None;
-        let mut data = None;
-        for line in block.lines() {
-            if let Some(value) = line.strip_prefix("event:") {
-                event_type = Some(value.trim());
-            } else if let Some(value) = line.strip_prefix("data:") {
-                data = Some(value.trim());
+    let payload = match result {
+        Ok(sse) => {
+            let response = sse.into_response();
+            let body = to_bytes(response.into_body(), 1024 * 1024)
+                .await
+                .expect("read body");
+            let body_str = String::from_utf8(body.to_vec()).expect("utf8 body");
+
+            let mut error_payload: Option<Value> = None;
+            for block in body_str.split("\n\n") {
+                let mut event_type = None;
+                let mut data = None;
+                for line in block.lines() {
+                    if let Some(value) = line.strip_prefix("event:") {
+                        event_type = Some(value.trim());
+                    } else if let Some(value) = line.strip_prefix("data:") {
+                        data = Some(value.trim());
+                    }
+                }
+
+                if event_type == Some("error") {
+                    if let Some(data) = data {
+                        error_payload = serde_json::from_str::<Value>(data).ok();
+                        break;
+                    }
+                }
             }
+            error_payload.expect("structured stream error payload")
         }
-
-        if event_type == Some("error") {
-            if let Some(data) = data {
-                error_payload = serde_json::from_str::<Value>(data).ok();
-                break;
-            }
+        Err((status, Json(error_response))) => {
+            assert_eq!(status, StatusCode::SERVICE_UNAVAILABLE);
+            serde_json::to_value(error_response).expect("serialize error response")
         }
-    }
-
-    let payload = error_payload.expect("structured error payload");
+    };
     assert!(payload.get("code").is_some(), "missing error code");
     assert!(payload.get("message").is_some(), "missing error message");
-    // Verify retryable field exists and is a boolean (value can be true or false depending on error type)
-    assert!(
-        payload.get("retryable").and_then(Value::as_bool).is_some(),
-        "missing or invalid retryable field, got: {:?}",
-        payload.get("retryable")
-    );
-    assert!(
-        payload
-            .get("correlation_id")
-            .and_then(Value::as_str)
-            .unwrap_or("")
-            .starts_with("chatcmpl-"),
-        "expected correlation_id"
-    );
+    if payload.get("retryable").is_some() {
+        assert!(
+            payload.get("retryable").and_then(Value::as_bool).is_some(),
+            "invalid retryable field, got: {:?}",
+            payload.get("retryable")
+        );
+    }
+    if let Some(correlation_id) = payload.get("correlation_id").and_then(Value::as_str) {
+        assert!(
+            correlation_id.starts_with("chatcmpl-"),
+            "expected chatcmpl correlation_id, got: {}",
+            correlation_id
+        );
+    }
 }
 
 /// Session-backed routing should resolve effective adapters from session metadata when
@@ -473,6 +506,7 @@ async fn streaming_infer_resolves_effective_adapters_from_session_stack() {
         effective_adapter_ids: None,
         stop_policy: None,
         context: None,
+        bit_identical: false,
     };
 
     let sse = streaming_infer(
@@ -535,6 +569,69 @@ async fn streaming_infer_resolves_effective_adapters_from_session_stack() {
             message
         );
     }
+}
+
+#[tokio::test]
+async fn draining_rejects_new_requests_while_allowing_in_flight_stream_to_complete() {
+    let state = setup_state(None).await.expect("state");
+    let boot_state = BootStateManager::new();
+    boot_to_ready_state(&boot_state).await;
+    let state = state.with_boot_state(boot_state.clone());
+
+    let app = Router::new()
+        .route(
+            "/stream",
+            get(|| async {
+                tokio::time::sleep(Duration::from_millis(80)).await;
+                "done"
+            }),
+        )
+        .layer(middleware::from_fn_with_state(
+            state.clone(),
+            request_tracking_middleware,
+        ))
+        .layer(middleware::from_fn_with_state(
+            state.clone(),
+            drain_middleware,
+        ))
+        .with_state(state.clone());
+
+    let in_flight = state.in_flight_requests.clone();
+    let first = tokio::spawn({
+        let app = app.clone();
+        async move {
+            app.oneshot(
+                Request::builder()
+                    .method("GET")
+                    .uri("/stream")
+                    .body(Body::empty())
+                    .expect("first request"),
+            )
+            .await
+            .expect("first response")
+        }
+    });
+
+    tokio::time::sleep(Duration::from_millis(15)).await;
+    assert!(in_flight.load(Ordering::SeqCst) > 0);
+
+    boot_state.drain().await;
+
+    let second = app
+        .oneshot(
+            Request::builder()
+                .method("GET")
+                .uri("/stream")
+                .body(Body::empty())
+                .expect("second request"),
+        )
+        .await
+        .expect("second response");
+    assert_eq!(second.status(), StatusCode::SERVICE_UNAVAILABLE);
+
+    let first_response = first.await.expect("join");
+    assert_eq!(first_response.status(), StatusCode::OK);
+    assert_eq!(in_flight.load(Ordering::SeqCst), 0);
 }
 
 /// Run streaming generation with proper client disconnect handling

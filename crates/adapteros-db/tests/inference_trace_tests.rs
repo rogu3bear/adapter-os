@@ -20,7 +20,7 @@ async fn trace_persistence_and_receipt_verification() -> anyhow::Result<()> {
 
     // Create tenant first (FK constraint requires existing tenant)
     adapteros_db::sqlx::query("INSERT INTO tenants (id, name) VALUES ('tenant-1', 'Test Tenant')")
-        .execute(db.pool())
+        .execute(db.pool_result()?)
         .await?;
 
     let context_digest = B3Hash::hash(b"context-1").to_bytes();
@@ -146,7 +146,7 @@ async fn trace_persistence_and_receipt_verification() -> anyhow::Result<()> {
     let token_count: i64 =
         sqlx::query_scalar("SELECT COUNT(*) FROM inference_trace_tokens WHERE trace_id = ?")
             .bind(&trace_id)
-            .fetch_one(db.pool())
+            .fetch_one(db.pool_result()?)
             .await?;
     assert_eq!(token_count, 3);
 
@@ -155,7 +155,7 @@ async fn trace_persistence_and_receipt_verification() -> anyhow::Result<()> {
         "SELECT allowed_mask, policy_overrides_json FROM inference_trace_tokens WHERE trace_id = ? AND token_index = 1",
     )
     .bind(&trace_id)
-    .fetch_one(db.pool())
+    .fetch_one(db.pool_result()?)
     .await?;
     assert!(mask_blob.is_some(), "allowed_mask must be stored");
     assert!(
@@ -181,7 +181,7 @@ async fn trace_persistence_and_receipt_verification() -> anyhow::Result<()> {
     )
     .bind(tampered)
     .bind(&trace_id)
-    .execute(db.pool())
+    .execute(db.pool_result()?)
     .await?;
 
     let tampered_verification = recompute_receipt(&db, &trace_id).await?;

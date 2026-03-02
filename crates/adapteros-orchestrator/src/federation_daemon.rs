@@ -267,7 +267,7 @@ impl FederationDaemon {
 
     /// Count connected peers based on active federation peers
     async fn connected_peers(&self) -> Result<usize> {
-        let pool = self.db.pool();
+        let pool = self.db.pool_result()?;
         let count: i64 = sqlx::query_scalar(
             r#"
             SELECT COUNT(*) FROM federation_peers
@@ -380,7 +380,7 @@ impl FederationDaemon {
 
     /// Get all unique host IDs from federation signatures
     async fn get_all_host_ids(&self) -> Result<Vec<String>> {
-        let pool = self.db.pool();
+        let pool = self.db.pool_result()?;
 
         let rows = sqlx::query_scalar::<_, String>(
             r#"
@@ -448,7 +448,7 @@ impl FederationDaemon {
     /// Trigger policy quarantine
     async fn trigger_policy_quarantine(&self, reason: &str) -> Result<()> {
         // Insert into policy_quarantine table
-        let pool = self.db.pool();
+        let pool = self.db.pool_result()?;
 
         sqlx::query(
             r#"

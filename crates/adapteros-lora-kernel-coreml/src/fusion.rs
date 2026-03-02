@@ -883,7 +883,7 @@ fn write_fused_weights(output_path: &PathBuf, fused: &FusedModelWeights) -> Resu
         .collect();
 
     // Serialize using safetensors
-    let serialized = safetensors::serialize(tensor_views.into_iter(), &None)
+    let serialized = safetensors::serialize(tensor_views.into_iter(), None)
         .map_err(|e| AosError::Kernel(format!("Failed to serialize fused weights: {}", e)))?;
 
     std::fs::write(output_path, serialized)

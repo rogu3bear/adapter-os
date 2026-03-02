@@ -223,12 +223,12 @@ SQL
         || fail "/readyz request failed"
     verbose "/readyz: $readyz_resp"
 
-    # Test /api/v1/system/status (if available)
+    # Test /v1/system/status (if available)
     local status_code
     status_code=$(curl -sS -o /dev/null -w "%{http_code}" \
         --max-time "$CURL_TIMEOUT" \
-        "http://127.0.0.1:${SERVER_PORT}/api/v1/system/status" 2>/dev/null || echo "000")
-    verbose "/api/v1/system/status: HTTP $status_code"
+        "http://127.0.0.1:${SERVER_PORT}/v1/system/status" 2>/dev/null || echo "000")
+    verbose "/v1/system/status: HTTP $status_code"
 
     # Step 6: Cleanup
     echo "[6/6] Cleanup..."

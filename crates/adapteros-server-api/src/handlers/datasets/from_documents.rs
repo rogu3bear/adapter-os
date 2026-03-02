@@ -19,8 +19,8 @@ use std::sync::Arc;
 /// `collection_id` must be provided (mutually exclusive). The resulting dataset
 /// is immediately marked as valid since the source documents are already indexed.
 ///
-/// The JSONL format is: `{"text": "<chunk_text>"}` for each chunk, ordered
-/// deterministically by (document_id ASC, chunk_index ASC) for reproducibility.
+/// The JSONL format stores prompt/completion rows with source metadata for each
+/// chunk, ordered deterministically by (document_id ASC, chunk_index ASC).
 #[utoipa::path(
     post,
     path = "/v1/datasets/from-documents",

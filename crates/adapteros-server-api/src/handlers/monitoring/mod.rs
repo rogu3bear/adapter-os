@@ -3,6 +3,7 @@ use crate::middleware::require_any_role;
 use crate::security::validate_tenant_isolation;
 use crate::state::AppState;
 use crate::types::*;
+use adapteros_core::error_codes;
 use adapteros_core::AosError;
 use adapteros_db::process_monitoring::{
     AlertFilters, AlertSeverity, AlertStatus, AnomalyFilters, AnomalyStatus, ProcessAlert,
@@ -23,13 +24,43 @@ use serde_json::json;
 use sqlx::Row;
 use std::collections::{BTreeMap, HashMap};
 
+fn is_schema_contract_violation(message: &str) -> bool {
+    message.contains("no such table")
+        || message.contains("no such column")
+        || message.contains("has no column named")
+}
+
+fn schema_contract_violation_error(
+    message: impl Into<String>,
+) -> (StatusCode, Json<ErrorResponse>) {
+    (
+        StatusCode::SERVICE_UNAVAILABLE,
+        Json(
+            ErrorResponse::new("schema contract violation")
+                .with_code(error_codes::SCHEMA_CONTRACT_VIOLATION)
+                .with_string_details(message.into()),
+        ),
+    )
+}
+
+fn database_error(message: impl Into<String>) -> (StatusCode, Json<ErrorResponse>) {
+    (
+        StatusCode::INTERNAL_SERVER_ERROR,
+        Json(
+            ErrorResponse::new("database error")
+                .with_code("DATABASE_ERROR")
+                .with_string_details(message.into()),
+        ),
+    )
+}
+
 fn is_missing_table_error(error: &sqlx::Error) -> bool {
-    error.to_string().contains("no such table")
+    is_schema_contract_violation(&error.to_string())
 }
 
 fn is_missing_db_table_error(error: &AosError, table: &str) -> bool {
     let message = error.to_string();
-    message.contains("no such table") && message.contains(table)
+    is_schema_contract_violation(&message) && message.contains(table)
 }
 
 fn parse_rule_type(value: &str) -> Option<RuleType> {
@@ -90,8 +121,8 @@ fn parse_json_value(value: &str) -> serde_json::Value {
 }
 
 fn is_missing_metrics_table(err: &adapteros_core::AosError) -> bool {
-    err.to_string()
-        .contains("no such table: process_health_metrics")
+    let message = err.to_string();
+    is_schema_contract_violation(&message) && message.contains("process_health_metrics")
 }
 
 fn map_metrics(
@@ -120,20 +151,9 @@ async fn fetch_process_health_metrics_with_fallback(
         Ok(metrics) => Ok(map_metrics(metrics)),
         Err(e) => {
             if is_missing_metrics_table(&e) {
-                tracing::warn!(
-                    error = %e,
-                    "process_health_metrics table missing; returning empty metrics payload"
-                );
-                Ok(Vec::new())
+                Err(schema_contract_violation_error(e.to_string()))
             } else {
-                Err((
-                    StatusCode::INTERNAL_SERVER_ERROR,
-                    Json(
-                        ErrorResponse::new("database error")
-                            .with_code("DATABASE_ERROR")
-                            .with_string_details(e.to_string()),
-                    ),
-                ))
+                Err(database_error(e.to_string()))
             }
         }
     }
@@ -149,22 +169,9 @@ async fn fetch_process_alert_response(
         .await
         .map_err(|e| {
             if is_missing_table_error(&e) {
-                return (
-                    StatusCode::SERVICE_UNAVAILABLE,
-                    Json(
-                        ErrorResponse::new("process_alerts table missing")
-                            .with_code("MISSING_TABLE"),
-                    ),
-                );
+                return schema_contract_violation_error(e.to_string());
             }
-            (
-                StatusCode::INTERNAL_SERVER_ERROR,
-                Json(
-                    ErrorResponse::new("database error")
-                        .with_code("DATABASE_ERROR")
-                        .with_string_details(e.to_string()),
-                ),
-            )
+            database_error(e.to_string())
         })?;
 
     let row = row.ok_or_else(|| {
@@ -230,16 +237,9 @@ pub async fn list_process_monitoring_rules(
             Ok(rules) => rules,
             Err(e) => {
                 if is_missing_db_table_error(&e, "process_monitoring_rules") {
-                    return Ok(Json(Vec::new()));
+                    return Err(schema_contract_violation_error(e.to_string()));
                 }
-                return Err((
-                    StatusCode::INTERNAL_SERVER_ERROR,
-                    Json(
-                        ErrorResponse::new("database error")
-                            .with_code("DATABASE_ERROR")
-                            .with_string_details(e.to_string()),
-                    ),
-                ));
+                return Err(database_error(e.to_string()));
             }
         };
 
@@ -348,44 +348,18 @@ pub async fn create_process_monitoring_rule(
         .await
         .map_err(|e| {
             if is_missing_db_table_error(&e, "process_monitoring_rules") {
-                return (
-                    StatusCode::SERVICE_UNAVAILABLE,
-                    Json(
-                        ErrorResponse::new("process_monitoring_rules table missing")
-                            .with_code("MISSING_TABLE"),
-                    ),
-                );
+                return schema_contract_violation_error(e.to_string());
             }
-            (
-                StatusCode::INTERNAL_SERVER_ERROR,
-                Json(
-                    ErrorResponse::new("database error")
-                        .with_code("DATABASE_ERROR")
-                        .with_string_details(e.to_string()),
-                ),
-            )
+            database_error(e.to_string())
         })?;
 
     let rules = ProcessMonitoringRule::list(state.db.pool(), Some(&claims.tenant_id), None)
         .await
         .map_err(|e| {
             if is_missing_db_table_error(&e, "process_monitoring_rules") {
-                return (
-                    StatusCode::SERVICE_UNAVAILABLE,
-                    Json(
-                        ErrorResponse::new("process_monitoring_rules table missing")
-                            .with_code("MISSING_TABLE"),
-                    ),
-                );
+                return schema_contract_violation_error(e.to_string());
             }
-            (
-                StatusCode::INTERNAL_SERVER_ERROR,
-                Json(
-                    ErrorResponse::new("database error")
-                        .with_code("DATABASE_ERROR")
-                        .with_string_details(e.to_string()),
-                ),
-            )
+            database_error(e.to_string())
         })?;
 
     let rule = rules
@@ -492,16 +466,9 @@ pub async fn list_process_alerts(
         Ok(alerts) => alerts,
         Err(e) => {
             if is_missing_db_table_error(&e, "process_alerts") {
-                return Ok(Json(Vec::new()));
+                return Err(schema_contract_violation_error(e.to_string()));
             }
-            return Err((
-                StatusCode::INTERNAL_SERVER_ERROR,
-                Json(
-                    ErrorResponse::new("database error")
-                        .with_code("DATABASE_ERROR")
-                        .with_string_details(e.to_string()),
-                ),
-            ));
+            return Err(database_error(e.to_string()));
         }
     };
 
@@ -570,19 +537,9 @@ pub async fn acknowledge_process_alert(
     .await
     .map_err(|e| {
         if is_missing_db_table_error(&e, "process_alerts") {
-            return (
-                StatusCode::SERVICE_UNAVAILABLE,
-                Json(ErrorResponse::new("process_alerts table missing").with_code("MISSING_TABLE")),
-            );
+            return schema_contract_violation_error(e.to_string());
         }
-        (
-            StatusCode::INTERNAL_SERVER_ERROR,
-            Json(
-                ErrorResponse::new("database error")
-                    .with_code("DATABASE_ERROR")
-                    .with_string_details(e.to_string()),
-            ),
-        )
+        database_error(e.to_string())
     })?;
 
     let response = fetch_process_alert_response(state.db.pool(), &alert_id).await?;
@@ -853,16 +810,9 @@ pub async fn list_process_monitoring_dashboards(
         Ok(rows) => rows,
         Err(e) => {
             if is_missing_table_error(&e) {
-                return Ok(Json(Vec::new()));
+                return Err(schema_contract_violation_error(e.to_string()));
             }
-            return Err((
-                StatusCode::INTERNAL_SERVER_ERROR,
-                Json(
-                    ErrorResponse::new("database error")
-                        .with_code("DATABASE_ERROR")
-                        .with_string_details(e.to_string()),
-                ),
-            ));
+            return Err(database_error(e.to_string()));
         }
     };
 
@@ -951,22 +901,9 @@ pub async fn create_process_monitoring_dashboard(
     .await
     .map_err(|e| {
         if is_missing_table_error(&e) {
-            return (
-                StatusCode::SERVICE_UNAVAILABLE,
-                Json(
-                    ErrorResponse::new("process_custom_dashboards table missing")
-                        .with_code("MISSING_TABLE"),
-                ),
-            );
+            return schema_contract_violation_error(e.to_string());
         }
-        (
-            StatusCode::INTERNAL_SERVER_ERROR,
-            Json(
-                ErrorResponse::new("database error")
-                    .with_code("DATABASE_ERROR")
-                    .with_string_details(e.to_string()),
-            ),
-        )
+        database_error(e.to_string())
     })?;
 
     Ok(Json(ProcessMonitoringDashboardResponse {
@@ -1074,16 +1011,9 @@ pub async fn list_process_monitoring_reports(
         Ok(rows) => rows,
         Err(e) => {
             if is_missing_table_error(&e) {
-                return Ok(Json(Vec::new()));
+                return Err(schema_contract_violation_error(e.to_string()));
             }
-            return Err((
-                StatusCode::INTERNAL_SERVER_ERROR,
-                Json(
-                    ErrorResponse::new("database error")
-                        .with_code("DATABASE_ERROR")
-                        .with_string_details(e.to_string()),
-                ),
-            ));
+            return Err(database_error(e.to_string()));
         }
     };
 
@@ -1171,24 +1101,20 @@ pub async fn create_process_monitoring_report(
         limit: Some(1000),
     };
 
-    let (metrics, metrics_table_missing) =
-        match adapteros_system_metrics::ProcessHealthMetric::query(state.db.pool(), filters).await {
-            Ok(metrics) => (metrics, false),
-            Err(e) => {
-                if is_missing_metrics_table(&e) {
-                    (Vec::new(), true)
-                } else {
-                    return Err((
-                        StatusCode::INTERNAL_SERVER_ERROR,
-                        Json(
-                            ErrorResponse::new("database error")
-                                .with_code("DATABASE_ERROR")
-                                .with_string_details(e.to_string()),
-                        ),
-                    ));
-                }
+    let metrics = match adapteros_system_metrics::ProcessHealthMetric::query(
+        state.db.pool(),
+        filters,
+    )
+    .await
+    {
+        Ok(metrics) => metrics,
+        Err(e) => {
+            if is_missing_metrics_table(&e) {
+                return Err(schema_contract_violation_error(e.to_string()));
             }
-        };
+            return Err(database_error(e.to_string()));
+        }
+    };
 
     let mut summary: BTreeMap<String, (i64, f64, f64, f64)> = BTreeMap::new();
     for metric in &metrics {
@@ -1221,7 +1147,7 @@ pub async fn create_process_monitoring_report(
     let report_data = json!({
         "samples": metrics.len(),
         "metrics": metric_summaries,
-        "metrics_table_missing": metrics_table_missing
+        "metrics_table_missing": false
     });
 
     let metadata = json!({
@@ -1276,22 +1202,9 @@ pub async fn create_process_monitoring_report(
     .await
     .map_err(|e| {
         if is_missing_table_error(&e) {
-            return (
-                StatusCode::SERVICE_UNAVAILABLE,
-                Json(
-                    ErrorResponse::new("process_usage_reports table missing")
-                        .with_code("MISSING_TABLE"),
-                ),
-            );
+            return schema_contract_violation_error(e.to_string());
         }
-        (
-            StatusCode::INTERNAL_SERVER_ERROR,
-            Json(
-                ErrorResponse::new("database error")
-                    .with_code("DATABASE_ERROR")
-                    .with_string_details(e.to_string()),
-            ),
-        )
+        database_error(e.to_string())
     })?;
 
     Ok(Json(ProcessMonitoringReportResponse {

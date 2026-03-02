@@ -227,9 +227,17 @@ impl DatasetBuilder {
         let tokenizer_path = canonicalize_strict(&self.tokenizer_path)?;
         ensure_tokenizer_in_base_model(&tokenizer_path)?;
         let tokenizer = QwenTokenizer::from_file(&tokenizer_path)?;
-        let pad_token_id = tokenizer.pad_token_id().ok_or_else(|| {
-            AosError::Validation("Tokenizer missing pad_token_id for dataset build".to_string())
-        })?;
+        let pad_token_id = match tokenizer.pad_token_id() {
+            Some(id) => id,
+            None => {
+                let eos_id = tokenizer.eos_token_id();
+                warn!(
+                    eos_id,
+                    "Tokenizer missing pad_token_id for dataset build; falling back to eos_token_id"
+                );
+                eos_id
+            }
+        };
         let vocab_size = tokenizer.vocab_size(true);
 
         // Compute tokenizer hash

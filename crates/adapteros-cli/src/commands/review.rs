@@ -33,7 +33,7 @@ pub enum ReviewCommand {
         json: bool,
 
         /// API base URL
-        #[arg(long, env = "AOS_API_URL", default_value = "http://127.0.0.1:8080")]
+        #[arg(long, env = "AOS_API_URL", default_value = "http://127.0.0.1:18080")]
         base_url: String,
     },
 
@@ -51,7 +51,7 @@ pub enum ReviewCommand {
         json: bool,
 
         /// API base URL
-        #[arg(long, env = "AOS_API_URL", default_value = "http://127.0.0.1:8080")]
+        #[arg(long, env = "AOS_API_URL", default_value = "http://127.0.0.1:18080")]
         base_url: String,
     },
 
@@ -93,7 +93,7 @@ pub enum ReviewCommand {
         reviewer: String,
 
         /// API base URL
-        #[arg(long, env = "AOS_API_URL", default_value = "http://127.0.0.1:8080")]
+        #[arg(long, env = "AOS_API_URL", default_value = "http://127.0.0.1:18080")]
         base_url: String,
     },
 
@@ -111,7 +111,7 @@ pub enum ReviewCommand {
         output: Option<PathBuf>,
 
         /// API base URL
-        #[arg(long, env = "AOS_API_URL", default_value = "http://127.0.0.1:8080")]
+        #[arg(long, env = "AOS_API_URL", default_value = "http://127.0.0.1:18080")]
         base_url: String,
     },
 
@@ -131,7 +131,7 @@ pub enum ReviewCommand {
         reviewer: String,
 
         /// API base URL
-        #[arg(long, env = "AOS_API_URL", default_value = "http://127.0.0.1:8080")]
+        #[arg(long, env = "AOS_API_URL", default_value = "http://127.0.0.1:18080")]
         base_url: String,
     },
 

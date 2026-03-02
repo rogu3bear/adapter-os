@@ -3,6 +3,7 @@ set -euo pipefail
 
 SCRIPT_DIR="$(cd "$(dirname "${BASH_SOURCE[0]}")" && pwd)"
 ROOT_DIR="$(cd "$SCRIPT_DIR/.." && pwd)"
+source "$ROOT_DIR/scripts/lib/build-targets.sh"
 cd "$ROOT_DIR"
 
 die() {
@@ -83,6 +84,9 @@ print_env_if_set "AOS_MODEL_PATH"
 print_env_if_set "AOS_TOKENIZER_PATH"
 
 mkdir -p "$ROOT_DIR/var/tmp"
+SERVER_TARGET_DIR="$(aos_export_cargo_target server)"
+aos_prune_incremental_if_needed server || true
+aos_print_build_context server
 
 CONFIG_PATH="${AOS_CONFIG:-$ROOT_DIR/configs/cp.toml}"
 if [ ! -f "$CONFIG_PATH" ]; then
@@ -137,7 +141,12 @@ print_kv "ui_assets" "index.html wasm=$wasm_count css=$css_count js=$js_count"
 
 info "Build backend (debug)"
 echo "+ cargo build -p adapteros-server"
-cargo build -p adapteros-server
+if aos_is_truthy "${AOS_BUILD_USE_SCCACHE:-1}"; then
+    cargo build -p adapteros-server
+else
+    # Explicitly disable wrapper for troubleshooting parity with script-level policy.
+    RUSTC_WRAPPER= cargo build -p adapteros-server
+fi
 
 info "Migrations"
 CHECK_LOG="$(mktemp "$ROOT_DIR/var/tmp/dev-up.migrations.XXXXXX")"
@@ -159,7 +168,7 @@ if ! "$ROOT_DIR/scripts/check-migrations.sh" >"$CHECK_LOG" 2>&1; then
 fi
 rm -f "$CHECK_LOG"
 
-SERVER_BIN="$ROOT_DIR/target/debug/adapteros-server"
+SERVER_BIN="$(aos_resolve_binary adapteros-server debug server || true)"
 if [ ! -x "$SERVER_BIN" ]; then
     die "Backend binary not found: $SERVER_BIN"
 fi

@@ -93,10 +93,6 @@ pub struct App {
     pub log_filter_input: String,
     pub log_filter_mode: Option<LogFilterMode>,
 
-    // Adapter browser state
-    #[allow(dead_code)]
-    pub adapter_filter: String,
-
     // Training jobs state
     pub selected_training_job: usize,
     pub training_jobs: Vec<TrainingJobInfo>,
@@ -142,7 +138,6 @@ impl App {
         Self::new_with_config(tui_config).await
     }
 
-    #[allow(dead_code)]
     pub async fn new_with_url(server_url: String) -> Result<Self> {
         // Load persisted config but override server_url with provided value
         let mut tui_config = TuiConfig::load().unwrap_or_default();
@@ -226,9 +221,6 @@ impl App {
             log_filter_tenant: None,
             log_filter_input: String::new(),
             log_filter_mode: None,
-
-            // Adapter browser state
-            adapter_filter: String::new(),
 
             // Training jobs state
             selected_training_job: 0,
@@ -864,7 +856,6 @@ impl App {
         Ok(())
     }
 
-    #[allow(dead_code)]
     pub async fn stop_service(&mut self, index: usize) -> Result<()> {
         if let Some(service) = self.services.get_mut(index) {
             let service_name = service.name.clone();
@@ -884,7 +875,6 @@ impl App {
         Ok(())
     }
 
-    #[allow(dead_code)]
     pub async fn restart_service(&mut self, index: usize) -> Result<()> {
         if let Some(service) = self.services.get_mut(index) {
             let service_name = service.name.clone();
