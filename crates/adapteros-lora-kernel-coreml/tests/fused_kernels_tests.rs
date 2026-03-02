@@ -46,7 +46,7 @@ fn create_mock_safetensor_weights(size: usize, seed: u64) -> Vec<u8> {
     let data: HashMap<String, safetensors::tensor::TensorView<'_>> =
         [("weights".to_string(), view)].into_iter().collect();
 
-    safetensors::serialize(data, None).expect("Failed to serialize safetensors")
+    safetensors::serialize(data, &None).expect("Failed to serialize safetensors")
 }
 
 // =============================================================================

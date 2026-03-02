@@ -1,18 +1,23 @@
 //! Organization section component
 
-use crate::api::{use_api_client, ApiClient, ApiError, TenantSummary};
-use crate::components::{Card, EmptyState, EmptyStateVariant, ErrorDisplay, SkeletonCard};
+use crate::api::{report_error_with_toast, use_api_client, ApiClient, ApiError, TenantSummary};
+use crate::components::{
+    Button, ButtonVariant, Card, ConfirmationDialog, ConfirmationSeverity, EmptyState,
+    EmptyStateVariant, ErrorDisplay, SkeletonCard,
+};
 use crate::hooks::{use_api_resource, use_polling, LoadingState};
-use crate::signals::{use_auth, use_refetch_signal, RefetchTopic};
+use crate::signals::{use_auth, use_notifications, use_refetch_signal, RefetchTopic};
 use crate::utils::{format_datetime, humanize};
 use leptos::prelude::*;
 use std::sync::Arc;
+use wasm_bindgen_futures::spawn_local;
 
-/// Organization section - tenant metadata display
+/// Organization section - tenant metadata
 #[component]
 pub fn OrgSection() -> impl IntoView {
     let (auth_state, _) = use_auth();
-    let _client = use_api_client();
+    let notifications = use_notifications();
+    let client = use_api_client();
     let (tenants, refetch) =
         use_api_resource(|client: Arc<ApiClient>| async move { client.list_user_tenants().await });
 
@@ -29,6 +34,100 @@ pub fn OrgSection() -> impl IntoView {
         let _ = users_counter.get();
         refetch.run(());
     });
+
+    // Revoke all sessions state
+    let show_revoke_confirm = RwSignal::new(false);
+    let revoking = RwSignal::new(false);
+
+    // Pause tenant state
+    let show_pause_confirm = RwSignal::new(false);
+    let pausing = RwSignal::new(false);
+
+    // Derive the org name from tenant data for the confirmation dialog
+    let org_name_for_confirm = Memo::new(move |_| {
+        if let LoadingState::Loaded(data) = tenants.get() {
+            let tenant_id = auth_state.get().user().map(|u| u.tenant_id.clone());
+            select_tenant(&data.tenants, tenant_id.as_deref())
+                .map(|t| t.name)
+                .unwrap_or_default()
+        } else {
+            String::new()
+        }
+    });
+
+    let tenant_id_for_revoke =
+        Memo::new(move |_| auth_state.get().user().map(|u| u.tenant_id.clone()));
+
+    let tenant_id_for_pause =
+        Memo::new(move |_| auth_state.get().user().map(|u| u.tenant_id.clone()));
+
+    let do_revoke = {
+        let notifications = notifications.clone();
+        let client = client.clone();
+        Callback::new(move |_| {
+            let Some(tid) = tenant_id_for_revoke.get_untracked() else {
+                return;
+            };
+            revoking.set(true);
+            show_revoke_confirm.set(false);
+            let notifications = notifications.clone();
+            let client = client.clone();
+            spawn_local(async move {
+                let url = format!("/v1/tenants/{}/revoke-all-tokens", tid);
+                match client.post_empty::<serde_json::Value>(&url).await {
+                    Ok(_) => {
+                        notifications.success(
+                            "Sessions revoked",
+                            "All user sessions have been invalidated.",
+                        );
+                    }
+                    Err(e) => {
+                        report_error_with_toast(
+                            &e,
+                            "Failed to revoke sessions",
+                            Some("/admin?tab=org"),
+                            true,
+                        );
+                    }
+                }
+                revoking.set(false);
+            });
+        })
+    };
+
+    let do_pause = {
+        let notifications = notifications.clone();
+        let client = client.clone();
+        Callback::new(move |_| {
+            let Some(tid) = tenant_id_for_pause.get_untracked() else {
+                return;
+            };
+            pausing.set(true);
+            show_pause_confirm.set(false);
+            let notifications = notifications.clone();
+            let client = client.clone();
+            spawn_local(async move {
+                let url = format!("/v1/tenants/{}/pause", tid);
+                match client.post_no_body_no_response(&url).await {
+                    Ok(_) => {
+                        notifications.success(
+                            "Tenant paused",
+                            "The organization has been paused. New inference requests will be rejected.",
+                        );
+                    }
+                    Err(e) => {
+                        report_error_with_toast(
+                            &e,
+                            "Failed to pause tenant",
+                            Some("/admin?tab=org"),
+                            true,
+                        );
+                    }
+                }
+                pausing.set(false);
+            });
+        })
+    };
 
     view! {
         <div class="max-w-2xl">
@@ -100,7 +199,7 @@ pub fn OrgSection() -> impl IntoView {
                             }.into_any()
                         }
                     }
-                    LoadingState::Error(err) => match err.as_ref() {
+                    LoadingState::Error(err) => match err {
                         ApiError::NotFound(_) => view! {
                             <EmptyState
                                 title="Organization info unavailable"
@@ -110,12 +209,85 @@ pub fn OrgSection() -> impl IntoView {
                                 on_action=refetch.as_callback()
                             />
                         }.into_any(),
-                          other => view! {
-                            <ErrorDisplay error=other.clone() on_retry=refetch.as_callback()/>
+                        other => view! {
+                            <ErrorDisplay error=other on_retry=refetch.as_callback()/>
                         }.into_any(),
                     },
                 }}
             </Card>
+
+            <Card title="Danger Zone".to_string() class="mt-6 border-destructive".to_string()>
+                <div class="space-y-4">
+                    <div class="flex items-center justify-between">
+                        <div>
+                            <p class="font-medium">"Pause Organization"</p>
+                            <p class="text-sm text-muted-foreground">
+                                "Suspend inference requests for this tenant. Does not affect running jobs."
+                            </p>
+                        </div>
+                        <Button
+                            variant=ButtonVariant::Secondary
+                            on_click=Callback::new(move |_| show_pause_confirm.set(true))
+                            loading=Signal::from(pausing)
+                            disabled=Signal::from(pausing)
+                        >
+                            "Pause"
+                        </Button>
+                    </div>
+                    <div class="border-t pt-4 flex items-center justify-between">
+                        <div>
+                            <p class="font-medium">"Revoke All Sessions"</p>
+                            <p class="text-sm text-muted-foreground">
+                                "Force all users to re-authenticate. Use with caution."
+                            </p>
+                        </div>
+                        <Button
+                            variant=ButtonVariant::Destructive
+                            on_click=Callback::new(move |_| show_revoke_confirm.set(true))
+                            loading=Signal::from(revoking)
+                            disabled=Signal::from(revoking)
+                        >
+                            "Revoke All"
+                        </Button>
+                    </div>
+                </div>
+            </Card>
+
+            {move || {
+                let name = org_name_for_confirm.get();
+                let display_name = if name.is_empty() { "this organization".to_string() } else { name.clone() };
+                let revoke_description = format!(
+                    "This will force all users in '{}' to re-authenticate. Active sessions will be terminated immediately.",
+                    display_name,
+                );
+                let pause_description = format!(
+                    "Pausing '{}' will reject new inference requests for this tenant. Currently running jobs will not be interrupted. This can be reversed by an administrator.",
+                    display_name,
+                );
+                view! {
+                    <ConfirmationDialog
+                        open=show_revoke_confirm
+                        title="Revoke All Sessions"
+                        description=revoke_description
+                        severity=ConfirmationSeverity::Destructive
+                        confirm_text="Revoke All Sessions"
+                        typed_confirmation=display_name.clone()
+                        on_confirm=do_revoke
+                        on_cancel=Callback::new(move |_| show_revoke_confirm.set(false))
+                        loading=Signal::derive(move || revoking.get())
+                    />
+                    <ConfirmationDialog
+                        open=show_pause_confirm
+                        title="Pause Organization"
+                        description=pause_description
+                        severity=ConfirmationSeverity::Warning
+                        confirm_text="Pause Organization"
+                        on_confirm=do_pause
+                        on_cancel=Callback::new(move |_| show_pause_confirm.set(false))
+                        loading=Signal::derive(move || pausing.get())
+                    />
+                }
+            }}
         </div>
     }
 }

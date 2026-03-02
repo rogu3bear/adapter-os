@@ -10,7 +10,7 @@ async fn insert_default_tenant(db: &Db) {
         ON CONFLICT(id) DO NOTHING
         "#,
     )
-    .execute(db.pool_result().expect("db pool available"))
+    .execute(db.pool())
     .await
     .unwrap();
 }
@@ -104,7 +104,7 @@ async fn policy_audit_blocks_on_previous_hash_divergence() {
     sqlx::query(
         "UPDATE policy_audit_decisions SET previous_hash = 'corrupted' WHERE tenant_id = 'default-tenant'",
     )
-    .execute(db.pool_result().expect("db pool available"))
+    .execute(db.pool())
     .await
     .unwrap();
 

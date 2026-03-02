@@ -21,10 +21,6 @@ use tokio::sync::Mutex;
 use tokio::time;
 use tracing::{error, info, warn};
 
-const ROTATION_FAILURE_ESCALATION_THRESHOLD: u32 = 3;
-const ROTATION_FAILURE_COOLDOWN_BASE_SECS: u64 = 30;
-const ROTATION_FAILURE_COOLDOWN_MAX_SECS: u64 = 300;
-
 /// Key rotation daemon configuration
 #[derive(Debug, Clone, Serialize, Deserialize)]
 pub struct RotationDaemonConfig {
@@ -131,10 +127,7 @@ impl RotationDaemon {
         tokio::spawn(async move {
             use futures_util::FutureExt;
             use std::panic::AssertUnwindSafe;
-            if let Err(panic) = AssertUnwindSafe(self.run_rotation_loop())
-                .catch_unwind()
-                .await
-            {
+            if let Err(panic) = AssertUnwindSafe(self.run_rotation_loop()).catch_unwind().await {
                 tracing::error!(
                     task = "secd_key_rotation",
                     "key rotation daemon panicked — security-critical background task crashed: {:?}",
@@ -149,45 +142,13 @@ impl RotationDaemon {
     /// Main rotation loop
     async fn run_rotation_loop(&self) {
         let mut interval = time::interval(Duration::from_secs(self.config.rotation_interval_secs));
-        interval.set_missed_tick_behavior(time::MissedTickBehavior::Skip);
-        let mut consecutive_failures = 0u32;
 
         loop {
             interval.tick().await;
 
-            match self.perform_rotation_cycle().await {
-                Ok(_) => {
-                    if consecutive_failures > 0 {
-                        info!(
-                            target: "security.rotation",
-                            consecutive_failures,
-                            "secd rotation daemon recovered after consecutive failures"
-                        );
-                    }
-                    consecutive_failures = 0;
-                }
-                Err(e) => {
-                    consecutive_failures = consecutive_failures.saturating_add(1);
-                    let cooldown = rotation_failure_cooldown(consecutive_failures);
-                    error!(
-                        target: "security.rotation",
-                        error = %e,
-                        consecutive_failures,
-                        cooldown_secs = cooldown.as_secs(),
-                        "Key rotation cycle failed"
-                    );
-                    if consecutive_failures >= ROTATION_FAILURE_ESCALATION_THRESHOLD {
-                        error!(
-                            target: "security.rotation",
-                            event = "daemon_failure_escalated",
-                            consecutive_failures,
-                            escalation_threshold = ROTATION_FAILURE_ESCALATION_THRESHOLD,
-                            cooldown_secs = cooldown.as_secs(),
-                            "secd key rotation failure budget exceeded"
-                        );
-                    }
-                    time::sleep(cooldown).await;
-                }
+            if let Err(e) = self.perform_rotation_cycle().await {
+                error!("Key rotation cycle failed: {}", e);
+                // Continue running despite errors
             }
         }
     }
@@ -256,29 +217,17 @@ impl RotationDaemon {
         let receipt_json =
             serde_json::to_string_pretty(receipt).map_err(AosError::Serialization)?;
 
-        // Write atomically using tempfile crate
-        let parent = receipt_path.parent().unwrap_or(std::path::Path::new("."));
-        let mut temp_file = tempfile::Builder::new()
-            .prefix("receipt_")
-            .suffix(".tmp")
-            .tempfile_in(parent)
-            .map_err(|e| AosError::Io(format!("Failed to create temp receipt: {}", e)))?;
-
-        use std::io::Write;
-        temp_file
-            .write_all(receipt_json.as_bytes())
+        // Write atomically using temp file + rename
+        let temp_path = receipt_path.with_extension("tmp");
+        tokio::fs::write(&temp_path, &receipt_json)
+            .await
             .map_err(|e| AosError::Io(format!("Failed to write rotation receipt: {}", e)))?;
-        temp_file
-            .as_file_mut()
-            .sync_all()
-            .map_err(|e| AosError::Io(format!("Failed to sync rotation receipt: {}", e)))?;
 
-        temp_file.persist(&receipt_path).map_err(|e| {
-            AosError::Io(format!(
-                "Failed to atomically move rotation receipt: {}",
-                e.error
-            ))
-        })?;
+        tokio::fs::rename(&temp_path, &receipt_path)
+            .await
+            .map_err(|e| {
+                AosError::Io(format!("Failed to atomically move rotation receipt: {}", e))
+            })?;
 
         info!(
             key_id = %receipt.key_id,
@@ -349,30 +298,17 @@ impl AuditState {
     /// Save audit state to disk atomically
     async fn save(&self, audit_path: &Path) -> Result<()> {
         let state_path = audit_path.join("audit_state.json");
+        let temp_path = state_path.with_extension("tmp");
+
         let state_json = serde_json::to_string_pretty(self).map_err(AosError::Serialization)?;
 
-        let parent = state_path.parent().unwrap_or(std::path::Path::new("."));
-        let mut temp_file = tempfile::Builder::new()
-            .prefix("audit_state_")
-            .suffix(".tmp")
-            .tempfile_in(parent)
-            .map_err(|e| AosError::Io(format!("Failed to create temp state file: {}", e)))?;
-
-        use std::io::Write;
-        temp_file
-            .write_all(state_json.as_bytes())
+        tokio::fs::write(&temp_path, &state_json)
+            .await
             .map_err(|e| AosError::Io(format!("Failed to write audit state: {}", e)))?;
-        temp_file
-            .as_file_mut()
-            .sync_all()
-            .map_err(|e| AosError::Io(format!("Failed to sync audit state: {}", e)))?;
 
-        temp_file.persist(&state_path).map_err(|e| {
-            AosError::Io(format!(
-                "Failed to atomically move audit state: {}",
-                e.error
-            ))
-        })?;
+        tokio::fs::rename(&temp_path, &state_path)
+            .await
+            .map_err(|e| AosError::Io(format!("Failed to atomically move audit state: {}", e)))?;
 
         Ok(())
     }
@@ -417,13 +353,6 @@ pub async fn start_rotation_daemon() -> Result<()> {
     let daemon = Arc::new(RotationDaemon::new(config).await?);
     daemon.start().await?;
     Ok(())
-}
-
-fn rotation_failure_cooldown(consecutive_failures: u32) -> Duration {
-    let backoff_shift = consecutive_failures.saturating_sub(1).min(4);
-    let backoff_multiplier = 1u64 << backoff_shift;
-    let seconds = ROTATION_FAILURE_COOLDOWN_BASE_SECS.saturating_mul(backoff_multiplier);
-    Duration::from_secs(seconds.min(ROTATION_FAILURE_COOLDOWN_MAX_SECS))
 }
 
 #[cfg(test)]
@@ -491,13 +420,5 @@ mod tests {
         // Verify we kept the newest (highest timestamps)
         assert_eq!(receipts[0].timestamp, 1234567890 + 4);
         assert_eq!(receipts[1].timestamp, 1234567890 + 3);
-    }
-
-    #[test]
-    fn test_rotation_failure_cooldown_bounds() {
-        assert_eq!(rotation_failure_cooldown(1), Duration::from_secs(30));
-        assert_eq!(rotation_failure_cooldown(2), Duration::from_secs(60));
-        assert_eq!(rotation_failure_cooldown(3), Duration::from_secs(120));
-        assert_eq!(rotation_failure_cooldown(10), Duration::from_secs(300));
     }
 }

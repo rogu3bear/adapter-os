@@ -11,8 +11,8 @@ Usage:
   scripts/watchdog.sh <timeout_seconds>
 
 Environment:
-  AOS_SERVER_PORT              Backend port (default: 18080)
-  AOS_UI_PORT                  UI port (default: 18081)
+  AOS_SERVER_PORT              Backend port (default: 8080)
+  AOS_UI_PORT                  UI port (default: 3200)
   AOS_VAR_DIR                  Runtime directory (default: <repo>/var)
   AOS_WORKER_SOCKET            Worker UDS path (default: <var>/run/worker.sock)
   AOS_WATCHDOG_HOST            Host for curl checks (default: 127.0.0.1)
@@ -141,8 +141,8 @@ main() {
   require_cmd tail
 
   local host="${AOS_WATCHDOG_HOST:-127.0.0.1}"
-  local backend_port="${AOS_SERVER_PORT:-18080}"
-  local ui_port="${AOS_UI_PORT:-18081}"
+  local backend_port="${AOS_SERVER_PORT:-8080}"
+  local ui_port="${AOS_UI_PORT:-3200}"
   local var_dir="${AOS_VAR_DIR:-$REPO_ROOT/var}"
   if [[ "$var_dir" != /* ]]; then
     var_dir="$REPO_ROOT/$var_dir"

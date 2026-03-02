@@ -166,14 +166,13 @@ pub fn use_status_data() -> (ReadSignal<StatusLoadingState>, impl Fn() + Clone) 
                 let _ = set_state.try_set(StatusLoadingState::Loaded(Box::new(combined)));
             }
             (LoadingState::Error(e), _) | (_, LoadingState::Error(e)) => {
-                let err = (*e).clone();
                 if let Some(last_success) = cached_status.try_get().flatten() {
                     let _ = set_state.try_set(StatusLoadingState::LoadedWithError(
                         Box::new(last_success),
-                        err.clone(),
+                        e,
                     ));
                 } else {
-                    let _ = set_state.try_set(StatusLoadingState::Error(err));
+                    let _ = set_state.try_set(StatusLoadingState::Error(e));
                 }
             }
             _ => {
@@ -185,7 +184,7 @@ pub fn use_status_data() -> (ReadSignal<StatusLoadingState>, impl Fn() + Clone) 
     });
 
     let refetch = move || {
-        let should_show_spinner = cached_status.try_get_untracked().flatten().is_none();
+        let should_show_spinner = cached_status.get_untracked().is_none();
         if should_show_spinner {
             let _ = set_state.try_set(StatusLoadingState::Loading);
         }
@@ -195,9 +194,9 @@ pub fn use_status_data() -> (ReadSignal<StatusLoadingState>, impl Fn() + Clone) 
     };
 
     // Periodic refresh while mounted to recover transient fetch failures.
-    let refetch_for_polling = refetch;
+    let refetch_for_polling = refetch.clone();
     let _ = use_polling(30_000, move || {
-        let refetch = refetch_for_polling;
+        let refetch = refetch_for_polling.clone();
         async move {
             refetch();
         }

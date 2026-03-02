@@ -197,7 +197,7 @@ pub async fn seed_models_from_cache_if_empty(db: &Db) -> Result<()> {
     }
 
     let existing: i64 = sqlx::query_scalar("SELECT COUNT(*) FROM models")
-        .fetch_one(db.pool_result()?)
+        .fetch_one(db.pool())
         .await?;
     if existing > 0 {
         return Ok(());

@@ -1,4 +1,0 @@
-shape,owner,expires_on,rationale
-/v1/auth/sessions/{},api-contract-team,2026-06-30,Runtime uses `{jti}` while OpenAPI still uses `{session_id}`.
-/v1/repos/{}/branches/{}/rollback,api-contract-team,2026-06-30,OpenAPI documents branch-first rollback path while runtime uses `/rollback/{branch}`.
-/v1/training/{}/priority,api-contract-team,2026-06-30,OpenAPI path shape not yet migrated to `/v1/training/jobs/{job_id}/priority`.

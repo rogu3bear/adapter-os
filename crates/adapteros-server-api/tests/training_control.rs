@@ -239,57 +239,6 @@ async fn test_training_start() {
     assert_eq!(job.adapter_name, "adapter-start");
 }
 
-#[tokio::test]
-async fn test_training_start_twice_same_branch_allocates_distinct_versions() {
-    let (state, _temp_dir, base_model_id, _has_real_model) = setup_training_state().await;
-    let claims = test_admin_claims();
-    let repo_id = create_test_repo(&state, &claims.tenant_id, &claims.sub, &base_model_id).await;
-
-    let (_, Json(first)) = start_training(
-        State(state.clone()),
-        Extension(claims.clone()),
-        Extension(ClientIp("127.0.0.1".to_string())),
-        Json(make_request(
-            "adapter-start-1",
-            repo_id.clone(),
-            &base_model_id,
-        )),
-    )
-    .await
-    .expect("start training 1");
-
-    let (_, Json(second)) = start_training(
-        State(state.clone()),
-        Extension(claims.clone()),
-        Extension(ClientIp("127.0.0.1".to_string())),
-        Json(make_request("adapter-start-2", repo_id, &base_model_id)),
-    )
-    .await
-    .expect("start training 2");
-
-    assert_ne!(first.id, second.id, "job ids should be distinct");
-    assert_ne!(
-        first.adapter_version_id.as_deref(),
-        second.adapter_version_id.as_deref(),
-        "draft adapter versions should be distinct for repeated starts on same branch"
-    );
-
-    let _ = cancel_training(
-        State(state.clone()),
-        Extension(claims.clone()),
-        Extension(ClientIp("127.0.0.1".to_string())),
-        axum::extract::Path(first.id.clone()),
-    )
-    .await;
-    let _ = cancel_training(
-        State(state),
-        Extension(claims),
-        Extension(ClientIp("127.0.0.1".to_string())),
-        axum::extract::Path(second.id.clone()),
-    )
-    .await;
-}
-
 #[cfg(feature = "coreml-backend")]
 #[tokio::test]
 async fn training_coreml_export_writes_artifacts_and_metadata() {

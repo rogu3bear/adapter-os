@@ -90,10 +90,6 @@ pub struct StreamingInferRequest {
     #[serde(skip_serializing_if = "Option::is_none")]
     pub adapters: Option<Vec<String>>,
 
-    /// Request strict bit-identical deterministic behavior.
-    #[serde(default)]
-    pub bit_identical: bool,
-
     /// Random seed for reproducibility.
     ///
     /// Required when the effective determinism mode is strict and tenant policy

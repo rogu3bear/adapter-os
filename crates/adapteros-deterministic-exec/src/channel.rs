@@ -216,6 +216,7 @@ mod tests {
     #[test]
     fn test_channel_basic() {
         let _guard = test_lock().lock().unwrap();
+        reset_global_sequence();
 
         let (tx, rx) = channel::<i32>(10);
 
@@ -224,15 +225,17 @@ mod tests {
 
         let msg1 = rx.try_recv().unwrap();
         assert_eq!(msg1.payload, 42);
+        assert_eq!(msg1.sequence, 0);
 
         let msg2 = rx.try_recv().unwrap();
         assert_eq!(msg2.payload, 43);
-        assert!(msg2.sequence > msg1.sequence);
+        assert_eq!(msg2.sequence, 1);
     }
 
     #[test]
     fn test_channel_capacity() {
         let _guard = test_lock().lock().unwrap();
+        reset_global_sequence();
 
         let (tx, _rx) = channel::<i32>(2);
 
@@ -247,6 +250,7 @@ mod tests {
     #[test]
     fn test_channel_close() {
         let _guard = test_lock().lock().unwrap();
+        reset_global_sequence();
 
         let (tx, _rx) = channel::<i32>(10);
 
@@ -261,6 +265,7 @@ mod tests {
     #[test]
     fn test_sequencing_across_channels() {
         let _guard = test_lock().lock().unwrap();
+        reset_global_sequence();
 
         let (tx1, rx1) = channel::<i32>(10);
         let (tx2, rx2) = channel::<i32>(10);
@@ -273,13 +278,14 @@ mod tests {
         let msg2 = rx2.try_recv().unwrap();
         let msg3 = rx1.try_recv().unwrap();
 
-        assert!(msg1.sequence < msg2.sequence);
-        assert!(msg2.sequence < msg3.sequence);
+        assert_eq!(msg1.sequence, 0);
+        assert_eq!(msg2.sequence, 1);
+        assert_eq!(msg3.sequence, 2);
     }
 
     #[test]
     fn test_agent_id() {
-        let _guard = test_lock().lock().unwrap();
+        reset_global_sequence();
 
         let (tx, rx) = channel_with_agent::<i32>(10, Some("agent-1".to_string()));
 

@@ -61,7 +61,7 @@ impl Db {
         .bind(repo_id)
         .bind(branch_name)
         .bind(base_commit_sha)
-        .execute(self.pool_result()?)
+        .execute(self.pool())
         .await
         .map_err(|e| AosError::Database(e.to_string()))?;
         Ok(())
@@ -82,7 +82,7 @@ impl Db {
         .bind(status)
         .bind(merge_commit_sha)
         .bind(session_id)
-        .execute(self.pool_result()?)
+        .execute(self.pool())
         .await
         .map_err(|e| AosError::Database(e.to_string()))?;
         Ok(())
@@ -93,7 +93,7 @@ impl Db {
         let session =
             sqlx::query_as::<_, GitSession>("SELECT * FROM adapter_git_sessions WHERE id = ?")
                 .bind(session_id)
-                .fetch_optional(self.pool_result()?)
+                .fetch_optional(self.pool())
                 .await
                 .map_err(|e| AosError::Database(e.to_string()))?;
         Ok(session)
@@ -104,7 +104,7 @@ impl Db {
         let sessions = sqlx::query_as::<_, GitSession>(
             "SELECT * FROM adapter_git_sessions WHERE status = 'active' ORDER BY started_at DESC",
         )
-        .fetch_all(self.pool_result()?)
+        .fetch_all(self.pool())
         .await
         .map_err(|e| AosError::Database(e.to_string()))?;
         Ok(sessions)
@@ -116,7 +116,7 @@ impl Db {
             "SELECT * FROM adapter_git_sessions WHERE adapter_id = ? ORDER BY started_at DESC",
         )
         .bind(adapter_id)
-        .fetch_all(self.pool_result()?)
+        .fetch_all(self.pool())
         .await
         .map_err(|e| AosError::Database(e.to_string()))?;
         Ok(sessions)
@@ -141,7 +141,7 @@ impl Db {
         .bind(repo_id)
         .bind(file_path)
         .bind(change_type)
-        .execute(self.pool_result()?)
+        .execute(self.pool())
         .await
         .map_err(|e| AosError::Database(e.to_string()))?;
         Ok(())
@@ -165,7 +165,7 @@ impl Db {
         }
 
         query_builder
-            .execute(self.pool_result()?)
+            .execute(self.pool())
             .await
             .map_err(|e| AosError::Database(e.to_string()))?;
         Ok(())
@@ -180,7 +180,7 @@ impl Db {
              LIMIT ?",
         )
         .bind(limit)
-        .fetch_all(self.pool_result()?)
+        .fetch_all(self.pool())
         .await
         .map_err(|e| AosError::Database(e.to_string()))?;
         Ok(events)
@@ -205,7 +205,7 @@ impl Db {
         .bind(commit_sha)
         .bind(message)
         .bind(files_changed)
-        .execute(self.pool_result()?)
+        .execute(self.pool())
         .await
         .map_err(|e| AosError::Database(e.to_string()))?;
         Ok(())
@@ -217,7 +217,7 @@ impl Db {
             "SELECT * FROM git_adapter_commits WHERE session_id = ? ORDER BY created_at DESC",
         )
         .bind(session_id)
-        .fetch_all(self.pool_result()?)
+        .fetch_all(self.pool())
         .await
         .map_err(|e| AosError::Database(e.to_string()))?;
         Ok(commits)

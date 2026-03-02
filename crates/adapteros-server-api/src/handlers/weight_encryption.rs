@@ -155,7 +155,7 @@ pub async fn list_tenant_keys(
         "#,
     )
     .bind(&tenant_id)
-    .fetch_all(state.db.pool_result()?)
+    .fetch_all(state.db.pool())
     .await
     .map_err(|e| {
         ApiError::internal("failed to list tenant encryption keys").with_details(e.to_string())
@@ -285,7 +285,7 @@ pub async fn revoke_tenant_key(
     )
     .bind(&key_id)
     .bind(&tenant_id)
-    .fetch_optional(state.db.pool_result()?)
+    .fetch_optional(state.db.pool())
     .await
     .map_err(|e| {
         ApiError::internal("failed to look up encryption key").with_details(e.to_string())

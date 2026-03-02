@@ -1,0 +1,91 @@
+name: Architectural Lint
+
+on:
+  pull_request:
+    types: [opened, synchronize, reopened]
+  workflow_dispatch:
+
+jobs:
+  architectural-lint:
+    name: Architectural lint check
+    runs-on: ubuntu-latest
+    permissions:
+      contents: read
+      pull-requests: write
+    concurrency:
+      group: architectural-lint-${{ github.ref }}
+      cancel-in-progress: true
+    steps:
+      - name: Checkout
+        uses: actions/checkout@v4
+
+      - name: Check MoE/LoRA naming conventions
+        run: bash scripts/check_moe_lora_naming.sh
+
+      - name: Setup Rust
+        uses: dtolnay/rust-toolchain@stable
+        with:
+          components: rustfmt, clippy
+
+      - name: Cache cargo registry
+        uses: actions/cache@v4
+        with:
+          path: |
+            ~/.cargo/bin/
+            ~/.cargo/registry/index/
+            ~/.cargo/registry/cache/
+            ~/.cargo/git/db/
+            target/
+          key: ${{ runner.os }}-cargo-${{ hashFiles('**/Cargo.lock') }}
+          restore-keys: |
+            ${{ runner.os }}-cargo-
+
+      - name: Build lint tool
+        run: cargo build -p adapteros-lint --release
+
+      - name: Run architectural lint
+        id: lint
+        run: |
+          ./target/release/adapteros-lint check-all || true
+          violations=$(./target/release/adapteros-lint check-all 2>&1 | grep -c "Found.*violation" || echo "0")
+          echo "violations=$violations" >> $GITHUB_OUTPUT
+
+      - name: Comment on PR
+        if: github.event_name == 'pull_request' && always()
+        uses: actions/github-script@v7
+        with:
+          script: |
+            const { execSync } = require('child_process');
+            let lintOutput = '';
+            try {
+              lintOutput = execSync('./target/release/adapteros-lint check-all', { 
+                encoding: 'utf-8',
+                stdio: ['inherit', 'pipe', 'pipe']
+              });
+            } catch (e) {
+              lintOutput = e.stdout || e.message;
+            }
+
+            let body = '## 🔍 Architectural Lint Results\n\n';
+            
+            if (lintOutput.includes('No architectural violations')) {
+              body += '✅ **No architectural violations found.**\n\n';
+            } else {
+              body += '❌ **Architectural violations detected:**\n\n';
+              body += '```\n' + lintOutput + '\n```\n';
+              body += '\n**Fix:** Review violations and follow AGENTS.md patterns.\n';
+            }
+
+            github.rest.issues.createComment({
+              issue_number: context.issue.number,
+              owner: context.repo.owner,
+              repo: context.repo.repo,
+              body: body
+            });
+
+      - name: Fail on violations
+        if: steps.lint.outputs.violations != '0'
+        run: |
+          echo "::error::Architectural violations found. Fix violations before merging."
+          exit 1
+

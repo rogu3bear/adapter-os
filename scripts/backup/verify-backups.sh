@@ -65,19 +65,10 @@ fi
 
 DECRYPTED="${TMP_DIR}/bundle.tar.gz"
 
-if openssl enc -d -aes-256-gcm -pbkdf2 -iter 100000 -md sha256 \
+openssl enc -d -aes-256-gcm -pbkdf2 -iter 100000 -md sha256 \
   -in "${LATEST}" \
   -out "${DECRYPTED}" \
-  -pass "file:${KEY_PATH}" 2>/dev/null; then
-  :
-elif openssl enc -d -aes-256-cbc -pbkdf2 -iter 100000 -md sha256 \
-  -in "${LATEST}" \
-  -out "${DECRYPTED}" \
-  -pass "file:${KEY_PATH}" 2>/dev/null; then
-  log_json "warn" "Decrypted backup using aes-256-cbc fallback"
-else
-  fail "Unable to decrypt backup with supported ciphers"
-fi
+  -pass "file:${KEY_PATH}"
 
 mkdir -p "${EXTRACT_DIR}"
 tar -xzf "${DECRYPTED}" -C "${EXTRACT_DIR}"
@@ -93,9 +84,8 @@ fi
 (
   cd "${EXTRACT_DIR}"
   LC_ALL=C find . -type f \
-    ! -path "./metadata.json" \
-    ! -path "./checksums.txt" \
-    ! -path "./checksums.current" \
+    ! -name "metadata.json" \
+    ! -name "checksums.txt" \
     -print | LC_ALL=C sort | while IFS= read -r file; do
       shasum -a 256 "${file}"
     done

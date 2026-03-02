@@ -434,22 +434,7 @@ impl ShutdownCoordinator {
     }
 
     /// Initiate graceful shutdown with timeout and error recovery
-    pub async fn shutdown(self) -> Result<(), ShutdownError> {
-        let overall_timeout = self.config.overall_timeout;
-        match tokio::time::timeout(overall_timeout, self.shutdown_inner()).await {
-            Ok(result) => result,
-            Err(_) => {
-                error!(
-                    timeout_secs = overall_timeout.as_secs(),
-                    "Overall shutdown timeout exceeded"
-                );
-                Err(ShutdownError::Timeout)
-            }
-        }
-    }
-
-    /// Inner shutdown logic, wrapped by the overall timeout in `shutdown()`.
-    async fn shutdown_inner(mut self) -> Result<(), ShutdownError> {
+    pub async fn shutdown(mut self) -> Result<(), ShutdownError> {
         info!(
             "Initiating graceful shutdown (overall timeout: {:?})",
             self.config.overall_timeout

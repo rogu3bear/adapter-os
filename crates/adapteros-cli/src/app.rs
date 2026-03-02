@@ -1,17 +1,18 @@
 //! AdapterOS CLI tool (aosctl)
-//!
-//! Canonical CLI definition shared by the binary and tests.
 
-use adapteros_config::{BackendPreference, ModelConfig};
+use adapteros_config::{BackendPreference, ModelConfig, DEFAULT_BASE_MODEL_ID};
 use anyhow::Result;
 use clap::{CommandFactory, Parser, Subcommand};
 use clap_complete::Shell;
 use std::path::PathBuf;
+use tracing::{debug, error};
 
+use crate::cli_telemetry;
 use crate::commands;
-use crate::commands::diag;
-use crate::commands::golden::GoldenCmd;
 use crate::commands::*;
+use crate::commands::{baseline::BaselineCmd, golden::GoldenCmd};
+use crate::logging::init_logging;
+use crate::output::{OutputMode, OutputWriter};
 use crate::BackendType;
 
 #[derive(Parser)]
@@ -20,26 +21,25 @@ use crate::BackendType;
 #[command(version)]
 pub struct Cli {
     #[command(subcommand)]
-    pub command: Commands,
+    command: Commands,
 
-    /// Output in JSON format
+    /// Output all results as JSON for machine consumption
     #[arg(long, global = true)]
     json: bool,
 
-    /// Suppress non-essential output
+    /// Suppress all non-error output
     #[arg(long, short = 'q', global = true)]
     quiet: bool,
 
-    /// Enable verbose output
+    /// Show additional detail (debug-level diagnostics)
     #[arg(long, short = 'v', global = true)]
     verbose: bool,
 
-    /// Model path (overrides AOS_MODEL_PATH env var)
+    /// Path to base model directory
     #[arg(long, global = true, env = "AOS_MODEL_PATH")]
     pub model_path: Option<String>,
 
-    /// Model backend preference (overrides AOS_MODEL_BACKEND env var)
-    /// Values: auto, coreml, metal, mlx
+    /// Inference backend: auto, coreml, metal, or mlx
     #[arg(long, global = true, env = "AOS_MODEL_BACKEND", default_value = "auto")]
     pub model_backend: String,
 }
@@ -77,91 +77,13 @@ impl Cli {
     }
 }
 
-#[derive(Subcommand, Clone, Debug)]
-pub enum TraceCommand {
-    /// Export an offline trace bundle for replay verification
-    #[command(after_help = "\
-Examples:
-  aosctl trace export --request basic --out var/trace/basic
-  aosctl trace export --request cross-worker --out var/trace/cross --fixtures ./test_data/replay_fixtures
-")]
-    Export {
-        /// Request identifier (maps to fixture directory)
-        #[arg(long)]
-        request: String,
-        /// Output directory for exported artifacts
-        #[arg(long)]
-        out: PathBuf,
-        /// Optional custom fixture root (defaults to test_data/replay_fixtures)
-        #[arg(long)]
-        fixtures: Option<PathBuf>,
-    },
-}
-
-/// Log analysis and diagnostics subcommands
-#[derive(Subcommand, Clone, Debug)]
-pub enum LogCommand {
-    /// Generate a log digest summarizing WARN/ERROR entries
-    #[command(after_help = "\
-Examples:
-  # Summarize logs from the last hour
-  aosctl log digest var/logs --since 1h
-
-  # Include INFO level, output as JSON
-  aosctl log digest var/logs --include-info --json
-
-  # Filter by component
-  aosctl log digest var/logs --component adapteros-server
-")]
-    Digest(commands::log_digest::LogDigestArgs),
-
-    /// Triage log entries with rule-based categorization and remediation hints
-    #[command(after_help = "\
-Examples:
-  # Basic triage
-  aosctl log triage var/logs
-
-  # With detailed remediation steps
-  aosctl log triage var/logs --detailed
-
-  # Use custom rules
-  aosctl log triage var/logs --rules ./custom_rules.json
-")]
-    Triage(commands::log_triage::LogTriageArgs),
-
-    /// Build an LLM prompt from triaged log entries
-    #[command(after_help = "\
-Examples:
-  # Generate markdown prompt
-  aosctl log prompt var/logs --format markdown
-
-  # Write to file
-  aosctl log prompt var/logs -o prompt.md
-
-  # Focus on memory issues
-  aosctl log prompt var/logs --focus memory
-
-  # Include system context
-  aosctl log prompt var/logs --include-system
-")]
-    Prompt(commands::log_prompt::LogPromptArgs),
-}
-
 #[derive(Subcommand)]
 pub enum Commands {
-    // ============================================================
-    // Authentication
-    // ============================================================
-    /// Login/logout for CLI-managed tokens
-    #[command(subcommand)]
-    Auth(commands::auth_cli::AuthCommand),
-
     // ============================================================
     // Tenant Management
     // ============================================================
     /// Initialize a new tenant
-    #[command(after_help = "\
-Examples:
+    #[command(after_help = r#"Examples:
   # Create a development tenant
   aosctl init-tenant --id tenant_dev --uid 1000 --gid 1000
 
@@ -170,17 +92,17 @@ Examples:
 
   # Quick alias (hidden)
   aosctl init --id tenant_test --uid 1000 --gid 1000
-")]
+"#)]
     TenantInit {
-        /// Tenant ID
+        /// Unique tenant identifier
         #[arg(short, long)]
         id: String,
 
-        /// Unix UID
+        /// Unix user ID for file ownership isolation
         #[arg(short, long)]
         uid: u32,
 
-        /// Unix GID
+        /// Unix group ID for file ownership isolation
         #[arg(short, long)]
         gid: u32,
     },
@@ -188,215 +110,263 @@ Examples:
     // ============================================================
     // Adapter Management
     // ============================================================
-    /// Adapter management commands (lifecycle, registration, pinning, etc.)
-    #[command(subcommand, visible_alias = "adapters")]
+    /// List adapters in the registry
+    #[command(
+        alias = "list-adapters",
+        after_help = r#"Examples:
+  aosctl list-adapters
+  aosctl list-adapters --tier persistent
+  aosctl list-adapters --json > adapters.json
+  aosctl list-adapters --include-meta
+"#
+    )]
+    AdapterList {
+        /// Filter by tier: persistent, warm, or ephemeral
+        #[arg(short, long)]
+        tier: Option<String>,
+
+        /// Include full adapter metadata in output
+        #[arg(long)]
+        include_meta: bool,
+    },
+
+    /// Register a new adapter
+    #[command(after_help = r#"Examples:
+  # Register from a .aos bundle (explicit tenant and base model)
+  aosctl register-adapter --adapter-id my_adapter --aos ./adapters/my_adapter.aos \
+    --tenant-id tenant-doc-chat --base-model-id qwen2.5-7b --tier persistent --rank 16
+"#)]
+    AdapterRegister {
+        /// Unique adapter identifier
+        #[arg(long)]
+        adapter_id: String,
+
+        /// Path to .aos adapter bundle file
+        #[arg(long)]
+        aos: std::path::PathBuf,
+
+        /// Owning tenant identifier
+        #[arg(long)]
+        tenant_id: String,
+
+        /// Base model this adapter was trained against
+        #[arg(long)]
+        base_model_id: String,
+
+        /// Eviction tier: persistent (never), warm (under pressure), or ephemeral (first)
+        #[arg(short, long, default_value = "ephemeral")]
+        tier: String,
+
+        /// LoRA rank (must match training rank)
+        #[arg(short, long)]
+        rank: u32,
+    },
+
+    /// Pin adapter to prevent eviction
+    #[command(after_help = r#"Examples:
+  # Pin adapter permanently
+  aosctl pin-adapter --tenant dev --adapter specialist --reason "Production critical"
+
+  # Pin adapter with TTL
+  aosctl pin-adapter --tenant dev --adapter temp_fix --ttl-hours 24 --reason "Testing"
+
+  # List pinned adapters
+  aosctl list-pinned --tenant dev
+"#)]
+    AdapterPin {
+        /// Tenant ID
+        #[arg(short, long)]
+        tenant: String,
+
+        /// Adapter ID
+        #[arg(short, long)]
+        adapter: String,
+
+        /// TTL in hours (omit for permanent pin)
+        #[arg(long)]
+        ttl_hours: Option<u64>,
+
+        /// Reason for pinning
+        #[arg(short, long)]
+        reason: String,
+    },
+
+    /// Unpin adapter to allow eviction
+    #[command(after_help = r#"Examples:
+  # Unpin adapter
+  aosctl unpin-adapter --tenant dev --adapter temp_fix
+
+  # Verify unpinning
+  aosctl list-pinned --tenant dev
+"#)]
+    AdapterUnpin {
+        /// Tenant ID
+        #[arg(short, long)]
+        tenant: String,
+
+        /// Adapter ID
+        #[arg(short, long)]
+        adapter: String,
+    },
+
+    /// List pinned adapters
+    #[command(after_help = r#"Examples:
+  # List all pinned adapters for tenant
+  aosctl list-pinned --tenant dev
+
+  # Check specific adapter status
+  aosctl adapter-info specialist
+"#)]
+    AdapterListPinned {
+        /// Tenant ID
+        #[arg(short, long)]
+        tenant: String,
+    },
+
+    /// Hot-swap adapters in running worker
+    #[command(after_help = r#"Examples:
+  # Dry-run adapter swap
+  aosctl adapter-swap --tenant dev --add specialist --remove temp_fix
+
+  # Commit adapter swap
+  aosctl adapter-swap --tenant dev --add specialist --remove temp_fix --commit
+
+  # Add multiple adapters
+  aosctl adapter-swap --tenant dev --add adapter1,adapter2 --commit
+"#)]
+    AdapterSwap {
+        /// Tenant ID
+        #[arg(short, long)]
+        tenant: String,
+
+        /// Adapter IDs to add (comma-separated)
+        #[arg(long, value_delimiter = ',')]
+        add: Vec<String>,
+
+        /// Adapter IDs to remove (comma-separated)
+        #[arg(long, value_delimiter = ',')]
+        remove: Vec<String>,
+
+        /// Timeout in milliseconds
+        #[arg(long, default_value = "5000")]
+        timeout: u64,
+
+        /// Commit the swap (otherwise dry-run)
+        #[arg(long)]
+        commit: bool,
+
+        /// Unix domain socket path for worker communication
+        #[arg(long, default_value = "/var/run/aos/aos.sock")]
+        socket: PathBuf,
+    },
+
+    /// Show adapter information and provenance
+    #[command(after_help = r#"Examples:
+  # Show adapter details
+  aosctl adapter-info specialist
+
+  # Check adapter compatibility
+  aosctl adapter-info temp_fix --check-compatibility
+
+  # Show adapter provenance
+  aosctl adapter-info specialist --show-provenance
+"#)]
+    AdapterInfo {
+        /// Adapter ID
+        adapter_id: String,
+    },
+
+    /// Adapters group commands
+    #[command(subcommand)]
+    Adapters(commands::adapters::AdaptersCmd),
+
+    /// Adapter lifecycle management commands
+    #[command(subcommand)]
     Adapter(adapter::AdapterCommand),
-
-    /// Repository + version management commands
-    #[command(subcommand)]
-    Repo(commands::repo::RepoCommand),
-
-    /// Adapter stack management commands (create, list, activate, etc.)
-    #[command(subcommand, visible_alias = "stacks")]
-    Stack(stack::StackCommand),
-
-    // ============================================================
-    // Interactive Chat
-    // ============================================================
-    /// Interactive chat with streaming inference
-    #[command(subcommand)]
-    Chat(chat::ChatCommand),
-
-    // ============================================================
-    // Multi-Agent Operations
-    // ============================================================
-    /// Multi-agent spawn commands for parallel code modification strategies
-    #[command(subcommand)]
-    Agent(commands::agent::AgentCommand),
-
-    // ============================================================
-    // Development Commands
-    // ============================================================
-    /// Development environment commands (start/stop services)
-    #[command(subcommand_required = false)]
-    Dev {
-        #[command(subcommand)]
-        cmd: Option<dev::DevCommand>,
-    },
-
-    /// Scenario readiness utilities
-    #[cfg(feature = "scenarios")]
-    #[command(subcommand)]
-    Scenario(commands::scenario::ScenarioSubcommand),
-
-    /// CoreML verification and health commands
-    #[command(subcommand)]
-    Coreml(commands::coreml_status::CoremlCommand),
-
-    // ============================================================
-    // Model Export
-    // ============================================================
-    /// Export a fused CoreML package from a base model and adapter bundle
-    #[cfg(feature = "coreml-export")]
-    CoremlExport {
-        /// Path to the base CoreML package directory or Manifest.json
-        #[arg(long)]
-        base_package: PathBuf,
-        /// Path to the adapter .aos bundle
-        #[arg(long)]
-        adapter_aos: PathBuf,
-        /// Output path for the fused CoreML package (directory or manifest)
-        #[arg(long)]
-        output_package: PathBuf,
-        /// Preferred compute units: cpu_only, cpu_and_gpu, cpu_and_neural_engine, all
-        #[arg(long)]
-        compute_units: Option<String>,
-        /// Optional logical base model ID for recording
-        #[arg(long)]
-        base_model_id: Option<String>,
-        /// Optional logical adapter ID for recording
-        #[arg(long)]
-        adapter_id: Option<String>,
-    },
-    /// Trigger CoreML export for a completed training job
-    #[cfg(feature = "coreml-export")]
-    CoremlExportJob {
-        /// Training job ID to export
-        job_id: String,
-        /// Control plane base URL (default http://localhost:18080)
-        #[arg(long, default_value = "http://localhost:18080")]
-        base_url: String,
-    },
-    /// Show CoreML export status for a training job
-    #[cfg(feature = "coreml-export")]
-    CoremlExportStatus {
-        /// Training job ID to inspect
-        job_id: String,
-        /// Control plane base URL (default http://localhost:18080)
-        #[arg(long, default_value = "http://localhost:18080")]
-        base_url: String,
-    },
 
     // ============================================================
     // Node & Cluster Management
     // ============================================================
     /// Node management commands (list, verify, sync)
-    #[command(subcommand, visible_alias = "nodes")]
+    #[command(subcommand)]
+    #[command(after_help = r#"Examples:
+  # List all nodes
+  aosctl node list
+  aosctl node list --offline
+
+  # Verify cross-node determinism
+  aosctl node verify --all
+  aosctl node verify --nodes node1,node2
+
+  # Sync adapters across nodes
+  aosctl node sync verify --from node1 --to node2
+  aosctl node sync push --to node2 --adapters adapter1,adapter2
+  aosctl node sync pull --from node1 --adapters adapter1
+  aosctl node sync export --file ./adapters-bundle.tar
+  aosctl node sync import --file ./adapters-bundle.tar
+"#)]
     Node(node::NodeCommand),
-
-    // ============================================================
-    // System Status
-    // ============================================================
-    /// Show system status (adapters, cluster, tick, memory)
-    Status(commands::status::StatusCommand),
-
-    /// Run system health diagnostics
-    #[command(after_help = "\
-Examples:
-  # Run comprehensive health check
-  aosctl doctor
-
-  # Check health with custom server URL
-  aosctl doctor --server-url http://localhost:18080
-
-  # Check health with custom timeout
-  aosctl doctor --timeout 30
-")]
-    Doctor(commands::doctor::DoctorCommand),
-
-    /// Post-reboot startup verification (requires running server)
-    #[command(after_help = "\
-Examples:
-  # Run post-reboot startup checks
-  aosctl check startup
-
-  # Check against custom server URL
-  aosctl check startup --server-url http://localhost:18080
-
-  # Check with custom timeout
-  aosctl check startup --timeout 30
-")]
-    Check(commands::check::CheckCommand),
-
-    /// Pre-flight system readiness check (run before launching server)
-    #[command(after_help = "\
-Examples:
-  # Run pre-flight checks
-  aosctl preflight
-
-  # Run checks with auto-fix
-  aosctl preflight --fix
-
-  # Check specific model path
-  aosctl preflight --model-path ./models/my-model
-
-  # Skip backend checks (faster)
-  aosctl preflight --skip-backends
-
-  # Check before launch (recommended)
-  aosctl preflight && cargo run -p adapteros-server-api
-")]
-    Preflight(commands::preflight::PreflightCommand),
-
-    // ============================================================
-    // Maintenance
-    // ============================================================
-    /// Maintenance operations (GC, sweeps, etc.)
-    Maintenance(commands::maintenance::MaintenanceCommand),
-
-    // ============================================================
-    // Deployment
-    // ============================================================
-    /// Deployment workflows (adapters, etc.)
-    Deploy(commands::deploy::DeployCommand),
 
     // ============================================================
     // Registry Management
     // ============================================================
-    /// Registry management commands (sync, migrate)
-    #[command(subcommand)]
-    Registry(registry::RegistryCommand),
+    /// Sync adapters from local directory to registry
+    #[command(after_help = r#"Examples:
+  # Sync adapters from directory
+  aosctl sync-registry --dir ./adapters
 
-    // ============================================================
-    // Storage Management
-    // ============================================================
-    /// Storage backend management commands (mode, migrate, verify)
-    #[command(subcommand)]
-    Storage(storage::StorageCommand),
+  # Sync with custom CAS root
+  aosctl sync-registry --dir ./adapters --cas-root var/cas
+
+  # Sync to custom registry
+  aosctl sync-registry --dir ./adapters --registry var/custom.db
+"#)]
+    RegistrySync {
+        /// Directory containing adapters with SBOM and signatures
+        #[arg(short, long)]
+        dir: PathBuf,
+
+        /// Public key for signature verification (hex or PEM). Defaults to <dir>/public_key.hex.
+        #[arg(long)]
+        public_key: Option<PathBuf>,
+
+        /// CAS root directory
+        #[arg(long, default_value = "var/cas")]
+        cas_root: PathBuf,
+
+        /// Registry database path
+        #[arg(long, default_value = "var/registry.db")]
+        registry: PathBuf,
+    },
 
     // ============================================================
     // Database Management
     // ============================================================
-    /// Database management commands (migrate, reset)
+    /// Database management commands (migrate, etc.)
     #[command(subcommand)]
     Db(commands::db::DbCommand),
 
-    // ============================================================
-    // Review Management
-    // ============================================================
-    /// Human-in-the-loop review commands (list, submit, export)
-    #[command(subcommand)]
-    Review(commands::review::ReviewCommand),
+    /// Migrate registry database from old to new schema
+    #[command(after_help = r#"Examples:
+  # Migrate from deprecated/registry.db to var/registry.db
+  aosctl registry-migrate
 
-    // ============================================================
-    // Model Management
-    // ============================================================
-    /// Model management commands (seed, list)
-    #[command(subcommand)]
-    Models(commands::models::ModelsCommand),
+  # Explicit paths with dry run
+  aosctl registry-migrate --from-db deprecated/registry.db --to-db var/registry.db --dry-run
+"#)]
+    RegistryMigrate(commands::registry::RegistryMigrateArgs),
 
     // ============================================================
     // Plan Management
     // ============================================================
     /// Build a plan from manifest
-    #[command(after_help = "\
-Examples:
+    #[command(after_help = r#"Examples:
   # Build plan from YAML manifest
   aosctl build-plan manifests/qwen7b.yaml --output plan/qwen7b/plan.bin
 
   # Build plan for production
   aosctl build-plan manifests/production.yaml --output plan/prod_v1/plan.bin
-")]
+"#)]
     PlanBuild {
         /// Manifest path
         manifest: PathBuf,
@@ -414,17 +384,16 @@ Examples:
     // Model Management
     // ============================================================
     /// Import a model
-    #[command(after_help = "\
-Examples:
+    #[command(after_help = r#"Examples:
   # Import Qwen2.5-7B model
-  aosctl import-model \\
-    --name qwen2.5-7b \\
-    --weights ${AOS_MODEL_CACHE_DIR}/${AOS_BASE_MODEL_ID}/weights.safetensors \\
-    --config ${AOS_MODEL_CACHE_DIR}/${AOS_BASE_MODEL_ID}/config.json \\
-    --tokenizer ${AOS_MODEL_CACHE_DIR}/${AOS_BASE_MODEL_ID}/tokenizer.json \\
-    --tokenizer-cfg ${AOS_MODEL_CACHE_DIR}/${AOS_BASE_MODEL_ID}/tokenizer_config.json \\
+  aosctl import-model \
+    --name qwen2.5-7b \
+    --weights ${AOS_MODEL_CACHE_DIR}/${AOS_BASE_MODEL_ID}/weights.safetensors \
+    --config ${AOS_MODEL_CACHE_DIR}/${AOS_BASE_MODEL_ID}/config.json \
+    --tokenizer ${AOS_MODEL_CACHE_DIR}/${AOS_BASE_MODEL_ID}/tokenizer.json \
+    --tokenizer-cfg ${AOS_MODEL_CACHE_DIR}/${AOS_BASE_MODEL_ID}/tokenizer_config.json \
     --license ${AOS_MODEL_CACHE_DIR}/${AOS_BASE_MODEL_ID}/LICENSE
-")]
+"#)]
     ModelImport {
         /// Model name
         #[arg(short, long)]
@@ -454,32 +423,63 @@ Examples:
     // ============================================================
     // Telemetry & Verification
     // ============================================================
-    /// Telemetry commands (list, verify)
-    #[command(subcommand)]
-    Telemetry(telemetry::TelemetryCommand),
+    /// Validate a trace file for integrity and limits
+    #[cfg(feature = "trace")]
+    #[command(after_help = r#"Examples:
+  # Strict validation with hash checks
+  aosctl trace-validate /path/to/trace.ndjson --verify-hash
 
-    /// Trace utilities (export replayable artifacts)
-    #[command(subcommand)]
-    Trace(TraceCommand),
+  # Tolerant validation (skip bad lines), limit events and bytes
+  aosctl trace-validate /path/to/trace.ndjson.zst --tolerant --max-events 10000 --max-bytes 104857600
 
-    /// Federation commands (verify cross-host signatures)
-    #[command(subcommand)]
-    Federation(federation::FederationCommand),
+  # Enforce a max line length guard
+  aosctl trace-validate /path/to/trace.ndjson --max-line-len 1048576
+"#)]
+    TraceValidate {
+        /// Path to trace file (.ndjson or .ndjson.zst)
+        path: PathBuf,
 
-    /// Run deterministic drift harness across backends
-    #[command(after_help = "\
-Examples:
-  # Run drift harness with config file
-  aosctl drift-check --config drift.json
+        /// Strict mode (default). Use --tolerant to skip invalid lines/events.
+        #[arg(long, default_value_t = true, conflicts_with = "tolerant")]
+        strict: bool,
+
+        /// Tolerant mode (skip invalid lines/events and continue)
+        #[arg(long, conflicts_with = "strict")]
+        tolerant: bool,
+
+        /// Verify per-event hashes
+        #[arg(long, default_value_t = false)]
+        verify_hash: bool,
+
+        /// Maximum number of events to read
+        #[arg(long)]
+        max_events: Option<usize>,
+
+        /// Maximum total bytes to read
+        #[arg(long)]
+        max_bytes: Option<u64>,
+
+        /// Maximum line length in bytes
+        #[arg(long)]
+        max_line_len: Option<usize>,
+    },
+
+    /// Check for environment drift
+    #[command(after_help = r#"Examples:
+  # Run drift check with config file
+  aosctl drift-check --config var/drift-check.toml
 
   # Override dataset path
-  aosctl drift-check --config drift.json --dataset ./tests/data.json
+  aosctl drift-check --config var/drift-check.toml --dataset data/test.json
 
-  # Limit to CPU and CoreML
-  aosctl drift-check --config drift.json --backend cpu --backend coreml
-")]
+  # Override backends
+  aosctl drift-check --config var/drift-check.toml --backends mlx,coreml
+
+  # Set reference backend for comparison
+  aosctl drift-check --config var/drift-check.toml --reference-backend mlx
+"#)]
     DriftCheck {
-        /// Drift harness config (JSON)
+        /// Path to drift check config file (TOML)
         #[arg(long)]
         config: PathBuf,
 
@@ -487,15 +487,15 @@ Examples:
         #[arg(long)]
         dataset: Option<PathBuf>,
 
-        /// Override manifest path for metadata writeback
+        /// Override manifest path
         #[arg(long)]
         manifest: Option<PathBuf>,
 
-        /// Backends to run (repeatable)
-        #[arg(long, value_name = "cpu|coreml|mlx|metal")]
-        backend: Vec<String>,
+        /// Override backends (comma-separated)
+        #[arg(long, value_delimiter = ',')]
+        backends: Vec<String>,
 
-        /// Reference backend (defaults to first backend)
+        /// Reference backend for comparison
         #[arg(long)]
         reference_backend: Option<String>,
     },
@@ -503,31 +503,100 @@ Examples:
     // ============================================================
     // CodeGraph & Call Graph
     // ============================================================
-    /// CodeGraph commands (export, stats)
+    /// Export call graph to various formats
     #[cfg(feature = "codegraph")]
-    #[command(subcommand)]
-    Codegraph(codegraph::CodegraphCommand),
+    #[command(after_help = r#"Examples:
+  aosctl callgraph-export --codegraph-db var/codegraph.db --output graph.dot
+  aosctl callgraph-export --codegraph-db var/codegraph.db --output graph.json --format json
+"#)]
+    CallgraphExport {
+        /// CodeGraph database path
+        #[arg(short, long)]
+        codegraph_db: PathBuf,
+
+        /// Output file path
+        #[arg(short, long)]
+        output: PathBuf,
+
+        /// Export format (dot, json, csv)
+        #[arg(short, long, default_value = "dot")]
+        format: String,
+    },
+
+    /// Generate CodeGraph statistics
+    #[cfg(feature = "codegraph")]
+    #[command(after_help = r#"Examples:
+  # Generate statistics
+  aosctl codegraph-stats --codegraph-db var/codegraph.db
+
+  # Export statistics to JSON
+  aosctl codegraph-stats --codegraph-db var/codegraph.db --json > stats.json
+"#)]
+    CodegraphStats {
+        /// CodeGraph database path
+        #[arg(short, long)]
+        codegraph_db: PathBuf,
+    },
+
+    /// Show aos-secd daemon status
+    #[cfg(feature = "secd-support")]
+    #[command(after_help = r#"Examples:
+  aosctl secd-status
+  aosctl secd-status --database var/custom.db
+  aosctl secd-status --json > secd.json
+"#)]
+    SecdStatus {
+        /// PID file path
+        #[arg(long, default_value = "/var/run/aos-secd.pid")]
+        pid_file: PathBuf,
+
+        /// Heartbeat file path
+        #[arg(long, default_value = "/var/run/aos-secd.heartbeat")]
+        heartbeat_file: PathBuf,
+
+        /// Socket path
+        #[arg(long, default_value = "/var/run/aos-secd.sock")]
+        socket: PathBuf,
+
+        /// Database path
+        #[arg(long, default_value = "var/aos-cp.sqlite3")]
+        database: PathBuf,
+    },
+
+    /// Show aos-secd operation audit trail
+    #[cfg(feature = "secd-support")]
+    SecdAudit {
+        /// Database path
+        #[arg(long, default_value = "var/aos-cp.sqlite3")]
+        database: PathBuf,
+
+        /// Number of operations to show
+        #[arg(short, long, default_value = "50")]
+        limit: i64,
+
+        /// Filter by operation type (sign, seal, unseal, get_public_key)
+        #[arg(short, long)]
+        operation: Option<String>,
+    },
 
     // ============================================================
-    // Security Daemon
+    // AOS File Operations
     // ============================================================
-    /// Security daemon commands (status, audit)
-    #[cfg(feature = "secd-support")]
+    /// AOS adapter file operations (create, verify, info, convert)
     #[command(subcommand)]
-    Secd(secd::SecdCommand),
+    Aos(commands::aos::AosCmd),
 
     // ============================================================
     // General Operations
     // ============================================================
     /// Import an artifact bundle
-    #[command(after_help = "\
-Examples:
+    #[command(after_help = r#"Examples:
   # Import signed bundle (default, recommended)
   aosctl import artifacts/adapters.zip
 
   # Import without verification (dev only, not recommended)
   aosctl import bundle.zip --no-verify
-")]
+"#)]
     Import {
         /// Bundle path
         bundle: PathBuf,
@@ -537,142 +606,23 @@ Examples:
         no_verify: bool,
     },
 
-    /// Verify a bundle
-    #[command(after_help = "\
-Examples:
-  # Verify artifact bundle signature and hashes
-  aosctl verify artifacts/adapters.zip
-
-  # Verify telemetry bundle chain from a trace ID
-  aosctl verify trace_12345
-
-  # Force bundle verification
-  aosctl verify ./artifacts/adapters.zip --bundle
-")]
-    Verify {
-        /// Bundle path or trace ID
-        target: String,
-
-        /// Treat target as a trace ID and fetch the receipt proof chain
-        #[arg(long, conflicts_with = "bundle")]
-        trace: bool,
-
-        /// Treat target as a bundle path even if it looks like an ID
-        #[arg(long)]
-        bundle: bool,
-
-        /// Control plane base URL for trace verification
-        #[arg(long, env = "AOS_SERVER_URL", default_value = "http://127.0.0.1:18080")]
-        base_url: String,
-    },
-
-    /// Verify an offline run receipt bundle
-    #[command(
-        name = "verify-receipt",
-        after_help = "\
-Examples:
-  # Verify a run receipt bundle from a directory
-  aosctl verify-receipt --bundle var/receipts/run-123
-
-  # Verify a single bundle file directly
-  aosctl verify-receipt --bundle ./run_receipt.json
-"
-    )]
-    VerifyReceipt {
-        /// Receipt bundle directory (or JSON file)
-        #[arg(long)]
-        bundle: Option<PathBuf>,
-
-        /// Fetch receipt from API instead of local bundle
-        #[arg(long, value_name = "TRACE_ID")]
-        online: Option<String>,
-
-        /// Control plane base URL
-        #[arg(long, env = "AOS_SERVER_URL", default_value = "http://localhost:18080")]
-        server_url: String,
-    },
-
-    /// Verify a cancellation receipt (audit trail for cancelled inference)
-    #[command(
-        name = "verify-cancellation-receipt",
-        after_help = "\
-Examples:
-  # Verify cancellation receipt from database by trace ID
-  aosctl verify-cancellation-receipt trace-abc123
-
-  # Verify cancellation receipt from file
-  aosctl verify-cancellation-receipt --file receipt.json
-
-  # Verify with expected public key
-  aosctl verify-cancellation-receipt trace-abc123 --expected-pubkey <HEX>
-
-  # JSON output
-  aosctl --json verify-cancellation-receipt trace-abc123
-"
-    )]
-    VerifyCancellationReceipt {
-        /// Trace ID to look up in database
-        #[arg(value_name = "TRACE_ID")]
-        trace_id: Option<String>,
-
-        /// Path to receipt JSON file
-        #[arg(long, short = 'f')]
-        file: Option<PathBuf>,
-
-        /// Expected public key (hex) for signature verification
-        #[arg(long)]
-        expected_pubkey: Option<String>,
-    },
-
-    /// Verify adapter deliverables (A–F)
-    #[command(after_help = "\
-Examples:
-  # Run full adapter verification
-  aosctl verify-adapters
-
-  # JSON summary for CI
-  aosctl --json verify-adapters
-")]
-    VerifyAdapters,
-
-    /// Verify determinism loop (dev-only; delegates to cargo xtask)
-    #[command(name = "verify-determinism-loop")]
-    #[command(after_help = "\
-Examples:
-  # Generate determinism report via xtask
-  aosctl verify-determinism-loop
-
-  # In CI, prefer this over calling `cargo xtask determinism-report` directly
-")]
-    VerifyDeterminismLoop,
-
     // ============================================================
-    // Operational Tooling
+    // Dataset Management
     // ============================================================
-    /// Operational tools (runbook generation, etc.)
-    #[command(
-        subcommand,
-        after_help = "\
-Examples:
-  # Generate operational runbooks from Serena memories
-  aosctl ops generate-runbooks
+    /// Dataset lifecycle (create, ingest, list, versions, show, validate)
+    #[command(subcommand)]
+    Dataset(commands::datasets::DatasetCommand),
 
-  # Generate to custom directory
-  aosctl ops generate-runbooks --output /tmp/runbooks
-
-  # Dry run - preview what would be generated
-  aosctl ops generate-runbooks --dry-run
-"
-    )]
-    Ops(commands::ops::OpsCommand),
+    /// Verification commands (bundle, adapter, adapters, determinism-loop, telemetry, federation)
+    #[command(subcommand)]
+    Verify(commands::verify::VerifyCommand),
 
     // ============================================================
     // Policy Management
     // ============================================================
     /// Manage policy packs
     #[command(subcommand)]
-    #[command(after_help = "\
-Examples:
+    #[command(after_help = r#"Examples:
   # List all policy packs
   aosctl policy list
 
@@ -688,12 +638,51 @@ Examples:
 
   # Enforce specific policy
   aosctl policy enforce --pack Determinism
-")]
+"#)]
     Policy(policy::PolicyCommand),
 
-    /// Start serving
-    #[command(after_help = "\
-Examples:
+    /// Quarantine management (status, clear, rollback)
+    #[command(subcommand)]
+    #[command(after_help = r#"Examples:
+  # Check quarantine status
+  aosctl quarantine status
+
+  # Clear all violations
+  aosctl quarantine clear
+
+  # Clear specific pack violations
+  aosctl quarantine clear --pack-id Egress
+
+  # Clear with baseline reload
+  aosctl quarantine clear --rollback
+
+  # Rollback to last known good config
+  aosctl quarantine rollback
+"#)]
+    Quarantine(commands::quarantine::QuarantineCommand),
+
+    /// Worker monitoring and management (list, health, drain, restart)
+    #[command(subcommand)]
+    #[command(after_help = r#"Examples:
+  # List active workers
+  aosctl worker list
+
+  # List all workers including stopped
+  aosctl worker list --include-inactive
+
+  # Show health summary
+  aosctl worker health
+
+  # Drain a worker gracefully
+  aosctl worker drain wrk-abc123
+
+  # Restart a worker
+  aosctl worker restart wrk-abc123
+"#)]
+    Worker(commands::workers::WorkerCommand),
+
+    /// Start inference server for a tenant
+    #[command(after_help = r#"Examples:
   # Validate setup without starting (recommended first)
   aosctl serve --tenant tenant_dev --plan cp_abc123 --dry-run
 
@@ -702,36 +691,38 @@ Examples:
 
   # Custom socket path (development)
   aosctl serve --tenant tenant_dev --plan cp_abc123 --socket var/run/aos.sock
-")]
+"#)]
     Serve {
-        /// Tenant ID
+        /// Tenant to serve inference for
         #[arg(short, long)]
         tenant: String,
 
-        /// Plan ID
-        #[arg(short, long)]
+        /// Deployment plan controlling adapter stack and routing
+        #[arg(short, long, alias = "plan-id")]
         plan: String,
 
-        /// UDS socket path
+        /// Unix domain socket path for worker communication
         #[arg(short, long, default_value = "/var/run/aos/aos.sock")]
         socket: PathBuf,
 
-        /// Backend selection: metal, mlx, or coreml
+        /// Inference backend: metal (default), mlx, or coreml
         #[arg(short, long, default_value = "metal")]
         backend: BackendType,
 
-        /// Dry-run: validate preflight checks without starting server
+        /// Validate preflight checks without starting the server
         #[arg(long)]
         dry_run: bool,
 
-        /// Capture event trace to directory (containing bundle_*.ndjson files)
+        /// INSECURE: Skip PF egress preflight (development only)
+        #[arg(long, hide = true)]
+        insecure_skip_egress_check: bool,
+        /// Capture telemetry events to this directory (overrides default)
         #[arg(long)]
         capture_events: Option<PathBuf>,
     },
 
     /// Run audit checks
-    #[command(after_help = "\
-Examples:
+    #[command(after_help = r#"Examples:
   # Audit checkpoint
   aosctl audit CP-0001
 
@@ -740,7 +731,7 @@ Examples:
 
   # Audit and generate report
   aosctl audit CP-0001 --json > audit.json
-")]
+"#)]
     Audit {
         /// CPID to audit
         cpid: String,
@@ -751,8 +742,7 @@ Examples:
     },
 
     /// Audit backend determinism attestation
-    #[command(after_help = "\
-Examples:
+    #[command(after_help = r#"Examples:
   # Audit Metal backend (default)
   aosctl audit-determinism
 
@@ -761,23 +751,25 @@ Examples:
 
   # Audit MLX backend (requires --features multi-backend)
   aosctl audit-determinism --backend mlx --model-path ${AOS_MODEL_CACHE_DIR}/${AOS_BASE_MODEL_ID}
-")]
+"#)]
     AuditDeterminism {
         #[command(flatten)]
         args: audit_determinism::AuditDeterminismArgs,
     },
 
     /// Run a local inference against the worker UDS
-    #[command(after_help = r#"
-Examples:
+    #[command(after_help = r#"Examples:
   # Basic inference
-  aosctl infer --prompt 'Hello world' --socket /var/run/adapteros.sock
+  aosctl infer --prompt 'Hello world' --socket /var/run/aos/aos.sock
 
   # Inference using a specific adapter (preload+swap)
-  aosctl infer --adapter my_adapter --prompt 'Use adapter' --socket /var/run/adapteros.sock
+  aosctl infer --adapter my_adapter --prompt 'Use adapter' --socket /var/run/aos/aos.sock
 
   # Increase max tokens and timeout
   aosctl infer --prompt 'Test' --max-tokens 256 --timeout 60000
+
+  # Show citations and trace for auditability
+  aosctl infer --prompt 'Explain...' --show-citations --show-trace
 "#)]
     Infer {
         /// Optional adapter to activate before inference
@@ -788,8 +780,8 @@ Examples:
         #[arg(long)]
         prompt: String,
 
-        /// UDS socket path
-        #[arg(long, default_value = "/var/run/adapteros.sock")]
+        /// Unix domain socket path for worker communication
+        #[arg(long, default_value = "/var/run/aos/aos.sock")]
         socket: PathBuf,
 
         /// Max tokens to generate
@@ -813,32 +805,29 @@ Examples:
         show_trace: bool,
     },
 
-    /// Replay offline artifacts and verify determinism receipts
-    #[command(after_help = "\
-Examples:
-  # Replay exported trace (writes replay_report.json)
-  aosctl replay --dir var/trace/basic --verify
+    /// Replay a bundle
+    #[cfg(feature = "replay")]
+    #[command(after_help = r#"Examples:
+  # Replay bundle
+  aosctl replay var/bundles/bundle_001.zip
 
-  # Replay with custom report path
-  aosctl replay --dir var/trace/basic --report var/trace/result.json
-")]
+  # Replay with verbose output
+  aosctl replay var/bundles/bundle_001.zip --verbose
+
+  # Replay and check determinism
+  aosctl replay var/bundles/bundle_001.zip --check-determinism
+"#)]
     Replay {
-        /// Directory containing exported trace artifacts
-        #[arg(long)]
-        dir: PathBuf,
+        /// Bundle path
+        bundle: PathBuf,
 
-        /// Optional output path for replay_report.json
-        #[arg(long)]
-        report: Option<PathBuf>,
-
-        /// Exit non-zero on mismatch
-        #[arg(long, default_value_t = false)]
-        verify: bool,
+        /// Show divergence details (overridden by global --verbose)
+        #[arg(short, long)]
+        verbose: bool,
     },
 
     /// Rollback to previous checkpoint
-    #[command(after_help = "\
-Examples:
+    #[command(after_help = r#"Examples:
   # Rollback tenant to checkpoint
   aosctl rollback --tenant dev CP-0001
 
@@ -847,7 +836,7 @@ Examples:
 
   # Check rollback status
   aosctl rollback --tenant dev CP-0001 --dry-run
-")]
+"#)]
     Rollback {
         /// Tenant ID
         #[arg(short, long)]
@@ -857,10 +846,30 @@ Examples:
         cpid: String,
     },
 
+    /// Baseline management (record/verify/delta with BLAKE3+Ed25519)
+    #[command(subcommand)]
+    #[command(after_help = r#"Examples:
+  # Record a new baseline
+  aosctl baseline record --run-id run-001 --commit abc123 --arch aarch64-apple-darwin \
+    --suite deterministic-exec --artifacts ./artifacts --sign
+
+  # Verify a baseline
+  aosctl baseline verify --manifest baselines/run-001_aarch64-apple-darwin_deterministic-exec.toml
+
+  # Compute delta between baselines
+  aosctl baseline delta --baseline-a baselines/run-001.toml --baseline-b baselines/run-002.toml
+
+  # List all baselines
+  aosctl baseline list
+
+  # Show baseline details
+  aosctl baseline show baselines/run-001.toml
+"#)]
+    Baseline(BaselineCmd),
+
     /// Golden run archive management (audit reproducibility)
     #[command(subcommand)]
-    #[command(after_help = "\
-Examples:
+    #[command(after_help = r#"Examples:
   # Initialize golden_runs directory
   aosctl golden init
 
@@ -878,13 +887,12 @@ Examples:
 
   # Show golden run details
   aosctl golden show baseline-001
-")]
+"#)]
     Golden(GoldenCmd),
 
     /// Router weight calibration and management
     #[command(subcommand)]
-    #[command(after_help = "\
-Examples:
+    #[command(after_help = r#"Examples:
   # Calibrate router weights using a dataset
   aosctl router calibrate --dataset calibration.json --output weights.json
 
@@ -893,12 +901,11 @@ Examples:
 
   # Show current router weights
   aosctl router show --weights weights.json
-")]
+"#)]
     Router(router::RouterCmd),
 
     /// Generate HTML report from bundle
-    #[command(after_help = "\
-Examples:
+    #[command(after_help = r#"Examples:
   # Generate HTML report
   aosctl report var/bundles/bundle_001.zip --output report.html
 
@@ -907,7 +914,7 @@ Examples:
 
   # Generate report and open in browser
   aosctl report var/bundles/bundle_001.zip --output report.html --open
-")]
+"#)]
     Report {
         /// Bundle path
         bundle: PathBuf,
@@ -917,9 +924,29 @@ Examples:
         output: PathBuf,
     },
 
+    // ============================================================
+    // Access Management
+    // ============================================================
+    /// Create the initial control plane admin user with a generated password
+    #[command(after_help = r#"Examples:
+  # Create bootstrap admin user
+  aosctl bootstrap-admin --email admin@example.com
+
+  # Create with explicit display name
+  aosctl bootstrap-admin --email admin@example.com --display-name "Site Administrator"
+"#)]
+    BootstrapAdmin {
+        /// Email for the admin user
+        #[arg(long)]
+        email: String,
+
+        /// Optional display name (defaults to email prefix)
+        #[arg(long)]
+        display_name: Option<String>,
+    },
+
     /// Bootstrap AdapterOS installation
-    #[command(after_help = "\
-Examples:
+    #[command(after_help = r#"Examples:
   # Full installation
   aosctl bootstrap --mode full
 
@@ -931,13 +958,13 @@ Examples:
 
   # Bootstrap with checkpoint
   aosctl bootstrap --mode full --checkpoint-file ./checkpoint.json
-")]
+"#)]
     Bootstrap {
-        /// Installation mode (full or minimal)
+        /// Installation mode: full (all components) or minimal (essentials only)
         #[arg(short, long, default_value = "full")]
         mode: String,
 
-        /// Enable air-gapped mode (skip network operations)
+        /// Skip all network operations
         #[arg(long)]
         air_gapped: bool,
 
@@ -945,7 +972,7 @@ Examples:
         #[arg(long)]
         json: bool,
 
-        /// Checkpoint file path
+        /// Resume from this checkpoint file if installation was interrupted
         #[arg(long)]
         checkpoint_file: Option<PathBuf>,
     },
@@ -954,8 +981,7 @@ Examples:
     // Utility
     // ============================================================
     /// Generate shell completion script
-    #[command(after_help = "\
-Examples:
+    #[command(after_help = r#"Examples:
   # Generate bash completion
   aosctl completions bash > /usr/local/etc/bash_completion.d/aosctl
 
@@ -964,113 +990,62 @@ Examples:
 
   # Generate fish completion
   aosctl completions fish > ~/.config/fish/completions/aosctl.fish
-")]
+"#)]
     Completions {
         /// Shell type
         #[arg(value_enum)]
         shell: Shell,
     },
 
-    /// Manage configuration settings
-    #[command(subcommand)]
-    Config(config::ConfigArgs),
-
     // ============================================================
     // Documentation & Help
     // ============================================================
-    /// Show backend status and capabilities
-    #[command(after_help = "\
-Examples:
-  # Show backend summary
-  aosctl backend-status
+    /// Run system diagnostics
+    #[command(after_help = r#"Examples:
+  # Full system diagnostics
+  aosctl diag --full
 
-  # Show detailed backend information
-  aosctl backend-status --detailed
+  # System checks only
+  aosctl diag --system
 
-  # Output in JSON format
-  aosctl backend-status --json
-")]
-    BackendStatus(commands::backend_status::BackendStatusArgs),
+  # Tenant-specific checks
+  aosctl diag --tenant dev
 
-    /// Run diagnostics, export bundles, and verify bundles
-    #[command(subcommand)]
-    Diag(diag::DiagCommand),
+  # Create diagnostic bundle
+  aosctl diag --full --bundle ./diag_bundle.zip
+"#)]
+    Diag {
+        /// Diagnostic profile: system, tenant, or full
+        #[arg(long, default_value = "full")]
+        profile: Option<String>,
 
-    /// Log analysis and diagnostics commands
-    #[command(
-        subcommand,
-        after_help = "\
-Examples:
-  # Generate a WARN/ERROR log digest
-  aosctl log digest var/logs --since 1h
-
-  # Triage logs with remediation hints
-  aosctl log triage var/logs --detailed
-
-  # Build an LLM prompt from logs
-  aosctl log prompt var/logs --format markdown -o prompt.md
-"
-    )]
-    Log(LogCommand),
-
-    /// Targeted diagnostics for drift, health, and storage reconciler
-    #[command(after_help = "\
-Examples:
-  # Run drift harness for a dataset version
-  aosctl health drift-run --repo-id repo1 --dataset-version-ids ds-ver-1 --backend metal --baseline-backend cpu
-
-  # Show adapter health rollup
-  aosctl health adapter --repo-id repo1
-
-  # List storage reconciliation issues
-  aosctl health storage-list-issues --limit 20
-")]
-    Health(commands::diag_health::HealthCommand),
-
-    /// Run determinism check (3 fixed prompts, N runs, compare outputs)
-    #[command(after_help = "\
-Examples:
-  # Run determinism check with default settings
-  aosctl determinism
-
-  # Run with specific stack and custom runs
-  aosctl determinism --stack-id my-stack --runs 5
-
-  # Run with custom seed
-  aosctl determinism --seed abc123def456...
-")]
-    Determinism {
-        /// Stack ID to use for testing (default: first active stack)
+        /// Run diagnostics for this tenant only
         #[arg(long)]
-        stack_id: Option<String>,
+        tenant: Option<String>,
 
-        /// Number of runs to compare (default: 3)
-        #[arg(long, default_value = "3")]
-        runs: usize,
-
-        /// Seed to use (hex string, default: derived from stack manifest)
+        /// Output JSON format
         #[arg(long)]
-        seed: Option<String>,
+        json: bool,
+
+        /// Write diagnostic bundle to this path (.zip)
+        #[arg(long)]
+        bundle: Option<PathBuf>,
+
+        /// Run only system-level checks (hardware, backends, config)
+        #[arg(long, conflicts_with_all = ["tenant_only", "profile"])]
+        system: bool,
+
+        /// Tenant checks only
+        #[arg(long, conflicts_with_all = ["system", "profile"])]
+        tenant_only: bool,
+
+        /// Full diagnostics (default)
+        #[arg(long, conflicts_with_all = ["system", "tenant_only", "profile"])]
+        full: bool,
     },
 
-    /// Check quarantine status and verify no quarantined adapters in active stacks
-    #[command(after_help = "\
-Examples:
-  # Check quarantine status
-  aosctl quarantine
-
-  # Check with verbose output
-  aosctl quarantine --verbose
-")]
-    Quarantine {
-        /// Verbose output
-        #[arg(long)]
-        verbose: bool,
-    },
-
-    /// Explain an error code or AosError variant
-    #[command(after_help = "\
-Examples:
+    /// Explain an error code
+    #[command(after_help = r#"Examples:
   # Explain specific error code
   aosctl explain E3001
 
@@ -1079,15 +1054,14 @@ Examples:
 
   # Get help for unknown error
   aosctl explain E9999
-")]
+"#)]
     Explain {
-        /// Error code (E3001) or AosError name (InvalidHash)
+        /// Error code to look up (e.g., E3001)
         code: String,
     },
 
     /// List all error codes
-    #[command(after_help = "\
-Examples:
+    #[command(after_help = r#"Examples:
   # List all error codes
   aosctl error-codes
 
@@ -1096,16 +1070,55 @@ Examples:
 
   # Filter by category
   aosctl error-codes --category crypto
-")]
+"#)]
     ErrorCodes {
         /// Output JSON format
         #[arg(long)]
         json: bool,
     },
 
+    /// Recover from an error by executing the recommended recovery action
+    #[command(after_help = r#"Examples:
+  # Show recovery action for an error
+  aosctl recover E3001
+
+  # Execute recovery with confirmation
+  aosctl recover E9001
+
+  # Force execution without confirmation
+  aosctl recover E9001 --force
+
+  # Dry run (show what would be done)
+  aosctl recover E9001 --dry-run
+
+  # List all recovery actions by safety level
+  aosctl recover --list
+  aosctl recover --list --safety safe
+"#)]
+    Recover {
+        /// Error code to recover from (e.g., E3001)
+        #[arg(required_unless_present = "list")]
+        code: Option<String>,
+
+        /// Execute without confirmation (even for actions that normally require it)
+        #[arg(long, short)]
+        force: bool,
+
+        /// Show what would be done without executing
+        #[arg(long)]
+        dry_run: bool,
+
+        /// List all recovery actions
+        #[arg(long)]
+        list: bool,
+
+        /// Filter by safety level (safe, confirm, unsafe)
+        #[arg(long, requires = "list")]
+        safety: Option<String>,
+    },
+
     /// Interactive tutorial
-    #[command(after_help = "\
-Examples:
+    #[command(after_help = r#"Examples:
   # Run basic tutorial
   aosctl tutorial
 
@@ -1114,7 +1127,7 @@ Examples:
 
   # Non-interactive mode for CI
   aosctl tutorial --ci
-")]
+"#)]
     Tutorial {
         /// Run advanced tutorial
         #[arg(long)]
@@ -1126,23 +1139,21 @@ Examples:
     },
 
     /// Launch interactive TUI dashboard (requires --features tui)
-    #[command(after_help = "\
-Examples:
+    #[command(after_help = r#"Examples:
   # Launch TUI dashboard
   aosctl tui
 
   # Launch with custom server URL
   aosctl tui --server-url http://localhost:9000
-")]
+"#)]
     Tui {
-        /// Server URL for API connections (default: http://localhost:18080)
+        /// Server URL for API connections (default: http://localhost:8080)
         #[arg(long, env = "AOS_SERVER_URL")]
         server_url: Option<String>,
     },
 
     /// Display offline manual
-    #[command(after_help = "\
-Examples:
+    #[command(after_help = r#"Examples:
   # Display manpage
   aosctl manual --format man
 
@@ -1150,40 +1161,106 @@ Examples:
   aosctl manual --format md
 
   # Search manual for specific terms
-  aosctl manual --format md --search \"error codes\"
-")]
+  aosctl manual --format md --search "error codes"
+"#)]
     Manual {
         #[command(flatten)]
         args: commands::manual::ManualArgs,
     },
 
-    /// Training job commands (start/status/list) - control plane
-    #[command(
-        subcommand,
-        after_help = "\
-Examples:
-  # Start a training job with dataset versions
-  aosctl train start repo-id --dataset-version-ids version-1 --base-model-id Qwen2.5-7B-Instruct
+    /// Quantize Qwen FP16 weights to int4 and write manifest
+    #[command(after_help = r#"Examples:
+  # Quantize a directory of .safetensors into artifacts/qwen2_5_7b_int4
+  aosctl quantize-qwen \
+    --input ${AOS_MODEL_CACHE_DIR}/${AOS_BASE_MODEL_ID} \
+    --output ./artifacts/qwen2_5_7b_int4 \
+    --model-name ${AOS_BASE_MODEL_ID}
 
-  # Use synthetic mode (no datasets required)
-  aosctl train start repo-id --synthetic-mode
+  # Emit JSON manifest to stdout
+  aosctl quantize-qwen --input ./fp16.safetensors --output ./artifacts --json
+"#)]
+    QuantizeQwen {
+        /// Path to FP16 .safetensors file or directory
+        #[arg(long)]
+        input: PathBuf,
 
-  # Check job status
-  aosctl train status <job-id>
+        /// Directory for quantized .bin output and manifest
+        #[arg(long)]
+        output: PathBuf,
 
-  # List running jobs
-  aosctl train list --status running
-"
-    )]
-    Train(commands::train_cli::TrainCommand),
+        /// Model name for manifest
+        #[arg(long, default_value = DEFAULT_BASE_MODEL_ID)]
+        model_name: String,
 
-    /// Dataset lifecycle (create, ingest, list, versions, show, validate)
-    #[command(subcommand)]
-    Dataset(commands::datasets::DatasetCommand),
+        /// Block size for quantization statistics
+        #[arg(long)]
+        group_size: Option<usize>,
+
+        /// Output manifest JSON to stdout
+        #[arg(long, default_value_t = false)]
+        json: bool,
+    },
+
+    /// Train a LoRA adapter
+    #[command(after_help = r#"Examples:
+  # Train adapter with default settings
+  aosctl train --data training_data.json --output ./trained_adapter
+
+  # Train with custom configuration
+  aosctl train --data training_data.json --output ./trained_adapter \
+    --rank 8 --alpha 32.0 --learning-rate 0.001 --epochs 5
+
+  # Train with Metal backend
+  aosctl train --data training_data.json --output ./trained_adapter \
+    --plan plan/qwen7b/plan.bin
+
+  # Train with configuration file
+  aosctl train --config training_config.json --data training_data.json \
+    --output ./trained_adapter
+"#)]
+    Train {
+        #[command(flatten)]
+        args: train::TrainArgs,
+    },
+
+    /// Train base adapter from manifest
+    #[command(after_help = r#"Examples:
+  # Train base adapter with default settings
+  aosctl train-base-adapter
+
+  # Train with custom manifest and tokenizer
+  aosctl train-base-adapter --manifest training/datasets/my_manifest.json \
+    --tokenizer ${AOS_MODEL_CACHE_DIR}/${AOS_BASE_MODEL_ID}/tokenizer.json
+
+  # Train and output as .aos file
+  aosctl train-base-adapter --output-format aos --adapter-id my_adapter
+"#)]
+    TrainBaseAdapter {
+        #[command(flatten)]
+        args: train_base_adapter::TrainBaseAdapterArgs,
+    },
+
+    /// Ingest documents (PDF/Markdown) for RAG and training
+    #[command(after_help = r#"Examples:
+  # Index PDFs in RAG for a tenant
+  aosctl ingest-docs document.pdf manual.pdf --tenant dev --index-rag \
+    --db-url sqlite://var/aos-cp.sqlite3
+
+  # Generate training data from Markdown
+  aosctl ingest-docs docs/*.md --generate-training \
+    --training-output training_data.json --training-strategy qa
+
+  # Both index and generate training data
+  aosctl ingest-docs files/*.pdf --tenant dev --index-rag --generate-training \
+    --training-output training.json --db-url sqlite://rag.db
+"#)]
+    IngestDocs {
+        #[command(flatten)]
+        args: ingest_docs::IngestDocsArgs,
+    },
 
     /// Train adapter on documentation markdown files
-    #[command(after_help = "\
-Examples:
+    #[command(after_help = r#"Examples:
   # Train on all docs/*.md files with auto-activation
   aosctl train-docs
 
@@ -1192,449 +1269,793 @@ Examples:
 
   # Dry run to preview what would be trained
   aosctl train-docs --dry-run
-")]
+"#)]
     TrainDocs {
         #[command(flatten)]
         args: train_docs::TrainDocsArgs,
     },
 
-    /// Train a custom embedding model for RAG/semantic search
-    #[command(after_help = "\
-Examples:
-  # Train with triplet data (anchor, positive, negative)
-  aosctl train-embeddings --data triplets.jsonl --output var/embeddings/custom
+    /// Export behavior training data from adapter lifecycle events
+    #[cfg(feature = "orchestrator")]
+    #[command(after_help = r#"Examples:
+  # Export historical events from the last 30 days
+  aosctl behavior-export --output behavior.jsonl --since 2025-11-01
 
-  # Train with info-nce loss (efficient in-batch negatives)
-  aosctl train-embeddings --data pairs.jsonl --mode info-nce --dim 384
+  # Generate 1000 synthetic examples
+  aosctl behavior-export --output synthetic.jsonl --synthetic-count 1000
 
-  # Train with custom hyperparameters
-  aosctl train-embeddings --data data.jsonl --epochs 5 --batch-size 16 --learning-rate 0.0001
+  # Export specific categories
+  aosctl behavior-export --output promotions.jsonl --categories promotion,demotion
 
-  # Dry run to preview configuration
-  aosctl train-embeddings --data data.jsonl --dry-run
-")]
-    TrainEmbeddings {
+  # Combined: historical + synthetic fill to minimum
+  aosctl behavior-export --output combined.jsonl --since 2025-01-01 --min-per-category 500
+"#)]
+    BehaviorExport {
         #[command(flatten)]
-        args: train_embeddings::TrainEmbeddingsArgs,
+        args: behavior_export::BehaviorExportArgs,
     },
 
-    /// Generate training data from confirmed discrepancy cases
-    #[command(after_help = "\
-Examples:
-  # Export confirmed errors to JSONL (stdout)
-  aosctl train-from-discrepancies
-
-  # Export to a file
-  aosctl train-from-discrepancies --output discrepancies.jsonl
-
-  # Filter by resolution status
-  aosctl train-from-discrepancies --status confirmed_error
-
-  # Append to existing dataset
-  aosctl train-from-discrepancies --dataset ds-abc123
-
-  # Dry run - show what would be exported
-  aosctl train-from-discrepancies --dry-run
-")]
-    TrainFromDiscrepancies {
-        #[command(flatten)]
-        args: commands::train_from_discrepancies::TrainFromDiscrepanciesArgs,
-    },
-
-    /// Embedding benchmark operations (corpus, index, search, bench, train, compare)
-    #[command(
-        subcommand,
-        after_help = "\
-Examples:
-  # Build corpus from documentation
-  aosctl embed corpus --docs-dir ./docs --output corpus.json
-
-  # Build search index
-  aosctl embed index --corpus corpus.json --output ./index
-
-  # Search for similar chunks
-  aosctl embed search \"how to configure\" --index ./index --top-k 5
-
-  # Run benchmark evaluation
-  aosctl embed bench --corpus corpus.json --queries queries.json --output report.json
-
-  # Train embedding adapter
-  aosctl embed train --corpus corpus.json --pairs pairs.json --output ./adapter
-
-  # Compare baseline vs fine-tuned
-  aosctl embed compare --baseline baseline.json --finetuned finetuned.json
-"
-    )]
-    Embed(commands::embed::EmbedCommand),
-
-    /// Initialize AdapterOS system (Owner Home setup)
-    #[command(after_help = "\
-Examples:
-  # Initialize system with default settings
-  aosctl init
-
-  # Initialize with custom owner email
-  aosctl init --owner-email admin@example.com
-
-  # Initialize with custom database and URLs
-  aosctl init --database-url sqlite://./custom.db \\
-    --ui-url http://localhost:3000 \\
-    --api-url http://localhost:9000
-
-  # Skip interactive prompts
-  aosctl init --yes
-
-  # Skip creating config file
-  aosctl init --skip-config
-")]
+    /// Alias for tenant-init (for convenience)
+    #[command(hide = true)]
     Init {
-        #[command(flatten)]
-        args: init::InitArgs,
+        /// Unique tenant identifier
+        #[arg(short, long)]
+        id: String,
+
+        /// Unix user ID for file ownership isolation
+        #[arg(short, long)]
+        uid: u32,
+
+        /// Unix group ID for file ownership isolation
+        #[arg(short, long)]
+        gid: u32,
     },
 
     // ============================================================
     // Code Intelligence Commands
     // ============================================================
-    /// Code intelligence commands (init, update, list, status)
-    #[command(subcommand)]
-    Code(code::CodeCommand),
+    /// Initialize a code repository
+    #[command(after_help = r#"Examples:
+  # Initialize current directory
+  aosctl code-init .
 
-    // ============================================================
-    // Deprecated Commands (hidden, for backward compatibility)
-    // ============================================================
-    /// List adapters (deprecated - use `adapter list`)
-    #[command(name = "adapter-list", hide = true)]
-    AdapterListDeprecated {
-        /// Filter by tier
-        #[arg(short, long)]
-        tier: Option<String>,
-        /// Include metadata
-        #[arg(long)]
-        include_meta: bool,
-    },
+  # Initialize specific repository
+  aosctl code-init /path/to/repo --tenant default
+"#)]
+    CodeInit {
+        /// Repository path
+        path: PathBuf,
 
-    /// Pin adapter (deprecated - use `adapter pin`)
-    #[command(name = "adapter-pin", hide = true)]
-    AdapterPinDeprecated {
-        /// Adapter ID
-        adapter_id: String,
-        /// Tenant ID
-        #[arg(long)]
-        tenant: Option<String>,
-    },
-
-    /// Unpin adapter (deprecated - use `adapter unpin`)
-    #[command(name = "adapter-unpin", hide = true)]
-    AdapterUnpinDeprecated {
-        /// Adapter ID
-        adapter_id: String,
-        /// Tenant ID
-        #[arg(long)]
-        tenant: Option<String>,
-    },
-
-    /// List nodes (deprecated - use `node list`)
-    #[command(name = "node-list", hide = true)]
-    NodeListDeprecated {
-        /// Offline mode
-        #[arg(long)]
-        offline: bool,
-    },
-
-    /// Verify nodes (deprecated - use `node verify`)
-    #[command(name = "node-verify", hide = true)]
-    NodeVerifyDeprecated {
-        /// Verify all nodes
-        #[arg(long)]
-        all: bool,
-        /// Specific node IDs
-        #[arg(long, value_delimiter = ',')]
-        nodes: Option<Vec<String>>,
-    },
-
-    /// List telemetry events (deprecated - use `telemetry list`)
-    #[command(name = "telemetry-list", hide = true)]
-    TelemetryListDeprecated {
-        /// Database path
-        #[arg(long, default_value = "var/aos-cp.sqlite3")]
-        database: PathBuf,
-        /// Filter by stack ID
-        #[arg(long)]
-        by_stack: Option<String>,
-        /// Maximum results
-        #[arg(long, default_value = "50")]
-        limit: u32,
-    },
-
-    /// Verify telemetry (deprecated - use `telemetry verify`)
-    #[command(name = "telemetry-verify", hide = true)]
-    TelemetryVerifyDeprecated {
-        /// Telemetry bundle directory
-        #[arg(short, long)]
-        bundle_dir: PathBuf,
-    },
-
-    /// Sync registry (deprecated - use `registry sync`)
-    #[command(name = "registry-sync", hide = true)]
-    RegistrySyncDeprecated {
-        /// Directory containing adapters
-        #[arg(short, long)]
-        dir: PathBuf,
-        /// CAS root directory
-        #[arg(long, default_value = "var/cas")]
-        cas_root: PathBuf,
-        /// Registry database path
-        #[arg(long, default_value = "var/registry.db")]
-        registry: PathBuf,
-    },
-
-    /// Migrate registry (deprecated - use `registry migrate`)
-    #[command(name = "registry-migrate", hide = true)]
-    RegistryMigrateDeprecated {
-        /// Source database
-        #[arg(long, default_value = "deprecated/registry.db")]
-        from_db: PathBuf,
-        /// Target database
-        #[arg(long, default_value = "var/registry.db")]
-        to_db: PathBuf,
-        /// Dry run
-        #[arg(long)]
-        dry_run: bool,
-        /// Force migration
-        #[arg(long)]
-        force: bool,
-    },
-
-    /// Verify federation (deprecated - use `federation verify`)
-    #[command(name = "federation-verify", hide = true)]
-    FederationVerifyDeprecated {
-        /// Telemetry bundle directory
-        #[arg(short, long)]
-        bundle_dir: PathBuf,
-        /// Database path
-        #[arg(long, default_value = "var/cp.db")]
-        database: PathBuf,
-    },
-
-    /// Initialize code repository (deprecated - use `code init`)
-    #[command(name = "code-init", hide = true)]
-    CodeInitDeprecated {
-        /// Path to the repository
-        repo_path: PathBuf,
         /// Tenant ID
         #[arg(long, default_value = "default")]
         tenant: String,
     },
 
-    /// Update code repository (deprecated - use `code update`)
-    #[command(name = "code-update", hide = true)]
-    CodeUpdateDeprecated {
+    /// Update repository scan
+    #[command(after_help = r#"Examples:
+  # Scan repository at current commit
+  aosctl code-update my-repo
+
+  # Scan specific commit
+  aosctl code-update my-repo --commit abc123
+"#)]
+    CodeUpdate {
         /// Repository ID
         repo_id: String,
-        /// Tenant ID
-        #[arg(long, default_value = "default")]
-        tenant: String,
-        /// Specific commit
+
+        /// Commit SHA (defaults to HEAD)
         #[arg(long)]
         commit: Option<String>,
-    },
 
-    /// List code repositories (deprecated - use `code list`)
-    #[command(name = "code-list", hide = true)]
-    CodeListDeprecated {
         /// Tenant ID
         #[arg(long, default_value = "default")]
         tenant: String,
     },
 
-    /// Get code repository status (deprecated - use `code status`)
-    #[command(name = "code-status", hide = true)]
-    CodeStatusDeprecated {
+    /// List registered repositories
+    #[command(after_help = r#"Examples:
+  # List all repositories
+  aosctl code-list
+
+  # List with JSON output
+  aosctl code-list --json
+"#)]
+    CodeList {
+        /// Tenant ID
+        #[arg(long, default_value = "default")]
+        tenant: String,
+    },
+
+    /// Get repository status
+    #[command(after_help = r#"Examples:
+  # Get repository status
+  aosctl code-status my-repo
+
+  # Get status with JSON output
+  aosctl code-status my-repo --json
+"#)]
+    CodeStatus {
         /// Repository ID
         repo_id: String,
+
         /// Tenant ID
         #[arg(long, default_value = "default")]
         tenant: String,
-    },
-
-    /// Show secd status (deprecated - use `secd status`)
-    #[cfg(feature = "secd-support")]
-    #[command(name = "secd-status", hide = true)]
-    SecdStatusDeprecated {
-        /// PID file path
-        #[arg(long, default_value = "/var/run/aos-secd.pid")]
-        pid_file: PathBuf,
-        /// Heartbeat file path
-        #[arg(long, default_value = "/var/run/aos-secd.heartbeat")]
-        heartbeat_file: PathBuf,
-        /// Socket path
-        #[arg(long, default_value = "/var/run/aos-secd.sock")]
-        socket: PathBuf,
-        /// Database path
-        #[arg(long, default_value = "var/aos-cp.sqlite3")]
-        database: PathBuf,
-    },
-
-    /// Show secd audit (deprecated - use `secd audit`)
-    #[cfg(feature = "secd-support")]
-    #[command(name = "secd-audit", hide = true)]
-    SecdAuditDeprecated {
-        /// Database path
-        #[arg(long, default_value = "var/aos-cp.sqlite3")]
-        database: PathBuf,
-        /// Number of operations to show
-        #[arg(short, long, default_value = "50")]
-        limit: i64,
-        /// Filter by operation type
-        #[arg(short, long)]
-        operation: Option<String>,
-    },
-
-    /// Show codegraph stats (deprecated - use `codegraph stats`)
-    #[cfg(feature = "codegraph")]
-    #[command(name = "codegraph-stats", hide = true)]
-    CodegraphStatsDeprecated {
-        /// CodeGraph database path
-        #[arg(short, long)]
-        codegraph_db: PathBuf,
-    },
-
-    /// Export call graph (deprecated - use `codegraph export`)
-    #[cfg(feature = "codegraph")]
-    #[command(name = "callgraph-export", hide = true)]
-    CallgraphExportDeprecated {
-        /// CodeGraph database path
-        #[arg(short, long)]
-        codegraph_db: PathBuf,
-        /// Output file path
-        #[arg(short, long)]
-        output: PathBuf,
-        /// Export format
-        #[arg(short, long, default_value = "dot")]
-        format: String,
     },
 }
 
-/// Get command name from Commands enum
-pub fn get_command_name(command: &Commands) -> String {
+pub async fn run() -> Result<()> {
+    // Initialize unified logging
+    init_logging()?;
+
+    let cli = Cli::parse();
+
+    // Create output writer based on global flags
+    let output_mode = OutputMode::from_flags(cli.json, cli.quiet);
+    let output = OutputWriter::new(output_mode, cli.verbose);
+
+    // Get command name for telemetry
+    let command_name = get_command_name(&cli.command);
+    let tenant_id = extract_tenant_from_command(&cli.command);
+
+    // Execute command and handle errors with telemetry
+    let result = execute_command(&cli.command, &cli, &output).await;
+
+    match result {
+        Ok(_) => {
+            // Emit success telemetry
+            let _ =
+                cli_telemetry::emit_cli_command(&command_name, tenant_id.as_deref(), true).await;
+            Ok(())
+        }
+        Err(e) => {
+            // Extract error code and emit telemetry
+            let error_code = cli_telemetry::extract_error_code(&e);
+            let error_msg = format!("{}", e);
+
+            let event_id = cli_telemetry::emit_cli_error(
+                error_code.as_deref(),
+                &command_name,
+                tenant_id.as_deref(),
+                &error_msg,
+            )
+            .await
+            .unwrap_or_else(|_| "-".to_string());
+
+            // Display user-friendly error message
+            display_user_friendly_error(&e, error_code.as_deref(), &event_id);
+
+            Err(e)
+        }
+    }
+}
+
+async fn execute_command(command: &Commands, cli: &Cli, output: &OutputWriter) -> Result<()> {
     match command {
-        Commands::Auth(_) => "auth",
+        // Tenant Management
+        Commands::TenantInit { id, uid, gid } | Commands::Init { id, uid, gid } => {
+            init_tenant::run(id, *uid, *gid, output).await?;
+        }
+
+        // Adapter Management
+        Commands::AdapterList { tier, include_meta } => {
+            list_adapters::run(tier.as_deref(), *include_meta, output).await?;
+        }
+        Commands::AdapterRegister {
+            adapter_id,
+            aos,
+            tenant_id,
+            base_model_id,
+            tier,
+            rank,
+        } => {
+            register_adapter::run(
+                adapter_id,
+                aos.as_path(),
+                tenant_id,
+                base_model_id,
+                tier,
+                *rank,
+                output,
+            )
+            .await?;
+        }
+        Commands::AdapterPin {
+            tenant,
+            adapter,
+            ttl_hours,
+            reason,
+        } => {
+            let db = adapteros_db::Db::connect_env().await?;
+            pin::pin_adapter(&db, tenant, adapter, *ttl_hours, reason, output).await?;
+        }
+        Commands::AdapterUnpin { tenant, adapter } => {
+            let db = adapteros_db::Db::connect_env().await?;
+            pin::unpin_adapter(&db, tenant, adapter, output).await?;
+        }
+        Commands::AdapterListPinned { tenant } => {
+            let db = adapteros_db::Db::connect_env().await?;
+            pin::list_pinned(&db, tenant, output).await?;
+        }
+        Commands::AdapterSwap {
+            tenant,
+            add,
+            remove,
+            timeout,
+            commit,
+            socket,
+        } => {
+            adapter_swap::run(tenant, add, remove, *timeout, *commit, socket, output).await?;
+        }
+        Commands::AdapterInfo { adapter_id } => {
+            adapter_info::run(adapter_id).await?;
+        }
+        Commands::Adapter(cmd) => {
+            adapter::handle_adapter_command(cmd.clone(), output).await?;
+        }
+        Commands::Aos(cmd) => {
+            commands::aos::run(commands::aos::AosArgs { cmd: cmd.clone() }, output).await?;
+        }
+        Commands::Adapters(cmd) => {
+            commands::adapters::run(
+                commands::adapters::AdaptersArgs { cmd: cmd.clone() },
+                output,
+            )
+            .await?;
+        }
+
+        // Node & Cluster Management
+        Commands::Node(cmd) => {
+            node::handle_node_command(cmd.clone(), output).await?;
+        }
+
+        // Registry Management
+        Commands::RegistrySync {
+            dir,
+            public_key,
+            cas_root,
+            registry,
+        } => {
+            commands::registry::sync_registry(
+                dir,
+                public_key.as_deref(),
+                cas_root,
+                registry,
+                output,
+            )
+            .await?;
+        }
+
+        // Database Management
+        Commands::Db(cmd) => {
+            commands::db::handle_db_command(cmd.clone(), output).await?;
+        }
+        Commands::RegistryMigrate(args) => {
+            commands::registry::run_migrate(args.clone(), output).await?;
+        }
+
+        // Plan Management
+        Commands::PlanBuild {
+            manifest,
+            output: output_path,
+            tenant_id,
+        } => {
+            build_plan::run(manifest, output_path, tenant_id.as_deref(), output).await?;
+        }
+
+        // Model Management
+        Commands::ModelImport {
+            name,
+            weights,
+            config,
+            tokenizer,
+            tokenizer_cfg,
+            license,
+        } => {
+            import_model::run(
+                name,
+                weights,
+                config,
+                tokenizer,
+                tokenizer_cfg,
+                license,
+                output,
+            )
+            .await?;
+        }
+
+        // Telemetry & Verification
+        #[cfg(feature = "trace")]
+        Commands::TraceValidate {
+            path,
+            strict,
+            tolerant,
+            verify_hash,
+            max_events,
+            max_bytes,
+            max_line_len,
+        } => {
+            let effective_strict = if *tolerant { false } else { *strict };
+            commands::trace_validate::run(
+                path,
+                effective_strict,
+                *verify_hash,
+                *max_events,
+                *max_bytes,
+                *max_line_len,
+                output,
+            )
+            .await?;
+        }
+
+        Commands::DriftCheck {
+            config,
+            dataset,
+            manifest,
+            backends,
+            reference_backend,
+        } => {
+            let args = commands::drift_check::DriftCheckArgs {
+                config: config.clone(),
+                dataset_override: dataset.clone(),
+                manifest_override: manifest.clone(),
+                backends_override: backends.clone(),
+                reference_backend: reference_backend.clone(),
+            };
+            std::process::exit(commands::drift_check::drift_check(args).await?);
+        }
+
+        // CodeGraph & Call Graph
+        #[cfg(feature = "codegraph")]
+        Commands::CallgraphExport {
+            codegraph_db,
+            output: output_path,
+            format,
+        } => {
+            let format = format
+                .parse::<export_callgraph::ExportFormat>()
+                .map_err(|e| anyhow::anyhow!("Invalid format '{}': {}", format, e))?;
+            export_callgraph::export_callgraph(&codegraph_db, &output_path, format, output).await?;
+        }
+        #[cfg(feature = "codegraph")]
+        Commands::CodegraphStats { codegraph_db } => {
+            codegraph_stats::run(codegraph_db.to_path_buf(), output).await?;
+        }
+        #[cfg(feature = "secd-support")]
+        Commands::SecdStatus {
+            pid_file,
+            heartbeat_file,
+            socket,
+            database,
+        } => {
+            secd_status::run(pid_file, heartbeat_file, socket, Some(database)).await?;
+        }
+        #[cfg(feature = "secd-support")]
+        Commands::SecdAudit {
+            database,
+            limit,
+            operation,
+        } => {
+            secd_audit::run(database, *limit, operation.as_deref()).await?;
+        }
+
+        // General Operations
+        Commands::Import { bundle, no_verify } => {
+            import::run(bundle, !no_verify, output).await?;
+        }
+        Commands::Dataset(cmd) => {
+            commands::datasets::run(cmd.clone(), output).await?;
+        }
+        Commands::Verify(cmd) => {
+            commands::verify::handle_verify_command(cmd.clone(), output).await?;
+        }
+
+        // Policy Management
+        Commands::Policy(cmd) => {
+            cmd.clone().run()?;
+        }
+        Commands::Quarantine(cmd) => {
+            commands::quarantine::handle_quarantine_command(cmd.clone(), output).await?;
+        }
+        Commands::Worker(cmd) => {
+            commands::workers::handle_worker_command(cmd.clone(), output).await?;
+        }
+
+        Commands::Serve {
+            tenant,
+            plan,
+            socket,
+            backend,
+            dry_run,
+            insecure_skip_egress_check,
+            capture_events,
+        } => {
+            // Dev-only: allow bypassing PF preflight via hidden flag
+            if *insecure_skip_egress_check {
+                std::env::set_var("AOS_INSECURE_SKIP_EGRESS", "1");
+            }
+            // Build model config from CLI flags (precedence: CLI > ENV > defaults)
+            let model_config = cli.get_model_config().ok();
+            serve::run(
+                tenant,
+                plan,
+                socket,
+                backend.clone(),
+                *dry_run,
+                capture_events.as_ref(),
+                model_config.as_ref(),
+                output,
+            )
+            .await?;
+        }
+        Commands::Audit { cpid, suite } => {
+            audit::run(cpid, suite.as_deref(), output).await?;
+        }
+        Commands::AuditDeterminism { args } => {
+            let audit_output = audit_determinism::Output;
+            let exit_code = audit_determinism::run(args, &audit_output)?;
+            std::process::exit(exit_code);
+        }
+        Commands::Infer {
+            adapter,
+            prompt,
+            socket,
+            max_tokens,
+            require_evidence,
+            timeout,
+            show_citations,
+            show_trace,
+        } => {
+            commands::infer::run(
+                adapter.clone(),
+                prompt.clone(),
+                *max_tokens,
+                *require_evidence,
+                socket.clone(),
+                *timeout,
+                *show_citations,
+                *show_trace,
+            )
+            .await?;
+        }
+        #[cfg(feature = "replay")]
+        Commands::Replay { bundle, verbose } => {
+            // Merge command-specific verbose flag with global verbose
+            let verbose_mode = *verbose || cli.verbose;
+            replay::run(bundle, verbose_mode, output).await?;
+        }
+        Commands::Rollback { tenant, cpid } => {
+            rollback::run(tenant, cpid, output).await?;
+        }
+        Commands::Baseline(cmd) => {
+            baseline::execute(cmd, output).await?;
+        }
+        Commands::Golden(cmd) => {
+            golden::execute(cmd, output).await?;
+        }
+        Commands::Router(cmd) => {
+            cmd.clone().run()?;
+        }
+        Commands::Report {
+            bundle,
+            output: output_path,
+        } => {
+            report::run(bundle, output_path, output).await?;
+        }
+        Commands::BootstrapAdmin {
+            email,
+            display_name,
+        } => {
+            commands::bootstrap_admin::run(email, display_name.as_deref(), output).await?;
+        }
+        Commands::Bootstrap {
+            mode,
+            air_gapped,
+            json,
+            checkpoint_file,
+        } => {
+            // Bootstrap doesn't use OutputWriter, runs standalone
+            bootstrap::run(mode, *air_gapped, *json, checkpoint_file.clone()).await?;
+        }
+
+        // Utility
+        Commands::Completions { shell } => {
+            let mut cmd = Cli::command();
+            completions::generate_completions(*shell, &mut cmd)?;
+        }
+
+        // Documentation & Help
+        Commands::Diag {
+            profile,
+            tenant,
+            json,
+            bundle,
+            system,
+            tenant_only,
+            full,
+        } => {
+            let diag_profile = if *system {
+                diag::DiagProfile::System
+            } else if *tenant_only {
+                diag::DiagProfile::Tenant
+            } else if *full {
+                diag::DiagProfile::Full
+            } else if let Some(p) = profile {
+                match p.as_str() {
+                    "system" => diag::DiagProfile::System,
+                    "tenant" => diag::DiagProfile::Tenant,
+                    "full" => diag::DiagProfile::Full,
+                    _ => {
+                        return Err(anyhow::anyhow!(
+                            "Invalid profile: {}. Use: system, tenant, or full",
+                            p
+                        ))
+                    }
+                }
+            } else {
+                diag::DiagProfile::Full
+            };
+
+            diag::run(
+                diag_profile,
+                tenant.clone(),
+                *json,
+                bundle.clone(),
+                None,
+                false,
+            )
+            .await?;
+        }
+
+        Commands::Explain { code } => {
+            explain::explain(code).await?;
+        }
+
+        Commands::ErrorCodes { json } => {
+            explain::list_error_codes(*json).await?;
+        }
+
+        Commands::Recover {
+            code,
+            force,
+            dry_run,
+            list,
+            safety,
+        } => {
+            if *list {
+                commands::recover::list_recovery_actions(safety.as_deref()).await?;
+            } else if let Some(code) = code {
+                commands::recover::recover(code, *force, *dry_run).await?;
+            } else {
+                anyhow::bail!("Error code required. Use --list to see all recovery actions.");
+            }
+        }
+
+        Commands::Tutorial { advanced, ci } => {
+            commands::tutorial::run_tutorial(
+                output.clone(),
+                commands::tutorial::TutorialArgs {
+                    advanced: *advanced,
+                    ci: *ci,
+                },
+            )
+            .await?;
+        }
+
+        #[cfg(feature = "tui")]
+        Commands::Tui { server_url } => {
+            commands::tui::run(commands::tui::TuiArgs {
+                server_url: server_url.clone(),
+            })
+            .await?;
+        }
+        #[cfg(not(feature = "tui"))]
+        Commands::Tui { .. } => {
+            anyhow::bail!("TUI feature not enabled. Rebuild with: cargo build --features tui");
+        }
+
+        Commands::Manual { args } => {
+            commands::manual::run_manual(args.clone())?;
+        }
+
+        Commands::QuantizeQwen {
+            input,
+            output: out_dir,
+            model_name,
+            group_size,
+            json,
+        } => {
+            commands::quantize_qwen::run(input, out_dir, model_name, *group_size, *json, output)
+                .await?;
+        }
+
+        Commands::Train { args } => {
+            args.execute().await?;
+        }
+
+        Commands::TrainBaseAdapter { args } => {
+            args.execute().await?;
+        }
+
+        Commands::IngestDocs { args } => {
+            args.execute().await?;
+        }
+
+        Commands::TrainDocs { args } => {
+            args.execute().await?;
+        }
+
+        #[cfg(feature = "orchestrator")]
+        Commands::BehaviorExport { args } => {
+            args.execute().await?;
+        }
+
+        // Code Intelligence Commands
+        Commands::CodeInit { path, tenant } => {
+            commands::code::code_init(path, tenant, output).await?;
+        }
+        Commands::CodeUpdate {
+            repo_id,
+            commit,
+            tenant,
+        } => {
+            commands::code::code_update(repo_id, tenant, commit.as_deref(), output).await?;
+        }
+        Commands::CodeList { tenant } => {
+            commands::code::code_list(tenant, output).await?;
+        }
+        Commands::CodeStatus { repo_id, tenant } => {
+            commands::code::code_status(repo_id, tenant, output).await?;
+        }
+    }
+
+    Ok(())
+}
+
+/// Get command name from Commands enum
+fn get_command_name(command: &Commands) -> String {
+    match command {
         Commands::TenantInit { .. } | Commands::Init { .. } => "init-tenant",
+        Commands::AdapterList { .. } => "list-adapters",
+        Commands::AdapterRegister { .. } => "register-adapter",
+        Commands::AdapterPin { .. } => "pin-adapter",
+        Commands::AdapterUnpin { .. } => "unpin-adapter",
+        Commands::AdapterListPinned { .. } => "list-pinned",
+        Commands::AdapterSwap { .. } => "adapter-swap",
+        Commands::AdapterInfo { .. } => "adapter-info",
         Commands::Adapter(_) => "adapter",
-        Commands::Repo(_) => "repo",
-        Commands::Stack(_) => "stack",
-        Commands::Chat(_) => "chat",
-        Commands::Dev { .. } => "dev",
-        Commands::Agent(_) => "agent",
-        #[cfg(feature = "scenarios")]
-        Commands::Scenario(_) => "scenario",
-        Commands::Coreml(_) => "coreml",
-        #[cfg(feature = "coreml-export")]
-        Commands::CoremlExport { .. } => "coreml-export",
-        #[cfg(feature = "coreml-export")]
-        Commands::CoremlExportJob { .. } => "coreml-export-job",
-        #[cfg(feature = "coreml-export")]
-        Commands::CoremlExportStatus { .. } => "coreml-export-status",
+        Commands::Adapters(_) => "adapters",
         Commands::Node(_) => "node",
-        Commands::Status { .. } => "status",
-        Commands::Doctor { .. } => "doctor",
-        Commands::Check(_) => "check",
-        Commands::Maintenance { .. } => "maintenance",
-        Commands::Deploy { .. } => "deploy",
-        Commands::Registry(_) => "registry",
-        Commands::Storage(_) => "storage",
-        Commands::Db(_) => "db",
-        Commands::Review(_) => "review",
-        Commands::Models(_) => "models",
         Commands::PlanBuild { .. } => "build-plan",
         Commands::ModelImport { .. } => "import-model",
-        Commands::Telemetry(_) => "telemetry",
-        Commands::Trace(_) => "trace",
-        Commands::Federation(_) => "federation",
+        #[cfg(feature = "trace")]
+        Commands::TraceValidate { .. } => "trace-validate",
         Commands::DriftCheck { .. } => "drift-check",
         #[cfg(feature = "codegraph")]
-        Commands::Codegraph(_) => "codegraph",
+        Commands::CallgraphExport { .. } => "callgraph-export",
+        #[cfg(feature = "codegraph")]
+        Commands::CodegraphStats { .. } => "codegraph-stats",
         #[cfg(feature = "secd-support")]
-        Commands::Secd(_) => "secd",
+        Commands::SecdStatus { .. } => "secd-status",
+        #[cfg(feature = "secd-support")]
+        Commands::SecdAudit { .. } => "secd-audit",
         Commands::Import { .. } => "import",
+        Commands::Dataset { .. } => "dataset",
         Commands::Verify { .. } => "verify",
-        Commands::VerifyReceipt { .. } => "verify-receipt",
-        Commands::VerifyCancellationReceipt { .. } => "verify-cancellation-receipt",
-        Commands::VerifyAdapters => "verify-adapters",
-        Commands::Ops(_) => "ops",
         Commands::Policy(_) => "policy",
+        Commands::Quarantine(_) => "quarantine",
+        Commands::Worker(_) => "worker",
         Commands::Serve { .. } => "serve",
         Commands::Audit { .. } => "audit",
         Commands::AuditDeterminism { .. } => "audit-determinism",
-        Commands::Infer { .. } => "infer",
-        Commands::VerifyDeterminismLoop => "verify-determinism-loop",
+        #[cfg(feature = "replay")]
         Commands::Replay { .. } => "replay",
         Commands::Rollback { .. } => "rollback",
+        Commands::Baseline(_) => "baseline",
         Commands::Golden(_) => "golden",
         Commands::Router(_) => "router",
+        Commands::RegistrySync { .. } => "registry-sync",
+        Commands::Db(_) => "db",
+        Commands::RegistryMigrate(_) => "registry-migrate",
         Commands::Report { .. } => "report",
+        Commands::BootstrapAdmin { .. } => "bootstrap-admin",
         Commands::Bootstrap { .. } => "bootstrap",
         Commands::Completions { .. } => "completions",
-        Commands::Config(_) => "config",
-        Commands::Diag(_) => "diag",
-        Commands::Log(_) => "log",
-        Commands::Health { .. } => "health",
-        Commands::Determinism { .. } => "determinism",
-        Commands::Quarantine { .. } => "quarantine",
+        Commands::Diag { .. } => "diag",
         Commands::Explain { .. } => "explain",
         Commands::ErrorCodes { .. } => "error-codes",
+        Commands::Recover { .. } => "recover",
         Commands::Tutorial { .. } => "tutorial",
-        Commands::Manual { .. } => "manual",
-        Commands::Train(_) => "train",
-        Commands::Dataset(_) => "dataset",
-        Commands::TrainDocs { .. } => "train-docs",
-        Commands::TrainEmbeddings { .. } => "train-embeddings",
-        Commands::TrainFromDiscrepancies { .. } => "train-from-discrepancies",
-        Commands::Embed(_) => "embed",
-        Commands::Code(_) => "code",
-        Commands::BackendStatus(_) => "backend-status",
         Commands::Tui { .. } => "tui",
-        // Deprecated commands
-        Commands::AdapterListDeprecated { .. } => "adapter-list",
-        Commands::AdapterPinDeprecated { .. } => "adapter-pin",
-        Commands::AdapterUnpinDeprecated { .. } => "adapter-unpin",
-        Commands::NodeListDeprecated { .. } => "node-list",
-        Commands::NodeVerifyDeprecated { .. } => "node-verify",
-        Commands::TelemetryListDeprecated { .. } => "telemetry-list",
-        Commands::TelemetryVerifyDeprecated { .. } => "telemetry-verify",
-        Commands::RegistrySyncDeprecated { .. } => "registry-sync",
-        Commands::RegistryMigrateDeprecated { .. } => "registry-migrate",
-        Commands::FederationVerifyDeprecated { .. } => "federation-verify",
-        Commands::CodeInitDeprecated { .. } => "code-init",
-        Commands::CodeUpdateDeprecated { .. } => "code-update",
-        Commands::CodeListDeprecated { .. } => "code-list",
-        Commands::CodeStatusDeprecated { .. } => "code-status",
-        #[cfg(feature = "secd-support")]
-        Commands::SecdStatusDeprecated { .. } => "secd-status",
-        #[cfg(feature = "secd-support")]
-        Commands::SecdAuditDeprecated { .. } => "secd-audit",
-        #[cfg(feature = "codegraph")]
-        Commands::CodegraphStatsDeprecated { .. } => "codegraph-stats",
-        #[cfg(feature = "codegraph")]
-        Commands::CallgraphExportDeprecated { .. } => "callgraph-export",
-        Commands::Preflight(_) => "preflight",
+        Commands::Manual { .. } => "manual",
+        Commands::Train { .. } => "train",
+        Commands::TrainBaseAdapter { .. } => "train-base-adapter",
+        Commands::IngestDocs { .. } => "ingest-docs",
+        Commands::TrainDocs { .. } => "train-docs",
+        #[cfg(feature = "orchestrator")]
+        Commands::BehaviorExport { .. } => "behavior-export",
+        Commands::CodeInit { .. } => "code-init",
+        Commands::CodeUpdate { .. } => "code-update",
+        Commands::CodeList { .. } => "code-list",
+        Commands::CodeStatus { .. } => "code-status",
+        Commands::QuantizeQwen { .. } => "quantize-qwen",
+        Commands::Aos(_) => "aos",
+        Commands::Infer { .. } => "infer",
     }
     .to_string()
 }
 
 /// Extract tenant ID from command if present
-pub fn extract_tenant_from_command(command: &Commands) -> Option<String> {
+fn extract_tenant_from_command(command: &Commands) -> Option<String> {
     match command {
-        Commands::Serve { tenant, .. } | Commands::Rollback { tenant, .. } => Some(tenant.clone()),
-        Commands::Diag(diag::DiagCommand::Run { tenant, .. }) => tenant.clone(),
-        Commands::Repo(commands::repo::RepoCommand::Repo(commands::repo::RepoOps::Create(
-            args,
-        ))) => Some(args.tenant.clone()),
-        Commands::Repo(commands::repo::RepoCommand::Repo(commands::repo::RepoOps::List {
-            tenant,
-            ..
-        })) => Some(tenant.clone()),
-        // Tenant extraction for grouped commands is handled by their respective handlers
+        Commands::AdapterPin { tenant, .. }
+        | Commands::AdapterUnpin { tenant, .. }
+        | Commands::AdapterListPinned { tenant, .. }
+        | Commands::AdapterSwap { tenant, .. }
+        | Commands::Serve { tenant, .. }
+        | Commands::Rollback { tenant, .. } => Some(tenant.clone()),
+        Commands::Diag { tenant, .. } => tenant.clone(),
         _ => None,
     }
 }
+
+/// Display user-friendly error message with CLI-specific formatting
+fn display_user_friendly_error(error: &anyhow::Error, error_code: Option<&str>, event_id: &str) {
+    #[allow(deprecated)] // Runtime lookup with dynamic error code string is valid
+    use crate::error_codes::find_by_code;
+
+    // First, try to get user-friendly message from error code registry
+    if let Some(code) = error_code {
+        #[allow(deprecated)]
+        if let Some(error_info) = find_by_code(code) {
+            error!(
+                event_id = %event_id,
+                error_code = %code,
+                message = %error_info,
+                "CLI error"
+            );
+            return;
+        }
+    }
+
+    // Fallback: Try to extract user-friendly message from AosError if present
+    let error_msg = format!("{}", error);
+
+    // Try to map common error patterns to user-friendly messages
+    let user_friendly_msg = if error_msg.contains("Connection refused") {
+        "Database connection failed. Please check if the database is running and accessible."
+            .to_string()
+    } else if error_msg.contains("Permission denied") {
+        "Permission denied. Please check file permissions and user access rights.".to_string()
+    } else if error_msg.contains("No such file") {
+        "File not found. Please verify the file path and ensure the file exists.".to_string()
+    } else if error_msg.contains("timeout") {
+        "Operation timed out. This may be due to system load or network issues.".to_string()
+    } else if let Some(code) = error_code {
+        format!(
+            "An error occurred ({}). See: aosctl explain {} (event: {})",
+            code, code, event_id
+        )
+    } else {
+        format!("An unexpected error occurred. Event ID: {}", event_id)
+    };
+
+    error!(
+        event_id = %event_id,
+        error_code = ?error_code,
+        message = %user_friendly_msg,
+        "CLI error"
+    );
+
+    // Show the original error in verbose mode or for debugging
+    if std::env::var("AOS_DEBUG").is_ok() || std::env::var("RUST_BACKTRACE").is_ok() {
+        debug!(
+            event_id = %event_id,
+            error_code = ?error_code,
+            detail = %error_msg,
+            "CLI error details"
+        );
+    }
+}
+
+// Logging initialization moved to logging module

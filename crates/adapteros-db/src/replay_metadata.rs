@@ -270,7 +270,7 @@ impl Db {
         .bind(&params.stop_policy_json)
         .bind(&params.policy_mask_digest_b3)
         .bind(utf8_healing)
-        .execute(self.pool_result()?)
+        .execute(self.pool())
         .await
         .map_err(|e| AosError::Database(format!("Failed to create replay metadata: {}", e)))?;
 
@@ -430,7 +430,7 @@ impl Db {
             "#,
         )
         .bind(inference_id)
-        .fetch_optional(self.pool_result()?)
+        .fetch_optional(self.pool())
         .await
         .map_err(|e| AosError::Database(format!("Failed to fetch replay metadata: {}", e)))?;
 
@@ -540,7 +540,7 @@ impl Db {
             "#,
         )
         .bind(id)
-        .fetch_optional(self.pool_result()?)
+        .fetch_optional(self.pool())
         .await
         .map_err(|e| AosError::Database(format!("Failed to fetch replay metadata: {}", e)))?;
 
@@ -575,7 +575,7 @@ impl Db {
         )
         .bind(status)
         .bind(inference_id)
-        .execute(self.pool_result()?)
+        .execute(self.pool())
         .await
         .map_err(|e| AosError::Database(format!("Failed to update replay status: {}", e)))?;
 
@@ -690,7 +690,7 @@ impl Db {
         .bind(tenant_id)
         .bind(limit)
         .bind(offset)
-        .fetch_all(self.pool_result()?)
+        .fetch_all(self.pool())
         .await
         .map_err(|e| AosError::Database(format!("Failed to list replay metadata: {}", e)))?;
 
@@ -807,24 +807,23 @@ mod tests {
     use super::*;
 
     // Helper to create tenant for FK constraints
-    async fn setup_test_tenant(db: &Db) -> Result<String> {
+    async fn setup_test_tenant(db: &Db) -> String {
         match db.create_tenant("Test Tenant", false).await {
-            Ok(id) => Ok(id),
+            Ok(id) => id,
             Err(_) => {
                 // Tenant already exists, just use a simple query to get one
-                let id = sqlx::query_scalar::<_, String>("SELECT id FROM tenants LIMIT 1")
-                    .fetch_one(db.pool_result()?)
+                sqlx::query_scalar::<_, String>("SELECT id FROM tenants LIMIT 1")
+                    .fetch_one(db.pool())
                     .await
-                    .expect("No tenant found");
-                Ok(id)
+                    .expect("No tenant found")
             }
         }
     }
 
     #[tokio::test]
-    async fn test_create_and_retrieve_replay_metadata() -> Result<()> {
+    async fn test_create_and_retrieve_replay_metadata() {
         let db = Db::new_in_memory().await.unwrap();
-        let tenant_id = setup_test_tenant(&db).await.unwrap();
+        let tenant_id = setup_test_tenant(&db).await;
 
         let inference_id = "inf-replay-001";
 
@@ -917,14 +916,12 @@ mod tests {
         let metadata_by_id = db.get_replay_metadata(&id).await.unwrap();
         assert!(metadata_by_id.is_some());
         assert_eq!(metadata_by_id.unwrap().inference_id, inference_id);
-
-        Ok(())
     }
 
     #[tokio::test]
-    async fn test_update_replay_status() -> Result<()> {
+    async fn test_update_replay_status() {
         let db = Db::new_in_memory().await.unwrap();
-        let tenant_id = setup_test_tenant(&db).await.unwrap();
+        let tenant_id = setup_test_tenant(&db).await;
 
         let inference_id = "inf-replay-002";
 
@@ -983,14 +980,12 @@ mod tests {
             .unwrap()
             .unwrap();
         assert_eq!(metadata.replay_status, "degraded");
-
-        Ok(())
     }
 
     #[tokio::test]
-    async fn test_list_replay_metadata_by_tenant() -> Result<()> {
+    async fn test_list_replay_metadata_by_tenant() {
         let db = Db::new_in_memory().await.unwrap();
-        let tenant_id = setup_test_tenant(&db).await.unwrap();
+        let tenant_id = setup_test_tenant(&db).await;
 
         // Create multiple replay metadata records
         for i in 1..=5 {
@@ -1054,14 +1049,12 @@ mod tests {
         assert_eq!(page1[0].inference_id, "inf-5");
         assert_eq!(page1[1].inference_id, "inf-4");
         assert_eq!(page1[2].inference_id, "inf-3");
-
-        Ok(())
     }
 
     #[tokio::test]
-    async fn test_truncation_flags() -> Result<()> {
+    async fn test_truncation_flags() {
         let db = Db::new_in_memory().await.unwrap();
-        let tenant_id = setup_test_tenant(&db).await.unwrap();
+        let tenant_id = setup_test_tenant(&db).await;
 
         let inference_id = "inf-truncated";
 
@@ -1116,14 +1109,12 @@ mod tests {
             .unwrap();
         assert_eq!(metadata.prompt_truncated, 1);
         assert_eq!(metadata.response_truncated, 1);
-
-        Ok(())
     }
 
     #[tokio::test]
-    async fn test_fallback_flag_persists() -> Result<()> {
+    async fn test_fallback_flag_persists() {
         let db = Db::new_in_memory().await.unwrap();
-        let tenant_id = setup_test_tenant(&db).await.unwrap();
+        let tenant_id = setup_test_tenant(&db).await;
 
         let params = CreateReplayMetadataParams {
             inference_id: "inf-fallback".to_string(),
@@ -1168,12 +1159,10 @@ mod tests {
         let id = db.create_replay_metadata(params).await.unwrap();
         let record = db.get_replay_metadata(&id).await.unwrap().unwrap();
         assert_eq!(record.fallback_triggered, Some(true));
-
-        Ok(())
     }
 
     #[tokio::test]
-    async fn test_nonexistent_replay_metadata() -> Result<()> {
+    async fn test_nonexistent_replay_metadata() {
         let db = Db::new_in_memory().await.unwrap();
 
         // Try to retrieve non-existent metadata
@@ -1185,7 +1174,5 @@ mod tests {
 
         let result = db.get_replay_metadata("nonexistent-id").await.unwrap();
         assert!(result.is_none());
-
-        Ok(())
     }
 }

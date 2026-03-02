@@ -2,8 +2,6 @@
 
 use crate::config::ServiceConfig;
 use crate::error::{Result, SupervisorError};
-use adapteros_core::retry_policy::{RetryManager, RetryPolicy};
-use adapteros_core::AosError;
 use serde::{Deserialize, Serialize};
 use std::path::PathBuf;
 use std::process::Stdio;
@@ -448,34 +446,26 @@ impl ManagedService {
             .build()
             .map_err(|e| SupervisorError::Http(format!("Failed to create HTTP client: {}", e)))?;
 
-        let policy = RetryPolicy {
-            service_type: format!("supervisor_health_http_{}", self.config.name),
-            ..Default::default()
-        };
-        let retry_manager = RetryManager::from_policy_defaults(&policy);
-        let endpoint = endpoint.to_string();
-        let service_name = self.config.name.clone();
+        let max_attempts = 2u32;
+        let mut attempt = 0u32;
+        let mut backoff = Duration::from_millis(100);
 
-        let response = retry_manager
-            .execute_with_policy(&policy, || {
-                let client = client.clone();
-                let endpoint = endpoint.clone();
-                let service_name = service_name.clone();
-                Box::pin(async move {
-                    client.get(&endpoint).send().await.map_err(|e| {
-                        AosError::Network(format!(
-                            "HTTP health check request failed for {}: {}",
-                            service_name, e
-                        ))
-                    })
-                })
-            })
-            .await
-            .map_err(|e| {
-                SupervisorError::Http(format!("HTTP health check failed after retries: {}", e))
-            })?;
-
-        Ok(response.status().is_success())
+        loop {
+            attempt += 1;
+            match client.get(endpoint).send().await {
+                Ok(response) => return Ok(response.status().is_success()),
+                Err(e) => {
+                    if attempt >= max_attempts {
+                        return Err(SupervisorError::Http(format!(
+                            "HTTP request failed after {} attempts: {}",
+                            attempt, e
+                        )));
+                    }
+                    tokio::time::sleep(backoff).await;
+                    backoff = (backoff * 2).min(Duration::from_millis(500));
+                }
+            }
+        }
     }
 
     /// Check TCP connectivity (development mode only)

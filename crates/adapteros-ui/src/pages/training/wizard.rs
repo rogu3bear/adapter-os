@@ -1,196 +1,93 @@
-//! Stepped wizard for creating training jobs.
+//! Stepped wizard for creating training jobs
 //!
-//! Goal-first 3-step flow:
-//! 1. Build dataset
-//! 2. Train adapter
-//! 3. Continue to chat
+//! 4-step wizard flow:
+//! 1. Knowledge - Add or choose files
+//! 2. Name - Name your adapter
+//! 3. Train - Default settings with optional advanced controls
+//! 4. Confirm - Review and submit
 
 use crate::api::error::format_structured_details;
 use crate::api::{
-    use_api_client, ApiClient, ApiError, CreateTrainingJobRequest, DatasetListResponse,
-    DatasetPreviewResponse, DatasetResponse, DocumentListResponse, ModelListResponse,
-    TrainingConfigRequest,
+    use_api_client, ApiClient, ApiError, DatasetResponse, DocumentListResponse, ModelListResponse,
 };
 use crate::components::{
-    AsyncBoundary, Button, ButtonType, ButtonVariant, Card, DialogSize, DocumentUploadDialog,
-    FormField, Input, Select, StepFormDialog,
+    AsyncBoundary, Card, DialogSize, FormField, Input, Select, StepFormDialog,
 };
 use crate::hooks::{use_api_resource, LoadingState, Refetch};
 use crate::pages::training::config_presets::TrainingPreset;
 use crate::pages::training::dataset_wizard::{DatasetOutcome, DatasetUploadWizard};
+use crate::pages::training::generate_wizard::GenerateDatasetWizard;
 use crate::signals::use_notifications;
-use crate::utils::status_display_label;
 use crate::validation::{
     rules, use_field_error, use_form_state, validate_on_blur, FormState, ValidationRule,
 };
-use adapteros_api_types::{
-    DatasetVersionSelection, TrainingBackendKind, TrainingBackendPolicy,
-    TRAINING_DATA_CONTRACT_VERSION,
-};
+use adapteros_api_types::TRAINING_DATA_CONTRACT_VERSION;
 use leptos::prelude::*;
+use serde_json::json;
 use std::sync::{
     atomic::{AtomicBool, Ordering},
     Arc,
 };
 
+#[path = "data/upload_dialog.rs"]
+mod document_upload_dialog;
+use document_upload_dialog::{DocumentUploadDialog, UploadBatchResult};
+
 /// Wizard step enum
 #[derive(Clone, Copy, PartialEq, Eq, Debug, Default)]
 pub enum WizardStep {
-    /// Step 0: Build or select dataset
+    /// Step 0: Knowledge source selection
     #[default]
-    BuildDataset,
-    /// Step 1: Name + configure adapter
+    Knowledge,
+    Name,
     Train,
-    /// Step 2: Review and start; handoff to chat-ready path
-    ContinueToChat,
+    Confirm,
 }
 
 impl WizardStep {
     fn index(&self) -> usize {
         match self {
-            WizardStep::BuildDataset => 0,
-            WizardStep::Train => 1,
-            WizardStep::ContinueToChat => 2,
+            WizardStep::Knowledge => 0,
+            WizardStep::Name => 1,
+            WizardStep::Train => 2,
+            WizardStep::Confirm => 3,
         }
     }
 
     fn label(&self) -> &'static str {
         match self {
-            WizardStep::BuildDataset => "Build dataset",
-            WizardStep::Train => "Train adapter",
-            WizardStep::ContinueToChat => "Continue to chat",
+            WizardStep::Knowledge => "Knowledge",
+            WizardStep::Name => "Name",
+            WizardStep::Train => "Train",
+            WizardStep::Confirm => "Confirm",
         }
     }
 
     fn next(&self) -> Option<WizardStep> {
         match self {
-            WizardStep::BuildDataset => Some(WizardStep::Train),
-            WizardStep::Train => Some(WizardStep::ContinueToChat),
-            WizardStep::ContinueToChat => None,
+            WizardStep::Knowledge => Some(WizardStep::Name),
+            WizardStep::Name => Some(WizardStep::Train),
+            WizardStep::Train => Some(WizardStep::Confirm),
+            WizardStep::Confirm => None,
         }
     }
 
     fn prev(&self) -> Option<WizardStep> {
         match self {
-            WizardStep::BuildDataset => None,
-            WizardStep::Train => Some(WizardStep::BuildDataset),
-            WizardStep::ContinueToChat => Some(WizardStep::Train),
-        }
-    }
-
-    fn from_index(index: usize) -> Self {
-        match index {
-            1 => Self::Train,
-            2 => Self::ContinueToChat,
-            _ => Self::BuildDataset,
+            WizardStep::Knowledge => None,
+            WizardStep::Name => Some(WizardStep::Knowledge),
+            WizardStep::Train => Some(WizardStep::Name),
+            WizardStep::Confirm => Some(WizardStep::Train),
         }
     }
 }
 
-const STEPS: [WizardStep; 3] = [
-    WizardStep::BuildDataset,
+const STEPS: [WizardStep; 4] = [
+    WizardStep::Knowledge,
+    WizardStep::Name,
     WizardStep::Train,
-    WizardStep::ContinueToChat,
+    WizardStep::Confirm,
 ];
-#[cfg(target_arch = "wasm32")]
-const TRAINING_WIZARD_DRAFT_KEY: &str = "adapteros_training_wizard_draft_v1";
-const TRAINING_WIZARD_STALE_MS: f64 = 24.0 * 60.0 * 60.0 * 1000.0;
-
-#[derive(Clone, Debug, serde::Serialize, serde::Deserialize)]
-struct AdvancedDatasetDraft {
-    dataset_id: String,
-    dataset_version_id: String,
-    weight: f32,
-}
-
-#[derive(Clone, Debug, serde::Serialize, serde::Deserialize)]
-struct TrainingWizardDraft {
-    updated_at_ms: f64,
-    step_index: usize,
-    adapter_name: String,
-    skill_purpose: String,
-    base_model_id: String,
-    dataset_id: String,
-    dataset_version_id: Option<String>,
-    selected_dataset_id: String,
-    category: String,
-    training_preset: String,
-    epochs: String,
-    learning_rate: String,
-    validation_split: String,
-    early_stopping: bool,
-    batch_size: String,
-    rank: String,
-    alpha: String,
-    preferred_backend: String,
-    backend_policy: String,
-    coreml_training_fallback: String,
-    show_train_advanced: bool,
-    show_knowledge_advanced: bool,
-    multi_dataset_enabled: bool,
-    advanced_dataset_versions: Vec<AdvancedDatasetDraft>,
-    source_repo_id: Option<String>,
-    source_branch: Option<String>,
-    source_version_id: Option<String>,
-}
-
-#[cfg(target_arch = "wasm32")]
-fn now_ms() -> f64 {
-    js_sys::Date::now()
-}
-
-#[cfg(not(target_arch = "wasm32"))]
-fn now_ms() -> f64 {
-    0.0
-}
-
-fn format_draft_age(age_ms: f64) -> String {
-    let seconds = (age_ms / 1000.0).max(0.0) as u64;
-    if seconds < 60 {
-        "less than a minute".to_string()
-    } else if seconds < 3600 {
-        format!("{} minute(s)", seconds / 60)
-    } else if seconds < 86_400 {
-        format!("{} hour(s)", seconds / 3600)
-    } else {
-        format!("{} day(s)", seconds / 86_400)
-    }
-}
-
-#[cfg(target_arch = "wasm32")]
-fn load_training_wizard_draft() -> Option<TrainingWizardDraft> {
-    web_sys::window()
-        .and_then(|w| w.local_storage().ok().flatten())
-        .and_then(|s| s.get_item(TRAINING_WIZARD_DRAFT_KEY).ok().flatten())
-        .and_then(|raw| serde_json::from_str::<TrainingWizardDraft>(&raw).ok())
-}
-
-#[cfg(not(target_arch = "wasm32"))]
-fn load_training_wizard_draft() -> Option<TrainingWizardDraft> {
-    None
-}
-
-#[cfg(target_arch = "wasm32")]
-fn save_training_wizard_draft(draft: &TrainingWizardDraft) {
-    if let Some(storage) = web_sys::window().and_then(|w| w.local_storage().ok().flatten()) {
-        if let Ok(json) = serde_json::to_string(draft) {
-            let _ = storage.set_item(TRAINING_WIZARD_DRAFT_KEY, &json);
-        }
-    }
-}
-
-#[cfg(not(target_arch = "wasm32"))]
-fn save_training_wizard_draft(_draft: &TrainingWizardDraft) {}
-
-#[cfg(target_arch = "wasm32")]
-fn clear_training_wizard_draft() {
-    if let Some(storage) = web_sys::window().and_then(|w| w.local_storage().ok().flatten()) {
-        let _ = storage.remove_item(TRAINING_WIZARD_DRAFT_KEY);
-    }
-}
-
-#[cfg(not(target_arch = "wasm32"))]
-fn clear_training_wizard_draft() {}
 
 #[cfg(target_arch = "wasm32")]
 async fn wait_for_document_indexed(client: &ApiClient, document_id: &str) -> Result<(), String> {
@@ -200,7 +97,7 @@ async fn wait_for_document_indexed(client: &ApiClient, document_id: &str) -> Res
     for _ in 0..MAX_POLLS {
         match client.get_document(document_id).await {
             Ok(document) => match document.status.as_str() {
-                "indexed" | "ready" => return Ok(()),
+                "indexed" => return Ok(()),
                 "failed" | "error" => {
                     return Err(document.error_message.unwrap_or_else(|| {
                         "One of your files could not be prepared. Please try another file."
@@ -214,7 +111,7 @@ async fn wait_for_document_indexed(client: &ApiClient, document_id: &str) -> Res
         gloo_timers::future::TimeoutFuture::new(POLL_DELAY_MS).await;
     }
 
-    Err("The document is still preparing. Please try again in a moment.".to_string())
+    Err("Your files are still preparing. Please try again in a moment.".to_string())
 }
 
 #[cfg(not(target_arch = "wasm32"))]
@@ -226,7 +123,7 @@ fn map_training_submit_error(error: &ApiError) -> String {
     match error.code() {
         Some("DATASET_TRUST_BLOCKED")
         | Some("DATASET_TRUST_NEEDS_APPROVAL")
-        | Some("VALIDATION_ERROR") => "The selected dataset needs a quick review before training.".to_string(),
+        | Some("VALIDATION_ERROR") => "Your files need a quick review before training.".to_string(),
         Some("TRAINING_CAPACITY_LIMIT")
         | Some("MEMORY_PRESSURE_CRITICAL")
         | Some("CAPACITY_CHECK_ERROR")
@@ -236,163 +133,7 @@ fn map_training_submit_error(error: &ApiError) -> String {
         | Some("SERVICE_UNAVAILABLE") => {
             "Training is busy. Try again in a few minutes.".to_string()
         }
-        Some("WORKER_CAPABILITY_MISSING") => {
-            "No training worker with GPU backward capability is available. Register an MLX-capable worker and try again."
-                .to_string()
-        }
         _ => format_structured_details(error),
-    }
-}
-
-fn parse_backend_kind(value: &str) -> Option<TrainingBackendKind> {
-    match value.trim().to_ascii_lowercase().as_str() {
-        "coreml" => Some(TrainingBackendKind::CoreML),
-        "mlx" => Some(TrainingBackendKind::Mlx),
-        "metal" => Some(TrainingBackendKind::Metal),
-        "cpu" => Some(TrainingBackendKind::Cpu),
-        _ => None,
-    }
-}
-
-fn parse_backend_policy(value: &str) -> Option<TrainingBackendPolicy> {
-    match value.trim().to_ascii_lowercase().as_str() {
-        "coreml_only" => Some(TrainingBackendPolicy::CoremlOnly),
-        "coreml_else_fallback" => Some(TrainingBackendPolicy::CoremlElseFallback),
-        _ => None,
-    }
-}
-
-#[derive(Clone, Copy, PartialEq, Eq, Debug)]
-enum KnowledgeGateState {
-    NeedsDatasetSelection,
-    DatasetAcquisitionInProgress,
-    DatasetMetadataLoading,
-    DatasetMetadataUnavailable,
-    DatasetNotReady,
-    DatasetTrustNeedsApproval,
-    DatasetTrustBlocked,
-    DatasetTrustUnknown,
-    DatasetValidationIncomplete,
-    ReadyWithWarning,
-    Ready,
-}
-
-impl KnowledgeGateState {
-    fn is_ready(self) -> bool {
-        matches!(self, Self::Ready | Self::ReadyWithWarning)
-    }
-
-    fn message(self) -> Option<&'static str> {
-        match self {
-            Self::NeedsDatasetSelection => Some("Choose or create a dataset first."),
-            Self::DatasetAcquisitionInProgress => Some("Dataset preparation is in progress."),
-            Self::DatasetMetadataLoading => Some("Dataset details are still loading."),
-            Self::DatasetMetadataUnavailable => {
-                Some("Dataset details could not be loaded. Re-select or create a dataset.")
-            }
-            Self::DatasetNotReady => Some("Dataset is still preparing."),
-            Self::DatasetTrustNeedsApproval => {
-                Some("Dataset trust requires approval before training.")
-            }
-            Self::DatasetTrustBlocked => Some("Dataset trust is blocked for training."),
-            Self::DatasetTrustUnknown => Some("Dataset trust state is unknown."),
-            Self::DatasetValidationIncomplete => Some("Dataset validation is not complete."),
-            Self::ReadyWithWarning => Some("Dataset is train-eligible with warnings."),
-            Self::Ready => None,
-        }
-    }
-
-    fn is_destructive(self) -> bool {
-        matches!(
-            self,
-            Self::DatasetTrustNeedsApproval | Self::DatasetTrustBlocked | Self::DatasetTrustUnknown
-        )
-    }
-
-    fn style_classes(self) -> (&'static str, &'static str) {
-        if self.is_ready() {
-            (
-                "border border-status-success/50 bg-status-success/5",
-                "text-status-success",
-            )
-        } else if self.is_destructive() {
-            (
-                "border border-destructive/50 bg-destructive/10",
-                "text-destructive",
-            )
-        } else {
-            (
-                "border border-status-warning/50 bg-status-warning/10",
-                "text-status-warning",
-            )
-        }
-    }
-}
-
-fn normalize_gate_token(value: &str) -> String {
-    value.trim().to_ascii_lowercase().replace('-', "_")
-}
-
-fn evaluate_knowledge_gate(
-    dataset_id: &str,
-    dataset_info: Option<&DatasetResponse>,
-    dataset_lookup_loading: bool,
-    creating_document_dataset: bool,
-    dataset_wizard_open: bool,
-) -> KnowledgeGateState {
-    if creating_document_dataset || dataset_wizard_open {
-        return KnowledgeGateState::DatasetAcquisitionInProgress;
-    }
-
-    let selected_dataset_id = dataset_id.trim();
-    if selected_dataset_id.is_empty() {
-        return KnowledgeGateState::NeedsDatasetSelection;
-    }
-
-    if dataset_lookup_loading {
-        return KnowledgeGateState::DatasetMetadataLoading;
-    }
-
-    let Some(dataset) = dataset_info else {
-        return KnowledgeGateState::DatasetMetadataUnavailable;
-    };
-
-    if !dataset.id.eq_ignore_ascii_case(selected_dataset_id) {
-        return KnowledgeGateState::DatasetMetadataLoading;
-    }
-
-    if normalize_gate_token(&dataset.status) != "ready" {
-        return KnowledgeGateState::DatasetNotReady;
-    }
-
-    let trust_state = dataset
-        .trust_state
-        .as_deref()
-        .map(normalize_gate_token)
-        .unwrap_or_else(|| "unknown".to_string());
-
-    let allow_with_warning = match trust_state.as_str() {
-        "allowed" => false,
-        "allowed_with_warning" => true,
-        "needs_approval" => return KnowledgeGateState::DatasetTrustNeedsApproval,
-        "blocked" => return KnowledgeGateState::DatasetTrustBlocked,
-        _ => return KnowledgeGateState::DatasetTrustUnknown,
-    };
-
-    let validation_status = dataset
-        .validation_status
-        .as_deref()
-        .map(normalize_gate_token)
-        .unwrap_or_else(|| "unknown".to_string());
-
-    if validation_status != "valid" {
-        return KnowledgeGateState::DatasetValidationIncomplete;
-    }
-
-    if allow_with_warning {
-        KnowledgeGateState::ReadyWithWarning
-    } else {
-        KnowledgeGateState::Ready
     }
 }
 
@@ -431,15 +172,6 @@ pub fn CreateJobWizard(
     /// Optional initial LoRA alpha (from deep-link query params)
     #[prop(optional)]
     initial_alpha: Option<RwSignal<Option<String>>>,
-    /// Optional repository ID when launched from adapter version controls
-    #[prop(optional)]
-    initial_repo_id: Option<RwSignal<Option<String>>>,
-    /// Optional branch when launched from adapter version controls
-    #[prop(optional)]
-    initial_branch: Option<RwSignal<Option<String>>>,
-    /// Optional source version ID when launched from adapter version controls
-    #[prop(optional)]
-    initial_source_version_id: Option<RwSignal<Option<String>>>,
 ) -> impl IntoView {
     let is_active = Arc::new(AtomicBool::new(true));
     {
@@ -457,21 +189,15 @@ pub fn CreateJobWizard(
     let skill_purpose = RwSignal::new(String::new());
     let base_model_id = RwSignal::new(String::new());
     let dataset_id = RwSignal::new(String::new());
-    let dataset_version_id = RwSignal::new(None::<String>);
-    let selected_dataset_id = RwSignal::new(String::new());
     let dataset_message = RwSignal::new(None::<String>);
-    let source_repo_id = RwSignal::new(None::<String>);
-    let source_branch = RwSignal::new(None::<String>);
-    let source_version_id = RwSignal::new(None::<String>);
-    let version_feed_context = RwSignal::new(None::<String>);
 
     // Initialize dataset_id from initial_dataset_id if provided
     if let Some(init_ds) = initial_dataset_id {
         Effect::new(move || {
             if let Some(ds_id) = init_ds.try_get().flatten() {
                 let _ = dataset_id.try_set(ds_id.clone());
-                let _ = selected_dataset_id.try_set(ds_id.clone());
-                let _ = dataset_message.try_set(Some(format!("Using selected dataset: {}", ds_id)));
+                let _ = dataset_message
+                    .try_set(Some(format!("Using selected training data: {}", ds_id)));
             }
         });
     }
@@ -481,7 +207,7 @@ pub fn CreateJobWizard(
         Effect::new(move || {
             if let Some(doc_id) = src_doc.try_get().flatten() {
                 let _ = dataset_message.try_set(Some(format!(
-                    "Document {} is available. Convert it to a dataset in the Documents section.",
+                    "Document {} is available. Add files or choose an uploaded file.",
                     doc_id
                 )));
             }
@@ -495,55 +221,6 @@ pub fn CreateJobWizard(
             }
         });
     }
-
-    if let Some(init_repo) = initial_repo_id {
-        Effect::new(move || {
-            if let Some(repo_id) = init_repo.try_get().flatten() {
-                let _ = source_repo_id.try_set(Some(repo_id));
-            }
-        });
-    }
-    if let Some(init_branch) = initial_branch {
-        Effect::new(move || {
-            if let Some(branch) = init_branch.try_get().flatten() {
-                let _ = source_branch.try_set(Some(branch));
-            }
-        });
-    }
-    if let Some(init_version) = initial_source_version_id {
-        Effect::new(move || {
-            if let Some(version_id) = init_version.try_get().flatten() {
-                let _ = source_version_id.try_set(Some(version_id));
-            }
-        });
-    }
-
-    Effect::new(move || {
-        let repo = source_repo_id.get();
-        let branch = source_branch.get();
-        let version_id = source_version_id.get();
-
-        if repo.is_none() && branch.is_none() && version_id.is_none() {
-            version_feed_context.set(None);
-            return;
-        }
-
-        let mut parts = Vec::new();
-        if let Some(repo_id) = repo {
-            parts.push(format!("repo {}", repo_id));
-        }
-        if let Some(branch_name) = branch {
-            parts.push(format!("branch {}", branch_name));
-        }
-        if let Some(version) = version_id {
-            parts.push(format!("version {}", version));
-        }
-
-        version_feed_context.set(Some(format!(
-            "Starting from adapter version context: {}.",
-            parts.join(", ")
-        )));
-    });
 
     let category = RwSignal::new("code".to_string());
 
@@ -563,36 +240,24 @@ pub fn CreateJobWizard(
     // Train step advanced options
     let show_train_advanced = RwSignal::new(false);
     let show_knowledge_advanced = RwSignal::new(false);
-    let multi_dataset_enabled = RwSignal::new(false);
-    let advanced_dataset_versions = RwSignal::new(Vec::<AdvancedDatasetDraft>::new());
     let preferred_backend = RwSignal::new("auto".to_string());
     let backend_policy = RwSignal::new("auto".to_string());
     let coreml_training_fallback = RwSignal::new("mlx".to_string());
     let document_upload_open = RwSignal::new(false);
     let selected_document_id = RwSignal::new(String::new());
     let creating_document_dataset = RwSignal::new(false);
-    let draft_notice = RwSignal::new(None::<String>);
-    let draft_is_stale = RwSignal::new(false);
 
     // Lifted state: survives step transitions so data isn't re-fetched
     // and UI toggles aren't lost when navigating between steps.
     let (models, _refetch_models) = use_api_resource(
         |client: std::sync::Arc<ApiClient>| async move { client.list_models().await },
     );
-    let (datasets, _refetch_datasets) =
-        use_api_resource(|client: std::sync::Arc<ApiClient>| async move {
-            client.list_datasets(None).await
-        });
     let (documents, refetch_documents) =
         use_api_resource(|client: std::sync::Arc<ApiClient>| async move {
             client.list_documents(None).await
         });
     let use_custom_model = RwSignal::new(false);
     let dataset_info = RwSignal::new(None::<DatasetResponse>);
-    let dataset_lookup_loading = RwSignal::new(false);
-    let dataset_preview = RwSignal::new(None::<DatasetPreviewResponse>);
-    let dataset_preview_loading = RwSignal::new(false);
-    let dataset_preview_error = RwSignal::new(None::<String>);
 
     // Shared API client for closures and handlers
     let client = use_api_client();
@@ -606,11 +271,8 @@ pub fn CreateJobWizard(
             let id = dataset_id.get();
             if id.trim().is_empty() {
                 dataset_info.set(None);
-                dataset_version_id.set(None);
-                dataset_lookup_loading.set(false);
                 return;
             }
-            dataset_lookup_loading.set(true);
             #[cfg(target_arch = "wasm32")]
             {
                 let client = _client.clone();
@@ -621,76 +283,10 @@ pub fn CreateJobWizard(
                     }
                     match client.get_dataset(&id).await {
                         Ok(resp) => {
-                            let version =
-                                if resp.dataset_version_id.is_some() {
-                                    resp.dataset_version_id.clone()
-                                } else {
-                                    client.list_dataset_versions(&id).await.ok().and_then(
-                                        |history| {
-                                            history
-                                                .versions
-                                                .into_iter()
-                                                .next()
-                                                .map(|v| v.dataset_version_id)
-                                        },
-                                    )
-                                };
                             let _ = dataset_info.try_set(Some(resp));
-                            let _ = dataset_version_id.try_set(version);
-                            let _ = dataset_lookup_loading.try_set(false);
                         }
                         Err(_) => {
                             let _ = dataset_info.try_set(None);
-                            let _ = dataset_version_id.try_set(None);
-                            let _ = dataset_lookup_loading.try_set(false);
-                        }
-                    }
-                });
-            }
-        });
-    }
-
-    // Fetch dataset preview reactively when the browse selection changes.
-    {
-        let _client = client.clone();
-        #[cfg(target_arch = "wasm32")]
-        let is_active = Arc::clone(&is_active);
-        Effect::new(move || {
-            let selected_id = selected_dataset_id.get().trim().to_string();
-            if selected_id.is_empty() {
-                dataset_preview.set(None);
-                dataset_preview_loading.set(false);
-                dataset_preview_error.set(None);
-                return;
-            }
-
-            dataset_preview_loading.set(true);
-            dataset_preview_error.set(None);
-            #[cfg(target_arch = "wasm32")]
-            {
-                let client = _client.clone();
-                let is_active = Arc::clone(&is_active);
-                wasm_bindgen_futures::spawn_local(async move {
-                    if !is_active.load(Ordering::Relaxed) {
-                        return;
-                    }
-                    match client.preview_dataset(&selected_id, Some(10)).await {
-                        Ok(resp) => {
-                            if selected_dataset_id.get_untracked().trim() != selected_id {
-                                return;
-                            }
-                            let _ = dataset_preview.try_set(Some(resp));
-                            let _ = dataset_preview_loading.try_set(false);
-                            let _ = dataset_preview_error.try_set(None);
-                        }
-                        Err(err) => {
-                            if selected_dataset_id.get_untracked().trim() != selected_id {
-                                return;
-                            }
-                            let _ = dataset_preview.try_set(None);
-                            let _ = dataset_preview_loading.try_set(false);
-                            let _ = dataset_preview_error
-                                .try_set(Some(format_structured_details(&err)));
                         }
                     }
                 });
@@ -768,6 +364,7 @@ pub fn CreateJobWizard(
 
     // Wizard state
     let dataset_wizard_open = RwSignal::new(false);
+    let generate_wizard_open = RwSignal::new(false);
     let submitting = RwSignal::new(false);
     let error = RwSignal::new(None::<String>);
     let form_state = use_form_state();
@@ -775,25 +372,20 @@ pub fn CreateJobWizard(
 
     let on_created_clone = on_created.clone();
 
-    // Dataset callback — unified for dataset upload and document conversion.
+    // Dataset callback — unified for upload, document conversion, and generation
     let on_dataset_ready = Callback::new(move |outcome: DatasetOutcome| {
         let sample_count = (outcome.sample_count > 0).then_some(outcome.sample_count);
         let source = if outcome.is_synthetic {
-            "Generated dataset"
+            "Generated examples"
         } else {
-            "Dataset"
+            "Your files"
         };
         let message = if let Some(count) = sample_count {
-            format!(
-                "{source} created ({} examples). Checking readiness...",
-                count
-            )
+            format!("{} are ready ({} examples).", source, count)
         } else {
-            format!("{source} created. Checking readiness...")
+            format!("{} are ready.", source)
         };
-        selected_dataset_id.set(outcome.dataset_id.clone());
         dataset_id.set(outcome.dataset_id);
-        dataset_version_id.set(outcome.dataset_version_id.clone());
         dataset_sample_count.set(sample_count);
         dataset_message.set(Some(message));
     });
@@ -802,6 +394,7 @@ pub fn CreateJobWizard(
     let use_document_for_dataset = {
         let client = client.clone();
         let is_active = Arc::clone(&is_active);
+        let on_dataset_ready = on_dataset_ready.clone();
         Callback::new(move |document_id: String| {
             let document_id = document_id.trim().to_string();
             if document_id.is_empty() || creating_document_dataset.get() {
@@ -810,11 +403,11 @@ pub fn CreateJobWizard(
 
             creating_document_dataset.set(true);
             error.set(None);
-            dataset_message.set(Some("Preparing dataset from document…".to_string()));
+            dataset_message.set(Some("Preparing your files…".to_string()));
 
             let client = client.clone();
             let is_active = Arc::clone(&is_active);
-            let on_dataset_ready = on_dataset_ready;
+            let on_dataset_ready = on_dataset_ready.clone();
             wasm_bindgen_futures::spawn_local(async move {
                 if !is_active.load(Ordering::Relaxed) {
                     return;
@@ -864,115 +457,24 @@ pub fn CreateJobWizard(
         })
     };
 
-    let use_existing_dataset = {
-        let client = client.clone();
-        let is_active = Arc::clone(&is_active);
-        Callback::new(move |selected_id: String| {
-            let selected_id = selected_id.trim().to_string();
-            if selected_id.is_empty() {
-                return;
-            }
-            selected_dataset_id.set(selected_id.clone());
-            dataset_id.set(selected_id.clone());
-            dataset_message.set(Some(
-                "Selected existing dataset. Checking readiness...".to_string(),
-            ));
-            error.set(None);
-
-            let client = client.clone();
-            let is_active = Arc::clone(&is_active);
-            wasm_bindgen_futures::spawn_local(async move {
-                if !is_active.load(Ordering::Relaxed) {
-                    return;
-                }
-                let sample_count = match client.get_dataset_statistics(&selected_id).await {
-                    Ok(stats) if stats.num_examples > 0 => stats.num_examples as usize,
-                    _ => 0,
-                };
-                let _ = dataset_sample_count.try_set((sample_count > 0).then_some(sample_count));
-                let latest_version_id = client
-                    .list_dataset_versions(&selected_id)
-                    .await
-                    .ok()
-                    .and_then(|history| {
-                        history
-                            .versions
-                            .into_iter()
-                            .next()
-                            .map(|v| v.dataset_version_id)
-                    });
-                let _ = dataset_version_id.try_set(latest_version_id);
-            });
-        })
-    };
-
-    let add_selected_dataset_to_advanced = {
-        let client = client.clone();
-        let is_active = Arc::clone(&is_active);
-        Callback::new(move |selected_id: String| {
-            let selected_id = selected_id.trim().to_string();
-            if selected_id.is_empty() {
-                return;
-            }
-
-            let client = client.clone();
-            let is_active = Arc::clone(&is_active);
-            wasm_bindgen_futures::spawn_local(async move {
-                if !is_active.load(Ordering::Relaxed) {
-                    return;
-                }
-
-                let latest_version_id = client
-                    .list_dataset_versions(&selected_id)
-                    .await
-                    .ok()
-                    .and_then(|history| history.versions.into_iter().next())
-                    .map(|version| version.dataset_version_id);
-
-                let Some(dataset_version_id) = latest_version_id else {
-                    let _ = error.try_set(Some(
-                        "Could not resolve a dataset version for advanced blend mode.".to_string(),
-                    ));
-                    return;
-                };
-
-                advanced_dataset_versions.update(|entries| {
-                    if entries.iter().any(|entry| {
-                        entry
-                            .dataset_version_id
-                            .eq_ignore_ascii_case(&dataset_version_id)
-                    }) {
-                        return;
-                    }
-                    entries.push(AdvancedDatasetDraft {
-                        dataset_id: selected_id.clone(),
-                        dataset_version_id,
-                        weight: 1.0,
-                    });
+    let on_document_upload_success = {
+        let on_dataset_ready = on_dataset_ready.clone();
+        Callback::new(move |result: UploadBatchResult| {
+            refetch_documents.run(());
+            if let Some(dataset_id_value) = result.dataset_id {
+                on_dataset_ready.run(DatasetOutcome {
+                    dataset_id: dataset_id_value,
+                    dataset_version_id: None,
+                    sample_count: 0,
+                    is_synthetic: false,
+                    source_hash: None,
+                    receipt_count: 0,
                 });
-            });
+            } else if let Some(document_id) = result.document_ids.first() {
+                use_document_for_dataset.run(document_id.clone());
+            }
         })
     };
-
-    let on_document_upload_success = Callback::new(move |document_id: String| {
-        refetch_documents.run(());
-        use_document_for_dataset.run(document_id);
-    });
-
-    let knowledge_gate_state = Signal::derive(move || {
-        evaluate_knowledge_gate(
-            &dataset_id.get(),
-            dataset_info.get().as_ref(),
-            dataset_lookup_loading.get(),
-            creating_document_dataset.get(),
-            dataset_wizard_open.get(),
-        )
-    });
-
-    let current_step_valid = Signal::derive(move || match current_step.get() {
-        WizardStep::BuildDataset => knowledge_gate_state.get().is_ready(),
-        _ => true,
-    });
 
     // Step validation
     let validate_name_step = move || -> bool {
@@ -982,16 +484,12 @@ pub fn CreateJobWizard(
     };
 
     let validate_knowledge_step = move || -> bool {
-        let gate_state = knowledge_gate_state.get();
         let dataset_rules = [ValidationRule::Pattern {
             pattern: r"^\s*\S.*$",
-            message: "Choose a dataset or convert a document before continuing",
+            message: "Add your files or choose an uploaded file before continuing",
         }];
         let dataset = dataset_id.get();
-        if matches!(gate_state, KnowledgeGateState::NeedsDatasetSelection) {
-            let _ = validate_on_blur("dataset_id", &dataset, &dataset_rules, form_state);
-        }
-        gate_state.is_ready()
+        validate_on_blur("dataset_id", &dataset, &dataset_rules, form_state)
     };
 
     let validate_config_step = {
@@ -1065,15 +563,16 @@ pub fn CreateJobWizard(
         }
     };
 
-    let validate_train_step = move || -> bool { validate_name_step() && validate_config_step() };
+    let validate_train_step = move || -> bool { validate_config_step() };
 
     // Navigation
     let go_next = move |_: ()| {
         let step = current_step.get();
         let can_proceed = match step {
-            WizardStep::BuildDataset => validate_knowledge_step(),
+            WizardStep::Knowledge => validate_knowledge_step(),
+            WizardStep::Name => validate_name_step(),
             WizardStep::Train => validate_train_step(),
-            WizardStep::ContinueToChat => true,
+            WizardStep::Confirm => true,
         };
 
         if can_proceed {
@@ -1098,23 +597,11 @@ pub fn CreateJobWizard(
         move |_: ()| {
             submitting.set(true);
             error.set(None);
-            let gate_state = knowledge_gate_state.get_untracked();
-            if !gate_state.is_ready() {
-                error.set(Some(
-                    gate_state
-                        .message()
-                        .unwrap_or("Dataset is not ready for training.")
-                        .to_string(),
-                ));
-                submitting.set(false);
-                return;
-            }
 
             let name = adapter_name.get();
             let name_for_toast = name.clone();
             let model = base_model_id.get();
             let ds_id = dataset_id.get();
-            let ds_version_id = dataset_version_id.get();
             let epochs_val: u32 = epochs.get().parse().unwrap_or(10);
             let lr_val: f32 = learning_rate.get().parse().unwrap_or(0.0001);
             let val_split: f32 = validation_split.get().parse().unwrap_or(0.0);
@@ -1124,14 +611,6 @@ pub fn CreateJobWizard(
             let backend_val = preferred_backend.get();
             let policy_val = backend_policy.get();
             let fallback_val = coreml_training_fallback.get();
-            let early_stopping_enabled = early_stopping.get();
-            let description = skill_purpose.get();
-            let adapter_category = category.get();
-            let repo_context = source_repo_id.get();
-            let branch_context = source_branch.get();
-            let source_version_context = source_version_id.get();
-            let use_multi_dataset = multi_dataset_enabled.get();
-            let advanced_datasets = advanced_dataset_versions.get();
 
             let on_created = on_created.clone();
             let notifications = notifications.clone();
@@ -1161,8 +640,10 @@ pub fn CreateJobWizard(
                     return;
                 }
 
-                let params =
-                    match serde_json::from_value::<TrainingConfigRequest>(serde_json::json!({
+                let request = json!({
+                    "adapter_name": name,
+                    "base_model_id": model_id,
+                    "training_config": {
                         "rank": rank_val,
                         "alpha": alpha_val,
                         "targets": ["q_proj", "v_proj"],
@@ -1172,185 +653,19 @@ pub fn CreateJobWizard(
                         "epochs": epochs_val,
                         "learning_rate": lr_val,
                         "batch_size": batch_val,
-                        "warmup_steps": serde_json::Value::Null,
-                        "max_seq_length": serde_json::Value::Null,
-                        "gradient_accumulation_steps": serde_json::Value::Null,
-                        "validation_split": (val_split > 0.0).then_some(val_split),
-                        "preferred_backend": parse_backend_kind(&backend_val),
-                        "backend_policy": parse_backend_policy(&policy_val),
-                        "coreml_training_fallback": if backend_val == "coreml"
-                            || policy_val == "coreml_else_fallback"
-                        {
-                            parse_backend_kind(&fallback_val)
-                        } else {
-                            None
-                        },
-                        "enable_coreml_export": serde_json::Value::Null,
-                        "require_gpu": serde_json::Value::Null,
-                        "max_gpu_memory_mb": serde_json::Value::Null,
-                        "force_resume": serde_json::Value::Null,
-                        "multi_module_training": serde_json::Value::Null,
-                        "lora_layer_indices": serde_json::Value::Null,
-                        "early_stopping": early_stopping_enabled,
-                        "patience": serde_json::Value::Null,
-                        "min_delta": serde_json::Value::Null
-                    })) {
-                        Ok(params) => params,
-                        Err(_err) => {
-                            let _ = error.try_set(Some(
-                                "Unable to prepare the training configuration. Please try again."
-                                    .to_string(),
-                            ));
-                            let _ = submitting.try_set(false);
-                            return;
-                        }
-                    };
+                        "validation_split": if val_split > 0.0 { json!(val_split) } else { serde_json::Value::Null },
+                        "preferred_backend": if backend_val == "auto" { serde_json::Value::Null } else { json!(backend_val) },
+                        "backend_policy": if policy_val == "auto" { serde_json::Value::Null } else { json!(policy_val) },
+                        "coreml_training_fallback": if backend_val == "coreml" || policy_val == "coreml_else_fallback" { json!(fallback_val) } else { serde_json::Value::Null },
+                        "early_stopping": early_stopping.get_untracked(),
+                    },
+                });
 
-                let description_value = {
-                    let trimmed = description.trim().to_string();
-                    (!trimmed.is_empty()).then_some(trimmed)
-                };
-
-                let mut advanced_version_selections: Vec<DatasetVersionSelection> = Vec::new();
-                let mut submit_via_advanced_versions = false;
-
-                if use_multi_dataset && !advanced_datasets.is_empty() {
-                    let Some(repo_id) = repo_context.clone() else {
-                        let _ = error.try_set(Some(
-                            "Advanced multi-dataset mode needs repository context. Open this flow from adapter operator controls."
-                                .to_string(),
-                        ));
-                        let _ = submitting.try_set(false);
-                        return;
-                    };
-
-                    let mut primary_version = ds_version_id
-                        .as_deref()
-                        .filter(|id| !id.trim().is_empty())
-                        .map(str::to_string);
-                    if primary_version.is_none() {
-                        primary_version = client
-                            .list_dataset_versions(&dataset_id)
-                            .await
-                            .ok()
-                            .and_then(|history| history.versions.into_iter().next())
-                            .map(|version| version.dataset_version_id);
-                    }
-
-                    let Some(primary_version_id) = primary_version else {
-                        let _ = error.try_set(Some(
-                            "Could not resolve a version for the primary dataset.".to_string(),
-                        ));
-                        let _ = submitting.try_set(false);
-                        return;
-                    };
-
-                    advanced_version_selections.push(DatasetVersionSelection {
-                        dataset_version_id: primary_version_id,
-                        weight: 1.0,
-                    });
-                    for entry in advanced_datasets {
-                        let version_id = entry.dataset_version_id.trim();
-                        if version_id.is_empty()
-                            || advanced_version_selections.iter().any(|existing| {
-                                existing.dataset_version_id.eq_ignore_ascii_case(version_id)
-                            })
-                        {
-                            continue;
-                        }
-                        advanced_version_selections.push(DatasetVersionSelection {
-                            dataset_version_id: version_id.to_string(),
-                            weight: if entry.weight.is_finite() && entry.weight > 0.0 {
-                                entry.weight
-                            } else {
-                                1.0
-                            },
-                        });
-                    }
-
-                    if advanced_version_selections.len() > 1 {
-                        let start_payload = serde_json::json!({
-                            "adapter_name": name,
-                            "config": params.clone(),
-                            "template_id": serde_json::Value::Null,
-                            "repo_id": repo_id,
-                            "target_branch": branch_context,
-                            "base_version_id": source_version_context,
-                            "dataset_id": dataset_id,
-                            "dataset_version_ids": advanced_version_selections,
-                            "synthetic_mode": false,
-                            "data_lineage_mode": "versioned",
-                            "base_model_id": model_id,
-                            "collection_id": serde_json::Value::Null,
-                            "scope": serde_json::Value::Null,
-                            "category": adapter_category.clone(),
-                            "description": description_value.clone(),
-                            "adapter_type": serde_json::Value::Null,
-                        });
-                        submit_via_advanced_versions = true;
-                        match client
-                            .post::<_, adapteros_api_types::TrainingJobResponse>(
-                                "/v1/training/start",
-                                &start_payload,
-                            )
-                            .await
-                        {
-                            Ok(response) => {
-                                if !is_active.load(Ordering::Relaxed) {
-                                    return;
-                                }
-                                clear_training_wizard_draft();
-                                let _ = submitting.try_set(false);
-                                let job_href = format!("/training?job_id={}", response.id);
-                                notifications.success_with_action(
-                                    "Adapter training started",
-                                    &format!(
-                                        "\"{}\" is now training. You can watch progress live.",
-                                        name_for_toast
-                                    ),
-                                    "View training",
-                                    &job_href,
-                                );
-                                if is_active.load(Ordering::Relaxed) {
-                                    on_created(response.id);
-                                }
-                            }
-                            Err(e) => {
-                                if !is_active.load(Ordering::Relaxed) {
-                                    return;
-                                }
-                                let _ = error.try_set(Some(map_training_submit_error(&e)));
-                                let _ = submitting.try_set(false);
-                            }
-                        }
-                    }
-                }
-
-                if submit_via_advanced_versions {
-                    return;
-                }
-
-                let request = CreateTrainingJobRequest {
-                    workspace_id: String::new(),
-                    base_model_id: model_id,
-                    dataset_id,
-                    dataset_version_id: ds_version_id.filter(|id| !id.trim().is_empty()),
-                    adapter_name: Some(name),
-                    params,
-                    lora_tier: None,
-                    template_id: None,
-                    repo_id: repo_context,
-                    description: description_value,
-                    adapter_type: None,
-                    category: Some(adapter_category),
-                };
-
-                match client.create_training_job(&request).await {
+                match client.create_adapter_from_dataset(&dataset_id, &request).await {
                     Ok(response) => {
                         if !is_active.load(Ordering::Relaxed) {
                             return;
                         }
-                        clear_training_wizard_draft();
                         let _ = submitting.try_set(false);
                         let job_href = format!("/training?job_id={}", response.id);
                         notifications.success_with_action(
@@ -1384,19 +699,14 @@ pub fn CreateJobWizard(
         form_state.update(|state| state.clear_all());
         submitting.set(false);
         dataset_wizard_open.set(false);
+        generate_wizard_open.set(false);
         // Reset form state
         adapter_name.set(String::new());
         skill_purpose.set(String::new());
         base_model_id.set(String::new());
         dataset_id.set(String::new());
-        dataset_version_id.set(None);
-        selected_dataset_id.set(String::new());
         dataset_message.set(None);
         dataset_sample_count.set(None);
-        source_repo_id.set(None);
-        source_branch.set(None);
-        source_version_id.set(None);
-        version_feed_context.set(None);
         // Reset to QA preset defaults
         training_preset.set("qa".to_string());
         epochs.set("10".to_string());
@@ -1410,23 +720,15 @@ pub fn CreateJobWizard(
         backend_policy.set("auto".to_string());
         show_train_advanced.set(false);
         show_knowledge_advanced.set(false);
-        multi_dataset_enabled.set(false);
-        advanced_dataset_versions.set(Vec::new());
         document_upload_open.set(false);
         selected_document_id.set(String::new());
         creating_document_dataset.set(false);
-        draft_notice.set(None);
-        draft_is_stale.set(false);
         // Reset lifted step state
         use_custom_model.set(false);
         dataset_info.set(None);
-        dataset_lookup_loading.set(false);
-        dataset_preview.set(None);
-        dataset_preview_loading.set(false);
-        dataset_preview_error.set(None);
     };
 
-    // Restore draft on open, reset in-memory state on close.
+    // Reset form when dialog closes
     let was_open = StoredValue::new(open.get_untracked());
     Effect::new(move || {
         let Some(is_open) = open.try_get() else {
@@ -1434,92 +736,9 @@ pub fn CreateJobWizard(
         };
         let prev = was_open.get_value();
         was_open.set_value(is_open);
-        if !prev && is_open {
-            if let Some(draft) = load_training_wizard_draft() {
-                let age_ms = (now_ms() - draft.updated_at_ms).max(0.0);
-                current_step.set(WizardStep::from_index(draft.step_index));
-                adapter_name.set(draft.adapter_name);
-                skill_purpose.set(draft.skill_purpose);
-                base_model_id.set(draft.base_model_id);
-                dataset_id.set(draft.dataset_id);
-                dataset_version_id.set(draft.dataset_version_id);
-                selected_dataset_id.set(draft.selected_dataset_id);
-                category.set(draft.category);
-                training_preset.set(draft.training_preset);
-                epochs.set(draft.epochs);
-                learning_rate.set(draft.learning_rate);
-                validation_split.set(draft.validation_split);
-                early_stopping.set(draft.early_stopping);
-                batch_size.set(draft.batch_size);
-                rank.set(draft.rank);
-                alpha.set(draft.alpha);
-                preferred_backend.set(draft.preferred_backend);
-                backend_policy.set(draft.backend_policy);
-                coreml_training_fallback.set(draft.coreml_training_fallback);
-                show_train_advanced.set(draft.show_train_advanced);
-                show_knowledge_advanced.set(draft.show_knowledge_advanced);
-                multi_dataset_enabled.set(draft.multi_dataset_enabled);
-                advanced_dataset_versions.set(draft.advanced_dataset_versions);
-                source_repo_id.set(draft.source_repo_id);
-                source_branch.set(draft.source_branch);
-                source_version_id.set(draft.source_version_id);
-                draft_is_stale.set(age_ms > TRAINING_WIZARD_STALE_MS);
-                draft_notice.set(Some(if age_ms > TRAINING_WIZARD_STALE_MS {
-                    format!(
-                        "Restored a stale draft from {} ago. Review it before starting training.",
-                        format_draft_age(age_ms)
-                    )
-                } else {
-                    format!(
-                        "Restored your last draft from {} ago.",
-                        format_draft_age(age_ms)
-                    )
-                }));
-            } else {
-                draft_notice.set(None);
-                draft_is_stale.set(false);
-            }
-        }
         if prev && !is_open {
             reset_form();
         }
-    });
-
-    // Persist draft while wizard is open.
-    Effect::new(move || {
-        if !open.get() {
-            return;
-        }
-        let draft = TrainingWizardDraft {
-            updated_at_ms: now_ms(),
-            step_index: current_step.get().index(),
-            adapter_name: adapter_name.get(),
-            skill_purpose: skill_purpose.get(),
-            base_model_id: base_model_id.get(),
-            dataset_id: dataset_id.get(),
-            dataset_version_id: dataset_version_id.get(),
-            selected_dataset_id: selected_dataset_id.get(),
-            category: category.get(),
-            training_preset: training_preset.get(),
-            epochs: epochs.get(),
-            learning_rate: learning_rate.get(),
-            validation_split: validation_split.get(),
-            early_stopping: early_stopping.get(),
-            batch_size: batch_size.get(),
-            rank: rank.get(),
-            alpha: alpha.get(),
-            preferred_backend: preferred_backend.get(),
-            backend_policy: backend_policy.get(),
-            coreml_training_fallback: coreml_training_fallback.get(),
-            show_train_advanced: show_train_advanced.get(),
-            show_knowledge_advanced: show_knowledge_advanced.get(),
-            multi_dataset_enabled: multi_dataset_enabled.get(),
-            advanced_dataset_versions: advanced_dataset_versions.get(),
-            source_repo_id: source_repo_id.get(),
-            source_branch: source_branch.get(),
-            source_version_id: source_version_id.get(),
-        };
-        save_training_wizard_draft(&draft);
     });
 
     let step_labels = STEPS
@@ -1534,7 +753,6 @@ pub fn CreateJobWizard(
             current_step=Signal::derive(move || current_step.try_get().unwrap_or_default().index())
             total_steps=STEPS.len()
             step_labels=step_labels
-            step_valid=current_step_valid
             loading=Signal::derive(move || submitting.try_get().unwrap_or(false))
             on_next=Callback::new(go_next)
             on_back=Callback::new(go_back)
@@ -1543,39 +761,6 @@ pub fn CreateJobWizard(
             size=DialogSize::Lg
             scrollable=true
         >
-            // Draft restore notice
-            {move || draft_notice.try_get().flatten().map(|notice| {
-                let stale = draft_is_stale.get();
-                view! {
-                    <div class=if stale {
-                        "mb-4 rounded-lg border border-status-warning/50 bg-status-warning/10 p-3"
-                    } else {
-                        "mb-4 rounded-lg border border-border/70 bg-muted/30 p-3"
-                    }>
-                        <p class=if stale {
-                            "text-sm text-status-warning"
-                        } else {
-                            "text-sm text-muted-foreground"
-                        }>
-                            {notice}
-                        </p>
-                        <div class="mt-2">
-                            <Button
-                                button_type=ButtonType::Button
-                                variant=ButtonVariant::Secondary
-                                size=crate::components::ButtonSize::Sm
-                                on_click=Callback::new(move |_| {
-                                    clear_training_wizard_draft();
-                                    reset_form();
-                                })
-                            >
-                                "Start fresh"
-                            </Button>
-                        </div>
-                    </div>
-                }
-            })}
-
             // Error message
             {move || error.try_get().flatten().map(|e| view! {
                 <div class="mb-4 rounded-lg border border-destructive bg-destructive/10 p-3">
@@ -1586,67 +771,53 @@ pub fn CreateJobWizard(
             // Step content
             <div class="wizard-step-content min-w-0">
                 {move || match current_step.try_get().unwrap_or_default() {
-                    WizardStep::BuildDataset => view! {
+                    WizardStep::Knowledge => view! {
                         <DatasetStepContent
                             dataset_id=dataset_id
-                            dataset_version_id=dataset_version_id
-                            selected_dataset_id=selected_dataset_id
                             dataset_message=dataset_message
-                            feed_context_message=version_feed_context
                             dataset_sample_count=dataset_sample_count
                             dataset_info=dataset_info
-                            dataset_preview=dataset_preview
-                            dataset_preview_loading=dataset_preview_loading
-                            dataset_preview_error=dataset_preview_error
-                            knowledge_gate_state=knowledge_gate_state
                             show_knowledge_advanced=show_knowledge_advanced
-                            datasets=datasets
                             document_upload_open=document_upload_open
                             selected_document_id=selected_document_id
                             creating_document_dataset=creating_document_dataset
                             documents=documents
-                            on_use_dataset=use_existing_dataset
                             on_use_document=use_document_for_dataset
-                            on_add_advanced_dataset=add_selected_dataset_to_advanced
                             dataset_wizard_open=dataset_wizard_open
-                            dataset_lookup_loading=dataset_lookup_loading
-                            multi_dataset_enabled=multi_dataset_enabled
-                            advanced_dataset_versions=advanced_dataset_versions
-                            multi_dataset_supported=Signal::derive(move || source_repo_id.get().is_some())
+                            generate_wizard_open=generate_wizard_open
+                            form_state=form_state
+                        />
+                    }.into_any(),
+                    WizardStep::Name => view! {
+                        <NameStepContent
+                            adapter_name=adapter_name
+                            skill_purpose=skill_purpose
                             form_state=form_state
                         />
                     }.into_any(),
                     WizardStep::Train => view! {
-                        <div class="space-y-6">
-                            <NameStepContent
-                                adapter_name=adapter_name
-                                skill_purpose=skill_purpose
-                                form_state=form_state
-                            />
-                            <TrainStepContent
-                                training_preset=training_preset
-                                epochs=epochs
-                                learning_rate=learning_rate
-                                validation_split=validation_split
-                                early_stopping=early_stopping
-                                batch_size=batch_size
-                                rank=rank
-                                alpha=alpha
-                                show_advanced=show_train_advanced
-                                preferred_backend=preferred_backend
-                                backend_policy=backend_policy
-                                coreml_fallback=coreml_training_fallback
-                                form_state=form_state
-                                sample_count=dataset_sample_count.try_get().flatten()
-                            />
-                        </div>
+                        <TrainStepContent
+                            training_preset=training_preset
+                            epochs=epochs
+                            learning_rate=learning_rate
+                            validation_split=validation_split
+                            early_stopping=early_stopping
+                            batch_size=batch_size
+                            rank=rank
+                            alpha=alpha
+                            show_advanced=show_train_advanced
+                            preferred_backend=preferred_backend
+                            backend_policy=backend_policy
+                            coreml_fallback=coreml_training_fallback
+                            form_state=form_state
+                            sample_count=dataset_sample_count.try_get().flatten()
+                        />
                     }.into_any(),
-                    WizardStep::ContinueToChat => view! {
+                    WizardStep::Confirm => view! {
                         <ReviewStepContent
                             adapter_name=adapter_name.try_get().unwrap_or_default()
                             base_model_id=base_model_id.try_get().unwrap_or_default()
                             dataset_id=dataset_id.try_get().unwrap_or_default()
-                            dataset_version_id=dataset_version_id.try_get().flatten()
                             category=category.try_get().unwrap_or_default()
                             preset=training_preset.try_get().unwrap_or_default()
                             epochs=epochs.try_get().unwrap_or_default()
@@ -1657,7 +828,6 @@ pub fn CreateJobWizard(
                             rank=rank.try_get().unwrap_or_default()
                             alpha=alpha.try_get().unwrap_or_default()
                             backend=preferred_backend.try_get().unwrap_or_default()
-                            feed_context=version_feed_context.try_get().flatten()
                         />
                     }.into_any(),
                 }}
@@ -1667,10 +837,17 @@ pub fn CreateJobWizard(
             <DocumentUploadDialog
                 open=document_upload_open
                 on_success=on_document_upload_success
+                allow_multiple=true
+                auto_create_dataset=true
+                prefer_training_dataset_upload=true
             />
             <DatasetUploadWizard
                 open=dataset_wizard_open
-                on_complete=on_dataset_ready
+                on_complete=on_dataset_ready.clone()
+            />
+            <GenerateDatasetWizard
+                open=generate_wizard_open
+                on_generated=on_dataset_ready
             />
         </StepFormDialog>
     }
@@ -1731,118 +908,43 @@ fn NameStepContent(
 #[component]
 fn DatasetStepContent(
     dataset_id: RwSignal<String>,
-    dataset_version_id: RwSignal<Option<String>>,
-    selected_dataset_id: RwSignal<String>,
     dataset_message: RwSignal<Option<String>>,
-    feed_context_message: RwSignal<Option<String>>,
     dataset_sample_count: RwSignal<Option<usize>>,
     dataset_info: RwSignal<Option<DatasetResponse>>,
-    dataset_preview: RwSignal<Option<DatasetPreviewResponse>>,
-    dataset_preview_loading: RwSignal<bool>,
-    dataset_preview_error: RwSignal<Option<String>>,
-    knowledge_gate_state: Signal<KnowledgeGateState>,
     show_knowledge_advanced: RwSignal<bool>,
-    datasets: ReadSignal<LoadingState<DatasetListResponse>>,
     document_upload_open: RwSignal<bool>,
     selected_document_id: RwSignal<String>,
     creating_document_dataset: RwSignal<bool>,
     documents: ReadSignal<LoadingState<DocumentListResponse>>,
-    on_use_dataset: Callback<String>,
     on_use_document: Callback<String>,
-    on_add_advanced_dataset: Callback<String>,
     dataset_wizard_open: RwSignal<bool>,
-    dataset_lookup_loading: RwSignal<bool>,
-    multi_dataset_enabled: RwSignal<bool>,
-    advanced_dataset_versions: RwSignal<Vec<AdvancedDatasetDraft>>,
-    multi_dataset_supported: Signal<bool>,
+    generate_wizard_open: RwSignal<bool>,
     form_state: RwSignal<FormState>,
 ) -> impl IntoView {
-    let _ = dataset_lookup_loading;
     let has_dataset = Signal::derive(move || !dataset_id.get().trim().is_empty());
     let dataset_error = use_field_error(form_state, "dataset_id");
-
-    // Initialize selected dataset once list loads.
-    Effect::new(move || {
-        if !selected_dataset_id.get().trim().is_empty() {
-            return;
-        }
-        let LoadingState::Loaded(resp) = datasets.get() else {
-            return;
-        };
-        if let Some(dataset) = resp
-            .datasets
-            .iter()
-            .find(|ds| ds.status.eq_ignore_ascii_case("ready"))
-            .or_else(|| resp.datasets.first())
-        {
-            selected_dataset_id.set(dataset.id.clone());
-        }
-    });
-
-    // Initialize selected document once list loads.
-    Effect::new(move || {
-        if !selected_document_id.get().trim().is_empty() {
-            return;
-        }
-        let LoadingState::Loaded(resp) = documents.get() else {
-            return;
-        };
-        if let Some(doc) = resp
-            .data
-            .iter()
-            .find(|doc| doc.status.eq_ignore_ascii_case("indexed"))
-            .or_else(|| resp.data.first())
-        {
-            selected_document_id.set(doc.document_id.clone());
-        }
-    });
 
     view! {
         <div class="space-y-6">
             <div class="text-center py-2">
-                <h3 class="heading-4 mb-1">"Build your dataset"</h3>
+                <h3 class="heading-4 mb-1">"Add knowledge for your adapter"</h3>
                 <p class="text-sm text-muted-foreground">
-                    "Choose a ready dataset or convert uploaded files into one."
+                    "Start by adding files, or choose a file you've already uploaded."
                 </p>
             </div>
-
-            {move || feed_context_message.get().map(|context| view! {
-                <div class="rounded-lg border border-border/70 bg-muted/30 p-3">
-                    <p class="text-xs font-medium uppercase tracking-wide text-muted-foreground">
-                        "Version feed context"
-                    </p>
-                    <p class="text-sm mt-1">{context}</p>
-                </div>
-            })}
-
-            {move || {
-                let gate = knowledge_gate_state.get();
-                gate.message().map(|message| {
-                    let (container_class, message_class) = gate.style_classes();
-                    view! {
-                        <div class=format!("rounded-lg p-3 {}", container_class)>
-                            <p class=format!("text-sm font-medium {}", message_class)>
-                                {message}
-                            </p>
-                        </div>
-                    }
-                })
-            }}
 
             // Current dataset status
             {move || {
                 if has_dataset.get() {
                     let msg = dataset_message
                         .get()
-                        .unwrap_or_else(|| "Dataset selected. Checking readiness...".to_string());
-                    let gate = knowledge_gate_state.get();
-                    let (container_class, _) = gate.style_classes();
+                        .unwrap_or_else(|| "Your knowledge is ready.".to_string());
                     let details = dataset_info.get();
                     view! {
-                        <div class=format!("rounded-lg p-4 {}", container_class)>
+                        <div class="rounded-lg border border-status-success/50 bg-status-success/5 p-4">
                             <div class="flex items-start gap-3">
-                                <div class="rounded-full bg-background/70 p-2 shrink-0">
-                                    <svg class="w-5 h-5" fill="none" viewBox="0 0 24 24" stroke="currentColor">
+                                <div class="rounded-full bg-status-success/10 p-2 shrink-0">
+                                    <svg class="w-5 h-5 text-status-success" fill="none" viewBox="0 0 24 24" stroke="currentColor">
                                         <path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M5 13l4 4L19 7"/>
                                     </svg>
                                 </div>
@@ -1852,27 +954,7 @@ fn DatasetStepContent(
                                         let display_name = info.display_name.clone().unwrap_or_else(|| info.name.clone());
                                         view! {
                                             <p class="text-xs text-muted-foreground mt-1">
-                                                {format!("Dataset: {}", display_name)}
-                                            </p>
-                                            <p class="text-xs text-muted-foreground mt-1" title=info.status.clone()>
-                                                {format!("Status: {}", status_display_label(&info.status))}
-                                            </p>
-                                            {info.trust_state.clone().map(|trust| view! {
-                                                <p class="text-xs text-muted-foreground mt-1" title=trust.clone()>
-                                                    {format!("Trust: {}", status_display_label(&trust))}
-                                                </p>
-                                            })}
-                                            {info.validation_status.clone().map(|validation| view! {
-                                                <p class="text-xs text-muted-foreground mt-1" title=validation.clone()>
-                                                    {format!("Validation: {}", status_display_label(&validation))}
-                                                </p>
-                                            })}
-                                        }
-                                    })}
-                                    {move || dataset_version_id.get().map(|version| {
-                                        view! {
-                                            <p class="text-xs text-muted-foreground mt-1">
-                                                {format!("Version: {}", version)}
+                                                {format!("Knowledge source: {}", display_name)}
                                             </p>
                                         }
                                     })}
@@ -1899,157 +981,37 @@ fn DatasetStepContent(
                 }
             }}
 
+            // Primary path
             <Card>
-                <div class="p-5 space-y-3">
-                    <h4 class="font-medium">"Datasets"</h4>
-                    <p class="text-sm text-muted-foreground">
-                        "Use an existing structured dataset or upload JSONL/CSV training data."
-                    </p>
-                    <AsyncBoundary
-                        state=datasets
-                        on_retry=Callback::new(move |_| {})
-                        loading_message="Loading datasets...".to_string()
-                        render=move |resp: DatasetListResponse| {
-                            let options = resp
-                                .datasets
-                                .iter()
-                                .map(|dataset| {
-                                    let name = dataset
-                                        .display_name
-                                        .clone()
-                                        .unwrap_or_else(|| dataset.name.clone());
-                                    let status = status_display_label(&dataset.status);
-                                    (
-                                        dataset.id.clone(),
-                                        format!("{name} ({status})"),
-                                    )
-                                })
-                                .collect::<Vec<_>>();
-
-                            if options.is_empty() {
-                                view! {
-                                    <div class="space-y-3">
-                                        <p class="text-sm text-muted-foreground">
-                                            "No datasets found yet."
-                                        </p>
-                                        <Button
-                                            button_type=ButtonType::Button
-                                            variant=ButtonVariant::Secondary
-                                            on_click=Callback::new(move |_| dataset_wizard_open.set(true))
-                                        >
-                                            "Upload structured dataset (JSONL/CSV)"
-                                        </Button>
-                                    </div>
-                                }.into_any()
-                            } else {
-                                view! {
-                                    <div class="space-y-3">
-                                        <Select value=selected_dataset_id options=options />
-                                        <div class="flex flex-wrap gap-2">
-                                            <Button
-                                                button_type=ButtonType::Button
-                                                variant=ButtonVariant::Secondary
-                                                disabled=Signal::derive(move || selected_dataset_id.get().trim().is_empty())
-                                                on_click=Callback::new(move |_| on_use_dataset.run(selected_dataset_id.get()))
-                                            >
-                                                "Use selected dataset"
-                                            </Button>
-                                            <Button
-                                                button_type=ButtonType::Button
-                                                variant=ButtonVariant::Secondary
-                                                on_click=Callback::new(move |_| dataset_wizard_open.set(true))
-                                            >
-                                                "Upload structured dataset (JSONL/CSV)"
-                                            </Button>
-                                        </div>
-                                        <div class="rounded-lg border border-border/70 bg-muted/20 p-3">
-                                            <div class="flex items-center justify-between gap-2">
-                                                <p class="text-sm font-medium">"Browse selected dataset"</p>
-                                                <p class="text-xs text-muted-foreground">
-                                                    "Showing first 10 examples"
-                                                </p>
-                                            </div>
-                                            {move || {
-                                                if dataset_preview_loading.get() {
-                                                    return view! {
-                                                        <p class="mt-2 text-sm text-muted-foreground">
-                                                            "Loading preview..."
-                                                        </p>
-                                                    }.into_any();
-                                                }
-                                                if let Some(err) = dataset_preview_error.get() {
-                                                    return view! {
-                                                        <p class="mt-2 text-sm text-destructive">{err}</p>
-                                                    }.into_any();
-                                                }
-                                                match dataset_preview.get() {
-                                                    Some(preview) if !preview.examples.is_empty() => {
-                                                        view! {
-                                                            <div class="mt-3 space-y-2">
-                                                                <p class="text-xs text-muted-foreground">
-                                                                    {format!(
-                                                                        "{} preview examples",
-                                                                        preview.examples.len()
-                                                                    )}
-                                                                </p>
-                                                                {preview
-                                                                    .examples
-                                                                    .into_iter()
-                                                                    .enumerate()
-                                                                    .map(|(idx, example)| {
-                                                                        let rendered = serde_json::to_string_pretty(&example)
-                                                                            .unwrap_or_else(|_| example.to_string());
-                                                                        view! {
-                                                                            <div class="rounded-md border border-border/70 bg-background/70 p-3">
-                                                                                <p class="text-[11px] uppercase tracking-wide text-muted-foreground">
-                                                                                    {format!("Example {}", idx + 1)}
-                                                                                </p>
-                                                                                <pre class="mt-2 max-h-44 overflow-auto whitespace-pre-wrap break-words rounded bg-muted/30 p-2 text-xs">{rendered}</pre>
-                                                                            </div>
-                                                                        }
-                                                                    })
-                                                                    .collect_view()}
-                                                            </div>
-                                                        }.into_any()
-                                                    }
-                                                    Some(_) => {
-                                                        view! {
-                                                            <p class="mt-2 text-sm text-muted-foreground">
-                                                                "No preview examples are available for this dataset."
-                                                            </p>
-                                                        }.into_any()
-                                                    }
-                                                    None => {
-                                                        view! {
-                                                            <p class="mt-2 text-sm text-muted-foreground">
-                                                                "Choose a dataset above to browse its contents."
-                                                            </p>
-                                                        }.into_any()
-                                                    }
-                                                }
-                                            }}
-                                        </div>
-                                    </div>
-                                }.into_any()
-                            }
-                        }
-                    />
-                </div>
+                <button
+                    class="w-full p-5 text-left hover:bg-muted/50 transition-colors rounded-lg"
+                    on:click=move |_| {
+                        document_upload_open.set(true);
+                    }
+                >
+                    <div class="flex items-start gap-4">
+                        <div class="rounded-full bg-primary/10 p-3">
+                            <svg class="w-6 h-6 text-primary" fill="none" viewBox="0 0 24 24" stroke="currentColor">
+                                <path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M4 16v1a3 3 0 003 3h10a3 3 0 003-3v-1m-4-8l-4-4m0 0L8 8m4-4v12"/>
+                            </svg>
+                        </div>
+                        <div>
+                            <h4 class="font-medium">"Add your files"</h4>
+                            <p class="text-sm text-muted-foreground mt-1">
+                                "Upload a document and we will prepare training examples for you."
+                            </p>
+                        </div>
+                    </div>
+                </button>
             </Card>
 
+            // Secondary path
             <Card>
                 <div class="p-5 space-y-3">
-                    <h4 class="font-medium">"Add your files (recommended)"</h4>
+                    <h4 class="font-medium">"Use a file you already uploaded"</h4>
                     <p class="text-sm text-muted-foreground">
-                        "Upload a file or select one that is already indexed, then convert it into a dataset."
+                        "Choose a file and we will prepare training material from it."
                     </p>
-                    <Button
-                        button_type=ButtonType::Button
-                        variant=ButtonVariant::Secondary
-                        on_click=Callback::new(move |_| document_upload_open.set(true))
-                    >
-                        "Upload new document"
-                    </Button>
                     <AsyncBoundary
                         state=documents
                         on_retry=Callback::new(move |_| {})
@@ -2059,7 +1021,12 @@ fn DatasetStepContent(
                                 .data
                                 .iter()
                                 .map(|doc| {
-                                    let status = status_display_label(&doc.status);
+                                    let status = match doc.status.as_str() {
+                                        "indexed" => "ready",
+                                        "processing" => "processing",
+                                        "failed" => "needs attention",
+                                        _ => doc.status.as_str(),
+                                    };
                                     (
                                         doc.document_id.clone(),
                                         format!("{} ({}, {})", doc.name, status, format_bytes(doc.size_bytes)),
@@ -2070,24 +1037,21 @@ fn DatasetStepContent(
                             if options.is_empty() {
                                 view! {
                                     <p class="text-sm text-muted-foreground">
-                                        "No documents available yet. Upload one above."
+                                        "No uploaded files yet. Use \"Add your files\" above."
                                     </p>
                                 }.into_any()
                             } else {
                                 view! {
                                     <div class="space-y-3">
                                         <Select value=selected_document_id options=options />
-                                        <Button
-                                            button_type=ButtonType::Button
-                                            variant=ButtonVariant::Secondary
-                                            disabled=Signal::derive(move || {
-                                                creating_document_dataset.get()
-                                                    || selected_document_id.get().trim().is_empty()
-                                            })
-                                            on_click=Callback::new(move |_| on_use_document.run(selected_document_id.get()))
+                                        <button
+                                            type="button"
+                                            class="btn btn-secondary"
+                                            disabled=move || creating_document_dataset.get() || selected_document_id.get().trim().is_empty()
+                                            on:click=move |_| on_use_document.run(selected_document_id.get())
                                         >
-                                            {move || if creating_document_dataset.get() { "Preparing..." } else { "Convert selected document" }}
-                                        </Button>
+                                            {move || if creating_document_dataset.get() { "Preparing..." } else { "Use selected file" }}
+                                        </button>
                                     </div>
                                 }.into_any()
                             }
@@ -2099,7 +1063,7 @@ fn DatasetStepContent(
             <div class="border-t pt-4">
                 <button
                     type="button"
-                    class="btn btn-link btn-sm flex items-center gap-2 px-0 text-sm text-muted-foreground hover:text-foreground"
+                    class="flex items-center gap-2 text-sm text-muted-foreground hover:text-foreground"
                     on:click=move |_| show_knowledge_advanced.update(|v| *v = !*v)
                 >
                     <svg
@@ -2113,10 +1077,26 @@ fn DatasetStepContent(
 
                 <Show when=move || show_knowledge_advanced.get()>
                     <div class="mt-4 space-y-4 pl-6">
+                        <button
+                            type="button"
+                            class="btn btn-secondary"
+                            on:click=move |_| dataset_wizard_open.set(true)
+                        >
+                            "I have structured data (JSONL/CSV)"
+                        </button>
+
+                        <button
+                            type="button"
+                            class="btn btn-secondary"
+                            on:click=move |_| generate_wizard_open.set(true)
+                        >
+                            "Generate examples from a document"
+                        </button>
+
                         <FormField
-                            label="Dataset ID (manual fallback)"
+                            label="Dataset ID (advanced)"
                             name="dataset_id"
-                            help="Use a known dataset ID directly"
+                            help="Use a dataset ID that already exists"
                             error=dataset_error
                         >
                             <Input
@@ -2125,153 +1105,13 @@ fn DatasetStepContent(
                                 on_blur=Callback::new(move |_| {
                                     let dataset_rules = [ValidationRule::Pattern {
                                         pattern: r"^\s*\S.*$",
-                                        message: "Choose a dataset or convert a document before continuing",
+                                        message: "Add your files or choose an uploaded file before continuing",
                                     }];
                                     let dataset = dataset_id.get();
                                     let _ = validate_on_blur("dataset_id", &dataset, &dataset_rules, form_state);
                                 })
                             />
                         </FormField>
-
-                        <div class="rounded-lg border border-border/70 bg-muted/20 p-4 space-y-3">
-                            <label class="flex items-start gap-2">
-                                <input
-                                    type="checkbox"
-                                    prop:checked=move || multi_dataset_enabled.get()
-                                    prop:disabled=move || !multi_dataset_supported.get()
-                                    on:change=move |ev| {
-                                        use wasm_bindgen::JsCast;
-                                        if let Some(input) = ev
-                                            .target()
-                                            .and_then(|t| t.dyn_into::<web_sys::HtmlInputElement>().ok())
-                                        {
-                                            multi_dataset_enabled.set(input.checked());
-                                        }
-                                    }
-                                />
-                                <span class="text-sm">
-                                    <span class="font-medium">"Blend multiple datasets"</span>
-                                    <span class="block text-xs text-muted-foreground mt-1">
-                                        "Advanced operator path. Default flow stays single-dataset."
-                                    </span>
-                                </span>
-                            </label>
-
-                            {move || (!multi_dataset_supported.get()).then(|| view! {
-                                <p class="text-xs text-muted-foreground">
-                                    "Open this wizard from adapter operator controls to enable multi-dataset training."
-                                </p>
-                            })}
-
-                            <Show when=move || multi_dataset_enabled.get() && multi_dataset_supported.get()>
-                                <div class="space-y-3">
-                                    <p class="text-xs text-muted-foreground">
-                                        "Primary dataset keeps weight 1.0. Add extra datasets with optional weights."
-                                    </p>
-                                    <Button
-                                        button_type=ButtonType::Button
-                                        variant=ButtonVariant::Secondary
-                                        disabled=Signal::derive(move || selected_dataset_id.get().trim().is_empty())
-                                        on_click=Callback::new(move |_| {
-                                            on_add_advanced_dataset.run(selected_dataset_id.get());
-                                        })
-                                    >
-                                        "Add selected dataset to blend"
-                                    </Button>
-
-                                    {move || {
-                                        let rows = advanced_dataset_versions.get();
-                                        if rows.is_empty() {
-                                            view! {
-                                                <p class="text-xs text-muted-foreground">
-                                                    "No extra datasets in the blend yet."
-                                                </p>
-                                            }
-                                                .into_any()
-                                        } else {
-                                            view! {
-                                                <div class="space-y-2">
-                                                    {rows
-                                                        .into_iter()
-                                                        .enumerate()
-                                                        .map(|(idx, row)| {
-                                                            let dataset_label = if row.dataset_id.trim().is_empty() {
-                                                                row.dataset_version_id.clone()
-                                                            } else {
-                                                                format!(
-                                                                    "{} ({})",
-                                                                    row.dataset_id, row.dataset_version_id
-                                                                )
-                                                            };
-                                                            view! {
-                                                                <div class="rounded-md border border-border/70 bg-background/60 p-3 space-y-2">
-                                                                    <div class="flex items-start justify-between gap-2">
-                                                                        <p class="text-sm font-medium break-all">
-                                                                            {dataset_label}
-                                                                        </p>
-                                                                        <button
-                                                                            type="button"
-                                                                            class="btn btn-link btn-xs px-0 text-destructive hover:underline"
-                                                                            on:click=move |_| {
-                                                                                advanced_dataset_versions.update(|entries| {
-                                                                                    if idx < entries.len() {
-                                                                                        entries.remove(idx);
-                                                                                    }
-                                                                                });
-                                                                            }
-                                                                        >
-                                                                            "Remove"
-                                                                        </button>
-                                                                    </div>
-                                                                    <div class="flex items-center gap-2">
-                                                                        <label class="text-xs text-muted-foreground">
-                                                                            "Weight"
-                                                                        </label>
-                                                                        <input
-                                                                            type="number"
-                                                                            min="0.01"
-                                                                            step="0.01"
-                                                                            class="w-24 rounded-md border border-border/70 bg-background px-2 py-1 text-sm"
-                                                                            prop:value=move || {
-                                                                                advanced_dataset_versions
-                                                                                    .get()
-                                                                                    .get(idx)
-                                                                                    .map(|entry| format!("{:.2}", entry.weight))
-                                                                                    .unwrap_or_else(|| "1.00".to_string())
-                                                                            }
-                                                                            on:input=move |ev| {
-                                                                                use wasm_bindgen::JsCast;
-                                                                                if let Some(input) = ev
-                                                                                    .target()
-                                                                                    .and_then(|t| t.dyn_into::<web_sys::HtmlInputElement>().ok())
-                                                                                {
-                                                                                    let parsed = input
-                                                                                        .value()
-                                                                                        .parse::<f32>()
-                                                                                        .ok()
-                                                                                        .filter(|v| v.is_finite() && *v > 0.0)
-                                                                                        .unwrap_or(1.0);
-                                                                                    advanced_dataset_versions.update(|entries| {
-                                                                                        if let Some(entry) = entries.get_mut(idx) {
-                                                                                            entry.weight = parsed;
-                                                                                        }
-                                                                                    });
-                                                                                }
-                                                                            }
-                                                                        />
-                                                                    </div>
-                                                                </div>
-                                                            }
-                                                        })
-                                                        .collect_view()}
-                                                </div>
-                                            }
-                                                .into_any()
-                                        }
-                                    }}
-                                </div>
-                            </Show>
-                        </div>
                     </div>
                 </Show>
             </div>
@@ -2381,7 +1221,7 @@ fn ModelStepContent(
                                     })
                                 />
                                 <button
-                                    class="btn btn-link btn-xs px-0 text-primary hover:underline"
+                                    class="text-xs text-primary hover:underline"
                                     type="button"
                                     on:click=move |_| use_custom_model.set(false)
                                 >
@@ -2435,7 +1275,7 @@ fn ModelStepContent(
                                                 })
                                             }}
                                             <button
-                                                class="btn btn-link btn-xs px-0 text-primary hover:underline"
+                                                class="text-xs text-primary hover:underline"
                                                 type="button"
                                                 on:click=move |_| use_custom_model.set(true)
                                             >
@@ -2519,7 +1359,7 @@ fn ConfigStepContent(
             <div class="border-t pt-4">
                 <button
                     type="button"
-                    class="btn btn-link btn-sm flex items-center gap-2 px-0 text-sm text-muted-foreground hover:text-foreground"
+                    class="flex items-center gap-2 text-sm text-muted-foreground hover:text-foreground"
                     on:click=move |_| show_advanced.update(|v| *v = !*v)
                 >
                     <svg
@@ -2748,7 +1588,6 @@ fn ReviewStepContent(
     adapter_name: String,
     base_model_id: String,
     dataset_id: String,
-    dataset_version_id: Option<String>,
     category: String,
     preset: String,
     epochs: String,
@@ -2759,7 +1598,6 @@ fn ReviewStepContent(
     rank: String,
     alpha: String,
     backend: String,
-    feed_context: Option<String>,
 ) -> impl IntoView {
     let preset_label = TrainingPreset::parse_str(&preset).label();
     let val_split_display = validation_split
@@ -2770,29 +1608,17 @@ fn ReviewStepContent(
     view! {
         <div class="space-y-6">
             <div class="text-center py-2">
-                <h3 class="heading-4">"Ready to start training"</h3>
+                <h3 class="heading-4">"Confirm adapter setup"</h3>
                 <p class="text-sm text-muted-foreground">
-                    "Review this plan, start training, then continue to chat as soon as the build is ready."
-                </p>
-            </div>
-
-            <div class="rounded-lg border border-border/70 bg-muted/30 p-3">
-                <p class="text-sm text-muted-foreground">
-                    "After this starts, keep the Build details open. A direct continue-to-chat action appears when training completes."
+                    "Review what will be created. You can go back and edit any step."
                 </p>
             </div>
 
             <div class="rounded-lg border bg-muted/30 divide-y">
                 <ReviewRow label="Adapter name" value=adapter_name/>
                 <ReviewRow label="Starting model" value=base_model_id/>
-                <ReviewRow label="Dataset ID" value=if dataset_id.is_empty() { "None selected".to_string() } else { dataset_id }/>
-                {dataset_version_id.map(|version| view! {
-                    <ReviewRow label="Dataset version" value=version/>
-                })}
+                <ReviewRow label="Your files" value=if dataset_id.is_empty() { "None selected".to_string() } else { dataset_id }/>
                 <ReviewRow label="Adapter type" value=category/>
-                {feed_context.map(|context| view! {
-                    <ReviewRow label="Version context" value=context/>
-                })}
             </div>
 
             <div class="rounded-lg border bg-muted/30 divide-y">

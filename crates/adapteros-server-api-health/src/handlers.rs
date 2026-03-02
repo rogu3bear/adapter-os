@@ -409,40 +409,29 @@ pub async fn ready(State(state): State<AppState>) -> impl IntoResponse {
         Duration::from_millis(DB_TIMEOUT_FALLBACK_MS)
     };
 
-    let (db_pool, db_pool_error) = match state.db.pool_result() {
-        Ok(pool) => (Some(pool), None),
-        Err(e) => (None, Some(e.to_string())),
-    };
-
     let db_start = Instant::now();
-    if let Some(pool) = db_pool {
-        let db_probe = timeout(db_timeout, async {
-            let mut conn = pool.acquire().await?;
-            query("SELECT 1").execute(&mut *conn).await?;
-            Ok::<(), sqlx::Error>(())
-        })
-        .await;
-        let db_latency = db_start.elapsed().as_millis() as u64;
+    let db_probe = timeout(db_timeout, async {
+        let mut conn = state.db.pool().acquire().await?;
+        query("SELECT 1").execute(&mut *conn).await?;
+        Ok::<(), sqlx::Error>(())
+    })
+    .await;
+    let db_latency = db_start.elapsed().as_millis() as u64;
 
-        match db_probe {
-            Ok(Ok(())) => {
-                db_check.latency_ms = Some(db_latency);
-            }
-            Ok(Err(_)) => {
-                db_check.ok = false;
-                db_check.hint = Some("db unreachable".to_string());
-                db_check.latency_ms = Some(db_latency);
-            }
-            Err(_) => {
-                db_check.ok = false;
-                db_check.hint = Some("db timeout".to_string());
-                db_check.latency_ms = Some(db_latency);
-            }
+    match db_probe {
+        Ok(Ok(())) => {
+            db_check.latency_ms = Some(db_latency);
         }
-    } else {
-        db_check.ok = false;
-        db_check.hint = db_pool_error;
-        db_check.latency_ms = Some(db_start.elapsed().as_millis() as u64);
+        Ok(Err(_)) => {
+            db_check.ok = false;
+            db_check.hint = Some("db unreachable".to_string());
+            db_check.latency_ms = Some(db_latency);
+        }
+        Err(_) => {
+            db_check.ok = false;
+            db_check.hint = Some("db timeout".to_string());
+            db_check.latency_ms = Some(db_latency);
+        }
     }
 
     if !db_check.ok {
@@ -509,39 +498,32 @@ pub async fn ready(State(state): State<AppState>) -> impl IntoResponse {
         };
 
         let models_start = Instant::now();
-        if let Some(pool) = db_pool {
-            let models_probe = timeout(
-                models_timeout,
-                sqlx::query_scalar::<_, i64>("SELECT COUNT(*) FROM models").fetch_one(pool),
-            )
-            .await;
-            let models_latency = models_start.elapsed().as_millis() as u64;
+        let models_probe = timeout(
+            models_timeout,
+            sqlx::query_scalar::<_, i64>("SELECT COUNT(*) FROM models").fetch_one(state.db.pool()),
+        )
+        .await;
+        let models_latency = models_start.elapsed().as_millis() as u64;
 
-            match models_probe {
-                Ok(Ok(count)) if count > 0 => {
-                    models_seeded_check.latency_ms = Some(models_latency);
-                }
-                Ok(Ok(_)) => {
-                    models_seeded_check.ok = false;
-                    models_seeded_check.hint = Some("no models seeded".to_string());
-                    models_seeded_check.latency_ms = Some(models_latency);
-                }
-                Ok(Err(_)) => {
-                    models_seeded_check.ok = false;
-                    models_seeded_check.hint = Some("failed to query models".to_string());
-                    models_seeded_check.latency_ms = Some(models_latency);
-                }
-                Err(_) => {
-                    models_seeded_check.ok = false;
-                    models_seeded_check.hint = Some("models check timeout".to_string());
-                    models_seeded_check.latency_ms = Some(models_latency);
-                }
+        match models_probe {
+            Ok(Ok(count)) if count > 0 => {
+                models_seeded_check.latency_ms = Some(models_latency);
             }
-        } else {
-            models_seeded_check.ok = false;
-            models_seeded_check.hint =
-                Some("database unavailable (cannot check models)".to_string());
-            models_seeded_check.latency_ms = Some(models_start.elapsed().as_millis() as u64);
+            Ok(Ok(_)) => {
+                models_seeded_check.ok = false;
+                models_seeded_check.hint = Some("no models seeded".to_string());
+                models_seeded_check.latency_ms = Some(models_latency);
+            }
+            Ok(Err(_)) => {
+                models_seeded_check.ok = false;
+                models_seeded_check.hint = Some("failed to query models".to_string());
+                models_seeded_check.latency_ms = Some(models_latency);
+            }
+            Err(_) => {
+                models_seeded_check.ok = false;
+                models_seeded_check.hint = Some("models check timeout".to_string());
+                models_seeded_check.latency_ms = Some(models_latency);
+            }
         }
 
         // Model mismatch detection

@@ -11,6 +11,7 @@ use crate::circuit_breaker::{
 };
 use crate::circuit_breaker_registry::CircuitBreakerRegistry;
 use crate::retry_policy::{RetryBudgetConfig, RetryMetricsReporter, RetryPolicy};
+use crate::AosError;
 use std::future::Future;
 use std::sync::atomic::{AtomicUsize, Ordering};
 use std::sync::Arc;
@@ -153,12 +154,11 @@ impl RecoveryOrchestrator {
     /// 3. Execute with retry loop
     /// 4. Update circuit breaker
     /// 5. Return outcome
-    pub async fn execute<F, Fut, T, E>(&self, operation: F) -> RecoveryOutcome<T, E>
+    pub async fn execute<F, Fut, T>(&self, operation: F) -> RecoveryOutcome<T>
     where
         F: Fn() -> Fut + Send + Sync,
-        Fut: Future<Output = Result<T, E>> + Send,
+        Fut: Future<Output = Result<T, AosError>> + Send,
         T: Send,
-        E: RecoveryClassifier + Send + Sync + 'static + std::fmt::Display,
     {
         let start_time = Instant::now();
         let mut stats = RecoveryStats::new();
@@ -236,18 +236,17 @@ impl RecoveryOrchestrator {
     /// - All retries are exhausted (if `on_exhausted` is true)
     /// - Circuit breaker is open (if `on_circuit_open` is true)
     /// - Budget is exhausted (if `on_budget_exhausted` is true)
-    pub async fn execute_with_fallback<F, Fut, FB, FutB, T, E>(
+    pub async fn execute_with_fallback<F, Fut, FB, FutB, T>(
         &self,
         operation: F,
         fallback: FB,
-    ) -> RecoveryOutcome<T, E>
+    ) -> RecoveryOutcome<T>
     where
         F: Fn() -> Fut + Send + Sync,
-        Fut: Future<Output = Result<T, E>> + Send,
-        FB: FnOnce(&RecoveryError<E>) -> FutB + Send,
-        FutB: Future<Output = Result<T, E>> + Send,
+        Fut: Future<Output = Result<T, AosError>> + Send,
+        FB: FnOnce(&RecoveryError) -> FutB + Send,
+        FutB: Future<Output = Result<T, AosError>> + Send,
         T: Send,
-        E: RecoveryClassifier + Send + Sync + 'static + std::fmt::Display,
     {
         let mut outcome = self.execute(operation).await;
 
@@ -282,16 +281,15 @@ impl RecoveryOrchestrator {
     }
 
     /// Execute operation with retry loop
-    async fn execute_with_retry<F, Fut, T, E>(
+    async fn execute_with_retry<F, Fut, T>(
         &self,
         operation: &F,
         stats: &mut RecoveryStats,
-    ) -> Result<T, RecoveryError<E>>
+    ) -> Result<T, RecoveryError>
     where
         F: Fn() -> Fut + Send + Sync,
-        Fut: Future<Output = Result<T, E>> + Send,
+        Fut: Future<Output = Result<T, AosError>> + Send,
         T: Send,
-        E: RecoveryClassifier + Send + Sync + 'static + std::fmt::Display,
     {
         let policy = &self.config.retry_policy;
         let mut attempt = 0u32;
@@ -358,12 +356,7 @@ impl RecoveryOrchestrator {
     }
 
     /// Calculate delay for next retry
-    fn calculate_delay<E: RecoveryClassifier>(
-        &self,
-        current_delay: Duration,
-        attempt: u32,
-        error: &E,
-    ) -> Duration {
+    fn calculate_delay(&self, current_delay: Duration, attempt: u32, error: &AosError) -> Duration {
         let policy = &self.config.retry_policy;
 
         // Start with exponential backoff
@@ -536,7 +529,6 @@ impl RecoveryOrchestratorBuilder {
 #[cfg(test)]
 mod tests {
     use super::*;
-    use crate::AosError;
     use std::sync::atomic::{AtomicU32, Ordering};
 
     #[tokio::test]

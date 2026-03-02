@@ -169,7 +169,7 @@ pub async fn get_plan_details(
                 "SELECT kernel_hash FROM plan_metadata WHERE plan_id = ?",
             )
             .bind(&plan.id)
-            .fetch_optional(state.db.pool_result()?)
+            .fetch_optional(state.db.pool())
             .await
             {
                 Ok(hash) => hash.flatten(),
@@ -185,7 +185,7 @@ pub async fn get_plan_details(
                 "SELECT routing_config FROM plan_metadata WHERE plan_id = ?",
             )
             .bind(&plan.id)
-            .fetch_optional(state.db.pool_result()?)
+            .fetch_optional(state.db.pool())
             .await
             {
                 Ok(Some(Some(config_str))) => {
@@ -250,7 +250,7 @@ pub async fn rebuild_plan(
     .bind(&new_plan_id)
     .bind(&plan.tenant_id)
     .bind(&plan.manifest_hash_b3)
-    .execute(state.db.pool_result()?)
+    .execute(state.db.pool())
     .await
     {
         Ok(_) => {
@@ -262,13 +262,13 @@ pub async fn rebuild_plan(
                     "SELECT kernel_hash FROM plan_metadata WHERE plan_id = ?",
                 )
                 .bind(&plan.id)
-                .fetch_optional(state.db.pool_result()?)
+                .fetch_optional(state.db.pool())
                 .await,
                 sqlx::query_scalar::<_, Option<String>>(
                     "SELECT kernel_hash FROM plan_metadata WHERE plan_id = ?",
                 )
                 .bind(&new_plan_id)
-                .fetch_optional(state.db.pool_result()?)
+                .fetch_optional(state.db.pool())
                 .await,
             ) {
                 (Ok(Some(old_hash)), Ok(Some(new_hash))) if old_hash != new_hash => {

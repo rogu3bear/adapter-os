@@ -128,7 +128,7 @@ impl Db {
         .bind(&params.router_seed)
         .bind(&adapter_ids_json)
         .bind(&params.executed_by)
-        .execute(self.pool_result()?)
+        .execute(self.pool())
         .await
         .map_err(|e| AosError::Database(format!("Failed to create replay execution: {}", e)))?;
 
@@ -197,7 +197,7 @@ impl Db {
         .bind(&missing_doc_ids_json)
         .bind(&params.error_message)
         .bind(id)
-        .execute(self.pool_result()?)
+        .execute(self.pool())
         .await
         .map_err(|e| {
             AosError::Database(format!("Failed to update replay execution result: {}", e))
@@ -208,7 +208,7 @@ impl Db {
             let tenant_id: Option<String> =
                 sqlx::query_scalar("SELECT tenant_id FROM replay_executions WHERE id = ?")
                     .bind(id)
-                    .fetch_optional(self.pool_result()?)
+                    .fetch_optional(self.pool())
                     .await
                     .map_err(|e| {
                         AosError::Database(format!("Failed to lookup execution tenant: {}", e))
@@ -323,7 +323,7 @@ impl Db {
             "#,
         )
         .bind(id)
-        .fetch_optional(self.pool_result()?)
+        .fetch_optional(self.pool())
         .await
         .map_err(|e| AosError::Database(format!("Failed to fetch replay execution: {}", e)))?;
 
@@ -416,7 +416,7 @@ impl Db {
             "#,
         )
         .bind(inference_id)
-        .fetch_all(self.pool_result()?)
+        .fetch_all(self.pool())
         .await
         .map_err(|e| AosError::Database(format!("Failed to list replay executions: {}", e)))?;
 
@@ -484,14 +484,14 @@ mod tests {
     use crate::replay_metadata::CreateReplayMetadataParams;
 
     // Helper to create parent records for FK constraints
-    async fn setup_test_data(db: &Db, tenant_id: &str, inference_id: &str) -> Result<()> {
+    async fn setup_test_data(db: &Db, tenant_id: &str, inference_id: &str) {
         // Create tenant
         sqlx::query(
             "INSERT OR IGNORE INTO tenants (id, name, multi_tenant_mode)
              VALUES (?, 'Test Tenant', 0)",
         )
         .bind(tenant_id)
-        .execute(db.pool_result()?)
+        .execute(db.pool())
         .await
         .expect("Failed to create tenant");
 
@@ -537,17 +537,15 @@ mod tests {
         })
         .await
         .expect("Failed to create inference metadata");
-
-        Ok(())
     }
 
     #[tokio::test]
-    async fn test_create_and_retrieve_replay_execution() -> Result<()> {
+    async fn test_create_and_retrieve_replay_execution() {
         let db = Db::new_in_memory().await.unwrap();
         let tenant_id = "tenant-001";
         let inference_id = "inf-001";
 
-        setup_test_data(&db, tenant_id, inference_id).await.unwrap();
+        setup_test_data(&db, tenant_id, inference_id).await;
 
         // Create replay execution
         let params = CreateReplayExecutionParams {
@@ -579,17 +577,15 @@ mod tests {
         let adapter_ids_json = execution.adapter_ids_json.as_ref().unwrap();
         let adapter_ids: Vec<String> = serde_json::from_str(adapter_ids_json).unwrap();
         assert_eq!(adapter_ids, vec!["adapter1", "adapter2"]);
-
-        Ok(())
     }
 
     #[tokio::test]
-    async fn test_update_replay_execution_result() -> Result<()> {
+    async fn test_update_replay_execution_result() {
         let db = Db::new_in_memory().await.unwrap();
         let tenant_id = "tenant-002";
         let inference_id = "inf-002";
 
-        setup_test_data(&db, tenant_id, inference_id).await.unwrap();
+        setup_test_data(&db, tenant_id, inference_id).await;
 
         // Create replay execution
         let create_params = CreateReplayExecutionParams {
@@ -635,17 +631,15 @@ mod tests {
         assert_eq!(execution.latency_ms, Some(250));
         assert_eq!(execution.match_status, "exact");
         assert_eq!(execution.rag_reproducibility_score, Some(0.98));
-
-        Ok(())
     }
 
     #[tokio::test]
-    async fn test_list_replay_executions_for_inference() -> Result<()> {
+    async fn test_list_replay_executions_for_inference() {
         let db = Db::new_in_memory().await.unwrap();
         let tenant_id = "tenant-003";
         let inference_id = "inf-003";
 
-        setup_test_data(&db, tenant_id, inference_id).await.unwrap();
+        setup_test_data(&db, tenant_id, inference_id).await;
 
         // Create multiple replay executions
         for (mode, backend) in [
@@ -680,17 +674,15 @@ mod tests {
         assert_eq!(executions[0].replay_mode, "degraded");
         assert_eq!(executions[1].replay_mode, "approximate");
         assert_eq!(executions[2].replay_mode, "exact");
-
-        Ok(())
     }
 
     #[tokio::test]
-    async fn test_replay_execution_with_divergence_details() -> Result<()> {
+    async fn test_replay_execution_with_divergence_details() {
         let db = Db::new_in_memory().await.unwrap();
         let tenant_id = "tenant-004";
         let inference_id = "inf-004";
 
-        setup_test_data(&db, tenant_id, inference_id).await.unwrap();
+        setup_test_data(&db, tenant_id, inference_id).await;
 
         // Create replay execution
         let create_params = CreateReplayExecutionParams {
@@ -747,17 +739,15 @@ mod tests {
         let missing_docs_json = execution.missing_doc_ids_json.as_ref().unwrap();
         let missing_docs: Vec<String> = serde_json::from_str(missing_docs_json).unwrap();
         assert_eq!(missing_docs, vec!["doc1", "doc2"]);
-
-        Ok(())
     }
 
     #[tokio::test]
-    async fn test_replay_execution_with_error() -> Result<()> {
+    async fn test_replay_execution_with_error() {
         let db = Db::new_in_memory().await.unwrap();
         let tenant_id = "tenant-005";
         let inference_id = "inf-005";
 
-        setup_test_data(&db, tenant_id, inference_id).await.unwrap();
+        setup_test_data(&db, tenant_id, inference_id).await;
 
         // Create replay execution
         let create_params = CreateReplayExecutionParams {
@@ -800,7 +790,5 @@ mod tests {
             Some("Backend initialization failed".to_string())
         );
         assert!(execution.response_text.is_none());
-
-        Ok(())
     }
 }

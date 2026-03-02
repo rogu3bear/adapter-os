@@ -130,8 +130,6 @@ pub fn mlx_cross_entropy_loss_gpu(
 ) -> Result<MLXFFITensor> {
     ffi_error::clear_ffi_error();
 
-    // SAFETY: tensor handles come from live `MLXFFITensor` instances and remain valid for
-    // the duration of this call; no aliasing or lifetime extension occurs.
     let result = unsafe {
         mlx_cross_entropy_loss(
             logits.as_ptr() as *mut c_void,
@@ -157,8 +155,6 @@ pub fn mlx_mse_loss_gpu(
 ) -> Result<MLXFFITensor> {
     ffi_error::clear_ffi_error();
 
-    // SAFETY: tensor handles come from live `MLXFFITensor` instances and remain valid for
-    // the duration of this call; no aliasing or lifetime extension occurs.
     let result = unsafe {
         mlx_mse_loss(
             predictions.as_ptr() as *mut c_void,
@@ -222,8 +218,6 @@ pub fn mlx_lora_backward_gpu(
     let mut grad_a: *mut c_void = ptr::null_mut();
     let mut grad_b: *mut c_void = ptr::null_mut();
 
-    // SAFETY: all tensor pointers are valid MLX handles owned by callers; output pointers
-    // reference local variables with stable addresses for the duration of the call.
     let result = unsafe {
         mlx_lora_backward(
             hidden.as_ptr() as *mut c_void,
@@ -301,8 +295,6 @@ pub fn mlx_lora_backward_ce_gpu(
     let mut grad_a: *mut c_void = ptr::null_mut();
     let mut grad_b: *mut c_void = ptr::null_mut();
 
-    // SAFETY: all tensor pointers are valid MLX handles owned by callers; output pointers
-    // reference local variables with stable addresses for the duration of the call.
     let result = unsafe {
         mlx_lora_backward_ce(
             hidden.as_ptr() as *mut c_void,
@@ -409,7 +401,6 @@ impl MlxOptimizer {
     pub fn sgd(learning_rate: f32, momentum: f32, weight_decay: f32) -> Result<Self> {
         ffi_error::clear_ffi_error();
 
-        // SAFETY: FFI constructor takes plain scalar hyperparameters only.
         let inner = unsafe { mlx_optimizer_sgd(learning_rate, momentum, weight_decay) };
 
         let inner = ffi_error::check_ffi_ptr(inner, "create SGD optimizer")?;
@@ -439,7 +430,6 @@ impl MlxOptimizer {
     ) -> Result<Self> {
         ffi_error::clear_ffi_error();
 
-        // SAFETY: FFI constructor takes plain scalar hyperparameters only.
         let inner = unsafe { mlx_optimizer_adam(learning_rate, beta1, beta2, eps, weight_decay) };
 
         let inner = ffi_error::check_ffi_ptr(inner, "create Adam optimizer")?;
@@ -493,8 +483,6 @@ impl MlxOptimizer {
 
         ffi_error::clear_ffi_error();
 
-        // SAFETY: optimizer handle and parameter/gradient pointer arrays are valid for the
-        // duration of this call; lengths are checked above and passed consistently.
         let result = unsafe {
             mlx_optimizer_step(
                 self.inner,
@@ -510,7 +498,6 @@ impl MlxOptimizer {
     /// Set the learning rate.
     pub fn set_learning_rate(&mut self, lr: f32) {
         self.learning_rate = lr;
-        // SAFETY: `self.inner` is a live optimizer handle owned by `self`.
         unsafe { mlx_optimizer_set_lr(self.inner, lr) };
     }
 
@@ -534,7 +521,6 @@ impl MlxOptimizer {
     /// Call this when starting a new training run or after significant
     /// changes to the training setup.
     pub fn reset(&mut self) {
-        // SAFETY: `self.inner` is a live optimizer handle owned by `self`.
         unsafe { mlx_optimizer_reset(self.inner) };
     }
 }
@@ -542,7 +528,6 @@ impl MlxOptimizer {
 impl Drop for MlxOptimizer {
     fn drop(&mut self) {
         if !self.inner.is_null() {
-            // SAFETY: `self.inner` is owned by this wrapper and freed exactly once on drop.
             unsafe { mlx_optimizer_free(self.inner) };
         }
     }
@@ -579,7 +564,6 @@ pub fn mlx_clip_grad_norm_gpu(grads: &mut [MLXFFITensor], max_norm: f32) -> f32 
 
     let mut grad_ptrs: Vec<*mut c_void> = grads.iter().map(|g| g.as_ptr() as *mut c_void).collect();
 
-    // SAFETY: `grad_ptrs` points to live MLX tensors and remains valid for this FFI call.
     unsafe { mlx_clip_grad_norm(grad_ptrs.as_mut_ptr(), grads.len() as i32, max_norm) }
 }
 
@@ -596,7 +580,6 @@ pub fn mlx_zero_grad_gpu(grads: &mut [MLXFFITensor]) {
 
     let mut grad_ptrs: Vec<*mut c_void> = grads.iter().map(|g| g.as_ptr() as *mut c_void).collect();
 
-    // SAFETY: `grad_ptrs` points to live MLX tensors and remains valid for this FFI call.
     unsafe { mlx_zero_grad(grad_ptrs.as_mut_ptr(), grads.len() as i32) };
 }
 

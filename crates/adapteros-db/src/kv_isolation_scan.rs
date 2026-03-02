@@ -10,7 +10,7 @@ use crate::messages_kv::{MessageKv, MessageKvRepository};
 use crate::policy_audit_kv::PolicyAuditKvRepository;
 use crate::tenants_kv::{TenantKvOps, TenantKvRepository};
 use crate::Db;
-use adapteros_core::{AosError, Result};
+use adapteros_core::{AosError, B3Hash, Result};
 use adapteros_storage::entities::tenant::TenantKv;
 use chrono::{DateTime, Utc};
 use serde::{Deserialize, Serialize};
@@ -351,6 +351,21 @@ async fn sql_policy_audit(pool: &sqlx::SqlitePool) -> Result<HashMap<String, Pol
         );
     }
     Ok(entries)
+}
+
+#[allow(dead_code)]
+fn should_sample(key: &str, cfg: &KvIsolationScanConfig) -> bool {
+    #[allow(clippy::float_cmp)]
+    if cfg.sample_rate >= 0.9999 {
+        return true;
+    }
+    let hash = B3Hash::hash_multi(&[cfg.hash_seed.as_bytes(), key.as_bytes()]);
+    let bytes = hash.to_bytes();
+    let mut buf = [0u8; 8];
+    buf.copy_from_slice(&bytes[..8]);
+    let value = u64::from_le_bytes(buf);
+    let threshold = (cfg.sample_rate * u64::MAX as f64) as u64;
+    value <= threshold
 }
 
 fn push_finding(report: &mut KvIsolationScanReport, finding: KvIsolationFinding) {

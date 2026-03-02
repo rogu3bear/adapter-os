@@ -188,7 +188,7 @@ async fn test_dataset_validation() {
     .bind("var/datasets/invalid-dataset")
     .bind("invalid")
     .bind("default")
-    .execute(harness.db().pool_result().unwrap())
+    .execute(harness.db().pool())
     .await;
 
     assert!(
@@ -206,7 +206,7 @@ async fn test_dataset_validation() {
     let invalid: (Option<String>,) =
         sqlx::query_as("SELECT validation_status FROM training_datasets WHERE id = ?")
             .bind("invalid-dataset")
-            .fetch_one(harness.db().pool_result().unwrap())
+            .fetch_one(harness.db().pool())
             .await
             .unwrap();
 
@@ -219,7 +219,7 @@ async fn test_dataset_validation() {
     let valid: (Option<String>,) =
         sqlx::query_as("SELECT validation_status FROM training_datasets WHERE id = ?")
             .bind("valid-dataset")
-            .fetch_one(harness.db().pool_result().unwrap())
+            .fetch_one(harness.db().pool())
             .await
             .unwrap();
 
@@ -249,7 +249,7 @@ async fn test_training_job_states() {
         .await
         .expect("Failed to create adapter");
 
-    let mut conn = harness.db().pool_result().unwrap().acquire().await.unwrap();
+    let mut conn = harness.db().pool().acquire().await.unwrap();
 
     // Create a git repository first (required for FK)
     sqlx::query(
@@ -350,7 +350,7 @@ async fn test_training_job_states() {
     // Verify all states exist
     let jobs: Vec<(String, String)> =
         sqlx::query_as("SELECT id, status FROM repository_training_jobs ORDER BY id")
-            .fetch_all(harness.db().pool_result().unwrap())
+            .fetch_all(harness.db().pool())
             .await
             .unwrap();
 
@@ -397,7 +397,7 @@ async fn test_training_progress_tracking() {
     .bind("{}")
     .bind("active")
     .bind("test-user")
-    .execute(harness.db().pool_result().unwrap())
+    .execute(harness.db().pool())
     .await
     .unwrap();
 
@@ -412,7 +412,7 @@ async fn test_training_progress_tracking() {
     .bind("running")
     .bind("{\"progress_pct\": 0, \"loss\": 1.0}")
     .bind("test-user")
-    .execute(harness.db().pool_result().unwrap())
+    .execute(harness.db().pool())
     .await
     .unwrap();
 
@@ -424,14 +424,14 @@ async fn test_training_progress_tracking() {
         sqlx::query("UPDATE repository_training_jobs SET progress_json = ? WHERE id = ?")
             .bind(&progress_json)
             .bind("progress-job")
-            .execute(harness.db().pool_result().unwrap())
+            .execute(harness.db().pool())
             .await
             .unwrap();
 
         let result: (String,) =
             sqlx::query_as("SELECT progress_json FROM repository_training_jobs WHERE id = ?")
                 .bind("progress-job")
-                .fetch_one(harness.db().pool_result().unwrap())
+                .fetch_one(harness.db().pool())
                 .await
                 .unwrap();
 
@@ -487,7 +487,7 @@ async fn test_training_job_cancellation() {
     .bind("{}")
     .bind("active")
     .bind("test-user")
-    .execute(harness.db().pool_result().unwrap())
+    .execute(harness.db().pool())
     .await
     .unwrap();
 
@@ -502,7 +502,7 @@ async fn test_training_job_cancellation() {
     .bind("running")
     .bind("{\"progress_pct\": 30}")
     .bind("test-user")
-    .execute(harness.db().pool_result().unwrap())
+    .execute(harness.db().pool())
     .await
     .unwrap();
 

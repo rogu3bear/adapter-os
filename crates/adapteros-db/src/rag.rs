@@ -87,7 +87,7 @@ impl Db {
             .bind(doc.embedding_model_hash.to_hex())
             .bind(doc.embedding_model_hash.to_hex())
             .bind(doc.embedding_dimension as i64)
-            .execute(self.pool_result()?)
+            .execute(self.pool())
             .await
             .map_err(|e| AosError::Database(format!("Failed to upsert embedding model: {}", e)))?;
 
@@ -117,7 +117,7 @@ impl Db {
             .bind(&doc.effectivity)
             .bind(&doc.source_type)
             .bind(&doc.superseded_by)
-            .execute(self.pool_result()?)
+            .execute(self.pool())
             .await
             .map_err(|e| AosError::Database(format!("Failed to upsert rag document: {}", e)))?;
 
@@ -132,7 +132,7 @@ impl Db {
             .bind(&doc.doc_id)
             .bind(&doc.tenant_id)
             .bind(doc.embedding_model_hash.to_hex())
-            .execute(self.pool_result()?)
+            .execute(self.pool())
             .await
             .map_err(|e| {
                 AosError::Database(format!("Failed to upsert rag doc embedding: {}", e))
@@ -313,7 +313,7 @@ impl Db {
             )
             .bind(embedding_model_hash.to_hex())
             .bind(tenant)
-            .fetch_all(self.pool_result()?)
+            .fetch_all(self.pool())
             .await
         } else {
             sqlx::query_as::<
@@ -339,7 +339,7 @@ impl Db {
             "#,
             )
             .bind(embedding_model_hash.to_hex())
-            .fetch_all(self.pool_result()?)
+            .fetch_all(self.pool())
             .await
         }
         .map_err(|e| {
@@ -403,7 +403,7 @@ impl Db {
             )
             .bind(tenant_id)
             .bind(embedding_model_hash.to_hex())
-            .fetch_all(self.pool_result()?)
+            .fetch_all(self.pool())
             .await
             .map_err(|e| AosError::Database(format!("Failed to retrieve RAG documents: {}", e)))?;
 
@@ -576,7 +576,7 @@ impl Db {
         .bind(&escaped_query)
         .bind(tenant_id)
         .bind(limit as i64)
-        .fetch_all(self.pool_result()?)
+        .fetch_all(self.pool())
         .await
         .unwrap_or_else(|e| {
             // FTS5 table might not exist yet, or query syntax error

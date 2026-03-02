@@ -1904,7 +1904,11 @@ impl MetalKernels {
             .map_err(|e| AosError::Kernel(format!("Failed to parse adapter SafeTensors: {}", e)))?;
 
         // Collect tensor names and sort to guarantee deterministic lookup order.
-        let mut tensor_names: Vec<&str> = tensors.names();
+        let mut tensor_names: Vec<&str> = tensors
+            .names()
+            .into_iter()
+            .map(|name| name.as_str())
+            .collect();
         tensor_names.sort();
 
         let requested_modules = resolve_metal_target_modules(metadata);

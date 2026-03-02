@@ -5,7 +5,7 @@ use super::fs_utils::ensure_dirs;
 use super::hashing::{hash_dataset_manifest, hash_file, normalize_filename, DatasetHashInput};
 use super::helpers::{
     build_validation_error_payload, dataset_quota_limits, path_policy_error, quota_error,
-    resolve_source_derived_dataset_name, MAX_FILE_COUNT, MAX_FILE_SIZE, MAX_TOTAL_SIZE,
+    MAX_FILE_COUNT, MAX_FILE_SIZE, MAX_TOTAL_SIZE,
 };
 use super::paths::{resolve_dataset_root, DatasetPaths};
 use super::progress::emit_progress;
@@ -184,6 +184,7 @@ pub async fn upload_dataset(
 
     let mut pending_files: Vec<PendingFile> = Vec::new();
     let mut total_size = 0usize;
+    let mut dataset_name = String::new();
     let mut dataset_description = String::new();
     let mut dataset_format = "jsonl".to_string();
     let mut file_count = 0;
@@ -214,8 +215,7 @@ pub async fn upload_dataset(
 
         match name.as_str() {
             "name" => {
-                // Name is accepted for compatibility but dataset naming is source-derived.
-                let _ = field.text().await.map_err(|e| {
+                dataset_name = field.text().await.map_err(|e| {
                     ApiError::bad_request(format!("Failed to read name field: {}", e))
                 })?;
             }
@@ -444,11 +444,9 @@ pub async fn upload_dataset(
         return Err(ApiError::bad_request("No files uploaded"));
     }
 
-    let source_file_names: Vec<&str> = pending_files
-        .iter()
-        .map(|file| file.file_name.as_str())
-        .collect();
-    let dataset_name = resolve_source_derived_dataset_name(None, &source_file_names);
+    if dataset_name.is_empty() {
+        dataset_name = format!("Dataset {}", &dataset_id[0..8]);
+    }
 
     validate_format(&dataset_format).map_err(|e| ApiError::bad_request(e.to_string()))?;
 
@@ -472,22 +470,10 @@ pub async fn upload_dataset(
         }
     }
 
-    // Resolve workspace_id for DB (must be valid FK or None). When not provided, use user's default workspace.
-    let db_workspace_id: Option<String> = if let Some(ref ws_id) = workspace_id_opt {
-        Some(ws_id.clone())
-    } else {
-        state
-            .db
-            .get_workspace_by_created_by(&claims.sub)
-            .await
-            .map_err(|e| ApiError::db_error(format!("Failed to resolve workspace: {}", e)))?
-            .map(|w| w.id)
-    };
-
-    let storage_workspace = db_workspace_id
+    let storage_workspace = workspace_id_opt
         .clone()
         .unwrap_or_else(|| claims.tenant_id.clone());
-    let resolved_workspace_id = db_workspace_id.clone();
+    let resolved_workspace_id = Some(storage_workspace.clone());
 
     let temp_path = paths.dataset_temp_dir(&storage_workspace, &dataset_id);
     ensure_dirs([temp_path.as_path()]).await?;
@@ -523,7 +509,7 @@ pub async fn upload_dataset(
     let storage_path = canonical_dir.to_string_lossy().to_string();
 
     // Deduplicate by dataset hash within workspace (same tenant or admin only)
-    if let Some(ref ws_id) = db_workspace_id {
+    if let Some(ref ws_id) = workspace_id_opt {
         if let Some(existing) = state
             .db
             .get_dataset_by_hash_and_workspace(&dataset_hash, ws_id)
@@ -675,14 +661,11 @@ pub async fn upload_dataset(
         .status(dataset_status)
         .created_by(&claims.sub)
         .tenant_id(&claims.tenant_id)
+        .workspace_id(&storage_workspace)
         .dataset_type("training")
         .collection_method("api")
         .category(dataset_category.as_dir_name())
         .correlation_id(&correlation_id);
-
-    if let Some(ref ws_id) = db_workspace_id {
-        dataset_builder = dataset_builder.workspace_id(ws_id);
-    }
 
     if !dataset_description.is_empty() {
         dataset_builder = dataset_builder.description(&dataset_description);

@@ -141,8 +141,6 @@ pub struct AdminConfigResponse {
     pub worker_heartbeat_interval_secs: u64,
     pub streaming_heartbeat_interval_secs: u64,
     pub streaming_idle_timeout_secs: u64,
-    pub streaming_circuit_failure_threshold: u32,
-    pub streaming_circuit_recovery_timeout_secs: u64,
     pub self_hosting_mode: String,
     pub self_hosting_repo_allowlist_count: usize,
 }

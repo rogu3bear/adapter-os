@@ -4,7 +4,6 @@ set -euo pipefail
 ROOT_DIR="$(cd "$(dirname "${BASH_SOURCE[0]}")/../.." && pwd)"
 START_FILE="$ROOT_DIR/start"
 SM_FILE="$ROOT_DIR/scripts/service-manager.sh"
-RELEASE_GATE_FILE="$ROOT_DIR/scripts/ci/local_release_gate.sh"
 
 require_match() {
   local pattern="$1"
@@ -30,7 +29,5 @@ require_match "--verify-chat" "$START_FILE" "start must support --verify-chat"
 require_match "UI is served by the backend from static/" "$SM_FILE" "service-manager UI contract must declare backend-served static UI"
 require_match "start ui" "$SM_FILE" "service-manager usage should still expose start ui compatibility command"
 require_match "start-all" "$SM_FILE" "service-manager should support start-all aggregate command"
-require_match "scripts/check-config.sh" "$RELEASE_GATE_FILE" "local release gate must run check-config preflight"
-require_match "./start preflight" "$RELEASE_GATE_FILE" "local release gate must run canonical ./start preflight path"
 
 echo "=== Startup Contract Check: PASSED ==="

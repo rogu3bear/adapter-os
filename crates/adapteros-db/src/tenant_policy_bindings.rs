@@ -106,7 +106,7 @@ impl Db {
             "#,
         )
         .bind(tenant_id)
-        .fetch_all(self.pool_result()?)
+        .fetch_all(self.pool())
         .await
         .map_err(|e| {
             AosError::Database(format!(
@@ -185,7 +185,7 @@ impl Db {
         )
         .bind(tenant_id)
         .bind(policy_pack_id)
-        .fetch_optional(self.pool_result()?)
+        .fetch_optional(self.pool())
         .await
         .map_err(|e| AosError::Database(format!("Failed to get current state: {}", e)))?
         .map(|row| row.get::<i32, _>("enabled") != 0)
@@ -204,7 +204,7 @@ impl Db {
         .bind(updated_by)
         .bind(tenant_id)
         .bind(policy_pack_id)
-        .execute(self.pool_result()?)
+        .execute(self.pool())
         .await
         .map_err(|e| {
             AosError::Database(format!("Failed to update tenant policy binding: {}", e))
@@ -227,7 +227,7 @@ impl Db {
             .bind(&now)
             .bind(updated_by)
             .bind(&now)
-            .execute(self.pool_result()?)
+            .execute(self.pool())
             .await
             .map_err(|e| {
                 AosError::Database(format!("Failed to create tenant policy binding: {}", e))
@@ -332,7 +332,7 @@ impl Db {
             "#,
         )
         .bind(tenant_id)
-        .fetch_all(self.pool_result()?)
+        .fetch_all(self.pool())
         .await
         .map_err(|e| AosError::Database(format!("Failed to list tenant policy bindings: {}", e)))?;
 
@@ -395,7 +395,7 @@ impl Db {
         )
         .bind(tenant_id)
         .bind(policy_pack_id)
-        .fetch_optional(self.pool_result()?)
+        .fetch_optional(self.pool())
         .await
         .map_err(|e| AosError::Database(format!("Failed to check policy enabled status: {}", e)))?;
 
@@ -415,7 +415,7 @@ mod tests {
 
         // Create test tenant first
         sqlx::query("INSERT INTO tenants (id, name, itar_flag) VALUES ('test-tenant', 'Test', 0)")
-            .execute(&*db.pool_result()?)
+            .execute(&*db.pool())
             .await
             .map_err(|e| AosError::Database(e.to_string()))?;
 
@@ -465,7 +465,7 @@ mod tests {
 
         // Create test tenant
         sqlx::query("INSERT INTO tenants (id, name, itar_flag) VALUES ('test-tenant', 'Test', 0)")
-            .execute(&*db.pool_result()?)
+            .execute(&*db.pool())
             .await
             .map_err(|e| AosError::Database(e.to_string()))?;
 
@@ -500,7 +500,7 @@ mod tests {
 
         // Create test tenant
         sqlx::query("INSERT INTO tenants (id, name, itar_flag) VALUES ('test-tenant', 'Test', 0)")
-            .execute(&*db.pool_result()?)
+            .execute(&*db.pool())
             .await
             .map_err(|e| AosError::Database(e.to_string()))?;
 
@@ -529,7 +529,7 @@ mod tests {
 
         // Create test tenant
         sqlx::query("INSERT INTO tenants (id, name, itar_flag) VALUES ('test-tenant', 'Test', 0)")
-            .execute(&*db.pool_result()?)
+            .execute(&*db.pool())
             .await
             .map_err(|e| AosError::Database(e.to_string()))?;
 
@@ -551,7 +551,7 @@ mod tests {
               AND hook = 'toggle'
             "#,
         )
-        .fetch_one(&*db.pool_result()?)
+        .fetch_one(&*db.pool())
         .await
         .map_err(|e| AosError::Database(e.to_string()))?
         .get::<i32, _>("cnt");

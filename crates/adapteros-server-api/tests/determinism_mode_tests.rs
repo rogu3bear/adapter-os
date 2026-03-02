@@ -36,7 +36,7 @@
 //!
 //! ## Scenario 1: Relaxed mode, no seed (requires worker)
 //! ```bash
-//! curl -X POST http://localhost:18080/v1/infer \
+//! curl -X POST http://localhost:8080/v1/infer \
 //!   -H "Content-Type: application/json" \
 //!   -d '{
 //!     "prompt": "Hello",
@@ -49,7 +49,7 @@
 //!
 //! ## Scenario 2: Strict mode, no seed (control plane only)
 //! ```bash
-//! curl -X POST http://localhost:18080/v1/infer \
+//! curl -X POST http://localhost:8080/v1/infer \
 //!   -H "Content-Type: application/json" \
 //!   -d '{
 //!     "prompt": "Hello",
@@ -62,7 +62,7 @@
 //!
 //! ## Scenario 3: Strict mode with seed (requires worker)
 //! ```bash
-//! curl -X POST http://localhost:18080/v1/infer \
+//! curl -X POST http://localhost:8080/v1/infer \
 //!   -H "Content-Type: application/json" \
 //!   -d '{
 //!     "prompt": "Hello",
@@ -291,14 +291,6 @@ fn test_inference_result_determinism_fields_flow_through() {
         router_decision_chain: None,
         rag_evidence: None,
         citations: vec![],
-        document_links: vec![adapteros_api_types::inference::DocumentLink {
-            document_id: "doc-1".to_string(),
-            document_name: "Spec".to_string(),
-            download_url: "/v1/documents/doc-1/download".to_string(),
-            adapter_id: Some("adapter1".to_string()),
-            dataset_version_id: Some("dsv-1".to_string()),
-            source_file: Some("training.jsonl".to_string()),
-        }],
         latency_ms: 100,
         request_id: "req-123".to_string(),
         unavailable_pinned_adapters: None,
@@ -337,8 +329,6 @@ fn test_inference_result_determinism_fields_flow_through() {
         response.replay_guarantee,
         Some(ReplayGuarantee::Approximate)
     );
-    assert_eq!(response.document_links.len(), 1);
-    assert_eq!(response.document_links[0].document_id, "doc-1");
 }
 
 #[test]
@@ -358,7 +348,6 @@ fn test_inference_result_strict_mode_exact_guarantee() {
         router_decision_chain: None,
         rag_evidence: None,
         citations: vec![],
-        document_links: vec![],
         latency_ms: 100,
         request_id: "req-456".to_string(),
         unavailable_pinned_adapters: None,
@@ -411,7 +400,6 @@ fn test_inference_result_direct_mode_no_fallback() {
         router_decision_chain: None,
         rag_evidence: None,
         citations: vec![],
-        document_links: vec![],
         latency_ms: 50,
         request_id: "req-789".to_string(),
         unavailable_pinned_adapters: None,

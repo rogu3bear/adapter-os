@@ -84,11 +84,8 @@ pub mod chat_context;
 pub mod chat_session_config;
 pub mod citations;
 pub mod config;
-pub mod control_plane;
 pub mod determinism_context;
-pub mod dev_bootstrap;
 pub mod embedding_resilience;
-pub mod error_code_normalization;
 pub mod event_bus;
 pub mod execution_profile;
 pub mod handlers;
@@ -133,7 +130,6 @@ pub mod supervisor_client;
 pub mod synthetic_probes;
 pub mod telemetry;
 pub mod telemetry_ext;
-pub mod tenant_visibility;
 #[cfg(test)]
 pub(crate) mod test_utils;
 pub mod types;
@@ -142,7 +138,6 @@ pub mod uds_metrics;
 pub mod validation;
 pub mod worker_capabilities;
 pub mod worker_health;
-pub mod worker_reconciler;
 pub mod worker_selector;
 
 pub use auth::{is_dev_bypass_enabled, set_dev_bypass_from_config, Claims};

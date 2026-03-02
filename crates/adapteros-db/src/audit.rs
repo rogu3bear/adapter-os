@@ -99,7 +99,7 @@ impl Db {
              ORDER BY chain_sequence DESC LIMIT 1",
         )
         .bind(tenant_id)
-        .fetch_optional(self.pool_result()?)
+        .fetch_optional(self.pool())
         .await
         .map_err(|e| AosError::Database(e.to_string()))?;
 
@@ -154,7 +154,7 @@ impl Db {
         .bind(previous_hash.as_deref())
         .bind(&entry_hash)
         .bind(chain_sequence)
-        .execute(self.pool_result()?)
+        .execute(self.pool())
         .await
         .map_err(|e| AosError::Database(e.to_string()))?;
 
@@ -271,7 +271,7 @@ impl Db {
             q = q.bind(param);
         }
 
-        q.fetch_all(self.pool_result()?)
+        q.fetch_all(self.pool())
             .await
             .map_err(db_err("query inference decisions"))
     }
@@ -310,7 +310,7 @@ impl Db {
         }
 
         let row = q
-            .fetch_one(self.pool_result()?)
+            .fetch_one(self.pool())
             .await
             .map_err(db_err("get inference abstention stats"))?;
 
@@ -388,7 +388,7 @@ impl Db {
         }
 
         let logs = q
-            .fetch_all(self.pool_result()?)
+            .fetch_all(self.pool())
             .await
             .map_err(db_err("query audit logs"))?;
         Ok(logs)
@@ -469,7 +469,7 @@ impl Db {
         }
 
         let logs = q
-            .fetch_all(self.pool_result()?)
+            .fetch_all(self.pool())
             .await
             .map_err(db_err("query audit logs for tenant"))?;
         Ok(logs)
@@ -509,7 +509,7 @@ impl Db {
         .bind(resource_type)
         .bind(resource_id)
         .bind(limit)
-        .fetch_all(self.pool_result()?)
+        .fetch_all(self.pool())
         .await
         .map_err(|e| AosError::Database(e.to_string()))?;
 
@@ -562,7 +562,7 @@ impl Db {
         .bind(resource_type)
         .bind(resource_id)
         .bind(limit)
-        .fetch_all(self.pool_result()?)
+        .fetch_all(self.pool())
         .await
         .map_err(|e| {
             AosError::Database(format!(
@@ -602,7 +602,7 @@ impl Db {
              FROM audit_logs
              ORDER BY chain_sequence ASC",
         )
-        .fetch_all(self.pool_result()?)
+        .fetch_all(self.pool())
         .await
         .db_err("fetch audit logs")?;
 
@@ -616,7 +616,7 @@ impl Db {
              FROM audit_logs
              ORDER BY chain_sequence ASC",
         )
-        .fetch_all(self.pool_result()?)
+        .fetch_all(self.pool())
         .await
         .db_err("fetch audit chain metadata")?;
 
@@ -733,7 +733,7 @@ impl Db {
              ORDER BY chain_sequence ASC",
         )
         .bind(tenant_id)
-        .fetch_all(self.pool_result()?)
+        .fetch_all(self.pool())
         .await
         .map_err(db_err("fetch audit logs for tenant"))?;
 
@@ -749,7 +749,7 @@ impl Db {
              ORDER BY chain_sequence ASC",
         )
         .bind(tenant_id)
-        .fetch_all(self.pool_result()?)
+        .fetch_all(self.pool())
         .await
         .map_err(|e| {
             AosError::Database(format!(
@@ -877,7 +877,7 @@ impl Db {
         }
 
         let stats = q
-            .fetch_all(self.pool_result()?)
+            .fetch_all(self.pool())
             .await
             .map_err(db_err("get audit stats by action"))?;
         Ok(stats)
@@ -1029,7 +1029,7 @@ mod tests {
              SET action = 'tampered-action'
              WHERE chain_sequence = 2",
         )
-        .execute(db.pool_result().unwrap())
+        .execute(db.pool())
         .await
         .unwrap();
 
@@ -1080,7 +1080,7 @@ mod tests {
              FROM audit_logs
              ORDER BY chain_sequence ASC",
         )
-        .fetch_all(db.pool_result().unwrap())
+        .fetch_all(db.pool())
         .await
         .unwrap();
 
@@ -1126,7 +1126,7 @@ mod tests {
              FROM audit_logs
              ORDER BY chain_sequence ASC",
         )
-        .fetch_all(db.pool_result().unwrap())
+        .fetch_all(db.pool())
         .await
         .unwrap();
 
@@ -1138,7 +1138,7 @@ mod tests {
             "SELECT previous_hash, entry_hash FROM audit_logs WHERE id = ?",
         )
         .bind(&log.id)
-        .fetch_one(db.pool_result().unwrap())
+        .fetch_one(db.pool())
         .await
         .unwrap();
 
@@ -1189,7 +1189,7 @@ mod tests {
         let sequences = sqlx::query_as::<_, (i64,)>(
             "SELECT chain_sequence FROM audit_logs ORDER BY chain_sequence ASC",
         )
-        .fetch_all(db.pool_result().unwrap())
+        .fetch_all(db.pool())
         .await
         .unwrap();
 
@@ -1230,7 +1230,7 @@ mod tests {
              SET previous_hash = 'corrupted-hash-value'
              WHERE chain_sequence = 3",
         )
-        .execute(db.pool_result().unwrap())
+        .execute(db.pool())
         .await
         .unwrap();
 
@@ -1262,7 +1262,7 @@ mod tests {
         let (prev_hash, seq) = sqlx::query_as::<_, (Option<String>, i64)>(
             "SELECT previous_hash, chain_sequence FROM audit_logs WHERE chain_sequence = 1",
         )
-        .fetch_one(db.pool_result().unwrap())
+        .fetch_one(db.pool())
         .await
         .unwrap();
 
@@ -1278,7 +1278,7 @@ mod tests {
              SET previous_hash = 'should-not-exist'
              WHERE chain_sequence = 1",
         )
-        .execute(db.pool_result().unwrap())
+        .execute(db.pool())
         .await
         .unwrap();
 
@@ -1382,7 +1382,7 @@ mod tests {
                     resource_id, status, error_message, ip_address, metadata_json
              FROM audit_logs",
         )
-        .fetch_all(db.pool_result().unwrap())
+        .fetch_all(db.pool())
         .await
         .unwrap();
 
@@ -1476,7 +1476,7 @@ mod tests {
         .bind("fake-prev")
         .bind("fake-hash")
         .bind(5i64) // Gap: jumping from 2 to 5
-        .execute(db.pool_result().unwrap())
+        .execute(db.pool())
         .await
         .unwrap();
 

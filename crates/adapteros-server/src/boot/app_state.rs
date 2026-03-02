@@ -21,7 +21,6 @@ use adapteros_server_api::runtime_mode::RuntimeMode;
 use adapteros_server_api::state::BackgroundTaskTracker;
 use adapteros_server_api::storage_reconciler::spawn_storage_reconciler;
 use adapteros_server_api::worker_health::WorkerHealthMonitor;
-use adapteros_server_api::worker_reconciler::spawn_worker_reconciler;
 use adapteros_server_api::{ApiConfig, AppState};
 use adapteros_telemetry::diagnostics::{DiagEnvelope, DiagnosticsConfig, DiagnosticsService};
 use adapteros_telemetry::MetricsCollector;
@@ -125,55 +124,6 @@ pub async fn build_app_state(
     broadcast::Receiver<()>,
 )> {
     info!(target: "boot", phase = 10, name = "services", "═══ BOOT PHASE 10/12: Service Initialization ═══");
-
-    // Resolve manifest hash BEFORE spawning background tasks.
-    // std::env::set_var is not thread-safe after spawning async tasks.
-    let (resolved_manifest_hash, resolved_backend_name) = {
-        let computed_manifest_hash = manifest_hash.as_ref().map(|h| h.to_hex());
-        let env_manifest_hash = std::env::var("AOS_MANIFEST_HASH")
-            .ok()
-            .filter(|s| !s.is_empty());
-
-        let hash = match (env_manifest_hash, computed_manifest_hash) {
-            (Some(env_hash), Some(computed)) => {
-                if env_hash != computed {
-                    warn!(
-                        env_manifest_hash = %env_hash,
-                        computed_manifest_hash = %computed,
-                        "AOS_MANIFEST_HASH differs from computed manifest hash; continuing with env value"
-                    );
-                }
-                env_hash
-            }
-            (Some(env_hash), None) => env_hash,
-            (None, Some(computed)) => computed,
-            (None, None) => {
-                let is_production = api_config
-                    .read()
-                    .map(|c| c.server.production_mode)
-                    .unwrap_or(false);
-
-                if is_production {
-                    return Err(AosError::Config(
-                        "AOS_MANIFEST_HASH must be set to enable manifest-bound routing"
-                            .to_string(),
-                    )
-                    .into());
-                }
-
-                warn!(
-                    default_hash = DEFAULT_MANIFEST_HASH,
-                    "AOS_MANIFEST_HASH not set and manifest hash unavailable; \
-                     using default (development only)"
-                );
-                DEFAULT_MANIFEST_HASH.to_string()
-            }
-        };
-
-        std::env::set_var("AOS_MANIFEST_HASH", &hash);
-        let backend = std::env::var("AOS_MODEL_BACKEND").unwrap_or_else(|_| "mlx".to_string());
-        (hash, backend)
-    };
 
     info!("Initializing worker health monitor");
     let health_monitor = Arc::new(WorkerHealthMonitor::with_defaults(db.clone()));
@@ -284,26 +234,55 @@ pub async fn build_app_state(
         state = state.with_worker_signing_keypair(keypair.clone());
     }
 
-    // Apply pre-resolved manifest hash (resolved before background task spawns)
-    state = state.with_manifest_info(resolved_manifest_hash.clone(), resolved_backend_name);
+    // Require manifest hash to keep worker routing aligned.
+    // Prefer the hash computed from the loaded manifest; fall back to env when provided.
+    let computed_manifest_hash = manifest_hash.as_ref().map(|h| h.to_hex());
+    let env_manifest_hash = std::env::var("AOS_MANIFEST_HASH")
+        .ok()
+        .filter(|s| !s.is_empty());
 
-    // Phase 5: Advisory manifest hash validation against database
-    match state.db.get_manifest_by_hash(&resolved_manifest_hash).await {
-        Ok(Some(_)) => info!(
-            manifest_hash = %resolved_manifest_hash,
-            "Manifest hash validated against database"
-        ),
-        Ok(None) => warn!(
-            manifest_hash = %resolved_manifest_hash,
-            "Manifest hash not found in database \
-             (will be created on first worker registration in dev mode)"
-        ),
-        Err(e) => warn!(
-            manifest_hash = %resolved_manifest_hash,
-            error = %e,
-            "Failed to validate manifest hash against database (non-fatal)"
-        ),
-    }
+    let manifest_hash = match (env_manifest_hash, computed_manifest_hash) {
+        (Some(env_hash), Some(computed)) => {
+            if env_hash != computed {
+                warn!(
+                    env_manifest_hash = %env_hash,
+                    computed_manifest_hash = %computed,
+                    "AOS_MANIFEST_HASH differs from computed manifest hash; continuing with env value"
+                );
+            }
+            env_hash
+        }
+        (Some(env_hash), None) => env_hash,
+        (None, Some(computed)) => {
+            // Auto-export so downstream components (and logs) see the canonical hash.
+            std::env::set_var("AOS_MANIFEST_HASH", &computed);
+            computed
+        }
+        (None, None) => {
+            let is_production = api_config
+                .read()
+                .map(|c| c.server.production_mode)
+                .unwrap_or(false);
+
+            if is_production {
+                return Err(AosError::Config(
+                    "AOS_MANIFEST_HASH must be set to enable manifest-bound routing".to_string(),
+                )
+                .into());
+            }
+
+            warn!(
+                default_hash = DEFAULT_MANIFEST_HASH,
+                "AOS_MANIFEST_HASH not set and manifest hash unavailable; using default (development only)"
+            );
+            DEFAULT_MANIFEST_HASH.to_string()
+        }
+    };
+
+    // Ensure env reflects the hash we actually use for routing.
+    std::env::set_var("AOS_MANIFEST_HASH", &manifest_hash);
+    let backend_name = std::env::var("AOS_MODEL_BACKEND").unwrap_or_else(|_| "mlx".to_string());
+    state = state.with_manifest_info(manifest_hash, backend_name);
 
     let plugin_registry = Arc::new(adapteros_server_api::PluginRegistry::new(state.db.clone()));
     state = state.with_plugin_registry(plugin_registry);
@@ -379,23 +358,6 @@ pub async fn build_app_state(
 
     // Reconcile active workspace state to surface model/worker mismatches on startup.
     reconcile_active_models(&state).await;
-
-    // Reconcile stale worker_model_state rows from crashed/stopped workers
-    match state.db.reconcile_worker_model_states_at_startup().await {
-        Ok(count) if count > 0 => info!(
-            reconciled = count,
-            "Reconciled stale worker_model_state rows at startup"
-        ),
-        Ok(_) => {}
-        Err(e) => warn!(
-            error = %e,
-            "Failed to reconcile worker model states at startup \
-             (non-fatal, table may not exist pre-migration)"
-        ),
-    }
-
-    // Keep worker/workspace state reconciliation running beyond startup.
-    spawn_worker_reconciler(Arc::new(state.clone()));
 
     // Git subsystem initialization
     let git_enabled = server_config

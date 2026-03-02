@@ -577,7 +577,7 @@ pub async fn get_verdict_summary(pool: &SqlitePool, tenant_id: &str) -> Result<V
 impl Db {
     /// Create a new inference verdict
     pub async fn create_inference_verdict(&self, params: &CreateVerdictParams) -> Result<String> {
-        create_verdict(self.pool_result()?, params).await
+        create_verdict(self.pool(), params).await
     }
 
     /// Get verdict by inference ID
@@ -586,7 +586,7 @@ impl Db {
         tenant_id: &str,
         inference_id: &str,
     ) -> Result<Option<InferenceVerdict>> {
-        get_verdict_by_inference(self.pool_result()?, tenant_id, inference_id).await
+        get_verdict_by_inference(self.pool(), tenant_id, inference_id).await
     }
 
     /// Get verdict by inference ID and evaluator type
@@ -596,13 +596,8 @@ impl Db {
         inference_id: &str,
         evaluator_type: EvaluatorType,
     ) -> Result<Option<InferenceVerdict>> {
-        get_verdict_by_inference_and_evaluator(
-            self.pool_result()?,
-            tenant_id,
-            inference_id,
-            evaluator_type,
-        )
-        .await
+        get_verdict_by_inference_and_evaluator(self.pool(), tenant_id, inference_id, evaluator_type)
+            .await
     }
 
     /// Get latest verdict for an inference
@@ -611,7 +606,7 @@ impl Db {
         tenant_id: &str,
         inference_id: &str,
     ) -> Result<Option<InferenceVerdict>> {
-        get_latest_verdict(self.pool_result()?, tenant_id, inference_id).await
+        get_latest_verdict(self.pool(), tenant_id, inference_id).await
     }
 
     /// List all verdicts for an inference
@@ -620,7 +615,7 @@ impl Db {
         tenant_id: &str,
         inference_id: &str,
     ) -> Result<Vec<InferenceVerdict>> {
-        list_verdicts_by_inference(self.pool_result()?, tenant_id, inference_id).await
+        list_verdicts_by_inference(self.pool(), tenant_id, inference_id).await
     }
 
     /// List verdicts by tenant with filtering
@@ -633,7 +628,7 @@ impl Db {
         offset: u32,
     ) -> Result<Vec<InferenceVerdict>> {
         list_verdicts_by_tenant(
-            self.pool_result()?,
+            self.pool(),
             tenant_id,
             verdict_filter,
             evaluator_type_filter,
@@ -645,7 +640,7 @@ impl Db {
 
     /// Get verdict summary statistics
     pub async fn get_inference_verdict_summary(&self, tenant_id: &str) -> Result<VerdictSummary> {
-        get_verdict_summary(self.pool_result()?, tenant_id).await
+        get_verdict_summary(self.pool(), tenant_id).await
     }
 
     /// Delete an inference verdict
@@ -654,7 +649,7 @@ impl Db {
         tenant_id: &str,
         verdict_id: &str,
     ) -> Result<bool> {
-        delete_verdict(self.pool_result()?, tenant_id, verdict_id).await
+        delete_verdict(self.pool(), tenant_id, verdict_id).await
     }
 }
 

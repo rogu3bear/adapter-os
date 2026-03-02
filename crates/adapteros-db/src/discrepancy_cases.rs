@@ -551,7 +551,7 @@ impl Db {
         .bind(&params.model_answer_hash_b3)
         .bind(&params.reported_by)
         .bind(&params.notes)
-        .execute(self.pool_result()?)
+        .execute(self.pool())
         .await
         .map_err(|e| AosError::Database(format!("Failed to create discrepancy case: {}", e)))?;
 
@@ -572,7 +572,7 @@ impl Db {
         let case = sqlx::query_as::<_, DiscrepancyCase>(&query)
             .bind(case_id)
             .bind(tenant_id)
-            .fetch_optional(self.pool_result()?)
+            .fetch_optional(self.pool())
             .await
             .map_err(|e| AosError::Database(format!("Failed to get discrepancy case: {}", e)))?;
 
@@ -625,7 +625,7 @@ impl Db {
         q = q.bind(limit).bind(offset);
 
         let cases = q
-            .fetch_all(self.pool_result()?)
+            .fetch_all(self.pool())
             .await
             .map_err(|e| AosError::Database(format!("Failed to list discrepancy cases: {}", e)))?;
 
@@ -647,7 +647,7 @@ impl Db {
         .bind(&params.notes)
         .bind(&params.case_id)
         .bind(tenant_id)
-        .execute(self.pool_result()?)
+        .execute(self.pool())
         .await
         .map_err(|e| {
             AosError::Database(format!("Failed to update discrepancy resolution: {}", e))
@@ -681,7 +681,7 @@ impl Db {
         let cases = sqlx::query_as::<_, DiscrepancyCase>(&query)
             .bind(tenant_id)
             .bind(ResolutionStatus::ConfirmedError.as_str())
-            .fetch_all(self.pool_result()?)
+            .fetch_all(self.pool())
             .await
             .map_err(|e| AosError::Database(format!("Failed to export confirmed errors: {}", e)))?;
 
@@ -738,7 +738,7 @@ impl Db {
              GROUP BY resolution_status",
         )
         .bind(tenant_id)
-        .fetch_all(self.pool_result()?)
+        .fetch_all(self.pool())
         .await
         .map_err(|e| AosError::Database(format!("Failed to count discrepancy cases: {}", e)))?;
 
@@ -755,7 +755,7 @@ impl Db {
         let result = sqlx::query("DELETE FROM discrepancy_cases WHERE id = ? AND tenant_id = ?")
             .bind(case_id)
             .bind(tenant_id)
-            .execute(self.pool_result()?)
+            .execute(self.pool())
             .await
             .map_err(|e| AosError::Database(format!("Failed to delete discrepancy case: {}", e)))?;
 

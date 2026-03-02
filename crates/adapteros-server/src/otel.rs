@@ -167,7 +167,7 @@ mod tests {
         // spans and fail silently on export timeout.
         let config = OtelConfig {
             enabled: true,
-            endpoint: "http://localhost:18088".to_string(),
+            endpoint: "http://localhost:4317".to_string(),
             protocol: "grpc".to_string(),
             service_name: "test-service".to_string(),
             sampling_ratio: 1.0,

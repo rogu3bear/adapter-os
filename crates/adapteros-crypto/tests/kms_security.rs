@@ -116,7 +116,7 @@ impl MockKmsServer {
 fn create_mock_aws_config() -> KmsConfig {
     KmsConfig {
         provider_type: KmsProviderType::AwsKms,
-        endpoint: "http://localhost:18092".to_string(), // LocalStack default
+        endpoint: "http://localhost:4566".to_string(), // LocalStack default
         region: Some("us-east-1".to_string()),
         credentials: KmsCredentials::AwsIam {
             access_key_id: "test-access-key".to_string(),
@@ -133,7 +133,7 @@ fn create_mock_aws_config() -> KmsConfig {
 fn create_mock_gcp_config() -> KmsConfig {
     KmsConfig {
         provider_type: KmsProviderType::GcpKms,
-        endpoint: "http://localhost:18080".to_string(), // Test endpoint
+        endpoint: "http://localhost:8080".to_string(), // Test endpoint
         region: Some("us-central1".to_string()),
         credentials: KmsCredentials::GcpServiceAccount {
             credentials_json: r#"{"type":"service_account","project_id":"test-project"}"#.into(),
@@ -250,7 +250,7 @@ async fn test_aws_kms_mock_server_failure_simulation() -> Result<()> {
 async fn test_gcp_kms_error_handling_invalid_credentials() {
     let _config = KmsConfig {
         provider_type: KmsProviderType::GcpKms,
-        endpoint: "http://localhost:18080".to_string(),
+        endpoint: "http://localhost:8080".to_string(),
         region: None,
         credentials: KmsCredentials::AwsIam {
             access_key_id: "aws-key".to_string(),
@@ -290,7 +290,7 @@ async fn test_gcp_kms_error_handling_timeout() -> Result<()> {
     // Verify timeout handling with short timeout
     let _config = KmsConfig {
         provider_type: KmsProviderType::GcpKms,
-        endpoint: "http://localhost:18080".to_string(),
+        endpoint: "http://localhost:8080".to_string(),
         region: None,
         credentials: KmsCredentials::GcpServiceAccount {
             credentials_json: "{}".into(),
@@ -634,7 +634,7 @@ fn test_kms_config_timeout_validation() {
     for (timeout_secs, _description) in configs {
         let config = KmsConfig {
             provider_type: KmsProviderType::Mock,
-            endpoint: "http://localhost:18089".to_string(),
+            endpoint: "http://localhost:8200".to_string(),
             region: None,
             credentials: KmsCredentials::None,
             timeout_secs,
@@ -658,7 +658,7 @@ fn test_kms_config_retry_validation() {
     for (max_retries, _description) in configs {
         let config = KmsConfig {
             provider_type: KmsProviderType::Mock,
-            endpoint: "http://localhost:18089".to_string(),
+            endpoint: "http://localhost:8200".to_string(),
             region: None,
             credentials: KmsCredentials::None,
             timeout_secs: 30,

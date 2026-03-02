@@ -7,7 +7,6 @@
 //! - Stats are accurate
 
 use adapteros_lora_worker::backpressure::{BackpressureGate, DEFAULT_MAX_CONCURRENT};
-use adapteros_lora_worker::limiter::ThunderingHerdConfig;
 use std::sync::atomic::{AtomicUsize, Ordering};
 use std::sync::Arc;
 use std::time::{Duration, Instant};
@@ -192,8 +191,7 @@ async fn test_backpressure_stats_accuracy() {
 /// Test suggested retry delay scaling with load
 #[test]
 fn test_suggested_retry_ms_scaling() {
-    let config = ThunderingHerdConfig::default();
-    let gate = Arc::new(BackpressureGate::new_with_config(10, config.clone()));
+    let gate = Arc::new(BackpressureGate::new(10));
 
     // At zero load - base delay
     let retry_low = gate.suggested_retry_ms();
@@ -215,11 +213,9 @@ fn test_suggested_retry_ms_scaling() {
         retry_high,
         retry_low
     );
-    let expected_max =
-        config.base_retry_hint_ms + (config.max_retry_hint_ms as f64 * config.jitter_factor) as u64;
     assert!(
-        retry_high <= expected_max,
-        "Max retry should respect configured cap, got {}",
+        retry_high <= 300,
+        "Max retry should be around 300ms, got {}",
         retry_high
     );
 }

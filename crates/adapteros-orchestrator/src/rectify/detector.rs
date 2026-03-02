@@ -191,7 +191,7 @@ pub async fn find_affected_adapters(
     )
     .bind(&change.path)
     .bind(&change.old_hash_b3)
-    .fetch_all(db.pool_result()?)
+    .fetch_all(db.pool())
     .await
     .map_err(|e| AosError::Database(e.to_string()))?;
 
@@ -212,7 +212,7 @@ pub async fn find_affected_adapters(
             "#,
         )
         .bind(&adapter_id)
-        .fetch_one(db.pool_result()?)
+        .fetch_one(db.pool())
         .await;
 
         let total: i64 = match total_result {

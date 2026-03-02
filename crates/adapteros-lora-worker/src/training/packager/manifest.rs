@@ -24,9 +24,6 @@ use tracing::debug;
 #[derive(Debug, Clone, Serialize, Deserialize)]
 pub struct AdapterManifest {
     pub version: String,
-    /// Stable adapter identifier for runtime preload/integrity checks.
-    #[serde(default, skip_serializing_if = "Option::is_none")]
-    pub adapter_id: Option<String>,
     pub rank: usize,
     pub base_model: String,
     /// BLAKE3 hash of the base model weights/config

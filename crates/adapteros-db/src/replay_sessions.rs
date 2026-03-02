@@ -128,12 +128,12 @@ impl Db {
         let sessions = if let Some(tid) = tenant_id {
             sqlx::query_as::<_, ReplaySession>(query)
                 .bind(tid)
-                .fetch_all(self.pool_result()?)
+                .fetch_all(self.pool())
                 .await
                 .map_err(|e| AosError::Database(format!("Failed to list replay sessions: {}", e)))?
         } else {
             sqlx::query_as::<_, ReplaySession>(query)
-                .fetch_all(self.pool_result()?)
+                .fetch_all(self.pool())
                 .await
                 .map_err(|e| AosError::Database(format!("Failed to list replay sessions: {}", e)))?
         };
@@ -190,7 +190,7 @@ impl Db {
         let session =
             sqlx::query_as::<_, ReplaySession>("SELECT * FROM replay_sessions WHERE id = ?")
                 .bind(session_id)
-                .fetch_optional(self.pool_result()?)
+                .fetch_optional(self.pool())
                 .await
                 .map_err(|e| AosError::Database(format!("Failed to get replay session: {}", e)))?;
 
@@ -224,7 +224,7 @@ impl Db {
         .bind(&session.rng_state_json)
         .bind(&session.signature)
         .bind(&session.rag_state_json)
-        .execute(self.pool_result()?)
+        .execute(self.pool())
         .await
         .map_err(|e| AosError::Database(format!("Failed to create replay session: {}", e)))?;
 
@@ -249,7 +249,7 @@ impl Db {
     pub async fn delete_replay_session(&self, session_id: &str) -> Result<()> {
         sqlx::query("DELETE FROM replay_sessions WHERE id = ?")
             .bind(session_id)
-            .execute(self.pool_result()?)
+            .execute(self.pool())
             .await
             .map_err(|e| AosError::Database(format!("Failed to delete replay session: {}", e)))?;
 

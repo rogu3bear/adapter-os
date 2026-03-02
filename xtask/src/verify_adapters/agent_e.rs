@@ -264,32 +264,45 @@ fn check_sbom() -> Check {
 
 fn check_backup_gc() -> Check {
     let backup_script = Path::new("scripts/backup.sh");
+    let gc_script = Path::new("scripts/gc_bundles.sh");
+
     let has_backup = backup_script.exists();
+    let has_gc = gc_script.exists();
 
-    let evidence: Vec<String> = if has_backup {
-        vec!["scripts/backup.sh exists".to_string()]
-    } else {
-        vec![]
-    };
-
+    let mut evidence = Vec::new();
     if has_backup {
-        Check::pass("Backup script", evidence)
+        evidence.push("scripts/backup.sh exists".to_string());
+    }
+    if has_gc {
+        evidence.push("scripts/gc_bundles.sh exists".to_string());
+    }
+
+    if has_backup && has_gc {
+        Check::pass("Backup & GC scripts", evidence)
     } else {
+        let missing: Vec<_> = [
+            (!has_backup).then_some("backup.sh"),
+            (!has_gc).then_some("gc_bundles.sh"),
+        ]
+        .into_iter()
+        .flatten()
+        .collect();
+
         Check::fail(
-            "Backup script",
+            "Backup & GC scripts",
             evidence,
-            "Missing: scripts/backup.sh (GC is via aosctl maintenance gc-bundles)",
+            format!("Missing: {}", missing.join(", ")),
         )
     }
 }
 
 fn check_orchestrator() -> Check {
-    let orchestrator_crate = Path::new("crates/adapteros-orchestrator");
+    let orchestrator_crate = Path::new("crates/mplora-orchestrator");
     if !orchestrator_crate.exists() {
         return Check::fail(
             "Orchestrator",
             vec![],
-            "crates/adapteros-orchestrator not found",
+            "crates/mplora-orchestrator not found",
         );
     }
 
@@ -301,7 +314,7 @@ fn check_orchestrator() -> Check {
             Check::pass(
                 "Orchestrator",
                 vec![
-                    "crates/adapteros-orchestrator exists".to_string(),
+                    "crates/mplora-orchestrator exists".to_string(),
                     "Gate enforcement logic found".to_string(),
                 ],
             )
@@ -339,7 +352,7 @@ fn check_release_checklist() -> Check {
 
     // Check if it references orchestrator
     let has_orchestrator_ref =
-        content.contains("orchestrator") || content.contains("adapteros-orchestrator");
+        content.contains("orchestrator") || content.contains("mplora-orchestrator");
 
     if has_orchestrator_ref {
         Check::pass(

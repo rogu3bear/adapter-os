@@ -142,7 +142,7 @@ mod tests {
         // Cleanup: remove dataset files if present
         let storage_path: Option<String> = sqlx::query("SELECT storage_path FROM training_datasets WHERE id = ?")
             .bind(&upload_body.dataset_id)
-            .fetch_optional(harness.db().pool_result().unwrap())
+            .fetch_optional(harness.db().pool())
             .await
             .ok()
             .flatten()

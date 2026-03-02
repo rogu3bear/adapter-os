@@ -404,7 +404,7 @@ impl GlobalTickLedger {
         tick_start: u64,
         tick_end: u64,
     ) -> Result<Vec<TickLedgerEntry>> {
-        let pool = self.db.pool_result()?;
+        let pool = self.db.pool();
 
         let rows = sqlx::query(
             r#"
@@ -608,7 +608,7 @@ impl GlobalTickLedger {
     /// prevents memory update via early return), explicit transactions provide
     /// better guarantees for future multi-statement operations.
     async fn store_entry(&self, entry: &TickLedgerEntry) -> Result<()> {
-        let pool = self.db.pool_result()?;
+        let pool = self.db.pool();
 
         let task_id_hex = hex::encode(entry.task_id.as_bytes());
         let event_hash_hex = entry.event_hash.to_hex();
@@ -662,7 +662,7 @@ impl GlobalTickLedger {
         peer_host_id: &str,
         tick_range: (u64, u64),
     ) -> Result<Vec<TickLedgerEntry>> {
-        let pool = self.db.pool_result()?;
+        let pool = self.db.pool();
 
         let rows = sqlx::query(
             r#"
@@ -843,7 +843,7 @@ impl GlobalTickLedger {
 
     /// Store consistency report
     async fn store_consistency_report(&self, report: &ConsistencyReport) -> Result<()> {
-        let pool = self.db.pool_result()?;
+        let pool = self.db.pool();
 
         let divergence_json =
             serde_json::to_string(&report.divergences).unwrap_or_else(|_| "[]".to_string());

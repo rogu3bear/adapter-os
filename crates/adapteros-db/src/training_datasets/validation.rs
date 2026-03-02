@@ -9,7 +9,7 @@ use adapteros_core::{AosError, Result};
 // ============================================================================
 
 /// Valid dataset format types
-pub const VALID_FORMATS: &[&str] = &["jsonl", "txt", "csv", "custom"];
+pub const VALID_FORMATS: &[&str] = &["jsonl", "txt", "csv"];
 
 /// Valid dataset status values
 pub const VALID_STATUSES: &[&str] = &["uploaded", "processing", "ready", "failed"];

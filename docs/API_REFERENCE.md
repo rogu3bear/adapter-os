@@ -8,7 +8,7 @@ REST API. Canonical source: `docs/api/openapi.json`, `adapteros-server-api/src/r
 
 | Item | Value |
 |------|-------|
-| Base URL | `http://127.0.0.1:18080` |
+| Base URL | `http://127.0.0.1:8080` |
 | Prefix | `/v1/` |
 | Auth | JWT (Cookie/Authorization) or X-API-Key |
 

@@ -9,14 +9,14 @@ use thiserror::Error;
 
 /// Detailed outcome of a recovery operation
 #[derive(Debug)]
-pub struct RecoveryOutcome<T, E = AosError> {
+pub struct RecoveryOutcome<T> {
     /// The operation result
-    pub result: Result<T, RecoveryError<E>>,
+    pub result: Result<T, RecoveryError>,
     /// Execution statistics
     pub stats: RecoveryStats,
 }
 
-impl<T, E> RecoveryOutcome<T, E> {
+impl<T> RecoveryOutcome<T> {
     /// Create a successful outcome
     pub fn success(value: T, stats: RecoveryStats) -> Self {
         Self {
@@ -26,7 +26,7 @@ impl<T, E> RecoveryOutcome<T, E> {
     }
 
     /// Create a failed outcome
-    pub fn failure(error: RecoveryError<E>, stats: RecoveryStats) -> Self {
+    pub fn failure(error: RecoveryError, stats: RecoveryStats) -> Self {
         Self {
             result: Err(error),
             stats,
@@ -43,22 +43,17 @@ impl<T, E> RecoveryOutcome<T, E> {
         self.result.is_err()
     }
 
+    /// Unwrap the result, panicking if it was an error
+    pub fn unwrap(self) -> T {
+        self.result.unwrap()
+    }
+
     /// Map the success value
-    pub fn map<U, F: FnOnce(T) -> U>(self, f: F) -> RecoveryOutcome<U, E> {
+    pub fn map<U, F: FnOnce(T) -> U>(self, f: F) -> RecoveryOutcome<U> {
         RecoveryOutcome {
             result: self.result.map(f),
             stats: self.stats,
         }
-    }
-}
-
-impl<T, E> RecoveryOutcome<T, E> {
-    /// Unwrap the result, panicking if it was an error
-    pub fn unwrap(self) -> T
-    where
-        E: std::fmt::Debug,
-    {
-        self.result.unwrap()
     }
 }
 
@@ -99,14 +94,14 @@ impl RecoveryStats {
 
 /// Recovery-specific error type that wraps underlying errors
 #[derive(Debug, Error)]
-pub enum RecoveryError<E = AosError> {
+pub enum RecoveryError {
     /// Operation failed after all recovery attempts
     #[error("Operation failed after {attempts} attempt(s): {source}")]
     Exhausted {
         /// Number of attempts made
         attempts: u32,
         /// The last error encountered
-        source: E,
+        source: AosError,
     },
 
     /// Circuit breaker is open, operation not attempted
@@ -134,14 +129,14 @@ pub enum RecoveryError<E = AosError> {
     #[error("Fallback failed: {source}")]
     FallbackFailed {
         /// The error from the fallback operation
-        source: E,
+        source: AosError,
     },
 
     /// Operation returned a non-retryable error
     #[error("Non-retryable error: {source}")]
     NonRetryable {
         /// The non-retryable error
-        source: E,
+        source: AosError,
     },
 
     /// Operation was cancelled or timed out at the orchestrator level
@@ -152,7 +147,7 @@ pub enum RecoveryError<E = AosError> {
     },
 }
 
-impl<E> RecoveryError<E> {
+impl RecoveryError {
     /// Check if this error indicates the operation was never attempted
     pub fn operation_not_attempted(&self) -> bool {
         matches!(
@@ -175,7 +170,7 @@ impl<E> RecoveryError<E> {
     }
 
     /// Get the underlying AosError if available
-    pub fn source_error(&self) -> Option<&E> {
+    pub fn source_error(&self) -> Option<&AosError> {
         match self {
             RecoveryError::Exhausted { source, .. } => Some(source),
             RecoveryError::FallbackFailed { source } => Some(source),
@@ -184,18 +179,6 @@ impl<E> RecoveryError<E> {
         }
     }
 
-    /// Consume the error and return the underlying source error
-    pub fn into_source(self) -> Option<E> {
-        match self {
-            RecoveryError::Exhausted { source, .. } => Some(source),
-            RecoveryError::FallbackFailed { source } => Some(source),
-            RecoveryError::NonRetryable { source } => Some(source),
-            _ => None,
-        }
-    }
-}
-
-impl RecoveryError<AosError> {
     /// Convert to AosError for integration with existing error handling
     pub fn into_aos_error(self) -> AosError {
         match self {
@@ -214,8 +197,8 @@ impl RecoveryError<AosError> {
     }
 }
 
-impl From<RecoveryError<AosError>> for AosError {
-    fn from(err: RecoveryError<AosError>) -> Self {
+impl From<RecoveryError> for AosError {
+    fn from(err: RecoveryError) -> Self {
         err.into_aos_error()
     }
 }
@@ -227,7 +210,7 @@ mod tests {
     #[test]
     fn test_recovery_outcome_success() {
         let stats = RecoveryStats::first_attempt_success(Duration::from_millis(100));
-        let outcome: RecoveryOutcome<i32, AosError> = RecoveryOutcome::success(42, stats);
+        let outcome: RecoveryOutcome<i32> = RecoveryOutcome::success(42, stats);
 
         assert!(outcome.is_ok());
         assert!(!outcome.is_err());
@@ -241,11 +224,11 @@ mod tests {
             retry_attempts: 3,
             ..Default::default()
         };
-        let error = RecoveryError::<AosError>::Exhausted {
+        let error = RecoveryError::Exhausted {
             attempts: 3,
             source: AosError::Network("connection failed".to_string()),
         };
-        let outcome: RecoveryOutcome<i32, AosError> = RecoveryOutcome::failure(error, stats);
+        let outcome: RecoveryOutcome<i32> = RecoveryOutcome::failure(error, stats);
 
         assert!(!outcome.is_ok());
         assert!(outcome.is_err());
@@ -254,17 +237,17 @@ mod tests {
 
     #[test]
     fn test_recovery_error_operation_not_attempted() {
-        assert!(RecoveryError::<AosError>::CircuitOpen {
+        assert!(RecoveryError::CircuitOpen {
             service: "test".to_string()
         }
         .operation_not_attempted());
 
-        assert!(RecoveryError::<AosError>::BudgetExhausted {
+        assert!(RecoveryError::BudgetExhausted {
             reason: "rate limit".to_string()
         }
         .operation_not_attempted());
 
-        assert!(!RecoveryError::<AosError>::Exhausted {
+        assert!(!RecoveryError::Exhausted {
             attempts: 3,
             source: AosError::Network("fail".to_string())
         }
@@ -273,18 +256,18 @@ mod tests {
 
     #[test]
     fn test_recovery_error_should_try_fallback() {
-        assert!(RecoveryError::<AosError>::Exhausted {
+        assert!(RecoveryError::Exhausted {
             attempts: 3,
             source: AosError::Network("fail".to_string())
         }
         .should_try_fallback());
 
-        assert!(RecoveryError::<AosError>::CircuitOpen {
+        assert!(RecoveryError::CircuitOpen {
             service: "test".to_string()
         }
         .should_try_fallback());
 
-        assert!(!RecoveryError::<AosError>::NonRetryable {
+        assert!(!RecoveryError::NonRetryable {
             source: AosError::Validation("bad input".to_string())
         }
         .should_try_fallback());
@@ -292,7 +275,7 @@ mod tests {
 
     #[test]
     fn test_recovery_error_into_aos_error() {
-        let err = RecoveryError::<AosError>::CircuitOpen {
+        let err = RecoveryError::CircuitOpen {
             service: "db".to_string(),
         };
         let aos_err: AosError = err.into();
@@ -302,7 +285,7 @@ mod tests {
     #[test]
     fn test_recovery_outcome_map() {
         let stats = RecoveryStats::first_attempt_success(Duration::from_millis(50));
-        let outcome: RecoveryOutcome<i32, AosError> = RecoveryOutcome::success(21, stats);
+        let outcome: RecoveryOutcome<i32> = RecoveryOutcome::success(21, stats);
         let mapped = outcome.map(|x| x * 2);
 
         assert_eq!(mapped.unwrap(), 42);

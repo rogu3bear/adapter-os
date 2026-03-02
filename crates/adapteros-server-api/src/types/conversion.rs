@@ -23,12 +23,7 @@ impl From<(&InferRequest, &Claims)> for super::context::InferenceRequestInternal
             admin_override: is_admin,
             stream: req.stream.unwrap_or(false),
             require_step: req.stream.unwrap_or(false),
-            allow_fallback: if req.bit_identical.unwrap_or(false) {
-                false
-            } else {
-                !matches!(req.backend, Some(backend) if backend != adapteros_core::BackendKind::Auto)
-            },
-            bit_identical: req.bit_identical.unwrap_or(false),
+            allow_fallback: !matches!(req.backend, Some(backend) if backend != adapteros_core::BackendKind::Auto),
             rag_enabled: req.rag_enabled.unwrap_or(false),
             rag_collection_id: req.collection_id.clone(),
             dataset_version_id: req.dataset_version_id.clone(),
@@ -96,9 +91,6 @@ impl From<InferenceResult> for InferResponse {
             run_envelope: result.run_envelope.clone(),
             adapters_used: result.adapters_used.clone(),
             citations: result.citations,
-            document_links: result.document_links,
-            adapter_attachments: result.adapter_attachments,
-            degraded_notices: result.degraded_notices,
             trace: InferenceTrace {
                 adapters_used: result.adapters_used,
                 router_decisions: result

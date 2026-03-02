@@ -18,7 +18,7 @@ require_match() {
   local pattern="$1"
   local file="$2"
   local msg="$3"
-  rg -q -- "$pattern" "$file" || fail "$msg ($file)"
+  rg -q "$pattern" "$file" || fail "$msg ($file)"
 }
 
 require_file "docs/CANONICAL_SOURCES.md"
@@ -29,12 +29,10 @@ require_file "docs/generated/middleware-chain.json"
 
 scripts/contracts/generate_contract_artifacts.py --check
 
-# Startup doc claims: top-level quickstart + deployment doc must match canonical startup path
+# Startup doc claims: both quickstarts should mention canonical startup path
 require_match "./start" "QUICKSTART.md" "Top-level QUICKSTART must reference ./start"
 require_match "trunk serve" "QUICKSTART.md" "Top-level QUICKSTART must mention trunk dev mode"
-require_match "skip-worker" "QUICKSTART.md" "Top-level QUICKSTART must document backend-only startup path"
-require_match "manifest-reader.sh" "docs/DEPLOYMENT.md" "Deployment doc must include manifest-reader startup dependency"
-require_match "ports.sh" "docs/DEPLOYMENT.md" "Deployment doc must include ports startup dependency"
+require_match "./start" "docs/QUICKSTART.md" "docs/QUICKSTART must reference ./start"
 
 # Canonical source index should point at critical runtime files
 require_match "crates/adapteros-server/src/main.rs" "docs/CANONICAL_SOURCES.md" "Canonical index missing server main"

@@ -30,7 +30,7 @@ async fn create_test_tenant(db: &Db, tenant_id: &str) -> Result<()> {
     sqlx::query("INSERT OR IGNORE INTO tenants (id, name, itar_flag) VALUES (?, ?, 0)")
         .bind(tenant_id)
         .bind(tenant_id)
-        .execute(db.pool_result()?)
+        .execute(db.pool())
         .await
         .map_err(|e| {
             adapteros_core::AosError::Database(format!("Failed to create tenant: {}", e))
@@ -45,7 +45,7 @@ async fn table_has_column(db: &Db, table: &str, column: &str) -> Result<bool> {
     );
     let exists: Option<i64> = sqlx::query_scalar(&query)
         .bind(column)
-        .fetch_optional(db.pool_result()?)
+        .fetch_optional(db.pool())
         .await
         .map_err(|e| adapteros_core::AosError::Database(format!("Schema probe failed: {}", e)))?;
     Ok(exists.is_some())
@@ -76,7 +76,7 @@ async fn create_test_repo(db: &Db, repo_id: &str, tenant_id: &str) -> Result<()>
         query = query.bind(tenant_id);
     }
     query
-        .execute(db.pool_result()?)
+        .execute(db.pool())
         .await
         .map_err(|e| adapteros_core::AosError::Database(format!("Failed to create repo: {}", e)))?;
     Ok(())
@@ -106,7 +106,7 @@ async fn create_test_training_dataset(db: &Db, dataset_id: &str, tenant_id: &str
     .bind(format!("var/datasets/{}.jsonl", dataset_id))
     .bind("valid")
     .bind(tenant_id)
-    .execute(db.pool_result()?)
+    .execute(db.pool())
     .await
     .map_err(|e| {
         adapteros_core::AosError::Database(format!("Failed to create dataset: {}", e))
@@ -116,7 +116,7 @@ async fn create_test_training_dataset(db: &Db, dataset_id: &str, tenant_id: &str
         sqlx::query("UPDATE training_datasets SET sample_count = ? WHERE id = ?")
             .bind(3)
             .bind(dataset_id)
-            .execute(db.pool_result()?)
+            .execute(db.pool())
             .await
             .map_err(|e| {
                 adapteros_core::AosError::Database(format!("Failed to update sample_count: {}", e))
@@ -127,7 +127,7 @@ async fn create_test_training_dataset(db: &Db, dataset_id: &str, tenant_id: &str
         sqlx::query("UPDATE training_datasets SET total_tokens = ? WHERE id = ?")
             .bind(150)
             .bind(dataset_id)
-            .execute(db.pool_result()?)
+            .execute(db.pool())
             .await
             .map_err(|e| {
                 adapteros_core::AosError::Database(format!("Failed to update total_tokens: {}", e))
@@ -192,7 +192,7 @@ async fn test_e2e_training_workflow() -> Result<()> {
     .bind("test-hash")
     .bind("admin")
     .bind(tenant_id)
-    .execute(state.db.pool_result()?)
+    .execute(state.db.pool())
     .await
     {
         eprintln!("Skipping test - user creation failed: {}", e);
@@ -217,7 +217,7 @@ async fn test_e2e_training_workflow() -> Result<()> {
     let dataset_count: (i64,) =
         match sqlx::query_as("SELECT COUNT(*) FROM training_datasets WHERE id = ?")
             .bind(&dataset_id)
-            .fetch_one(state.db.pool_result()?)
+            .fetch_one(state.db.pool())
             .await
         {
             Ok(count) => count,
@@ -286,7 +286,7 @@ async fn test_e2e_training_workflow() -> Result<()> {
     .bind(&adapter_name)
     .bind(tenant_id)
     .bind(&dataset_id)
-    .execute(state.db.pool_result()?)
+    .execute(state.db.pool())
     .await;
 
     assert!(
@@ -327,7 +327,7 @@ async fn test_e2e_training_workflow() -> Result<()> {
         .bind("running")
         .bind(r#"{"progress_pct": 50, "current_epoch": 0, "loss": 0.5}"#)
         .bind(&job_id)
-        .execute(state.db.pool_result()?)
+        .execute(state.db.pool())
         .await
         .expect("Should update job to running");
 
@@ -375,7 +375,7 @@ async fn test_e2e_training_workflow() -> Result<()> {
     .bind(&stack_name)
     .bind("E2E test stack")
     .bind(json!([adapter_id]).to_string())
-    .execute(state.db.pool_result()?)
+    .execute(state.db.pool())
     .await;
 
     assert!(stack_result.is_ok(), "Stack creation should succeed");
@@ -396,7 +396,7 @@ async fn test_e2e_training_workflow() -> Result<()> {
         .bind("completed")
         .bind(r#"{"progress_pct": 100, "current_epoch": 1, "loss": 0.05}"#)
         .bind(&job_id)
-        .execute(state.db.pool_result()?)
+        .execute(state.db.pool())
         .await
         .expect("Should update job to completed");
 
@@ -527,7 +527,7 @@ async fn test_training_progress_monitoring() {
     .bind("test-user")
     .bind("progress-adapter")
     .bind(tenant_id)
-    .execute(state.db.pool_result().expect("db pool"))
+    .execute(state.db.pool())
     .await
     .expect("Should create job");
 
@@ -552,7 +552,7 @@ async fn test_training_progress_monitoring() {
         sqlx::query("UPDATE repository_training_jobs SET progress_json = ? WHERE id = ?")
             .bind(&progress_json)
             .bind(&job_id)
-            .execute(state.db.pool_result().expect("db pool"))
+            .execute(state.db.pool())
             .await
             .expect("Should update progress");
 
@@ -660,7 +660,7 @@ async fn test_training_tenant_isolation() {
     .bind("adapter-a")
     .bind(tenant_a)
     .bind(&dataset_a)
-    .execute(state.db.pool_result().expect("db pool"))
+    .execute(state.db.pool())
     .await
     .expect("Should create job A");
 
@@ -678,7 +678,7 @@ async fn test_training_tenant_isolation() {
     .bind("adapter-b")
     .bind(tenant_b)
     .bind(&dataset_b)
-    .execute(state.db.pool_result().expect("db pool"))
+    .execute(state.db.pool())
     .await
     .expect("Should create job B");
 

@@ -73,7 +73,6 @@ pub mod git_repository;
 pub mod golden;
 pub mod health;
 pub mod inference;
-pub mod inference_metrics;
 pub mod infrastructure;
 pub mod key_rotation;
 pub mod kv_isolation;
@@ -88,6 +87,7 @@ pub mod notifications;
 pub mod openai_compat;
 pub mod orchestration;
 pub mod owner_cli;
+// pub mod packages; // Feature removed in migration 0200
 pub mod pilot_status;
 pub mod plugins;
 pub mod policies;
@@ -199,14 +199,13 @@ pub use adapter_lifecycle::{
 
 // Re-export adapter version management functions
 pub use adapter_versions::{
-    __path_checkout_adapter_version_handler, __path_create_draft_version,
-    __path_get_adapter_version, __path_list_adapter_versions,
+    __path_create_draft_version, __path_get_adapter_version, __path_list_adapter_versions,
     __path_promote_adapter_version_handler, __path_resolve_adapter_version_handler,
     __path_rollback_adapter_version_handler, __path_set_adapter_version_weight_handler,
-    __path_tag_adapter_version_handler, checkout_adapter_version_handler, create_draft_version,
-    get_adapter_version, list_adapter_versions, promote_adapter_version_handler,
-    resolve_adapter_version_handler, rollback_adapter_version_handler,
-    set_adapter_version_weight_handler, tag_adapter_version_handler, ListAdapterVersionsParams,
+    __path_tag_adapter_version_handler, create_draft_version, get_adapter_version,
+    list_adapter_versions, promote_adapter_version_handler, resolve_adapter_version_handler,
+    rollback_adapter_version_handler, set_adapter_version_weight_handler,
+    tag_adapter_version_handler, ListAdapterVersionsParams,
 };
 
 // Re-export adapter health functions
@@ -1706,71 +1705,6 @@ pub async fn get_adapter(
         display_name: adapteros_id::display_name_for(&adapter.id),
     }))
 }
-
-/// Request body for PATCH /v1/adapters/{adapter_id}
-#[derive(Debug, serde::Deserialize, utoipa::ToSchema)]
-pub struct PatchAdapterRequest {
-    /// New display name (simple string shown in UI). Pass None to clear to default.
-    #[serde(skip_serializing_if = "Option::is_none")]
-    pub alias: Option<String>,
-}
-
-/// Update adapter display name
-#[utoipa::path(
-    tag = "system",
-    patch,
-    path = "/v1/adapters/{adapter_id}",
-    params(
-        ("adapter_id" = String, Path, description = "Adapter ID")
-    ),
-    request_body = PatchAdapterRequest,
-    responses(
-        (status = 204, description = "Adapter updated"),
-        (status = 403, description = "Access denied"),
-        (status = 404, description = "Adapter not found", body = ErrorResponse),
-        (status = 409, description = "Adapter in use", body = ErrorResponse)
-    )
-)]
-pub async fn patch_adapter(
-    State(state): State<AppState>,
-    Extension(claims): Extension<Claims>,
-    Path(adapter_id): Path<String>,
-    Json(body): Json<PatchAdapterRequest>,
-) -> Result<StatusCode, (StatusCode, Json<ErrorResponse>)> {
-    require_permission(&claims, Permission::AdapterRegister)?;
-
-    let adapter_id = crate::id_resolver::resolve_any_id(&state.db, &adapter_id)
-        .await
-        .map_err(<(StatusCode, Json<ErrorResponse>)>::from)?;
-
-    state
-        .db
-        .update_adapter_display_name_for_tenant(
-            &claims.tenant_id,
-            &adapter_id,
-            body.alias.as_deref(),
-        )
-        .await
-        .map_err(|e| {
-            use adapteros_core::AosError;
-            let (status, msg) = match &e {
-                AosError::NotFound(_) => (StatusCode::NOT_FOUND, e.to_string()),
-                AosError::PolicyViolation(_) => (StatusCode::CONFLICT, e.to_string()),
-                AosError::Validation(_) => (StatusCode::BAD_REQUEST, e.to_string()),
-                _ => (
-                    StatusCode::INTERNAL_SERVER_ERROR,
-                    format!("Failed to update adapter: {}", e),
-                ),
-            };
-            (
-                status,
-                Json(ErrorResponse::new(&msg).with_code("UPDATE_FAILED")),
-            )
-        })?;
-
-    Ok(StatusCode::NO_CONTENT)
-}
-
 /// Register new adapter
 #[utoipa::path(
     tag = "system",
@@ -1779,8 +1713,7 @@ pub async fn patch_adapter(
     request_body = RegisterAdapterRequest,
     responses(
         (status = 201, description = "Adapter registered", body = AdapterResponse),
-        (status = 400, description = "Invalid request", body = ErrorResponse),
-        (status = 500, description = "Internal error", body = ErrorResponse)
+        (status = 400, description = "Invalid request", body = ErrorResponse)
     )
 )]
 pub async fn register_adapter(
@@ -3182,24 +3115,6 @@ pub async fn metrics_handler(State(state): State<AppState>) -> impl IntoResponse
             }
         }
     }
-
-    // Update runtime memory pressure and allocator-backed heap metrics.
-    let uma_stats = state.uma_monitor.get_uma_stats().await;
-    let pressure_ratio = ((100.0 - uma_stats.headroom_pct as f64) / 100.0).clamp(0.0, 1.0);
-    state
-        .metrics_exporter
-        .set_memory_pressure_ratio("system", pressure_ratio);
-    state
-        .metrics_exporter
-        .set_memory_bytes("system_used", (uma_stats.used_mb * 1024 * 1024) as f64);
-    state.metrics_exporter.set_memory_bytes(
-        "system_available",
-        (uma_stats.available_mb * 1024 * 1024) as f64,
-    );
-
-    state
-        .metrics_exporter
-        .set_memory_bytes("heap", (uma_stats.used_mb * 1024 * 1024) as f64);
 
     // Render metrics
     let metrics = match state.metrics_exporter.render() {

@@ -35,7 +35,7 @@ impl Db {
         .bind(created_at)
         .bind(source)
         .bind(key_type)
-        .execute(self.pool_result()?)
+        .execute(self.pool())
         .await
         .map_err(|e| AosError::Database(format!("Failed to upsert key metadata: {}", e)))?;
 
@@ -50,7 +50,7 @@ impl Db {
              WHERE key_label = ?",
         )
         .bind(key_label)
-        .fetch_optional(self.pool_result()?)
+        .fetch_optional(self.pool())
         .await
         .map_err(|e| AosError::Database(format!("Failed to get key metadata: {}", e)))?;
 
@@ -64,7 +64,7 @@ impl Db {
              FROM key_metadata
              ORDER BY created_at ASC",
         )
-        .fetch_all(self.pool_result()?)
+        .fetch_all(self.pool())
         .await
         .map_err(|e| AosError::Database(format!("Failed to list all keys: {}", e)))?;
 
@@ -86,7 +86,7 @@ impl Db {
              ORDER BY created_at ASC",
         )
         .bind(threshold_timestamp)
-        .fetch_all(self.pool_result()?)
+        .fetch_all(self.pool())
         .await
         .map_err(|e| AosError::Database(format!("Failed to list old keys: {}", e)))?;
 

@@ -4,7 +4,7 @@ import { gotoAndBootstrap, resolveChatEntryState, seeded } from './utils';
 test('runs list and detail', { tag: ['@smoke', '@detail'] }, async ({ page }) => {
   await gotoAndBootstrap(page, '/runs', { mode: 'ui-only' });
   await expect(
-    page.getByRole('heading', { name: 'System Execution Records', level: 1, exact: true })
+    page.getByRole('heading', { name: 'Flight Recorder', level: 1, exact: true })
   ).toBeVisible();
   const runLabel =
     seeded.runId.length > 12 ? `${seeded.runId.slice(0, 12)}...` : seeded.runId;
@@ -21,7 +21,7 @@ test('runs list and detail', { tag: ['@smoke', '@detail'] }, async ({ page }) =>
 
   await gotoAndBootstrap(page, `/runs/${seeded.runId}`, { mode: 'ui-only' });
   await expect(
-    page.getByRole('heading', { name: 'Execution Record Detail', level: 2, exact: true })
+    page.getByRole('heading', { name: 'Run Detail', level: 2, exact: true })
   ).toBeVisible();
   await expect(
     page.getByRole('heading', { name: 'Run Summary', level: 3, exact: true })
@@ -44,8 +44,8 @@ test('runs list and detail', { tag: ['@smoke', '@detail'] }, async ({ page }) =>
       'K-sparse routing decisions showing which adapters were selected and their gate values.'
     )
   ).toBeVisible();
-  await tabNav.getByRole('button', { name: 'Signed System Logs', exact: true }).click();
-  await expect(page.getByText('Signed Logs & Fingerprints')).toBeVisible();
+  await tabNav.getByRole('button', { name: 'Receipt', exact: true }).click();
+  await expect(page.getByText('Receipts & Hashes')).toBeVisible();
 });
 
 test('primary flow: chat to run detail', { tag: ['@flow'] }, async ({ page }) => {
@@ -58,12 +58,12 @@ test('primary flow: chat to run detail', { tag: ['@flow'] }, async ({ page }) =>
       page.getByRole('button', { name: /New (Chat|Session)/, exact: false }).first()
     ).toBeVisible();
   } else {
-    await expect(page.getByTestId('chat-unavailable-state')).toBeVisible();
+    await expect(page.getByText('Chat unavailable', { exact: false }).first()).toBeVisible();
   }
 
   await gotoAndBootstrap(page, `/runs/${seeded.runId}`, { mode: 'ui-only' });
   await expect(
-    page.getByRole('heading', { name: 'Execution Record Detail', level: 2, exact: true })
+    page.getByRole('heading', { name: 'Run Detail', level: 2, exact: true })
   ).toBeVisible();
   await expect(
     page.getByRole('heading', { name: 'Run Summary', level: 3, exact: true })

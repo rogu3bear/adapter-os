@@ -46,7 +46,7 @@ fn valid_transitions(state: &str) -> Vec<(&'static str, &'static str)> {
             ("draft", "Return to Draft"),
         ],
         "active" => vec![
-            ("staging", "Move Back to Reviewed"),
+            ("staging", "Restore Version"),
             ("deprecated", "Pause Production"),
         ],
         "deprecated" => vec![("active", "Resume Production"), ("retired", "Retire Skill")],

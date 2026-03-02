@@ -40,7 +40,7 @@ mod memory_pool_integration_tests {
     #[ignore = "mock adapters don't allocate GPU memory, needs real adapter weights"]
     fn test_adapter_registration_tracks_memory() {
         // Register adapters and verify memory is tracked
-        let mut backend = create_test_backend();
+        let backend = create_test_backend();
 
         // Register first adapter
         let adapter1 = create_mock_adapter("adapter-1", 4);
@@ -75,7 +75,7 @@ mod memory_pool_integration_tests {
     #[test]
     fn test_adapter_unload_frees_memory() {
         // Verify memory is freed when adapters are unloaded
-        let mut backend = create_test_backend();
+        let backend = create_test_backend();
 
         // Register an adapter
         let adapter = create_mock_adapter("adapter-test", 4);
@@ -97,7 +97,7 @@ mod memory_pool_integration_tests {
     #[ignore = "mock adapters don't allocate GPU memory, needs real adapter weights"]
     fn test_memory_pool_statistics() {
         // Verify memory pool statistics are accurate
-        let mut backend = create_test_backend();
+        let backend = create_test_backend();
 
         // Initial state
         let initial_stats = backend.get_memory_pool_stats();
@@ -131,7 +131,7 @@ mod memory_pool_integration_tests {
     #[test]
     fn test_per_adapter_memory_tracking() {
         // Test per-adapter memory tracking
-        let mut backend = create_test_backend();
+        let backend = create_test_backend();
 
         let tracked_adapters_before = backend.tracked_adapter_ids();
         assert_eq!(tracked_adapters_before.len(), 0);
@@ -161,7 +161,7 @@ mod memory_pool_integration_tests {
     #[test]
     fn test_memory_pressure_handling() {
         // Test memory pressure detection and cleanup
-        let mut backend = create_test_backend();
+        let backend = create_test_backend();
 
         // Register adapters
         for i in 0..5 {
@@ -214,7 +214,7 @@ mod memory_pool_integration_tests {
     #[test]
     fn test_memory_pool_clear() {
         // Test clearing all pooled memory
-        let mut backend = create_test_backend();
+        let backend = create_test_backend();
 
         // Register adapters
         backend
@@ -236,7 +236,7 @@ mod memory_pool_integration_tests {
     #[test]
     fn test_memory_metrics_update() {
         // Test memory metrics are updated correctly
-        let mut backend = create_test_backend();
+        let backend = create_test_backend();
 
         // Initial metrics
         let metrics1 = &backend.performance_metrics.read().clone();
@@ -279,7 +279,7 @@ mod memory_pool_integration_tests {
     #[ignore = "mock adapters don't allocate GPU memory, needs real adapter weights"]
     fn test_multiple_adapter_registrations_and_unloads() {
         // Test registering and unloading multiple adapters in sequence
-        let mut backend = create_test_backend();
+        let backend = create_test_backend();
 
         for iteration in 0..3 {
             // Register batch of adapters

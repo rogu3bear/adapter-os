@@ -447,7 +447,7 @@ pub async fn update_repo(
             update_clause
         );
 
-        let pool = state.db.pool_result()?;
+        let pool = state.db.pool();
         let mut query = sqlx::query(&query_str);
 
         // Bind values in order

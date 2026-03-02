@@ -61,8 +61,6 @@ pub struct MetricsExporter {
     // Inference metrics
     inference_requests_total: CounterVec,
     inference_duration_seconds: HistogramVec,
-    inference_ttft_seconds: HistogramVec,
-    inference_tps: HistogramVec,
     inference_tokens_generated_total: CounterVec,
     inference_tokens_per_second: GaugeVec,
     inference_queue_depth: GaugeVec,
@@ -75,7 +73,6 @@ pub struct MetricsExporter {
 
     // Resource metrics
     memory_bytes: GaugeVec,
-    memory_pressure_ratio: GaugeVec,
     gpu_utilization_ratio: Gauge,
     adapter_cache_entries: Gauge,
     adapter_cache_bytes: Gauge,
@@ -89,7 +86,6 @@ pub struct MetricsExporter {
     // Model load/unload metrics
     model_load_success_total: CounterVec,
     model_load_failure_total: CounterVec,
-    model_load_duration_seconds: HistogramVec,
     model_unload_success_total: CounterVec,
     model_unload_failure_total: CounterVec,
     model_loaded_gauge: GaugeVec,
@@ -246,26 +242,6 @@ impl MetricsExporter {
         )?;
         registry.register(Box::new(inference_duration_seconds.clone()))?;
 
-        let inference_ttft_seconds = HistogramVec::new(
-            HistogramOpts::new(
-                "aos_inference_ttft_seconds",
-                "Inference time-to-first-token in seconds",
-            )
-            .buckets(vec![
-                0.005, 0.01, 0.025, 0.05, 0.1, 0.25, 0.5, 1.0, 2.5, 5.0,
-            ]),
-            &["tenant", "model"],
-        )?;
-        registry.register(Box::new(inference_ttft_seconds.clone()))?;
-
-        let inference_tps = HistogramVec::new(
-            HistogramOpts::new("aos_inference_tps", "Inference tokens per second").buckets(vec![
-                1.0, 5.0, 10.0, 25.0, 50.0, 100.0, 250.0, 500.0, 1000.0, 2500.0,
-            ]),
-            &["tenant", "model"],
-        )?;
-        registry.register(Box::new(inference_tps.clone()))?;
-
         let inference_tokens_generated_total = CounterVec::new(
             Opts::new(
                 "aos_inference_tokens_generated_total",
@@ -318,14 +294,6 @@ impl MetricsExporter {
         // Resource metrics
         let memory_bytes = GaugeVec::new(Opts::new("aos_memory_bytes", "Memory usage"), &["type"])?;
         registry.register(Box::new(memory_bytes.clone()))?;
-        let memory_pressure_ratio = GaugeVec::new(
-            Opts::new(
-                "aos_memory_pressure_ratio",
-                "Memory pressure ratio by pool type (0.0 = empty, 1.0 = full)",
-            ),
-            &["pool_type"],
-        )?;
-        registry.register(Box::new(memory_pressure_ratio.clone()))?;
 
         let gpu_utilization_ratio = Gauge::new("aos_gpu_utilization_ratio", "GPU utilization 0-1")?;
         registry.register(Box::new(gpu_utilization_ratio.clone()))?;
@@ -380,17 +348,6 @@ impl MetricsExporter {
             &["model_id", "tenant_id"],
         )?;
         registry.register(Box::new(model_load_failure_total.clone()))?;
-        let model_load_duration_seconds = HistogramVec::new(
-            HistogramOpts::new(
-                "adapteros_model_load_duration_seconds",
-                "Duration of base model load operations in seconds",
-            )
-            .buckets(vec![
-                0.1, 0.5, 1.0, 2.5, 5.0, 10.0, 30.0, 60.0, 120.0, 300.0,
-            ]),
-            &["model_id", "tenant_id"],
-        )?;
-        registry.register(Box::new(model_load_duration_seconds.clone()))?;
 
         let model_unload_success_total = CounterVec::new(
             Opts::new(
@@ -806,8 +763,6 @@ impl MetricsExporter {
             // Inference metrics
             inference_requests_total,
             inference_duration_seconds,
-            inference_ttft_seconds,
-            inference_tps,
             inference_tokens_generated_total,
             inference_tokens_per_second,
             inference_queue_depth,
@@ -816,7 +771,6 @@ impl MetricsExporter {
             routing_k_value,
             routing_gate_max,
             memory_bytes,
-            memory_pressure_ratio,
             gpu_utilization_ratio,
             adapter_cache_entries,
             adapter_cache_bytes,
@@ -826,7 +780,6 @@ impl MetricsExporter {
             receipt_signature_seconds,
             model_load_success_total,
             model_load_failure_total,
-            model_load_duration_seconds,
             model_unload_success_total,
             model_unload_failure_total,
             model_loaded_gauge,
@@ -940,21 +893,6 @@ impl MetricsExporter {
         self.inference_tokens_generated_total
             .with_label_values(&[tenant, model])
             .inc_by(tokens as f64);
-
-        let duration = duration_secs.max(0.000_001);
-        let ttft_secs = if tokens > 0 {
-            duration / tokens as f64
-        } else {
-            duration
-        };
-        let tps = tokens as f64 / duration;
-
-        self.inference_ttft_seconds
-            .with_label_values(&[tenant, model])
-            .observe(ttft_secs);
-        self.inference_tps
-            .with_label_values(&[tenant, model])
-            .observe(tps);
     }
 
     /// Update inference throughput gauge
@@ -999,13 +937,6 @@ impl MetricsExporter {
         self.memory_bytes
             .with_label_values(&[memory_type])
             .set(bytes);
-    }
-
-    /// Update memory pressure ratio by pool type.
-    pub fn set_memory_pressure_ratio(&self, pool_type: &str, ratio: f64) {
-        self.memory_pressure_ratio
-            .with_label_values(&[pool_type])
-            .set(ratio.clamp(0.0, 1.0));
     }
 
     /// Update GPU utilization
@@ -1063,13 +994,6 @@ impl MetricsExporter {
                 .with_label_values(&[model_id, tenant_id])
                 .set(0.0);
         }
-    }
-
-    /// Record model load duration in seconds.
-    pub fn record_model_load_duration(&self, model_id: &str, tenant_id: &str, duration_secs: f64) {
-        self.model_load_duration_seconds
-            .with_label_values(&[model_id, tenant_id])
-            .observe(duration_secs.max(0.0));
     }
 
     /// Record model unload attempt outcome

@@ -1,15 +1,12 @@
 use std::sync::atomic::{AtomicBool, Ordering};
 use std::sync::Arc;
 
-use adapteros_api_types::{
-    workers::{WorkerCapabilities, WorkerHeartbeatRequest},
-    API_SCHEMA_VERSION,
-};
+use adapteros_api_types::workers::{WorkerCapabilities, WorkerHeartbeatRequest};
 use tracing::{error, info, warn};
 
 // Schema and API versions for worker registration
-const SCHEMA_VERSION: &str = API_SCHEMA_VERSION;
-const API_VERSION: &str = API_SCHEMA_VERSION;
+const SCHEMA_VERSION: &str = "1.0";
+const API_VERSION: &str = "1.0";
 
 /// Worker registration result
 pub struct RegistrationResult {

@@ -1227,32 +1227,22 @@ fn write_atomic(path: &Path, data: &[u8]) -> Result<()> {
             ))
         })?;
     }
-
-    let parent = path.parent().unwrap_or(std::path::Path::new("."));
-    let mut temp_file = tempfile::Builder::new()
-        .prefix("preprocess_")
-        .suffix(".tmp")
-        .tempfile_in(parent)
-        .map_err(|e| AosError::Io(format!("Failed to create preprocessing temp file: {}", e)))?;
-
-    use std::io::Write;
-    temp_file
-        .write_all(data)
-        .map_err(|e| AosError::Io(format!("Failed to write preprocessing temp file: {}", e)))?;
-    temp_file
-        .as_file_mut()
-        .sync_all()
-        .map_err(|e| AosError::Io(format!("Failed to sync preprocessing temp file: {}", e)))?;
-
-    temp_file.persist(path).map_err(|e| {
+    let tmp = path.with_extension("tmp");
+    fs::write(&tmp, data).map_err(|e| {
         AosError::Io(format!(
-            "Failed to atomically rename preprocessing file {}: {}",
-            path.display(),
-            e.error
+            "Failed to write preprocessing temp file {}: {}",
+            tmp.display(),
+            e
         ))
     })?;
-
-    Ok(())
+    fs::rename(&tmp, path).map_err(|e| {
+        let _ = fs::remove_file(&tmp);
+        AosError::Io(format!(
+            "Failed to rename preprocessing file {}: {}",
+            path.display(),
+            e
+        ))
+    })
 }
 
 enum PreprocessBackend {

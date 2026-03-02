@@ -2,7 +2,6 @@
 //!
 //! Provides Toast and ToastContainer for displaying notifications.
 
-use crate::components::IconX;
 use crate::signals::notifications::{use_notification_context, Toast as ToastData, ToastSeverity};
 use leptos::prelude::*;
 use wasm_bindgen::JsCast;
@@ -100,7 +99,7 @@ pub fn ToastItem(
                             <div class="toast-details">
                                 <pre class="toast-details-text">{toast.details.clone()}</pre>
                                 <button
-                                    class="btn btn-ghost btn-xs toast-copy-btn"
+                                    class="toast-copy-btn"
                                     aria-label="Copy to clipboard"
                                     on:click=move |_| {
                                         // If details look like JSON (diagnostic bundle), copy as-is
@@ -152,7 +151,15 @@ pub fn ToastItem(
                             }
                             aria-label="Dismiss notification"
                         >
-                            <IconX/>
+                            <svg
+                                xmlns="http://www.w3.org/2000/svg"
+                                fill="none"
+                                viewBox="0 0 24 24"
+                                stroke="currentColor"
+                                stroke-width="2"
+                            >
+                                <path stroke-linecap="round" stroke-linejoin="round" d="M6 18L18 6M6 6l12 12" />
+                            </svg>
                         </button>
                     }.into_any()
                 } else {

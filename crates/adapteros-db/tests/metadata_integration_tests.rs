@@ -15,7 +15,7 @@ async fn init_test_db() -> anyhow::Result<Db> {
 
     // Create a default tenant for tests
     sqlx::query("INSERT INTO tenants (id, name) VALUES ('tenant-1', 'Test Tenant')")
-        .execute(db.pool_result()?)
+        .execute(db.pool())
         .await?;
 
     Ok(db)
@@ -33,7 +33,7 @@ async fn test_database_schema_has_metadata_columns() -> anyhow::Result<()> {
     let schema: Vec<(String, String)> = sqlx::query_as(
         "SELECT name, type FROM pragma_table_info('adapters') WHERE name IN ('version', 'lifecycle_state')"
     )
-    .fetch_all(db.pool_result()?)
+    .fetch_all(db.pool())
     .await?;
 
     assert_eq!(
@@ -282,7 +282,7 @@ async fn test_explicit_field_query() -> anyhow::Result<()> {
     let result: (String, String) =
         sqlx::query_as("SELECT version, lifecycle_state FROM adapters WHERE adapter_id = ?")
             .bind(adapter_id)
-            .fetch_one(db.pool_result()?)
+            .fetch_one(db.pool())
             .await?;
 
     let (version, lifecycle_state) = result;

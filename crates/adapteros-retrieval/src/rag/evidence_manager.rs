@@ -488,26 +488,15 @@ impl EvidenceIndexManager {
         Ok(())
     }
 
-    /// Extract symbols from file
+    /// Extract symbols from file (simplified)
     async fn extract_symbols_from_file(
         &self,
-        file_path: &Path,
+        _file_path: &Path,
         _content: &str,
     ) -> Result<Vec<SymbolNode>> {
-        use crate::codegraph::parsers;
-
-        match parsers::parse_file(file_path) {
-            Ok(parse_result) => Ok(parse_result.symbols),
-            Err(e) => {
-                // Return empty vector rather than failing the whole file if parsing fails
-                tracing::warn!(
-                    "Failed to parse symbols from {}: {}",
-                    file_path.display(),
-                    e
-                );
-                Ok(Vec::new())
-            }
-        }
+        // In production, this would use adapteros-codegraph parser
+        // For now, return empty vector
+        Ok(Vec::new())
     }
 
     /// Extract tests from file
@@ -580,30 +569,8 @@ impl EvidenceIndexManager {
             });
         }
 
-        // Extract doc comments
-        use crate::codegraph::parsers;
-        if let Ok(parse_result) = parsers::parse_file(file_path) {
-            for symbol in parse_result.symbols {
-                if let Some(docstring) = symbol.docstring {
-                    if !docstring.trim().is_empty() {
-                        let doc_id =
-                            format!("{}:{}:{}", repo_id, file_path.display(), symbol.id.to_hex());
-
-                        docs.push(IndexedDoc {
-                            doc_id,
-                            doc_type: "docstring".to_string(),
-                            file_path: file_path.display().to_string(),
-                            title: format!("{} ({})", symbol.name, symbol.kind),
-                            content: docstring,
-                            repo_id: repo_id.to_string(),
-                            commit_sha: commit_sha.to_string(),
-                            start_line: Some(symbol.span.start_line as i32),
-                            end_line: Some(symbol.span.end_line as i32),
-                        });
-                    }
-                }
-            }
-        }
+        // Extract doc comments (simplified)
+        // In production, use tree-sitter to extract structured doc comments
 
         Ok(docs)
     }

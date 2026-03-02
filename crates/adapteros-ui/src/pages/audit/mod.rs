@@ -1,30 +1,59 @@
 //! Audit page
 //!
-//! Immutable audit log viewer with event timeline and chain verification summary.
+//! Immutable audit log viewer with hash chain visualization and verification.
 
 mod components;
 mod tabs;
 
 use crate::api::{ApiClient, AuditLogsQuery};
 use crate::components::{
-    Button, ButtonVariant, PageBreadcrumbItem, PageScaffold, PageScaffoldActions, Spinner,
+    Button, ButtonVariant, PageBreadcrumbItem, PageScaffold, PageScaffoldActions, Spinner, TabNav,
 };
 use crate::hooks::use_api_resource;
 use crate::hooks::LoadingState;
 use crate::signals::notifications::try_emit_global_error_with_details;
 use leptos::prelude::*;
+use std::fmt;
 use std::sync::Arc;
 
 use components::{ChainStatusSummary, FilterSection};
-use tabs::TimelineTab;
+use tabs::{ComplianceTab, EmbeddingsTab, HashChainTab, MerkleTreeTab, TimelineTab};
+
+// ============================================================================
+// Tab types
+// ============================================================================
+
+#[derive(Debug, Clone, Copy, PartialEq, Eq)]
+pub enum AuditTab {
+    Timeline,
+    HashChain,
+    MerkleTree,
+    Compliance,
+    Embeddings,
+}
+
+impl fmt::Display for AuditTab {
+    fn fmt(&self, f: &mut fmt::Formatter<'_>) -> fmt::Result {
+        match self {
+            AuditTab::Timeline => write!(f, "timeline"),
+            AuditTab::HashChain => write!(f, "hashchain"),
+            AuditTab::MerkleTree => write!(f, "merkletree"),
+            AuditTab::Compliance => write!(f, "compliance"),
+            AuditTab::Embeddings => write!(f, "embeddings"),
+        }
+    }
+}
 
 // ============================================================================
 // Audit page - main component
 // ============================================================================
 
-/// Audit log viewer page with chain verification summary
+/// Audit log viewer page with chain visualization
 #[component]
 pub fn Audit() -> impl IntoView {
+    // Active tab state
+    let active_tab = RwSignal::new(AuditTab::Timeline);
+
     // Filter state
     let action_filter = RwSignal::new(String::new());
     let status_filter = RwSignal::new(String::new());
@@ -66,25 +95,42 @@ pub fn Audit() -> impl IntoView {
         async move { client.query_audit_logs(&q).await }
     });
 
-    // Fetch chain verification (powers the summary strip)
+    // Fetch audit chain
+    let (chain, refetch_chain) =
+        use_api_resource(
+            |client: Arc<ApiClient>| async move { client.get_audit_chain(Some(50)).await },
+        );
+
+    // Fetch chain verification
     let (verification, refetch_verification) =
         use_api_resource(|client: Arc<ApiClient>| async move { client.verify_audit_chain().await });
+
+    // Fetch compliance
+    let (compliance, refetch_compliance) =
+        use_api_resource(
+            |client: Arc<ApiClient>| async move { client.get_compliance_audit().await },
+        );
 
     // Debug logging for list sizes
     #[cfg(debug_assertions)]
     Effect::new(move |_| {
         if let Some(LoadingState::Loaded(ref data)) = logs.try_get() {
-            crate::debug_log!(
-                "[list] audit logs: {} items (total: {})",
-                data.logs.len(),
-                data.total
+            web_sys::console::log_1(
+                &format!(
+                    "[list] audit logs: {} items (total: {})",
+                    data.logs.len(),
+                    data.total
+                )
+                .into(),
             );
         }
     });
 
     let refetch_all = move || {
         refetch_logs.run(());
+        refetch_chain.run(());
         refetch_verification.run(());
+        refetch_compliance.run(());
     };
 
     // Export state
@@ -124,10 +170,9 @@ pub fn Audit() -> impl IntoView {
             title="Audit Log"
             subtitle="Immutable record of all system events with cryptographic verification"
             breadcrumbs=vec![
-                PageBreadcrumbItem::label("System"),
+                PageBreadcrumbItem::label("Govern"),
                 PageBreadcrumbItem::current("Audit Log"),
             ]
-            full_width=true
         >
             <PageScaffoldActions slot>
                 <Button variant=ButtonVariant::Outline on:click=move |_| refetch_all()>
@@ -145,18 +190,53 @@ pub fn Audit() -> impl IntoView {
             </PageScaffoldActions>
 
             // Chain status summary
-            <ChainStatusSummary verification=verification />
+            <ChainStatusSummary
+                verification=verification
+                chain=chain
+                compliance=compliance
+            />
 
-            // Filters
+            // Tab navigation
+            <TabNav
+                tabs=vec![
+                    (AuditTab::Timeline, "Event Timeline"),
+                    (AuditTab::HashChain, "Hash Chain"),
+                    (AuditTab::MerkleTree, "Merkle Tree"),
+                    (AuditTab::Compliance, "Compliance"),
+                    (AuditTab::Embeddings, "Embeddings"),
+                ]
+                active=active_tab
+            />
+
+            // Filters section
             <FilterSection
+                active_tab=active_tab
                 action_filter=action_filter
                 status_filter=status_filter
                 resource_filter=resource_filter
                 on_filters_changed=refetch_logs.as_callback()
             />
 
-            // Event timeline
-            <TimelineTab logs=logs on_retry=Callback::new(move |_| refetch_logs.run(())) />
+            // Tab content
+            {move || {
+                match active_tab.try_get().unwrap_or(AuditTab::Timeline) {
+                    AuditTab::Timeline => {
+                        view! { <TimelineTab logs=logs on_retry=Callback::new(move |_| refetch_logs.run(()))/> }.into_any()
+                    }
+                    AuditTab::HashChain => {
+                        view! { <HashChainTab chain=chain on_retry=Callback::new(move |_| refetch_chain.run(()))/> }.into_any()
+                    }
+                    AuditTab::MerkleTree => {
+                        view! { <MerkleTreeTab chain=chain verification=verification /> }.into_any()
+                    }
+                    AuditTab::Compliance => {
+                        view! { <ComplianceTab compliance=compliance on_retry=Callback::new(move |_| refetch_compliance.run(()))/> }.into_any()
+                    }
+                    AuditTab::Embeddings => {
+                        view! { <EmbeddingsTab/> }.into_any()
+                    }
+                }
+            }}
         </PageScaffold>
     }
 }

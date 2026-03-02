@@ -153,7 +153,7 @@ pub async fn code_init(repo_path: &PathBuf, tenant_id: &str, output: &OutputWrit
     // Call API to register repository
     let client = reqwest::Client::new();
     let response = client
-        .post("http://localhost:18080/v1/code/register-repo")
+        .post("http://localhost:8080/v1/code/register-repo")
         .json(&json!({
             "tenant_id": tenant_id,
             "repo_id": repo_id,
@@ -194,7 +194,7 @@ pub async fn code_update(
     // Call API to trigger scan
     let client = reqwest::Client::new();
     let response = client
-        .post("http://localhost:18080/v1/code/scan")
+        .post("http://localhost:8080/v1/code/scan")
         .json(&json!({
             "tenant_id": tenant_id,
             "repo_id": repo_id,
@@ -228,7 +228,7 @@ pub async fn code_update(
 pub async fn code_list(tenant_id: &str, output: &OutputWriter) -> Result<()> {
     let client = reqwest::Client::new();
     let response = client
-        .get("http://localhost:18080/v1/code/repositories")
+        .get("http://localhost:8080/v1/code/repositories")
         .query(&[("tenant_id", tenant_id)])
         .send()
         .await?;
@@ -268,7 +268,7 @@ pub async fn code_status(repo_id: &str, tenant_id: &str, output: &OutputWriter) 
     let client = reqwest::Client::new();
     let response = client
         .get(format!(
-            "http://localhost:18080/v1/code/repositories/{}",
+            "http://localhost:8080/v1/code/repositories/{}",
             repo_id
         ))
         .query(&[("tenant_id", tenant_id)])
@@ -322,7 +322,7 @@ async fn poll_scan_job(job_id: &str, output: &OutputWriter) -> Result<()> {
         tokio::time::sleep(tokio::time::Duration::from_secs(2)).await;
 
         let response = client
-            .get(format!("http://localhost:18080/v1/code/scan/{}", job_id))
+            .get(format!("http://localhost:8080/v1/code/scan/{}", job_id))
             .send()
             .await?;
 

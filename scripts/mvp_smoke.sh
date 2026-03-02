@@ -4,12 +4,8 @@ set -Eeuo pipefail
 ROOT_DIR="$(cd "$(dirname "${BASH_SOURCE[0]}")/.." && pwd)"
 cd "$ROOT_DIR"
 
-: "${AOS_API_URL:=http://localhost:${AOS_SERVER_PORT:-18080}/api}"
+: "${AOS_API_URL:=http://localhost:${AOS_SERVER_PORT:-8080}/api}"
 : "${MVP_SMOKE_CLIPPY:=0}"
-: "${MVP_SMOKE_SKIP_FMT:=0}"
-: "${MVP_SMOKE_SKIP_SERVER_API_TESTS:=0}"
-: "${MVP_SMOKE_SKIP_UI_BUILD:=0}"
-: "${MVP_SMOKE_UI_DIR:=}"
 : "${MVP_SMOKE_DEV_BYPASS:=0}"
 : "${MVP_SMOKE_TOKEN:=${AOS_AUTH_TOKEN:-}}"
 : "${MVP_SMOKE_ENDPOINT_RETRIES:=5}"
@@ -61,11 +57,7 @@ require_cmd cargo
 require_cmd pnpm
 require_cmd sed
 
-if [[ "$MVP_SMOKE_SKIP_FMT" == "1" ]]; then
-  log "Skipping cargo fmt --check (set MVP_SMOKE_SKIP_FMT=0 to enable)"
-else
-  run_step "cargo fmt --check" cargo fmt --check
-fi
+run_step "cargo fmt --check" cargo fmt --check
 
 if [[ "$MVP_SMOKE_CLIPPY" == "1" ]]; then
   run_step "cargo clippy" cargo clippy
@@ -74,32 +66,8 @@ else
 fi
 
 run_step "SQLX_OFFLINE=1 cargo check -p adapteros-server-api" env SQLX_OFFLINE=1 cargo check -p adapteros-server-api
-if [[ "$MVP_SMOKE_SKIP_SERVER_API_TESTS" == "1" ]]; then
-  log "Skipping cargo test -p adapteros-server-api -- --test-threads=1 (set MVP_SMOKE_SKIP_SERVER_API_TESTS=0 to enable)"
-else
-  run_step "cargo test -p adapteros-server-api -- --test-threads=1" cargo test -p adapteros-server-api -- --test-threads=1
-fi
-
-if [[ "$MVP_SMOKE_SKIP_UI_BUILD" == "1" ]]; then
-  log "Skipping ui pnpm build (set MVP_SMOKE_SKIP_UI_BUILD=0 to enable)"
-else
-  UI_DIR="$MVP_SMOKE_UI_DIR"
-  if [[ -z "$UI_DIR" ]]; then
-    if [[ -d "ui" ]]; then
-      UI_DIR="ui"
-    elif [[ -d "crates/adapteros-ui" ]]; then
-      UI_DIR="crates/adapteros-ui"
-    fi
-  fi
-
-  if [[ -n "$UI_DIR" && -d "$UI_DIR" ]]; then
-    run_step_in_dir "ui pnpm build" "$UI_DIR" pnpm build
-  else
-    TOTAL=$((TOTAL + 1))
-    err "ui pnpm build (missing directory; set MVP_SMOKE_UI_DIR)"
-    FAILED=$((FAILED + 1))
-  fi
-fi
+run_step "cargo test -p adapteros-server-api -- --test-threads=1" cargo test -p adapteros-server-api -- --test-threads=1
+run_step_in_dir "ui pnpm build" "ui" pnpm build
 
 require_cmd curl
 

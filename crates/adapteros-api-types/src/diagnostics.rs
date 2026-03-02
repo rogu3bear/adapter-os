@@ -33,57 +33,6 @@ pub struct ListDiagEventsQuery {
     pub severity: Option<String>,
 }
 
-/// Freshness status for determinism diagnostics.
-#[derive(Debug, Clone, Copy, Serialize, Deserialize, PartialEq, Eq, Default)]
-#[cfg_attr(feature = "server", derive(utoipa::ToSchema))]
-#[serde(rename_all = "snake_case")]
-pub enum DeterminismFreshnessStatus {
-    /// Latest check is within freshness threshold.
-    Fresh,
-    /// Latest check exists but is older than freshness threshold.
-    Stale,
-    /// No trustworthy timestamp is available.
-    #[default]
-    Unknown,
-}
-
-/// Machine-readable reason for determinism freshness classification.
-#[derive(Debug, Clone, Copy, Serialize, Deserialize, PartialEq, Eq)]
-#[cfg_attr(feature = "server", derive(utoipa::ToSchema))]
-#[serde(rename_all = "snake_case")]
-pub enum DeterminismFreshnessReason {
-    RecentRun,
-    StaleLastRun,
-    MissingLastRun,
-    InvalidLastRunFormat,
-    FutureLastRun,
-    NoDeterminismChecks,
-    QueryError,
-}
-
-/// Determinism check status response.
-#[derive(Debug, Clone, Serialize, Deserialize)]
-#[cfg_attr(feature = "server", derive(utoipa::ToSchema))]
-pub struct DeterminismStatusResponse {
-    /// Last persisted determinism check timestamp.
-    pub last_run: Option<String>,
-    /// Determinism result: "pass" | "fail" | null.
-    pub result: Option<String>,
-    /// Number of runs used for latest determinism check.
-    pub runs: Option<usize>,
-    /// Divergence count for latest determinism check.
-    pub divergences: Option<usize>,
-    /// Freshness classification for determinism status.
-    pub freshness_status: DeterminismFreshnessStatus,
-    /// Machine-readable reason for freshness status.
-    pub freshness_reason: DeterminismFreshnessReason,
-    /// Age of `last_run` in seconds when parseable.
-    #[serde(skip_serializing_if = "Option::is_none")]
-    pub freshness_age_seconds: Option<i64>,
-    /// Threshold in seconds after which a check is stale.
-    pub stale_after_seconds: i64,
-}
-
 /// Summary of a diagnostic run (no sensitive content).
 #[derive(Debug, Clone, Serialize, Deserialize)]
 #[cfg_attr(feature = "server", derive(utoipa::ToSchema))]

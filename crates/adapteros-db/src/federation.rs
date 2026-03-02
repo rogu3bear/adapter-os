@@ -43,7 +43,7 @@ impl Db {
             FROM federation_bundle_signatures
             "#,
         )
-        .fetch_one(self.pool_result()?)
+        .fetch_one(self.pool())
         .await
         .map_err(|e| AosError::Database(format!("Failed to count federation hosts: {}", e)))?;
 
@@ -63,7 +63,7 @@ impl Db {
             LIMIT 1
             "#,
         )
-        .fetch_optional(self.pool_result()?)
+        .fetch_optional(self.pool())
         .await
         .map_err(|e| AosError::Database(format!("Failed to fetch quarantine details: {}", e)))?;
 
@@ -93,7 +93,7 @@ impl Db {
             LIMIT 1
             "#,
         )
-        .fetch_optional(self.pool_result()?)
+        .fetch_optional(self.pool())
         .await
         .map_err(|e| AosError::Database(format!("Failed to fetch quarantine: {}", e)))?;
 
@@ -119,7 +119,7 @@ impl Db {
             "#,
         )
         .bind(quarantine_id)
-        .execute(self.pool_result()?)
+        .execute(self.pool())
         .await
         .map_err(|e| AosError::Database(format!("Failed to update quarantine: {}", e)))?;
 
@@ -144,7 +144,7 @@ impl Db {
         .bind(quarantine_id)
         .bind(requested_by)
         .bind(consensus_decision_id)
-        .execute(self.pool_result()?)
+        .execute(self.pool())
         .await
         .map_err(|e| AosError::Database(format!("Failed to record release attempt: {}", e)))?;
 
@@ -166,7 +166,7 @@ impl Db {
             "#,
         )
         .bind(executed_by)
-        .execute(self.pool_result()?)
+        .execute(self.pool())
         .await
         .map_err(|e| AosError::Database(format!("Failed to record release execution: {}", e)))?;
 
@@ -184,7 +184,7 @@ impl Db {
             WHERE released = FALSE
             "#,
         )
-        .execute(self.pool_result()?)
+        .execute(self.pool())
         .await
         .map_err(|e| AosError::Database(format!("Failed to release quarantines: {}", e)))?;
 
@@ -217,7 +217,7 @@ impl Db {
             "#,
         )
         .bind(limit as i64)
-        .fetch_all(self.pool_result()?)
+        .fetch_all(self.pool())
         .await
         .map_err(|e| AosError::Database(format!("Failed to fetch peer sync status: {}", e)))?;
 
@@ -266,7 +266,7 @@ impl Db {
             WHERE active = 1
             "#,
         )
-        .fetch_one(self.pool_result()?)
+        .fetch_one(self.pool())
         .await
         .map_err(|e| AosError::Database(format!("Failed to count active peers: {}", e)))?;
 

@@ -1,12 +1,6 @@
 use std::path::{Path, PathBuf};
 use std::process::Command;
 
-fn verbose_build_warning(message: impl AsRef<str>) {
-    if std::env::var_os("AOS_BUILD_SCRIPT_VERBOSE").is_some() {
-        println!("cargo:warning={}", message.as_ref());
-    }
-}
-
 /// Compute a combined BLAKE3 hash of all Metal shader source files.
 /// Files are hashed in a deterministic order to ensure consistent cache keys.
 fn get_shader_sources_hash() -> String {
@@ -91,7 +85,10 @@ fn store_in_cache(metallib_path: &Path, source_hash: &str) {
     if let Err(e) = std::fs::copy(metallib_path, &cached_metallib) {
         println!("cargo:warning=Failed to store metallib in cache: {}", e);
     } else {
-        verbose_build_warning(format!("Cached metallib at {}", cached_metallib.display()));
+        println!(
+            "cargo:warning=Cached metallib at {}",
+            cached_metallib.display()
+        );
     }
 }
 
@@ -169,7 +166,7 @@ fn compile_coreml_bridge() {
 
     println!("cargo:rustc-link-lib=framework=CoreML");
     println!("cargo:rustc-link-lib=framework=Foundation");
-    verbose_build_warning("CoreML bridge compiled successfully");
+    println!("cargo:warning=CoreML bridge compiled successfully");
 }
 
 fn resolve_toolchain_bin(real_home: Option<&str>) -> Option<PathBuf> {
@@ -220,7 +217,6 @@ fn compile_metal_shaders() {
     println!("cargo:rerun-if-env-changed=METAL_TOOLCHAIN_BIN");
     println!("cargo:rerun-if-env-changed=METAL_HOME_OVERRIDE");
     println!("cargo:rerun-if-env-changed=CLANG_MODULE_CACHE_PATH");
-    println!("cargo:rerun-if-env-changed=AOS_BUILD_SCRIPT_VERBOSE");
 
     // Metal Toolchain Detection Strategy:
     // 1. Prefer explicit Metal toolchain binaries if found in standard locations:
@@ -263,10 +259,10 @@ fn compile_metal_shaders() {
 
     // Check for cached metallib based on source file hash
     let source_hash = get_shader_sources_hash();
-    verbose_build_warning(format!("Shader source hash: {}", &source_hash[..16]));
+    println!("cargo:warning=Shader source hash: {}", &source_hash[..16]);
 
     if let Some(cached_metallib) = check_cache(&source_hash) {
-        verbose_build_warning("Cache HIT - using cached metallib");
+        println!("cargo:warning=Cache HIT - using cached metallib");
 
         // Copy cached metallib to shaders directory
         std::fs::copy(
@@ -280,7 +276,7 @@ fn compile_metal_shaders() {
             .expect("Failed to read metallib");
         let hash = blake3::hash(&metallib_bytes);
         let hash_hex = hash.to_hex();
-        verbose_build_warning(format!("Kernel hash: {}", hash_hex));
+        println!("cargo:warning=Kernel hash: {}", hash_hex);
         std::fs::write(shaders_dir.join("kernel_hash.txt"), hash_hex.as_str())
             .expect("Failed to write hash");
 
@@ -315,7 +311,7 @@ fn compile_metal_shaders() {
         return; // Skip compilation - cache hit!
     }
 
-    verbose_build_warning("Cache MISS - compiling shaders");
+    println!("cargo:warning=Cache MISS - compiling shaders");
 
     // Get SDK path early (needed for Metal toolchain binaries)
     let sdk_path = get_sdk_path();
@@ -325,10 +321,10 @@ fn compile_metal_shaders() {
         if let Some(metal_path) = resolve_metal_path(real_home.as_deref()) {
             let metallib_path = resolve_metallib_path(real_home.as_deref())
                 .expect("metallib should exist if metal exists");
-            verbose_build_warning(format!(
-                "Using Metal toolchain from {}",
+            println!(
+                "cargo:warning=Using Metal toolchain from {}",
                 metal_path.parent().unwrap().parent().unwrap().display()
-            ));
+            );
             (metal_path, metallib_path)
         } else {
             // Fall back to xcrun if Metal toolchain not found
@@ -505,7 +501,7 @@ fn compile_metal_shaders() {
     let hash_hex = hash.to_hex();
 
     // Write hash to output for verification
-    verbose_build_warning(format!("Kernel hash: {}", hash_hex));
+    println!("cargo:warning=Kernel hash: {}", hash_hex);
     std::fs::write(shaders_dir.join("kernel_hash.txt"), hash_hex.as_str())
         .expect("Failed to write hash");
 
@@ -735,8 +731,8 @@ fn generate_signed_manifest() {
         serde_json::to_string_pretty(&signature_metadata).expect("Failed to serialize signature");
     write_bytes_if_changed(&signature_path, signature_json.as_bytes());
 
-    verbose_build_warning(format!(
-        "Generated signed manifest with hash: {}",
+    println!(
+        "cargo:warning=Generated signed manifest with hash: {}",
         kernel_hash_hex
-    ));
+    );
 }

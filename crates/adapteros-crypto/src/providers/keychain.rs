@@ -278,6 +278,31 @@ impl KeychainProvider {
 
         Ok(())
     }
+
+    /// Get platform-specific keyring implementation
+    #[cfg(target_os = "macos")]
+    #[allow(dead_code)]
+    fn get_keyring(&self) -> Result<Box<dyn KeyringImpl>> {
+        Ok(Box::new(MacKeychain::new(self.service_name.clone())))
+    }
+
+    #[cfg(target_os = "linux")]
+    #[allow(dead_code)]
+    fn get_keyring(&self) -> Result<Box<dyn KeyringImpl>> {
+        Ok(Box::new(LinuxKeyring::new(self.service_name.clone())))
+    }
+
+    #[cfg(not(any(target_os = "macos", target_os = "linux")))]
+    #[allow(dead_code)]
+    fn get_keyring(&self) -> Result<Box<dyn KeyringImpl>> {
+        error!(
+            platform = %std::env::consts::OS,
+            "Keychain provider not supported on this platform"
+        );
+        Err(AosError::Crypto(
+            "Keychain provider not supported on this platform".to_string(),
+        ))
+    }
 }
 
 #[async_trait::async_trait]
@@ -954,7 +979,7 @@ trait KeyringImpl: Send + Sync + std::any::Any {
     async fn attest(&self) -> Result<ProviderAttestation>;
     fn check_health(&mut self) -> Result<()>;
 
-    // Provide as_any for downcasting (used on Linux for LinuxKeyring downcast)
+    // Provide as_any for downcasting
     #[allow(dead_code)]
     fn as_any(&self) -> &dyn std::any::Any;
 }
@@ -2906,11 +2931,7 @@ mod tests {
         // Try to sign with non-existent key
         let result = provider.sign("non-existent-key", b"test").await;
         assert!(result.is_err());
-        if let Err(e) = result {
-            assert!(e.to_string().contains("not found"));
-        } else {
-            panic!("Expected an error");
-        }
+        assert!(result.unwrap_err().to_string().contains("not found"));
     }
 
     #[tokio::test]
@@ -2926,14 +2947,9 @@ mod tests {
             .unwrap();
 
         // Test with ciphertext too short
-        let short_ciphertext = b"short";
-        let result = provider.unseal(key_id, short_ciphertext).await;
+        let result = provider.unseal(key_id, b"short").await;
         assert!(result.is_err());
-        if let Err(e) = result {
-            assert!(e.to_string().contains("too short"));
-        } else {
-            panic!("Expected an error");
-        }
+        assert!(result.unwrap_err().to_string().contains("too short"));
 
         // Test with invalid ciphertext
         let result = provider.unseal(key_id, &[0u8; 32]).await;

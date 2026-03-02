@@ -71,7 +71,7 @@ async fn setup_test_tenant(db: &Db) -> String {
     match db.create_tenant("Test Tenant", false).await {
         Ok(id) => id,
         Err(_) => sqlx::query_scalar::<_, String>("SELECT id FROM tenants LIMIT 1")
-            .fetch_one(db.pool_result().expect("db pool"))
+            .fetch_one(db.pool())
             .await
             .expect("No tenant found"),
     }

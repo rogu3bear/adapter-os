@@ -339,8 +339,8 @@ freeze_check_db_lock() {
 # Run all preflight checks for startup
 # Returns: 0 if all clear, 1 if any blocked
 freeze_preflight() {
-    local backend_port="${1:-${AOS_SERVER_PORT:-18080}}"
-    local ui_port="${2:-${AOS_UI_PORT:-18081}}"
+    local backend_port="${1:-${AOS_SERVER_PORT:-8080}}"
+    local ui_port="${2:-${AOS_UI_PORT:-3200}}"
     local var_dir="${3:-var}"
 
     local failed=0

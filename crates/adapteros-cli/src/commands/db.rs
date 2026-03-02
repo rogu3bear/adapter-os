@@ -223,7 +223,7 @@ async fn run_verify_seed(
     };
 
     let db = Db::connect(&db_url).await?;
-    let pool = db.pool_result()?;
+    let pool = db.pool();
 
     let models_count: i64 = sqlx::query_scalar("SELECT COUNT(*) FROM models WHERE tenant_id = ?")
         .bind(tenant_id)
@@ -379,7 +379,7 @@ async fn run_health(db_path: Option<PathBuf>, json: bool, output: &OutputWriter)
     // Connectivity + integrity check
     let db = Db::connect(&db_url).await?;
     let integrity: String = sqlx::query_scalar("PRAGMA integrity_check")
-        .fetch_one(db.pool_result()?)
+        .fetch_one(db.pool())
         .await?;
 
     let integrity_result = integrity.trim();
@@ -437,7 +437,7 @@ async fn run_unlock(db_path: Option<PathBuf>, output: &OutputWriter) -> Result<(
     output.info(format!("Clearing migration locks on: {}", db_url));
 
     let db = Db::connect(&db_url).await?;
-    let pool = db.pool_result()?;
+    let pool = db.pool();
 
     let has_table: i64 = sqlx::query_scalar(
         "SELECT COUNT(*) FROM sqlite_master WHERE type='table' AND name='_sqlx_migrations'",
@@ -663,7 +663,7 @@ async fn run_seed_fixtures(
     db.migrate().await?;
     db.ensure_system_tenant().await?;
 
-    let pool = db.pool_result()?;
+    let pool = db.pool();
 
     // Upsert tenant
     let pinned = serde_json::to_string(&vec![ADAPTER_ID])?;

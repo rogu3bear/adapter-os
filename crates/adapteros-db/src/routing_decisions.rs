@@ -97,7 +97,7 @@ impl Db {
         .bind(decision.router_latency_us)
         .bind(decision.total_inference_latency_us)
         .bind(decision.overhead_pct)
-        .execute(self.pool_result()?)
+        .execute(self.pool())
         .await
         .map_err(|e| {
             adapteros_core::AosError::Database(format!("Failed to insert routing decision: {}", e))
@@ -189,15 +189,9 @@ impl Db {
         sql_query = sql_query.bind(limit);
         sql_query = sql_query.bind(offset);
 
-        let decisions = sql_query
-            .fetch_all(self.pool_result()?)
-            .await
-            .map_err(|e| {
-                adapteros_core::AosError::Database(format!(
-                    "Failed to query routing decisions: {}",
-                    e
-                ))
-            })?;
+        let decisions = sql_query.fetch_all(self.pool()).await.map_err(|e| {
+            adapteros_core::AosError::Database(format!("Failed to query routing decisions: {}", e))
+        })?;
 
         Ok(decisions)
     }
@@ -215,7 +209,7 @@ impl Db {
              FROM routing_decisions WHERE id = ?",
         )
         .bind(id)
-        .fetch_optional(self.pool_result()?)
+        .fetch_optional(self.pool())
         .await
         .map_err(|e| {
             adapteros_core::AosError::Database(format!("Failed to get routing decision: {}", e))
@@ -284,7 +278,7 @@ impl Db {
             )
             .bind(tid)
             .bind(limit)
-            .fetch_all(self.pool_result()?)
+            .fetch_all(self.pool())
             .await
         } else {
             sqlx::query_as::<_, RoutingDecision>(
@@ -295,7 +289,7 @@ impl Db {
                  FROM routing_decisions_high_overhead LIMIT ?",
             )
             .bind(limit)
-            .fetch_all(self.pool_result()?)
+            .fetch_all(self.pool())
             .await
         };
 
@@ -329,7 +323,7 @@ impl Db {
             )
             .bind(tid)
             .bind(limit)
-            .fetch_all(self.pool_result()?)
+            .fetch_all(self.pool())
             .await
         } else {
             sqlx::query_as::<_, RoutingDecision>(
@@ -340,7 +334,7 @@ impl Db {
                  FROM routing_decisions_low_entropy LIMIT ?",
             )
             .bind(limit)
-            .fetch_all(self.pool_result()?)
+            .fetch_all(self.pool())
             .await
         };
 
@@ -359,7 +353,7 @@ impl Db {
     pub async fn delete_old_routing_decisions(&self, older_than: &str) -> Result<u64> {
         let result = sqlx::query("DELETE FROM routing_decisions WHERE timestamp < ?")
             .bind(older_than)
-            .execute(self.pool_result()?)
+            .execute(self.pool())
             .await
             .map_err(|e| {
                 adapteros_core::AosError::Database(format!(
@@ -403,7 +397,7 @@ impl Db {
         .bind(format!("{},{}", adapter_id, "%")) // Start of list
         .bind(format!("%,{},%", adapter_id)) // Middle of list
         .bind(format!("%,{}", adapter_id)) // End of list
-        .fetch_all(self.pool_result()?)
+        .fetch_all(self.pool())
         .await
         .map_err(|e| {
             adapteros_core::AosError::Database(format!(

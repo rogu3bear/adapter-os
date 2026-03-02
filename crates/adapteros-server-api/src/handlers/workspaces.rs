@@ -5,9 +5,6 @@
 
 use crate::api_error::ApiError;
 use crate::audit_helper::{actions, log_success_or_warn, resources};
-use crate::control_plane::model_worker_lifecycle_reducer::{
-    ModelWorkerLifecycleEvent, ModelWorkerLifecycleReducer,
-};
 use crate::handlers::{AppState, Claims, ErrorResponse};
 use crate::ip_extraction::ClientIp;
 use crate::permissions::{require_permission, Permission};
@@ -1790,10 +1787,11 @@ async fn is_model_ready_internal(
     tenant_id: &str,
     model_id: &str,
 ) -> Result<Option<bool>, AosError> {
-    let status = state
-        .db
-        .get_base_model_status_for_model(tenant_id, model_id)
-        .await?;
+    let statuses = state.db.list_base_model_statuses().await?;
+
+    let status = statuses
+        .into_iter()
+        .find(|s| s.tenant_id == tenant_id && s.model_id == model_id);
 
     Ok(status.map(|s| ModelLoadStatus::parse_status(&s.status).is_ready()))
 }
@@ -1824,13 +1822,9 @@ pub async fn reconcile_active_models(state: &AppState) {
         return;
     }
 
+    let worker_loaded = worker_reports_loaded(state).await;
+
     for record in active_states {
-        let worker_loaded = worker_reports_loaded(
-            state,
-            Some(&record.tenant_id),
-            record.active_base_model_id.as_deref(),
-        )
-        .await;
         reconcile_single_workspace(state, &record, worker_loaded).await;
     }
 }
@@ -1864,13 +1858,9 @@ pub async fn reconcile_active_models_for_tenant(state: &AppState, tenant_id: &st
         return;
     }
 
+    let worker_loaded = worker_reports_loaded(state).await;
+
     for record in active_states {
-        let worker_loaded = worker_reports_loaded(
-            state,
-            Some(&record.tenant_id),
-            record.active_base_model_id.as_deref(),
-        )
-        .await;
         reconcile_single_workspace(state, &record, worker_loaded).await;
     }
 }
@@ -1896,19 +1886,15 @@ async fn reconcile_single_workspace(
                 "Active model marked active but not ready"
             };
 
-            let reducer = ModelWorkerLifecycleReducer::from_env(state.db.clone());
-            if let Err(e) = reducer
-                .reduce(ModelWorkerLifecycleEvent::ModelSwitchResult {
-                    tenant_id: record.tenant_id.clone(),
-                    worker_id: None,
-                    from_model_id: None,
-                    to_model_id: Some(model_id.to_string()),
-                    to_model_hash_b3: None,
-                    success: false,
-                    error: Some(message.to_string()),
-                    memory_usage_mb: None,
-                    reason: "workspace active model reconciliation mismatch".to_string(),
-                })
+            if let Err(e) = state
+                .db
+                .update_base_model_status(
+                    &record.tenant_id,
+                    model_id,
+                    ModelLoadStatus::Error.as_str(),
+                    Some(message),
+                    None,
+                )
                 .await
             {
                 error!(
@@ -1930,82 +1916,52 @@ async fn reconcile_single_workspace(
     }
 }
 
-async fn worker_reports_loaded(
-    state: &AppState,
-    tenant_id: Option<&str>,
-    expected_model_id: Option<&str>,
-) -> bool {
-    let uds_paths = resolve_worker_socket_paths(state, tenant_id).await;
-    if uds_paths.is_empty() {
+async fn worker_reports_loaded(state: &AppState) -> bool {
+    let Some(uds_path) = resolve_worker_socket_path(state).await else {
         return false;
-    }
+    };
 
     let client = UdsClient::new(Duration::from_secs(5));
-    for uds_path in uds_paths {
-        match client.get_model_status(&uds_path).await {
-            Ok(status) => {
-                let loaded = status
-                    .get("status")
-                    .and_then(|v| v.as_str())
-                    .is_some_and(|v| v.eq_ignore_ascii_case("loaded"));
-                if !loaded {
-                    continue;
-                }
-
-                let active_model_id = status.get("active_model_id").and_then(|v| v.as_str());
-                if expected_model_id.is_none() || active_model_id == expected_model_id {
-                    return true;
-                }
-            }
-            Err(e) => {
-                info!(
-                    error = %e,
-                    path = %uds_path.display(),
-                    "Worker status probe failed during reconciliation"
-                );
-            }
+    match client.get_model_status(&uds_path).await {
+        Ok(status) => status
+            .get("status")
+            .and_then(|v| v.as_str())
+            .is_some_and(|v| v.eq_ignore_ascii_case("loaded")),
+        Err(e) => {
+            info!(
+                error = %e,
+                path = %uds_path.display(),
+                "Worker status probe failed during reconciliation"
+            );
+            false
         }
     }
-
-    false
 }
 
-async fn resolve_worker_socket_paths(state: &AppState, tenant_id: Option<&str>) -> Vec<PathBuf> {
-    let mut paths: Vec<PathBuf> = Vec::new();
-
+async fn resolve_worker_socket_path(state: &AppState) -> Option<PathBuf> {
     if let Ok(workers) = state.db.list_all_workers().await {
-        paths.extend(
-            workers
-                .into_iter()
-                .filter(|worker| {
-                    tenant_id
-                        .map(|tid| worker.tenant_id.as_str() == tid)
-                        .unwrap_or(true)
-                })
-                .map(|worker| PathBuf::from(worker.uds_path)),
-        );
-    }
-
-    if paths.is_empty() {
-        match resolve_worker_socket_for_cp() {
-            Ok(resolved) => {
-                if resolved.path.exists() {
-                    paths.push(resolved.path);
-                } else {
-                    info!(
-                        path = %resolved.path.display(),
-                        source = %resolved.source,
-                        "Resolved worker socket path does not exist during reconciliation"
-                    );
-                }
-            }
-            Err(e) => {
-                error!(error = %e, "Failed to resolve worker socket for reconciliation");
-            }
+        if let Some(worker) = workers.first() {
+            return Some(PathBuf::from(&worker.uds_path));
         }
     }
 
-    paths
+    match resolve_worker_socket_for_cp() {
+        Ok(resolved) => {
+            if resolved.path.exists() {
+                return Some(resolved.path);
+            }
+            info!(
+                path = %resolved.path.display(),
+                source = %resolved.source,
+                "Resolved worker socket path does not exist during reconciliation"
+            );
+        }
+        Err(e) => {
+            error!(error = %e, "Failed to resolve worker socket for reconciliation");
+        }
+    }
+
+    None
 }
 
 // NOTE: The previous `ensure_workspace_access` function was removed because it used a weak check

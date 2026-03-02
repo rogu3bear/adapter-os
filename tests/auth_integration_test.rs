@@ -434,7 +434,7 @@ async fn test_rate_limiting() {
 #[tokio::test]
 async fn test_account_lockout() {
     let state = create_test_app_state().await;
-    let shared_pool = state.db.pool_result().unwrap().clone();
+    let shared_pool = state.db.pool().clone();
 
     // Simulate account lockout by marking the seeded user as disabled
     sqlx::query("UPDATE users SET disabled = 1 WHERE email = ?")

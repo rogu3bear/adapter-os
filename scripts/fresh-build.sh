@@ -8,7 +8,6 @@ set -e
 
 SCRIPT_DIR="$(cd "$(dirname "${BASH_SOURCE[0]}")" && pwd)"
 PROJECT_ROOT="$(dirname "$SCRIPT_DIR")"
-source "$PROJECT_ROOT/scripts/lib/build-targets.sh"
 
 # Colors
 RED='\033[0;31m'
@@ -21,12 +20,11 @@ WHITE='\033[1;37m'
 NC='\033[0m'
 
 # Configuration
-BACKEND_PORT="${AOS_SERVER_PORT:-18080}"
-UI_PORT="${AOS_UI_PORT:-18081}"
+BACKEND_PORT="${AOS_SERVER_PORT:-8080}"
+UI_PORT="${AOS_UI_PORT:-3200}"
 SERVICE_MANAGER="$PROJECT_ROOT/scripts/service-manager.sh"
 GRACEFUL_SHUTDOWN="$PROJECT_ROOT/scripts/graceful-shutdown.sh"
 PORT_GUARD_SCRIPT="$PROJECT_ROOT/scripts/port-guard.sh"
-FULL_CLEAN=0
 
 if [ -f "$PORT_GUARD_SCRIPT" ]; then
     # shellcheck disable=SC1090
@@ -41,7 +39,6 @@ status_msg() { echo -e "${BLUE}ℹ️  ${1}${NC}"; }
 success_msg() { echo -e "${GREEN}✅ ${1}${NC}"; }
 warning_msg() { echo -e "${YELLOW}⚠️  ${1}${NC}"; }
 error_msg() { echo -e "${RED}❌ ${1}${NC}"; }
-status_msg "Build context: target_root=$(aos_build_target_root) sccache=$(aos_sccache_mode)"
 
 # Check if port is occupied
 check_port_occupied() {
@@ -131,120 +128,41 @@ stop_service_gracefully() {
     fi
 }
 
-# Kill any orphaned processes (PID-file scoped only)
+# Kill any orphaned processes
 kill_orphaned_processes() {
     status_msg "Checking for orphaned adapterOS processes..."
 
-    local pid_files=(
-        "$PROJECT_ROOT/var/backend.pid"
-        "$PROJECT_ROOT/var/worker.pid"
-        "$PROJECT_ROOT/var/secd.pid"
-        "$PROJECT_ROOT/var/node.pid"
-        "$PROJECT_ROOT/var/run/foundation-backend.pid"
-        "$PROJECT_ROOT/var/run/foundation-smoke-backend.pid"
-    )
+    # Find processes that look like adapterOS but aren't managed
+    local orphaned_pids=$(ps aux | grep -E "(adapteros)" | grep -v grep | awk '{print $2}' || true)
 
-    local found=0
-    for pf in "${pid_files[@]}"; do
-        [ -f "$pf" ] || continue
-        local pid
-        pid=$(cat "$pf" 2>/dev/null) || continue
-        [ -n "$pid" ] || continue
-
-        if kill -0 "$pid" 2>/dev/null; then
-            warning_msg "Found tracked process still alive: pid=$pid (from $pf), terminating..."
-            kill -TERM "$pid" 2>/dev/null || true
-            found=1
-        else
-            # Stale PID file - clean it up
-            rm -f "$pf"
-        fi
-    done
-
-    if [ "$found" -eq 1 ]; then
+    if [ -n "$orphaned_pids" ]; then
+        warning_msg "Found orphaned processes, cleaning up..."
+        for pid in $orphaned_pids; do
+            if kill -TERM "$pid" 2>/dev/null; then
+                status_msg "Terminated orphaned PID $pid"
+            fi
+        done
         sleep 2
     else
         status_msg "No orphaned processes found"
     fi
 }
 
-# Clean incremental artifacts only (default surgical mode).
-clean_incremental_artifacts() {
-    status_msg "Pruning incremental caches..."
-
-    local incremental_dirs=()
-    local dir
-    local target_root
-
-    add_incremental_dir() {
-        local candidate="$1"
-        [ -d "$candidate" ] || return 0
-
-        local existing
-        for existing in "${incremental_dirs[@]}"; do
-            if [ "$existing" = "$candidate" ]; then
-                return 0
-            fi
-        done
-        incremental_dirs+=("$candidate")
-    }
-
-    # Legacy shared target.
-    while IFS= read -r dir; do
-        [ -n "$dir" ] && add_incremental_dir "$dir"
-    done < <(aos_incremental_dirs_for_target_dir "$PROJECT_ROOT/target")
-
-    # Flow-partitioned targets.
-    target_root="$(aos_build_target_root)"
-    while IFS= read -r dir; do
-        [ -n "$dir" ] && add_incremental_dir "$dir"
-    done < <(aos_incremental_dirs_for_target_dir "$target_root")
-
-    local flow
-    for flow in ui server worker test; do
-        while IFS= read -r dir; do
-            [ -n "$dir" ] && add_incremental_dir "$dir"
-        done < <(aos_incremental_dirs_for_target_dir "$(aos_target_dir_for_flow "$flow")")
-    done
-
-    if [ "${#incremental_dirs[@]}" -eq 0 ]; then
-        status_msg "No incremental caches found"
-        return 0
-    fi
-
-    local removed=0
-    for dir in "${incremental_dirs[@]}"; do
-        rm -rf "$dir" 2>/dev/null || true
-        removed=$((removed + 1))
-    done
-
-    success_msg "Pruned $removed incremental cache director$( [ "$removed" -eq 1 ] && echo "y" || echo "ies" )"
-}
-
-# Full legacy cleanup behavior (opt-in).
-clean_build_artifacts_full() {
-    status_msg "Running full clean (explicit --full-clean)..."
-
-    local static_dir="crates/adapteros-server/static"
-
-    cargo clean 2>/dev/null || true
-    rm -f metal/*.air metal/*.metallib 2>/dev/null || true
-    rm -rf dist 2>/dev/null || true
-    if [ -d "$static_dir" ]; then
-        find "$static_dir" -mindepth 1 -maxdepth 1 -exec rm -rf {} + 2>/dev/null || true
-    fi
-    mkdir -p "$static_dir"
-
-    success_msg "Full build artifact cleanup complete"
-}
-
+# Clean build artifacts
 clean_build_artifacts() {
-    clean_incremental_artifacts
-    if [ "$FULL_CLEAN" -eq 1 ]; then
-        clean_build_artifacts_full
-    else
-        status_msg "Skipping full cargo clean/static wipe (use --full-clean)"
-    fi
+    status_msg "Cleaning build artifacts..."
+
+    # Cargo clean
+    cargo clean 2>/dev/null || true
+
+    # Remove Metal artifacts
+    rm -f metal/*.air metal/*.metallib 2>/dev/null || true
+
+    # Remove dist artifacts
+    rm -rf dist 2>/dev/null || true
+    rm -rf crates/adapteros-server/static 2>/dev/null || true
+
+    success_msg "Build artifacts cleaned"
 }
 
 # Main fresh build function
@@ -310,20 +228,9 @@ fresh_build() {
     # Phase 4: Final verification
     echo -e "${CYAN}Phase 4: Final verification...${NC}"
 
-    # Check for any remaining tracked processes
-    local stale_pids=0
-    for pf in "$PROJECT_ROOT/var/backend.pid" "$PROJECT_ROOT/var/run/foundation-backend.pid"; do
-        if [ -f "$pf" ]; then
-            local check_pid
-            check_pid=$(cat "$pf" 2>/dev/null) || continue
-            if [ -n "$check_pid" ] && kill -0 "$check_pid" 2>/dev/null; then
-                warning_msg "Tracked backend process still alive: pid=$check_pid (from $pf)"
-                stale_pids=1
-            fi
-        fi
-    done
-    if [ "$stale_pids" -eq 1 ]; then
-        warning_msg "Some tracked adapterOS processes may still be running"
+    # Check for any remaining issues
+    if pgrep -f "adapteros-server" >/dev/null 2>&1; then
+        warning_msg "Some adapterOS processes may still be running"
         ((errors++))
     fi
 
@@ -353,39 +260,32 @@ usage() {
     echo "USAGE: $0 [options]"
     echo ""
     echo "OPTIONS:"
-    echo "  --help, -h       Show this help message"
-    echo "  --full-clean     Also run full legacy cleanup (cargo clean + dist wipe + static contents reset)"
+    echo "  --help, -h    Show this help message"
     echo ""
     echo "This script will:"
     echo "  1. Stop all running adapterOS services gracefully"
     echo "  2. Kill any orphaned adapterOS processes"
     echo "  3. Verify all ports are free (8080, 3200)"
-    echo "  4. Prune incremental caches (default surgical mode)"
-    echo "  5. Optional full clean with --full-clean"
-    echo "  6. Verify environment is ready for clean build"
+    echo "  4. Clean build artifacts"
+    echo "  5. Verify environment is ready for clean build"
     echo ""
     echo "Use with: ./scripts/fresh-build.sh then your build command"
 }
 
 # Main
-while [[ $# -gt 0 ]]; do
-    case "$1" in
-        --help|-h)
-            usage
-            exit 0
-            ;;
-        --full-clean)
-            FULL_CLEAN=1
-            shift
-            ;;
-        *)
-            error_msg "Unknown option: $1"
-            echo ""
-            usage
-            exit 1
-            ;;
-    esac
-done
-
-fresh_build
-exit $?
+case "${1:-}" in
+    --help|-h)
+        usage
+        exit 0
+        ;;
+    "")
+        fresh_build
+        exit $?
+        ;;
+    *)
+        error_msg "Unknown option: $1"
+        echo ""
+        usage
+        exit 1
+        ;;
+esac

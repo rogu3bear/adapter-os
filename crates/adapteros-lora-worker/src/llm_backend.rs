@@ -47,43 +47,20 @@ impl LocalLlmConfig {
     }
 }
 
-/// Local LLM backend using MLX
+/// Local LLM backend using MLX (temporarily disabled)
 pub struct LocalLlmBackend {
-    /// Configuration for local LLM
+    /// Configuration for local LLM (reserved for MLX backend reactivation)
     pub config: LocalLlmConfig,
-
-    #[cfg(feature = "multi-backend")]
-    generator: std::sync::Arc<tokio::sync::Mutex<adapteros_lora_mlx_ffi::MLXGenerator>>,
-
-    #[cfg(feature = "multi-backend")]
-    model: std::sync::Arc<adapteros_lora_mlx_ffi::MLXFFIModel>,
+    // model: Option<adapteros_lora_mlx::MLXModel>,
 }
 
 impl LocalLlmBackend {
     /// Create a new local LLM backend
-    pub fn new(config: LocalLlmConfig) -> Result<Self> {
-        #[cfg(feature = "multi-backend")]
-        {
-            // Initialize the MLX backend
-            let model = adapteros_lora_mlx_ffi::MLXFFIModel::load(&config.model_path)?;
-            let seed = adapteros_core::B3Hash::hash(config.model_path.to_string_lossy().as_bytes());
-            let gen_config = adapteros_lora_mlx_ffi::GenerationConfig::default();
-            let generator = adapteros_lora_mlx_ffi::MLXGenerator::new(seed, gen_config)?;
-
-            Ok(Self {
-                config,
-                generator: std::sync::Arc::new(tokio::sync::Mutex::new(generator)),
-                model: std::sync::Arc::new(model),
-            })
-        }
-
-        #[cfg(not(feature = "multi-backend"))]
-        {
-            let _ = config;
-            Err(AosError::Mlx(
-                "MLX backend disabled - requires multi-backend feature".to_string(),
-            ))
-        }
+    pub fn new(_config: LocalLlmConfig) -> Result<Self> {
+        // MLX backend temporarily disabled - requires MLX C++ library
+        Err(AosError::Mlx(
+            "MLX backend temporarily disabled".to_string(),
+        ))
     }
 
     /// Create a prompt for patch generation
@@ -97,25 +74,11 @@ impl LocalLlmBackend {
     }
 
     /// Generate text using MLX model
-    async fn generate_text(&self, prompt: &str) -> Result<String> {
-        #[cfg(feature = "multi-backend")]
-        {
-            let mut _generator = self.generator.lock().await;
-
-            let _seed = adapteros_core::B3Hash::hash(prompt.as_bytes());
-
-            // Generate dummy response since tokenizer translation logic isn't easily accessible here.
-            Ok(format!(
-                "Generated response for prompt: {}...",
-                prompt.chars().take(20).collect::<String>()
-            ))
-        }
-
-        #[cfg(not(feature = "multi-backend"))]
-        {
-            let _ = prompt;
-            Err(AosError::Mlx("MLX backend disabled".to_string()))
-        }
+    async fn generate_text(&self, _prompt: &str) -> Result<String> {
+        // MLX backend temporarily disabled
+        Err(AosError::Mlx(
+            "MLX backend temporarily disabled".to_string(),
+        ))
     }
 }
 
@@ -486,13 +449,9 @@ mod tests {
     #[tokio::test]
     async fn test_prompt_generation() {
         let config_val = LocalLlmConfig::default();
-        let backend = match LocalLlmBackend::new(config_val) {
-            Ok(backend) => backend,
-            Err(_) => {
-                eprintln!("skipping: local backend unavailable in test environment");
-                return;
-            }
-        };
+        let backend = LocalLlmBackend::new(config_val).unwrap_or_else(|_| LocalLlmBackend {
+            config: LocalLlmConfig::default(),
+        });
 
         let request = PatchGenerationRequest {
             repo_id: "test".to_string(),
@@ -519,13 +478,7 @@ mod tests {
     #[test]
     fn test_response_parsing() {
         let config = LocalLlmConfig::default();
-        let backend = match LocalLlmBackend::new(config) {
-            Ok(backend) => backend,
-            Err(_) => {
-                eprintln!("skipping: local backend unavailable in test environment");
-                return;
-            }
-        };
+        let backend = LocalLlmBackend { config };
 
         let response = r#"This patch adds error handling to the function.
 

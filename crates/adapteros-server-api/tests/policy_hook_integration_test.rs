@@ -32,7 +32,7 @@ async fn test_hook_enforcement_logs_decisions() -> Result<()> {
     adapteros_db::sqlx::query(
         "INSERT OR IGNORE INTO tenants (id, name, itar_flag) VALUES ('hook-test', 'Hook Test', 0)",
     )
-    .execute(state.db.pool_result()?)
+    .execute(state.db.pool())
     .await
     .map_err(|e| adapteros_core::AosError::Database(e.to_string()))?;
 
@@ -109,7 +109,7 @@ async fn test_hook_parity_live_and_replay() -> Result<()> {
     adapteros_db::sqlx::query(
         "INSERT OR IGNORE INTO tenants (id, name, itar_flag) VALUES ('parity-test', 'Parity Test', 0)",
     )
-    .execute(state.db.pool_result()?)
+    .execute(state.db.pool())
     .await
     .map_err(|e| adapteros_core::AosError::Database(e.to_string()))?;
 
@@ -292,7 +292,7 @@ async fn test_hook_ordering_routing_before_inference() -> Result<()> {
     adapteros_db::sqlx::query(
         "INSERT OR IGNORE INTO tenants (id, name, itar_flag) VALUES ('order-test', 'Order Test', 0)",
     )
-    .execute(state.db.pool_result()?)
+    .execute(state.db.pool())
     .await
     .map_err(|e| adapteros_core::AosError::Database(e.to_string()))?;
 
@@ -373,7 +373,7 @@ async fn test_streaming_fires_all_three_hooks() -> Result<()> {
     adapteros_db::sqlx::query(
         "INSERT OR IGNORE INTO tenants (id, name, itar_flag) VALUES ('stream-test', 'Stream Test', 0)",
     )
-    .execute(state.db.pool_result()?)
+    .execute(state.db.pool())
     .await
     .map_err(|e| adapteros_core::AosError::Database(e.to_string()))?;
 
@@ -486,7 +486,7 @@ async fn test_merkle_chain_valid_sequence() -> Result<()> {
     adapteros_db::sqlx::query(
         "INSERT OR IGNORE INTO tenants (id, name, itar_flag) VALUES ('chain-test', 'Chain Test', 0)",
     )
-    .execute(state.db.pool_result()?)
+    .execute(state.db.pool())
     .await
     .map_err(|e| adapteros_core::AosError::Database(e.to_string()))?;
 
@@ -580,7 +580,7 @@ async fn test_toggle_writes_audit_record() -> Result<()> {
     adapteros_db::sqlx::query(
         "INSERT OR IGNORE INTO tenants (id, name, itar_flag) VALUES ('toggle-test', 'Toggle Test', 0)",
     )
-    .execute(state.db.pool_result()?)
+    .execute(state.db.pool())
     .await
     .map_err(|e| adapteros_core::AosError::Database(e.to_string()))?;
 
@@ -730,7 +730,7 @@ async fn test_isolation_policy_blocks_shared_memory_at_routing_hook() -> Result<
     adapteros_db::sqlx::query(
         "INSERT OR IGNORE INTO tenants (id, name, itar_flag) VALUES ('block-test', 'Block Test', 0)",
     )
-    .execute(state.db.pool_result()?)
+    .execute(state.db.pool())
     .await
     .map_err(|e| adapteros_core::AosError::Database(e.to_string()))?;
 
@@ -842,7 +842,7 @@ async fn test_isolation_policy_blocks_at_before_inference_hook() -> Result<()> {
     adapteros_db::sqlx::query(
         "INSERT OR IGNORE INTO tenants (id, name, itar_flag) VALUES ('block-before', 'Block Before Test', 0)",
     )
-    .execute(state.db.pool_result()?)
+    .execute(state.db.pool())
     .await
     .map_err(|e| adapteros_core::AosError::Database(e.to_string()))?;
 
@@ -961,7 +961,7 @@ async fn test_multiple_policy_denials_captured() -> Result<()> {
     adapteros_db::sqlx::query(
         "INSERT OR IGNORE INTO tenants (id, name, itar_flag) VALUES ('multi-deny', 'Multi Deny Test', 0)",
     )
-    .execute(state.db.pool_result()?)
+    .execute(state.db.pool())
     .await
     .map_err(|e| adapteros_core::AosError::Database(e.to_string()))?;
 

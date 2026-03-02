@@ -14,11 +14,10 @@ use crate::middleware::require_any_role;
 use crate::state::AppState;
 use crate::types::ErrorResponse;
 use adapteros_api_types::diagnostics::{
-    AnchorComparison, DeterminismFreshnessReason, DeterminismFreshnessStatus,
-    DeterminismStatusResponse, DiagDiffRequest, DiagDiffResponse, DiagDiffSummary,
-    DiagEventResponse, DiagExportRequest, DiagExportResponse, DiagRunResponse, EventDiff,
-    ExportMetadata, FirstDivergence, ListDiagEventsQuery, ListDiagEventsResponse,
-    ListDiagRunsQuery, ListDiagRunsResponse, RouterStepDiff, StageTiming, TimingDiff,
+    AnchorComparison, DiagDiffRequest, DiagDiffResponse, DiagDiffSummary, DiagEventResponse,
+    DiagExportRequest, DiagExportResponse, DiagRunResponse, EventDiff, ExportMetadata,
+    FirstDivergence, ListDiagEventsQuery, ListDiagEventsResponse, ListDiagRunsQuery,
+    ListDiagRunsResponse, RouterStepDiff, StageTiming, TimingDiff,
 };
 use adapteros_db::diagnostics::{
     get_all_diag_events_for_run, get_diag_run_by_id, get_diag_run_by_trace_id,
@@ -34,70 +33,13 @@ use sqlx::Row;
 use tracing::{debug, warn};
 use utoipa::ToSchema;
 
-const DETERMINISM_STATUS_STALE_AFTER_SECS: i64 = 60 * 60;
-
-#[derive(Debug, Clone, Copy)]
-struct DeterminismFreshnessEvaluation {
-    status: DeterminismFreshnessStatus,
-    reason: DeterminismFreshnessReason,
-    age_seconds: Option<i64>,
-}
-
-fn parse_determinism_last_run(last_run: &str) -> Option<chrono::DateTime<chrono::Utc>> {
-    if let Ok(parsed) = chrono::DateTime::parse_from_rfc3339(last_run) {
-        return Some(parsed.with_timezone(&chrono::Utc));
-    }
-
-    chrono::NaiveDateTime::parse_from_str(last_run, "%Y-%m-%d %H:%M:%S%.f")
-        .or_else(|_| chrono::NaiveDateTime::parse_from_str(last_run, "%Y-%m-%d %H:%M:%S"))
-        .ok()
-        .map(|parsed| {
-            chrono::DateTime::<chrono::Utc>::from_naive_utc_and_offset(parsed, chrono::Utc)
-        })
-}
-
-fn evaluate_determinism_freshness(
-    last_run: Option<&str>,
-    now: chrono::DateTime<chrono::Utc>,
-) -> DeterminismFreshnessEvaluation {
-    let Some(last_run) = last_run else {
-        return DeterminismFreshnessEvaluation {
-            status: DeterminismFreshnessStatus::Unknown,
-            reason: DeterminismFreshnessReason::MissingLastRun,
-            age_seconds: None,
-        };
-    };
-
-    let Some(parsed_last_run) = parse_determinism_last_run(last_run) else {
-        return DeterminismFreshnessEvaluation {
-            status: DeterminismFreshnessStatus::Unknown,
-            reason: DeterminismFreshnessReason::InvalidLastRunFormat,
-            age_seconds: None,
-        };
-    };
-
-    let age_seconds = now.signed_duration_since(parsed_last_run).num_seconds();
-    if age_seconds < 0 {
-        return DeterminismFreshnessEvaluation {
-            status: DeterminismFreshnessStatus::Unknown,
-            reason: DeterminismFreshnessReason::FutureLastRun,
-            age_seconds: None,
-        };
-    }
-
-    if age_seconds <= DETERMINISM_STATUS_STALE_AFTER_SECS {
-        DeterminismFreshnessEvaluation {
-            status: DeterminismFreshnessStatus::Fresh,
-            reason: DeterminismFreshnessReason::RecentRun,
-            age_seconds: Some(age_seconds),
-        }
-    } else {
-        DeterminismFreshnessEvaluation {
-            status: DeterminismFreshnessStatus::Stale,
-            reason: DeterminismFreshnessReason::StaleLastRun,
-            age_seconds: Some(age_seconds),
-        }
-    }
+/// Determinism check status response
+#[derive(Debug, Serialize, ToSchema)]
+pub struct DeterminismStatusResponse {
+    pub last_run: Option<String>,
+    pub result: Option<String>, // "pass" | "fail" | null
+    pub runs: Option<usize>,
+    pub divergences: Option<usize>,
 }
 
 /// GET /v1/diagnostics/determinism-status - Get determinism check status
@@ -121,7 +63,7 @@ pub async fn get_determinism_status(
     // Query for last determinism check run
     // For MVP, we'll store this in a simple table or use a file-based approach
     // In production, this would be stored in a diagnostics_runs table
-    let query_result = sqlx::query(
+    let result = sqlx::query(
         "SELECT last_run, result, runs, divergences 
          FROM determinism_checks 
          ORDER BY last_run DESC 
@@ -130,13 +72,13 @@ pub async fn get_determinism_status(
     .fetch_optional(state.db.pool())
     .await;
 
-    match query_result {
+    match result {
         Ok(Some(row)) => {
             let last_run: Option<String> = row.try_get("last_run").unwrap_or_else(|e| {
                 warn!("Failed to get last_run from determinism check row: {}", e);
                 None
             });
-            let check_result: Option<String> = row.try_get("result").unwrap_or_else(|e| {
+            let result: Option<String> = row.try_get("result").unwrap_or_else(|e| {
                 warn!("Failed to get result from determinism check row: {}", e);
                 None
             });
@@ -151,17 +93,12 @@ pub async fn get_determinism_status(
                 );
                 None
             });
-            let freshness = evaluate_determinism_freshness(last_run.as_deref(), chrono::Utc::now());
 
             Ok(Json(DeterminismStatusResponse {
                 last_run,
-                result: check_result,
+                result,
                 runs: runs.map(|r| r as usize),
                 divergences: divergences.map(|d| d as usize),
-                freshness_status: freshness.status,
-                freshness_reason: freshness.reason,
-                freshness_age_seconds: freshness.age_seconds,
-                stale_after_seconds: DETERMINISM_STATUS_STALE_AFTER_SECS,
             }))
         }
         Ok(None) => {
@@ -171,10 +108,6 @@ pub async fn get_determinism_status(
                 result: None,
                 runs: None,
                 divergences: None,
-                freshness_status: DeterminismFreshnessStatus::Unknown,
-                freshness_reason: DeterminismFreshnessReason::NoDeterminismChecks,
-                freshness_age_seconds: None,
-                stale_after_seconds: DETERMINISM_STATUS_STALE_AFTER_SECS,
             }))
         }
         Err(e) => {
@@ -185,10 +118,6 @@ pub async fn get_determinism_status(
                 result: None,
                 runs: None,
                 divergences: None,
-                freshness_status: DeterminismFreshnessStatus::Unknown,
-                freshness_reason: DeterminismFreshnessReason::QueryError,
-                freshness_age_seconds: None,
-                stale_after_seconds: DETERMINISM_STATUS_STALE_AFTER_SECS,
             }))
         }
     }

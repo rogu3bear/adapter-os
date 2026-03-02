@@ -92,12 +92,11 @@ impl CABWorkflow {
         let mut errors = Vec::new();
 
         // Fetch plan details
-        let plan_row = sqlx::query(
-            "SELECT plan_id_b3, metallib_hash_b3, kernel_hashes_json FROM plans WHERE cpid = ?",
-        )
-        .bind(cpid)
-        .fetch_optional(&self.pool)
-        .await?;
+        let plan_row =
+            sqlx::query("SELECT plan_id, metallib_hash, adapter_hashes FROM plans WHERE cpid = $1")
+                .bind(cpid)
+                .fetch_optional(&self.pool)
+                .await?;
 
         let plan_row = match plan_row {
             Some(row) => row,
@@ -111,52 +110,48 @@ impl CABWorkflow {
             }
         };
 
-        let _plan_id_b3: String = plan_row.try_get("plan_id_b3")?;
-        let metallib_hash: Option<String> = plan_row.try_get("metallib_hash_b3").ok().flatten();
-        let kernel_hashes_json: String = plan_row.try_get("kernel_hashes_json")?;
+        let metallib_hash: String = plan_row.try_get("metallib_hash")?;
+        let adapter_hashes: String = plan_row.try_get("adapter_hashes")?;
 
         let mut verified_components = 0;
 
         // Verify metallib hash
         // Note: In production, this would check against embedded kernel blob
-        if metallib_hash
-            .as_ref()
-            .map(|hash| !hash.is_empty())
-            .unwrap_or(false)
-        {
+        if !metallib_hash.is_empty() {
             verified_components += 1;
-            tracing::debug!("Verified metallib hash: {:?}", metallib_hash);
+            tracing::debug!("Verified metallib hash: {}", metallib_hash);
         } else {
             errors.push("Metallib hash is empty".to_string());
         }
 
-        // Verify kernel hashes
-        let kernel_hash_list: Vec<String> =
-            serde_json::from_str(&kernel_hashes_json).unwrap_or_else(|_| vec![]);
+        // Verify adapter hashes
+        let adapter_hash_list: Vec<String> =
+            serde_json::from_str(&adapter_hashes).unwrap_or_else(|_| vec![]);
 
-        for (idx, kernel_hash) in kernel_hash_list.iter().enumerate() {
+        for (idx, adapter_hash) in adapter_hash_list.iter().enumerate() {
             // Note: In production, verify against registry allowed ACL
-            if !kernel_hash.is_empty() {
+            if !adapter_hash.is_empty() {
                 verified_components += 1;
-                tracing::debug!("Verified kernel {} hash: {}", idx, kernel_hash);
+                tracing::debug!("Verified adapter {} hash: {}", idx, adapter_hash);
             } else {
-                errors.push(format!("Kernel {} hash is empty", idx));
+                errors.push(format!("Adapter {} hash is empty", idx));
             }
         }
 
-        // Verify evidence signature presence
-        let signature_row =
-            sqlx::query("SELECT COUNT(*) as count FROM bundle_signatures WHERE cpid = ?")
-                .bind(cpid)
-                .fetch_one(&self.pool)
-                .await?;
+        // Verify SBOM presence
+        let sbom_row = sqlx::query(
+            "SELECT COUNT(*) as count FROM artifacts WHERE cpid = $1 AND artifact_type = 'sbom'",
+        )
+        .bind(cpid)
+        .fetch_one(&self.pool)
+        .await?;
 
-        let signature_count: i64 = signature_row.try_get("count")?;
-        if signature_count > 0 {
+        let sbom_count: i64 = sbom_row.try_get("count")?;
+        if sbom_count > 0 {
             verified_components += 1;
-            tracing::debug!("Bundle signature verified for CPID: {}", cpid);
+            tracing::debug!("SBOM verified for CPID: {}", cpid);
         } else {
-            errors.push("Bundle signature not found".to_string());
+            errors.push("SBOM not found".to_string());
         }
 
         Ok(HashValidation {
@@ -170,7 +165,7 @@ impl CABWorkflow {
     async fn run_replay_tests(&self, cpid: &str) -> Result<ReplayTestResult> {
         // Fetch replay test bundles for this CPID
         let test_bundles = sqlx::query(
-            "SELECT test_bundle_id, test_name, expected_hash FROM replay_test_bundles WHERE cpid = ?"
+            "SELECT test_bundle_id, test_name, expected_hash FROM replay_test_bundles WHERE cpid = $1"
         )
         .bind(cpid)
         .fetch_all(&self.pool)
@@ -228,7 +223,7 @@ impl CABWorkflow {
         // Note: In production, this should execute deterministic inference using the input prompt.
         // For now, verify determinism by recomputing the expected output hash from stored data.
         let row = sqlx::query(
-            "SELECT expected_output, expected_hash FROM replay_test_bundles WHERE test_bundle_id = ?",
+            "SELECT expected_output, expected_hash FROM replay_test_bundles WHERE test_bundle_id = $1",
         )
         .bind(test_bundle_id)
         .fetch_optional(&self.pool)
@@ -269,7 +264,7 @@ impl CABWorkflow {
         // Store approval in database
         sqlx::query(
             "INSERT INTO cab_approvals (cpid, approver, approval_message, signature, public_key, approved_at)
-             VALUES (?, ?, ?, ?, ?, datetime('now'))"
+             VALUES ($1, $2, $3, $4, $5, NOW())"
         )
         .bind(cpid)
         .bind(approver)
@@ -298,7 +293,7 @@ impl CABWorkflow {
         // Update CP pointer to reference this CPID
         let result = sqlx::query(
             "UPDATE cp_pointers 
-             SET active_cpid = ?, approval_signature = ?, promoted_at = datetime('now')
+             SET active_cpid = $1, approval_signature = $2, promoted_at = NOW()
              WHERE name = 'production'
              RETURNING before_cpid",
         )
@@ -321,7 +316,7 @@ impl CABWorkflow {
         // Log promotion event
         sqlx::query(
             "INSERT INTO promotion_history (cpid, status, approval_signature, before_cpid, promoted_at)
-             VALUES (?, ?, ?, ?, ?)"
+             VALUES ($1, $2, $3, $4, $5)"
         )
         .bind(&promotion_record.cpid)
         .bind(&promotion_record.status)
@@ -362,7 +357,7 @@ impl CABWorkflow {
         // Update CP pointer to rollback CPID
         sqlx::query(
             "UPDATE cp_pointers 
-             SET active_cpid = ?, promoted_at = datetime('now')
+             SET active_cpid = $1, promoted_at = NOW()
              WHERE name = 'production'",
         )
         .bind(&rollback_cpid)
@@ -380,7 +375,7 @@ impl CABWorkflow {
 
         sqlx::query(
             "INSERT INTO promotion_history (cpid, status, approval_signature, before_cpid, promoted_at)
-             VALUES (?, ?, ?, ?, ?)"
+             VALUES ($1, $2, $3, $4, $5)"
         )
         .bind(&rollback_record.cpid)
         .bind(&rollback_record.status)
@@ -401,7 +396,7 @@ impl CABWorkflow {
             "SELECT cpid, status, approval_signature, before_cpid, promoted_at
              FROM promotion_history
              ORDER BY promoted_at DESC
-             LIMIT ?",
+             LIMIT $1",
         )
         .bind(limit)
         .fetch_all(&self.pool)

@@ -128,7 +128,7 @@ use super::policy::{resolve_tenant_execution_policy, GoldenPolicyResolved};
 use super::replay::{compute_replay_guarantee, enforce_strict_runtime_guards};
 use super::validation::{parse_pinned_adapter_ids, validate_pinned_within_effective_set};
 use crate::chat_session_config::ChatSessionConfig;
-use crate::citations::{collect_citations_for_adapters, collect_document_links_for_adapters};
+use crate::citations::collect_citations_for_adapters;
 use crate::handlers::rag_common::{
     retrieve_rag_context, store_rag_evidence, EvidenceModelContext, RagContextResult,
 };
@@ -147,11 +147,8 @@ use crate::worker_capabilities::{
     capability_reasons, parse_worker_capabilities, RequiredModes, WorkerCapabilityExclusion,
 };
 use crate::worker_selector::{RequiredCapabilities, WorkerRequirements, WorkerSelector};
-use adapteros_api_types::inference::{
-    AdapterAttachReason, AdapterAttachment, AdapterVersionBinding, DegradedNotice,
-    DegradedNoticeKind, DegradedNoticeLevel, ReplayGuarantee,
-};
-use adapteros_api_types::{ModelLoadStatus, RunActor, RunEnvelope};
+use adapteros_api_types::inference::ReplayGuarantee;
+use adapteros_api_types::{RunActor, RunEnvelope};
 use adapteros_config::PlacementConfig;
 use adapteros_core::{
     compute_key_id, identity::IdentityEnvelope, pinned_degradation_telemetry_ref_ids, B3Hash,
@@ -172,7 +169,7 @@ use adapteros_telemetry::{
 use adapteros_types::adapters::metadata::RoutingDeterminismMode;
 use futures_util::StreamExt;
 use hex;
-use std::collections::{HashMap, HashSet};
+use std::collections::HashSet;
 use std::path::PathBuf;
 use std::time::Duration;
 use tokio::sync::mpsc;
@@ -643,117 +640,45 @@ impl<'a> InferenceCore<'a> {
                 .and_then(|ws| ws.active_base_model_id),
         };
 
-        let base_model_id = if let Some(model_id) = effective_model_id.as_deref() {
-            let worker_states = self
+        let base_status = match effective_model_id.as_deref() {
+            Some(model_id) => self
                 .state
                 .db
-                .list_worker_model_states_for_model(&request.cpid, model_id)
-                .await
-                .map_err(|e| {
-                    InferenceError::WorkerError(format!(
-                        "Failed to fetch worker-model lifecycle state: {}",
-                        e
-                    ))
-                })?;
-
-            if worker_states.is_empty() {
-                let base_status = self
-                    .state
-                    .db
-                    .get_base_model_status_for_model(&request.cpid, model_id)
-                    .await
-                    .map_err(|e| {
-                        InferenceError::WorkerError(format!(
-                            "Failed to fetch base model status: {}",
-                            e
-                        ))
-                    })?;
-                let mut records: Vec<adapteros_db::models::BaseModelStatus> = Vec::new();
-                if let Some(status) = base_status {
-                    records.push(status);
-                }
-                if records.is_empty() {
-                    return Err(InferenceError::ModelNotReady(format!(
-                        "Base model not ready for tenant {}",
-                        request.cpid
-                    )));
-                }
-                let aggregated = crate::model_status::aggregate_status(records.iter());
-                if !aggregated.status.is_ready() {
-                    return Err(InferenceError::ModelNotReady(format!(
-                        "Base model not ready (status: {})",
-                        aggregated.status.as_str()
-                    )));
-                }
-                aggregated.latest.map(|s| s.model_id.clone())
-            } else {
-                let mut has_ready = false;
-                let mut has_loading = false;
-                let mut has_unloading = false;
-                let mut has_error = false;
-
-                for state in worker_states {
-                    match ModelLoadStatus::parse_status(&state.status) {
-                        ModelLoadStatus::Ready => has_ready = true,
-                        ModelLoadStatus::Loading | ModelLoadStatus::Checking => {
-                            has_loading = true;
-                        }
-                        ModelLoadStatus::Unloading => has_unloading = true,
-                        ModelLoadStatus::Error => has_error = true,
-                        ModelLoadStatus::NoModel => {}
-                    }
-                }
-
-                let effective_status = if has_ready {
-                    ModelLoadStatus::Ready
-                } else if has_loading {
-                    ModelLoadStatus::Loading
-                } else if has_unloading {
-                    ModelLoadStatus::Unloading
-                } else if has_error {
-                    ModelLoadStatus::Error
-                } else {
-                    ModelLoadStatus::NoModel
-                };
-
-                if !effective_status.is_ready() {
-                    return Err(InferenceError::ModelNotReady(format!(
-                        "Base model not ready (worker lifecycle status: {})",
-                        effective_status.as_str()
-                    )));
-                }
-
-                Some(model_id.to_string())
-            }
-        } else {
-            let records = self
-                .state
-                .db
-                .list_base_model_statuses_for_tenant(&request.cpid)
+                .get_base_model_status_for_model(&request.cpid, model_id)
                 .await
                 .map_err(|e| {
                     InferenceError::WorkerError(format!("Failed to fetch base model status: {}", e))
-                })?;
-            if records.is_empty() {
-                return Err(InferenceError::ModelNotReady(format!(
-                    "Base model not ready for tenant {}",
-                    request.cpid
-                )));
-            }
-            let aggregated = crate::model_status::aggregate_status(records.iter());
-            if !aggregated.status.is_ready() {
-                return Err(InferenceError::ModelNotReady(format!(
-                    "Base model not ready (status: {})",
-                    aggregated.status.as_str()
-                )));
-            }
-            records
-                .iter()
-                .filter(|s| ModelLoadStatus::parse_status(&s.status).is_ready())
-                .max_by(|a, b| a.updated_at.cmp(&b.updated_at))
-                .map(|s| s.model_id.clone())
-                .or_else(|| aggregated.latest.map(|s| s.model_id.clone()))
+                })?,
+            None => self
+                .state
+                .db
+                .get_base_model_status(&request.cpid)
+                .await
+                .map_err(|e| {
+                    InferenceError::WorkerError(format!("Failed to fetch base model status: {}", e))
+                })?,
         };
+
+        let mut records: Vec<adapteros_db::models::BaseModelStatus> = Vec::new();
+        if let Some(status) = base_status {
+            records.push(status);
+        }
+
+        if records.is_empty() {
+            return Err(InferenceError::ModelNotReady(format!(
+                "Base model not ready for tenant {}",
+                request.cpid
+            )));
+        }
+
+        let aggregated = crate::model_status::aggregate_status(records.iter());
+        if !aggregated.status.is_ready() {
+            return Err(InferenceError::ModelNotReady(format!(
+                "Base model not ready (status: {})",
+                aggregated.status.as_str()
+            )));
+        }
+        let base_model_id = aggregated.latest.map(|s| s.model_id.clone());
         if let Some(ref expected_base_model_id) = base_model_id {
             let adapter_ids = self.collect_adapter_ids_for_request(&request);
             if !adapter_ids.is_empty() {
@@ -1588,41 +1513,14 @@ impl<'a> InferenceCore<'a> {
         }
 
         // 9.5 Build citations from training datasets (best-effort)
-        let (citations, document_links) = tokio::join!(
-            collect_citations_for_adapters(
-                self.state,
-                &request.cpid,
-                &worker_response.trace.router_summary.adapters_used,
-                &request.prompt,
-                3,
-            ),
-            collect_document_links_for_adapters(
-                self.state,
-                &request.cpid,
-                &worker_response.trace.router_summary.adapters_used,
-                5,
-            )
-        );
-
-        let adapter_labels = self
-            .load_adapter_labels(
-                &request.cpid,
-                &worker_response.trace.router_summary.adapters_used,
-            )
-            .await;
-        let adapter_attachments = build_adapter_attachments(
-            &request,
+        let citations = collect_citations_for_adapters(
+            self.state,
+            &request.cpid,
             &worker_response.trace.router_summary.adapters_used,
-            pinned_routing_fallback.as_deref(),
-            &adapter_labels,
-        );
-        let degraded_notices = build_degraded_notices(
-            &request,
-            unavailable_pinned.as_ref(),
-            pinned_routing_fallback.as_deref(),
-            fallback_triggered,
-            fallback_backend.as_deref(),
-        );
+            &request.prompt,
+            3,
+        )
+        .await;
 
         // 10. Emit telemetry for inference metrics and routing (best-effort)
         let identity = IdentityEnvelope::new(
@@ -1706,7 +1604,6 @@ impl<'a> InferenceCore<'a> {
             sampling_params: receipt_sampling_params,
             stack_id: request.stack_id.clone(),
             adapters_used: worker_response.trace.router_summary.adapters_used.clone(),
-            adapter_version_bindings: request.adapter_version_bindings.clone().unwrap_or_default(),
             model: base_model_id.clone().or_else(|| request.model.clone()),
             backend_used: backend_used.clone(),
             prompt_system_params_digest_b3,
@@ -1776,9 +1673,6 @@ impl<'a> InferenceCore<'a> {
                 .or(Some(adapteros_api_types::inference::RouterModelType::Dense)),
             rag_evidence,
             citations,
-            document_links,
-            adapter_attachments,
-            degraded_notices,
             latency_ms,
             request_id: request.request_id.clone(),
             unavailable_pinned_adapters: unavailable_pinned,
@@ -1918,33 +1812,6 @@ impl<'a> InferenceCore<'a> {
                 billed_output_tokens: receipt.billed_output_tokens,
             })
             .or_else(|| worker_response.token_usage.clone())
-    }
-
-    async fn load_adapter_labels(
-        &self,
-        tenant_id: &str,
-        adapter_ids: &[String],
-    ) -> HashMap<String, String> {
-        let mut labels = HashMap::new();
-
-        for adapter_id in adapter_ids {
-            match self.state.db.get_adapter_by_id(tenant_id, adapter_id).await {
-                Ok(Some(adapter)) if !adapter.name.trim().is_empty() => {
-                    labels.insert(adapter_id.clone(), adapter.name);
-                }
-                Ok(_) => {}
-                Err(err) => {
-                    debug!(
-                        tenant_id = %tenant_id,
-                        adapter_id = %adapter_id,
-                        error = %err,
-                        "Could not load adapter label for trust payload"
-                    );
-                }
-            }
-        }
-
-        labels
     }
 
     /// Execute inference through the unified pipeline with token streaming.
@@ -2437,10 +2304,6 @@ impl<'a> InferenceCore<'a> {
         request: &mut InferenceRequestInternal,
         session: Option<&ChatSession>,
     ) -> Result<(), InferenceError> {
-        if request.bit_identical {
-            self.resolve_bit_identical_adapter_pins(request).await?;
-        }
-
         // 1. Explicit adapters take precedence
         if let Some(adapters) = request.adapters.as_ref() {
             if adapters.is_empty() {
@@ -2600,79 +2463,6 @@ impl<'a> InferenceCore<'a> {
         // 4. Fallback: no explicit set -> None (use manifest-wide in worker)
         request.effective_adapter_ids = None;
         request.stack_version = None;
-        Ok(())
-    }
-
-    async fn resolve_bit_identical_adapter_pins(
-        &self,
-        request: &mut InferenceRequestInternal,
-    ) -> Result<(), InferenceError> {
-        let raw_refs = request.adapters.clone().ok_or_else(|| {
-            InferenceError::BitIdenticalAdapterPinRequired(
-                "Bit-Identical requires pinned adapter versions. Use adapter_repo_id@adapter_version_id."
-                    .to_string(),
-            )
-        })?;
-
-        if raw_refs.is_empty() {
-            return Err(InferenceError::BitIdenticalAdapterPinRequired(
-                "Bit-Identical requires pinned adapter versions. Use adapter_repo_id@adapter_version_id."
-                    .to_string(),
-            ));
-        }
-
-        let mut resolved_adapter_ids = Vec::with_capacity(raw_refs.len());
-        let mut bindings = Vec::with_capacity(raw_refs.len());
-
-        for pin_ref in raw_refs {
-            let (repo_id, version_id) =
-                parse_adapter_version_pin_ref(&pin_ref).ok_or_else(|| {
-                    InferenceError::BitIdenticalAdapterPinInvalid(format!(
-                        "Use adapter_repo_id@adapter_version_id. Invalid value: '{}'",
-                        pin_ref
-                    ))
-                })?;
-
-            let adapter = self
-                .state
-                .db
-                .get_adapter_for_tenant_repo_version(&request.cpid, &repo_id, &version_id)
-                .await
-                .map_err(|e| {
-                    InferenceError::BitIdenticalAdapterPinInvalid(format!(
-                        "Could not resolve pinned adapter '{}': {}",
-                        pin_ref, e
-                    ))
-                })?
-                .ok_or_else(|| {
-                    InferenceError::BitIdenticalAdapterPinInvalid(format!(
-                        "Could not resolve pinned adapter '{}'",
-                        pin_ref
-                    ))
-                })?;
-
-            let adapter_id = adapter
-                .adapter_id
-                .clone()
-                .map(|id| id.trim().to_string())
-                .filter(|id| !id.is_empty())
-                .ok_or_else(|| {
-                    InferenceError::BitIdenticalAdapterPinInvalid(format!(
-                        "Pinned adapter '{}' resolved to empty adapter_id",
-                        pin_ref
-                    ))
-                })?;
-
-            resolved_adapter_ids.push(adapter_id.clone());
-            bindings.push(AdapterVersionBinding {
-                adapter_repo_id: repo_id,
-                adapter_version_id: version_id,
-                adapter_id,
-            });
-        }
-
-        request.adapters = Some(resolved_adapter_ids);
-        request.adapter_version_bindings = Some(bindings);
         Ok(())
     }
 
@@ -2871,7 +2661,6 @@ impl<'a> InferenceCore<'a> {
             manifest_hash: required_manifest.to_string(),
             capabilities,
             prefer_cache_hit: false,
-            model_id: None,
         };
 
         self.select_worker_with_unified_selector(requirements).await
@@ -3315,7 +3104,7 @@ impl<'a> InferenceCore<'a> {
         // Load golden baseline from disk/database
         // Note: Currently golden baselines are stored as filesystem archives
         // (see adapteros-verify crate). Future: migrate to database storage.
-        let golden_runs_dir = PathBuf::from("golden_runs/baselines");
+        let golden_runs_dir = adapteros_core::rebase_var_path("var/golden_runs/baselines");
         let baseline_path = golden_runs_dir.join(baseline_id);
 
         if !baseline_path.exists() {
@@ -4008,200 +3797,6 @@ impl<'a> InferenceCore<'a> {
                 "Replay metadata captured successfully"
             );
         }
-    }
-}
-
-fn build_adapter_attachments(
-    request: &InferenceRequestInternal,
-    adapters_used: &[String],
-    pinned_routing_fallback: Option<&str>,
-    adapter_labels: &HashMap<String, String>,
-) -> Vec<AdapterAttachment> {
-    let requested: HashSet<&str> = request
-        .adapters
-        .as_ref()
-        .map(|ids| ids.iter().map(String::as_str).collect())
-        .unwrap_or_default();
-    let pinned: HashSet<&str> = request
-        .pinned_adapter_ids
-        .as_ref()
-        .map(|ids| ids.iter().map(String::as_str).collect())
-        .unwrap_or_default();
-    let stack_scoped = request.stack_id.is_some()
-        || request
-            .adapter_stack
-            .as_ref()
-            .is_some_and(|stack| !stack.is_empty())
-        || request
-            .effective_adapter_ids
-            .as_ref()
-            .is_some_and(|ids| !ids.is_empty());
-    let has_pinned_fallback = pinned_routing_fallback.is_some()
-        && request
-            .pinned_adapter_ids
-            .as_ref()
-            .is_some_and(|ids| !ids.is_empty());
-
-    adapters_used
-        .iter()
-        .map(|adapter_id| {
-            let binding = request
-                .adapter_version_bindings
-                .as_ref()
-                .and_then(|bindings| bindings.iter().find(|b| b.adapter_id == *adapter_id));
-            let attach_reason = if pinned.contains(adapter_id.as_str()) {
-                AdapterAttachReason::Pinned
-            } else if has_pinned_fallback {
-                AdapterAttachReason::FallbackRouting
-            } else if requested.contains(adapter_id.as_str()) {
-                AdapterAttachReason::Requested
-            } else if stack_scoped {
-                AdapterAttachReason::StackRouting
-            } else {
-                AdapterAttachReason::Unknown
-            };
-
-            AdapterAttachment {
-                adapter_id: adapter_id.clone(),
-                adapter_label: adapter_labels
-                    .get(adapter_id)
-                    .cloned()
-                    .or_else(|| binding.map(|b| b.adapter_repo_id.clone())),
-                adapter_repo_id: binding.map(|b| b.adapter_repo_id.clone()),
-                adapter_version_id: binding.map(|b| b.adapter_version_id.clone()),
-                attach_reason,
-            }
-        })
-        .collect()
-}
-
-fn build_degraded_notices(
-    request: &InferenceRequestInternal,
-    unavailable_pinned: Option<&Vec<String>>,
-    pinned_routing_fallback: Option<&str>,
-    fallback_triggered: bool,
-    fallback_backend: Option<&str>,
-) -> Vec<DegradedNotice> {
-    let mut notices = Vec::new();
-
-    if let Some(unavailable) = unavailable_pinned.filter(|ids| !ids.is_empty()) {
-        notices.push(DegradedNotice {
-            kind: DegradedNoticeKind::AttachFailure,
-            level: DegradedNoticeLevel::Warning,
-            message: format!(
-                "{} pinned adapter(s) could not be attached.",
-                unavailable.len()
-            ),
-            meaning_changed: true,
-        });
-        notices.push(DegradedNotice {
-            kind: DegradedNoticeKind::BlockedPins,
-            level: DegradedNoticeLevel::Warning,
-            message: format!(
-                "{} pinned adapter(s) were blocked and excluded from routing.",
-                unavailable.len()
-            ),
-            meaning_changed: true,
-        });
-    }
-
-    if let Some(mode) = pinned_routing_fallback {
-        notices.push(DegradedNotice {
-            kind: DegradedNoticeKind::RoutingOverride,
-            level: DegradedNoticeLevel::Warning,
-            message: format!(
-                "Routing override applied because pinned adapters were unavailable ({mode})."
-            ),
-            meaning_changed: true,
-        });
-    }
-
-    if fallback_triggered {
-        let backend_note = fallback_backend.unwrap_or("unknown");
-        notices.push(DegradedNotice {
-            kind: DegradedNoticeKind::WorkerSemanticFallback,
-            level: DegradedNoticeLevel::Critical,
-            message: format!("Worker fallback changed execution backend to {backend_note}."),
-            meaning_changed: true,
-        });
-    }
-
-    let fallback_is_non_mlx = fallback_backend
-        .map(|backend| backend != "mlx" && backend != "mlxbridge")
-        .unwrap_or(false);
-    if fallback_triggered
-        && fallback_is_non_mlx
-        && matches!(
-            request.backend_profile,
-            Some(BackendKind::Mlx | BackendKind::MlxBridge)
-        )
-    {
-        notices.push(DegradedNotice {
-            kind: DegradedNoticeKind::FfiAttachFailure,
-            level: DegradedNoticeLevel::Critical,
-            message: "MLX attach path failed; response used a fallback backend.".to_string(),
-            meaning_changed: true,
-        });
-    }
-
-    notices
-}
-
-fn parse_adapter_version_pin_ref(value: &str) -> Option<(String, String)> {
-    let mut parts = value.split('@');
-    let repo_id = parts.next()?.trim();
-    let version_id = parts.next()?.trim();
-
-    if repo_id.is_empty() || version_id.is_empty() || parts.next().is_some() {
-        return None;
-    }
-
-    Some((repo_id.to_string(), version_id.to_string()))
-}
-
-#[cfg(test)]
-mod strict_pin_tests {
-    use super::parse_adapter_version_pin_ref;
-
-    #[test]
-    fn parses_repo_and_version_pin() {
-        let parsed = parse_adapter_version_pin_ref("repo-alpha@ver-123");
-        assert_eq!(
-            parsed,
-            Some(("repo-alpha".to_string(), "ver-123".to_string()))
-        );
-    }
-
-    #[test]
-    fn rejects_missing_version_segment() {
-        assert!(parse_adapter_version_pin_ref("repo-alpha").is_none());
-    }
-
-    #[test]
-    fn rejects_malformed_pin_with_extra_delimiter() {
-        assert!(parse_adapter_version_pin_ref("repo@ver@alias").is_none());
-    }
-}
-
-#[cfg(test)]
-mod degraded_notice_tests {
-    use super::{build_degraded_notices, BackendKind, InferenceRequestInternal};
-    use adapteros_api_types::inference::DegradedNoticeKind;
-
-    #[test]
-    fn emits_ffi_attach_failure_notice_when_mlx_falls_back() {
-        let request = InferenceRequestInternal {
-            backend_profile: Some(BackendKind::Mlx),
-            ..Default::default()
-        };
-
-        let notices = build_degraded_notices(&request, None, None, true, Some("coreml"));
-        assert!(
-            notices
-                .iter()
-                .any(|notice| notice.kind == DegradedNoticeKind::FfiAttachFailure),
-            "expected FfiAttachFailure notice when MLX request falls back to non-MLX backend"
-        );
     }
 }
 

@@ -180,9 +180,6 @@ pub trait AdapterKvOps {
         update: &AdapterAliasUpdate,
     ) -> Result<()>;
 
-    /// Update adapter display name (simple string shown in UI).
-    async fn update_adapter_display_name_kv(&self, adapter_id: &str, name: &str) -> Result<()>;
-
     /// Update adapter lifecycle state and version
     ///
     /// Used for lifecycle transitions (draft -> published -> archived, etc.)
@@ -1321,26 +1318,6 @@ impl AdapterKvOps for AdapterKvRepository {
             .update(adapter_kv)
             .await
             .map_err(|e| AosError::Database(format!("Failed to update adapter alias: {}", e)))?;
-
-        Ok(())
-    }
-
-    async fn update_adapter_display_name_kv(&self, adapter_id: &str, name: &str) -> Result<()> {
-        debug!(adapter_id = %adapter_id, "Updating adapter display name (KV)");
-
-        let mut adapter_kv = self
-            .repo
-            .get(&self.default_tenant, adapter_id)
-            .await
-            .map_err(|e| AosError::Database(format!("Failed to get adapter: {}", e)))?
-            .ok_or_else(|| AosError::NotFound(format!("Adapter not found: {}", adapter_id)))?;
-
-        adapter_kv.name = name.to_string();
-        adapter_kv.updated_at = Utc::now().to_rfc3339();
-
-        self.repo.update(adapter_kv).await.map_err(|e| {
-            AosError::Database(format!("Failed to update adapter display name: {}", e))
-        })?;
 
         Ok(())
     }

@@ -1,6 +1,6 @@
 //! Determinism Loop verification front-end for aosctl.
 //!
-//! Wraps the former `scripts/verify-determinism-loop.sh` checks (removed) in a
+//! Wraps the legacy `scripts/verify-determinism-loop.sh` checks in a
 //! structured, JSON-aware CLI command:
 //!   aosctl verify-determinism-loop [--json]
 //!
@@ -9,7 +9,7 @@
 //! - Key crates compile (`cargo check`)
 //! - Optional `cargo xtask determinism-report` execution
 //!
-//! [source: aosctl verify determinism-loop]
+//! [source: scripts/verify-determinism-loop.sh L1-L140]
 
 use crate::output::OutputWriter;
 use anyhow::Result;

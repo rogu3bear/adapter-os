@@ -163,7 +163,7 @@ fn test_routing_policy_denies_specific_adapter() {
         require_pins: false,
     };
 
-    let clusters = vec![None, None];
+    let clusters = vec![None, None, None];
     let filtered = filter_decision_by_policy(decision, &adapter_ids, &clusters, Some(&policy))
         .expect("filter succeeds");
 

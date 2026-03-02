@@ -65,7 +65,7 @@ pub async fn run(email: &str, display_name: Option<&str>, output: &OutputWriter)
         .context("failed to connect to database")?;
 
     let user_count: i64 = sqlx::query_scalar("SELECT COUNT(*) FROM users")
-        .fetch_one(db.pool_result()?)
+        .fetch_one(db.pool())
         .await
         .context("failed to count users")?;
 

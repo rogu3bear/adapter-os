@@ -24,7 +24,7 @@ impl Db {
                FROM workspace_active_state WHERE tenant_id = ?"#,
         )
         .bind(tenant_id)
-        .fetch_optional(self.pool_result()?)
+        .fetch_optional(self.pool())
         .await?;
 
         Ok(state)
@@ -67,7 +67,7 @@ impl Db {
         .bind(active_plan_id)
         .bind(adapters_json.as_deref())
         .bind(manifest_hash_b3)
-        .execute(self.pool_result()?)
+        .execute(self.pool())
         .await?;
 
         self.get_workspace_active_state(tenant_id)
@@ -116,38 +116,6 @@ impl Db {
         Ok(true)
     }
 
-    /// Set (overwrite) the active base model for a tenant/workspace while preserving
-    /// currently active plan and adapter IDs.
-    pub async fn set_active_base_model(
-        &self,
-        tenant_id: &str,
-        model_id: &str,
-        manifest_hash_b3: Option<&str>,
-    ) -> Result<()> {
-        let current = self.get_workspace_active_state(tenant_id).await?;
-
-        let plan_id = current.as_ref().and_then(|s| s.active_plan_id.as_deref());
-        let adapters: Option<Vec<String>> = current
-            .as_ref()
-            .and_then(|s| s.active_adapter_ids.as_deref())
-            .map(|s| serde_json::from_str(s))
-            .transpose()
-            .map_err(|e| AosError::Validation(format!("invalid adapter ids json: {}", e)))?;
-        let manifest = manifest_hash_b3
-            .or_else(|| current.as_ref().and_then(|s| s.manifest_hash_b3.as_deref()));
-
-        self.upsert_workspace_active_state(
-            tenant_id,
-            Some(model_id),
-            plan_id,
-            adapters.as_deref(),
-            manifest,
-        )
-        .await?;
-
-        Ok(())
-    }
-
     /// Clear the active base model if it matches the provided model id.
     ///
     /// Returns true if an active model was cleared.
@@ -165,7 +133,7 @@ impl Db {
         )
         .bind(tenant_id)
         .bind(model_id)
-        .execute(self.pool_result()?)
+        .execute(self.pool())
         .await?;
 
         Ok(result.rows_affected() > 0)
@@ -177,7 +145,7 @@ impl Db {
             r#"SELECT tenant_id, active_base_model_id, active_plan_id, active_adapter_ids, manifest_hash_b3, updated_at
                FROM workspace_active_state ORDER BY updated_at DESC"#,
         )
-        .fetch_all(self.pool_result()?)
+        .fetch_all(self.pool())
         .await?;
 
         Ok(records)

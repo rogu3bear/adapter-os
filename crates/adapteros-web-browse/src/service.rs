@@ -391,7 +391,7 @@ impl DefaultWebBrowseService {
                    FROM tenant_web_browse_config WHERE tenant_id = ?"#,
             )
             .bind(tenant_id)
-            .fetch_optional(db.pool_result()?)
+            .fetch_optional(db.pool())
             .await
             .map_err(|e| {
                 tracing::warn!(error = %e, tenant_id = %tenant_id, "Failed to load tenant config");
@@ -765,7 +765,7 @@ impl WebBrowseService for DefaultWebBrowseService {
             )
             .bind(tenant_id)
             .bind(&today)
-            .fetch_optional(db.pool_result()?)
+            .fetch_optional(db.pool())
             .await
             .map_err(|e| {
                 tracing::warn!(error = %e, "Failed to fetch usage stats");

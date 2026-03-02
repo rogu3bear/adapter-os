@@ -62,7 +62,7 @@ async fn golden_path_inference_over_uds() -> Result<(), Box<dyn std::error::Erro
     .bind(manifest.base.config_hash.to_hex())
     .bind(manifest.base.tokenizer_hash.to_hex())
     .bind(manifest.base.tokenizer_cfg_hash.to_hex())
-    .execute(state.db.pool_result().unwrap())
+    .execute(state.db.pool())
     .await?;
     let plan_id = Uuid::new_v4().to_string();
     let node_id = state
@@ -78,7 +78,7 @@ async fn golden_path_inference_over_uds() -> Result<(), Box<dyn std::error::Erro
     .bind(&manifest_hash)
     .bind("{}")
     .bind(&manifest_hash)
-    .execute(state.db.pool_result().unwrap())
+    .execute(state.db.pool())
     .await?;
     state
         .db

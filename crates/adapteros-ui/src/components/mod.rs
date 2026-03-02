@@ -12,20 +12,22 @@ pub mod auth;
 pub mod breadcrumb_trail;
 pub mod button;
 pub mod card;
+pub mod charts;
+pub mod chat_dock;
 pub mod checkbox;
+pub mod code_editor;
 pub mod combobox;
 pub mod command_palette;
 pub mod confirmation_dialog;
 pub mod copyable_id;
 pub mod danger_zone;
 pub mod data_table;
-pub mod detail_grid;
 pub mod diag_diff;
 pub mod dialog;
-pub mod document_upload_dialog;
 pub mod error_boundary;
 pub mod form_dialog;
 pub mod form_field;
+pub mod git_panel;
 pub mod glass_toggle;
 pub mod global_search;
 pub mod hash_display;
@@ -37,11 +39,11 @@ pub mod input;
 pub mod layout;
 pub mod lifecycle_transition_dialog;
 pub mod link;
+pub mod list_empty_card;
 pub mod markdown;
 pub mod notification_provider;
 pub mod offline_banner;
 pub mod pagination_controls;
-pub mod progress_rail;
 pub mod progress_stages;
 pub mod provenance_badge;
 pub mod responsive;
@@ -54,9 +56,13 @@ pub mod status;
 pub mod status_center;
 pub mod table;
 pub mod tabs;
+pub mod telemetry_overlay;
 pub mod toast;
 pub mod toggle;
 pub mod trace_viewer;
+pub mod tree_view;
+pub mod version_timeline;
+pub mod virtual_list;
 pub mod workspace;
 
 pub use action_card::{ActionCard, ActionCardVariant};
@@ -76,7 +82,9 @@ pub use auth::{AuthProvider, ProtectedRoute};
 pub use breadcrumb_trail::{humanize_segment, BreadcrumbTrail};
 pub use button::{Button, ButtonLink, ButtonSize, ButtonType, ButtonVariant};
 pub use card::Card;
+pub use chat_dock::{ChatDock, ChatDockPanel, MobileChatOverlay};
 pub use checkbox::Checkbox;
+pub use code_editor::CodeEditor;
 pub use combobox::{Combobox, ComboboxOption, ModelCombobox};
 pub use command_palette::CommandPalette;
 pub use confirmation_dialog::{
@@ -84,14 +92,13 @@ pub use confirmation_dialog::{
 };
 pub use copyable_id::CopyableId;
 pub use danger_zone::{AlertBanner, BannerVariant, DangerZone, DangerZoneItem};
-pub use data_table::*;
-pub use detail_grid::{DetailGrid, DetailItem};
+pub use data_table::{loaded_signal, Column, DataTable};
 pub use diag_diff::DiffResults;
 pub use dialog::{Dialog, DialogSize};
-pub use document_upload_dialog::DocumentUploadDialog;
 pub use error_boundary::{InlineErrorBoundary, RouteErrorBoundary};
 pub use form_dialog::{FormDialog, StepFormDialog};
 pub use form_field::{FormField, HelpTooltip, LabelWithHelp};
+pub use git_panel::GitPanel;
 pub use glass_toggle::GlassThemeToggle;
 pub use global_search::{GlobalSearchBox, SearchTriggerButton};
 pub use hash_display::HashDisplay;
@@ -100,15 +107,14 @@ pub use inline_banner::{InlineErrorBanner, InlineWarningBanner};
 pub use input::{Input, Textarea};
 pub use layout::{
     BreadcrumbItem, BreadcrumbItem as PageBreadcrumbItem, PageScaffold, PageScaffoldActions,
-    PageScaffoldInspector, PageScaffoldPrimaryAction, PageScaffoldStatus, Shell, ShellDispatch,
-    SidebarNav, SidebarState, TopBar,
+    PageScaffoldPrimaryAction, Shell, SidebarNav, SidebarState, Taskbar, TopBar,
 };
 pub use lifecycle_transition_dialog::{LifecycleTransitionDialog, LifecycleTransitionInfo};
 pub use link::{Link, LinkVariant};
+pub use list_empty_card::ListEmptyCard;
 pub use markdown::{Markdown, MarkdownStream};
 pub use offline_banner::OfflineBanner;
 pub use pagination_controls::PaginationControls;
-pub use progress_rail::ProgressRail;
 pub use progress_stages::{InlineProgress, ProgressController, ProgressStage, ProgressStages};
 pub use provenance_badge::ProvenanceBadge;
 pub use responsive::{
@@ -137,8 +143,19 @@ pub use trace_viewer::{
     TokenDecisions, TokenDecisionsPaged, TraceButton, TraceDetailStandalone, TracePanel,
     TraceViewer, TraceViewerWithData,
 };
+pub use tree_view::TreeView;
+pub use version_timeline::VersionTimeline;
 pub use workspace::{
     TwoColumnRatio, Workspace, WorkspaceColumn, WorkspaceGrid, WorkspaceTwoColumn,
+};
+
+// Virtual list components for efficient large list rendering
+pub use virtual_list::{CappedList, VirtualList, VirtualListConfig, VirtualTableBody};
+
+// Chart components (Liquid Glass Charts - PRD-UI-101)
+pub use charts::{
+    ChartPoint, DataSeries, HeatmapData, LineChart, MiniHeatmap, MiniLineChart, Sparkline,
+    SparklineMetric, StatusHeatmap, TimeSeriesData, WorkerStatus,
 };
 
 // Notification system components
@@ -151,6 +168,9 @@ pub use status_center::{
     StatusItemAvailability, StatusItemMemory, StatusItemSeverity, StatusLoadingState,
     StatusSection, StatusSectionBadgeVariant, StatusSectionLabel,
 };
+
+// Telemetry Overlay (Ctrl+Shift+T toggle)
+pub use telemetry_overlay::TelemetryOverlay;
 
 // Icon components (centralized SVG icons)
 pub use icons::{

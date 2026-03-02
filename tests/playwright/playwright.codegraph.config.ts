@@ -22,7 +22,7 @@ export default defineConfig({
   },
   reporter: [['html', { outputFolder: reportDir, open: 'never' }]],
   use: {
-    baseURL: 'http://127.0.0.1:18086',
+    baseURL: 'http://127.0.0.1:5173',
     trace: 'retain-on-failure',
     screenshot: 'only-on-failure',
     video: 'retain-on-failure',
@@ -33,8 +33,8 @@ export default defineConfig({
   ],
   webServer: {
     command:
-      'cd ../../crates/adapteros-codegraph-viewer/frontend && VITE_CODEGRAPH_TEST_DATA=1 npm run dev -- --host 127.0.0.1 --port 18086',
-    url: 'http://127.0.0.1:18086',
+      'cd ../../crates/adapteros-codegraph-viewer/frontend && VITE_CODEGRAPH_TEST_DATA=1 npm run dev -- --host 127.0.0.1 --port 5173',
+    url: 'http://127.0.0.1:5173',
     reuseExistingServer: true,
     timeout: 120_000,
   },

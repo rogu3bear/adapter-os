@@ -30,7 +30,7 @@ sqlite3 var/aos-cp.sqlite3 "SELECT COUNT(*), SUM(vram_mb) FROM adapters WHERE st
 
 ```bash
 # Force eviction (if API available)
-curl -X POST http://localhost:18080/v1/lifecycle/evict \
+curl -X POST http://localhost:8080/v1/lifecycle/evict \
   -H "Content-Type: application/json" \
   -d '{"strategy":"lowest_activation_pct","count":5}'
 

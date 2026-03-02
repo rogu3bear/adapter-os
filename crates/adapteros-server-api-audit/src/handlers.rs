@@ -126,17 +126,6 @@ pub async fn list_audits_extended(
     Extension(_claims): Extension<Claims>,
     Query(params): Query<AuditsQuery>,
 ) -> Result<Json<AuditsResponse>, (StatusCode, Json<ErrorResponse>)> {
-    let pool = state.db.pool_result().map_err(|e| {
-        (
-            StatusCode::INTERNAL_SERVER_ERROR,
-            Json(
-                ErrorResponse::new("failed to fetch audits")
-                    .with_code("INTERNAL_SERVER_ERROR")
-                    .with_string_details(e.to_string()),
-            ),
-        )
-    })?;
-
     let audits = sqlx::query_as::<_, AuditExtended>(
         "SELECT id, tenant_id, cpid, arr, ecs5, hlr, cr, status,
                 before_cpid, after_cpid, created_at
@@ -145,7 +134,7 @@ pub async fn list_audits_extended(
     )
     .bind(&params.tenant)
     .bind(params.limit.unwrap_or(50) as i64)
-    .fetch_all(pool)
+    .fetch_all(state.db.pool())
     .await
     .map_err(|e| {
         (
@@ -274,16 +263,7 @@ pub async fn get_federation_audit(
     require_any_role(&claims, &[Role::Admin, Role::Operator, Role::Viewer])?;
 
     // Fetch federation bundle signatures
-    let pool = state.db.pool_result().map_err(|e| {
-        (
-            StatusCode::INTERNAL_SERVER_ERROR,
-            Json(
-                ErrorResponse::new("failed to fetch federation signatures")
-                    .with_code("INTERNAL_SERVER_ERROR")
-                    .with_string_details(e.to_string()),
-            ),
-        )
-    })?;
+    let pool = state.db.pool();
 
     let signatures = sqlx::query(
         r#"
@@ -406,16 +386,7 @@ pub async fn get_compliance_audit(
     require_any_role(&claims, &[Role::Admin, Role::Operator, Role::Viewer])?;
 
     // Fetch policy violations from telemetry bundles
-    let pool = state.db.pool_result().map_err(|e| {
-        (
-            StatusCode::INTERNAL_SERVER_ERROR,
-            Json(
-                ErrorResponse::new("failed to count violations")
-                    .with_code("INTERNAL_SERVER_ERROR")
-                    .with_string_details(e.to_string()),
-            ),
-        )
-    })?;
+    let pool = state.db.pool();
 
     let violations = sqlx::query(
         r#"

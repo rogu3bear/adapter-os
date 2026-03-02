@@ -19,11 +19,9 @@
 use adapteros_config::InvariantsConfig;
 use adapteros_server::boot::{
     boot_invariant_metrics, enforce_invariants, invariants::InvariantCategory,
-    invariants::Severity, validate_boot_invariants, validate_post_db_invariants, InvariantReport,
-    InvariantViolation,
+    invariants::Severity, validate_boot_invariants, InvariantReport, InvariantViolation,
 };
 use adapteros_server_api::config::Config;
-use sqlx::sqlite::SqlitePoolOptions;
 use std::path::PathBuf;
 use std::sync::{Arc, RwLock};
 
@@ -36,7 +34,7 @@ fn create_test_config(production_mode: bool, invariants: InvariantsConfig) -> Ar
     let repo_root = manifest_dir
         .ancestors()
         .nth(2)
-        .unwrap_or(manifest_dir.as_path());
+        .unwrap_or_else(|| manifest_dir.as_path());
     let config_path = repo_root.join("configs").join("cp.toml");
 
     let mut cfg = Config::load(
@@ -201,24 +199,6 @@ mod enforcement_tests {
     }
 
     #[test]
-    fn test_enforce_blocks_dat_008_in_development() {
-        let mut report = InvariantReport::new();
-        report.record_violation(InvariantViolation {
-            id: "DAT-008",
-            category: InvariantCategory::Database,
-            message: "Required schema contract missing request_log.latency_ms".to_string(),
-            severity: Severity::Fatal,
-            remediation: "Run migrations to restore schema contract",
-        });
-
-        let result = enforce_invariants(&report, false);
-        assert!(
-            result.is_err(),
-            "DAT-008 must block startup in development mode as well"
-        );
-    }
-
-    #[test]
     fn test_enforce_multiple_fatal_violations() {
         let mut report = InvariantReport::new();
         report.record_violation(InvariantViolation {
@@ -260,11 +240,9 @@ mod validation_harness_tests {
 
     #[test]
     fn test_sec_000_break_glass_required_when_disabling_invariants_in_production() {
-        let invariants = InvariantsConfig {
-            disable_sec_001_dev_bypass: true,
-            i_understand_security_risk: false,
-            ..InvariantsConfig::default()
-        };
+        let mut invariants = InvariantsConfig::default();
+        invariants.disable_sec_001_dev_bypass = true;
+        invariants.i_understand_security_risk = false;
 
         let cfg = create_test_config(true, invariants);
         let report = validate_boot_invariants(&cfg, true);
@@ -275,18 +253,16 @@ mod validation_harness_tests {
         );
 
         assert!(
-            report.skipped_ids.contains(&"SEC-001"),
+            report.skipped_ids.iter().any(|id| *id == "SEC-001"),
             "Expected SEC-001 to be recorded as skipped when disable_sec_001_dev_bypass=true"
         );
     }
 
     #[test]
     fn test_sec_000_not_triggered_when_break_glass_ack_is_set() {
-        let invariants = InvariantsConfig {
-            disable_sec_001_dev_bypass: true,
-            i_understand_security_risk: true,
-            ..InvariantsConfig::default()
-        };
+        let mut invariants = InvariantsConfig::default();
+        invariants.disable_sec_001_dev_bypass = true;
+        invariants.i_understand_security_risk = true;
 
         let cfg = create_test_config(true, invariants);
         let report = validate_boot_invariants(&cfg, true);
@@ -411,127 +387,6 @@ mod new_invariants_tests {
 }
 
 #[cfg(test)]
-mod dat_008_schema_contract_tests {
-    use super::*;
-    use sqlx::SqlitePool;
-
-    async fn setup_memory_pool() -> SqlitePool {
-        SqlitePoolOptions::new()
-            .max_connections(1)
-            .connect("sqlite::memory:")
-            .await
-            .expect("create sqlite in-memory pool")
-    }
-
-    async fn create_required_dat_008_schema(
-        pool: &SqlitePool,
-        include_request_log_latency_ms: bool,
-    ) {
-        sqlx::query("CREATE TABLE workers (id TEXT PRIMARY KEY, last_seen_at TEXT NOT NULL)")
-            .execute(pool)
-            .await
-            .expect("create workers");
-        sqlx::query("CREATE TABLE system_settings (key TEXT PRIMARY KEY, value TEXT)")
-            .execute(pool)
-            .await
-            .expect("create system_settings");
-        sqlx::query(
-            "CREATE TABLE inference_trace_tokens (
-                id TEXT PRIMARY KEY,
-                selected_adapter_ids TEXT,
-                gates_q15 TEXT
-            )",
-        )
-        .execute(pool)
-        .await
-        .expect("create inference_trace_tokens");
-        sqlx::query(
-            "CREATE TABLE training_dataset_rows (
-                id TEXT PRIMARY KEY,
-                prompt TEXT,
-                response TEXT,
-                source_line INTEGER
-            )",
-        )
-        .execute(pool)
-        .await
-        .expect("create training_dataset_rows");
-        sqlx::query(
-            "CREATE TABLE plans (
-                id TEXT PRIMARY KEY,
-                cpid TEXT,
-                metallib_hash_b3 TEXT,
-                kernel_hashes_json TEXT
-            )",
-        )
-        .execute(pool)
-        .await
-        .expect("create plans");
-        sqlx::query("CREATE TABLE telemetry_events (id TEXT PRIMARY KEY, event_data TEXT)")
-            .execute(pool)
-            .await
-            .expect("create telemetry_events");
-
-        let request_log_sql = if include_request_log_latency_ms {
-            "CREATE TABLE request_log (id TEXT PRIMARY KEY, status_code INTEGER, latency_ms INTEGER)"
-        } else {
-            "CREATE TABLE request_log (id TEXT PRIMARY KEY, status_code INTEGER)"
-        };
-        sqlx::query(request_log_sql)
-            .execute(pool)
-            .await
-            .expect("create request_log");
-    }
-
-    fn config_for_dat_008_only() -> Arc<RwLock<Config>> {
-        let invariants = InvariantsConfig {
-            disable_dat_001_archive_triggers: true,
-            disable_dat_002_foreign_keys: true,
-            disable_dat_006_migration_order: true,
-            disable_dat_007_audit_chain: true,
-            ..InvariantsConfig::default()
-        };
-        create_test_config(true, invariants)
-    }
-
-    #[tokio::test]
-    async fn dat_008_fails_when_required_schema_column_is_missing() {
-        let cfg = config_for_dat_008_only();
-        let pool = setup_memory_pool().await;
-        create_required_dat_008_schema(&pool, false).await;
-
-        let report = validate_post_db_invariants(&cfg, &pool).await;
-        let dat_008 = report
-            .violations
-            .iter()
-            .find(|v| v.id == "DAT-008")
-            .expect("expected DAT-008 violation");
-
-        assert!(
-            dat_008.message.contains("request_log.latency_ms"),
-            "DAT-008 should identify missing required request_log.latency_ms column"
-        );
-        assert!(
-            dat_008.is_fatal(),
-            "DAT-008 should be fatal in production mode"
-        );
-    }
-
-    #[tokio::test]
-    async fn dat_008_passes_when_required_schema_exists() {
-        let cfg = config_for_dat_008_only();
-        let pool = setup_memory_pool().await;
-        create_required_dat_008_schema(&pool, true).await;
-
-        let report = validate_post_db_invariants(&cfg, &pool).await;
-        assert!(
-            !report.violations.iter().any(|v| v.id == "DAT-008"),
-            "DAT-008 should pass when required schema contract is present"
-        );
-    }
-}
-
-#[cfg(test)]
 mod escape_hatch_documentation {
     //! These tests document the escape hatch configuration behavior.
     //! Full integration testing requires the test harness.
@@ -556,7 +411,6 @@ mod escape_hatch_documentation {
         assert!(!config.disable_dat_005_storage_mode);
         assert!(!config.disable_dat_006_migration_order);
         assert!(!config.disable_dat_007_audit_chain);
-        assert!(!config.disable_dat_008_schema_contract);
         assert!(!config.disable_lif_002_executor_init);
         assert!(!config.disable_cfg_002_session_ttl);
 
@@ -573,9 +427,6 @@ mod escape_hatch_documentation {
         println!("  disable_dat_005_storage_mode -> Skip DAT-005 (storage mode enum check)");
         println!("  disable_dat_006_migration_order -> Skip DAT-006 (migration ordering check)");
         println!("  disable_dat_007_audit_chain -> Skip DAT-007 (audit chain init check)");
-        println!(
-            "  disable_dat_008_schema_contract -> Skip DAT-008 (required schema contract check)"
-        );
         println!("  disable_lif_002_executor_init -> Skip LIF-002 (executor initialization check)");
         println!("  disable_cfg_002_session_ttl -> Skip CFG-002 (session TTL hierarchy check)");
     }

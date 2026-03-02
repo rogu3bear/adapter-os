@@ -25,7 +25,7 @@ async fn create_test_tenant(db: &Db, tenant_id: &str) -> Result<()> {
     sqlx::query("INSERT INTO tenants (id, name, itar_flag) VALUES (?, ?, 0)")
         .bind(tenant_id)
         .bind(tenant_id)
-        .execute(db.pool_result()?)
+        .execute(db.pool())
         .await
         .map_err(|e| {
             adapteros_core::AosError::Database(format!("Failed to create tenant: {}", e))
@@ -48,7 +48,7 @@ async fn create_test_repo(db: &Db, repo_id: &str) -> Result<()> {
     .bind("{}")
     .bind("analyzed")
     .bind("test-user")
-    .execute(db.pool_result()?)
+    .execute(db.pool())
     .await
     .map_err(|e| adapteros_core::AosError::Database(format!("Failed to create repo: {}", e)))?;
     Ok(())
@@ -63,7 +63,7 @@ async fn create_test_dataset(db: &Db, dataset_id: &str, tenant_id: &str) -> Resu
     .bind(dataset_id)
     .bind(format!("dataset-{}", dataset_id))
     .bind(tenant_id)
-    .execute(db.pool_result()?)
+    .execute(db.pool())
     .await
     .map_err(|e| adapteros_core::AosError::Database(format!("Failed to create dataset: {}", e)))?;
     Ok(())
@@ -93,7 +93,7 @@ async fn create_test_training_job_with_provenance(
     .bind(tenant_id)
     .bind(adapter_id)
     .bind(dataset_id)
-    .execute(db.pool_result()?)
+    .execute(db.pool())
     .await
     .map_err(|e| {
         adapteros_core::AosError::Database(format!("Failed to create training job: {}", e))

@@ -76,7 +76,7 @@ pub enum ChatCommand {
         stack: Option<String>,
 
         /// Base URL for API
-        #[arg(long, default_value = "http://127.0.0.1:18080")]
+        #[arg(long, default_value = "http://127.0.0.1:8080/api")]
         base_url: String,
 
         /// Show verbose output (activated adapters, etc.)
@@ -122,7 +122,7 @@ pub enum ChatCommand {
         temperature: f32,
 
         /// Base URL for API
-        #[arg(long, default_value = "http://127.0.0.1:18080")]
+        #[arg(long, default_value = "http://127.0.0.1:8080/api")]
         base_url: String,
 
         /// Mark session as owned by system assistant (source_type=owner_system)
@@ -150,7 +150,7 @@ pub enum ChatCommand {
         json: bool,
 
         /// Base URL for API
-        #[arg(long, default_value = "http://127.0.0.1:18080")]
+        #[arg(long, default_value = "http://127.0.0.1:8080/api")]
         base_url: String,
     },
 
@@ -167,7 +167,7 @@ pub enum ChatCommand {
         json: bool,
 
         /// Base URL for API
-        #[arg(long, default_value = "http://127.0.0.1:18080")]
+        #[arg(long, default_value = "http://127.0.0.1:8080/api")]
         base_url: String,
     },
 }
@@ -251,7 +251,6 @@ fn get_chat_command_name(cmd: &ChatCommand) -> String {
 }
 
 /// Run interactive chat REPL
-#[allow(clippy::too_many_arguments)]
 async fn run_interactive_chat(
     stack: Option<String>,
     base_url: &str,
@@ -876,7 +875,7 @@ mod tests {
         assert_eq!(
             get_chat_command_name(&ChatCommand::Interactive {
                 stack: None,
-                base_url: "http://localhost:18080".to_string(),
+                base_url: "http://localhost:8080".to_string(),
                 verbose: false,
                 owner_system: false,
                 local: false,
@@ -891,7 +890,7 @@ mod tests {
                 stack: None,
                 max_tokens: 100,
                 temperature: 0.7,
-                base_url: "http://localhost:18080".to_string(),
+                base_url: "http://localhost:8080".to_string(),
                 owner_system: false,
                 local: false,
                 model_path: None,

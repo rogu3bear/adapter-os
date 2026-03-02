@@ -188,7 +188,7 @@ impl Db {
         )
         .bind(new_state.as_str())
         .bind(adapter_id)
-        .execute(self.pool_result()?)
+        .execute(self.pool())
         .await
         .map_err(|e| AosError::Database(format!("Failed to update lifecycle state: {}", e)))?;
 
@@ -237,7 +237,7 @@ impl Db {
              ORDER BY alh.created_at DESC",
         )
         .bind(adapter_id)
-        .fetch_all(self.pool_result()?)
+        .fetch_all(self.pool())
         .await
         .map_err(|e| AosError::Database(format!("Failed to query lifecycle history: {}", e)))?;
 
@@ -311,7 +311,7 @@ impl Db {
         )
         .bind(new_version)
         .bind(adapter_id)
-        .execute(self.pool_result()?)
+        .execute(self.pool())
         .await
         .map_err(|e| AosError::Database(format!("Failed to update version: {}", e)))?;
 
@@ -375,7 +375,7 @@ impl Db {
         .bind(new_state.as_str())
         .bind(stack_id)
         .bind(tenant_id)
-        .execute(self.pool_result()?)
+        .execute(self.pool())
         .await
         .map_err(|e| AosError::Database(format!("Failed to update lifecycle state: {}", e)))?;
 
@@ -435,7 +435,7 @@ impl Db {
         .bind(new_version)
         .bind(stack_id)
         .bind(tenant_id)
-        .execute(self.pool_result()?)
+        .execute(self.pool())
         .await
         .map_err(|e| AosError::Database(format!("Failed to update version: {}", e)))?;
 
@@ -529,7 +529,7 @@ impl Db {
             "SELECT adapter_id, metadata_json FROM adapters WHERE repo_id = ? AND lifecycle_state = 'active'",
         )
         .bind(repo_id)
-        .fetch_all(self.pool_result()?)
+        .fetch_all(self.pool())
         .await
         .map_err(|e| AosError::Database(format!("Failed to check active adapters: {}", e)))?;
 
@@ -665,7 +665,7 @@ impl Db {
             "SELECT adapter_id, metadata_json FROM adapters WHERE repo_id = ? AND lifecycle_state = 'active'",
         )
         .bind(repo_id)
-        .fetch_all(self.pool_result()?)
+        .fetch_all(self.pool())
         .await
         .map_err(|e| AosError::Database(format!("Failed to list active adapters: {}", e)))?;
 
@@ -702,7 +702,7 @@ impl Db {
             "SELECT COUNT(1) FROM adapters WHERE repo_id = ? AND lifecycle_state = 'active'",
         )
         .bind(repo_id)
-        .fetch_one(self.pool_result()?)
+        .fetch_one(self.pool())
         .await
         .map_err(|e| AosError::Database(format!("Failed to check active adapters: {}", e)))?;
 
@@ -733,7 +733,7 @@ impl Db {
             "SELECT adapter_id, metadata_json FROM adapters WHERE repo_path = ? AND lifecycle_state = 'active'",
         )
         .bind(repo_path)
-        .fetch_all(self.pool_result()?)
+        .fetch_all(self.pool())
         .await
         .map_err(|e| AosError::Database(format!("Failed to check active adapters by path: {}", e)))?;
 
@@ -1025,7 +1025,7 @@ impl Db {
             "SELECT COUNT(1) FROM adapters WHERE repo_path = ? AND lifecycle_state = 'active'",
         )
         .bind(repo_path)
-        .fetch_one(self.pool_result()?)
+        .fetch_one(self.pool())
         .await
         .map_err(|e| {
             AosError::Database(format!("Failed to check active adapters by path: {}", e))
@@ -1079,7 +1079,7 @@ impl Db {
             "SELECT adapter_id, metadata_json FROM adapters WHERE codebase_scope = ? AND lifecycle_state = 'active'",
         )
         .bind(codebase_scope)
-        .fetch_all(self.pool_result()?)
+        .fetch_all(self.pool())
         .await
         .map_err(|e| AosError::Database(format!("Failed to check active adapters by codebase_scope: {}", e)))?;
 
@@ -1207,7 +1207,7 @@ impl Db {
             "SELECT COUNT(1) FROM adapters WHERE codebase_scope = ? AND lifecycle_state = 'active'",
         )
         .bind(codebase_scope)
-        .fetch_one(self.pool_result()?)
+        .fetch_one(self.pool())
         .await
         .map_err(|e| {
             AosError::Database(format!(
@@ -1238,7 +1238,7 @@ impl Db {
             "SELECT adapter_id, metadata_json FROM adapters WHERE codebase_scope = ? AND lifecycle_state = 'active'",
         )
         .bind(codebase_scope)
-        .fetch_all(self.pool_result()?)
+        .fetch_all(self.pool())
         .await
         .map_err(|e| AosError::Database(format!("Failed to list active adapters by codebase_scope: {}", e)))?;
 
@@ -1336,7 +1336,7 @@ impl Db {
             "SELECT 1 FROM adapter_training_snapshots WHERE adapter_id = ? LIMIT 1",
         )
         .bind(adapter_id)
-        .fetch_optional(self.pool_result()?)
+        .fetch_optional(self.pool())
         .await
         .map_err(|e| AosError::Database(format!("Failed to check training snapshot: {}", e)))?;
 
@@ -1419,7 +1419,7 @@ impl Db {
             "SELECT COUNT(1) FROM adapters WHERE tenant_id = ? AND lifecycle_state = 'active'",
         )
         .bind(tenant_id)
-        .fetch_one(self.pool_result()?)
+        .fetch_one(self.pool())
         .await
         .map_err(|e| AosError::Database(format!("Failed to count active adapters: {}", e)))?;
 
@@ -1488,7 +1488,7 @@ impl Db {
         )
         .bind(tenant_id)
         .bind(adapter_name)
-        .fetch_all(self.pool_result()?)
+        .fetch_all(self.pool())
         .await
         .map_err(|e| AosError::Database(format!("Failed to check active adapters by name: {}", e)))?;
 
@@ -1544,7 +1544,7 @@ impl Db {
             "SELECT COUNT(1) FROM adapters WHERE repo_id = ? AND lifecycle_state = 'active'",
         )
         .bind(repo_id)
-        .fetch_one(self.pool_result()?)
+        .fetch_one(self.pool())
         .await
         .map_err(|e| AosError::Database(format!("Failed to count active adapters: {}", e)))?;
         Ok(count)
@@ -1555,7 +1555,7 @@ impl Db {
         let rows = sqlx::query(
             "SELECT repo_id, COUNT(1) as cnt FROM adapters WHERE lifecycle_state = 'active' AND repo_id IS NOT NULL GROUP BY repo_id HAVING cnt > 1",
         )
-        .fetch_all(self.pool_result()?)
+        .fetch_all(self.pool())
         .await
         .map_err(|e| AosError::Database(format!("Failed to find repos with multiple active: {}", e)))?;
 
@@ -1581,21 +1581,21 @@ impl Db {
     pub async fn get_active_uniqueness_summary(&self) -> Result<(i64, i64, i64)> {
         let total_active: i64 =
             sqlx::query_scalar("SELECT COUNT(1) FROM adapters WHERE lifecycle_state = 'active'")
-                .fetch_one(self.pool_result()?)
+                .fetch_one(self.pool())
                 .await
                 .map_err(|e| AosError::Database(format!("Failed to count total active: {}", e)))?;
 
         let multi_active: i64 = sqlx::query_scalar(
             "SELECT COUNT(DISTINCT repo_id) FROM (SELECT repo_id, COUNT(1) as cnt FROM adapters WHERE lifecycle_state = 'active' AND repo_id IS NOT NULL GROUP BY repo_id HAVING cnt > 1)",
         )
-        .fetch_one(self.pool_result()?)
+        .fetch_one(self.pool())
         .await
         .map_err(|e| AosError::Database(format!("Failed to count multi-active repos: {}", e)))?;
 
         let single_active: i64 = sqlx::query_scalar(
             "SELECT COUNT(DISTINCT repo_id) FROM (SELECT repo_id, COUNT(1) as cnt FROM adapters WHERE lifecycle_state = 'active' AND repo_id IS NOT NULL GROUP BY repo_id HAVING cnt = 1)",
         )
-        .fetch_one(self.pool_result()?)
+        .fetch_one(self.pool())
         .await
         .map_err(|e| AosError::Database(format!("Failed to count single-active repos: {}", e)))?;
 
@@ -1842,7 +1842,7 @@ impl Db {
             "SELECT aos_file_path, aos_file_hash, content_hash_b3 FROM adapters WHERE adapter_id = ?",
         )
         .bind(adapter_id)
-        .fetch_optional(self.pool_result()?)
+        .fetch_optional(self.pool())
         .await
         .map_err(|e| AosError::Database(format!("Failed to check artifact prerequisites: {}", e)))?;
 
@@ -1904,7 +1904,7 @@ impl Db {
             "SELECT 1 FROM adapter_training_snapshots WHERE adapter_id = ? LIMIT 1",
         )
         .bind(adapter_id)
-        .fetch_optional(self.pool_result()?)
+        .fetch_optional(self.pool())
         .await
         .map_err(|e| AosError::Database(format!("Failed to check training snapshot: {}", e)))?;
 
@@ -1934,7 +1934,7 @@ impl Db {
             "SELECT repo_id, repo_path, codebase_scope, metadata_json FROM adapters WHERE adapter_id = ?",
         )
         .bind(adapter_id)
-        .fetch_optional(self.pool_result()?)
+        .fetch_optional(self.pool())
         .await
         .map_err(|e| AosError::Database(format!("Failed to fetch adapter for uniqueness check: {}", e)))?;
 

@@ -13,10 +13,6 @@
                 if (!raw) return;
                 var settings = JSON.parse(raw);
                 var theme = settings && settings.theme;
-                var density = settings && settings.density;
-                if (!density && settings && settings.compact_mode === true) {
-                    density = 'compact';
-                }
                 if (theme === 'dark') {
                     document.documentElement.classList.add('dark');
                 } else if (theme === 'light') {
@@ -29,10 +25,6 @@
                         document.documentElement.classList.add('light');
                     }
                 }
-                document.documentElement.setAttribute(
-                    'data-density',
-                    density === 'compact' ? 'compact' : 'comfortable'
-                );
             } catch(e) {
                 // Silently fail — WASM will apply theme later
             }
@@ -47,10 +39,14 @@
     <link data-trunk rel="css" href="dist/fonts.css">
     <!-- Base styles with CSS variables and reset -->
     <link data-trunk rel="css" href="dist/base.css">
-    <!-- Component styles (bundled from dist/components/ fragments by scripts/bundle-css.sh) -->
-    <link data-trunk rel="css" href="dist/components-bundle.css">
+    <!-- Component styles -->
+    <link data-trunk rel="css" href="dist/components.css">
+    <!-- Component stylesheet fragments referenced by components.css @import -->
+    <link data-trunk rel="copy-dir" href="dist/components">
     <!-- Glass morphism theme (PRD-UI-100) -->
     <link data-trunk rel="css" href="dist/glass.css">
+    <!-- Liquid Glass Charts (PRD-UI-101) -->
+    <link data-trunk rel="css" href="dist/charts.css">
     <link data-trunk rel="copy-dir" href="js">
     <link data-trunk rel="copy-dir" href="dist/fonts">
     <link data-trunk rel="copy-file" href="dist/favicon.svg">
@@ -133,7 +129,7 @@
             font-size: 18px;
             font-weight: 600;
             color: var(--boot-progress-title, #e5e7eb);
-            letter-spacing: var(--tracking-tight, -0.025em);
+            letter-spacing: -0.025em;
         }
 
         #aos-boot-progress .boot-stages {
@@ -346,17 +342,6 @@
         #aos-panic-overlay button.secondary:hover {
             background: var(--boot-overlay-button-secondary-bg-hover, #5c0f0f);
         }
-
-        html,
-        body {
-            min-height: 100%;
-        }
-
-        #aos-root {
-            width: 100%;
-            max-width: 100%;
-            min-height: 100dvh;
-        }
     </style>
 </head>
 
@@ -380,8 +365,6 @@
             } catch(e) {}
         })();
     </script>
-    <!-- Stable SSR outlet; hydrate into this node when present -->
-    <main id="aos-root" data-leptos-root><!--AOS_SSR_OUTLET--></main>
     <!-- PRD-UI-000: Boot progress display -->
     <div id="aos-boot-progress">
         <div class="boot-header">
@@ -455,17 +438,33 @@
 
                     var contentLength = response.headers.get('content-length');
                     var total = contentLength ? parseInt(contentLength, 10) : 0;
-                    if (!Number.isFinite(total) || total < 0) total = 0;
+                    var loaded = 0;
 
                     if (window.aosWasmFetchStart) window.aosWasmFetchStart(total);
 
-                    // Never consume/read the response stream here. Cached streaming bodies can
-                    // starve the main thread during recursive reader loops on hard reloads.
-                    if (window.aosWasmFetchProgress && total > 0) {
-                        window.aosWasmFetchProgress(total, total);
+                    var reader = response.body.getReader();
+                    var chunks = [];
+
+                    function read() {
+                        return reader.read().then(function (result) {
+                            if (result.done) {
+                                if (window.aosWasmFetchDone) window.aosWasmFetchDone(loaded);
+                                var blob = new Blob(chunks);
+                                return new Response(blob, {
+                                    headers: response.headers,
+                                    status: response.status,
+                                    statusText: response.statusText
+                                });
+                            }
+
+                            chunks.push(result.value);
+                            loaded += result.value.length;
+                            if (window.aosWasmFetchProgress) window.aosWasmFetchProgress(loaded, total);
+                            return read();
+                        });
                     }
-                    if (window.aosWasmFetchDone) window.aosWasmFetchDone(total);
-                    return response;
+
+                    return read();
                 });
             };
         })();
@@ -1062,17 +1061,6 @@
         // Improves subsequent page loads significantly
         (function () {
             if ('serviceWorker' in navigator) {
-                var skipServiceWorker = false;
-                try {
-                    skipServiceWorker = !!navigator.webdriver;
-                } catch (_err) {
-                    skipServiceWorker = false;
-                }
-                if (skipServiceWorker) {
-                    console.log('[adapterOS] Service worker registration skipped: webdriver environment');
-                    return;
-                }
-
                 // Wait until after app is mounted to register SW
                 // This prioritizes initial render over SW registration
                 var originalMounted = window.aosSignalMounted;
@@ -1099,20 +1087,10 @@
             }
         })();
     </script>
-    <script>
-        // Leptos hydration globals expected by wasm-bindgen glue in hydrate mode.
-        window.__INCOMPLETE_CHUNKS = window.__INCOMPLETE_CHUNKS || new Map();
-        window.__RESOLVED_RESOURCES = window.__RESOLVED_RESOURCES || new Map();
-        window.__SERIALIZED_ERRORS = window.__SERIALIZED_ERRORS || new Map();
-        // Expose global bindings for module accessors (unqualified identifier lookup).
-        var __INCOMPLETE_CHUNKS = window.__INCOMPLETE_CHUNKS;
-        var __RESOLVED_RESOURCES = window.__RESOLVED_RESOURCES;
-        var __SERIALIZED_ERRORS = window.__SERIALIZED_ERRORS;
-    </script>
     <!-- PRD-UI-000: Load WASM after boot hooks are installed.
          This avoids a race where Rust calls window.aosSignalMounted before it's defined,
          leaving the boot progress overlay stuck on screen in fast/cached loads. -->
-    <link data-trunk rel="rust" data-cargo-features="hydrate" data-wasm-opt="0">
+    <link data-trunk rel="rust" data-wasm-opt="0">
 </body>
 
 </html>

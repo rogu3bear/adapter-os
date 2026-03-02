@@ -102,8 +102,8 @@ fn check_migrations() -> Check {
 
 fn check_zeroization() -> Check {
     // Check for zeroization in registry or worker
-    let registry_src = "crates/adapteros-registry/src/lib.rs";
-    let worker_src = "crates/adapteros-lora-worker/src/lib.rs";
+    let registry_src = "crates/mplora-registry/src/lib.rs";
+    let worker_src = "crates/mplora-worker/src/lib.rs";
 
     let mut found_in = Vec::new();
     let mut evidence = Vec::new();
@@ -130,9 +130,9 @@ fn check_zeroization() -> Check {
 fn check_cache_warmup() -> Check {
     // Check for warmup logic in worker or orchestrator
     let sources = [
-        "crates/adapteros-lora-worker/src/lib.rs",
-        "crates/adapteros-orchestrator/src/lib.rs",
-        "crates/adapteros-registry/src/lib.rs",
+        "crates/mplora-worker/src/lib.rs",
+        "crates/mplora-orchestrator/src/lib.rs",
+        "crates/mplora-registry/src/lib.rs",
     ];
 
     for src in sources {
@@ -155,8 +155,8 @@ fn check_cache_warmup() -> Check {
 fn check_auto_reload() -> Check {
     // Check for reload logic in registry or worker
     let sources = [
-        "crates/adapteros-registry/src/lib.rs",
-        "crates/adapteros-lora-worker/src/lib.rs",
+        "crates/mplora-registry/src/lib.rs",
+        "crates/mplora-worker/src/lib.rs",
     ];
 
     for src in sources {
@@ -178,7 +178,7 @@ fn check_auto_reload() -> Check {
 
 fn check_pinning() -> Check {
     // Check for pinning in CLI or database
-    let cli_src = "crates/adapteros-cli/src/commands/adapters.rs";
+    let cli_src = "crates/mplora-cli/src/commands/adapters.rs";
 
     if let Ok(content) = fs::read_to_string(cli_src) {
         if content.contains("pin") {
@@ -207,8 +207,8 @@ fn check_pinning() -> Check {
 
 fn check_per_tenant_policy() -> Check {
     // Check for tenant-specific policy in policy or worker crates
-    let policy_src = "crates/adapteros-policy/src/lib.rs";
-    let worker_src = "crates/adapteros-lora-worker/src/lib.rs";
+    let policy_src = "crates/mplora-policy/src/lib.rs";
+    let worker_src = "crates/mplora-worker/src/lib.rs";
 
     for src in [policy_src, worker_src] {
         if let Ok(content) = fs::read_to_string(src) {
@@ -229,7 +229,7 @@ fn check_per_tenant_policy() -> Check {
 
 fn check_dependencies() -> Check {
     // Check for dependency validation in registry
-    let registry_src = "crates/adapteros-registry/src/lib.rs";
+    let registry_src = "crates/mplora-registry/src/lib.rs";
 
     if let Ok(content) = fs::read_to_string(registry_src) {
         if content.contains("dependencies") || content.contains("requires_adapters") {
@@ -258,7 +258,7 @@ fn check_dependencies() -> Check {
 
 fn check_router_k0() -> Check {
     // Check for k0 handling in router
-    let router_src = "crates/adapteros-lora-router/src/lib.rs";
+    let router_src = "crates/mplora-router/src/lib.rs";
 
     if let Ok(content) = fs::read_to_string(router_src) {
         if content.contains("k0") || content.contains("router.k0") {

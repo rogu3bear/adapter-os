@@ -41,40 +41,6 @@ use axum::{extract::State, http::StatusCode, Extension, Json};
 use tokio_util::sync::CancellationToken;
 use tracing::{info, warn};
 
-const BEHAVIOR_TUNING_MARKER: &str = "[AOS_BEHAVIOR_TUNING_V1]";
-const BEHAVIOR_TUNING_PROMPT_SPARTAN_SAFE: &str = "[AOS_BEHAVIOR_TUNING_V1]
-You are concise, practical, and safe.
-Style:
-- Be brief, direct, and concrete.
-- Prefer the smallest viable solution first.
-- State risks and tradeoffs plainly.
-- No hype, no snark, no moralizing.
-Safety:
-- Refuse harmful, abusive, deceptive, or exploitative requests.
-- Do not provide workaround details for harmful intent.
-- Offer a safe alternative immediately.
-- Keep refusals short and non-judgmental.
-Quality:
-- Use tasteful engineering judgment.
-- Minimize blast radius.
-- When uncertain, state what is unknown and propose the next check.";
-const BEHAVIOR_TUNING_PROMPT_SPARTAN_ENGINEER: &str = "[AOS_BEHAVIOR_TUNING_V1]
-You are a senior engineer focused on reliability and minimal diffs.
-Output rules:
-- Keep responses short by default.
-- Lead with the decision or recommendation.
-- Include one key risk and one mitigation when relevant.
-- Prefer reversible changes and clear rollback paths.
-- Keep wording plain and technical.
-Safety:
-- Refuse harmful or deceptive requests and redirect to safe alternatives.";
-const BEHAVIOR_TUNING_PROMPT_STRICT_SAFE: &str = "[AOS_BEHAVIOR_TUNING_V1]
-Safety mode is strict.
-- Decline requests involving harm, abuse, deception, malware, phishing, evasion, or exploitation.
-- Provide only defensive, educational, or benign alternatives.
-- Never include tactical details that enable misuse.
-- Keep tone calm, brief, and non-judgmental.";
-
 struct DispatchCancelGuard {
     token: CancellationToken,
     armed: bool,
@@ -94,73 +60,6 @@ impl Drop for DispatchCancelGuard {
     fn drop(&mut self) {
         if self.armed {
             self.token.cancel();
-        }
-    }
-}
-
-fn behavior_tuning_enabled() -> bool {
-    std::env::var("AOS_BEHAVIOR_TUNING")
-        .ok()
-        .map(|v| {
-            let value = v.trim().to_ascii_lowercase();
-            !(value == "0" || value == "false" || value == "off" || value == "no")
-        })
-        .unwrap_or(true)
-}
-
-fn behavior_tuning_system_prompt() -> String {
-    if let Ok(custom) = std::env::var("AOS_BEHAVIOR_TUNING_SYSTEM_PROMPT") {
-        let trimmed = custom.trim();
-        if !trimmed.is_empty() {
-            return format!("{BEHAVIOR_TUNING_MARKER} {trimmed}");
-        }
-    }
-
-    match std::env::var("AOS_BEHAVIOR_TUNING_PRESET")
-        .ok()
-        .map(|v| v.trim().to_ascii_lowercase())
-        .as_deref()
-    {
-        Some("spartan_safe") | Some("spartan_safe_v1") => {
-            BEHAVIOR_TUNING_PROMPT_SPARTAN_SAFE.to_string()
-        }
-        Some("spartan_engineer") => BEHAVIOR_TUNING_PROMPT_SPARTAN_ENGINEER.to_string(),
-        Some("strict_safe") => BEHAVIOR_TUNING_PROMPT_STRICT_SAFE.to_string(),
-        _ => BEHAVIOR_TUNING_PROMPT_SPARTAN_SAFE.to_string(),
-    }
-}
-
-fn apply_behavior_tuning(internal: &mut InferenceRequestInternal) {
-    if !behavior_tuning_enabled() {
-        return;
-    }
-
-    let has_guardrail_system = internal.messages.as_ref().is_some_and(|msgs| {
-        msgs.iter().any(|m| {
-            m.role.eq_ignore_ascii_case("system") && m.content.contains(BEHAVIOR_TUNING_MARKER)
-        })
-    });
-    if has_guardrail_system {
-        return;
-    }
-
-    let system_message = adapteros_types::inference::ChatMessage {
-        role: "system".to_string(),
-        content: behavior_tuning_system_prompt(),
-    };
-
-    match internal.messages.as_mut() {
-        Some(messages) => {
-            messages.insert(0, system_message);
-        }
-        None => {
-            internal.messages = Some(vec![
-                system_message,
-                adapteros_types::inference::ChatMessage {
-                    role: "user".to_string(),
-                    content: internal.prompt.clone(),
-                },
-            ]);
         }
     }
 }
@@ -427,7 +326,6 @@ pub async fn infer(
             internal.coreml_mode = Some(coreml_mode);
         }
     }
-    apply_behavior_tuning(&mut internal);
 
     // Execute via InferenceCore - this is the single entry point for all inference
     let cancel_token = CancellationToken::new();
@@ -492,9 +390,6 @@ pub async fn infer(
                     deterministic_receipt: None,
                     run_envelope: None,
                     citations: vec![],
-                    document_links: vec![],
-                    adapter_attachments: vec![],
-                    degraded_notices: vec![],
                     trace: InferenceTrace {
                         adapters_used: vec![],
                         router_decisions: vec![],

@@ -6,9 +6,7 @@
 //! [2025-01-20 modularity streaming_handlers]
 
 use crate::auth::Claims;
-use crate::state::{AppState, StreamingConfig};
-use adapteros_core::identity::IdentityEnvelope;
-use adapteros_telemetry::unified_events::{EventType, LogLevel, TelemetryEventBuilder};
+use crate::state::AppState;
 use axum::{
     extract::{Extension, State},
     http::StatusCode,
@@ -553,7 +551,7 @@ pub async fn adapter_state_stream(
 
             // Get adapter states from lifecycle manager if available
             let adapter_events = if let Some(ref lifecycle_manager) = state.lifecycle_manager {
-                let manager = lifecycle_manager;
+                let manager = lifecycle_manager.lock().await;
                 let all_states = manager.get_all_states();
 
                 let mut events = Vec::new();
@@ -1099,30 +1097,6 @@ pub async fn notifications_stream(
 // Circuit Breaker for SSE Streams
 // ============================================================================
 
-#[derive(Debug, Clone, Copy, PartialEq, Eq)]
-enum StreamBreakerState {
-    Closed,
-    Open { opened_at: std::time::Instant },
-    HalfOpen,
-}
-
-#[derive(Debug, Clone, Copy, PartialEq, Eq)]
-enum StreamBreakerTransition {
-    Opened,
-    HalfOpen,
-    Recovered,
-}
-
-impl StreamBreakerTransition {
-    fn as_str(self) -> &'static str {
-        match self {
-            Self::Opened => "open",
-            Self::HalfOpen => "half_open",
-            Self::Recovered => "recover",
-        }
-    }
-}
-
 /// Circuit breaker state for SSE stream error handling
 #[derive(Debug, Clone)]
 struct StreamCircuitBreaker {
@@ -1130,20 +1104,22 @@ struct StreamCircuitBreaker {
     threshold: u32,
     /// Current consecutive error count
     error_count: u32,
-    /// Current breaker state
-    state: StreamBreakerState,
+    /// Whether circuit is currently open (blocking requests)
+    is_open: bool,
+    /// Time when circuit was opened (for half-open recovery)
+    opened_at: Option<std::time::Instant>,
     /// Recovery timeout before trying half-open state
     recovery_timeout: Duration,
 }
 
 impl Default for StreamCircuitBreaker {
     fn default() -> Self {
-        let (threshold, recovery_timeout) = StreamingConfig::default().sse_breaker_settings();
         Self {
-            threshold,
+            threshold: 5,
             error_count: 0,
-            state: StreamBreakerState::Closed,
-            recovery_timeout,
+            is_open: false,
+            opened_at: None,
+            recovery_timeout: Duration::from_secs(30),
         }
     }
 }
@@ -1151,194 +1127,42 @@ impl Default for StreamCircuitBreaker {
 impl StreamCircuitBreaker {
     fn new(threshold: u32, recovery_timeout: Duration) -> Self {
         Self {
-            threshold: threshold.max(1),
+            threshold,
             recovery_timeout,
             ..Default::default()
         }
     }
 
-    fn record_success(&mut self) -> Option<StreamBreakerTransition> {
-        let was_half_open = matches!(self.state, StreamBreakerState::HalfOpen);
+    fn record_success(&mut self) {
         self.error_count = 0;
-        self.state = StreamBreakerState::Closed;
-        if was_half_open {
-            Some(StreamBreakerTransition::Recovered)
-        } else {
-            None
-        }
+        self.is_open = false;
+        self.opened_at = None;
     }
 
-    fn record_error(&mut self) -> Option<StreamBreakerTransition> {
-        match self.state {
-            StreamBreakerState::HalfOpen => {
-                self.error_count = self.threshold;
-                self.state = StreamBreakerState::Open {
-                    opened_at: std::time::Instant::now(),
-                };
-                warn!(
-                    error_count = self.error_count,
-                    threshold = self.threshold,
-                    "SSE stream circuit breaker reopened from half-open"
-                );
-                Some(StreamBreakerTransition::Opened)
-            }
-            _ => {
-                self.error_count += 1;
-                if self.error_count < self.threshold {
-                    return None;
-                }
-
-                self.state = StreamBreakerState::Open {
-                    opened_at: std::time::Instant::now(),
-                };
-                warn!(
-                    error_count = self.error_count,
-                    threshold = self.threshold,
-                    "SSE stream circuit breaker opened"
-                );
-                Some(StreamBreakerTransition::Opened)
-            }
-        }
-    }
-
-    fn should_allow(&mut self) -> (bool, Option<StreamBreakerTransition>) {
-        match self.state {
-            StreamBreakerState::Closed | StreamBreakerState::HalfOpen => (true, None),
-            StreamBreakerState::Open { opened_at } => {
-                if opened_at.elapsed() < self.recovery_timeout {
-                    return (false, None);
-                }
-
-                self.state = StreamBreakerState::HalfOpen;
-                warn!(
-                    threshold = self.threshold,
-                    recovery_timeout_secs = self.recovery_timeout_secs(),
-                    "SSE stream circuit breaker entering half-open"
-                );
-                (true, Some(StreamBreakerTransition::HalfOpen))
-            }
-        }
-    }
-
-    fn recovery_timeout_secs(&self) -> u64 {
-        self.recovery_timeout.as_secs().max(1)
-    }
-
-    fn state_metric_value(&self) -> f64 {
-        match self.state {
-            StreamBreakerState::Closed => 0.0,
-            StreamBreakerState::HalfOpen => 1.0,
-            StreamBreakerState::Open { .. } => 2.0,
-        }
-    }
-}
-
-fn stream_breaker_settings(state: &AppState) -> (u32, Duration) {
-    match state.config.read() {
-        Ok(config) => config.streaming.sse_breaker_settings(),
-        Err(_) => {
-            warn!("Configuration lock poisoned; using default SSE circuit breaker settings");
-            StreamingConfig::default().sse_breaker_settings()
-        }
-    }
-}
-
-fn stream_breaker_transition_metadata(
-    stream_name: &str,
-    workspace_id: &str,
-    cb: &StreamCircuitBreaker,
-    transition: StreamBreakerTransition,
-) -> serde_json::Value {
-    serde_json::json!({
-        "stream_name": stream_name,
-        "workspace_id": workspace_id,
-        "transition": transition.as_str(),
-        "threshold": cb.threshold,
-        "error_count": cb.error_count,
-        "recovery_timeout_secs": cb.recovery_timeout_secs(),
-    })
-}
-
-async fn emit_stream_breaker_transition(
-    state: &AppState,
-    tenant_id: &str,
-    stream_name: &str,
-    workspace_id: &str,
-    cb: &StreamCircuitBreaker,
-    transition: StreamBreakerTransition,
-) {
-    let transition_label = transition.as_str();
-    state
-        .metrics_registry
-        .record_metric(
-            format!(
-                "streaming.circuit_breaker.{}.{}.total",
-                stream_name, transition_label
-            ),
-            1.0,
-        )
-        .await;
-    state
-        .metrics_registry
-        .set_gauge(
-            format!("streaming.circuit_breaker.{}.state", stream_name),
-            cb.state_metric_value(),
-        )
-        .await;
-
-    let identity = IdentityEnvelope::new(
-        tenant_id.to_string(),
-        "server_api".to_string(),
-        "streaming_sse".to_string(),
-        env!("CARGO_PKG_VERSION").to_string(),
-    );
-    let level = if transition == StreamBreakerTransition::Opened {
-        LogLevel::Warn
-    } else {
-        LogLevel::Info
-    };
-    let event = match TelemetryEventBuilder::new(
-        EventType::Custom("streaming.circuit_breaker.transition".to_string()),
-        level,
-        format!(
-            "SSE circuit breaker {} for {} stream",
-            transition_label, stream_name
-        ),
-        identity,
-    )
-    .component("streaming.sse".to_string())
-    .metadata(stream_breaker_transition_metadata(
-        stream_name,
-        workspace_id,
-        cb,
-        transition,
-    ))
-    .build()
-    {
-        Ok(event) => event,
-        Err(err) => {
+    fn record_error(&mut self) {
+        self.error_count += 1;
+        if self.error_count >= self.threshold {
+            self.is_open = true;
+            self.opened_at = Some(std::time::Instant::now());
             warn!(
-                error = %err,
-                stream_name = stream_name,
-                "Failed to build circuit breaker telemetry event"
+                error_count = self.error_count,
+                threshold = self.threshold,
+                "SSE stream circuit breaker opened"
             );
-            return;
         }
-    };
-
-    if let Err(err) = state.telemetry_buffer.push(event.clone()).await {
-        warn!(
-            error = %err,
-            stream_name = stream_name,
-            "Failed to buffer circuit breaker telemetry event"
-        );
     }
-    if let Err(err) = state.telemetry_tx.send(event) {
-        warn!(
-            error = %err,
-            stream_name = stream_name,
-            "Failed to broadcast circuit breaker telemetry event"
-        );
+
+    fn should_allow(&self) -> bool {
+        if !self.is_open {
+            return true;
+        }
+        // Check if we're in half-open state (recovery timeout passed)
+        if let Some(opened_at) = self.opened_at {
+            if opened_at.elapsed() >= self.recovery_timeout {
+                return true; // Allow one request to test recovery
+            }
+        }
+        false
     }
 }
 
@@ -1412,12 +1236,8 @@ pub async fn messages_stream(
         );
     }
 
-    let tenant_id = claims.tenant_id.clone();
-
-    // Initialize circuit breaker using config defaults/overrides.
-    let (breaker_threshold, breaker_recovery_timeout) = stream_breaker_settings(&state);
-    let retry_after_secs = breaker_recovery_timeout.as_secs().max(1);
-    let circuit_breaker = StreamCircuitBreaker::new(breaker_threshold, breaker_recovery_timeout);
+    // Initialize circuit breaker
+    let circuit_breaker = StreamCircuitBreaker::new(5, Duration::from_secs(30));
 
     // Track last seen message ID
     let last_message_id: Option<String> = None;
@@ -1427,23 +1247,12 @@ pub async fn messages_stream(
         (
             state,
             workspace_id,
-            tenant_id,
             has_permission,
             false,
             last_message_id,
             circuit_breaker,
-            retry_after_secs,
         ),
-        |(
-            state,
-            workspace_id,
-            tenant_id,
-            has_permission,
-            error_sent,
-            mut last_id,
-            mut cb,
-            retry_after_secs,
-        )| async move {
+        |(state, workspace_id, has_permission, error_sent, mut last_id, mut cb)| async move {
             if !has_permission {
                 if error_sent {
                     return None;
@@ -1452,50 +1261,19 @@ pub async fn messages_stream(
                     Ok(Event::default()
                         .event("error")
                         .data("{\"error\": \"Permission denied - WorkspaceView required\"}")),
-                    (
-                        state,
-                        workspace_id,
-                        tenant_id,
-                        false,
-                        true,
-                        last_id,
-                        cb,
-                        retry_after_secs,
-                    ),
+                    (state, workspace_id, false, true, last_id, cb),
                 ));
             }
 
             // Check circuit breaker
-            let (allow_breaker, transition) = cb.should_allow();
-            if let Some(transition) = transition {
-                emit_stream_breaker_transition(
-                    &state,
-                    &tenant_id,
-                    "messages",
-                    &workspace_id,
-                    &cb,
-                    transition,
-                )
-                .await;
-            }
-            if !allow_breaker {
+            if !cb.should_allow() {
                 // Circuit is open, wait and emit status
                 tokio::time::sleep(Duration::from_secs(5)).await;
                 return Some((
-                    Ok(Event::default().event("circuit_open").data(format!(
-                        "{{\"status\": \"circuit_breaker_open\", \"retry_after_secs\": {}}}",
-                        retry_after_secs
-                    ))),
-                    (
-                        state,
-                        workspace_id,
-                        tenant_id,
-                        has_permission,
-                        error_sent,
-                        last_id,
-                        cb,
-                        retry_after_secs,
-                    ),
+                    Ok(Event::default()
+                        .event("circuit_open")
+                        .data("{\"status\": \"circuit_breaker_open\", \"retry_after_secs\": 30}")),
+                    (state, workspace_id, has_permission, error_sent, last_id, cb),
                 ));
             }
 
@@ -1509,46 +1287,17 @@ pub async fn messages_stream(
                 .await
             {
                 Ok(msgs) => {
-                    if let Some(transition) = cb.record_success() {
-                        emit_stream_breaker_transition(
-                            &state,
-                            &tenant_id,
-                            "messages",
-                            &workspace_id,
-                            &cb,
-                            transition,
-                        )
-                        .await;
-                    }
+                    cb.record_success();
                     msgs
                 }
                 Err(e) => {
-                    if let Some(transition) = cb.record_error() {
-                        emit_stream_breaker_transition(
-                            &state,
-                            &tenant_id,
-                            "messages",
-                            &workspace_id,
-                            &cb,
-                            transition,
-                        )
-                        .await;
-                    }
+                    cb.record_error();
                     warn!(error = %e, workspace_id = %workspace_id, "Failed to fetch messages for SSE");
                     return Some((
                         Ok(Event::default()
                             .event("error")
                             .data(format!("{{\"error\": \"{}\"}}", e))),
-                        (
-                            state,
-                            workspace_id,
-                            tenant_id,
-                            has_permission,
-                            error_sent,
-                            last_id,
-                            cb,
-                            retry_after_secs,
-                        ),
+                        (state, workspace_id, has_permission, error_sent, last_id, cb),
                     ));
                 }
             };
@@ -1592,32 +1341,14 @@ pub async fn messages_stream(
                             Ok(Event::default()
                                 .event("error")
                                 .data("{\"error\": \"serialization failed\"}")),
-                            (
-                                state,
-                                workspace_id,
-                                tenant_id,
-                                has_permission,
-                                error_sent,
-                                last_id,
-                                cb,
-                                retry_after_secs,
-                            ),
+                            (state, workspace_id, has_permission, error_sent, last_id, cb),
                         ));
                     }
                 };
 
                 Some((
                     Ok(Event::default().event("message").data(json)),
-                    (
-                        state,
-                        workspace_id,
-                        tenant_id,
-                        has_permission,
-                        error_sent,
-                        last_id,
-                        cb,
-                        retry_after_secs,
-                    ),
+                    (state, workspace_id, has_permission, error_sent, last_id, cb),
                 ))
             } else {
                 // No changes, emit heartbeat
@@ -1635,16 +1366,7 @@ pub async fn messages_stream(
                 };
                 Some((
                     Ok(Event::default().event("heartbeat").data(heartbeat_json)),
-                    (
-                        state,
-                        workspace_id,
-                        tenant_id,
-                        has_permission,
-                        error_sent,
-                        last_id,
-                        cb,
-                        retry_after_secs,
-                    ),
+                    (state, workspace_id, has_permission, error_sent, last_id, cb),
                 ))
             }
         },
@@ -1731,10 +1453,8 @@ pub async fn activity_stream(
     let tenant_id = claims.tenant_id.clone();
     let user_id = claims.sub.clone();
 
-    // Initialize circuit breaker using config defaults/overrides.
-    let (breaker_threshold, breaker_recovery_timeout) = stream_breaker_settings(&state);
-    let retry_after_secs = breaker_recovery_timeout.as_secs().max(1);
-    let circuit_breaker = StreamCircuitBreaker::new(breaker_threshold, breaker_recovery_timeout);
+    // Initialize circuit breaker
+    let circuit_breaker = StreamCircuitBreaker::new(5, Duration::from_secs(30));
 
     // Track last seen timestamp
     let last_timestamp = chrono::Utc::now();
@@ -1750,7 +1470,6 @@ pub async fn activity_stream(
             false,
             last_timestamp,
             circuit_breaker,
-            retry_after_secs,
         ),
         |(
             state,
@@ -1761,7 +1480,6 @@ pub async fn activity_stream(
             error_sent,
             mut last_ts,
             mut cb,
-            retry_after_secs,
         )| async move {
             if !has_permission {
                 if error_sent {
@@ -1780,31 +1498,17 @@ pub async fn activity_stream(
                         true,
                         last_ts,
                         cb,
-                        retry_after_secs,
                     ),
                 ));
             }
 
             // Check circuit breaker
-            let (allow_breaker, transition) = cb.should_allow();
-            if let Some(transition) = transition {
-                emit_stream_breaker_transition(
-                    &state,
-                    &tenant_id,
-                    "activity",
-                    &workspace_id,
-                    &cb,
-                    transition,
-                )
-                .await;
-            }
-            if !allow_breaker {
+            if !cb.should_allow() {
                 tokio::time::sleep(Duration::from_secs(5)).await;
                 return Some((
-                    Ok(Event::default().event("circuit_open").data(format!(
-                        "{{\"status\": \"circuit_breaker_open\", \"retry_after_secs\": {}}}",
-                        retry_after_secs
-                    ))),
+                    Ok(Event::default()
+                        .event("circuit_open")
+                        .data("{\"status\": \"circuit_breaker_open\", \"retry_after_secs\": 30}")),
                     (
                         state,
                         workspace_id,
@@ -1814,7 +1518,6 @@ pub async fn activity_stream(
                         error_sent,
                         last_ts,
                         cb,
-                        retry_after_secs,
                     ),
                 ));
             }
@@ -1829,31 +1532,11 @@ pub async fn activity_stream(
                 .await
             {
                 Ok(evts) => {
-                    if let Some(transition) = cb.record_success() {
-                        emit_stream_breaker_transition(
-                            &state,
-                            &tenant_id,
-                            "activity",
-                            &workspace_id,
-                            &cb,
-                            transition,
-                        )
-                        .await;
-                    }
+                    cb.record_success();
                     evts
                 }
                 Err(e) => {
-                    if let Some(transition) = cb.record_error() {
-                        emit_stream_breaker_transition(
-                            &state,
-                            &tenant_id,
-                            "activity",
-                            &workspace_id,
-                            &cb,
-                            transition,
-                        )
-                        .await;
-                    }
+                    cb.record_error();
                     warn!(error = %e, workspace_id = %workspace_id, "Failed to fetch activity for SSE");
                     return Some((
                         Ok(Event::default()
@@ -1868,7 +1551,6 @@ pub async fn activity_stream(
                             error_sent,
                             last_ts,
                             cb,
-                            retry_after_secs,
                         ),
                     ));
                 }
@@ -1924,7 +1606,6 @@ pub async fn activity_stream(
                                 error_sent,
                                 last_ts,
                                 cb,
-                                retry_after_secs,
                             ),
                         ));
                     }
@@ -1941,7 +1622,6 @@ pub async fn activity_stream(
                         error_sent,
                         last_ts,
                         cb,
-                        retry_after_secs,
                     ),
                 ))
             } else {
@@ -1969,7 +1649,6 @@ pub async fn activity_stream(
                         error_sent,
                         last_ts,
                         cb,
-                        retry_after_secs,
                     ),
                 ))
             }
@@ -2159,124 +1838,4 @@ pub async fn trace_receipts_stream(
             .interval(Duration::from_secs(15))
             .text("keep-alive"),
     )
-}
-
-#[cfg(test)]
-mod tests {
-    use super::*;
-
-    #[test]
-    fn stream_circuit_breaker_opens_after_threshold() {
-        let mut cb = StreamCircuitBreaker::new(2, Duration::from_millis(10));
-        assert_eq!(cb.record_error(), None);
-        assert_eq!(
-            cb.record_error(),
-            Some(StreamBreakerTransition::Opened),
-            "breaker should open on threshold"
-        );
-
-        let (allow, transition) = cb.should_allow();
-        assert!(!allow, "open breaker should block before timeout");
-        assert_eq!(transition, None);
-    }
-
-    #[test]
-    fn stream_circuit_breaker_transitions_to_half_open_after_timeout() {
-        let mut cb = StreamCircuitBreaker::new(1, Duration::from_millis(5));
-        assert_eq!(cb.record_error(), Some(StreamBreakerTransition::Opened));
-        std::thread::sleep(Duration::from_millis(8));
-
-        let (allow, transition) = cb.should_allow();
-        assert!(allow, "breaker should allow test request after timeout");
-        assert_eq!(transition, Some(StreamBreakerTransition::HalfOpen));
-    }
-
-    #[test]
-    fn stream_circuit_breaker_recovers_after_half_open_success() {
-        let mut cb = StreamCircuitBreaker::new(1, Duration::from_millis(5));
-        assert_eq!(cb.record_error(), Some(StreamBreakerTransition::Opened));
-        std::thread::sleep(Duration::from_millis(8));
-        let _ = cb.should_allow();
-
-        assert_eq!(
-            cb.record_success(),
-            Some(StreamBreakerTransition::Recovered),
-            "successful half-open probe should recover breaker"
-        );
-
-        let (allow, transition) = cb.should_allow();
-        assert!(allow, "recovered breaker should allow traffic");
-        assert_eq!(transition, None);
-    }
-
-    #[test]
-    fn stream_circuit_breaker_reopens_on_half_open_failure() {
-        let mut cb = StreamCircuitBreaker::new(1, Duration::from_millis(5));
-        assert_eq!(cb.record_error(), Some(StreamBreakerTransition::Opened));
-        std::thread::sleep(Duration::from_millis(8));
-        let _ = cb.should_allow();
-
-        assert_eq!(
-            cb.record_error(),
-            Some(StreamBreakerTransition::Opened),
-            "failed half-open probe should reopen breaker"
-        );
-
-        let (allow, transition) = cb.should_allow();
-        assert!(!allow, "reopened breaker should block again");
-        assert_eq!(transition, None);
-    }
-
-    #[test]
-    fn stream_circuit_breaker_open_transition_metadata_includes_threshold_and_counts() {
-        let mut cb = StreamCircuitBreaker::new(2, Duration::from_secs(17));
-        assert_eq!(cb.record_error(), None);
-        let transition = cb
-            .record_error()
-            .expect("second error should open breaker at threshold");
-
-        let metadata =
-            stream_breaker_transition_metadata("messages", "workspace-1", &cb, transition);
-        assert_eq!(metadata["transition"], serde_json::json!("open"));
-        assert_eq!(metadata["threshold"], serde_json::json!(2));
-        assert_eq!(metadata["error_count"], serde_json::json!(2));
-        assert_eq!(metadata["recovery_timeout_secs"], serde_json::json!(17));
-    }
-
-    #[test]
-    fn stream_circuit_breaker_half_open_transition_metadata_includes_threshold_and_counts() {
-        let mut cb = StreamCircuitBreaker::new(3, Duration::from_secs(11));
-        cb.error_count = 3;
-        cb.state = StreamBreakerState::Open {
-            opened_at: std::time::Instant::now() - Duration::from_secs(12),
-        };
-
-        let (allow, transition) = cb.should_allow();
-        assert!(allow, "half-open transition should allow a probe request");
-        let transition = transition.expect("open breaker should transition to half-open");
-
-        let metadata =
-            stream_breaker_transition_metadata("activity", "workspace-2", &cb, transition);
-        assert_eq!(metadata["transition"], serde_json::json!("half_open"));
-        assert_eq!(metadata["threshold"], serde_json::json!(3));
-        assert_eq!(metadata["error_count"], serde_json::json!(3));
-        assert_eq!(metadata["recovery_timeout_secs"], serde_json::json!(11));
-    }
-
-    #[test]
-    fn stream_circuit_breaker_recover_transition_metadata_includes_threshold_and_counts() {
-        let mut cb = StreamCircuitBreaker::new(4, Duration::from_secs(9));
-        cb.error_count = 4;
-        cb.state = StreamBreakerState::HalfOpen;
-
-        let transition = cb
-            .record_success()
-            .expect("successful half-open probe should recover breaker");
-        let metadata =
-            stream_breaker_transition_metadata("messages", "workspace-3", &cb, transition);
-        assert_eq!(metadata["transition"], serde_json::json!("recover"));
-        assert_eq!(metadata["threshold"], serde_json::json!(4));
-        assert_eq!(metadata["error_count"], serde_json::json!(0));
-        assert_eq!(metadata["recovery_timeout_secs"], serde_json::json!(9));
-    }
 }

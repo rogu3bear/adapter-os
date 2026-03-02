@@ -56,8 +56,8 @@ pub const PINNED_BOOST: f32 = 0.3;
 // This is enforced project-wide. See docs/VAR_STRUCTURE.md for details.
 //
 
-/// Dev-only fixture path for the default local Qwen3.5-27B model.
-pub const DEV_MODEL_PATH: &str = "/var/models/Qwen3.5-27B";
+/// Dev-only fixture path for the default local Llama-3.2-3B-Instruct-4bit model.
+pub const DEV_MODEL_PATH: &str = "/var/models/Llama-3.2-3B-Instruct-4bit";
 
 /// Dev-only fixture path for the default local manifest.
 pub const DEV_MANIFEST_PATH: &str = "manifests/qwen7b-4bit-mlx-base-only.yaml";
@@ -69,7 +69,7 @@ pub const DEFAULT_MODEL_CACHE_ROOT: &str = "var/models";
 pub const DEFAULT_EMBEDDING_MODEL_PATH: &str = "var/models/bge-small-en-v1.5";
 
 /// Default base model identifier (can be overridden via AOS_BASE_MODEL_ID).
-pub const DEFAULT_BASE_MODEL_ID: &str = "Qwen3.5-27B";
+pub const DEFAULT_BASE_MODEL_ID: &str = "Llama-3.2-3B-Instruct-4bit";
 
 /// Default Qwen2.5 int4 manifest directory.
 pub const DEFAULT_QWEN_INT4_MANIFEST_DIR: &str = "artifacts/qwen2_5_7b_int4";
@@ -111,50 +111,23 @@ pub const DEFAULT_DB_PATH: &str = "sqlite://var/aos-cp.sqlite3";
 // Network Defaults
 // =============================================================================
 
-/// Default base offset for the local port pane.
-pub const DEFAULT_PORT_PANE_BASE: u16 = 18080;
-
 /// Default server port for the control plane HTTP API.
-pub const DEFAULT_SERVER_PORT: u16 = 18080;
+pub const DEFAULT_SERVER_PORT: u16 = 8080;
 
 /// Default UI development server port.
-pub const DEFAULT_UI_PORT: u16 = 18081;
-
-/// Default service supervisor panel port.
-pub const DEFAULT_PANEL_PORT: u16 = 18082;
-
-/// Default node agent port.
-pub const DEFAULT_NODE_PORT: u16 = 18083;
-
-/// Default Prometheus/metrics port.
-pub const DEFAULT_PROMETHEUS_PORT: u16 = 18084;
-
-/// Default model server port.
-pub const DEFAULT_MODEL_SERVER_PORT: u16 = 18085;
-
-/// Default codegraph frontend dev-server port.
-pub const DEFAULT_CODEGRAPH_PORT: u16 = 18086;
-
-/// Default minimal static UI test lane port.
-pub const DEFAULT_MINIMAL_UI_PORT: u16 = 18087;
-
-/// Default OpenTelemetry collector port.
-pub const DEFAULT_TELEMETRY_PORT: u16 = 18088;
+pub const DEFAULT_UI_PORT: u16 = 3200;
 
 /// Default server bind address.
 pub const DEFAULT_SERVER_HOST: &str = "127.0.0.1";
 
 /// Default HashiCorp Vault port (for secret management).
-pub const DEFAULT_VAULT_PORT: u16 = 18089;
+pub const DEFAULT_VAULT_PORT: u16 = 8200;
+
+/// Default OpenTelemetry collector port.
+pub const DEFAULT_TELEMETRY_PORT: u16 = 4317;
 
 /// Default GCP KMS emulator port (for local development/testing).
-pub const DEFAULT_KMS_EMULATOR_PORT: u16 = 18090;
-
-/// Default Postgres port for local development.
-pub const DEFAULT_POSTGRES_PORT: u16 = 18091;
-
-/// Default LocalStack port for local development.
-pub const DEFAULT_LOCALSTACK_PORT: u16 = 18092;
+pub const DEFAULT_KMS_EMULATOR_PORT: u16 = 9011;
 
 // =============================================================================
 // Network URL Constants (for use in clap default_value attributes)
@@ -163,42 +136,39 @@ pub const DEFAULT_LOCALSTACK_PORT: u16 = 18092;
 /// Default control plane server URL string constant.
 ///
 /// Use this in clap `#[arg(default_value = ...)]` attributes.
-pub const DEFAULT_SERVER_URL: &str = "http://127.0.0.1:18080";
+pub const DEFAULT_SERVER_URL: &str = "http://127.0.0.1:8080";
 
 /// Default API base URL string constant.
 ///
 /// Use this in clap `#[arg(default_value = ...)]` attributes.
-pub const DEFAULT_API_URL: &str = "http://127.0.0.1:18080/api";
+pub const DEFAULT_API_URL: &str = "http://127.0.0.1:8080/api";
 
 /// Default UI development server URL string constant.
-pub const DEFAULT_UI_URL: &str = "http://127.0.0.1:18081";
+pub const DEFAULT_UI_URL: &str = "http://127.0.0.1:3200";
 
 /// Default KMS emulator host:port string constant.
-pub const DEFAULT_KMS_EMULATOR_HOST: &str = "127.0.0.1:18090";
-
-/// Default model server host:port string constant.
-pub const DEFAULT_MODEL_SERVER_ADDR: &str = "http://127.0.0.1:18085";
+pub const DEFAULT_KMS_EMULATOR_HOST: &str = "127.0.0.1:9011";
 
 /// Default server bind address with port.
-pub const DEFAULT_SERVER_ADDR: &str = "127.0.0.1:18080";
+pub const DEFAULT_SERVER_ADDR: &str = "127.0.0.1:8080";
 
 // =============================================================================
 // Network URL Helpers (for runtime construction)
 // =============================================================================
 
-/// Returns the default control plane server URL (http://127.0.0.1:18080).
+/// Returns the default control plane server URL (http://127.0.0.1:8080).
 #[must_use]
 pub fn default_server_url() -> String {
     DEFAULT_SERVER_URL.to_string()
 }
 
-/// Returns the default API base URL (http://127.0.0.1:18080/api).
+/// Returns the default API base URL (http://127.0.0.1:8080/api).
 #[must_use]
 pub fn default_api_url() -> String {
     DEFAULT_API_URL.to_string()
 }
 
-/// Returns the default UI development server URL (http://127.0.0.1:18081).
+/// Returns the default UI development server URL (http://127.0.0.1:3200).
 #[must_use]
 pub fn default_ui_url() -> String {
     DEFAULT_UI_URL.to_string()

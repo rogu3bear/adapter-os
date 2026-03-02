@@ -88,7 +88,7 @@ pub enum StackCommand {
         workflow: Option<String>,
 
         /// Base URL for API
-        #[arg(long, default_value = "http://127.0.0.1:18080")]
+        #[arg(long, default_value = "http://127.0.0.1:8080/api")]
         base_url: String,
     },
 
@@ -105,7 +105,7 @@ pub enum StackCommand {
         json: bool,
 
         /// Base URL for API
-        #[arg(long, default_value = "http://127.0.0.1:18080")]
+        #[arg(long, default_value = "http://127.0.0.1:8080/api")]
         base_url: String,
     },
 
@@ -122,7 +122,7 @@ pub enum StackCommand {
         confirm: bool,
 
         /// Base URL for API
-        #[arg(long, default_value = "http://127.0.0.1:18080")]
+        #[arg(long, default_value = "http://127.0.0.1:8080/api")]
         base_url: String,
     },
 
@@ -139,7 +139,7 @@ pub enum StackCommand {
         tenant: Option<String>,
 
         /// Base URL for API
-        #[arg(long, default_value = "http://127.0.0.1:18080")]
+        #[arg(long, default_value = "http://127.0.0.1:8080/api")]
         base_url: String,
     },
 
@@ -153,7 +153,7 @@ pub enum StackCommand {
         tenant: Option<String>,
 
         /// Base URL for API
-        #[arg(long, default_value = "http://127.0.0.1:18080")]
+        #[arg(long, default_value = "http://127.0.0.1:8080/api")]
         base_url: String,
     },
 
@@ -170,7 +170,7 @@ pub enum StackCommand {
         tenant: Option<String>,
 
         /// Base URL for API
-        #[arg(long, default_value = "http://127.0.0.1:18080")]
+        #[arg(long, default_value = "http://127.0.0.1:8080/api")]
         base_url: String,
     },
 }
@@ -256,11 +256,11 @@ async fn list_stacks(tenant: Option<String>, json: bool, output: &OutputWriter) 
     let client = reqwest::Client::new();
     let url = if let Some(ref tenant_id) = tenant {
         format!(
-            "http://127.0.0.1:18080/v1/adapter-stacks?tenant={}",
+            "http://127.0.0.1:8080/api/v1/adapter-stacks?tenant={}",
             tenant_id
         )
     } else {
-        "http://127.0.0.1:18080/v1/adapter-stacks".to_string()
+        "http://127.0.0.1:8080/api/v1/adapter-stacks".to_string()
     };
 
     let resp = client
@@ -648,7 +648,7 @@ mod tests {
                 adapters: vec![],
                 description: None,
                 workflow: None,
-                base_url: "http://localhost:18080".to_string(),
+                base_url: "http://localhost:8080".to_string(),
             }),
             "stack_create"
         );

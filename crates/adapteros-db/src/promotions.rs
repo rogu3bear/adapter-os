@@ -191,7 +191,7 @@ impl Db {
         .bind(&params.requester_id)
         .bind(&params.requester_email)
         .bind(&params.notes)
-        .execute(self.pool_result()?)
+        .execute(self.pool())
         .await
         .map_err(db_err("create promotion request"))?;
 
@@ -211,7 +211,7 @@ impl Db {
              LIMIT 1"
         )
         .bind(golden_run_id)
-        .fetch_optional(self.pool_result()?)
+        .fetch_optional(self.pool())
         .await
         .map_err(db_err("fetch promotion request"))?;
 
@@ -248,7 +248,7 @@ impl Db {
              LIMIT 1"
         )
         .bind(request_id)
-        .fetch_optional(self.pool_result()?)
+        .fetch_optional(self.pool())
         .await
         .map_err(db_err("fetch promotion request"))?;
 
@@ -286,7 +286,7 @@ impl Db {
         )
         .bind(status)
         .bind(request_id)
-        .execute(self.pool_result()?)
+        .execute(self.pool())
         .await
         .map_err(db_err("update promotion status"))?;
 
@@ -308,7 +308,7 @@ impl Db {
         .bind(ci_status)
         .bind(ci_run_id)
         .bind(request_id)
-        .execute(self.pool_result()?)
+        .execute(self.pool())
         .await
         .map_err(db_err("update promotion ci status"))?;
 
@@ -321,7 +321,7 @@ impl Db {
             "SELECT target_stage FROM golden_run_promotion_requests WHERE request_id = ?",
         )
         .bind(request_id)
-        .fetch_one(self.pool_result()?)
+        .fetch_one(self.pool())
         .await
         .map_err(db_err("fetch promotion target stage"))?;
 
@@ -346,7 +346,7 @@ impl Db {
         .bind(params.passed)
         .bind(details_json)
         .bind(params.error_message)
-        .execute(self.pool_result()?)
+        .execute(self.pool())
         .await
         .map_err(db_err("record promotion gate"))?;
 
@@ -362,7 +362,7 @@ impl Db {
              ORDER BY checked_at ASC",
         )
         .bind(request_id)
-        .fetch_all(self.pool_result()?)
+        .fetch_all(self.pool())
         .await
         .map_err(db_err("fetch promotion gates"))?;
 
@@ -391,7 +391,7 @@ impl Db {
     pub async fn init_promotion_gates(&self, request_id: &str, gate_names: &[&str]) -> Result<()> {
         // Use a transaction to ensure all gates are initialized atomically
         let mut tx = self
-            .pool_result()?
+            .pool()
             .begin()
             .await
             .map_err(db_err("begin transaction for init_promotion_gates"))?;
@@ -432,7 +432,7 @@ impl Db {
         .bind(&params.approval_message)
         .bind(&params.signature)
         .bind(&params.public_key)
-        .execute(self.pool_result()?)
+        .execute(self.pool())
         .await
         .map_err(db_err("record promotion approval"))?;
 
@@ -451,7 +451,7 @@ impl Db {
              ORDER BY approved_at DESC",
         )
         .bind(request_id)
-        .fetch_all(self.pool_result()?)
+        .fetch_all(self.pool())
         .await
         .map_err(db_err("fetch promotion approvals"))?;
 
@@ -511,7 +511,7 @@ impl Db {
         .bind(&params.image_digest)
         .bind(&params.bundle_hash)
         .bind(&params.metadata_json)
-        .execute(self.pool_result()?)
+        .execute(self.pool())
         .await
         .map_err(db_err("upsert release correlation"))?;
 
@@ -544,7 +544,7 @@ impl Db {
         .bind(&params.image_digest)
         .bind(&params.build_id)
         .bind(&params.release_id)
-        .execute(self.pool_result()?)
+        .execute(self.pool())
         .await
         .map_err(db_err("update release ci attestation"))?;
 
@@ -566,7 +566,7 @@ impl Db {
         .bind(&params.promotion_status)
         .bind(&params.approval_signature)
         .bind(&params.release_id)
-        .execute(self.pool_result()?)
+        .execute(self.pool())
         .await
         .map_err(db_err("update release promotion status"))?;
 
@@ -583,7 +583,7 @@ impl Db {
              WHERE stage_name = ?",
         )
         .bind(stage_name)
-        .fetch_optional(self.pool_result()?)
+        .fetch_optional(self.pool())
         .await
         .map_err(db_err("fetch golden run stage"))?;
 
@@ -605,7 +605,7 @@ impl Db {
         let row =
             sqlx::query("SELECT active_golden_run_id FROM golden_run_stages WHERE stage_name = ?")
                 .bind(stage_name)
-                .fetch_one(self.pool_result()?)
+                .fetch_one(self.pool())
                 .await
                 .map_err(db_err("fetch stage active golden run"))?;
 
@@ -633,7 +633,7 @@ impl Db {
         .bind(previous_golden_run_id)
         .bind(promoted_by)
         .bind(stage_name)
-        .execute(self.pool_result()?)
+        .execute(self.pool())
         .await
         .map_err(db_err("update golden run stage"))?;
 
@@ -656,7 +656,7 @@ impl Db {
         )
         .bind(promoted_by)
         .bind(stage_name)
-        .execute(self.pool_result()?)
+        .execute(self.pool())
         .await
         .map_err(db_err("rollback golden run stage"))?;
 
@@ -688,7 +688,7 @@ impl Db {
         .bind(previous_golden_run_id)
         .bind(promoted_by)
         .bind(approval_signature)
-        .execute(self.pool_result()?)
+        .execute(self.pool())
         .await
         .map_err(db_err("record promotion history"))?;
 
@@ -718,7 +718,7 @@ impl Db {
         .bind(promoted_by)
         .bind(approval_signature)
         .bind(metadata)
-        .execute(self.pool_result()?)
+        .execute(self.pool())
         .await
         .map_err(db_err("record rollback history"))?;
 
@@ -740,7 +740,7 @@ impl Db {
         )
         .bind(target_stage)
         .bind(limit)
-        .fetch_all(self.pool_result()?)
+        .fetch_all(self.pool())
         .await
         .map_err(db_err("fetch promotion history"))?;
 

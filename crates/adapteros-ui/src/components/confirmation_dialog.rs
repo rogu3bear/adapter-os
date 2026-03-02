@@ -220,7 +220,6 @@ pub fn ConfirmationDialog(
             title=title.clone()
             description=description.clone()
             size=DialogSize::Sm
-            scrollable=true
         >
             <form
                 on:submit=move |ev| {

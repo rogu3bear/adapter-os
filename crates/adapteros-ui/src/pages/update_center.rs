@@ -2,24 +2,23 @@
 //!
 //! Dedicated route for adapter promotion: Draft → Reviewed → Production.
 //! Lists skills with promotion state and links to adapter detail for
-//! Run Promote and Run Checkout controls.
+//! Move to Production and Restore Version controls.
 
 use crate::api::ApiClient;
-use crate::components::layout::nav_group_label_for_route;
 use crate::components::{
     AdapterDetailPanel, AsyncBoundary, Badge, BadgeVariant, Button, ButtonVariant, Card,
-    EmptyState, EmptyStateVariant, PageBreadcrumbItem, PageScaffold, PageScaffoldActions,
-    PageScaffoldInspector, PageScaffoldPrimaryAction, SplitPanel, SplitRatio, Table, TableBody,
-    TableCell, TableHead, TableHeader, TableRow,
+    EmptyStateVariant, ListEmptyCard, PageBreadcrumbItem, PageScaffold, PageScaffoldActions,
+    PageScaffoldPrimaryAction, SplitPanel, SplitRatio, Table, TableBody, TableCell, TableHead,
+    TableHeader, TableRow,
 };
 use crate::contexts::use_in_flight;
 use crate::hooks::{use_cached_api_resource, CacheTtl, LoadingState};
 use crate::signals::refetch::{use_refetch_signal, RefetchTopic};
-use crate::signals::{try_use_route_context, use_ui_profile, SelectedEntity};
+use crate::signals::{try_use_route_context, SelectedEntity};
 use crate::utils::{chat_path_with_adapter, humanize};
 use adapteros_api_types::{AdapterResponse, LifecycleState};
 use leptos::prelude::*;
-use leptos_router::hooks::{use_navigate, use_query_map};
+use leptos_router::hooks::use_navigate;
 use std::sync::Arc;
 
 const NEW_ADAPTER_PATH: &str = "/training?open_wizard=1";
@@ -28,33 +27,7 @@ const PAGE_SIZE: usize = 25;
 /// Update Center page - promotion workflow for skills
 #[component]
 pub fn UpdateCenter() -> impl IntoView {
-    let nav_label = nav_group_label_for_route(use_ui_profile().get_untracked(), "/update-center")
-        .unwrap_or("Versions");
     let selected_id = RwSignal::new(None::<String>);
-    let command_focus = RwSignal::new(None::<String>);
-    let query_consumed = RwSignal::new(false);
-    let query = use_query_map();
-
-    Effect::new(move || {
-        if query_consumed.try_get().unwrap_or(false) {
-            return;
-        }
-        let Some(params) = query.try_get() else {
-            return;
-        };
-        let mut consumed = false;
-        if let Some(adapter_id) = params.get("adapter_id") {
-            selected_id.set(Some(adapter_id.clone()));
-            consumed = true;
-        }
-        if let Some(command) = params.get("command") {
-            command_focus.set(Some(command.clone()));
-            consumed = true;
-        }
-        if consumed {
-            query_consumed.set(true);
-        }
-    });
 
     let (adapters, refetch) = use_cached_api_resource(
         "adapters_list",
@@ -129,13 +102,12 @@ pub fn UpdateCenter() -> impl IntoView {
 
     view! {
         <PageScaffold
-            title="Versions"
-            subtitle="Manage adapter version history and continue dataset updates while preserving lineage."
+            title="Update Center"
+            subtitle="Move versions from Draft to Reviewed to Production with rollback controls."
             breadcrumbs=vec![
-                PageBreadcrumbItem::new(nav_label, "/update-center"),
-                PageBreadcrumbItem::current("Versions"),
+                PageBreadcrumbItem::new("Deploy", "/adapters"),
+                PageBreadcrumbItem::current("Update Center"),
             ]
-            full_width=true
         >
             <PageScaffoldPrimaryAction slot>
                 {
@@ -143,12 +115,11 @@ pub fn UpdateCenter() -> impl IntoView {
                     view! {
                         <Button
                             variant=ButtonVariant::Primary
-                            aria_label="Create a new adapter in training wizard"
                             on_click=Callback::new(move |_| {
                                 navigate(NEW_ADAPTER_PATH, Default::default());
                             })
                         >
-                            "Create Adapter"
+                            "Teach New Skill"
                         </Button>
                     }
                 }
@@ -156,75 +127,11 @@ pub fn UpdateCenter() -> impl IntoView {
             <PageScaffoldActions slot>
                 <Button
                     variant=ButtonVariant::Secondary
-                    aria_label="Refresh update center adapter list"
                     on_click=Callback::new(move |_| refetch.run(()))
                 >
                     "Refresh"
                 </Button>
             </PageScaffoldActions>
-            <PageScaffoldInspector slot>
-                <div class="context-rail">
-                    <section class="context-rail-section">
-                        <p class="context-rail-eyebrow">"Context"</p>
-                        <h2 class="context-rail-title">"Versions"</h2>
-                        <p class="context-rail-copy">
-                            "Track adapter lifecycle stage and keep update decisions visible while browsing versions."
-                        </p>
-                    </section>
-                    <section class="context-rail-section">
-                        <h3 class="context-rail-heading">"Current view"</h3>
-                        <dl class="context-rail-kv">
-                            <div>
-                                <dt>"Adapters"</dt>
-                                <dd>
-                                    {move || {
-                                        match adapters.try_get() {
-                                            Some(LoadingState::Loaded(data)) => data.len().to_string(),
-                                            _ => "Loading".to_string(),
-                                        }
-                                    }}
-                                </dd>
-                            </div>
-                            <div>
-                                <dt>"Selected"</dt>
-                                <dd>
-                                    {move || {
-                                        selected_adapter
-                                            .try_get()
-                                            .flatten()
-                                            .map(|adapter| adapter.name)
-                                            .unwrap_or_else(|| "None".to_string())
-                                    }}
-                                </dd>
-                            </div>
-                            <div>
-                                <dt>"Stage"</dt>
-                                <dd>
-                                    {move || {
-                                        selected_adapter
-                                            .try_get()
-                                            .flatten()
-                                            .map(|adapter| lifecycle_stage_label(adapter.lifecycle_state).to_string())
-                                            .unwrap_or_else(|| "None".to_string())
-                                    }}
-                                </dd>
-                            </div>
-                        </dl>
-                    </section>
-                    <section class="context-rail-section">
-                        <h3 class="context-rail-heading">"Next step"</h3>
-                        <p class="context-rail-copy">
-                            {move || {
-                                if selected_id.try_get().flatten().is_some() {
-                                    "Use the detail pane to update stage or continue dataset updates."
-                                } else {
-                                    "Select an adapter to view lifecycle controls and version lineage."
-                                }
-                            }}
-                        </p>
-                    </section>
-                </div>
-            </PageScaffoldInspector>
 
             <AsyncBoundary
                 state=adapters
@@ -236,7 +143,7 @@ pub fn UpdateCenter() -> impl IntoView {
                         <SplitPanel
                             has_selection=has_selection
                             on_close=on_close_detail
-                            back_label="Back to Versions"
+                            back_label="Back to skills"
                             ratio=SplitRatio::TwoFifthsThreeFifths
                             list_panel=move || {
                                 let data = adapters_for_list.clone();
@@ -244,7 +151,6 @@ pub fn UpdateCenter() -> impl IntoView {
                                     <UpdateCenterList
                                         adapters=data
                                         selected_id=selected_id
-                                        command_focus=command_focus
                                         on_select=on_select
                                     />
                                 }
@@ -271,7 +177,6 @@ pub fn UpdateCenter() -> impl IntoView {
 fn UpdateCenterList(
     adapters: Vec<AdapterResponse>,
     #[prop(into)] selected_id: RwSignal<Option<String>>,
-    #[prop(into)] command_focus: RwSignal<Option<String>>,
     on_select: Callback<String>,
 ) -> impl IntoView {
     let in_flight = use_in_flight();
@@ -280,11 +185,11 @@ fn UpdateCenterList(
     if adapters.is_empty() {
         let navigate = navigate.clone();
         return view! {
-            <EmptyState
+            <ListEmptyCard
                 variant=EmptyStateVariant::Empty
-                title="No updates available".to_string()
-                description="All adapters are up to date.".to_string()
-                action_label="Create Adapter"
+                title="No skills yet"
+                description="Teach your first skill to get started. Then promote through Draft, Reviewed, and Production."
+                action_label="Teach New Skill"
                 on_action=Callback::new(move |_| {
                     navigate(NEW_ADAPTER_PATH, Default::default());
                 })
@@ -305,31 +210,6 @@ fn UpdateCenterList(
 
     view! {
         <Card data_testid="update-center-list-card".to_string()>
-            {move || command_focus
-                .try_get()
-                .flatten()
-                .map(|command| {
-                    let command_label = match command.as_str() {
-                        "run-promote" => "Run Promote",
-                        "run-checkout" => "Run Checkout",
-                        "feed-dataset" => "Feed Dataset",
-                        _ => "Open command workflow",
-                    };
-                    view! {
-                        <div class="rounded-md border border-primary/40 bg-primary/5 p-3 mb-4">
-                            <p class="text-xs font-semibold uppercase tracking-wide text-primary/80">
-                                "Command Deck"
-                            </p>
-                            <p class="text-sm text-foreground mt-1">
-                                {format!(
-                                    "Intent received: {}. Select an adapter and continue in the detail panel.",
-                                    command_label
-                                )}
-                            </p>
-                        </div>
-                    }
-                })
-            }
             <div class="rounded-md border border-border/50 bg-muted/20 p-3 mb-4">
                 <p class="text-sm font-medium">"Promotion Path"</p>
                 <div class="flex flex-wrap items-center gap-2 text-xs">
@@ -340,21 +220,8 @@ fn UpdateCenterList(
                     <Badge variant=BadgeVariant::Success>"Production"</Badge>
                 </div>
                 <p class="text-xs text-muted-foreground mt-1">
-                    "Select an adapter, resolve a version, then run a command."
+                    "Select a skill to move versions to Production or restore a previous version."
                 </p>
-                <details class="mt-3 rounded border border-border/50 bg-background/50 px-3 py-2">
-                    <summary class="cursor-pointer text-xs font-medium text-muted-foreground">
-                        "Advanced command map"
-                    </summary>
-                    <div class="mt-2 flex flex-wrap items-center gap-2 text-[11px] text-muted-foreground">
-                        <span class="rounded border border-border/60 bg-background/70 px-2 py-0.5 font-mono">"checkout <branch>@<version>"</span>
-                        <span class="rounded border border-border/60 bg-background/70 px-2 py-0.5 font-mono">"promote <version> --to production"</span>
-                        <span class="rounded border border-border/60 bg-background/70 px-2 py-0.5 font-mono">"feed-dataset --branch <branch> --from <version>"</span>
-                    </div>
-                    <p class="text-xs text-muted-foreground mt-2">
-                        "Recommended default: select an adapter, resolve a version, run checkout or promote, then feed-dataset."
-                    </p>
-                </details>
             </div>
 
             <Table>
@@ -384,7 +251,7 @@ fn UpdateCenterList(
                             let lifecycle_label = lifecycle_stage_label(lifecycle);
 
                             let id_for_keydown = id_for_click.clone();
-                            let row_label = format!("Select adapter {}", name);
+                            let row_label = format!("Select skill {}", name);
                             view! {
                                 <tr
                                     class=if is_selected {
@@ -427,7 +294,6 @@ fn UpdateCenterList(
                                             <Button
                                                 variant=crate::components::ButtonVariant::Ghost
                                                 size=crate::components::ButtonSize::Sm
-                                                aria_label="Open prompt studio with this adapter selected"
                                                 on_click=Callback::new(move |_| {
                                                     let path = chat_path_with_adapter(&id);
                                                     nav_stored.with_value(|nav| nav(&path, Default::default()));

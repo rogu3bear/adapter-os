@@ -578,7 +578,7 @@ pub async fn get_base_model_status(
     // Get base model status from database
     let status_record = state
         .db
-        .get_effective_base_model_status_for_tenant(&tenant_id)
+        .get_base_model_status(&tenant_id)
         .await
         .map_err(|e| {
             (
@@ -900,7 +900,7 @@ mod jobs_tests {
             10, None,
         ));
 
-        let state = AppState::new(
+        AppState::new(
             db,
             jwt_secret,
             config,
@@ -908,35 +908,7 @@ mod jobs_tests {
             metrics_collector,
             metrics_registry,
             uma_monitor,
-        );
-
-        // Seed FK fixtures required by jobs table constraints.
-        adapteros_db::sqlx::query("INSERT OR IGNORE INTO tenants (id, name) VALUES (?, ?)")
-            .bind("tenant-a")
-            .bind("Tenant A")
-            .execute(state.db.pool_result().expect("db pool"))
-            .await
-            .expect("seed tenant-a");
-        adapteros_db::sqlx::query("INSERT OR IGNORE INTO tenants (id, name) VALUES (?, ?)")
-            .bind("tenant-b")
-            .bind("Tenant B")
-            .execute(state.db.pool_result().expect("db pool"))
-            .await
-            .expect("seed tenant-b");
-        adapteros_db::sqlx::query(
-            "INSERT OR IGNORE INTO users (id, email, display_name, pw_hash, role, tenant_id) VALUES (?, ?, ?, ?, ?, ?)",
         )
-        .bind("user-jobs-test")
-        .bind("user@example.com")
-        .bind("Jobs Test User")
-        .bind("test-hash")
-        .bind("viewer")
-        .bind("tenant-a")
-        .execute(state.db.pool_result().expect("db pool"))
-        .await
-        .expect("seed jobs test user");
-
-        state
     }
 
     fn app(state: AppState) -> Router {
@@ -954,7 +926,7 @@ mod jobs_tests {
             .create_job(
                 "training_dataset_from_upload",
                 Some("tenant-a"),
-                Some("user-jobs-test"),
+                Some("user"),
                 "{\"k\":1}",
             )
             .await
@@ -979,7 +951,7 @@ mod jobs_tests {
             .create_job(
                 "training_dataset_from_upload",
                 Some("tenant-a"),
-                Some("user-jobs-test"),
+                Some("user"),
                 "{\"k\":1}",
             )
             .await
@@ -989,7 +961,7 @@ mod jobs_tests {
             .create_job(
                 "training_dataset_from_upload",
                 Some("tenant-b"),
-                Some("user-jobs-test"),
+                Some("user"),
                 "{\"k\":1}",
             )
             .await

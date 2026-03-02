@@ -6,7 +6,7 @@
 //!
 //! These presets use existing TrainingConfig fields without adding new config logic.
 
-use crate::components::Select;
+use crate::components::{FormField, Input, Select, Toggle};
 use leptos::prelude::*;
 
 #[cfg(test)]
@@ -202,6 +202,254 @@ impl TrainingPreset {
         let total_seconds = samples as f32 * seconds_per_sample * config.epochs as f32;
 
         Some(total_seconds / 60.0)
+    }
+}
+
+/// Training configuration presets panel
+///
+/// Provides preset selection and parameter configuration with:
+/// - Preset selector (Identity, QA, Custom)
+/// - Epochs input
+/// - Learning rate input
+/// - Validation split input
+/// - Early stopping toggle
+/// - Optional training time estimate
+#[component]
+pub fn TrainingConfigPresets(
+    /// Current preset selection
+    #[prop(into)]
+    preset: RwSignal<String>,
+    /// Epochs value (string for input binding)
+    #[prop(into)]
+    epochs: RwSignal<String>,
+    /// Learning rate value (string for input binding)
+    #[prop(into)]
+    learning_rate: RwSignal<String>,
+    /// Validation split value (string for input binding)
+    #[prop(into)]
+    validation_split: RwSignal<String>,
+    /// Early stopping enabled
+    #[prop(into)]
+    early_stopping: RwSignal<bool>,
+    /// Optional sample count for time estimation
+    #[prop(optional)]
+    sample_count: Option<usize>,
+) -> impl IntoView {
+    // Derive current preset from signal
+    let current_preset = Signal::derive(move || TrainingPreset::parse_str(&preset.get()));
+
+    // Apply preset when selection changes
+    let apply_preset = move |new_preset: TrainingPreset| {
+        preset.set(new_preset.as_str().to_string());
+        if new_preset != TrainingPreset::Custom {
+            let config = new_preset.config();
+            epochs.set(config.epochs.to_string());
+            learning_rate.set(config.learning_rate.to_string());
+            validation_split.set(config.validation_split.to_string());
+            early_stopping.set(config.early_stopping);
+        }
+    };
+
+    // Time estimate signal
+    let time_estimate = Signal::derive(move || {
+        let p = current_preset.get();
+        p.estimate_time_minutes(sample_count)
+    });
+
+    view! {
+        <div class="space-y-6">
+            // Preset selector
+            <div>
+                <p class="text-sm font-medium mb-3 block">"Training Preset"</p>
+                <div class="grid grid-cols-1 sm:grid-cols-3 gap-3">
+                    <PresetCard
+                        preset=TrainingPreset::Identity
+                        selected=Signal::derive(move || current_preset.get() == TrainingPreset::Identity)
+                        on_select=move |_| apply_preset(TrainingPreset::Identity)
+                    />
+                    <PresetCard
+                        preset=TrainingPreset::Qa
+                        selected=Signal::derive(move || current_preset.get() == TrainingPreset::Qa)
+                        on_select=move |_| apply_preset(TrainingPreset::Qa)
+                    />
+                    <PresetCard
+                        preset=TrainingPreset::Custom
+                        selected=Signal::derive(move || current_preset.get() == TrainingPreset::Custom)
+                        on_select=move |_| apply_preset(TrainingPreset::Custom)
+                    />
+                </div>
+            </div>
+
+            // Time estimate (when available)
+            {move || match time_estimate.get() {
+                Some(minutes) => {
+                    let formatted = if minutes < 1.0 {
+                        "< 1 min".to_string()
+                    } else if minutes < 60.0 {
+                        format!("~{:.0} min", minutes)
+                    } else {
+                        let hours = minutes / 60.0;
+                        format!("~{:.1} hrs", hours)
+                    };
+
+                    view! {
+                        <div class="rounded-lg border border-primary/20 bg-primary/5 p-3">
+                            <div class="flex items-center gap-2">
+                                <svg class="w-4 h-4 text-primary" fill="none" viewBox="0 0 24 24" stroke="currentColor">
+                                    <path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M12 8v4l3 3m6-3a9 9 0 11-18 0 9 9 0 0118 0z"/>
+                                </svg>
+                                <span class="text-sm">
+                                    "Estimated training time (approximate): "
+                                    <span class="font-medium">{formatted}</span>
+                                </span>
+                            </div>
+                            <p class="text-xs text-muted-foreground mt-1">
+                                "Approximate estimate; actual time varies by hardware and load."
+                            </p>
+                        </div>
+                    }.into_any()
+                }
+                None => view! {
+                    <div class="rounded-lg border border-muted/60 bg-muted/30 p-3">
+                        <div class="flex items-center gap-2">
+                            <svg class="w-4 h-4 text-muted-foreground" fill="none" viewBox="0 0 24 24" stroke="currentColor">
+                                <path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M12 8v4l3 3m6-3a9 9 0 11-18 0 9 9 0 0118 0z"/>
+                            </svg>
+                            <span class="text-sm text-muted-foreground">
+                                "Estimated training time (approximate): unavailable (select a dataset)"
+                            </span>
+                        </div>
+                        <p class="text-xs text-muted-foreground mt-1">
+                            "Approximate estimate; actual time varies by hardware and load."
+                        </p>
+                    </div>
+                }.into_any(),
+            }}
+
+            // Configuration parameters
+            <div class="space-y-4">
+                <div class="grid gap-4 sm:grid-cols-2">
+                    <FormField
+                        label="Epochs"
+                        name="epochs"
+                        required=true
+                        help="Number of complete passes through the dataset"
+                    >
+                        <Input
+                            value=epochs
+                            input_type="number".to_string()
+                        />
+                    </FormField>
+
+                    <FormField
+                        label="Learning Rate"
+                        name="learning_rate"
+                        required=true
+                        help="Step size for weight updates (0.00001 - 0.01)"
+                    >
+                        <Input
+                            value=learning_rate
+                            input_type="number".to_string()
+                        />
+                    </FormField>
+                </div>
+
+                <div class="grid gap-4 sm:grid-cols-2">
+                    <FormField
+                        label="Validation Split"
+                        name="validation_split"
+                        help="Fraction of data for validation (0 - 0.5)"
+                    >
+                        <Input
+                            value=validation_split
+                            input_type="number".to_string()
+                        />
+                    </FormField>
+
+                    <div class="flex items-end pb-1">
+                        <Toggle
+                            checked=early_stopping
+                            label="Early Stopping".to_string()
+                            description="Stop training when validation loss stops improving".to_string()
+                        />
+                    </div>
+                </div>
+            </div>
+
+            // Preset description
+            <div class="text-xs text-muted-foreground">
+                {move || {
+                    let p = current_preset.get();
+                    view! {
+                        <p>
+                            <span class="font-medium">{p.label()}</span>
+                            ": "
+                            {p.description()}
+                        </p>
+                    }
+                }}
+            </div>
+        </div>
+    }
+}
+
+/// Preset selection card
+#[component]
+fn PresetCard(
+    preset: TrainingPreset,
+    selected: Signal<bool>,
+    on_select: impl Fn(()) + Clone + 'static,
+) -> impl IntoView {
+    let config = preset.config();
+
+    view! {
+        <button
+            type="button"
+            class=move || {
+                let base = "relative rounded-lg border p-4 text-left transition-all hover:border-primary/50";
+                if selected.get() {
+                    format!("{} border-primary bg-primary/5 ring-1 ring-primary", base)
+                } else {
+                    format!("{} border-border bg-card hover:bg-muted/50", base)
+                }
+            }
+            on:click=move |_| on_select(())
+        >
+            // Selection indicator
+            {move || selected.get().then(|| view! {
+                <div class="absolute top-2 right-2">
+                    <svg class="w-4 h-4 text-primary" fill="currentColor" viewBox="0 0 20 20">
+                        <path fill-rule="evenodd" d="M16.707 5.293a1 1 0 010 1.414l-8 8a1 1 0 01-1.414 0l-4-4a1 1 0 011.414-1.414L8 12.586l7.293-7.293a1 1 0 011.414 0z" clip-rule="evenodd"/>
+                    </svg>
+                </div>
+            })}
+
+            <div class="space-y-2">
+                <div class="font-medium">{preset.label()}</div>
+                <div class="text-xs text-muted-foreground space-y-1">
+                    <div class="flex justify-between">
+                        <span>"Epochs"</span>
+                        <span class="font-mono">{config.epochs}</span>
+                    </div>
+                    <div class="flex justify-between">
+                        <span>"LR"</span>
+                        <span class="font-mono">{format!("{:.4}", config.learning_rate)}</span>
+                    </div>
+                    <div class="flex justify-between">
+                        <span>"Val Split"</span>
+                        <span class="font-mono">{format!("{:.0}%", config.validation_split * 100.0)}</span>
+                    </div>
+                    {config.early_stopping.then(|| view! {
+                        <div class="flex items-center gap-1 text-primary">
+                            <svg class="w-3 h-3" fill="none" viewBox="0 0 24 24" stroke="currentColor">
+                                <path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M5 13l4 4L19 7"/>
+                            </svg>
+                            <span>"Early stop"</span>
+                        </div>
+                    })}
+                </div>
+            </div>
+        </button>
     }
 }
 

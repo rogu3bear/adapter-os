@@ -727,7 +727,7 @@ pub fn ChatAdaptersRegion(
                         <span
                             class="chat-adapters-pending-badge"
                             role="status"
-                            aria-label="Adapter selection pending"
+                            aria-label="Adapter changes pending confirmation"
                         >
                             "Pending next message"
                         </span>
@@ -797,7 +797,7 @@ pub fn ChatAdaptersRegion(
                                                     <path d="M5 5a2 2 0 012-2h6a2 2 0 012 2v2h2a1 1 0 011 1v1a1 1 0 01-1 1h-1v5a3 3 0 01-3 3H7a3 3 0 01-3-3v-5H3a1 1 0 01-1-1V8a1 1 0 011-1h2V5z"/>
                                                 </svg>
                                                 <span class="text-xs">{emoji}</span>
-                                                <span class="font-mono adapter-magnet-id">{adapter_id.clone()}</span>
+                                                <span class="font-mono">{adapter_id.clone()}</span>
                                             </button>
                                             // Info link to adapter detail page
                                             <a
@@ -847,7 +847,7 @@ pub fn ChatAdaptersRegion(
                                                 <svg class="w-3 h-3 flex-shrink-0" fill="currentColor" viewBox="0 0 20 20" aria-hidden="true">
                                                     <path d="M5 5a2 2 0 012-2h6a2 2 0 012 2v2h2a1 1 0 011 1v1a1 1 0 01-1 1h-1v5a3 3 0 01-3 3H7a3 3 0 01-3-3v-5H3a1 1 0 01-1-1V8a1 1 0 011-1h2V5z"/>
                                                 </svg>
-                                                <span class="font-mono adapter-magnet-id">{adapter_id.clone()}</span>
+                                                <span class="font-mono">{adapter_id.clone()}</span>
                                             </button>
                                             // Info link to adapter detail page
                                             <a
@@ -968,8 +968,6 @@ pub fn AdapterManageDialog(
                 <div class="relative">
                     <input
                         type="text"
-                        id="adapter-search-input"
-                        name="adapter_search"
                         class="input input-sm w-full"
                         placeholder="Search adapters..."
                         aria-label="Search adapters"
@@ -980,7 +978,7 @@ pub fn AdapterManageDialog(
                         prop:value=move || search_query.try_get().unwrap_or_default()
                     />
                 </div>
-                <div class="adapter-manage-list">
+                <div class="space-y-1 max-h-64 overflow-y-auto">
                     {move || {
                         let items = all_adapters.try_get().unwrap_or_default();
                         let draft = draft_selection.try_get().unwrap_or_default();
@@ -995,16 +993,14 @@ pub fn AdapterManageDialog(
                                 .into_iter()
                                 .map(|(adapter_id, display_name)| {
                                     let id = adapter_id.clone();
-                                    let id_title = id.clone();
                                     let id_toggle = adapter_id.clone();
                                     let checked = draft.contains(&adapter_id);
                                     let label = display_name.unwrap_or_else(|| adapter_id.clone());
-                                    let label_title = label.clone();
                                     view! {
-                                        <label class="adapter-manage-item">
+                                        <label class="flex items-center gap-2 px-2 py-1.5 rounded-md hover:bg-muted cursor-pointer text-sm">
                                             <input
                                                 type="checkbox"
-                                                class="adapter-manage-item-checkbox accent-primary"
+                                                class="accent-primary"
                                                 prop:checked=checked
                                                 on:change=move |_| {
                                                     draft_selection.update(|d| {
@@ -1016,8 +1012,8 @@ pub fn AdapterManageDialog(
                                                     });
                                                 }
                                             />
-                                            <span class="adapter-manage-item-id" title=id_title>{id}</span>
-                                            <span class="adapter-manage-item-label" title=label_title>{label}</span>
+                                            <span class="font-mono text-xs">{id}</span>
+                                            <span class="text-xs text-muted-foreground ml-auto">{label}</span>
                                         </label>
                                     }
                                 })

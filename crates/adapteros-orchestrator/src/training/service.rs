@@ -342,154 +342,7 @@ impl TrainingService {
         data_spec_json: Option<String>,
         data_spec_hash: Option<String>,
     ) -> Result<TrainingJob> {
-        self.start_training_with_optional_job_id(
-            None,
-            adapter_name,
-            config,
-            template_id,
-            repo_id,
-            target_branch,
-            base_version_id,
-            dataset_id,
-            dataset_version_ids,
-            synthetic_mode,
-            data_lineage_mode,
-            tenant_id,
-            initiated_by,
-            initiated_by_role,
-            base_model_id,
-            collection_id,
-            scope,
-            lora_tier,
-            category,
-            description,
-            language,
-            framework_id,
-            framework_version,
-            post_actions_json,
-            retry_of_job_id,
-            versioning,
-            code_commit_sha,
-            data_spec_json,
-            data_spec_hash,
-        )
-        .await
-    }
-
-    /// Start a new training job with a caller-provided job ID.
-    ///
-    /// Used by the external training worker so control-plane and worker job IDs remain identical.
-    #[allow(clippy::too_many_arguments)]
-    pub async fn start_training_with_job_id(
-        &self,
-        job_id: String,
-        adapter_name: String,
-        config: TrainingConfig,
-        template_id: Option<String>,
-        repo_id: Option<String>,
-        target_branch: Option<String>,
-        base_version_id: Option<String>,
-        dataset_id: Option<String>,
-        dataset_version_ids: Option<Vec<DatasetVersionSelection>>,
-        synthetic_mode: bool,
-        data_lineage_mode: DataLineageMode,
-        tenant_id: Option<String>,
-        initiated_by: Option<String>,
-        initiated_by_role: Option<String>,
-        base_model_id: Option<String>,
-        collection_id: Option<String>,
-        scope: Option<String>,
-        lora_tier: Option<crate::training::job::LoraTier>,
-        // Category metadata
-        category: Option<String>,
-        description: Option<String>,
-        language: Option<String>,
-        framework_id: Option<String>,
-        framework_version: Option<String>,
-        // Post-training actions (JSON serialized)
-        post_actions_json: Option<String>,
-        // Retry tracking: ID of the original job this is a retry of
-        retry_of_job_id: Option<String>,
-        // Versioning context (adapter_versions table)
-        versioning: Option<TrainingVersioningContext>,
-        // Source control + data provenance
-        code_commit_sha: Option<String>,
-        data_spec_json: Option<String>,
-        data_spec_hash: Option<String>,
-    ) -> Result<TrainingJob> {
-        self.start_training_with_optional_job_id(
-            Some(job_id),
-            adapter_name,
-            config,
-            template_id,
-            repo_id,
-            target_branch,
-            base_version_id,
-            dataset_id,
-            dataset_version_ids,
-            synthetic_mode,
-            data_lineage_mode,
-            tenant_id,
-            initiated_by,
-            initiated_by_role,
-            base_model_id,
-            collection_id,
-            scope,
-            lora_tier,
-            category,
-            description,
-            language,
-            framework_id,
-            framework_version,
-            post_actions_json,
-            retry_of_job_id,
-            versioning,
-            code_commit_sha,
-            data_spec_json,
-            data_spec_hash,
-        )
-        .await
-    }
-
-    #[allow(clippy::too_many_arguments)]
-    async fn start_training_with_optional_job_id(
-        &self,
-        job_id_override: Option<String>,
-        adapter_name: String,
-        config: TrainingConfig,
-        template_id: Option<String>,
-        repo_id: Option<String>,
-        target_branch: Option<String>,
-        base_version_id: Option<String>,
-        dataset_id: Option<String>,
-        dataset_version_ids: Option<Vec<DatasetVersionSelection>>,
-        synthetic_mode: bool,
-        data_lineage_mode: DataLineageMode,
-        tenant_id: Option<String>,
-        initiated_by: Option<String>,
-        initiated_by_role: Option<String>,
-        base_model_id: Option<String>,
-        collection_id: Option<String>,
-        scope: Option<String>,
-        lora_tier: Option<crate::training::job::LoraTier>,
-        // Category metadata
-        category: Option<String>,
-        description: Option<String>,
-        language: Option<String>,
-        framework_id: Option<String>,
-        framework_version: Option<String>,
-        // Post-training actions (JSON serialized)
-        post_actions_json: Option<String>,
-        // Retry tracking: ID of the original job this is a retry of
-        retry_of_job_id: Option<String>,
-        // Versioning context (adapter_versions table)
-        versioning: Option<TrainingVersioningContext>,
-        // Source control + data provenance
-        code_commit_sha: Option<String>,
-        data_spec_json: Option<String>,
-        data_spec_hash: Option<String>,
-    ) -> Result<TrainingJob> {
-        let job_id = job_id_override.unwrap_or_else(|| format!("train-{}", uuid::Uuid::new_v4()));
+        let job_id = format!("train-{}", uuid::Uuid::new_v4());
         let scope_value = scope.clone().unwrap_or_else(|| "tenant".to_string());
 
         // Preserve caller intent and record deterministic CoreML fallback for auditability
@@ -833,8 +686,6 @@ impl TrainingService {
                 trust_snapshots.push(DatasetVersionTrustSnapshot {
                     dataset_version_id: sel.dataset_version_id.clone(),
                     trust_at_training_time: trust_state,
-                    dataset_id: None,
-                    dataset_name: None,
                 });
             }
             if !trust_snapshots.is_empty() {
@@ -871,21 +722,17 @@ impl TrainingService {
             let config_json = serde_json::to_string(&config).unwrap_or_else(|_| "{}".to_string());
 
             let created_by = initiated_by.as_deref().unwrap_or("system");
-            let db_repo_id = repo_id.as_deref().unwrap_or("direct-training");
-            let ensure_repo_parent = if repo_id.is_none() {
-                db.ensure_direct_training_repo_exists(created_by).await
-            } else {
-                db.ensure_training_repo_parent_exists(db_repo_id, created_by)
-                    .await
-            };
-            if let Err(e) = ensure_repo_parent {
-                warn!(
-                    job_id = %job_id,
-                    repo_id = %db_repo_id,
-                    error = %e,
-                    "Failed to ensure training repo parent row (job may run without durable training job linkage)"
-                );
+            if repo_id.is_none() {
+                if let Err(e) = db.ensure_direct_training_repo_exists(created_by).await {
+                    warn!(
+                        job_id = %job_id,
+                        error = %e,
+                        "Failed to ensure synthetic direct-training repo parent row (job will run without durable training job linkage)"
+                    );
+                }
             }
+
+            let db_repo_id = repo_id.as_deref().unwrap_or("direct-training");
 
             // Extract first dataset_version_id for provenance tracking
             let dataset_version_id = job
@@ -1013,8 +860,10 @@ impl TrainingService {
 
                     {
                         let mut jobs = self.jobs.write().await;
-                        // Worker mode is DB-authoritative; remove in-memory shadow copy to avoid stale reads.
-                        jobs.remove(&job_id);
+                        if let Some(existing) = jobs.get_mut(&job_id) {
+                            existing.status = TrainingJobStatus::Running;
+                            existing.started_at = Some(started_at);
+                        }
                     }
 
                     if let Some(ref database) = self.db {
@@ -1157,8 +1006,8 @@ impl TrainingService {
         uds_client: Option<&adapteros_client::UdsClient>,
         socket_path: Option<&str>,
     ) -> Result<()> {
-        // Verify job exists and is in a cancellable state. Worker mode may be DB-only.
-        let exists_in_memory = {
+        // Verify job exists and is in a cancellable state
+        {
             let jobs = self.jobs.read().await;
             if let Some(job) = jobs.get(job_id) {
                 if job.status != TrainingJobStatus::Running
@@ -1167,28 +1016,6 @@ impl TrainingService {
                     return Err(AosError::Internal(format!(
                         "Cannot cancel job in state: {:?}",
                         job.status
-                    )));
-                }
-                true
-            } else {
-                false
-            }
-        };
-
-        if !exists_in_memory {
-            if let Some(database) = self.db.as_ref() {
-                let db_job = database
-                    .get_training_job(job_id)
-                    .await
-                    .map_err(|e| AosError::Database(format!("Failed to load training job: {}", e)))?
-                    .ok_or_else(|| {
-                        AosError::Internal(format!("Training job not found: {}", job_id))
-                    })?;
-                let db_status = db_job.status.to_ascii_lowercase();
-                if db_status != "running" && db_status != "pending" {
-                    return Err(AosError::Internal(format!(
-                        "Cannot cancel job in state: {}",
-                        db_job.status
                     )));
                 }
             } else {
@@ -1274,44 +1101,31 @@ impl TrainingService {
             false
         };
 
-        let cancellation_confirmed = token_set || worker_confirmed;
-        if !cancellation_confirmed {
-            warn!(
-                job_id = %job_id,
-                token_set = token_set,
-                worker_confirmed = worker_confirmed,
-                "Training job cancel was requested but not confirmed"
-            );
-            return Err(AosError::Internal(format!(
-                "Training cancellation not confirmed for job {}",
-                job_id
-            )));
-        }
+        let cancellation_initiated = token_set || worker_confirmed;
 
-        {
-            let mut jobs = self.jobs.write().await;
-            if let Some(job) = jobs.get_mut(job_id) {
+        let mut jobs = self.jobs.write().await;
+        if let Some(job) = jobs.get_mut(job_id) {
+            if cancellation_initiated {
                 job.cancel();
+                info!(job_id = %job_id, token_set = token_set, worker_confirmed = worker_confirmed, "Training job cancellation initiated");
+            } else {
+                job.cancel();
+                warn!(job_id = %job_id, "Training job cancel requested but no confirmation - marking cancelled via token");
             }
-        }
 
-        if let Some(ref database) = self.db {
-            if let Err(e) = database.update_training_status(job_id, "cancelled").await {
-                warn!(
-                    job_id = %job_id,
-                    error = %e,
-                    "Failed to persist training cancellation status to DB (non-fatal)"
-                );
+            if let Some(ref database) = self.db {
+                if let Err(e) = database.update_training_status(job_id, "cancelled").await {
+                    warn!(job_id = %job_id, error = %e, "Failed to persist training cancellation status to DB (non-fatal)");
+                }
             }
-        }
 
-        info!(
-            job_id = %job_id,
-            token_set = token_set,
-            worker_confirmed = worker_confirmed,
-            "Training job cancellation confirmed"
-        );
-        Ok(())
+            Ok(())
+        } else {
+            Err(AosError::Internal(format!(
+                "Training job not found: {}",
+                job_id
+            )))
+        }
     }
 
     /// Update job progress (called by training worker)
@@ -1328,20 +1142,13 @@ impl TrainingService {
             job.current_loss = loss;
             job.tokens_per_second = tokens_per_second;
             job.progress_pct = (epoch as f32 / job.total_epochs as f32) * 100.0;
-            let transitioned_to_running = if job.status == TrainingJobStatus::Pending {
+
+            if job.status == TrainingJobStatus::Pending {
                 job.status = TrainingJobStatus::Running;
                 job.started_at = Some(chrono::Utc::now().to_rfc3339());
-                true
-            } else {
-                false
-            };
+            }
 
             if let Some(ref database) = self.db {
-                if transitioned_to_running {
-                    if let Err(e) = database.update_training_status(job_id, "running").await {
-                        warn!(job_id = %job_id, error = %e, "Failed to persist running training status to DB (non-fatal)");
-                    }
-                }
                 let progress = adapteros_db::training_jobs::TrainingProgress {
                     progress_pct: job.progress_pct,
                     current_epoch: job.current_epoch,

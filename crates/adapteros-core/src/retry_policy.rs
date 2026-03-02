@@ -340,26 +340,6 @@ impl RetryManager {
         }
     }
 
-    /// Create a retry manager using circuit-breaker and budget defaults from policy.
-    pub fn from_policy_defaults(policy: &RetryPolicy) -> Self {
-        let circuit_breaker = policy.circuit_breaker.as_ref().map(|config| {
-            Arc::new(StandardCircuitBreaker::new(
-                format!("retry-manager-{}", policy.service_type),
-                config.clone(),
-            ))
-        });
-        let budget = policy
-            .budget
-            .as_ref()
-            .map(|config| RetryBudget::new(config.clone()));
-
-        Self {
-            circuit_breaker,
-            budget,
-            metrics: None,
-        }
-    }
-
     /// Execute an operation with retry policy
     pub async fn execute_with_policy<F, T>(&self, policy: &RetryPolicy, operation: F) -> Result<T>
     where
@@ -622,26 +602,6 @@ mod tests {
             ..RetryPolicy::fast("test")
         };
         let manager = RetryManager::new();
-        let attempts = Arc::new(AtomicU32::new(0));
-
-        let result = manager
-            .execute_with_policy(&policy, || {
-                let attempts = attempts.clone();
-                Box::pin(async move {
-                    attempts.fetch_add(1, Ordering::SeqCst);
-                    Ok::<_, AosError>("success")
-                })
-            })
-            .await;
-
-        assert!(result.is_ok());
-        assert_eq!(attempts.load(Ordering::SeqCst), 1);
-    }
-
-    #[tokio::test]
-    async fn test_retry_manager_from_policy_defaults_supports_default_policy() {
-        let policy = RetryPolicy::default();
-        let manager = RetryManager::from_policy_defaults(&policy);
         let attempts = Arc::new(AtomicU32::new(0));
 
         let result = manager

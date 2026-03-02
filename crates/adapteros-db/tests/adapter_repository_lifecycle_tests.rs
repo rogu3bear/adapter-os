@@ -4,11 +4,8 @@
 #![allow(clippy::cloned_ref_to_slice_refs)]
 
 use adapteros_core::{AosError, Result};
-use adapteros_db::{
-    CreateDraftVersionParams, CreateRepositoryParams, CreateVersionParams, Db, RepositoryGroup,
-};
+use adapteros_db::{CreateRepositoryParams, CreateVersionParams, Db, RepositoryGroup};
 use sqlx;
-use std::collections::HashSet;
 
 /// Helper to create a test model for FK satisfaction
 async fn create_test_model(db: &Db, model_id: &str, tenant_id: &str) {
@@ -20,7 +17,7 @@ async fn create_test_model(db: &Db, model_id: &str, tenant_id: &str) {
     .bind(format!("model-{}", model_id))
     .bind(format!("hash-{}", model_id))
     .bind(tenant_id)
-    .execute(&*db.pool_result().expect("db pool available"))
+    .execute(&*db.pool())
     .await
     .expect("create test model");
 }
@@ -261,57 +258,6 @@ async fn list_versions_orders_by_semver_and_filters_state() -> Result<()> {
 }
 
 #[tokio::test]
-async fn draft_versions_use_unique_labels_per_repo_branch() -> Result<()> {
-    let db = Db::new_in_memory().await?;
-    let tenant_id = db.create_tenant("tenant-draft-unique", false).await?;
-    let repo_id = create_repo(&db, &tenant_id, "draft-unique-repo", None).await;
-
-    let first = db
-        .create_adapter_draft_version(CreateDraftVersionParams {
-            repo_id: &repo_id,
-            tenant_id: &tenant_id,
-            branch: "main",
-            branch_classification: "sandbox",
-            parent_version_id: None,
-            code_commit_sha: None,
-            data_spec_hash: None,
-            training_backend: None,
-            dataset_version_ids: None,
-            actor: Some("tester"),
-            reason: Some("draft-1"),
-        })
-        .await?;
-
-    let second = db
-        .create_adapter_draft_version(CreateDraftVersionParams {
-            repo_id: &repo_id,
-            tenant_id: &tenant_id,
-            branch: "main",
-            branch_classification: "sandbox",
-            parent_version_id: None,
-            code_commit_sha: None,
-            data_spec_hash: None,
-            training_backend: None,
-            dataset_version_ids: None,
-            actor: Some("tester"),
-            reason: Some("draft-2"),
-        })
-        .await?;
-
-    assert_ne!(first, second, "draft version ids should be distinct");
-
-    let drafts = db
-        .list_adapter_versions_for_repo(&tenant_id, &repo_id, Some("main"), Some(&["draft"]))
-        .await?;
-    assert_eq!(drafts.len(), 2, "both drafts should be persisted");
-
-    let labels: HashSet<String> = drafts.into_iter().map(|v| v.version).collect();
-    assert_eq!(labels.len(), 2, "draft version labels must be unique");
-
-    Ok(())
-}
-
-#[tokio::test]
 async fn resolve_version_prefers_active_then_ready_and_supports_selectors() -> Result<()> {
     let db = Db::new_in_memory().await?;
     let tenant_id = db.create_tenant("tenant-d", false).await?;
@@ -407,7 +353,7 @@ async fn rollback_marks_states_and_writes_history() -> Result<()> {
     let history_count: i64 =
         sqlx::query_scalar("SELECT COUNT(1) FROM adapter_version_history WHERE repo_id = ?")
             .bind(&repo_id)
-            .fetch_one(&*db.pool_result().expect("db pool available"))
+            .fetch_one(&*db.pool())
             .await
             .unwrap();
     assert_eq!(history_count, 4);

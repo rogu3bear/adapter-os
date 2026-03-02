@@ -3,10 +3,10 @@
 //! Currently provides:
 //! - `aosctl deploy adapters` – deploy adapter directories / .aos / .safetensors
 //!
-//! Behavior replaces the former `scripts/deploy_adapters.sh` helper
+//! Behavior is based on the legacy `scripts/deploy_adapters.sh` helper
 //! while integrating with `OutputWriter` and JSON/quiet modes.
 //!
-//! [source: aosctl deploy adapters]
+//! [source: scripts/deploy_adapters.sh L1-L120]
 
 use crate::output::OutputWriter;
 use adapteros_core::defaults::DEFAULT_API_URL;

@@ -80,14 +80,6 @@ impl super::types::AdapterPackager {
         (soft, hard)
     }
 
-    fn resolved_target_modules(config: &TrainingConfig) -> Vec<String> {
-        if config.targets.is_empty() {
-            vec!["q_proj".to_string()]
-        } else {
-            config.targets.clone()
-        }
-    }
-
     async fn current_artifact_usage(&self, tenant_id: &str) -> Result<u64> {
         let tenant_dir = self.repo_root.join(tenant_id);
         if !tenant_dir.exists() {
@@ -316,26 +308,20 @@ impl super::types::AdapterPackager {
             AosError::Training(format!("Failed to create adapter directory: {}", e))
         })?;
 
-        let target_modules = Self::resolved_target_modules(config);
-        let target_module_refs: Vec<&str> = target_modules.iter().map(String::as_str).collect();
-
         // Serialize weights to safetensors format (adapter-only deltas)
         let weights_path = adapter_dir.join("weights.safetensors");
         let weights_bytes = self
-            .save_weights_safetensors(&weights_path, weights, &target_modules)
+            .save_weights_safetensors(&weights_path, weights)
             .await?;
 
         // Compute whole-adapter hash + per-layer hashes from the in-memory bytes
         let hash_b3 = blake3::hash(&weights_bytes).to_hex().to_string();
         let per_layer_hashes = Self::compute_per_layer_hashes_from_bytes(&weights_bytes)?;
 
+        let modules = ["q_proj", "k_proj", "v_proj", "o_proj"];
         let (rank, hidden_dim, _, _) = super::coreml::validate_quantized_shapes(weights, config)?;
-        let coreml_placement = super::coreml::resolve_coreml_placement_spec(
-            &metadata,
-            &target_module_refs,
-            rank,
-            hidden_dim,
-        )?;
+        let coreml_placement =
+            super::coreml::resolve_coreml_placement_spec(&metadata, &modules, rank, hidden_dim)?;
         let base_model_hash = metadata.get("base_model_hash").cloned();
 
         let scope_value = metadata
@@ -357,7 +343,6 @@ impl super::types::AdapterPackager {
         // Create manifest with consistent version format (semver)
         let mut manifest = AdapterManifest {
             version: "1.0.0".to_string(),
-            adapter_id: Some(adapter_id.to_string()),
             rank: config.rank,
             base_model: base_model.to_string(),
             base_model_hash,
@@ -492,11 +477,8 @@ impl super::types::AdapterPackager {
             AosError::Training(format!("Failed to create adapter directory: {}", e))
         })?;
 
-        let target_modules = Self::resolved_target_modules(config);
-        let target_module_refs: Vec<&str> = target_modules.iter().map(String::as_str).collect();
-
         // Serialize weights to in-memory safetensors buffer (matches loader expectations)
-        let weights_data = Self::build_safetensors_bytes(weights, &target_modules)?;
+        let weights_data = Self::build_safetensors_bytes(weights)?;
         let estimate_bytes = weights_data.len() as u64;
         self.enforce_artifact_quota(tenant_id, estimate_bytes)
             .await?;
@@ -505,13 +487,10 @@ impl super::types::AdapterPackager {
         let hash_b3 = blake3::hash(&weights_data).to_hex().to_string();
         let per_layer_hashes = Self::compute_per_layer_hashes_from_bytes(&weights_data)?;
 
+        let modules = ["q_proj", "k_proj", "v_proj", "o_proj"];
         let (rank, hidden_dim, _, _) = super::coreml::validate_quantized_shapes(weights, config)?;
-        let coreml_placement = super::coreml::resolve_coreml_placement_spec(
-            &metadata,
-            &target_module_refs,
-            rank,
-            hidden_dim,
-        )?;
+        let coreml_placement =
+            super::coreml::resolve_coreml_placement_spec(&metadata, &modules, rank, hidden_dim)?;
         let base_model_hash = metadata.get("base_model_hash").cloned();
 
         let scope_value = metadata
@@ -532,7 +511,6 @@ impl super::types::AdapterPackager {
         // Create manifest
         let mut manifest = AdapterManifest {
             version: "2.0".to_string(), // AOS 2.0 format
-            adapter_id: Some(adapter_id.to_string()),
             rank: config.rank,
             base_model: base_model.to_string(),
             base_model_hash,
@@ -616,31 +594,11 @@ impl super::types::AdapterPackager {
             &weights_data,
         )?;
 
-        // Worker preload consumes archive-level manifest metadata.
-        // Keep runtime target modules aligned with the packaged tensor set.
-        let target_modules = target_modules.clone();
-
-        #[derive(serde::Serialize)]
-        struct ArchiveRuntimeManifest<'a> {
-            #[serde(flatten)]
-            manifest: &'a AdapterManifest,
-            alpha: f32,
-            target_modules: Vec<String>,
-            #[serde(skip_serializing_if = "Option::is_none")]
-            base_model_id: Option<String>,
-        }
-        let archive_manifest = ArchiveRuntimeManifest {
-            manifest: &manifest,
-            alpha: config.alpha,
-            target_modules,
-            base_model_id: Some(base_model.to_string()),
-        };
-
         // Write to a temporary location first to get the archive bytes
         let temp_dir = tempfile::tempdir()
             .map_err(|e| AosError::Training(format!("Failed to create temp directory: {}", e)))?;
         let temp_path = temp_dir.path().join("temp.aos");
-        writer.write_archive(&temp_path, &archive_manifest)?;
+        writer.write_archive(&temp_path, &manifest)?;
 
         // Read the archive and compute the final content hash.
         // Use std::fs (synchronous) because this runs inside the deterministic executor
@@ -825,9 +783,8 @@ impl super::types::AdapterPackager {
         &self,
         path: &Path,
         weights: &QuantizedLoRAWeights,
-        target_modules: &[String],
     ) -> Result<Vec<u8>> {
-        let data = Self::build_safetensors_bytes(weights, target_modules)?;
+        let data = Self::build_safetensors_bytes(weights)?;
 
         tokio::fs::write(path, &data)
             .await
@@ -904,11 +861,8 @@ impl super::types::AdapterPackager {
     ///
     /// Supports both multi-module and single-module (legacy) weights:
     /// - Multi-module: Each module gets its own trained weights
-    /// - Single-module: Same weights are replicated across configured target modules
-    fn build_safetensors_bytes(
-        weights: &QuantizedLoRAWeights,
-        target_modules: &[String],
-    ) -> Result<Vec<u8>> {
+    /// - Single-module: Same weights are replicated across default modules
+    fn build_safetensors_bytes(weights: &QuantizedLoRAWeights) -> Result<Vec<u8>> {
         // Dequantize to f32 for runtime backends
         let deq = LoRAQuantizer::dequantize_from_q15(weights);
 
@@ -990,15 +944,11 @@ impl super::types::AdapterPackager {
                 "packager must only serialize LoRA tensors; base weights are excluded"
             );
 
-            safetensors::serialize(tensors, Default::default())
+            safetensors::serialize(tensors, &Default::default())
                 .map_err(|e| AosError::Training(format!("safetensors serialize error: {}", e)))
         } else {
-            // Legacy single-module: replicate same weights for configured targets only.
-            let modules: Vec<String> = if target_modules.is_empty() {
-                vec!["q_proj".to_string()]
-            } else {
-                target_modules.to_vec()
-            };
+            // Legacy single-module: replicate same weights for default modules
+            let modules = ["q_proj", "k_proj", "v_proj", "o_proj"];
             let mut tensors: Vec<(String, TensorView)> = Vec::new();
 
             let a_rows = deq.lora_a.len(); // rank
@@ -1009,7 +959,7 @@ impl super::types::AdapterPackager {
             let a_bytes = flatten_2d(&deq.lora_a);
             let b_bytes = flatten_2d(&deq.lora_b);
 
-            for name in &modules {
+            for name in modules.iter() {
                 let a_view = TensorView::new(
                     safetensors::Dtype::F32,
                     vec![a_rows, a_cols],
@@ -1033,7 +983,7 @@ impl super::types::AdapterPackager {
                 "packager must only serialize LoRA tensors; base weights are excluded"
             );
 
-            safetensors::serialize(tensors, Default::default())
+            safetensors::serialize(tensors, &Default::default())
                 .map_err(|e| AosError::Training(format!("safetensors serialize error: {}", e)))
         }
     }
@@ -1287,7 +1237,6 @@ mod tests {
 
         let manifest = AdapterManifest {
             version: "1.0.0".to_string(),
-            adapter_id: Some("test-adapter".to_string()),
             rank: 4,
             base_model: "test-model".to_string(),
             base_model_hash: None,
@@ -1384,7 +1333,7 @@ mod tests {
             TensorView::new(safetensors::Dtype::F32, vec![2, 2], &lora_bytes).unwrap(),
         )];
 
-        let serialized = safetensors::tensor::serialize(tensors, None).unwrap();
+        let serialized = safetensors::tensor::serialize(tensors, &None).unwrap();
         let hashes = AdapterPackager::compute_per_layer_hashes_from_bytes(&serialized)
             .expect("failed to compute per-layer hashes from serialized safetensors - serialization format should be valid");
 

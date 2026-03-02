@@ -62,8 +62,6 @@ pub struct InferenceRequestInternal {
     pub require_step: bool,
     /// Require deterministic-capable backend
     pub require_determinism: bool,
-    /// Request strict bit-identical behavior.
-    pub bit_identical: bool,
     /// Allow backend fallback when requested backend is unavailable
     pub allow_fallback: bool,
     /// Batch item ID (for batch requests only)
@@ -100,9 +98,6 @@ pub struct InferenceRequestInternal {
     pub stack_routing_determinism_mode: Option<RoutingDeterminismMode>,
     /// Effective adapter IDs after control plane resolution
     pub effective_adapter_ids: Option<Vec<String>>,
-    /// Immutable adapter version bindings resolved for this request.
-    pub adapter_version_bindings:
-        Option<Vec<adapteros_api_types::inference::AdapterVersionBinding>>,
     /// Per-adapter strength overrides (session/request scoped)
     ///
     /// Values multiply the adapter's configured lora_strength. Defaults to 1.0.
@@ -133,11 +128,12 @@ pub struct InferenceRequestInternal {
     pub fusion_interval: Option<FusionInterval>,
     /// Random seed for reproducibility (PRD-02: deterministic sampling)
     pub seed: Option<u64>,
-    /// Router seed for audit purposes (PRD-02: replay).
+    /// Router seed for audit purposes (PRD-02: replay)
     ///
-    /// Deterministic routing mode remains score/stable_id ordered and does not
-    /// depend on this seed. Adaptive routing mode uses this seed to derive
-    /// reproducible tie-break order for equal-score candidates.
+    /// **Note:** The router uses a deterministic algorithm (sorted by score,
+    /// then by stable_id for tie-breaking). This seed is stored for audit trail
+    /// purposes but does NOT currently affect routing decisions. Replays
+    /// produce identical routing given identical inputs.
     pub router_seed: Option<String>,
 
     // === Evidence & Session ===
@@ -220,7 +216,6 @@ impl Default for InferenceRequestInternal {
             stream: false,
             require_step: false,
             require_determinism: false,
-            bit_identical: false,
             allow_fallback: true,
             batch_item_id: None,
             rag_enabled: false,
@@ -234,7 +229,6 @@ impl Default for InferenceRequestInternal {
             stack_determinism_mode: None,
             stack_routing_determinism_mode: None,
             effective_adapter_ids: None,
-            adapter_version_bindings: None,
             adapter_strength_overrides: None,
             determinism_mode: None,
             routing_determinism_mode: None,
@@ -362,15 +356,6 @@ pub struct InferenceResult {
     /// Source citations derived from training files or RAG
     #[serde(default, skip_serializing_if = "Vec::is_empty")]
     pub citations: Vec<adapteros_api_types::inference::Citation>,
-    /// Source documents tied to adapter provenance with clickable download links.
-    #[serde(default, skip_serializing_if = "Vec::is_empty")]
-    pub document_links: Vec<adapteros_api_types::inference::DocumentLink>,
-    /// Adapter attachment provenance used for chat trust/detail display.
-    #[serde(default, skip_serializing_if = "Vec::is_empty")]
-    pub adapter_attachments: Vec<adapteros_api_types::inference::AdapterAttachment>,
-    /// Explicit degraded/fallback notices for chat trust surfaces.
-    #[serde(default, skip_serializing_if = "Vec::is_empty")]
-    pub degraded_notices: Vec<adapteros_api_types::inference::DegradedNotice>,
     /// Total latency in milliseconds
     pub latency_ms: u64,
     /// Request ID for correlation

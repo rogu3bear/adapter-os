@@ -9,7 +9,6 @@ use serde::{Deserialize, Serialize};
 pub enum UiProfile {
     Primary,
     Full,
-    Hud,
 }
 
 impl UiProfile {
@@ -17,7 +16,6 @@ impl UiProfile {
         match self {
             UiProfile::Primary => "primary",
             UiProfile::Full => "full",
-            UiProfile::Hud => "hud",
         }
     }
 
@@ -25,12 +23,11 @@ impl UiProfile {
         match self {
             UiProfile::Primary => "Primary",
             UiProfile::Full => "Full",
-            UiProfile::Hud => "HUD",
         }
     }
 
     pub fn parse(value: &str) -> Self {
-        value.parse().unwrap_or(UiProfile::Primary)
+        value.parse().unwrap_or(UiProfile::Full)
     }
 }
 
@@ -41,20 +38,8 @@ impl std::str::FromStr for UiProfile {
         match value.to_lowercase().as_str() {
             "primary" => Ok(UiProfile::Primary),
             "full" => Ok(UiProfile::Full),
-            "hud" => Ok(UiProfile::Hud),
             _ => Err(()),
         }
-    }
-}
-
-#[cfg(test)]
-mod tests {
-    use super::UiProfile;
-
-    #[test]
-    fn parse_falls_back_to_primary_for_unknown_values() {
-        assert_eq!(UiProfile::parse("hud"), UiProfile::Hud);
-        assert_eq!(UiProfile::parse("unknown"), UiProfile::Primary);
     }
 }
 

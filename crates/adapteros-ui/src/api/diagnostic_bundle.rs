@@ -108,7 +108,7 @@ impl DiagnosticBundle {
                 diag_trace_id = dtid.clone();
                 otel_trace_id = otid.clone();
                 fingerprint = fp.clone();
-                (**details).clone()
+                details.clone()
             }
             _ => None,
         };

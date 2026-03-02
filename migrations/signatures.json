@@ -1,6 +1,6 @@
 {
   "schema_version": "1.0",
-  "signed_at": "2026-03-01T13:07:13Z",
+  "signed_at": "2026-02-18T19:53:18Z",
   "public_key": "LS0tLS1CRUdJTiBQVUJMSUMgS0VZLS0tLS0KTUNvd0JRWURLMlZ3QXlFQUI4YzQxRktSQnNJQlVIMENRY0l0TUdUNGt3ZGxTWGhkSXg2c3d2U0dMQ0U9Ci0tLS0tRU5EIFBVQkxJQyBLRVktLS0tLQo=",
   "signatures": {
     "0001_init.sql": {"hash": "f8660473370b023cfcb2207b3ed774f8ae90069c269ae2d953e7a3d2abc6e2ed", "signature": "MSEb3f3FTSTqU4pYbRKYaLkId86TstCeVZ8yyP+8uMzk0rpMgMRSC5ZXxxJpNLNQSQ4L1n0kbPmSBzToGfGpAg==", "algorithm": "ed25519", "hash_algorithm": "blake3"},
@@ -325,9 +325,6 @@
     "20260213203000_add_artifacts_stored_path.sql": {"hash": "5393ee66fb76633f4dc84da5a0033f57d78a4a7edb6d6c8b62cad8a241cbf2cb", "signature": "yhxpOlqhWso+dni7GAPJpFff/lSBkGti869vmHjEsiu3ggouCIk/X+Az9Ij9rDKcweFnI7soZwpk8x8vJooqDA==", "algorithm": "ed25519", "hash_algorithm": "blake3"},
     "20260217080000_restore_process_monitoring_tables.sql": {"hash": "af78011116a8487ddc4dc35ca6320527620833d5cea2f182f94b145f1818b17d", "signature": "sHr27o0tVZc5Gh5nNG9drvcut0ZfsazTknO4mckXnej2reqlg/TBGZOHBda7hNPJiNhcbBKMLLRkI5fMTahMBA==", "algorithm": "ed25519", "hash_algorithm": "blake3"},
     "20260217090000_determinism_checks.sql": {"hash": "8ee5da554af88299776914364d0728cd54fda6d6397e5a8fe6dcd572a695bb22", "signature": "RRtZw6Rc10y3lLmSnO66Cls1BE+ugpZnQWbaVMetOXJt9WEwM4oyGG5fWXD39zbUJmir5m2BSHLmstYkKEQhAg==", "algorithm": "ed25519", "hash_algorithm": "blake3"},
-    "20260217100000_adapter_version_canary_weights.sql": {"hash": "437ef882e68b354b53b1055e4a4e81d053edb67f33d269fd115706cf10498891", "signature": "OJ1StxKJlGiCceGbhBeEo43Yl6BdhqnwtycEUYpO6pjKjnezjL7Zav5HpYOo3o4JWueSKoZRapzhAPlVQnnsDw==", "algorithm": "ed25519", "hash_algorithm": "blake3"},
-    "20260220120000_canonical_runtime_tables.sql": {"hash": "8786a3ead60ff7de0cb135b7cd8a9ab302cee013418e8b64e9a689336f1a591c", "signature": "H8TcTH9NYYJTR4Zt+gFX9D8XKY1dMUn6oQEwXw4y4HrutgGv/6mdZsnhQaVOg0rhW5zJaDQQLUdH/+Dwl+hiDQ==", "algorithm": "ed25519", "hash_algorithm": "blake3"},
-    "20260221130000_worker_model_lifecycle_unification.sql": {"hash": "406b811ab1ea1e74e01d2b0c4ec44ffdfc300589e2ec2c876bd850f61b7789ce", "signature": "BpYTCPteGODieGn9pcqzNL4UcQJjLUigpT/cTHKZHo7e+XWwWplVDujid7vSenIBRokSp6tjFgfPwy9FZY8YDQ==", "algorithm": "ed25519", "hash_algorithm": "blake3"},
-    "20260228153000_single_ready_base_model_per_tenant.sql": {"hash": "26a246dcfc85d9b723abad4046577b3936cbd75c9ba19128c3cddd407a1425e2", "signature": "Ln1HvHp8Y7q9jkK+oVGqcjydvccgnSJrjnoGzjArRxCAjinyDE0to9UIP2JGxgGq4K+BzBt4zUoznoMoEchsAA==", "algorithm": "ed25519", "hash_algorithm": "blake3"}
+    "20260217100000_adapter_version_canary_weights.sql": {"hash": "437ef882e68b354b53b1055e4a4e81d053edb67f33d269fd115706cf10498891", "signature": "OJ1StxKJlGiCceGbhBeEo43Yl6BdhqnwtycEUYpO6pjKjnezjL7Zav5HpYOo3o4JWueSKoZRapzhAPlVQnnsDw==", "algorithm": "ed25519", "hash_algorithm": "blake3"}
   }
 }

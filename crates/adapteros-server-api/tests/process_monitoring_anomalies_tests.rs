@@ -65,26 +65,24 @@ async fn list_process_anomalies_filters_and_paginates() {
         status: AnomalyStatus::Investigating,
     };
 
-    let anomaly_one_id =
-        ProcessAnomaly::insert(state.db.pool_result().expect("db pool"), anomaly_one)
-            .await
-            .expect("insert anomaly one");
-    let anomaly_two_id =
-        ProcessAnomaly::insert(state.db.pool_result().expect("db pool"), anomaly_two)
-            .await
-            .expect("insert anomaly two");
+    let anomaly_one_id = ProcessAnomaly::insert(state.db.pool(), anomaly_one)
+        .await
+        .expect("insert anomaly one");
+    let anomaly_two_id = ProcessAnomaly::insert(state.db.pool(), anomaly_two)
+        .await
+        .expect("insert anomaly two");
 
     sqlx::query("UPDATE process_anomalies SET created_at = ? WHERE id = ?")
         .bind("2025-01-01T00:00:00Z")
         .bind(&anomaly_one_id)
-        .execute(state.db.pool_result().expect("db pool"))
+        .execute(state.db.pool())
         .await
         .expect("update anomaly one timestamp");
 
     sqlx::query("UPDATE process_anomalies SET created_at = ? WHERE id = ?")
         .bind("2025-01-02T00:00:00Z")
         .bind(&anomaly_two_id)
-        .execute(state.db.pool_result().expect("db pool"))
+        .execute(state.db.pool())
         .await
         .expect("update anomaly two timestamp");
 

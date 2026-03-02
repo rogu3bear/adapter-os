@@ -8,7 +8,7 @@ use clap::Args;
 /// Arguments for the TUI command
 #[derive(Debug, Args, Clone)]
 pub struct TuiArgs {
-    /// Server URL for API connections (default: http://localhost:18080)
+    /// Server URL for API connections (default: http://localhost:8080)
     #[arg(long, env = "AOS_SERVER_URL")]
     pub server_url: Option<String>,
 }

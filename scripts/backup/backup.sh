@@ -199,13 +199,7 @@ tar -czf "${PAYLOAD}" \
 
 shasum -a 256 "${PAYLOAD}" > "${TMP_DIR}/payload.sha256"
 
-ENC_CIPHER="aes-256-gcm"
-if ! openssl enc -list 2>/dev/null | tr ' ' '\n' | grep -Fxq -- "-aes-256-gcm"; then
-  ENC_CIPHER="aes-256-cbc"
-  log_json "warn" "OpenSSL enc does not support aes-256-gcm; using aes-256-cbc fallback"
-fi
-
-openssl enc -"${ENC_CIPHER}" -pbkdf2 -iter 100000 -md sha256 -salt \
+openssl enc -aes-256-gcm -pbkdf2 -iter 100000 -md sha256 -salt \
   -in "${PAYLOAD}" \
   -out "${BACKUP_FILE}" \
   -pass "file:${KEY_PATH}"

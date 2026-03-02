@@ -9,7 +9,7 @@
 #   scripts/free-ports.sh --help
 #
 # Defaults:
-#   PORTS: 18080 18081
+#   PORTS: 8080 3200
 #
 # Environment:
 #   FREE_PORTS_GRACE_TIMEOUT  Seconds to wait after SIGTERM (default: 10)
@@ -17,12 +17,7 @@
 
 set -euo pipefail
 
-SCRIPT_DIR="$(cd "$(dirname "${BASH_SOURCE[0]}")" && pwd)"
-ROOT_DIR="$(cd "$SCRIPT_DIR/.." && pwd)"
-source "$ROOT_DIR/scripts/lib/ports.sh"
-aos_apply_port_pane_defaults
-
-DEFAULT_PORTS=(${AOS_SERVER_PORT:-18080} ${AOS_UI_PORT:-18081})
+DEFAULT_PORTS=(${AOS_SERVER_PORT:-8080} ${AOS_UI_PORT:-3200})
 : "${FREE_PORTS_GRACE_TIMEOUT:=10}"
 : "${FREE_PORTS_FORCE_TIMEOUT:=3}"
 
@@ -36,14 +31,14 @@ Options:
   -h, --help    Show this help
 
 Notes:
-  - With no PORT args, defaults to: 18080 18081
-  - PORT args may be comma-separated (e.g. "18080,18081")
+  - With no PORT args, defaults to: 8080 3200
+  - PORT args may be comma-separated (e.g. "8080,3200")
   - Without --force, this script only prints suggested kill commands.
 
 Examples:
   scripts/free-ports.sh
-  scripts/free-ports.sh 18080 18081
-  scripts/free-ports.sh --force 18080,18081
+  scripts/free-ports.sh 8080 3200
+  scripts/free-ports.sh --force 8080,3200
 EOF
 }
 

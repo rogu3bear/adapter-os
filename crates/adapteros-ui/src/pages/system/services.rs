@@ -59,16 +59,16 @@ pub fn ServiceControlPanel(services: Vec<ServiceState>) -> impl IntoView {
                     _ => return,
                 };
 
-                let _ = action_loading.try_set(false);
+                action_loading.set(false);
                 match result {
                     Ok(resp) if resp.success => {
-                        let _ = action_success.try_set(Some(resp.message));
+                        action_success.set(Some(resp.message));
                     }
                     Ok(resp) => {
-                        let _ = action_error.try_set(Some(resp.message));
+                        action_error.set(Some(resp.message));
                     }
                     Err(e) => {
-                        let _ = action_error.try_set(Some(format!("{}", e)));
+                        action_error.set(Some(format!("{}", e)));
                     }
                 }
             });
@@ -93,16 +93,16 @@ pub fn ServiceControlPanel(services: Vec<ServiceState>) -> impl IntoView {
                     _ => return,
                 };
 
-                let _ = action_loading.try_set(false);
+                action_loading.set(false);
                 match result {
                     Ok(resp) if resp.success => {
-                        let _ = action_success.try_set(Some(resp.message));
+                        action_success.set(Some(resp.message));
                     }
                     Ok(resp) => {
-                        let _ = action_error.try_set(Some(resp.message));
+                        action_error.set(Some(resp.message));
                     }
                     Err(e) => {
-                        let _ = action_error.try_set(Some(format!("{}", e)));
+                        action_error.set(Some(format!("{}", e)));
                     }
                 }
             });
@@ -122,13 +122,13 @@ pub fn ServiceControlPanel(services: Vec<ServiceState>) -> impl IntoView {
             leptos::task::spawn_local(async move {
                 match client.get_service_logs(&service_id, Some(200)).await {
                     Ok(lines) => {
-                        let _ = logs_content.try_set(lines);
+                        logs_content.set(lines);
                     }
                     Err(e) => {
-                        let _ = logs_content.try_set(vec![format!("Error fetching logs: {}", e)]);
+                        logs_content.set(vec![format!("Error fetching logs: {}", e)]);
                     }
                 }
-                let _ = logs_loading.try_set(false);
+                logs_loading.set(false);
             });
         })
     };

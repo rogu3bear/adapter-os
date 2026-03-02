@@ -8,7 +8,7 @@ async fn setup_db_with_tenant() -> Db {
     let db = Db::connect("sqlite::memory:").await.unwrap();
     db.migrate().await.unwrap();
     sqlx::query("INSERT INTO tenants (id, name) VALUES ('default-tenant', 'Default')")
-        .execute(db.pool_result().unwrap())
+        .execute(db.pool())
         .await
         .unwrap();
     db
@@ -18,7 +18,7 @@ async fn check_active_aos_invariants(db: &Db) -> Result<()> {
     let rows = sqlx::query(
         "SELECT adapter_id, aos_file_path, aos_file_hash FROM adapters WHERE active = 1",
     )
-    .fetch_all(db.pool_result().unwrap())
+    .fetch_all(db.pool())
     .await
     .map_err(|e| adapteros_core::AosError::Database(e.to_string()))?;
 
@@ -108,7 +108,7 @@ async fn invariant_detects_hash_mismatch() {
     sqlx::query(
         "UPDATE adapters SET aos_file_hash = 'deadbeef' WHERE adapter_id = 'docs-adapter-mismatch'",
     )
-    .execute(db.pool_result().unwrap())
+    .execute(db.pool())
     .await
     .unwrap();
 

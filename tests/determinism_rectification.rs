@@ -158,7 +158,6 @@ fn test_router_determinism_with_decision_hash() {
             adapter_type: None,
             stream_session_id: None,
             base_adapter_id: None,
-            version_weight: 1.0,
         })
         .collect();
 

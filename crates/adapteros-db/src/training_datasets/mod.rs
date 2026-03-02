@@ -82,61 +82,6 @@ pub(crate) fn normalize_optional_value(value: Option<&str>) -> Option<String> {
     sanitize_optional(value)
 }
 
-const DEFAULT_DATASET_TYPE: &str = "training";
-const LEGACY_DATASET_TYPE_CODEBASE: &str = "codebase";
-const VALID_DATASET_TYPES: &[&str] = &["training", "eval", "red_team", "logs", "other"];
-
-const DEFAULT_COLLECTION_METHOD: &str = "manual";
-const LEGACY_COLLECTION_METHOD_CODE_INGESTION_PIPELINE: &str = "code_ingestion_pipeline";
-const LEGACY_COLLECTION_METHOD_AUTOMATED: &str = "automated";
-const VALID_COLLECTION_METHODS: &[&str] = &["manual", "sync", "api", "pipeline", "scrape", "other"];
-
-fn normalize_dataset_type_for_insert(value: Option<&str>) -> Result<String> {
-    let normalized = value
-        .map(str::trim)
-        .filter(|v| !v.is_empty())
-        .map(|v| v.to_ascii_lowercase())
-        .unwrap_or_else(|| DEFAULT_DATASET_TYPE.to_string());
-
-    if normalized == LEGACY_DATASET_TYPE_CODEBASE {
-        return Ok(DEFAULT_DATASET_TYPE.to_string());
-    }
-
-    if VALID_DATASET_TYPES.contains(&normalized.as_str()) {
-        Ok(normalized)
-    } else {
-        Err(AosError::validation(format!(
-            "Invalid dataset_type '{}'. Must be one of: {}",
-            normalized,
-            VALID_DATASET_TYPES.join(", ")
-        )))
-    }
-}
-
-fn normalize_collection_method_for_insert(value: Option<&str>) -> Result<String> {
-    let normalized = value
-        .map(str::trim)
-        .filter(|v| !v.is_empty())
-        .map(|v| v.to_ascii_lowercase())
-        .unwrap_or_else(|| DEFAULT_COLLECTION_METHOD.to_string());
-
-    if normalized == LEGACY_COLLECTION_METHOD_CODE_INGESTION_PIPELINE
-        || normalized == LEGACY_COLLECTION_METHOD_AUTOMATED
-    {
-        return Ok("pipeline".to_string());
-    }
-
-    if VALID_COLLECTION_METHODS.contains(&normalized.as_str()) {
-        Ok(normalized)
-    } else {
-        Err(AosError::validation(format!(
-            "Invalid collection_method '{}'. Must be one of: {}",
-            normalized,
-            VALID_COLLECTION_METHODS.join(", ")
-        )))
-    }
-}
-
 fn normalize_session_tags(tags: Option<&[String]>) -> Option<String> {
     let tags = tags?;
     let mut normalized: Vec<String> = tags
@@ -700,9 +645,6 @@ impl CreateDatasetParamsBuilder {
         // Validate optional fields if provided
         let status = self.status.unwrap_or_else(|| "uploaded".to_string());
         validate_status(&status)?;
-        let dataset_type = normalize_dataset_type_for_insert(self.dataset_type.as_deref())?;
-        let collection_method =
-            normalize_collection_method_for_insert(self.collection_method.as_deref())?;
 
         // Validate dataset_hash_b3 if provided
         if let Some(ref dh) = self.dataset_hash_b3 {
@@ -726,10 +668,10 @@ impl CreateDatasetParamsBuilder {
             created_by: self.created_by,
             tenant_id: self.tenant_id,
             workspace_id: self.workspace_id,
-            dataset_type: Some(dataset_type),
+            dataset_type: self.dataset_type,
             purpose: self.purpose,
             source_location: self.source_location,
-            collection_method: Some(collection_method),
+            collection_method: self.collection_method,
             ownership: self.ownership,
             metadata_json: self.metadata_json,
             category: self.category,
@@ -818,7 +760,7 @@ impl Db {
         .bind(created_by)
         .bind(workspace_id)
         .bind(repo_slug)
-        .execute(self.pool_result()?)
+        .execute(self.pool())
         .await
         .map_err(db_err("create training dataset"))?;
         Ok(id)
@@ -862,7 +804,7 @@ impl Db {
         .bind(created_by)
         .bind(workspace_id)
         .bind(repo_slug)
-        .execute(self.pool_result()?)
+        .execute(self.pool())
         .await
         .map_err(db_err("create training dataset"))?;
         Ok(dataset_id.to_string())
@@ -932,7 +874,7 @@ impl Db {
         .bind(&branch)
         .bind(&commit_sha)
         .bind(&params.correlation_id)
-        .execute(self.pool_result()?)
+        .execute(self.pool())
         .await
         .map_err(db_err("create training dataset from params"))?;
 
@@ -975,10 +917,10 @@ impl Db {
     ///
     /// This is a convenience method that wraps `create_training_dataset_from_params`
     /// with repo-specific defaults:
-    /// - `collection_method`: "pipeline"
-    /// - `dataset_type`: "training"
+    /// - `collection_method`: "code_ingestion_pipeline" (automated code ingestion)
+    /// - `dataset_type`: "codebase"
     /// - `category`: "codebase"
-    /// - `format`: "custom" (repo-derived artifact format)
+    /// - `format`: "custom" (repo-derived, not standard file format)
     /// - `status`: "processing" (will be updated after ingestion completes)
     ///
     /// Returns tuple of (dataset_id, version_id) for the newly created records.
@@ -1342,7 +1284,7 @@ impl Db {
         .bind(&session_name)
         .bind(&tags)
         .bind(tenant_id)
-        .execute(self.pool_result()?)
+        .execute(self.pool())
         .await
         .map_err(db_err("insert dataset collection session"))?;
 
@@ -1354,7 +1296,7 @@ impl Db {
             )
             .bind(&name)
             .bind(session_id)
-            .execute(self.pool_result()?)
+            .execute(self.pool())
             .await
             .map_err(db_err("update dataset collection session name"))?;
         }
@@ -1367,7 +1309,7 @@ impl Db {
             )
             .bind(tags)
             .bind(session_id)
-            .execute(self.pool_result()?)
+            .execute(self.pool())
             .await
             .map_err(db_err("update dataset collection session tags"))?;
         }
@@ -1380,7 +1322,7 @@ impl Db {
             )
             .bind(tenant_id)
             .bind(session_id)
-            .execute(self.pool_result()?)
+            .execute(self.pool())
             .await
             .map_err(db_err("update dataset collection session tenant"))?;
         }
@@ -1410,7 +1352,7 @@ impl Db {
         .bind(dataset_id)
         .bind(operation_type)
         .bind(ordinal)
-        .execute(self.pool_result()?)
+        .execute(self.pool())
         .await
         .map_err(db_err("insert dataset session membership"))?;
 
@@ -1421,7 +1363,7 @@ impl Db {
                  WHERE id = ?",
             )
             .bind(session_id)
-            .execute(self.pool_result()?)
+            .execute(self.pool())
             .await
             .map_err(db_err("update dataset session dataset_count"))?;
         }
@@ -1451,7 +1393,7 @@ impl Db {
         .bind(adapter_id)
         .bind(operation_type)
         .bind(ordinal)
-        .execute(self.pool_result()?)
+        .execute(self.pool())
         .await
         .map_err(db_err("insert adapter session membership"))?;
 
@@ -1462,7 +1404,7 @@ impl Db {
                  WHERE id = ?",
             )
             .bind(session_id)
-            .execute(self.pool_result()?)
+            .execute(self.pool())
             .await
             .map_err(db_err("update dataset session adapter_count"))?;
         }
@@ -1556,7 +1498,7 @@ impl Db {
         .bind(params.hkdf_version.map(|v| v as i64))
         .bind(params.parser_version.map(|v| v as i64))
         .bind(params.path_normalization_version.map(|v| v as i64))
-        .execute(self.pool_result()?)
+        .execute(self.pool())
         .await
         .map_err(db_err("record dataset hash inputs"))?;
 
@@ -1584,7 +1526,7 @@ impl Db {
         )
         .bind(dataset_id)
         .bind(content_hash_b3)
-        .fetch_optional(self.pool_result()?)
+        .fetch_optional(self.pool())
         .await
         .map_err(db_err("fetch dataset hash inputs id"))?;
 
@@ -1611,7 +1553,7 @@ impl Db {
         )
         .bind(dataset_id)
         .bind(content_hash_b3)
-        .fetch_optional(self.pool_result()?)
+        .fetch_optional(self.pool())
         .await
         .map_err(db_err("fetch dataset hash inputs by content hash"))?;
 
@@ -1639,7 +1581,7 @@ impl Db {
              LIMIT 1",
         )
         .bind(dataset_id)
-        .fetch_optional(self.pool_result()?)
+        .fetch_optional(self.pool())
         .await
         .map_err(db_err("fetch dataset hash inputs by dataset_id"))?;
 
@@ -1861,7 +1803,7 @@ impl Db {
             "SELECT COALESCE(MAX(version_number), 0) + 1 FROM training_dataset_versions WHERE dataset_id = ?",
         )
         .bind(dataset_id)
-        .fetch_one(self.pool_result()?)
+        .fetch_one(self.pool())
         .await
         .map_err(db_err("next dataset version number"))?;
 
@@ -1883,7 +1825,7 @@ impl Db {
         .bind(manifest_path)
         .bind(manifest_json)
         .bind(created_by)
-        .execute(self.pool_result()?)
+        .execute(self.pool())
         .await
         .map_err(db_err("create training dataset version"))?;
 
@@ -1994,7 +1936,7 @@ impl Db {
             "SELECT COALESCE(MAX(version_number), 0) + 1 FROM training_dataset_versions WHERE dataset_id = ?",
         )
         .bind(dataset_id)
-        .fetch_one(self.pool_result()?)
+        .fetch_one(self.pool())
         .await
         .map_err(db_err("next dataset version number"))?;
 
@@ -2014,7 +1956,7 @@ impl Db {
         .bind(manifest_path)
         .bind(manifest_json)
         .bind(created_by)
-        .execute(self.pool_result()?)
+        .execute(self.pool())
         .await
         .map_err(db_err("create training dataset version (with id)"))?;
 
@@ -2037,7 +1979,7 @@ impl Db {
              FROM training_dataset_versions WHERE id = ?",
         )
         .bind(version_id)
-        .fetch_optional(self.pool_result()?)
+        .fetch_optional(self.pool())
         .await
         .map_err(db_err("get training dataset version"))?;
 
@@ -2053,7 +1995,7 @@ impl Db {
             "SELECT manifest_json FROM training_dataset_versions WHERE id = ?",
         )
         .bind(dataset_version_id)
-        .fetch_optional(self.pool_result()?)
+        .fetch_optional(self.pool())
         .await
         .map_err(db_err("get dataset version manifest"))?;
 
@@ -2098,7 +2040,7 @@ impl Db {
              LIMIT 1",
         )
         .bind(dataset_id)
-        .fetch_optional(self.pool_result()?)
+        .fetch_optional(self.pool())
         .await
         .map_err(db_err("get latest dataset version"))?;
 
@@ -2117,7 +2059,7 @@ impl Db {
              LIMIT 1",
         )
         .bind(&version.id)
-        .fetch_optional(self.pool_result()?)
+        .fetch_optional(self.pool())
         .await
         .map_err(db_err("get dataset version override for effective trust"))?;
 
@@ -2143,7 +2085,7 @@ impl Db {
              ORDER BY version_number DESC",
         )
         .bind(dataset_id)
-        .fetch_all(self.pool_result()?)
+        .fetch_all(self.pool())
         .await
         .map_err(db_err("list dataset versions for trust selection"))?;
 
@@ -2180,7 +2122,7 @@ impl Db {
              ORDER BY version_number DESC",
         )
         .bind(dataset_id)
-        .fetch_all(self.pool_result()?)
+        .fetch_all(self.pool())
         .await
         .map_err(db_err("list dataset versions for dataset"))?;
 
@@ -2200,7 +2142,7 @@ impl Db {
             TRAINING_DATASET_COLUMNS
         ))
         .bind(dataset_id)
-        .fetch_optional(self.pool_result()?)
+        .fetch_optional(self.pool())
         .await
         .map_err(db_err("get training dataset"))?;
         Ok(dataset)
@@ -2211,7 +2153,7 @@ impl Db {
         let correlation_id =
             sqlx::query_scalar("SELECT correlation_id FROM training_datasets WHERE id = ? LIMIT 1")
                 .bind(dataset_id)
-                .fetch_optional(self.pool_result()?)
+                .fetch_optional(self.pool())
                 .await
                 .map_err(db_err("get dataset correlation id"))?;
 
@@ -2231,53 +2173,11 @@ impl Db {
              LIMIT 1",
         )
         .bind(dataset_version_id)
-        .fetch_optional(self.pool_result()?)
+        .fetch_optional(self.pool())
         .await
         .map_err(db_err("get dataset correlation id from version"))?;
 
         Ok(correlation_id)
-    }
-
-    /// Batch resolve dataset version IDs to (dataset_id, dataset_name).
-    /// Returns a map from dataset_version_id to (dataset_id, dataset_name).
-    /// Missing versions are omitted from the result.
-    pub async fn batch_resolve_dataset_version_names(
-        &self,
-        dataset_version_ids: &[String],
-    ) -> Result<std::collections::HashMap<String, (String, String)>> {
-        if dataset_version_ids.is_empty() {
-            return Ok(std::collections::HashMap::new());
-        }
-
-        let placeholders = dataset_version_ids
-            .iter()
-            .map(|_| "?")
-            .collect::<Vec<_>>()
-            .join(", ");
-
-        let query = format!(
-            "SELECT v.id, v.dataset_id, COALESCE(td.name, td.id) as dataset_name
-             FROM training_dataset_versions v
-             JOIN training_datasets td ON td.id = v.dataset_id
-             WHERE v.id IN ({})",
-            placeholders
-        );
-
-        let mut q = sqlx::query_as::<_, (String, String, String)>(&query);
-        for id in dataset_version_ids {
-            q = q.bind(id);
-        }
-
-        let rows = q
-            .fetch_all(self.pool_result()?)
-            .await
-            .map_err(db_err("batch resolve dataset version names"))?;
-
-        let mut map = std::collections::HashMap::new();
-        for (version_id, dataset_id, dataset_name) in rows {
-            map.insert(version_id, (dataset_id, dataset_name));
-        }
-        Ok(map)
     }
 
     /// Get training dataset by ID with BLAKE3 hash verification.
@@ -2354,7 +2254,7 @@ impl Db {
         ))
         .bind(dataset_hash_b3)
         .bind(workspace_id)
-        .fetch_optional(self.pool_result()?)
+        .fetch_optional(self.pool())
         .await
         .map_err(db_err("get dataset by hash+workspace"))?;
         Ok(dataset)
@@ -2377,7 +2277,7 @@ impl Db {
             TRAINING_DATASET_COLUMNS
         ))
         .bind(limit)
-        .fetch_all(self.pool_result()?)
+        .fetch_all(self.pool())
         .await
         .map_err(db_err("list training datasets"))?;
         Ok(datasets)
@@ -2405,7 +2305,7 @@ impl Db {
         ))
         .bind(tenant_id)
         .bind(limit)
-        .fetch_all(self.pool_result()?)
+        .fetch_all(self.pool())
         .await
         .map_err(|e| {
             AosError::Database(format!(
@@ -2431,7 +2331,7 @@ impl Db {
         .bind(tenant_id)
         .bind(workspace_id)
         .bind(limit)
-        .fetch_all(self.pool_result()?)
+        .fetch_all(self.pool())
         .await
         .map_err(|e| {
             AosError::Database(format!(
@@ -2472,7 +2372,7 @@ impl Db {
         .bind(tenant_id)
         .bind(branch)
         .bind(limit)
-        .fetch_all(self.pool_result()?)
+        .fetch_all(self.pool())
         .await
         .map_err(|e| {
             AosError::Database(format!(
@@ -2509,7 +2409,7 @@ impl Db {
         .bind(repo_slug)
         .bind(branch)
         .bind(limit)
-        .fetch_all(self.pool_result()?)
+        .fetch_all(self.pool())
         .await
         .map_err(|e| {
             AosError::Database(format!(
@@ -2543,7 +2443,7 @@ impl Db {
         ))
         .bind(repo_slug)
         .bind(branch)
-        .fetch_optional(self.pool_result()?)
+        .fetch_optional(self.pool())
         .await
         .map_err(|e| {
             AosError::Database(format!(
@@ -2573,7 +2473,7 @@ impl Db {
             TRAINING_DATASET_COLUMNS
         ))
         .bind(commit_sha)
-        .fetch_optional(self.pool_result()?)
+        .fetch_optional(self.pool())
         .await
         .map_err(|e| AosError::Database(format!("Failed to get dataset by commit SHA: {}", e)))?;
         Ok(dataset)
@@ -2616,7 +2516,7 @@ impl Db {
         .bind(branch)
         .bind(commit_sha)
         .bind(dataset_id)
-        .execute(self.pool_result()?)
+        .execute(self.pool())
         .await
         .map_err(|e| AosError::Database(format!("Failed to update dataset branch info: {}", e)))?;
 
@@ -2649,7 +2549,7 @@ impl Db {
             TRAINING_DATASET_COLUMNS
         ))
         .bind(limit)
-        .fetch_all(self.pool_result()?)
+        .fetch_all(self.pool())
         .await
         .map_err(db_err("list all training datasets (system)"))?;
         Ok(datasets)
@@ -2663,7 +2563,7 @@ impl Db {
             .and_then(|dataset| dataset.tenant_id);
         sqlx::query("DELETE FROM training_datasets WHERE id = ?")
             .bind(dataset_id)
-            .execute(self.pool_result()?)
+            .execute(self.pool())
             .await
             .map_err(db_err("delete training dataset"))?;
         if let Some(tenant_id) = tenant_id {
@@ -2702,7 +2602,7 @@ impl Db {
             TRAINING_DATASET_COLUMNS
         ))
         .bind(session_id)
-        .fetch_all(self.pool_result()?)
+        .fetch_all(self.pool())
         .await
         .map_err(db_err("query datasets for session rollback"))?;
 
@@ -2758,7 +2658,7 @@ impl Db {
              WHERE dataset_id = ? AND status IN ('pending', 'running', 'queued')",
         )
         .bind(dataset_id)
-        .fetch_one(self.pool_result()?)
+        .fetch_one(self.pool())
         .await
         .map_err(db_err("check active training jobs for dataset"))?;
 
@@ -2794,7 +2694,7 @@ impl Db {
         .bind(size_bytes)
         .bind(hash_b3)
         .bind(mime_type)
-        .execute(self.pool_result()?)
+        .execute(self.pool())
         .await
         .map_err(db_err("add dataset file"))?;
 
@@ -2808,7 +2708,7 @@ impl Db {
         )
         .bind(size_bytes)
         .bind(dataset_id)
-        .execute(self.pool_result()?)
+        .execute(self.pool())
         .await
         .map_err(db_err("update dataset file count"))?;
 
@@ -2828,7 +2728,7 @@ impl Db {
         }
 
         let mut tx = self
-            .pool_result()?
+            .pool()
             .begin()
             .await
             .map_err(db_err("begin dataset file insert transaction"))?;
@@ -2907,47 +2807,9 @@ impl Db {
         )
         .bind(status)
         .bind(dataset_id)
-        .execute(self.pool_result()?)
+        .execute(self.pool())
         .await
         .map_err(db_err("update dataset status"))?;
-        self.sync_dataset_to_kv_if_possible(dataset_id).await?;
-        Ok(())
-    }
-
-    /// Update dataset name and/or description.
-    pub async fn update_dataset_name_description(
-        &self,
-        dataset_id: &str,
-        name: Option<&str>,
-        description: Option<&str>,
-    ) -> Result<()> {
-        let (name_trimmed, desc_trimmed) = (
-            name.map(|s| s.trim()).filter(|s| !s.is_empty()),
-            description.map(|s| s.trim()),
-        );
-        if name_trimmed.is_none() && desc_trimmed.is_none() {
-            return Ok(());
-        }
-        let mut q = String::from("UPDATE training_datasets SET updated_at = datetime('now')");
-        if name_trimmed.is_some() {
-            q.push_str(", name = ?");
-        }
-        if desc_trimmed.is_some() {
-            q.push_str(", description = ?");
-        }
-        q.push_str(" WHERE id = ?");
-        let mut query = sqlx::query(&q);
-        if let Some(n) = name_trimmed {
-            query = query.bind(n);
-        }
-        if let Some(d) = desc_trimmed {
-            query = query.bind(d);
-        }
-        query
-            .bind(dataset_id)
-            .execute(self.pool_result()?)
-            .await
-            .map_err(db_err("update dataset name/description"))?;
         self.sync_dataset_to_kv_if_possible(dataset_id).await?;
         Ok(())
     }
@@ -2961,7 +2823,7 @@ impl Db {
              ORDER BY created_at ASC",
         )
         .bind(dataset_id)
-        .fetch_all(self.pool_result()?)
+        .fetch_all(self.pool())
         .await
         .map_err(db_err("get dataset files"))?;
         Ok(files)
@@ -2980,7 +2842,7 @@ impl Db {
         )
         .bind(dataset_id)
         .bind(file_id)
-        .fetch_optional(self.pool_result()?)
+        .fetch_optional(self.pool())
         .await
         .map_err(db_err("get dataset file"))?;
         Ok(file)
@@ -3005,7 +2867,7 @@ impl Db {
         )
         .bind(dataset_id)
         .bind(workspace_id)
-        .fetch_all(self.pool_result()?)
+        .fetch_all(self.pool())
         .await
         .map_err(db_err("get dataset files for workspace"))?;
         Ok(files)
@@ -3030,7 +2892,7 @@ impl Db {
         .bind(dataset_id)
         .bind(file_id)
         .bind(workspace_id)
-        .fetch_optional(self.pool_result()?)
+        .fetch_optional(self.pool())
         .await
         .map_err(db_err("get dataset file for workspace"))?;
         Ok(file)
@@ -3055,7 +2917,7 @@ impl Db {
         )
         .bind(workspace_id)
         .bind(limit)
-        .fetch_all(self.pool_result()?)
+        .fetch_all(self.pool())
         .await
         .map_err(db_err("list all files for workspace"))?;
         Ok(files)
@@ -3069,7 +2931,7 @@ impl Db {
              WHERE td.workspace_id = ?",
         )
         .bind(workspace_id)
-        .fetch_one(self.pool_result()?)
+        .fetch_one(self.pool())
         .await
         .unwrap_or(0);
         Ok(count)
@@ -3080,7 +2942,7 @@ impl Db {
             "SELECT COALESCE(SUM(total_size_bytes), 0) as total FROM training_datasets WHERE tenant_id = ?",
         )
         .bind(tenant_id)
-        .fetch_one(self.pool_result()?)
+        .fetch_one(self.pool())
         .await
         .unwrap_or(0);
         Ok(total)
@@ -3092,7 +2954,7 @@ impl Db {
             "SELECT COALESCE(SUM(total_size_bytes), 0) as total FROM training_datasets WHERE workspace_id = ?",
         )
         .bind(workspace_id)
-        .fetch_one(self.pool_result()?)
+        .fetch_one(self.pool())
         .await
         .unwrap_or(0);
         Ok(total)
@@ -3104,7 +2966,7 @@ impl Db {
             "SELECT COUNT(*) as cnt FROM training_datasets WHERE workspace_id = ?",
         )
         .bind(workspace_id)
-        .fetch_one(self.pool_result()?)
+        .fetch_one(self.pool())
         .await
         .unwrap_or(0);
         Ok(count)
@@ -3116,7 +2978,7 @@ impl Db {
             "SELECT COUNT(*) as cnt FROM training_dataset_versions WHERE tenant_id = ?",
         )
         .bind(tenant_id)
-        .fetch_one(self.pool_result()?)
+        .fetch_one(self.pool())
         .await
         .unwrap_or(0);
         Ok(count)
@@ -3132,7 +2994,7 @@ impl Db {
                     sensitivity, created_at, created_by, locked_at, soft_deleted_at
              FROM training_dataset_versions",
         )
-        .fetch_all(self.pool_result()?)
+        .fetch_all(self.pool())
         .await
         .map_err(db_err("list dataset versions"))?;
         Ok(versions)
@@ -3147,7 +3009,7 @@ impl Db {
                     validation_errors_json, source_type, created_by
              FROM dataset_files",
         )
-        .fetch_all(self.pool_result()?)
+        .fetch_all(self.pool())
         .await
         .map_err(db_err("list dataset files"))?;
         Ok(files)
@@ -3170,7 +3032,7 @@ impl Db {
         .bind(errors)
         .bind(errors_json)
         .bind(dataset_id)
-        .execute(self.pool_result()?)
+        .execute(self.pool())
         .await
         .map_err(db_err("update dataset validation"))?;
         self.sync_dataset_to_kv_if_possible(dataset_id).await?;
@@ -3218,7 +3080,7 @@ impl Db {
         .bind(&trust_state)
         .bind(&trust_state)
         .bind(dataset_version_id)
-        .execute(self.pool_result()?)
+        .execute(self.pool())
         .await
         .map_err(db_err("update dataset version validation"))?;
 
@@ -3301,7 +3163,7 @@ impl Db {
         .bind(&trust_state)
         .bind(&trust_state)
         .bind(dataset_version_id)
-        .execute(self.pool_result()?)
+        .execute(self.pool())
         .await
         .map_err(db_err("update dataset version safety status"))?;
 
@@ -3366,7 +3228,7 @@ impl Db {
         .bind(determinism_mode)
         .bind(validation_hash_b3)
         .bind(is_deterministic)
-        .execute(self.pool_result()?)
+        .execute(self.pool())
         .await
         .map_err(db_err("record dataset version validation run"))?;
         Ok(id)
@@ -3393,7 +3255,7 @@ impl Db {
         .bind(override_state)
         .bind(reason)
         .bind(created_by)
-        .execute(self.pool_result()?)
+        .execute(self.pool())
         .await
         .map_err(db_err("create dataset version override"))?;
 
@@ -3434,7 +3296,7 @@ impl Db {
         )
         .bind(dataset_version_id)
         .bind(limit)
-        .fetch_all(self.pool_result()?)
+        .fetch_all(self.pool())
         .await
         .map_err(db_err("list dataset version validation runs"))?;
         Ok(validations)
@@ -3457,7 +3319,7 @@ impl Db {
         )
         .bind(dataset_version_id)
         .bind(limit)
-        .fetch_all(self.pool_result()?)
+        .fetch_all(self.pool())
         .await
         .map_err(db_err("list dataset version overrides"))?;
         Ok(overrides)
@@ -3484,7 +3346,7 @@ impl Db {
              LIMIT 1",
         )
         .bind(dataset_version_id)
-        .fetch_optional(self.pool_result()?)
+        .fetch_optional(self.pool())
         .await
         .map_err(db_err("get dataset version override"))?;
 
@@ -3558,7 +3420,7 @@ impl Db {
         )
         .bind(storage_path)
         .bind(dataset_id)
-        .execute(self.pool_result()?)
+        .execute(self.pool())
         .await
         .map_err(db_err("update dataset storage path"))?;
         self.sync_dataset_to_kv_if_possible(dataset_id).await?;
@@ -3582,7 +3444,7 @@ impl Db {
         )
         .bind(repo_slug)
         .bind(dataset_id)
-        .execute(self.pool_result()?)
+        .execute(self.pool())
         .await
         .map_err(db_err("update dataset repo_slug"))?;
         self.sync_dataset_to_kv_if_possible(dataset_id).await?;
@@ -3611,7 +3473,7 @@ impl Db {
         ))
         .bind(repo_slug)
         .bind(limit)
-        .fetch_all(self.pool_result()?)
+        .fetch_all(self.pool())
         .await
         .map_err(db_err("list training datasets by repo_slug"))?;
         Ok(datasets)
@@ -3642,7 +3504,7 @@ impl Db {
         .bind(tenant_id)
         .bind(repo_slug)
         .bind(limit)
-        .fetch_all(self.pool_result()?)
+        .fetch_all(self.pool())
         .await
         .map_err(db_err("list training datasets by repo_slug for tenant"))?;
         Ok(datasets)
@@ -3673,7 +3535,7 @@ impl Db {
             ))
             .bind(source_location)
             .bind(tid)
-            .fetch_optional(self.pool_result()?)
+            .fetch_optional(self.pool())
             .await
             .map_err(db_err("get codebase dataset by repo (with tenant)"))?
         } else {
@@ -3684,7 +3546,7 @@ impl Db {
                 TRAINING_DATASET_COLUMNS
             ))
             .bind(source_location)
-            .fetch_optional(self.pool_result()?)
+            .fetch_optional(self.pool())
             .await
             .map_err(db_err("get codebase dataset by repo"))?
         };
@@ -3706,7 +3568,7 @@ impl Db {
             ))
             .bind(source_location)
             .bind(tid)
-            .fetch_all(self.pool_result()?)
+            .fetch_all(self.pool())
             .await
             .map_err(db_err("list codebase datasets by repo (with tenant)"))?
         } else {
@@ -3717,7 +3579,7 @@ impl Db {
                 TRAINING_DATASET_COLUMNS
             ))
             .bind(source_location)
-            .fetch_all(self.pool_result()?)
+            .fetch_all(self.pool())
             .await
             .map_err(db_err("list codebase datasets by repo"))?
         };
@@ -3753,7 +3615,7 @@ impl Db {
             .bind(&normalized)
             .bind(&normalized)
             .bind(&normalized)
-            .fetch_optional(self.pool_result()?)
+            .fetch_optional(self.pool())
             .await
             .map_err(db_err(
                 "get codebase dataset by repo identifier (with tenant)",
@@ -3772,7 +3634,7 @@ impl Db {
             .bind(&normalized)
             .bind(&normalized)
             .bind(&normalized)
-            .fetch_optional(self.pool_result()?)
+            .fetch_optional(self.pool())
             .await
             .map_err(db_err("get codebase dataset by repo identifier"))?
         };
@@ -3808,7 +3670,7 @@ impl Db {
             .bind(&normalized)
             .bind(&normalized)
             .bind(&normalized)
-            .fetch_all(self.pool_result()?)
+            .fetch_all(self.pool())
             .await
             .map_err(db_err(
                 "list codebase datasets by repo identifier (with tenant)",
@@ -3827,7 +3689,7 @@ impl Db {
             .bind(&normalized)
             .bind(&normalized)
             .bind(&normalized)
-            .fetch_all(self.pool_result()?)
+            .fetch_all(self.pool())
             .await
             .map_err(db_err("list codebase datasets by repo identifier"))?
         };
@@ -3859,7 +3721,7 @@ impl Db {
         .bind(language_distribution)
         .bind(file_type_distribution)
         .bind(total_tokens)
-        .execute(self.pool_result()?)
+        .execute(self.pool())
         .await
         .map_err(db_err("store dataset statistics"))?;
         Ok(())
@@ -3877,7 +3739,7 @@ impl Db {
              WHERE dataset_id = ?",
         )
         .bind(dataset_id)
-        .fetch_optional(self.pool_result()?)
+        .fetch_optional(self.pool())
         .await
         .map_err(db_err("get dataset statistics"))?;
         Ok(stats)
@@ -3915,7 +3777,7 @@ impl Db {
         .bind(confidence)
         .bind(created_by)
         .bind(metadata_json)
-        .execute(self.pool_result()?)
+        .execute(self.pool())
         .await
         .map_err(db_err("create evidence entry"))?;
         Ok(id)
@@ -3979,7 +3841,7 @@ impl Db {
         }
 
         let entries = sqlx_query
-            .fetch_all(self.pool_result()?)
+            .fetch_all(self.pool())
             .await
             .map_err(db_err("list evidence entries"))?;
         Ok(entries)
@@ -3994,7 +3856,7 @@ impl Db {
              WHERE id = ?",
         )
         .bind(id)
-        .fetch_optional(self.pool_result()?)
+        .fetch_optional(self.pool())
         .await
         .map_err(db_err("get evidence entry"))?;
         Ok(entry)
@@ -4010,7 +3872,7 @@ impl Db {
              ORDER BY created_at DESC",
         )
         .bind(dataset_id)
-        .fetch_all(self.pool_result()?)
+        .fetch_all(self.pool())
         .await
         .map_err(db_err("get dataset evidence"))?;
         Ok(entries)
@@ -4026,7 +3888,7 @@ impl Db {
              ORDER BY created_at DESC",
         )
         .bind(adapter_id)
-        .fetch_all(self.pool_result()?)
+        .fetch_all(self.pool())
         .await
         .map_err(db_err("get adapter evidence"))?;
         Ok(entries)
@@ -4037,7 +3899,7 @@ impl Db {
         let count: (i64,) =
             sqlx::query_as("SELECT COUNT(*) FROM evidence_entries WHERE dataset_id = ?")
                 .bind(dataset_id)
-                .fetch_one(self.pool_result()?)
+                .fetch_one(self.pool())
                 .await
                 .map_err(|e| {
                     AosError::Database(format!("Failed to count dataset evidence: {}", e))
@@ -4050,7 +3912,7 @@ impl Db {
         let count: (i64,) =
             sqlx::query_as("SELECT COUNT(*) FROM evidence_entries WHERE adapter_id = ?")
                 .bind(adapter_id)
-                .fetch_one(self.pool_result()?)
+                .fetch_one(self.pool())
                 .await
                 .map_err(|e| {
                     AosError::Database(format!("Failed to count adapter evidence: {}", e))
@@ -4062,7 +3924,7 @@ impl Db {
     pub async fn delete_evidence_entry(&self, entry_id: &str) -> Result<()> {
         sqlx::query("DELETE FROM evidence_entries WHERE id = ?")
             .bind(entry_id)
-            .execute(self.pool_result()?)
+            .execute(self.pool())
             .await
             .map_err(db_err("delete evidence entry"))?;
         Ok(())
@@ -4089,7 +3951,7 @@ impl Db {
         .bind(dataset_id)
         .bind(adapter_id)
         .bind(link_type)
-        .execute(self.pool_result()?)
+        .execute(self.pool())
         .await
         .map_err(db_err("create dataset-adapter link"))?;
         Ok(id)
@@ -4104,7 +3966,7 @@ impl Db {
              ORDER BY created_at DESC",
         )
         .bind(dataset_id)
-        .fetch_all(self.pool_result()?)
+        .fetch_all(self.pool())
         .await
         .map_err(db_err("get dataset adapters"))?;
         Ok(links)
@@ -4127,7 +3989,7 @@ impl Db {
              ORDER BY created_at DESC",
         )
         .bind(adapter_id)
-        .fetch_all(self.pool_result()?)
+        .fetch_all(self.pool())
         .await
         .map_err(db_err("get adapter datasets"))?;
         Ok(links)
@@ -4147,7 +4009,7 @@ impl Db {
             "SELECT COUNT(DISTINCT adapter_id) FROM dataset_adapter_links WHERE dataset_id = ?",
         )
         .bind(dataset_id)
-        .fetch_one(self.pool_result()?)
+        .fetch_one(self.pool())
         .await
         .map_err(db_err("count dataset usage"))?;
         Ok(count.0)
@@ -4157,7 +4019,7 @@ impl Db {
     pub async fn delete_dataset_adapter_link(&self, link_id: &str) -> Result<()> {
         sqlx::query("DELETE FROM dataset_adapter_links WHERE id = ?")
             .bind(link_id)
-            .execute(self.pool_result()?)
+            .execute(self.pool())
             .await
             .map_err(|e| {
                 AosError::Database(format!("Failed to delete dataset-adapter link: {}", e))
@@ -4194,7 +4056,7 @@ impl Db {
         .bind(ownership)
         .bind(tenant_id)
         .bind(dataset_id)
-        .execute(self.pool_result()?)
+        .execute(self.pool())
         .await
         .map_err(|e| {
             AosError::Database(format!("Failed to update dataset extended fields: {}", e))
@@ -5515,7 +5377,7 @@ impl Db {
             "SELECT COALESCE(dataset_hash_b3, hash_b3) FROM training_datasets WHERE id = ?",
         )
         .bind(dataset_id)
-        .fetch_optional(self.pool_result()?)
+        .fetch_optional(self.pool())
         .await
         .map_err(db_err("fetch dataset hash"))?;
 
@@ -5560,7 +5422,7 @@ impl Db {
         .bind(&params.tenant_id)
         .bind(&params.metadata_json)
         .bind(&params.created_by)
-        .execute(self.pool_result()?)
+        .execute(self.pool())
         .await
         .map_err(db_err("insert training dataset row"))?;
 
@@ -5585,7 +5447,7 @@ impl Db {
         }
 
         let mut tx = self
-            .pool_result()?
+            .pool()
             .begin()
             .await
             .map_err(db_err("begin training_dataset_rows transaction"))?;
@@ -5659,7 +5521,7 @@ impl Db {
             .bind(version_id)
             .bind(limit)
             .bind(offset)
-            .fetch_all(self.pool_result()?)
+            .fetch_all(self.pool())
             .await
             .map_err(db_err("list training dataset rows by version"))?
         } else {
@@ -5672,7 +5534,7 @@ impl Db {
             .bind(dataset_id)
             .bind(limit)
             .bind(offset)
-            .fetch_all(self.pool_result()?)
+            .fetch_all(self.pool())
             .await
             .map_err(db_err("list training dataset rows"))?
         };
@@ -5692,13 +5554,13 @@ impl Db {
             )
             .bind(dataset_id)
             .bind(version_id)
-            .fetch_one(self.pool_result()?)
+            .fetch_one(self.pool())
             .await
             .map_err(db_err("count training dataset rows by version"))?
         } else {
             sqlx::query_scalar("SELECT COUNT(*) FROM training_dataset_rows WHERE dataset_id = ?")
                 .bind(dataset_id)
-                .fetch_one(self.pool_result()?)
+                .fetch_one(self.pool())
                 .await
                 .map_err(db_err("count training dataset rows"))?
         };
@@ -5714,7 +5576,7 @@ impl Db {
         let repo_slug: Option<Option<String>> =
             sqlx::query_scalar("SELECT repo_slug FROM training_datasets WHERE id = ?")
                 .bind(dataset_id)
-                .fetch_optional(self.pool_result()?)
+                .fetch_optional(self.pool())
                 .await
                 .map_err(db_err("fetch dataset repo_slug"))?;
 
@@ -5725,7 +5587,7 @@ impl Db {
         let source_location: Option<Option<String>> =
             sqlx::query_scalar("SELECT source_location FROM training_datasets WHERE id = ?")
                 .bind(dataset_id)
-                .fetch_optional(self.pool_result()?)
+                .fetch_optional(self.pool())
                 .await
                 .map_err(db_err("fetch dataset source_location"))?;
 
@@ -5932,7 +5794,7 @@ impl Db {
         .bind(&content_hash_b3)
         .bind(&params.metadata_json)
         .bind(&params.tenant_id)
-        .execute(self.pool_result()?)
+        .execute(self.pool())
         .await
         .map_err(db_err("insert codebase dataset row"))?;
 
@@ -5992,7 +5854,7 @@ impl Db {
 
         // Use a transaction for atomic insertion
         let mut tx = self
-            .pool_result()?
+            .pool()
             .begin()
             .await
             .map_err(db_err("begin transaction"))?;
@@ -6090,7 +5952,7 @@ impl Db {
             CODEBASE_DATASET_ROW_COLUMNS
         ))
         .bind(row_id)
-        .fetch_optional(self.pool_result()?)
+        .fetch_optional(self.pool())
         .await
         .map_err(db_err("get codebase dataset row"))?;
 
@@ -6116,7 +5978,7 @@ impl Db {
             .bind(sid)
             .bind(limit)
             .bind(offset)
-            .fetch_all(self.pool_result()?)
+            .fetch_all(self.pool())
             .await
             .map_err(db_err("list codebase dataset rows by session"))?
         } else {
@@ -6129,7 +5991,7 @@ impl Db {
             .bind(dataset_id)
             .bind(limit)
             .bind(offset)
-            .fetch_all(self.pool_result()?)
+            .fetch_all(self.pool())
             .await
             .map_err(db_err("list codebase dataset rows"))?
         };
@@ -6146,7 +6008,7 @@ impl Db {
             CODEBASE_DATASET_ROW_COLUMNS
         ))
         .bind(session_id)
-        .fetch_all(self.pool_result()?)
+        .fetch_all(self.pool())
         .await
         .map_err(db_err("get rows by session"))?;
 
@@ -6166,13 +6028,13 @@ impl Db {
             )
             .bind(dataset_id)
             .bind(sid)
-            .fetch_one(self.pool_result()?)
+            .fetch_one(self.pool())
             .await
             .map_err(db_err("count codebase dataset rows by session"))?
         } else {
             sqlx::query_as("SELECT COUNT(*) FROM codebase_dataset_rows WHERE dataset_id = ?")
                 .bind(dataset_id)
-                .fetch_one(self.pool_result()?)
+                .fetch_one(self.pool())
                 .await
                 .map_err(db_err("count codebase dataset rows"))?
         };
@@ -6187,7 +6049,7 @@ impl Db {
              WHERE session_id = ? AND sample_role = 'positive'",
         )
         .bind(session_id)
-        .fetch_one(self.pool_result()?)
+        .fetch_one(self.pool())
         .await
         .map_err(db_err("count positive rows for session"))?;
 
@@ -6196,7 +6058,7 @@ impl Db {
              WHERE session_id = ? AND sample_role = 'negative'",
         )
         .bind(session_id)
-        .fetch_one(self.pool_result()?)
+        .fetch_one(self.pool())
         .await
         .map_err(db_err("count negative rows for session"))?;
 
@@ -6223,7 +6085,7 @@ impl Db {
              GROUP BY dataset_id",
             )
             .bind(session_id)
-            .fetch_optional(self.pool_result()?)
+            .fetch_optional(self.pool())
             .await
             .map_err(db_err("get session summary"))?;
 
@@ -6259,7 +6121,7 @@ impl Db {
              ORDER BY MIN(created_at) DESC",
         )
         .bind(dataset_id)
-        .fetch_all(self.pool_result()?)
+        .fetch_all(self.pool())
         .await
         .map_err(db_err("list sessions for dataset"))?;
 
@@ -6287,7 +6149,7 @@ impl Db {
     pub async fn delete_session_rows(&self, session_id: &str) -> Result<u64> {
         let result = sqlx::query("DELETE FROM codebase_dataset_rows WHERE session_id = ?")
             .bind(session_id)
-            .execute(self.pool_result()?)
+            .execute(self.pool())
             .await
             .map_err(db_err("delete session rows"))?;
 
@@ -6298,7 +6160,7 @@ impl Db {
     pub async fn delete_all_codebase_dataset_rows(&self, dataset_id: &str) -> Result<u64> {
         let result = sqlx::query("DELETE FROM codebase_dataset_rows WHERE dataset_id = ?")
             .bind(dataset_id)
-            .execute(self.pool_result()?)
+            .execute(self.pool())
             .await
             .map_err(db_err("delete all codebase dataset rows"))?;
 
@@ -6320,7 +6182,7 @@ impl Db {
         )
         .bind(dataset_id)
         .bind(content_hash_b3)
-        .fetch_one(self.pool_result()?)
+        .fetch_one(self.pool())
         .await
         .map_err(db_err("check duplicate row"))?;
 
@@ -6343,7 +6205,7 @@ impl Db {
         ))
         .bind(dataset_id)
         .bind(file_path)
-        .fetch_all(self.pool_result()?)
+        .fetch_all(self.pool())
         .await
         .map_err(db_err("get rows by file"))?;
 
@@ -6366,7 +6228,7 @@ impl Db {
         ))
         .bind(dataset_id)
         .bind(qualified_name)
-        .fetch_all(self.pool_result()?)
+        .fetch_all(self.pool())
         .await
         .map_err(db_err("get rows by symbol"))?;
 
@@ -6387,7 +6249,7 @@ impl Db {
             CODEBASE_DATASET_ROW_COLUMNS
         ))
         .bind(repo_identifier)
-        .fetch_all(self.pool_result()?)
+        .fetch_all(self.pool())
         .await
         .map_err(db_err("get rows by repo identifier"))?;
 
@@ -6421,7 +6283,7 @@ impl Db {
         .bind(repo_slug)
         .bind(limit)
         .bind(offset)
-        .fetch_all(self.pool_result()?)
+        .fetch_all(self.pool())
         .await
         .map_err(db_err("list codebase dataset rows by repo_slug"))?;
 
@@ -6458,7 +6320,7 @@ impl Db {
         .bind(repo_slug)
         .bind(limit)
         .bind(offset)
-        .fetch_all(self.pool_result()?)
+        .fetch_all(self.pool())
         .await
         .map_err(db_err("list codebase dataset rows by repo_slug for tenant"))?;
 
@@ -6488,7 +6350,7 @@ impl Db {
             )
             .bind(tid)
             .bind(repo_slug)
-            .fetch_one(self.pool_result()?)
+            .fetch_one(self.pool())
             .await
             .map_err(db_err(
                 "count codebase dataset rows by repo_slug for tenant",
@@ -6496,7 +6358,7 @@ impl Db {
         } else {
             sqlx::query_as("SELECT COUNT(*) FROM codebase_dataset_rows WHERE repo_slug = ?")
                 .bind(repo_slug)
-                .fetch_one(self.pool_result()?)
+                .fetch_one(self.pool())
                 .await
                 .map_err(db_err("count codebase dataset rows by repo_slug"))?
         };
@@ -6533,7 +6395,7 @@ impl Db {
         .bind(repo_slug)
         .bind(limit)
         .bind(offset)
-        .fetch_all(self.pool_result()?)
+        .fetch_all(self.pool())
         .await
         .map_err(db_err(
             "list codebase dataset rows by dataset and repo_slug",
@@ -6555,7 +6417,7 @@ impl Db {
         )
         .bind(dataset_version_id)
         .bind(session_id)
-        .execute(self.pool_result()?)
+        .execute(self.pool())
         .await
         .map_err(db_err("update session version"))?;
 
@@ -6620,7 +6482,7 @@ impl Db {
         .bind(training_job_id)
         .bind(dataset_hash_b3)
         .bind(tenant_id)
-        .execute(self.pool_result()?)
+        .execute(self.pool())
         .await
         .map_err(db_err("record adapter training lineage"))?;
 
@@ -6641,7 +6503,7 @@ impl Db {
 
         let lineage = sqlx::query_as::<_, AdapterTrainingLineage>(&query)
             .bind(dataset_version_id)
-            .fetch_all(self.pool_result()?)
+            .fetch_all(self.pool())
             .await
             .map_err(db_err("get adapters for dataset version"))?;
 
@@ -6662,7 +6524,7 @@ impl Db {
 
         let lineage = sqlx::query_as::<_, AdapterTrainingLineage>(&query)
             .bind(dataset_id)
-            .fetch_all(self.pool_result()?)
+            .fetch_all(self.pool())
             .await
             .map_err(db_err("get training lineage for dataset"))?;
 
@@ -6683,7 +6545,7 @@ impl Db {
 
         let lineage = sqlx::query_as::<_, AdapterTrainingLineage>(&query)
             .bind(adapter_id)
-            .fetch_all(self.pool_result()?)
+            .fetch_all(self.pool())
             .await
             .map_err(db_err("get lineage for adapter"))?;
 
@@ -6717,7 +6579,7 @@ impl Db {
         }
 
         let datasets = query_builder
-            .fetch_all(self.pool_result()?)
+            .fetch_all(self.pool())
             .await
             .map_err(db_err("get datasets by session"))?;
 
@@ -6771,7 +6633,7 @@ impl Db {
         query_builder = query_builder.bind(limit);
 
         let datasets = query_builder
-            .fetch_all(self.pool_result()?)
+            .fetch_all(self.pool())
             .await
             .map_err(db_err("get datasets by scope"))?;
 

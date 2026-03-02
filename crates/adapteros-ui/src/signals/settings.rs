@@ -45,49 +45,6 @@ impl Theme {
     }
 }
 
-/// Interface density preference
-#[derive(Debug, Clone, Copy, PartialEq, Eq, Default, Serialize, Deserialize)]
-#[serde(rename_all = "lowercase")]
-pub enum Density {
-    #[default]
-    Comfortable,
-    Compact,
-}
-
-impl Density {
-    pub fn as_str(&self) -> &'static str {
-        match self {
-            Self::Comfortable => "comfortable",
-            Self::Compact => "compact",
-        }
-    }
-
-    pub fn parse(s: &str) -> Self {
-        match s {
-            "compact" => Self::Compact,
-            _ => Self::Comfortable,
-        }
-    }
-
-    pub fn display(&self) -> &'static str {
-        match self {
-            Self::Comfortable => "Comfortable",
-            Self::Compact => "Compact",
-        }
-    }
-
-    pub fn toggle(self) -> Self {
-        match self {
-            Self::Comfortable => Self::Compact,
-            Self::Compact => Self::Comfortable,
-        }
-    }
-
-    pub fn is_compact(self) -> bool {
-        matches!(self, Self::Compact)
-    }
-}
-
 /// Default page on login
 #[derive(Debug, Clone, PartialEq, Eq, Default, Serialize, Deserialize)]
 #[serde(rename_all = "lowercase")]
@@ -133,47 +90,11 @@ impl DefaultPage {
 
     pub fn display(&self) -> &'static str {
         match self {
-            DefaultPage::Dashboard => "Home",
+            DefaultPage::Dashboard => "Dashboard",
             DefaultPage::Adapters => "Adapters",
             DefaultPage::Chat => "Chat",
-            DefaultPage::Training => "Build",
+            DefaultPage::Training => "Training",
             DefaultPage::System => "System",
-        }
-    }
-}
-
-/// Trust provenance display mode for chat messages
-#[derive(Debug, Clone, Copy, PartialEq, Eq, Default, Serialize, Deserialize)]
-#[serde(rename_all = "lowercase")]
-pub enum TrustDisplay {
-    #[default]
-    Full,
-    Compact,
-    Off,
-}
-
-impl TrustDisplay {
-    pub fn as_str(&self) -> &'static str {
-        match self {
-            Self::Full => "full",
-            Self::Compact => "compact",
-            Self::Off => "off",
-        }
-    }
-
-    pub fn parse(s: &str) -> Self {
-        match s {
-            "compact" => Self::Compact,
-            "off" => Self::Off,
-            _ => Self::Full,
-        }
-    }
-
-    pub fn display(&self) -> &'static str {
-        match self {
-            Self::Full => "Full",
-            Self::Compact => "Compact",
-            Self::Off => "Off",
         }
     }
 }
@@ -183,11 +104,8 @@ impl TrustDisplay {
 pub struct UserSettings {
     /// Theme preference (light/dark/system)
     pub theme: Theme,
-    /// Legacy compact mode flag kept for localStorage back-compat.
+    /// Compact mode for denser UI
     pub compact_mode: bool,
-    /// UI density preference (comfortable/compact)
-    #[serde(default)]
-    pub density: Density,
     /// Show timestamps in lists and messages
     pub show_timestamps: bool,
     /// Default page after login (consumed by login.rs redirect)
@@ -203,12 +121,6 @@ pub struct UserSettings {
     /// Glass theme enabled (Liquid Glass morphism)
     #[serde(default = "default_glass_enabled")]
     pub glass_enabled: bool,
-    /// Trust provenance display level
-    #[serde(default)]
-    pub trust_display: TrustDisplay,
-    /// Persistent knowledge collection used as base for chat sessions.
-    #[serde(default)]
-    pub knowledge_collection_id: Option<String>,
 }
 
 fn default_glass_enabled() -> bool {
@@ -220,15 +132,12 @@ impl Default for UserSettings {
         Self {
             theme: Theme::System,
             compact_mode: false,
-            density: Density::Comfortable,
             show_timestamps: true,
-            default_page: DefaultPage::Chat,
+            default_page: DefaultPage::Dashboard,
             api_endpoint: None,
             show_telemetry_overlay: false,
             ui_profile: None,
             glass_enabled: true,
-            trust_display: TrustDisplay::Full,
-            knowledge_collection_id: None,
         }
     }
 }
@@ -253,12 +162,6 @@ impl UserSettings {
                     let _ = storage.remove_item("aos_glass_theme");
                 }
             }
-
-            // Backward compatibility: old settings used compact_mode only.
-            if settings.density == Density::Comfortable && settings.compact_mode {
-                settings.density = Density::Compact;
-            }
-            settings.compact_mode = settings.density.is_compact();
 
             settings
         }
@@ -325,16 +228,6 @@ impl UserSettings {
             };
         }
     }
-
-    /// Apply density attribute to the root document element.
-    pub fn apply_density(&self) {
-        #[cfg(target_arch = "wasm32")]
-        if let Some(document) = web_sys::window().and_then(|w| w.document()) {
-            if let Some(html) = document.document_element() {
-                let _ = html.set_attribute("data-density", self.density.as_str());
-            }
-        }
-    }
 }
 
 /// Settings context type
@@ -347,7 +240,6 @@ pub fn provide_settings_context() {
     // Apply visual state on initial load
     settings.get_untracked().apply_theme();
     settings.get_untracked().apply_glass();
-    settings.get_untracked().apply_density();
 
     provide_context(settings);
 
@@ -390,24 +282,6 @@ where
 {
     settings.update(|s| {
         f(s);
-        // Keep legacy compact_mode synchronized for backwards compatibility.
-        s.compact_mode = s.density.is_compact();
-        s.apply_density();
         s.save();
     });
-}
-
-#[cfg(test)]
-mod tests {
-    use super::{DefaultPage, Density, UserSettings};
-
-    #[test]
-    fn user_settings_default_page_is_chat() {
-        assert_eq!(UserSettings::default().default_page, DefaultPage::Chat);
-    }
-
-    #[test]
-    fn user_settings_default_density_is_comfortable() {
-        assert_eq!(UserSettings::default().density, Density::Comfortable);
-    }
 }

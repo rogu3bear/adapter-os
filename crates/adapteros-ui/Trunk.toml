@@ -11,30 +11,11 @@ public_url = "/"
 # PRD-UI-170: CI runs wasm-opt -O4 --enable-bulk-memory, asserts <3.5MB
 no_wasm_opt = true
 
-# Bundle component CSS sub-files into a single file (eliminates @import waterfall)
-[[hooks]]
-stage = "pre_build"
-command = "sh"
-command_arguments = ["../../scripts/bundle-css.sh"]
-
 # PRD-UI-170: Copy service worker to output directory
 [[hooks]]
 stage = "post_build"
-command = "sh"
-command_arguments = [
-    "-c",
-    "mkdir -p ../adapteros-server/static && cp dist/sw.js ../adapteros-server/static/sw.js",
-]
-
-# PRD-UI-000: Inject build hash and timestamp into index.html
-# Replaces __TRUNK_HASH__ with short git SHA, __BUILD_TIME__ with ISO timestamp
-[[hooks]]
-stage = "post_build"
-command = "sh"
-command_arguments = [
-    "-c",
-    "HASH=$(git rev-parse --short HEAD 2>/dev/null || echo 'dev'); TIME=$(date -u +%Y-%m-%dT%H:%M:%SZ); INDEX=../adapteros-server/static/.stage/index.html; [ -f \"$INDEX\" ] || INDEX=../adapteros-server/static/index.html; if [ -f \"$INDEX\" ]; then sed -i.bak -e \"s/__TRUNK_HASH__/$HASH/g\" -e \"s/__BUILD_TIME__/$TIME/g\" \"$INDEX\" && rm -f \"$INDEX\".bak; else echo 'warning: index file not found for metadata injection' >&2; fi",
-]
+command = "cp"
+command_arguments = ["dist/sw.js", "../adapteros-server/static/sw.js"]
 
 [watch]
 # Watch for changes (stylers generates CSS at cargo build time)
@@ -47,8 +28,8 @@ ignore = ["target"]
 port = 3200
 # Proxy API requests to backend
 proxy = [
-    { path = "/api", address = "http://localhost:18080" },
-    { path = "/v1", address = "http://localhost:18080" },
-    { path = "/healthz", address = "http://localhost:18080" },
-    { path = "/readyz", address = "http://localhost:18080" },
+    { path = "/api", address = "http://localhost:8080" },
+    { path = "/v1", address = "http://localhost:8080" },
+    { path = "/healthz", address = "http://localhost:8080" },
+    { path = "/readyz", address = "http://localhost:8080" },
 ]

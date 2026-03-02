@@ -285,13 +285,13 @@ RUST_LOG=adapteros_lora_mlx_ffi=debug cargo run
 
 ```bash
 # Check backend health
-curl http://localhost:18080/api/health/mlx
+curl http://localhost:8080/api/health/mlx
 
 # Get performance metrics
-curl http://localhost:18080/api/metrics/mlx
+curl http://localhost:8080/api/metrics/mlx
 
 # View active alerts
-curl http://localhost:18080/api/alerts/mlx
+curl http://localhost:8080/api/alerts/mlx
 ```
 
 ## Migration Guide

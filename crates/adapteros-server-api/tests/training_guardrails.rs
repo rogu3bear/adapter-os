@@ -1,71 +1,56 @@
 //! Integration tests for training guardrails (fail-fast validation).
 
+use std::path::Path;
+
 use adapteros_api_types::training::{
     DatasetVersionSelection, StartTrainingRequest, TrainingConfigRequest,
 };
+use adapteros_core::B3Hash;
 use adapteros_db::adapter_repositories::CreateRepositoryParams;
+use adapteros_db::models::ModelRegistrationBuilder;
 use adapteros_db::training_datasets::CreateDatasetParams;
 use adapteros_server_api::handlers::training::start_training;
 use adapteros_server_api::ip_extraction::ClientIp;
+use adapteros_server_api::state::AppState;
 use adapteros_types::training::BranchClassification;
 use axum::extract::State;
 use axum::Extension;
 use axum::Json;
 
 mod common;
-use common::{register_test_model, register_test_worker, test_admin_claims};
+use common::{register_test_worker, test_admin_claims};
 
-struct TrainingWorkerDegradedMarkerGuard {
-    marker: std::path::PathBuf,
-    backup: Option<std::path::PathBuf>,
-}
-
-impl TrainingWorkerDegradedMarkerGuard {
-    fn disable_for_test() -> Self {
-        let marker = adapteros_core::rebase_var_path("var/run/training-worker.degraded");
-        if !marker.exists() {
-            return Self {
-                marker,
-                backup: None,
-            };
-        }
-
-        let backup = marker.with_extension("degraded.test-backup");
-        if backup.exists() {
-            let _ = std::fs::remove_file(&backup);
-        }
-        std::fs::rename(&marker, &backup).expect("move degraded marker out of test path");
-
-        Self {
-            marker,
-            backup: Some(backup),
-        }
-    }
-}
-
-impl Drop for TrainingWorkerDegradedMarkerGuard {
-    fn drop(&mut self) {
-        if let Some(backup) = self.backup.take() {
-            let _ = std::fs::rename(backup, &self.marker);
-        }
-    }
+async fn create_model(state: &AppState, model_id: &str, model_path: &Path) -> String {
+    let params = ModelRegistrationBuilder::new()
+        .name(model_id.to_string())
+        .hash_b3(B3Hash::hash(model_id.as_bytes()).to_hex())
+        .config_hash_b3("cfg-hash")
+        .tokenizer_hash_b3("tok-hash")
+        .tokenizer_cfg_hash_b3("tok-cfg-hash")
+        .build()
+        .expect("model params");
+    let id = state
+        .db
+        .register_model(params)
+        .await
+        .expect("register model");
+    state
+        .db
+        .update_model_path(&id, model_path.to_str().unwrap_or_default())
+        .await
+        .expect("set model path");
+    id
 }
 
 #[tokio::test]
 async fn start_training_rejects_base_model_mismatch() {
-    let _degraded_guard = TrainingWorkerDegradedMarkerGuard::disable_for_test();
     let state = common::setup_state(None).await.expect("state");
     let tmp = tempfile::TempDir::with_prefix("aos-test-").expect("create temp dir");
     let model_path = tmp.path().join("model.bin");
     std::fs::write(&model_path, b"weights").expect("write dummy model");
 
-    // Register two models: repository expects one, request sends the other.
-    let expected_model_id = register_test_model(&state, &model_path)
-        .await
-        .expect("register expected model");
-    let wrong_model_id = register_test_model(&state, &model_path)
-        .await
-        .expect("register model");
+    // Register a model whose id will be sent in the request
+    let wrong_model_id = create_model(&state, "wrong-model", &model_path).await;
 
     // Register a worker so worker capability checks pass
     let caps = adapteros_api_types::workers::WorkerCapabilities {
@@ -88,7 +73,7 @@ async fn start_training_rejects_base_model_mismatch() {
         .create_adapter_repository(CreateRepositoryParams {
             tenant_id: "tenant-1",
             name: "repo",
-            base_model_id: Some(expected_model_id.as_str()),
+            base_model_id: Some("expected-model"),
             default_branch: Some("main"),
             created_by: Some("tester"),
             description: None,
@@ -182,9 +167,7 @@ async fn start_training_rejects_empty_dataset() {
     let model_path = tmp.path().join("model.bin");
     std::fs::write(&model_path, b"weights").expect("write dummy model");
 
-    let empty_model_id = register_test_model(&state, &model_path)
-        .await
-        .expect("register model");
+    let empty_model_id = create_model(&state, "empty-model", &model_path).await;
 
     let caps = adapteros_api_types::workers::WorkerCapabilities {
         backend_kind: "mlx".to_string(),

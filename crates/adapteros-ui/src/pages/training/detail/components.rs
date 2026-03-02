@@ -20,10 +20,8 @@ use crate::pages::training::utils::{
 pub fn OverviewTabContent(
     job: TrainingJobResponse,
     job_id: String,
-    #[prop(optional)] adapter_id: Option<String>,
+    adapter_id: Option<String>,
 ) -> impl IntoView {
-    // adapter_id accepted for call-site compat; artifact display removed.
-    let _ = adapter_id;
     view! {
         <Card title="Job Details".to_string()>
             <div class="grid gap-3 text-sm md:grid-cols-2">
@@ -56,6 +54,24 @@ pub fn OverviewTabContent(
                 })}
             </div>
         </Card>
+
+        // Artifacts section (for completed jobs with outputs)
+        {job.aos_path.clone().map(|path| view! {
+            <Card title="Artifacts".to_string() class="mt-4".to_string()>
+                <div class="grid gap-3 text-sm">
+                    <DetailRow label="Adapter Path" value=path mono=true/>
+                    {adapter_id.clone().map(|id| view! {
+                        <DetailRow label="Adapter ID" value=id mono=true/>
+                    })}
+                    {job.package_hash_b3.clone().map(|hash| view! {
+                        <div class="flex flex-col gap-1">
+                            <span class="text-muted-foreground">"Package Hash"</span>
+                            <span class="font-mono text-xs break-all bg-muted/50 p-2 rounded">{hash}</span>
+                        </div>
+                    })}
+                </div>
+            </Card>
+        })}
     }
 }
 
@@ -138,15 +154,21 @@ pub fn BackendTabContent(job: TrainingJobResponse, coreml_state: CoremlState) ->
     }
 }
 
-/// Export tab - CoreML export status
+/// Export tab - CoreML export status and artifacts
 #[component]
 pub fn ExportTabContent(
     job: TrainingJobResponse,
     coreml_state: CoremlState,
     coreml_export_requested: bool,
 ) -> impl IntoView {
-    // job accepted for call-site compat; artifact/verification display removed.
-    let _ = job;
+    // Clone for use in different sections
+    let coreml_state_for_artifacts = coreml_state.clone();
+    let has_artifacts =
+        coreml_state.package_path.is_some() || coreml_state.fused_package_hash.is_some();
+    let has_verification = job.coreml_base_manifest_hash.is_some()
+        || job.coreml_adapter_hash_b3.is_some()
+        || job.coreml_fusion_verified.is_some();
+
     view! {
         <Card title="CoreML Export Status".to_string()>
             <div class="space-y-4">
@@ -168,6 +190,49 @@ pub fn ExportTabContent(
                 </div>
             </div>
         </Card>
+
+        // Export artifacts (when available)
+        {has_artifacts.then(|| {
+            let state = coreml_state_for_artifacts.clone();
+            view! {
+                <Card title="Export Artifacts".to_string() class="mt-4".to_string()>
+                    <div class="space-y-3 text-sm">
+                        {state.package_path.clone().map(|path| view! {
+                            <DetailRow label="Package Path" value=path mono=true/>
+                        })}
+                        {state.metadata_path.clone().map(|path| view! {
+                            <DetailRow label="Metadata Path" value=path mono=true/>
+                        })}
+                        {state.fused_package_hash.clone().map(|hash| view! {
+                            <div class="flex flex-col gap-1">
+                                <span class="text-muted-foreground">"Fused Package Hash"</span>
+                                <span class="font-mono text-xs break-all bg-muted/50 p-2 rounded">{hash}</span>
+                            </div>
+                        })}
+                    </div>
+                </Card>
+            }
+        })}
+
+        // Verification hashes
+        {has_verification.then(|| view! {
+            <Card title="Verification".to_string() class="mt-4".to_string()>
+                <div class="grid gap-3 text-sm md:grid-cols-2">
+                    {job.coreml_base_manifest_hash.clone().map(|hash| view! {
+                        <DetailRow label="Base Manifest Hash" value=hash mono=true/>
+                    })}
+                    {job.coreml_adapter_hash_b3.clone().map(|hash| view! {
+                        <DetailRow label="Adapter Hash (B3)" value=hash mono=true/>
+                    })}
+                    {job.coreml_fusion_verified.map(|verified| view! {
+                        <DetailRow
+                            label="Fusion Verified"
+                            value=if verified { "Yes".to_string() } else { "No".to_string() }
+                        />
+                    })}
+                </div>
+            </Card>
+        })}
     }
 }
 
@@ -233,12 +298,12 @@ fn DualCurveChart(
     let secondary_path = build_svg_path(&secondary, min_val, range);
 
     // Best-epoch marker X position (percentage)
-    let marker_x = best_epoch.map(|be| {
+    let marker_x = best_epoch.and_then(|be| {
         let total = total_epochs.unwrap_or(1).max(1);
         if total > 1 {
-            (be as f64 / (total - 1) as f64) * 100.0
+            Some((be as f64 / (total - 1) as f64) * 100.0)
         } else {
-            50.0
+            Some(50.0)
         }
     });
 
@@ -604,7 +669,7 @@ pub fn LogViewer(job_id: String) -> impl IntoView {
     }
 }
 
-/// Metrics chart component - displays training loss curve with summary stats
+/// Metrics chart component - displays training loss curve
 #[component]
 pub fn MetricsChart(job_id: String) -> impl IntoView {
     let client = use_api_client();
@@ -677,18 +742,42 @@ pub fn MetricsChart(job_id: String) -> impl IntoView {
                 } else {
                     let data = metrics.try_get().unwrap_or_default();
                     let latest = data.last();
-                    let losses: Vec<f32> = data.iter().map(|m| m.loss as f32).collect();
-                    let (min_val, _max_val, _range) = curve_bounds(&losses, &[]);
+
+                    // Calculate min/max loss for scaling
+                    let losses: Vec<f64> = data.iter().map(|m| m.loss).collect();
+                    let min_loss = losses.iter().cloned().fold(f64::INFINITY, f64::min);
+                    let max_loss = losses.iter().cloned().fold(f64::NEG_INFINITY, f64::max);
+                    let range = (max_loss - min_loss).max(0.001); // Prevent division by zero
+
+                    // Build SVG path for loss curve
+                    let points: Vec<String> = data.iter().enumerate().map(|(i, m)| {
+                        let x = if data.len() > 1 {
+                            (i as f64 / (data.len() - 1) as f64) * 100.0
+                        } else {
+                            50.0
+                        };
+                        let y = 100.0 - ((m.loss - min_loss) / range * 80.0 + 10.0); // 10% padding
+                        format!("{:.1},{:.1}", x, y)
+                    }).collect();
+
+                    let path_data = if points.len() > 1 {
+                        format!("M {} L {}", points[0], points[1..].join(" L "))
+                    } else if !points.is_empty() {
+                        format!("M {} L {}", points[0], points[0])
+                    } else {
+                        String::new()
+                    };
 
                     view! {
                         <div>
+                            // Summary stats
                             <div class="grid grid-cols-4 gap-4 mb-4">
                                 <div class="text-center">
                                     <p class="text-xs text-muted-foreground">"Steps"</p>
                                     <p class="text-lg font-semibold">{data.len()}</p>
                                 </div>
                                 <div class="text-center">
-                                    <p class="text-xs text-muted-foreground">"Epoch"</p>
+                                    <p class="text-xs text-muted-foreground">"Current Epoch"</p>
                                     <p class="text-lg font-semibold">{latest.map(|m| m.epoch).unwrap_or(0)}</p>
                                 </div>
                                 <div class="text-center">
@@ -697,15 +786,37 @@ pub fn MetricsChart(job_id: String) -> impl IntoView {
                                 </div>
                                 <div class="text-center">
                                     <p class="text-xs text-muted-foreground">"Min Loss"</p>
-                                    <p class="text-lg font-semibold text-status-success">{format!("{:.4}", min_val)}</p>
+                                    <p class="text-lg font-semibold text-status-success">{format!("{:.4}", min_loss)}</p>
                                 </div>
                             </div>
-                            <DualCurveChart
-                                primary=losses
-                                secondary=vec![]
-                                primary_label="Loss"
-                                secondary_label=""
-                            />
+
+                            // Loss curve visualization
+                            <div class="relative h-32 bg-muted/30 rounded-md p-2">
+                                <svg class="w-full h-full" viewBox="0 0 100 100" preserveAspectRatio="none">
+                                    // Grid lines
+                                    <line x1="0" y1="25" x2="100" y2="25" stroke="currentColor" stroke-opacity="0.1" stroke-width="0.5"/>
+                                    <line x1="0" y1="50" x2="100" y2="50" stroke="currentColor" stroke-opacity="0.1" stroke-width="0.5"/>
+                                    <line x1="0" y1="75" x2="100" y2="75" stroke="currentColor" stroke-opacity="0.1" stroke-width="0.5"/>
+
+                                    // Loss curve
+                                    <path
+                                        d=path_data
+                                        fill="none"
+                                        stroke="var(--color-primary)"
+                                        stroke-width="2"
+                                        stroke-linecap="round"
+                                        stroke-linejoin="round"
+                                        vector-effect="non-scaling-stroke"
+                                    />
+                                </svg>
+
+                                // Y-axis labels
+                                <div class="absolute left-0 top-0 h-full flex flex-col justify-between text-2xs text-muted-foreground py-1">
+                                    <span>{format!("{:.2}", max_loss)}</span>
+                                    <span>{format!("{:.2}", min_loss)}</span>
+                                </div>
+                            </div>
+
                             <p class="text-xs text-muted-foreground text-center mt-2">
                                 "Loss over training steps"
                             </p>

@@ -5,6 +5,14 @@
 
 pub mod kernel_testing;
 
+// NOTE: unified_framework module is preserved for potential future use but is not
+// currently used anywhere in the codebase. It is not part of the public API.
+// If needed in the future, uncomment the following lines:
+// pub mod unified_framework;
+// pub use unified_framework::{...};
+#[allow(dead_code)]
+mod unified_framework;
+
 // Re-export kernel testing utilities
 pub use kernel_testing::{
     approx_eq, assert_bit_exact, assert_vectors_eq, compare_vectors, cpu_add, cpu_lora_forward,

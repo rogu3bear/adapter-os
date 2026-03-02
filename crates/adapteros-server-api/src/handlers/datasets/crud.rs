@@ -2,11 +2,9 @@
 
 use super::helpers::{
     ensure_dataset_file_within_root, map_validation_diagnostics, map_validation_errors,
-    map_validation_status, resolve_source_derived_dataset_name,
+    map_validation_status,
 };
-use super::types::{
-    DatasetAdapterEntry, DatasetAdaptersResponse, ListDatasetsQuery, UpdateDatasetRequest,
-};
+use super::types::ListDatasetsQuery;
 use crate::api_error::ApiError;
 use crate::auth::Claims;
 use crate::ip_extraction::ClientIp;
@@ -20,7 +18,7 @@ use axum::{
     response::IntoResponse,
     Extension, Json,
 };
-use tracing::{error, info, warn};
+use tracing::{error, info};
 
 /// List all datasets
 #[utoipa::path(
@@ -98,27 +96,13 @@ pub async fn list_datasets(
             .map(|(v, trust)| (Some(v.id), Some(trust)))
             .unwrap_or((None, None));
         let validation_errors = d.validation_errors.clone();
-        let resolved_name = match state.db.get_dataset_files(&d.id).await {
-            Ok(files) => {
-                let file_names: Vec<&str> = files.iter().map(|f| f.file_name.as_str()).collect();
-                resolve_source_derived_dataset_name(Some(d.name.as_str()), &file_names)
-            }
-            Err(e) => {
-                warn!(
-                    dataset_id = %d.id,
-                    error = %e,
-                    "Failed to load dataset files for source-derived name resolution"
-                );
-                d.name.clone()
-            }
-        };
 
         let display_name = adapteros_id::display_name_for(&d.id);
         responses.push(DatasetResponse {
             schema_version: "1.0".to_string(),
             dataset_id: d.id,
             dataset_version_id,
-            name: resolved_name,
+            name: d.name,
             description: d.description,
             file_count: d.file_count,
             total_size_bytes: d.total_size_bytes,
@@ -215,27 +199,13 @@ pub async fn get_dataset(
     let (dataset_version_id, trust_state) = latest_trusted
         .map(|(v, trust)| (Some(v.id), Some(trust)))
         .unwrap_or((None, None));
-    let resolved_name = match state.db.get_dataset_files(&dataset.id).await {
-        Ok(files) => {
-            let file_names: Vec<&str> = files.iter().map(|f| f.file_name.as_str()).collect();
-            resolve_source_derived_dataset_name(Some(dataset.name.as_str()), &file_names)
-        }
-        Err(e) => {
-            warn!(
-                dataset_id = %dataset.id,
-                error = %e,
-                "Failed to load dataset files for source-derived name resolution"
-            );
-            dataset.name.clone()
-        }
-    };
 
     let display_name = adapteros_id::display_name_for(&dataset.id);
     Ok(Json(DatasetResponse {
         schema_version: "1.0".to_string(),
         dataset_id: dataset.id,
         dataset_version_id,
-        name: resolved_name,
+        name: dataset.name,
         description: dataset.description,
         file_count: dataset.file_count,
         total_size_bytes: dataset.total_size_bytes,
@@ -255,119 +225,6 @@ pub async fn get_dataset(
         dataset_type: dataset.dataset_type,
         display_name,
     }))
-}
-
-/// Update dataset metadata (name, description)
-#[utoipa::path(
-    patch,
-    path = "/v1/datasets/{dataset_id}",
-    params(
-        ("dataset_id" = String, Path, description = "Dataset ID")
-    ),
-    request_body = UpdateDatasetRequest,
-    responses(
-        (status = 204, description = "Dataset updated"),
-        (status = 403, description = "Tenant isolation violation"),
-        (status = 404, description = "Dataset not found"),
-        (status = 500, description = "Internal server error")
-    ),
-    tag = "datasets"
-)]
-pub async fn update_dataset(
-    State(state): State<AppState>,
-    Extension(claims): Extension<Claims>,
-    Path(dataset_id): Path<String>,
-    Json(body): Json<UpdateDatasetRequest>,
-) -> Result<impl IntoResponse, ApiError> {
-    require_permission(&claims, Permission::DatasetUpload)?;
-
-    let dataset_id = crate::id_resolver::resolve_any_id(&state.db, &dataset_id).await?;
-
-    let dataset = state
-        .db
-        .get_training_dataset(&dataset_id)
-        .await
-        .map_err(|e| ApiError::db_error(format!("Failed to get dataset: {}", e)))?
-        .ok_or_else(|| ApiError::not_found("Dataset"))?;
-
-    if let Some(ref dataset_tenant_id) = dataset.tenant_id {
-        validate_tenant_isolation(&claims, dataset_tenant_id)?;
-    } else if claims.role != "admin" {
-        return Err(ApiError::forbidden(
-            "Access denied: dataset has no tenant association",
-        ));
-    }
-
-    state
-        .db
-        .update_dataset_name_description(
-            &dataset_id,
-            body.name.as_deref(),
-            body.description.as_deref(),
-        )
-        .await
-        .map_err(|e| ApiError::db_error(format!("Failed to update dataset: {}", e)))?;
-
-    info!(dataset_id = %dataset_id, "Dataset metadata updated");
-
-    Ok(StatusCode::NO_CONTENT)
-}
-
-/// List adapters trained on this dataset
-#[utoipa::path(
-    get,
-    path = "/v1/datasets/{dataset_id}/adapters",
-    params(
-        ("dataset_id" = String, Path, description = "Dataset ID")
-    ),
-    responses(
-        (status = 200, description = "Adapters using this dataset", body = DatasetAdaptersResponse),
-        (status = 403, description = "Tenant isolation violation"),
-        (status = 404, description = "Dataset not found"),
-        (status = 500, description = "Internal server error")
-    ),
-    tag = "datasets"
-)]
-pub async fn get_dataset_adapters(
-    State(state): State<AppState>,
-    Extension(claims): Extension<Claims>,
-    Path(dataset_id): Path<String>,
-) -> Result<impl IntoResponse, ApiError> {
-    require_permission(&claims, Permission::DatasetView)?;
-
-    let dataset_id = crate::id_resolver::resolve_any_id(&state.db, &dataset_id).await?;
-
-    let dataset = state
-        .db
-        .get_training_dataset(&dataset_id)
-        .await
-        .map_err(|e| ApiError::db_error(format!("Failed to get dataset: {}", e)))?
-        .ok_or_else(|| ApiError::not_found("Dataset"))?;
-
-    if let Some(ref dataset_tenant_id) = dataset.tenant_id {
-        validate_tenant_isolation(&claims, dataset_tenant_id)?;
-    } else if claims.role != "admin" {
-        return Err(ApiError::forbidden(
-            "Access denied: dataset has no tenant association",
-        ));
-    }
-
-    let lineage = state
-        .db
-        .get_training_lineage_for_dataset(&dataset_id)
-        .await
-        .map_err(|e| ApiError::db_error(format!("Failed to get dataset adapters: {}", e)))?;
-
-    let adapters: Vec<DatasetAdapterEntry> = lineage
-        .into_iter()
-        .map(|l| DatasetAdapterEntry {
-            adapter_id: l.adapter_id,
-            dataset_version_id: l.dataset_version_id,
-            training_job_id: l.training_job_id,
-        })
-        .collect();
-
-    Ok(Json(DatasetAdaptersResponse { adapters }))
 }
 
 /// Delete a dataset

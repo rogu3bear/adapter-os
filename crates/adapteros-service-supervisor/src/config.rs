@@ -3,7 +3,6 @@
 use serde::{Deserialize, Serialize};
 use std::collections::HashMap;
 use std::path::PathBuf;
-use std::time::Duration;
 
 /// Top-level supervisor configuration
 #[derive(Debug, Clone, Serialize, Deserialize, Default)]
@@ -139,15 +138,15 @@ impl Default for ServerConfig {
             port: std::env::var("AOS_PANEL_PORT")
                 .ok()
                 .and_then(|p| p.parse().ok())
-                .unwrap_or(18082),
+                .unwrap_or(3301),
             workers: 4,
             max_connections: 1000,
             timeout_seconds: 30,
             cors_allowed_origins: {
                 // Respect AOS_UI_PORT for CORS (supports port offset strategy)
-                let ui_port = std::env::var("AOS_UI_PORT").unwrap_or_else(|_| "18081".to_string());
+                let ui_port = std::env::var("AOS_UI_PORT").unwrap_or_else(|_| "3200".to_string());
                 let panel_port =
-                    std::env::var("AOS_PANEL_PORT").unwrap_or_else(|_| "18082".to_string());
+                    std::env::var("AOS_PANEL_PORT").unwrap_or_else(|_| "3301".to_string());
                 vec![
                     format!("http://localhost:{}", ui_port),
                     format!("http://localhost:{}", panel_port),
@@ -176,7 +175,7 @@ impl Default for MonitoringConfig {
             metrics_enabled: true,
             health_check_interval_seconds: 30,
             log_level: "info".to_string(),
-            prometheus_port: Some(18084),
+            prometheus_port: Some(9091),
         }
     }
 }
@@ -209,27 +208,6 @@ impl Default for RestartPolicy {
     }
 }
 
-impl RestartPolicy {
-    pub fn max_attempts_in_window(&self) -> u32 {
-        self.max_attempts.max(1)
-    }
-
-    pub fn window_duration(&self) -> Duration {
-        Duration::from_secs(self.window_seconds.max(1))
-    }
-
-    pub fn cooldown_for_attempt(&self, attempt: u32) -> Duration {
-        let base = self.backoff_base_seconds.max(1);
-        let max_backoff = self.backoff_max_seconds.max(base);
-        let factor = 2u64.saturating_pow(attempt.saturating_sub(1));
-        Duration::from_secs(base.saturating_mul(factor).min(max_backoff))
-    }
-
-    pub fn escalation_cooldown(&self) -> Duration {
-        self.cooldown_for_attempt(self.max_attempts_in_window())
-    }
-}
-
 impl SupervisorConfig {
     /// Load configuration from file
     pub fn from_file(path: &std::path::Path) -> Result<Self, config::ConfigError> {
@@ -245,7 +223,7 @@ impl SupervisorConfig {
     pub fn load() -> Result<Self, config::ConfigError> {
         let mut builder = config::Config::builder()
             .set_default("server.host", "127.0.0.1")?
-            .set_default("server.port", 18082)?
+            .set_default("server.port", 3301)?
             .set_default("auth.token_ttl_hours", 8)?
             .set_default("monitoring.metrics_enabled", true)?;
 

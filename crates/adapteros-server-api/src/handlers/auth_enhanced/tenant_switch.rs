@@ -20,7 +20,6 @@ use crate::auth_common::{
 use crate::ip_extraction::ClientIp;
 use crate::security::{check_tenant_access, upsert_user_session};
 use crate::state::AppState;
-use crate::tenant_visibility::{is_reserved_internal_tenant_id, SYSTEM_TENANT_ID};
 use crate::types::ErrorResponse;
 use adapteros_api_types::auth::{SwitchTenantRequest, SwitchTenantResponse, TenantSummary};
 use adapteros_api_types::API_SCHEMA_VERSION;
@@ -79,22 +78,6 @@ pub async fn switch_tenant_handler(
         return Err((
             StatusCode::BAD_REQUEST,
             Json(ErrorResponse::new("tenant_id is required").with_code("MISSING_TENANT_ID")),
-        ));
-    }
-    if is_reserved_internal_tenant_id(target_tenant_id)
-        && claims.tenant_id != SYSTEM_TENANT_ID
-        && claims.role != SYSTEM_TENANT_ID
-    {
-        return Err((
-            StatusCode::FORBIDDEN,
-            Json(
-                ErrorResponse::new("Access denied to target tenant")
-                    .with_code("TENANT_ACCESS_DENIED")
-                    .with_string_details(format!(
-                        "Tenant '{}' is reserved for internal platform use",
-                        target_tenant_id
-                    )),
-            ),
         ));
     }
 

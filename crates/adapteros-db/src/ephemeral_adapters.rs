@@ -18,7 +18,7 @@ impl Db {
         )
         .bind(id)
         .bind(adapter_json)
-        .execute(self.pool_result()?)
+        .execute(self.pool())
         .await
         .map_err(|e| AosError::Database(format!("Failed to save ephemeral adapter: {}", e)))?;
         Ok(())
@@ -30,7 +30,7 @@ impl Db {
             "SELECT id, adapter_data, created_at FROM ephemeral_adapters WHERE id = ?",
         )
         .bind(id)
-        .fetch_optional(self.pool_result()?)
+        .fetch_optional(self.pool())
         .await
         .map_err(|e| AosError::Database(format!("Failed to get ephemeral adapter: {}", e)))?;
         Ok(row)
@@ -41,7 +41,7 @@ impl Db {
         let rows = sqlx::query_as::<_, EphemeralAdapterRow>(
             "SELECT id, adapter_data, created_at FROM ephemeral_adapters ORDER BY created_at DESC",
         )
-        .fetch_all(self.pool_result()?)
+        .fetch_all(self.pool())
         .await
         .map_err(|e| AosError::Database(format!("Failed to list ephemeral adapters: {}", e)))?;
         Ok(rows)
@@ -51,7 +51,7 @@ impl Db {
     pub async fn delete_ephemeral_adapter(&self, id: &str) -> Result<()> {
         sqlx::query("DELETE FROM ephemeral_adapters WHERE id = ?")
             .bind(id)
-            .execute(self.pool_result()?)
+            .execute(self.pool())
             .await
             .map_err(|e| {
                 AosError::Database(format!("Failed to delete ephemeral adapter: {}", e))

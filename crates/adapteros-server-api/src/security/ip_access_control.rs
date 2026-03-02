@@ -50,7 +50,7 @@ pub async fn check_ip_access(db: &Db, ip: &str, tenant_id: Option<&str>) -> Resu
         .bind(ip)
         .bind(&now)
         .bind(tid)
-        .fetch_one(db.pool_result()?)
+        .fetch_one(db.pool())
         .await?
     } else {
         sqlx::query_scalar::<_, i64>(
@@ -64,7 +64,7 @@ pub async fn check_ip_access(db: &Db, ip: &str, tenant_id: Option<&str>) -> Resu
         .bind(ip)
         .bind(ip)
         .bind(&now)
-        .fetch_one(db.pool_result()?)
+        .fetch_one(db.pool())
         .await?
     };
 
@@ -82,7 +82,7 @@ pub async fn check_ip_access(db: &Db, ip: &str, tenant_id: Option<&str>) -> Resu
                AND (tenant_id IS NULL OR tenant_id = ?)",
         )
         .bind(tid)
-        .fetch_one(db.pool_result()?)
+        .fetch_one(db.pool())
         .await?
     } else {
         sqlx::query_scalar::<_, i64>(
@@ -91,7 +91,7 @@ pub async fn check_ip_access(db: &Db, ip: &str, tenant_id: Option<&str>) -> Resu
                AND active = 1
                AND tenant_id IS NULL",
         )
-        .fetch_one(db.pool_result()?)
+        .fetch_one(db.pool())
         .await?
     };
 
@@ -110,7 +110,7 @@ pub async fn check_ip_access(db: &Db, ip: &str, tenant_id: Option<&str>) -> Resu
             .bind(ip)
             .bind(&now)
             .bind(tid)
-            .fetch_one(db.pool_result()?)
+            .fetch_one(db.pool())
             .await?
         } else {
             sqlx::query_scalar::<_, i64>(
@@ -124,7 +124,7 @@ pub async fn check_ip_access(db: &Db, ip: &str, tenant_id: Option<&str>) -> Resu
             .bind(ip)
             .bind(ip)
             .bind(&now)
-            .fetch_one(db.pool_result()?)
+            .fetch_one(db.pool())
             .await?
         };
 
@@ -170,7 +170,7 @@ pub async fn add_ip_rule(
     .bind(created_by)
     .bind(expires_at)
     .bind(reason)
-    .execute(db.pool_result()?)
+    .execute(db.pool())
     .await?;
 
     info!(
@@ -188,7 +188,7 @@ pub async fn add_ip_rule(
 pub async fn remove_ip_rule(db: &Db, rule_id: &str) -> Result<()> {
     sqlx::query("UPDATE ip_access_control SET active = 0 WHERE id = ?")
         .bind(rule_id)
-        .execute(db.pool_result()?)
+        .execute(db.pool())
         .await?;
 
     info!(rule_id = %rule_id, "Removed IP access rule");
@@ -229,7 +229,7 @@ pub async fn list_ip_rules(
         q = q.bind(param);
     }
 
-    let rules = q.fetch_all(db.pool_result()?).await?;
+    let rules = q.fetch_all(db.pool()).await?;
     Ok(rules)
 }
 
@@ -242,7 +242,7 @@ pub async fn cleanup_expired_ip_rules(db: &Db) -> Result<usize> {
          WHERE expires_at IS NOT NULL AND expires_at < ?",
     )
     .bind(&now)
-    .execute(db.pool_result()?)
+    .execute(db.pool())
     .await?;
 
     let count = result.rows_affected() as usize;
@@ -273,7 +273,7 @@ mod tests {
                 reason TEXT
             )",
         )
-        .execute(db.pool_result().expect("db pool available"))
+        .execute(db.pool())
         .await
         .expect("Failed to create ip_access_control table");
     }

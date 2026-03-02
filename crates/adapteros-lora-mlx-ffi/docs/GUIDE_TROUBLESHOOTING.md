@@ -5,7 +5,7 @@
 ### Check Backend Status
 ```bash
 # Get overall health
-curl http://localhost:18080/api/health/mlx
+curl http://localhost:8080/api/health/mlx
 
 # Expected response (healthy):
 {
@@ -20,7 +20,7 @@ curl http://localhost:18080/api/health/mlx
 ### View Performance Metrics
 ```bash
 # Prometheus metrics
-curl http://localhost:18080/metrics | grep mlx_
+curl http://localhost:8080/metrics | grep mlx_
 
 # Key metrics to monitor:
 mlx_requests_total{backend="mlx"} 12543
@@ -148,7 +148,7 @@ let config = MLXResilienceConfig {
 #### Manual Recovery
 ```bash
 # Force circuit breaker reset
-curl -X POST http://localhost:18080/api/health/mlx/reset
+curl -X POST http://localhost:8080/api/health/mlx/reset
 ```
 
 ### 4. Slow Inference Performance
@@ -313,12 +313,12 @@ echo "Benchmarking MLX Backend..."
 
 # Warmup
 for i in {1..10}; do
-    curl -s http://localhost:18080/api/inference > /dev/null
+    curl -s http://localhost:8080/api/inference > /dev/null
 done
 
 # Benchmark
 time for i in {1..100}; do
-    curl -s http://localhost:18080/api/inference > /dev/null
+    curl -s http://localhost:8080/api/inference > /dev/null
 done
 
 echo "Benchmark complete. Check logs for performance metrics."
@@ -336,7 +336,7 @@ backend.set_stub_fallback(true);
 ### Backend Restart
 ```bash
 # Graceful restart
-curl -X POST http://localhost:18080/api/admin/restart/mlx
+curl -X POST http://localhost:8080/api/admin/restart/mlx
 
 # Force restart
 pkill -f adapteros-lora-mlx-ffi

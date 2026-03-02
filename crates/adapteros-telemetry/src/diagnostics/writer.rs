@@ -10,9 +10,8 @@ use super::DiagEnvelope;
 use crate::diagnostics::run_tracker::RunTracker;
 use futures_util::FutureExt;
 use std::collections::HashMap;
-use std::path::PathBuf;
 use std::sync::Arc;
-use std::time::{Duration, SystemTime, UNIX_EPOCH};
+use std::time::Duration;
 use tokio::sync::mpsc;
 use tokio::time::{interval, Instant, MissedTickBehavior};
 use tracing::{debug, error, info, warn};
@@ -26,10 +25,6 @@ pub struct WriterConfig {
     pub batch_timeout: Duration,
     /// Maximum events per run (for logging/metrics)
     pub max_events_per_run: u32,
-    /// Drop and persist stale batch after this many consecutive persist failures
-    pub stale_batch_max_attempts: u32,
-    /// Drop and persist stale batch when retry age exceeds this threshold
-    pub stale_batch_max_age_secs: u64,
 }
 
 impl Default for WriterConfig {
@@ -38,14 +33,12 @@ impl Default for WriterConfig {
             batch_size: 100,
             batch_timeout: Duration::from_millis(500),
             max_events_per_run: 10000,
-            stale_batch_max_attempts: 5,
-            stale_batch_max_age_secs: 300,
         }
     }
 }
 
 /// Event with assigned sequence number, ready for persistence.
-#[derive(Debug, Clone, serde::Serialize)]
+#[derive(Debug, Clone)]
 pub struct SequencedEvent {
     /// Sequence number within the run
     pub seq: u64,
@@ -96,10 +89,6 @@ pub struct DiagnosticsWriter<P: DiagPersister> {
     seq_counters: HashMap<String, u64>,
     /// Current batch buffer
     batch: Vec<SequencedEvent>,
-    /// Timestamp of first persist failure for current buffered batch
-    batch_failure_started_at: Option<Instant>,
-    /// Number of consecutive persist failures for current buffered batch
-    batch_failure_attempts: u32,
     /// Last flush time
     last_flush: Instant,
     /// Stats
@@ -117,8 +106,6 @@ impl<P: DiagPersister + 'static> DiagnosticsWriter<P> {
             run_tracker,
             seq_counters: HashMap::new(),
             batch: Vec::with_capacity(batch_size),
-            batch_failure_started_at: None,
-            batch_failure_attempts: 0,
             last_flush: Instant::now(),
             total_persisted: 0,
             total_failed: 0,
@@ -249,137 +236,16 @@ impl<P: DiagPersister + 'static> DiagnosticsWriter<P> {
                 }
 
                 self.batch.clear();
-                self.reset_batch_failure_budget();
                 self.last_flush = Instant::now();
                 Ok(())
             }
             Err(e) => {
                 self.total_failed += batch_size as u64;
-                self.record_batch_failure();
-                let stale_age_secs = self.stale_batch_age_secs();
-                let stale_attempts = self.batch_failure_attempts;
-                error!(
-                    error = %e,
-                    batch_size,
-                    stale_attempts,
-                    stale_age_secs,
-                    "Failed to persist diagnostics batch"
-                );
-
-                let exceeded_attempt_budget =
-                    stale_attempts >= self.config.stale_batch_max_attempts;
-                let exceeded_age_budget = stale_age_secs >= self.config.stale_batch_max_age_secs;
-                if exceeded_attempt_budget || exceeded_age_budget {
-                    self.handle_stale_batch_escalation(&e, batch_size, stale_age_secs)
-                        .await;
-                    self.batch.clear();
-                    self.reset_batch_failure_budget();
-                    self.last_flush = Instant::now();
-                    return Ok(());
-                }
+                error!(error = %e, batch_size, "Failed to persist diagnostics batch");
                 // Keep batch for retry on next flush
                 Err(e)
             }
         }
-    }
-
-    fn record_batch_failure(&mut self) {
-        if self.batch_failure_started_at.is_none() {
-            self.batch_failure_started_at = Some(Instant::now());
-        }
-        self.batch_failure_attempts = self.batch_failure_attempts.saturating_add(1);
-    }
-
-    fn reset_batch_failure_budget(&mut self) {
-        self.batch_failure_started_at = None;
-        self.batch_failure_attempts = 0;
-    }
-
-    fn stale_batch_age_secs(&self) -> u64 {
-        self.batch_failure_started_at
-            .map(|started| started.elapsed().as_secs())
-            .unwrap_or(0)
-    }
-
-    async fn handle_stale_batch_escalation(
-        &self,
-        persist_error: &PersistError,
-        batch_size: usize,
-        stale_age_secs: u64,
-    ) {
-        let stale_attempts = self.batch_failure_attempts;
-        let artifact_path = match self
-            .persist_stale_batch_artifact(persist_error, stale_attempts, stale_age_secs)
-            .await
-        {
-            Ok(path) => Some(path),
-            Err(artifact_error) => {
-                error!(
-                    target: "diagnostics.writer",
-                    event = "stale_batch_artifact_write_failed",
-                    stale_attempts,
-                    stale_age_secs,
-                    error = %artifact_error,
-                    "Failed to persist stale diagnostics batch artifact"
-                );
-                None
-            }
-        };
-        error!(
-            target: "diagnostics.writer",
-            event = "stale_batch_escalated",
-            batch_size,
-            stale_attempts,
-            stale_age_secs,
-            max_attempts = self.config.stale_batch_max_attempts,
-            max_age_secs = self.config.stale_batch_max_age_secs,
-            artifact_path = ?artifact_path.as_ref().map(|path| path.display().to_string()),
-            "Stale diagnostics batch exceeded retry budget; dropping buffered batch"
-        );
-    }
-
-    async fn persist_stale_batch_artifact(
-        &self,
-        persist_error: &PersistError,
-        stale_attempts: u32,
-        stale_age_secs: u64,
-    ) -> std::io::Result<PathBuf> {
-        #[derive(serde::Serialize)]
-        struct StaleBatchArtifact<'a> {
-            recorded_at_unix_secs: u64,
-            stale_attempts: u32,
-            stale_age_secs: u64,
-            batch_size: usize,
-            persist_error: String,
-            events: &'a [SequencedEvent],
-        }
-
-        let now = SystemTime::now()
-            .duration_since(UNIX_EPOCH)
-            .unwrap_or_default();
-        let recorded_at_unix_secs = now.as_secs();
-        let timestamp_us = now.as_micros() as u64;
-        let artifact_dir = adapteros_core::rebase_var_path("var/diagnostics/stale-batches");
-        tokio::fs::create_dir_all(&artifact_dir).await?;
-
-        let artifact = StaleBatchArtifact {
-            recorded_at_unix_secs,
-            stale_attempts,
-            stale_age_secs,
-            batch_size: self.batch.len(),
-            persist_error: persist_error.to_string(),
-            events: &self.batch,
-        };
-        let artifact_bytes = serde_json::to_vec_pretty(&artifact).map_err(|e| {
-            std::io::Error::other(format!(
-                "failed to serialize stale diagnostics batch: {}",
-                e
-            ))
-        })?;
-
-        let artifact_path = artifact_dir.join(format!("stale-batch-{}.json", timestamp_us));
-        tokio::fs::write(&artifact_path, artifact_bytes).await?;
-        Ok(artifact_path)
     }
 
     /// Get the current sequence for a run (for testing).
@@ -617,7 +483,6 @@ mod tests {
         let config = WriterConfig {
             batch_size: 3,
             batch_timeout: Duration::from_millis(10),
-            stale_batch_max_attempts: 50,
             ..Default::default()
         };
 
@@ -659,7 +524,6 @@ mod tests {
 
         // Should have eventually persisted on retry
         // Note: depends on retry logic - current impl keeps batch for next flush
-        assert_eq!(persister.event_count(), 3);
     }
 
     #[tokio::test]
@@ -704,12 +568,5 @@ mod tests {
         // Cleanup
         let _ = shutdown_tx.send(());
         let _ = handle.await;
-    }
-
-    #[test]
-    fn test_writer_config_stale_batch_defaults() {
-        let config = WriterConfig::default();
-        assert_eq!(config.stale_batch_max_attempts, 5);
-        assert_eq!(config.stale_batch_max_age_secs, 300);
     }
 }

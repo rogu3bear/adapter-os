@@ -39,12 +39,13 @@
 //! | Operation | Stub Behavior |
 //! |-----------|---------------|
 //! | `generate_keypair()` | Generates new Ed25519 keypair in memory |
-//! | `sign()` | Signs with in-memory mock keypair (per-process stable) |
-//! | `get_public_key()` | Returns in-memory mock public key |
+//! | `sign()` | Generates new keypair and signs (NOT deterministic) |
+//! | `get_public_key()` | Generates new keypair and returns public key |
 //! | `attest_key()` | Returns 64 zero bytes (mock attestation) |
 //!
-//! **Warning**: This remains a development stub. Keys are software-only and
-//! process-local, so they provide no hardware trust guarantees.
+//! **Warning**: The stub `sign()` and `get_public_key()` methods generate NEW keypairs
+//! on each call, so signatures cannot be verified with subsequent `get_public_key()` calls.
+//! This is intentional for the stub to clearly indicate it's not production-ready.
 //!
 //! ### Hardware Detection
 //!
@@ -60,7 +61,7 @@ use adapteros_crypto::{Keypair, PublicKey, Signature};
 use serde::{Deserialize, Serialize};
 use std::process::Command;
 use std::sync::Arc;
-use tracing::{debug, error, info, warn};
+use tracing::{debug, info, warn};
 
 /// Detect macOS hardware model identifier using system_profiler
 fn detect_hardware_model() -> String {
@@ -238,10 +239,10 @@ pub struct AttestationReport {
 ///
 /// ## Current Limitations
 ///
-/// - **No hardware persistence**: Keys are process-local and software-backed
+/// - **No key persistence**: Keys are generated fresh on each call
 /// - **No hardware binding**: Keys exist only in process memory
 /// - **Mock attestation**: Returns placeholder data (64 zero bytes)
-/// - **No reboot durability**: Key material is regenerated on process start
+/// - **Non-deterministic signing**: Each `sign()` call uses a new keypair
 ///
 /// ## Full Implementation Requirements
 ///
@@ -268,8 +269,9 @@ impl SecureEnclaveConnection {
     ///
     /// # Stub Behavior
     ///
-    /// This stub generates a mock Ed25519 keypair in memory. The keypair is used
-    /// by `sign()` and `get_public_key()` for per-process stable behavior.
+    /// This stub generates a mock Ed25519 keypair in memory. The keypair is not
+    /// actually used by the other methods (they generate fresh keypairs), but
+    /// represents what would be a connection handle to the Secure Enclave.
     pub fn new() -> Result<Self> {
         info!("Initializing Secure Enclave connection");
 
@@ -305,31 +307,35 @@ impl SecureEnclaveConnection {
     ///
     /// # Stub Behavior
     ///
-    /// Uses the process-local mock keypair, so signatures can be verified with
-    /// `get_public_key()` for testing workflows.
+    /// **Warning**: Generates a NEW keypair for each call. Signatures produced
+    /// by this stub CANNOT be verified because the keypair is ephemeral.
+    /// This is intentional to make stub usage obvious.
     ///
     /// # Production Implementation
     ///
     /// Would use `SecKeyCreateSignature` with the key handle retrieved by alias,
     /// keeping the private key in hardware.
     pub fn sign(&self, _alias: &str, data: &[u8]) -> Result<Signature> {
-        // STUB: signs with a process-local software keypair.
-        Ok(self._mock_keypair.sign(data))
+        // STUB: WARNING - generates new keypair each call, signatures unverifiable
+        let keypair = Keypair::generate();
+        Ok(keypair.sign(data))
     }
 
     /// Get public key from Secure Enclave.
     ///
     /// # Stub Behavior
     ///
-    /// Returns the process-local mock public key associated with this connection.
+    /// **Warning**: Generates a NEW keypair for each call. The public key will
+    /// NOT match keys from previous `generate_keypair()` or `sign()` calls.
     ///
     /// # Production Implementation
     ///
     /// Would use `SecItemCopyMatching` to retrieve the key by alias and
     /// `SecKeyCopyPublicKey` to extract the public component.
     pub fn get_public_key(&self, _alias: &str) -> Result<PublicKey> {
-        // STUB: returns public key for the process-local software keypair.
-        Ok(self._mock_keypair.public_key())
+        // STUB: WARNING - generates new keypair each call
+        let keypair = Keypair::generate();
+        Ok(keypair.public_key())
     }
 
     /// Attest key in Secure Enclave.
@@ -401,31 +407,7 @@ impl HostIdentityManager {
         let pubkey = self.get_host_public_key()?;
         let attestation_data = self.connection.attest_key(&self.key_alias)?;
         let attestation_kind = infer_attestation_kind(&attestation_data);
-        let require_hardware = require_hardware_attestation();
-        emit_attestation_visibility_event(
-            "host_identity_manager.attest_host_identity",
-            &self.key_alias,
-            &attestation_kind,
-            require_hardware,
-            attestation_data.len(),
-        );
-        if require_hardware && attestation_kind != "hardware" {
-            error!(
-                target: "security.attestation",
-                event = "hardware_attestation_gate_rejected",
-                source = "host_identity_manager.attest_host_identity",
-                key_alias = %self.key_alias,
-                attestation_kind = %attestation_kind,
-                "Hardware attestation required and synthetic attestation was rejected"
-            );
-            error!(
-                target: "security.audit",
-                event = "attestation_gate_rejected",
-                source = "host_identity_manager.attest_host_identity",
-                key_alias = %self.key_alias,
-                gate = "AOS_REQUIRE_HARDWARE_ATTESTATION",
-                "Attestation gate blocked synthetic attestation"
-            );
+        if require_hardware_attestation() && attestation_kind != "hardware" {
             return Err(AosError::Crypto(
                 "hardware attestation required but synthetic attestation was produced".to_string(),
             ));
@@ -486,31 +468,7 @@ impl HostIdentity {
 
         let attestation_data = self.connection.attest_key(&self.key_alias)?;
         let attestation_kind = infer_attestation_kind(&attestation_data);
-        let require_hardware = require_hardware_attestation();
-        emit_attestation_visibility_event(
-            "host_identity.attest",
-            &self.key_alias,
-            &attestation_kind,
-            require_hardware,
-            attestation_data.len(),
-        );
-        if require_hardware && attestation_kind != "hardware" {
-            error!(
-                target: "security.attestation",
-                event = "hardware_attestation_gate_rejected",
-                source = "host_identity.attest",
-                key_alias = %self.key_alias,
-                attestation_kind = %attestation_kind,
-                "Hardware attestation required and synthetic attestation was rejected"
-            );
-            error!(
-                target: "security.audit",
-                event = "attestation_gate_rejected",
-                source = "host_identity.attest",
-                key_alias = %self.key_alias,
-                gate = "AOS_REQUIRE_HARDWARE_ATTESTATION",
-                "Attestation gate blocked synthetic attestation"
-            );
+        if require_hardware_attestation() && attestation_kind != "hardware" {
             return Err(AosError::Crypto(
                 "hardware attestation required but synthetic attestation was produced".to_string(),
             ));
@@ -543,50 +501,6 @@ fn infer_attestation_kind(attestation_data: &[u8]) -> String {
         "hardware".to_string()
     } else {
         "synthetic".to_string()
-    }
-}
-
-fn emit_attestation_visibility_event(
-    source: &'static str,
-    key_alias: &str,
-    attestation_kind: &str,
-    require_hardware: bool,
-    attestation_len: usize,
-) {
-    let trust_downgraded = attestation_kind != "hardware";
-    if trust_downgraded {
-        warn!(
-            target: "security.attestation",
-            event = "attestation_mode",
-            source,
-            key_alias = %key_alias,
-            attestation_kind = %attestation_kind,
-            trust_downgraded = true,
-            require_hardware_attestation = require_hardware,
-            attestation_len,
-            "Synthetic attestation selected"
-        );
-        warn!(
-            target: "security.audit",
-            event = "attestation_trust_downgrade",
-            source,
-            key_alias = %key_alias,
-            attestation_kind = %attestation_kind,
-            require_hardware_attestation = require_hardware,
-            "Attestation trust downgraded to synthetic"
-        );
-    } else {
-        info!(
-            target: "security.attestation",
-            event = "attestation_mode",
-            source,
-            key_alias = %key_alias,
-            attestation_kind = %attestation_kind,
-            trust_downgraded = false,
-            require_hardware_attestation = require_hardware,
-            attestation_len,
-            "Hardware attestation selected"
-        );
     }
 }
 

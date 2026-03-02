@@ -157,7 +157,7 @@ impl Db {
         .bind(&record.signature)
         .bind(&record.signer_public_key)
         .bind(record.schema_version)
-        .execute(self.pool_result()?)
+        .execute(self.pool())
         .await
         .map_err(|e| {
             AosError::Database(format!("Failed to store provenance certificate: {}", e))
@@ -179,7 +179,7 @@ impl Db {
             "#,
         )
         .bind(certificate_id)
-        .fetch_optional(self.pool_result()?)
+        .fetch_optional(self.pool())
         .await
         .map_err(|e| AosError::Database(format!("Failed to get provenance certificate: {}", e)))?;
 
@@ -200,7 +200,7 @@ impl Db {
             "#,
         )
         .bind(adapter_id)
-        .fetch_all(self.pool_result()?)
+        .fetch_all(self.pool())
         .await
         .map_err(|e| {
             AosError::Database(format!(
@@ -227,7 +227,7 @@ impl Db {
             "#,
         )
         .bind(version_id)
-        .fetch_optional(self.pool_result()?)
+        .fetch_optional(self.pool())
         .await
         .map_err(|e| {
             AosError::Database(format!(
@@ -256,7 +256,7 @@ impl Db {
         )
         .bind(adapter_id)
         .bind(tenant_id)
-        .fetch_optional(self.pool_result()?)
+        .fetch_optional(self.pool())
         .await
         .map_err(|e| {
             AosError::Database(format!(
@@ -287,7 +287,7 @@ impl Db {
         .bind(tenant_id)
         .bind(limit)
         .bind(offset)
-        .fetch_all(self.pool_result()?)
+        .fetch_all(self.pool())
         .await
         .map_err(|e| {
             AosError::Database(format!("Failed to list provenance certificates: {}", e))
@@ -315,7 +315,7 @@ impl Db {
         .bind(adapter_id)
         .bind(limit)
         .bind(offset)
-        .fetch_all(self.pool_result()?)
+        .fetch_all(self.pool())
         .await
         .map_err(|e| {
             AosError::Database(format!(
@@ -337,7 +337,7 @@ impl Db {
             "#,
         )
         .bind(adapter_id)
-        .fetch_one(self.pool_result()?)
+        .fetch_one(self.pool())
         .await
         .map_err(|e| {
             AosError::Database(format!(

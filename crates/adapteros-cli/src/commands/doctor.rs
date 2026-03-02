@@ -39,8 +39,8 @@ pub struct InvariantStatusResponse {
 /// Doctor command to check system health
 #[derive(Debug, Args, Clone)]
 pub struct DoctorCommand {
-    /// Server URL (defaults to AOS_SERVER_URL env var or http://localhost:18080)
-    #[arg(long, env = "AOS_SERVER_URL", default_value = "http://localhost:18080")]
+    /// Server URL (defaults to AOS_SERVER_URL env var or http://localhost:8080)
+    #[arg(long, env = "AOS_SERVER_URL", default_value = "http://localhost:8080")]
     pub server_url: String,
 
     /// Timeout for health checks in seconds

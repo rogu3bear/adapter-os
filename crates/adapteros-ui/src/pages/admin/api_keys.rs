@@ -1,12 +1,15 @@
-//! API Keys section component — flat key list with create and revoke.
+//! API Keys section component with SplitPanel list-detail layout.
+//!
+//! LM Studio-style API key management.
 
 use crate::api::{
     report_error_with_toast, use_api_client, ApiClient, ApiKeyInfo, CreateApiKeyRequest,
 };
 use crate::components::{
-    Badge, BadgeVariant, Button, ButtonVariant, Card, ConfirmationDialog, ConfirmationSeverity,
-    ErrorDisplay, FormDialog, FormField, Input, SkeletonTable, Table, TableBody, TableCell,
-    TableHead, TableHeader, TableRow,
+    use_split_panel_selection_state, Badge, BadgeVariant, Button, ButtonVariant, Card,
+    ConfirmationDialog, ConfirmationSeverity, ErrorDisplay, FormDialog, FormField, Input,
+    SkeletonTable, SplitPanel, SplitRatio, Table, TableBody, TableCell, TableHead, TableHeader,
+    TableRow,
 };
 use crate::hooks::{use_api_resource, use_polling, LoadingState};
 use crate::signals::{use_notifications, use_refetch_signal, RefetchTopic};
@@ -15,11 +18,13 @@ use leptos::prelude::*;
 use std::sync::Arc;
 use wasm_bindgen_futures::spawn_local;
 
-/// API Keys section — key list, create dialog, revoke button.
+/// API Keys section - LM Studio-style API key management with SplitPanel detail view.
 #[component]
 pub fn ApiKeysSection() -> impl IntoView {
     let notifications = use_notifications();
     let client = use_api_client();
+    let sel = use_split_panel_selection_state();
+    let selected_id = sel.selected_id;
 
     // Fetch API keys from API
     let (keys, refetch) =
@@ -290,7 +295,7 @@ pub fn ApiKeysSection() -> impl IntoView {
                 }}
             </FormDialog>
 
-            // Keys list (flat table, no detail panel)
+            // Keys list with SplitPanel
             {move || {
                 match keys.try_get().unwrap_or(LoadingState::Idle) {
                     LoadingState::Idle | LoadingState::Loading => {
@@ -365,75 +370,119 @@ pub fn ApiKeysSection() -> impl IntoView {
                                         </div>
                                     </div>
 
-                                    <Card>
-                                        <Table>
-                                            <TableHeader>
-                                                <TableRow>
-                                                    <TableHead>"Name"</TableHead>
-                                                    <TableHead>"Permissions"</TableHead>
-                                                    <TableHead>"Created"</TableHead>
-                                                    <TableHead class="text-right".to_string()>"Actions"</TableHead>
-                                                </TableRow>
-                                            </TableHeader>
-                                            <TableBody>
-                                                {move || {
-                                                    active_keys.get().into_iter().map(|key| {
-                                                        let key_id_for_revoke = key.id.clone();
-                                                        let key_name_for_revoke = key.name.clone();
-                                                        let is_revoking = Signal::derive({
-                                                            let kid = key.id.clone();
-                                                            move || revoking_id.try_get().flatten() == Some(kid.clone())
-                                                        });
-
-                                                        view! {
+                                    <SplitPanel
+                                        has_selection=sel.has_selection
+                                        on_close=sel.on_close
+                                        back_label="Back to API Keys"
+                                        ratio=SplitRatio::TwoFifthsThreeFifths
+                                        list_panel=move || {
+                                            let on_select = sel.on_select;
+                                            view! {
+                                                <Card>
+                                                    <Table>
+                                                        <TableHeader>
                                                             <TableRow>
-                                                                <TableCell>
-                                                                    <div class="flex items-center gap-2">
-                                                                        <svg xmlns="http://www.w3.org/2000/svg" class="h-4 w-4 text-muted-foreground" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2">
-                                                                            <path stroke-linecap="round" stroke-linejoin="round" d="M15.75 5.25a3 3 0 013 3m3 0a6 6 0 01-7.029 5.912c-.563-.097-1.159.026-1.563.43L10.5 17.25H8.25v2.25H6v2.25H2.25v-2.818c0-.597.237-1.17.659-1.591l6.499-6.499c.404-.404.527-1 .43-1.563A6 6 0 1121.75 8.25z"/>
-                                                                        </svg>
-                                                                        <span class="font-medium">{key.name.clone()}</span>
-                                                                    </div>
-                                                                </TableCell>
-                                                                <TableCell>
-                                                                    <div class="flex gap-1 flex-wrap">
-                                                                        {key.scopes.clone().into_iter().map(|scope| {
-                                                                            let variant = match scope.as_str() {
-                                                                                "admin" => BadgeVariant::Destructive,
-                                                                                "operator" => BadgeVariant::Warning,
-                                                                                _ => BadgeVariant::Secondary,
-                                                                            };
-                                                                            view! {
-                                                                                <Badge variant=variant>{scope}</Badge>
-                                                                            }
-                                                                        }).collect::<Vec<_>>()}
-                                                                    </div>
-                                                                </TableCell>
-                                                                <TableCell>
-                                                                    <span class="text-sm text-muted-foreground">
-                                                                        {format_date(&key.created_at)}
-                                                                    </span>
-                                                                </TableCell>
-                                                                <TableCell class="text-right".to_string()>
-                                                                    <Button
-                                                                        variant=ButtonVariant::Ghost
-                                                                        on_click=Callback::new({
-                                                                            let id = key_id_for_revoke.clone();
-                                                                            let name = key_name_for_revoke.clone();
-                                                                            move |_| request_revoke(id.clone(), name.clone())
-                                                                        })
-                                                                        disabled=is_revoking
-                                                                    >
-                                                                        {move || if is_revoking.try_get().unwrap_or(false) { "Revoking..." } else { "Revoke" }}
-                                                                    </Button>
-                                                                </TableCell>
+                                                                <TableHead>"Name"</TableHead>
+                                                                <TableHead>"Permissions"</TableHead>
+                                                                <TableHead>"Created"</TableHead>
+                                                                <TableHead class="text-right".to_string()>"Actions"</TableHead>
                                                             </TableRow>
+                                                        </TableHeader>
+                                                        <TableBody>
+                                                            {move || {
+                                                                active_keys.get().into_iter().map(|key| {
+                                                                    let key_id = key.id.clone();
+                                                                    let key_id_click = key.id.clone();
+                                                                    let key_id_for_revoke = key.id.clone();
+                                                                    let key_name_for_revoke = key.name.clone();
+                                                                    let is_revoking = Signal::derive({
+                                                                        let kid = key.id.clone();
+                                                                        move || revoking_id.try_get().flatten() == Some(kid.clone())
+                                                                    });
+
+                                                                    let key_id_key = key_id_click.clone();
+
+                                                                    view! {
+                                                                        <tr
+                                                                            class="border-b transition-colors hover:bg-muted/50 cursor-pointer"
+                                                                            class:bg-muted=move || selected_id.try_get().flatten().as_ref() == Some(&key_id)
+                                                                            on:click=move |_| on_select.run(key_id_click.clone())
+                                                                            on:keydown=move |e: web_sys::KeyboardEvent| {
+                                                                                if e.key() == "Enter" || e.key() == " " {
+                                                                                    e.prevent_default();
+                                                                                    on_select.run(key_id_key.clone());
+                                                                                }
+                                                                            }
+                                                                            role="button"
+                                                                            tabindex=0
+                                                                        >
+                                                                            <TableCell>
+                                                                                <div class="flex items-center gap-2">
+                                                                                    <svg xmlns="http://www.w3.org/2000/svg" class="h-4 w-4 text-muted-foreground" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2">
+                                                                                        <path stroke-linecap="round" stroke-linejoin="round" d="M15.75 5.25a3 3 0 013 3m3 0a6 6 0 01-7.029 5.912c-.563-.097-1.159.026-1.563.43L10.5 17.25H8.25v2.25H6v2.25H2.25v-2.818c0-.597.237-1.17.659-1.591l6.499-6.499c.404-.404.527-1 .43-1.563A6 6 0 1121.75 8.25z"/>
+                                                                                    </svg>
+                                                                                    <span class="font-medium">{key.name.clone()}</span>
+                                                                                </div>
+                                                                            </TableCell>
+                                                                            <TableCell>
+                                                                                <div class="flex gap-1 flex-wrap">
+                                                                                    {key.scopes.clone().into_iter().map(|scope| {
+                                                                                        let variant = match scope.as_str() {
+                                                                                            "admin" => BadgeVariant::Destructive,
+                                                                                            "operator" => BadgeVariant::Warning,
+                                                                                            _ => BadgeVariant::Secondary,
+                                                                                        };
+                                                                                        view! {
+                                                                                            <Badge variant=variant>{scope}</Badge>
+                                                                                        }
+                                                                                    }).collect::<Vec<_>>()}
+                                                                                </div>
+                                                                            </TableCell>
+                                                                            <TableCell>
+                                                                                <span class="text-sm text-muted-foreground">
+                                                                                    {format_date(&key.created_at)}
+                                                                                </span>
+                                                                            </TableCell>
+                                                                            <TableCell class="text-right".to_string()>
+                                                                                <Button
+                                                                                    variant=ButtonVariant::Ghost
+                                                                                    on_click=Callback::new({
+                                                                                        let id = key_id_for_revoke.clone();
+                                                                                        let name = key_name_for_revoke.clone();
+                                                                                        move |_| request_revoke(id.clone(), name.clone())
+                                                                                    })
+                                                                                    disabled=is_revoking
+                                                                                >
+                                                                                    {move || if is_revoking.try_get().unwrap_or(false) { "Revoking..." } else { "Revoke" }}
+                                                                                </Button>
+                                                                            </TableCell>
+                                                                        </tr>
+                                                                    }
+                                                                }).collect::<Vec<_>>()
+                                                            }}
+                                                        </TableBody>
+                                                    </Table>
+                                                </Card>
+                                            }
+                                        }
+                                        detail_panel=move || {
+                                            view! {
+                                                {move || {
+                                                    let kid = selected_id.get();
+                                                    kid.and_then(|id| {
+                                                        active_keys.get().into_iter().find(|k| k.id == id)
+                                                    }).map(|key| {
+                                                        view! {
+                                                            <ApiKeyDetailPanel
+                                                                api_key=key
+                                                                on_close=move || selected_id.set(None)
+                                                            />
                                                         }
-                                                    }).collect::<Vec<_>>()
+                                                    })
                                                 }}
-                                            </TableBody>
-                                        </Table>
-                                    </Card>
+                                            }
+                                        }
+                                    />
                                 </div>
                             }.into_any()
                         }
@@ -472,6 +521,106 @@ pub fn ApiKeysSection() -> impl IntoView {
                     />
                 }
             }}
+        </div>
+    }
+}
+
+/// Detail panel for a selected API key.
+#[component]
+fn ApiKeyDetailPanel(api_key: ApiKeyInfo, on_close: impl Fn() + Copy + 'static) -> impl IntoView {
+    let created = format_date(&api_key.created_at);
+    let is_revoked = api_key.revoked_at.is_some();
+    let status_text = if is_revoked { "Revoked" } else { "Active" };
+    let status_variant = if is_revoked {
+        BadgeVariant::Destructive
+    } else {
+        BadgeVariant::Default
+    };
+
+    view! {
+        <div class="space-y-4">
+            // Header with close button
+            <div class="flex items-center justify-between">
+                <h2 class="heading-3">"API Key Details"</h2>
+                <button
+                    class="text-muted-foreground hover:text-foreground"
+                    on:click=move |_| on_close()
+                    aria-label="Close"
+                >
+                    <svg
+                        xmlns="http://www.w3.org/2000/svg"
+                        width="24"
+                        height="24"
+                        viewBox="0 0 24 24"
+                        fill="none"
+                        stroke="currentColor"
+                        stroke-width="2"
+                        stroke-linecap="round"
+                        stroke-linejoin="round"
+                    >
+                        <path d="M18 6 6 18"/>
+                        <path d="m6 6 12 12"/>
+                    </svg>
+                </button>
+            </div>
+
+            <Card>
+                <div class="space-y-4">
+                    // Name + status
+                    <div class="flex items-center justify-between">
+                        <div class="flex items-center gap-2">
+                            <svg xmlns="http://www.w3.org/2000/svg" class="h-5 w-5 text-muted-foreground" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2">
+                                <path stroke-linecap="round" stroke-linejoin="round" d="M15.75 5.25a3 3 0 013 3m3 0a6 6 0 01-7.029 5.912c-.563-.097-1.159.026-1.563.43L10.5 17.25H8.25v2.25H6v2.25H2.25v-2.818c0-.597.237-1.17.659-1.591l6.499-6.499c.404-.404.527-1 .43-1.563A6 6 0 1121.75 8.25z"/>
+                            </svg>
+                            <h3 class="heading-4">{api_key.name.clone()}</h3>
+                        </div>
+                        <Badge variant=status_variant>{status_text}</Badge>
+                    </div>
+
+                    // Scopes
+                    <div>
+                        <span class="text-sm font-medium">"Permissions"</span>
+                        <div class="flex gap-1 flex-wrap mt-1">
+                            {api_key.scopes.clone().into_iter().map(|scope| {
+                                let variant = match scope.as_str() {
+                                    "admin" => BadgeVariant::Destructive,
+                                    "operator" => BadgeVariant::Warning,
+                                    _ => BadgeVariant::Secondary,
+                                };
+                                view! {
+                                    <Badge variant=variant>{scope}</Badge>
+                                }
+                            }).collect::<Vec<_>>()}
+                        </div>
+                    </div>
+
+                    // Info grid
+                    <div class="grid grid-cols-2 gap-3 text-sm">
+                        <div>
+                            <span class="text-muted-foreground">"Created"</span>
+                            <p class="font-medium">{created}</p>
+                        </div>
+                        <div>
+                            <span class="text-muted-foreground">"Status"</span>
+                            <p class="font-medium">{status_text}</p>
+                        </div>
+                        <div>
+                            <span class="text-muted-foreground">"Key ID"</span>
+                            <p class="font-mono text-xs">{api_key.id.clone()}</p>
+                        </div>
+                    </div>
+
+                    // Revoked info
+                    {api_key.revoked_at.clone().map(|revoked| {
+                        view! {
+                            <div class="text-sm">
+                                <span class="text-muted-foreground">"Revoked at: "</span>
+                                <span class="font-medium">{format_date(&revoked)}</span>
+                            </div>
+                        }
+                    })}
+                </div>
+            </Card>
         </div>
     }
 }

@@ -114,7 +114,7 @@ impl TestDbBuilder {
                     .bind(id)
                     .bind(name)
                     .bind(0)
-                    .execute(db.pool_result().unwrap())
+                    .execute(db.pool())
                     .await
                     .map_err(|e| AosError::Database(format!("Failed to seed tenant: {}", e)))?;
             }
@@ -273,7 +273,7 @@ impl TestAdapterFactory {
         .bind(1.0)
         .bind("[]")
         .bind("active") // lifecycle_state
-        .execute(db.pool_result().unwrap())
+        .execute(db.pool())
         .await
         .map_err(|e| AosError::Database(format!("Failed to create test adapter: {}", e)))?;
 
@@ -304,7 +304,7 @@ impl TestAdapterFactory {
         .bind(1.0)
         .bind("[]")
         .bind("active") // lifecycle_state
-        .execute(db.pool_result().unwrap())
+        .execute(db.pool())
         .await
         .map_err(|e| AosError::Database(format!("Failed to create test adapter: {}", e)))?;
 
@@ -350,7 +350,7 @@ impl TestDatasetFactory {
         .bind(&storage_path)
         .bind("valid")
         .bind("default") // default tenant for test datasets
-        .execute(db.pool_result().unwrap())
+        .execute(db.pool())
         .await
         .map_err(|e| AosError::Database(format!("Failed to create test dataset: {}", e)))?;
 
@@ -378,7 +378,7 @@ impl TestDatasetFactory {
         .bind(&storage_path)
         .bind(validation_status)
         .bind("default") // default tenant for test datasets
-        .execute(db.pool_result().unwrap())
+        .execute(db.pool())
         .await
         .map_err(|e| AosError::Database(format!("Failed to create test dataset: {}", e)))?;
 
@@ -451,7 +451,7 @@ impl TestTrainingJobFactory {
         .bind("{}")
         .bind("analyzed")
         .bind("test@example.com")
-        .execute(db.pool_result().unwrap())
+        .execute(db.pool())
         .await
         .map_err(|e| AosError::Database(format!("Failed to create test git repository: {}", e)))?;
 
@@ -467,7 +467,7 @@ impl TestTrainingJobFactory {
         .bind(status)
         .bind(&progress_json)
         .bind("test@example.com")
-        .execute(db.pool_result().unwrap())
+        .execute(db.pool())
         .await
         .map_err(|e| AosError::Database(format!("Failed to create test training job: {}", e)))?;
 
@@ -541,10 +541,9 @@ mod tests {
             .expect("Failed to build test database");
 
         // Verify tenant exists
-        let pool = db.pool_opt().expect("test requires SQL pool");
         let count: (i64,) = sqlx::query_as("SELECT COUNT(*) FROM tenants WHERE id = ?")
             .bind("default")
-            .fetch_one(pool)
+            .fetch_one(db.pool())
             .await
             .expect("Failed to query tenants");
 
@@ -563,10 +562,9 @@ mod tests {
             .await
             .expect("Failed to create adapter");
 
-        let pool = db.pool_opt().expect("test requires SQL pool");
         let count: (i64,) = sqlx::query_as("SELECT COUNT(*) FROM adapters WHERE id = ?")
             .bind("test-adapter")
-            .fetch_one(pool)
+            .fetch_one(db.pool())
             .await
             .expect("Failed to query adapters");
 

@@ -22,7 +22,7 @@ async fn new_test_db_with_tenant() -> Arc<Db> {
         .bind(TEST_TENANT_ID)
         .bind("Test Tenant")
         .bind(false)
-        .execute(db.pool_result().unwrap())
+        .execute(db.pool())
         .await
         .unwrap();
 

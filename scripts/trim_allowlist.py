@@ -2,7 +2,7 @@
 """
 PRD-UI-010: Trim STYLE_ALLOWLIST.md
 
-Removes unused utilities from the allowlist based on var/reports/ui_util/ui_util_unused.txt
+Removes unused utilities from the allowlist based on ui_util_unused.txt
 """
 
 import re
@@ -10,7 +10,7 @@ import sys
 from pathlib import Path
 
 UI_ROOT = Path(__file__).parent.parent / "crates" / "adapteros-ui"
-REPORTS_DIR = Path(__file__).parent.parent / "var" / "reports" / "ui_util"
+REPORTS_DIR = Path(__file__).parent.parent / "reports"
 ALLOWLIST_MD = UI_ROOT / "STYLE_ALLOWLIST.md"
 UNUSED_FILE = REPORTS_DIR / "ui_util_unused.txt"
 

@@ -43,27 +43,23 @@ test('pin adapter, send message, pending clears on SSE update', { tag: ['@flow']
     mode: 'ui-then-api',
   });
 
-  // Chat renders with a deferred mount (Timeout(0)); wait generously for the header.
-  await expect(page.getByTestId('chat-header')).toBeVisible({ timeout: 20_000 });
+  await expect(page.getByTestId('chat-header')).toBeVisible();
 
   // The pending badge should be visible after pinning.
-  // The ?adapter= query param triggers set_session_pinned_adapters inside an Effect,
-  // so the badge may appear after a reactive tick.
   const pendingBadge = page.locator('[aria-label="Adapter changes pending confirmation"]');
-  await expect(pendingBadge).toBeVisible({ timeout: 10_000 });
+  await expect(pendingBadge).toBeVisible();
   await expect(pendingBadge).toHaveText('Pending next message');
 
   // Send a message — the SSE stream includes AdapterStateUpdate.
   const input = page.getByTestId('chat-input');
-  await expect(input).toBeVisible({ timeout: 10_000 });
+  await expect(input).toBeVisible();
   await input.fill('test with pinned adapter');
   await page.getByTestId('chat-send').click();
 
-  // Verify the response rendered (SSE stub is synchronous, but token parsing is async).
+  // Verify the response rendered.
   const messages = page.getByLabel('Chat messages');
-  await expect(messages.getByText('Response with adapter active')).toBeVisible({ timeout: 15_000 });
+  await expect(messages.getByText('Response with adapter active')).toBeVisible();
 
   // The pending badge should be gone after AdapterStateUpdate arrived.
-  // AdapterStateUpdate clears adapter_selection_pending when last_sent_pin_epoch >= pin_change_epoch.
-  await expect(pendingBadge).not.toBeVisible({ timeout: 10_000 });
+  await expect(pendingBadge).not.toBeVisible();
 });

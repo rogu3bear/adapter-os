@@ -349,13 +349,12 @@ if (( DB_OK )); then
     fi
   done
 
-  base_model_id="${AOS_BASE_MODEL_ID:-Qwen3.5-27B}"
-  check "Seed base model exists: ${base_model_id}"
-  qwen_cnt="$(sqlite_cmd "SELECT COUNT(*) FROM models WHERE id='${base_model_id}';" 2>/dev/null | tr -d '\r' | head -n 1 || true)"
+  check "Seed base model exists: Qwen2.5-7B-Instruct-4bit"
+  qwen_cnt="$(sqlite_cmd "SELECT COUNT(*) FROM models WHERE id='Qwen2.5-7B-Instruct-4bit';" 2>/dev/null | tr -d '\r' | head -n 1 || true)"
   if [[ "$qwen_cnt" == "1" ]]; then
-    pass "${base_model_id} present"
+    pass "Qwen2.5-7B-Instruct-4bit present"
   else
-    fail "Missing seeded model '${base_model_id}' (run model seed step)"
+    fail "Missing seeded model 'Qwen2.5-7B-Instruct-4bit' (run migrations; see migrations/0171_seed_base_model_qwen25.sql)"
   fi
 fi
 

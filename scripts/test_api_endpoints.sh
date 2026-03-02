@@ -6,12 +6,12 @@
 #   ./scripts/test_api_endpoints.sh [BASE_URL] [TOKEN]
 #
 # Environment variables:
-#   AOS_API_BASE_URL - Base URL for the API (default: http://localhost:18080)
+#   AOS_API_BASE_URL - Base URL for the API (default: http://localhost:8080)
 #   AOS_AUTH_TOKEN   - JWT token for authenticated endpoints
 
 set -e
 
-BASE_URL="${1:-${AOS_API_BASE_URL:-http://localhost:${AOS_SERVER_PORT:-18080}}}"
+BASE_URL="${1:-${AOS_API_BASE_URL:-http://localhost:${AOS_SERVER_PORT:-8080}}}"
 if [[ "$BASE_URL" != *"/api" && "$BASE_URL" != *"/api/" ]]; then
     BASE_URL="${BASE_URL%/}/api"
 else

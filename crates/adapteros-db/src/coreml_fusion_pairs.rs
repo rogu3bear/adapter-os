@@ -62,7 +62,7 @@ impl Db {
         .bind(&params.adapter_hash_b3)
         .bind(&params.base_model_hash_b3)
         .bind(&params.metadata_path)
-        .execute(self.pool_result()?)
+        .execute(self.pool())
         .await
         .map_err(|e| AosError::Database(format!("Failed to upsert fusion pair: {}", e)))?;
 
@@ -90,7 +90,7 @@ impl Db {
         .bind(tenant_id)
         .bind(base_model_id)
         .bind(adapter_id)
-        .fetch_optional(self.pool_result()?)
+        .fetch_optional(self.pool())
         .await
         .map_err(|e| AosError::Database(format!("Failed to fetch fusion pair: {}", e)))?;
 

@@ -29,7 +29,7 @@ pub enum WorkerCommand {
         tenant_id: Option<String>,
 
         /// API base URL
-        #[arg(long, env = "AOS_API_URL", default_value = "http://127.0.0.1:18080")]
+        #[arg(long, env = "AOS_API_URL", default_value = "http://127.0.0.1:8080")]
         base_url: String,
     },
 
@@ -37,7 +37,7 @@ pub enum WorkerCommand {
     #[command(after_help = "Examples:\n  aosctl worker health\n  aosctl worker health --json")]
     Health {
         /// API base URL
-        #[arg(long, env = "AOS_API_URL", default_value = "http://127.0.0.1:18080")]
+        #[arg(long, env = "AOS_API_URL", default_value = "http://127.0.0.1:8080")]
         base_url: String,
     },
 
@@ -48,7 +48,7 @@ pub enum WorkerCommand {
         worker_id: String,
 
         /// API base URL
-        #[arg(long, env = "AOS_API_URL", default_value = "http://127.0.0.1:18080")]
+        #[arg(long, env = "AOS_API_URL", default_value = "http://127.0.0.1:8080")]
         base_url: String,
     },
 
@@ -59,7 +59,7 @@ pub enum WorkerCommand {
         worker_id: String,
 
         /// API base URL
-        #[arg(long, env = "AOS_API_URL", default_value = "http://127.0.0.1:18080")]
+        #[arg(long, env = "AOS_API_URL", default_value = "http://127.0.0.1:8080")]
         base_url: String,
     },
 }

@@ -48,7 +48,7 @@ pub async fn check_acl(db: &Db, adapter_id: &str, tenant_id: &str) -> Result<boo
         "#,
     )
     .bind(adapter_id)
-    .fetch_optional(db.pool_result()?)
+    .fetch_optional(db.pool())
     .await
     .map_err(|e| AosError::Registry(format!("Failed to get adapter ACL: {}", e)))?;
 
@@ -116,7 +116,7 @@ pub async fn get_effective_acl(db: &Db, adapter_id: &str) -> Result<Vec<String>>
         "#,
     )
     .bind(adapter_id)
-    .fetch_optional(db.pool_result()?)
+    .fetch_optional(db.pool())
     .await
     .map_err(|e| AosError::Registry(format!("Failed to get adapter ACL: {}", e)))?;
 
@@ -163,7 +163,7 @@ mod tests {
             VALUES ('test-1', 'test-adapter', 'default', 'test', 'abc123', 'warm', 8, 32, '[]')
             "#,
         )
-        .execute(db.pool_result()?)
+        .execute(db.pool())
         .await
         .unwrap();
 
@@ -183,7 +183,7 @@ mod tests {
             VALUES ('test-1', 'test-adapter', 'default', 'test', 'abc123', 'warm', 8, 32, '[]', '["allowed-tenant"]')
             "#,
         )
-        .execute(db.pool_result()?)
+        .execute(db.pool())
         .await
         .unwrap();
 

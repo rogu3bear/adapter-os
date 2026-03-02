@@ -1,15 +1,7 @@
 use std::path::PathBuf;
 use std::process::Command;
 
-fn verbose_build_warning(message: impl AsRef<str>) {
-    if std::env::var_os("AOS_BUILD_SCRIPT_VERBOSE").is_some() {
-        println!("cargo:warning={}", message.as_ref());
-    }
-}
-
 fn main() {
-    println!("cargo:rerun-if-env-changed=AOS_BUILD_SCRIPT_VERBOSE");
-
     let target_os = std::env::var("CARGO_CFG_TARGET_OS").unwrap_or_default();
 
     if target_os != "macos" {
@@ -49,7 +41,7 @@ fn compile_coreml_bridge() {
     println!("cargo:rustc-link-lib=framework=Accelerate");
     println!("cargo:rustc-link-lib=framework=IOKit");
 
-    verbose_build_warning("CoreML bridge compiled successfully");
+    println!("cargo:warning=CoreML bridge compiled successfully");
 }
 
 fn compile_swift_bridge() {
@@ -125,5 +117,5 @@ fn compile_swift_bridge() {
     println!("cargo:rustc-link-search=native={}", swift_lib_path);
     println!("cargo:rustc-link-arg=-Wl,-rpath,{}", swift_lib_path);
 
-    verbose_build_warning("Swift CoreML bridge compiled successfully");
+    println!("cargo:warning=Swift CoreML bridge compiled successfully");
 }

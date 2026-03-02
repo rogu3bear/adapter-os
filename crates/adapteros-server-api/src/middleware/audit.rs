@@ -32,6 +32,7 @@ use axum::{
 };
 use chrono::Utc;
 use serde::{Deserialize, Serialize};
+use std::path::PathBuf;
 use std::sync::Arc;
 use tracing::{info, warn};
 
@@ -252,7 +253,7 @@ pub struct StartupAuditRecord {
 /// This helper is intentionally file-based so startup failures that occur
 /// before full DB readiness still leave an auditable trail for operators.
 pub fn append_startup_audit_record(record: &StartupAuditRecord) {
-    let path = adapteros_core::rebase_var_path("var/run/startup_audit.jsonl");
+    let path = PathBuf::from("var/run/startup_audit.jsonl");
     if let Some(parent) = path.parent() {
         if let Err(error) = std::fs::create_dir_all(parent) {
             warn!(

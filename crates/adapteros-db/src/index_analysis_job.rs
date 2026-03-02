@@ -489,12 +489,12 @@ mod tests {
         
         // Create some test tables with tenant_id
         sqlx::query("CREATE TABLE test_tenants (id TEXT PRIMARY KEY, tenant_id TEXT, data TEXT)")
-            .execute(db.pool_result()?)
+            .execute(db.pool())
             .await
             .unwrap();
         
         sqlx::query("CREATE TABLE test_no_tenant (id TEXT PRIMARY KEY, data TEXT)")
-            .execute(db.pool_result()?)
+            .execute(db.pool())
             .await
             .unwrap();
 

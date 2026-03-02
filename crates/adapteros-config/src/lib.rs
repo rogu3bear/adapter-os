@@ -13,7 +13,7 @@
 //! ```env
 //! AOS_MODEL_PATH=/var/models/Llama-3.2-3B-Instruct-4bit
 //! AOS_MODEL_BACKEND=metal
-//! AOS_SERVER_PORT=18080
+//! AOS_SERVER_PORT=8080
 //! ```
 //!
 //! # EffectiveConfig (Recommended)

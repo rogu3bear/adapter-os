@@ -105,7 +105,7 @@ pub async fn list_process_logs(
     if let Some(level) = level_filter {
         query = query.bind(level);
     }
-    let rows = match query.bind(limit).fetch_all(state.db.pool_result()?).await {
+    let rows = match query.bind(limit).fetch_all(state.db.pool()).await {
         Ok(rows) => rows,
         Err(e) => {
             if is_missing_table_error(&e) {
@@ -158,7 +158,7 @@ pub async fn list_process_crashes(
          ORDER BY crash_timestamp DESC LIMIT 100",
     )
     .bind(&worker_id)
-    .fetch_all(state.db.pool_result()?)
+    .fetch_all(state.db.pool())
     .await
     {
         Ok(rows) => rows,
@@ -242,7 +242,7 @@ pub async fn start_debug_session(
     .bind(&req.config_json)
     .bind(&now)
     .bind(&now)
-    .execute(state.db.pool_result()?)
+    .execute(state.db.pool())
     .await
     .map_err(|e| {
         if is_missing_table_error(&e) {
@@ -318,7 +318,7 @@ pub async fn run_troubleshooting_step(
     .bind(&req.command)
     .bind(&now)
     .bind(&now)
-    .execute(state.db.pool_result()?)
+    .execute(state.db.pool())
     .await
     .map_err(|e| {
         if is_missing_table_error(&e) {

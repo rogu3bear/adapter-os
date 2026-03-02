@@ -5,9 +5,7 @@ import { fileURLToPath } from 'node:url';
 import {
   disableAnimations,
   ensureActiveChatSession,
-  gotoAndBootstrapSoftRoute,
   gotoAndBootstrap,
-  pathMatchesSoftRoute,
   resolveChatEntryState,
   seeded,
   waitForAppReady,
@@ -20,9 +18,11 @@ type RouteSpec = {
   shellWrapped: boolean;
 };
 
-const PUBLIC_ROUTES = new Set(['/login', '/safe']);
-const SKIP_AUTOMATED_AUDIT = new Set<string>();
-const SOFT_BOOT_READY_ROUTES = new Set(['/settings', '/user']);
+const PUBLIC_ROUTES = new Set(['/login', '/safe', '/style-audit']);
+const SKIP_AUTOMATED_AUDIT = new Set<string>([
+  // Requires a paused inference fixture; keep this manual-only for now.
+  '/reviews/:pause_id',
+]);
 
 function repoRoot(): string {
   const __filename = fileURLToPath(import.meta.url);
@@ -43,8 +43,16 @@ function resolveParamRoute(route: string): string {
   switch (route) {
     case '/adapters/:id':
       return `/adapters/${seeded.adapterId}`;
+    case '/stacks/:id':
+      return `/stacks/${seeded.stackId}`;
+    case '/collections/:id':
+      return `/collections/${seeded.collectionId}`;
     case '/documents/:id':
       return `/documents/${seeded.documentId}`;
+    case '/datasets/:id':
+      return `/datasets/${seeded.datasetId}`;
+    case '/repositories/:id':
+      return `/repositories/${seeded.repoId}`;
     case '/runs/:id':
       return `/runs/${seeded.runId}`;
     case '/workers/:id':
@@ -70,107 +78,53 @@ function classifyRoute(route: string): RouteSpec {
   };
 }
 
-async function withTimeout<T>(promise: Promise<T>, timeoutMs: number, fallback: T): Promise<T> {
-  let timer: ReturnType<typeof setTimeout> | undefined;
-  try {
-    return await Promise.race([
-      promise,
-      new Promise<T>((resolve) => {
-        timer = setTimeout(() => resolve(fallback), timeoutMs);
-      }),
-    ]);
-  } finally {
-    if (timer) clearTimeout(timer);
-  }
-}
-
 async function countPrimaryHeadingsOutsidePanicOverlay(page: Page): Promise<number> {
-  const total = await withTimeout(page.locator('h1:visible').count().catch(() => 0), 2_500, 0);
-  const overlay = await withTimeout(
-    page.locator('#aos-panic-overlay:visible h1:visible').count().catch(() => 0),
-    2_500,
-    0
-  );
-  return Math.max(0, total - overlay);
+  const total = await page.getByRole('heading', { level: 1 }).count();
+  const panicOverlay = page.locator('#aos-panic-overlay');
+  const overlayVisible = await panicOverlay.isVisible().catch(() => false);
+  if (!overlayVisible) return total;
+  const overlayCount = await panicOverlay.getByRole('heading', { level: 1 }).count();
+  return Math.max(0, total - overlayCount);
 }
 
 async function countAnyHeadingsOutsidePanicOverlay(page: Page): Promise<number> {
-  const selector = 'h1:visible, h2:visible, h3:visible, h4:visible, h5:visible, h6:visible, [role="heading"]:visible';
-  const total = await withTimeout(page.locator(selector).count().catch(() => 0), 2_500, 0);
-  const overlay = await withTimeout(
-    page.locator(`#aos-panic-overlay:visible ${selector}`).count().catch(() => 0),
-    2_500,
-    0
-  );
-  return Math.max(0, total - overlay);
+  const total = await page.getByRole('heading').count();
+  const panicOverlay = page.locator('#aos-panic-overlay');
+  const overlayVisible = await panicOverlay.isVisible().catch(() => false);
+  if (!overlayVisible) return total;
+  const overlayCount = await panicOverlay.getByRole('heading').count();
+  return Math.max(0, total - overlayCount);
 }
 
 async function assertBestPractices(page: Page, route: RouteSpec): Promise<void> {
-  const isSoftBootRoute = SOFT_BOOT_READY_ROUTES.has(route.resolvedPath);
-  const headingTimeoutMs = isSoftBootRoute ? 12_000 : 10_000;
-  const requireAnyHeading = route.originalPath === '/login' || isSoftBootRoute;
-  const titleTimeoutMs = isSoftBootRoute ? 3_000 : 10_000;
+  const title = await page.title();
+  expect.soft(title.trim().length, `missing document title for ${route.resolvedPath}`).toBeGreaterThan(0);
 
-  if (!isSoftBootRoute) {
-    await expect
-      .poll(async () => (await page.title().catch(() => '')).trim().length, {
-        timeout: titleTimeoutMs,
-      })
-      .toBeGreaterThan(0)
-      .catch(() => {});
-    const title = await page.title().catch(() => '');
-    expect.soft(title.trim().length, `missing document title for ${route.resolvedPath}`).toBeGreaterThan(0);
+  const lang = await page.locator('html').getAttribute('lang');
+  expect.soft(!!(lang && lang.trim()), `missing <html lang> for ${route.resolvedPath}`).toBeTruthy();
+
+  if (route.originalPath !== '/style-audit') {
+    if (route.originalPath === '/login') {
+      await expect
+        .poll(
+          async () => countAnyHeadingsOutsidePanicOverlay(page),
+          { timeout: 10_000 }
+        )
+        .toBeGreaterThan(0);
+    } else {
+      await expect
+        .poll(
+          async () => countPrimaryHeadingsOutsidePanicOverlay(page),
+          { timeout: 10_000 }
+        )
+        .toBeGreaterThan(0);
+    }
   }
-
-  if (isSoftBootRoute) {
-    await expect
-      .poll(
-        async () => {
-          if (pathMatchesSoftRoute(page.url(), route.resolvedPath)) {
-            return true;
-          }
-          if ((await countAnyHeadingsOutsidePanicOverlay(page)) > 0) {
-            return true;
-          }
-          const signingVisible = await withTimeout(
-            page.getByText('Signing you in', { exact: false }).first().isVisible().catch(() => false),
-            1_500,
-            false
-          );
-          const bootVisible = await withTimeout(
-            page.locator('#aos-boot-progress:not(.hidden)').first().isVisible().catch(() => false),
-            1_500,
-            false
-          );
-          return signingVisible || bootVisible;
-        },
-        { timeout: headingTimeoutMs }
-      )
-      .toBeTruthy();
-    return;
-  } else if (requireAnyHeading) {
-    await expect
-      .poll(
-        async () => countAnyHeadingsOutsidePanicOverlay(page),
-        { timeout: headingTimeoutMs }
-      )
-      .toBeGreaterThan(0);
-  } else {
-    await expect
-      .poll(
-        async () => countPrimaryHeadingsOutsidePanicOverlay(page),
-        { timeout: headingTimeoutMs }
-      )
-      .toBeGreaterThan(0);
-  }
-
-  const lang = await page.evaluate(() => document.documentElement?.getAttribute('lang') ?? '').catch(() => '');
-  expect.soft(lang.trim().length > 0, `missing <html lang> for ${route.resolvedPath}`).toBeTruthy();
 
   const imgMissingAlt = await page.locator('img:not([alt])').count();
   expect.soft(imgMissingAlt, `img missing alt for ${route.resolvedPath}`).toBe(0);
 
-  if (route.shellWrapped && !isSoftBootRoute) {
+  if (route.shellWrapped) {
     await expect.soft(page.locator('a.skip-to-main')).toHaveCount(1);
     await expect.soft(page.locator('main#main-content')).toHaveCount(1);
   }
@@ -178,14 +132,10 @@ async function assertBestPractices(page: Page, route: RouteSpec): Promise<void> 
 
 async function navigateAndAuth(page: Page, route: RouteSpec): Promise<void> {
   if (route.requiresAuth) {
-    if (SOFT_BOOT_READY_ROUTES.has(route.resolvedPath)) {
-      await gotoAndBootstrapSoftRoute(page, route.resolvedPath);
-      return;
-    }
-
     await gotoAndBootstrap(page, route.resolvedPath, {
       mode: 'ui-only',
     });
+    await waitForAppReady(page);
     return;
   }
 

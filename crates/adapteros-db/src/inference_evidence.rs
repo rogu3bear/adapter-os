@@ -131,7 +131,7 @@ impl Db {
         .bind(&params.base_model_id)
         .bind(&adapter_ids_json)
         .bind(&params.manifest_hash)
-        .execute(self.pool_result()?)
+        .execute(self.pool())
         .await
         .map_err(|e| AosError::Database(format!("Failed to create inference evidence: {}", e)))?;
 
@@ -191,7 +191,7 @@ impl Db {
         )
         .bind(tenant_id)
         .bind(inference_id)
-        .fetch_all(self.pool_result()?)
+        .fetch_all(self.pool())
         .await
         .map_err(|e| AosError::Database(format!("Failed to fetch inference evidence: {}", e)))?;
 
@@ -224,7 +224,7 @@ impl Db {
         )
         .bind(tenant_id)
         .bind(message_id)
-        .fetch_all(self.pool_result()?)
+        .fetch_all(self.pool())
         .await
         .map_err(|e| AosError::Database(format!("Failed to fetch message evidence: {}", e)))?;
 
@@ -253,7 +253,7 @@ impl Db {
         )
         .bind(tenant_id)
         .bind(session_id)
-        .fetch_all(self.pool_result()?)
+        .fetch_all(self.pool())
         .await
         .map_err(|e| AosError::Database(format!("Failed to fetch session evidence: {}", e)))?;
 
@@ -303,12 +303,9 @@ impl Db {
             query_builder = query_builder.bind(evidence_id);
         }
 
-        let result = query_builder
-            .execute(self.pool_result()?)
-            .await
-            .map_err(|e| {
-                AosError::Database(format!("Failed to bind evidence to message: {}", e))
-            })?;
+        let result = query_builder.execute(self.pool()).await.map_err(|e| {
+            AosError::Database(format!("Failed to bind evidence to message: {}", e))
+        })?;
 
         let rows_affected = result.rows_affected();
 
@@ -373,7 +370,7 @@ impl Db {
         )
         .bind(tenant_id)
         .bind(-minutes_threshold)
-        .fetch_all(self.pool_result()?)
+        .fetch_all(self.pool())
         .await
         .map_err(|e| AosError::Database(format!("Failed to fetch unbound evidence: {}", e)))?;
 
@@ -552,14 +549,14 @@ mod tests {
     use super::*;
 
     // Helper to create parent records for FK constraints
-    async fn setup_test_data(db: &Db, doc_id: &str, chunk_id: &str) -> Result<String> {
+    async fn setup_test_data(db: &Db, doc_id: &str, chunk_id: &str) -> String {
         // Create tenant if it doesn't exist yet
         let tenant_id = match db.create_tenant("Test Tenant", false).await {
             Ok(id) => id,
             Err(_) => {
                 // Tenant already exists, just use a simple query to get one
                 sqlx::query_scalar::<_, String>("SELECT id FROM tenants LIMIT 1")
-                    .fetch_one(db.pool_result()?)
+                    .fetch_one(db.pool())
                     .await
                     .expect("No tenant found")
             }
@@ -573,7 +570,7 @@ mod tests {
         .bind(doc_id)
         .bind(&tenant_id)
         .bind(format!("hash-{}", doc_id))
-        .execute(db.pool_result()?)
+        .execute(db.pool())
         .await
         .expect("Failed to create document");
 
@@ -585,17 +582,17 @@ mod tests {
         .bind(chunk_id)
         .bind(&tenant_id)
         .bind(doc_id)
-        .execute(db.pool_result()?)
+        .execute(db.pool())
         .await
         .expect("Failed to create chunk");
 
-        Ok(tenant_id)
+        tenant_id
     }
 
     #[tokio::test]
-    async fn test_create_and_retrieve_evidence() -> Result<()> {
+    async fn test_create_and_retrieve_evidence() {
         let db = Db::new_in_memory().await.unwrap();
-        let _tenant_id = setup_test_data(&db, "doc-001", "chunk-001").await.unwrap();
+        let _tenant_id = setup_test_data(&db, "doc-001", "chunk-001").await;
 
         let inference_id = "inf-001";
         let message_id = Some("msg-001".to_string());
@@ -640,20 +637,17 @@ mod tests {
             .await
             .unwrap();
         assert_eq!(evidence.len(), 1);
-
-        Ok(())
     }
 
     #[tokio::test]
-    async fn test_multiple_chunks_ranked() -> Result<()> {
+    async fn test_multiple_chunks_ranked() {
         let db = Db::new_in_memory().await.unwrap();
 
         // Create parent records for all 3 document/chunk pairs
         let mut tenant_id = String::new();
         for rank in 1..=3i32 {
-            tenant_id = setup_test_data(&db, &format!("doc-{}", rank), &format!("chunk-{}", rank))
-                .await
-                .unwrap();
+            tenant_id =
+                setup_test_data(&db, &format!("doc-{}", rank), &format!("chunk-{}", rank)).await;
         }
 
         let inference_id = "inf-002";
@@ -694,16 +688,12 @@ mod tests {
         assert_eq!(evidence[1].rank, 2);
         assert_eq!(evidence[2].rank, 3);
         assert_eq!(evidence[0].relevance_score, 0.95);
-
-        Ok(())
     }
 
     #[tokio::test]
-    async fn test_evidence_with_rag_fields() -> Result<()> {
+    async fn test_evidence_with_rag_fields() {
         let db = Db::new_in_memory().await.unwrap();
-        let tenant_id = setup_test_data(&db, "doc-rag-001", "chunk-rag-001")
-            .await
-            .unwrap();
+        let tenant_id = setup_test_data(&db, "doc-rag-001", "chunk-rag-001").await;
 
         // Provide the referenced RAG collection
         sqlx::query(
@@ -712,7 +702,7 @@ mod tests {
         )
         .bind("col-001")
         .bind(&tenant_id)
-        .execute(db.pool_result()?)
+        .execute(db.pool())
         .await
         .expect("Failed to insert test collection");
 
@@ -761,16 +751,12 @@ mod tests {
 
         // Verify collection ID
         assert_eq!(evidence[0].rag_collection_id, Some("col-001".to_string()));
-
-        Ok(())
     }
 
     #[tokio::test]
-    async fn test_bind_evidence_to_message() -> Result<()> {
+    async fn test_bind_evidence_to_message() {
         let db = Db::new_in_memory().await.unwrap();
-        let tenant_id = setup_test_data(&db, "doc-bind-001", "chunk-bind-001")
-            .await
-            .unwrap();
+        let tenant_id = setup_test_data(&db, "doc-bind-001", "chunk-bind-001").await;
 
         let inference_id = "inf-bind-001";
 
@@ -828,16 +814,12 @@ mod tests {
             .await
             .unwrap();
         assert_eq!(bound_count, 0); // Already bound, no update
-
-        Ok(())
     }
 
     #[tokio::test]
-    async fn test_get_unbound_evidence() -> Result<()> {
+    async fn test_get_unbound_evidence() {
         let db = Db::new_in_memory().await.unwrap();
-        let tenant_id = setup_test_data(&db, "doc-unbound-001", "chunk-unbound-001")
-            .await
-            .unwrap();
+        let tenant_id = setup_test_data(&db, "doc-unbound-001", "chunk-unbound-001").await;
 
         let inference_id = "inf-unbound-001";
 
@@ -874,7 +856,5 @@ mod tests {
         let unbound = db.get_unbound_evidence(&tenant_id, 0).await.unwrap();
         // Evidence just created won't appear with 0-minute threshold
         assert!(unbound.is_empty());
-
-        Ok(())
     }
 }

@@ -43,7 +43,7 @@ async fn test_login_sets_auth_cookies() {
     .bind(&pw_hash)
     .bind("admin")
     .bind("default")
-    .execute(state.db.pool_result().expect("db pool"))
+    .execute(state.db.pool())
     .await
     .expect("Failed to insert test user");
 
@@ -168,7 +168,7 @@ async fn test_logout_clears_auth_cookies() {
     .bind(&pw_hash)
     .bind("admin")
     .bind("default")
-    .execute(state.db.pool_result().expect("db pool"))
+    .execute(state.db.pool())
     .await
     .expect("Failed to insert test user");
 

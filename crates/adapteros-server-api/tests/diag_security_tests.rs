@@ -73,7 +73,7 @@ async fn create_test_diag_run(
     .bind(trace_id)
     .bind(now.timestamp_millis())
     .bind(now.to_rfc3339())
-    .execute(db.pool_result()?)
+    .execute(db.pool())
     .await?;
 
     // Insert a few test events (correct schema: no trace_id/span_id, uses payload_json)
@@ -88,7 +88,7 @@ async fn create_test_diag_run(
         .bind(tenant_id)
         .bind(seq)
         .bind(seq * 1000)
-        .execute(db.pool_result()?)
+        .execute(db.pool())
         .await?;
     }
 
@@ -104,7 +104,7 @@ async fn insert_tenant(
     sqlx::query("INSERT OR IGNORE INTO tenants (id, name) VALUES (?, ?)")
         .bind(tenant_id)
         .bind(name)
-        .execute(db.pool_result()?)
+        .execute(db.pool())
         .await?;
     Ok(())
 }
@@ -213,7 +213,7 @@ async fn test_cross_tenant_export_denied() -> anyhow::Result<()> {
         sqlx::query_as("SELECT id FROM diag_runs WHERE tenant_id = ? AND trace_id = ?")
             .bind(tenant_a)
             .bind(&trace_id_a)
-            .fetch_optional(state.db.pool_result()?)
+            .fetch_optional(state.db.pool())
             .await?;
 
     assert!(
@@ -226,7 +226,7 @@ async fn test_cross_tenant_export_denied() -> anyhow::Result<()> {
         sqlx::query_as("SELECT id FROM diag_runs WHERE tenant_id = ? AND trace_id = ?")
             .bind(tenant_b)
             .bind(&trace_id_a)
-            .fetch_optional(state.db.pool_result()?)
+            .fetch_optional(state.db.pool())
             .await?;
 
     assert!(
@@ -247,7 +247,7 @@ async fn test_cross_tenant_export_denied() -> anyhow::Result<()> {
     let all_runs_b: Vec<(String,)> =
         sqlx::query_as("SELECT trace_id FROM diag_runs WHERE tenant_id = ?")
             .bind(tenant_b)
-            .fetch_all(state.db.pool_result()?)
+            .fetch_all(state.db.pool())
             .await?;
 
     assert!(

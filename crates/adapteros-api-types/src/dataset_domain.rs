@@ -38,10 +38,6 @@ pub struct DatasetManifest {
     pub dataset_version_id: String,
     #[serde(default = "default_training_contract_version")]
     pub training_contract_version: String,
-    #[serde(default, skip_serializing_if = "Option::is_none")]
-    pub repo_commit: Option<String>,
-    #[serde(default, skip_serializing_if = "Option::is_none")]
-    pub openapi_hash: Option<String>,
     pub hash_b3: String,
     pub total_rows: usize,
     pub dropped_rows: usize,

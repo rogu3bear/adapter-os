@@ -18,13 +18,16 @@
 use crate::{HubResult, ModelHubError};
 use serde::{Deserialize, Serialize};
 use std::time::Duration;
-use tracing::{debug, info};
+use tracing::{debug, info, warn};
 
 /// Default base URL for the Hugging Face Hub API
 const DEFAULT_BASE_URL: &str = "https://huggingface.co";
 
 /// Default request timeout in seconds
 const DEFAULT_TIMEOUT_SECS: u64 = 30;
+
+/// Maximum number of retries for failed requests
+const MAX_RETRIES: u32 = 3;
 
 /// Hugging Face Hub API client
 ///
@@ -356,31 +359,34 @@ impl HubClient {
 
     /// Executes a request with exponential backoff retry logic
     ///
-    /// Retries failed requests using the adapterOS `RecoveryOrchestrator`.
+    /// Retries failed requests up to MAX_RETRIES times with exponential backoff.
     /// This helps handle transient network issues and rate limiting.
     async fn execute_with_retry<F, Fut, T>(&self, f: F) -> HubResult<T>
     where
-        F: Fn() -> Fut + Send + Sync,
-        Fut: std::future::Future<Output = HubResult<T>> + Send,
-        T: Send,
+        F: Fn() -> Fut,
+        Fut: std::future::Future<Output = HubResult<T>>,
     {
-        use adapteros_core::recovery::RecoveryOrchestratorBuilder;
-        use adapteros_core::retry_policy::RetryPolicy;
+        let mut retries = 0;
+        loop {
+            match f().await {
+                Ok(result) => return Ok(result),
+                Err(e) => {
+                    if retries >= MAX_RETRIES {
+                        return Err(e);
+                    }
 
-        let orchestrator = RecoveryOrchestratorBuilder::new("hf-client")
-            .with_retry_policy(RetryPolicy::network("hf-client"))
-            .build();
+                    // Exponential backoff: 1s, 2s, 4s
+                    let delay = Duration::from_secs(2u64.pow(retries));
+                    warn!(
+                        retries = retries + 1,
+                        max_retries = MAX_RETRIES,
+                        delay_secs = delay.as_secs(),
+                        error = %e,
+                        "Request failed, retrying"
+                    );
 
-        let outcome = orchestrator.execute(f).await;
-
-        match outcome.result {
-            Ok(val) => Ok(val),
-            Err(e) => {
-                let err_msg = e.to_string();
-                if let Some(source) = e.into_source() {
-                    Err(source)
-                } else {
-                    Err(crate::ModelHubError::DownloadFailed(err_msg))
+                    tokio::time::sleep(delay).await;
+                    retries += 1;
                 }
             }
         }

@@ -21,7 +21,7 @@ async fn create_test_worker(db: &Db, worker_id: &str, tenant_id: &str) -> Result
     sqlx::query("INSERT OR IGNORE INTO tenants (id, name) VALUES (?, ?)")
         .bind(tenant_id)
         .bind(tenant_id)
-        .execute(db.pool_result()?)
+        .execute(db.pool())
         .await?;
 
     // Seed node
@@ -33,7 +33,7 @@ async fn create_test_worker(db: &Db, worker_id: &str, tenant_id: &str) -> Result
     .bind(node_id)
     .bind(format!("{}-host", tenant_id))
     .bind("http://localhost:0")
-    .execute(db.pool_result()?)
+    .execute(db.pool())
     .await?;
 
     // Seed manifest and plan
@@ -46,7 +46,7 @@ async fn create_test_worker(db: &Db, worker_id: &str, tenant_id: &str) -> Result
     .bind(&manifest_id)
     .bind(tenant_id)
     .bind(&manifest_hash)
-    .execute(db.pool_result()?)
+    .execute(db.pool())
     .await?;
 
     let plan_id = format!("plan-{}", tenant_id);
@@ -58,7 +58,7 @@ async fn create_test_worker(db: &Db, worker_id: &str, tenant_id: &str) -> Result
     .bind(tenant_id)
     .bind(format!("plan-b3-{}", tenant_id))
     .bind(&manifest_hash)
-    .execute(db.pool_result()?)
+    .execute(db.pool())
     .await?;
 
     sqlx::query(
@@ -69,7 +69,7 @@ async fn create_test_worker(db: &Db, worker_id: &str, tenant_id: &str) -> Result
     .bind(tenant_id)
     .bind(node_id)
     .bind(&plan_id)
-    .execute(db.pool_result()?)
+    .execute(db.pool())
     .await?;
     Ok(())
 }
@@ -141,12 +141,12 @@ async fn test_heartbeat_unknown_worker_returns_not_found() {
 }
 
 #[tokio::test]
-async fn test_heartbeat_does_not_mutate_worker_status() {
+async fn test_heartbeat_with_status_update() {
     let db = setup_test_db().await.expect("Failed to create test DB");
     let worker_id = "test-worker-status-update";
     let tenant_id = "test-tenant";
 
-    // Create a worker with initial status "healthy"
+    // Create a worker with initial status "serving"
     create_test_worker(&db, worker_id, tenant_id)
         .await
         .expect("Failed to create test worker");
@@ -157,23 +157,20 @@ async fn test_heartbeat_does_not_mutate_worker_status() {
         .await
         .expect("Failed to get worker")
         .expect("Worker should exist");
-    assert_eq!(worker.status, "healthy");
+    assert_eq!(worker.status, "serving");
 
     // Send heartbeat with status update
     db.update_worker_heartbeat(worker_id, Some("draining"), None, None)
         .await
         .expect("Heartbeat with status should succeed");
 
-    // Verify status was not updated by heartbeat path.
+    // Verify status was updated
     let worker = db
         .get_worker(worker_id)
         .await
         .expect("Failed to get worker")
         .expect("Worker should exist");
-    assert_eq!(
-        worker.status, "healthy",
-        "Heartbeat should not mutate lifecycle status"
-    );
+    assert_eq!(worker.status, "draining", "Status should be updated");
 }
 
 #[tokio::test]
@@ -199,7 +196,7 @@ async fn test_multiple_heartbeats_succeed() {
         .await
         .expect("Failed to get worker")
         .expect("Worker should exist");
-    assert_eq!(worker.status, "healthy");
+    assert_eq!(worker.status, "serving");
 }
 
 // =============================================================================

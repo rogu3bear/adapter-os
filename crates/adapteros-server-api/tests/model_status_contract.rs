@@ -48,7 +48,7 @@ async fn insert_worker(state: &AppState, socket_path: &Path) -> anyhow::Result<(
     .bind("node-1")
     .bind("node-1.local")
     .bind("http://localhost:0")
-    .execute(state.db.pool_result()?)
+    .execute(state.db.pool())
     .await?;
     sqlx::query(
         "INSERT OR IGNORE INTO manifests (id, tenant_id, hash_b3, body_json) VALUES (?, ?, ?, ?)",
@@ -57,7 +57,7 @@ async fn insert_worker(state: &AppState, socket_path: &Path) -> anyhow::Result<(
     .bind("tenant-1")
     .bind("manifest-ms")
     .bind("{}")
-    .execute(state.db.pool_result()?)
+    .execute(state.db.pool())
     .await?;
     sqlx::query(
         "INSERT OR IGNORE INTO plans (id, tenant_id, plan_id_b3, manifest_hash_b3, kernel_hashes_json, layout_hash_b3, metadata_json) VALUES (?, ?, ?, ?, '[]', ?, NULL)",
@@ -67,7 +67,7 @@ async fn insert_worker(state: &AppState, socket_path: &Path) -> anyhow::Result<(
     .bind("plan-ms-b3")
     .bind("manifest-ms")
     .bind("layout-ms")
-    .execute(state.db.pool_result()?)
+    .execute(state.db.pool())
     .await?;
     sqlx::query(
         "INSERT INTO workers (id, tenant_id, node_id, plan_id, uds_path, pid, status, started_at, last_seen_at)
@@ -82,7 +82,7 @@ async fn insert_worker(state: &AppState, socket_path: &Path) -> anyhow::Result<(
     .bind("serving")
     .bind(&now)
     .bind(&now)
-    .execute(state.db.pool_result()?)
+    .execute(state.db.pool())
     .await?;
     Ok(())
 }
@@ -216,83 +216,6 @@ async fn load_handler_idempotent_and_metrics() -> anyhow::Result<()> {
     assert!(metrics.contains(&gauge_line));
 
     worker_handle.abort();
-    Ok(())
-}
-
-#[tokio::test]
-async fn ready_status_enforces_single_loaded_model_per_tenant() -> anyhow::Result<()> {
-    let state = setup_state(None).await?;
-    let claims = test_admin_claims();
-    let tmp = tempdir()?;
-
-    let model_a_path = tmp.path().join("model-a.bin");
-    std::fs::write(&model_a_path, b"bin-a")?;
-    let model_a_id = register_model_with_path(&state, &model_a_path).await?;
-
-    let model_b_path = tmp.path().join("model-b.bin");
-    std::fs::write(&model_b_path, b"bin-b")?;
-    let model_b_params = ModelRegistrationBuilder::new()
-        .name("test-model-b")
-        .hash_b3("hash-b")
-        .config_hash_b3("config-hash-b")
-        .tokenizer_hash_b3("tok-hash-b")
-        .tokenizer_cfg_hash_b3("tok-cfg-hash-b")
-        .build()?;
-    let model_b_id = state.db.register_model(model_b_params).await?;
-    state
-        .db
-        .update_model_path(&model_b_id, model_b_path.to_str().unwrap())
-        .await?;
-
-    state
-        .db
-        .update_base_model_status(
-            &claims.tenant_id,
-            &model_a_id,
-            ModelLoadStatus::Ready.as_str(),
-            None,
-            Some(1024),
-        )
-        .await?;
-    state
-        .db
-        .update_base_model_status(
-            &claims.tenant_id,
-            &model_b_id,
-            ModelLoadStatus::Ready.as_str(),
-            None,
-            Some(1536),
-        )
-        .await?;
-
-    let statuses = state.db.list_base_model_statuses().await?;
-    let ready_count = statuses
-        .iter()
-        .filter(|s| {
-            s.tenant_id == claims.tenant_id
-                && ModelLoadStatus::parse_status(&s.status) == ModelLoadStatus::Ready
-        })
-        .count();
-    assert_eq!(1, ready_count, "tenant should have exactly one ready model");
-
-    let model_a_status = statuses
-        .iter()
-        .find(|s| s.tenant_id == claims.tenant_id && s.model_id == model_a_id)
-        .expect("model-a status should exist");
-    let model_b_status = statuses
-        .iter()
-        .find(|s| s.tenant_id == claims.tenant_id && s.model_id == model_b_id)
-        .expect("model-b status should exist");
-
-    assert_eq!(
-        ModelLoadStatus::NoModel,
-        ModelLoadStatus::parse_status(&model_a_status.status)
-    );
-    assert_eq!(
-        ModelLoadStatus::Ready,
-        ModelLoadStatus::parse_status(&model_b_status.status)
-    );
-
     Ok(())
 }
 

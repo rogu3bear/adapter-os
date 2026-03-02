@@ -4,12 +4,9 @@
 //! status checking, and tenant isolation.
 
 use adapteros_core::Result;
-use adapteros_server_api::handlers::{
-    cancel_training, get_training_job, get_training_logs, get_training_queue, list_training_jobs,
-};
+use adapteros_server_api::handlers::{cancel_training, get_training_job, list_training_jobs};
 use adapteros_server_api::ip_extraction::ClientIp;
 use adapteros_server_api::types::TrainingListParams;
-use adapteros_types::training::{DataLineageMode, TrainingConfig};
 use axum::extract::{Path, Query, State};
 use axum::http::StatusCode;
 use axum::Extension;
@@ -34,7 +31,7 @@ async fn list_training_jobs_returns_tenant_scoped_results() -> Result<()> {
     .bind("pending")
     .bind("{}")
     .bind("user1")
-    .execute(state.db.pool_result()?)
+    .execute(state.db.pool())
     .await?;
 
     adapteros_db::sqlx::query(
@@ -48,7 +45,7 @@ async fn list_training_jobs_returns_tenant_scoped_results() -> Result<()> {
     .bind("running")
     .bind("{}")
     .bind("user1")
-    .execute(state.db.pool_result()?)
+    .execute(state.db.pool())
     .await?;
 
     adapteros_db::sqlx::query(
@@ -62,7 +59,7 @@ async fn list_training_jobs_returns_tenant_scoped_results() -> Result<()> {
     .bind("completed")
     .bind("{}")
     .bind("user2")
-    .execute(state.db.pool_result()?)
+    .execute(state.db.pool())
     .await?;
 
     // List with tenant-1 credentials
@@ -117,7 +114,7 @@ async fn get_training_job_returns_details() -> Result<()> {
     .bind("pending")
     .bind("{\"progress_pct\":0.0}")
     .bind("tester")
-    .execute(state.db.pool_result()?)
+    .execute(state.db.pool())
     .await?;
 
     let claims = test_admin_claims();
@@ -155,7 +152,7 @@ async fn get_training_job_cross_tenant_returns_404() -> Result<()> {
     .bind("running")
     .bind("{}")
     .bind("user1")
-    .execute(state.db.pool_result()?)
+    .execute(state.db.pool())
     .await?;
 
     // Try to access from different tenant
@@ -181,268 +178,6 @@ async fn get_training_job_cross_tenant_returns_404() -> Result<()> {
     Ok(())
 }
 
-/// Test DB status is authoritative when an in-memory shadow diverges.
-#[tokio::test]
-async fn get_training_job_prefers_db_status_over_in_memory_shadow() -> Result<()> {
-    let state = setup_state(None).await.expect("state");
-
-    let in_memory_job = state
-        .training_service
-        .start_training(
-            "shadow-job".to_string(),
-            TrainingConfig::default(),
-            None,
-            None,
-            None,
-            None,
-            None,
-            None,
-            true,
-            DataLineageMode::Synthetic,
-            Some("tenant-1".to_string()),
-            Some("tenant-1-user".to_string()),
-            Some("admin".to_string()),
-            None,
-            None,
-            None,
-            None,
-            None,
-            None,
-            None,
-            None,
-            None,
-            None,
-            None,
-            None,
-            None,
-            None,
-            None,
-        )
-        .await
-        .expect("start in-memory job");
-
-    state.db.ensure_direct_training_repo_exists("user1").await?;
-
-    adapteros_db::sqlx::query(
-        "INSERT INTO repository_training_jobs (id, repo_id, tenant_id, training_config_json, status, progress_json, created_by)
-         VALUES (?, ?, ?, ?, ?, ?, ?)",
-    )
-    .bind(&in_memory_job.id)
-    .bind("direct-training")
-    .bind("tenant-1")
-    .bind("{\"rank\":16,\"alpha\":32}")
-    .bind("cancelled")
-    .bind("{}")
-    .bind("user1")
-    .execute(state.db.pool_result()?)
-    .await?;
-
-    let claims = test_admin_claims();
-    let result = get_training_job(
-        State(state.clone()),
-        Extension(claims),
-        Path(in_memory_job.id.clone()),
-    )
-    .await;
-
-    assert!(result.is_ok(), "get should succeed");
-    let job = result.unwrap().0;
-    assert_eq!(
-        job.status, "cancelled",
-        "DB status should be authoritative over in-memory shadow state"
-    );
-
-    delete_test_training_job(&state, &in_memory_job.id).await?;
-    Ok(())
-}
-
-/// Test training logs use authoritative DB status when in-memory state diverges.
-#[tokio::test]
-async fn get_training_logs_prefers_db_status_over_in_memory_shadow() -> Result<()> {
-    let state = setup_state(None).await.expect("state");
-
-    let in_memory_job = state
-        .training_service
-        .start_training(
-            "shadow-logs-job".to_string(),
-            TrainingConfig::default(),
-            None,
-            None,
-            None,
-            None,
-            None,
-            None,
-            true,
-            DataLineageMode::Synthetic,
-            Some("tenant-1".to_string()),
-            Some("tenant-1-user".to_string()),
-            Some("admin".to_string()),
-            None,
-            None,
-            None,
-            None,
-            None,
-            None,
-            None,
-            None,
-            None,
-            None,
-            None,
-            None,
-            None,
-            None,
-            None,
-        )
-        .await
-        .expect("start in-memory job");
-
-    state.db.ensure_direct_training_repo_exists("user1").await?;
-
-    adapteros_db::sqlx::query(
-        "INSERT INTO repository_training_jobs (id, repo_id, tenant_id, training_config_json, status, progress_json, created_by)
-         VALUES (?, ?, ?, ?, ?, ?, ?)",
-    )
-    .bind(&in_memory_job.id)
-    .bind("direct-training")
-    .bind("tenant-1")
-    .bind("{\"rank\":16,\"alpha\":32}")
-    .bind("cancelled")
-    .bind("{}")
-    .bind("user1")
-    .execute(state.db.pool_result()?)
-    .await?;
-
-    let claims = test_admin_claims();
-    let logs = get_training_logs(
-        State(state.clone()),
-        Extension(claims),
-        Path(in_memory_job.id.clone()),
-    )
-    .await
-    .expect("logs should succeed")
-    .0;
-
-    assert!(
-        logs.iter().any(|line| line == "Status: cancelled"),
-        "logs should reflect authoritative DB status"
-    );
-
-    delete_test_training_job(&state, &in_memory_job.id).await?;
-    Ok(())
-}
-
-/// Test queue endpoint uses DB data when in-memory state diverges.
-#[tokio::test]
-async fn get_training_queue_prefers_db_state_over_in_memory_shadow() -> Result<()> {
-    let state = setup_state(None).await.expect("state");
-
-    let in_memory_job = state
-        .training_service
-        .start_training(
-            "shadow-queue-job".to_string(),
-            TrainingConfig::default(),
-            None,
-            None,
-            None,
-            None,
-            None,
-            None,
-            true,
-            DataLineageMode::Synthetic,
-            Some("tenant-1".to_string()),
-            Some("tenant-1-user".to_string()),
-            Some("admin".to_string()),
-            None,
-            None,
-            None,
-            None,
-            None,
-            None,
-            None,
-            None,
-            None,
-            None,
-            None,
-            None,
-            None,
-            None,
-            None,
-        )
-        .await
-        .expect("start in-memory job");
-
-    state
-        .training_service
-        .update_progress(&in_memory_job.id, 1, 0.42, 12.0)
-        .await
-        .expect("transition in-memory job to running");
-
-    state.db.ensure_direct_training_repo_exists("user1").await?;
-
-    adapteros_db::sqlx::query(
-        "INSERT INTO repository_training_jobs (id, repo_id, tenant_id, training_config_json, status, progress_json, created_by)
-         VALUES (?, ?, ?, ?, ?, ?, ?)",
-    )
-    .bind(&in_memory_job.id)
-    .bind("direct-training")
-    .bind("tenant-1")
-    .bind("{\"rank\":16,\"alpha\":32}")
-    .bind("cancelled")
-    .bind("{}")
-    .bind("user1")
-    .execute(state.db.pool_result()?)
-    .await?;
-
-    let claims = test_admin_claims();
-    let queue = get_training_queue(State(state.clone()), Extension(claims))
-        .await
-        .expect("queue should succeed")
-        .0;
-
-    assert_eq!(
-        queue.queue_depth, 0,
-        "DB cancelled status should remove diverged in-memory running shadow from queue"
-    );
-    assert!(
-        queue
-            .pending_jobs
-            .iter()
-            .all(|job| job.id != in_memory_job.id),
-        "pending queue should not include in-memory shadow job"
-    );
-    assert!(
-        queue
-            .running_jobs
-            .iter()
-            .all(|job| job.id != in_memory_job.id),
-        "running queue should not include in-memory shadow job"
-    );
-
-    delete_test_training_job(&state, &in_memory_job.id).await?;
-    Ok(())
-}
-
-/// Test queue endpoint falls back to in-memory state when DB queue queries fail.
-#[tokio::test]
-async fn get_training_queue_falls_back_to_in_memory_on_db_error() -> Result<()> {
-    let state = setup_state(None).await.expect("state");
-
-    adapteros_db::sqlx::query("DROP TABLE repository_training_jobs")
-        .execute(state.db.pool_result()?)
-        .await?;
-
-    let claims = test_admin_claims();
-    let queue = get_training_queue(State(state), Extension(claims))
-        .await
-        .expect("queue fallback should succeed")
-        .0;
-
-    assert_eq!(queue.queue_depth, 0);
-    assert_eq!(queue.pending_count, 0);
-    assert_eq!(queue.running_count, 0);
-    Ok(())
-}
-
 /// Test canceling a training job
 #[tokio::test]
 async fn cancel_training_job_succeeds() -> Result<()> {
@@ -459,7 +194,7 @@ async fn cancel_training_job_succeeds() -> Result<()> {
     .bind("running")
     .bind("{}")
     .bind("user1")
-    .execute(state.db.pool_result()?)
+    .execute(state.db.pool())
     .await?;
 
     let claims = test_admin_claims();
@@ -512,7 +247,7 @@ async fn cancel_training_job_cross_tenant_returns_404() -> Result<()> {
     .bind("running")
     .bind("{}")
     .bind("user1")
-    .execute(state.db.pool_result()?)
+    .execute(state.db.pool())
     .await?;
 
     // Try to cancel from different tenant
@@ -561,7 +296,7 @@ async fn list_training_jobs_filters_by_status() -> Result<()> {
         .bind(status)
         .bind("{}")
         .bind("user1")
-        .execute(state.db.pool_result()?)
+        .execute(state.db.pool())
         .await?;
     }
 
@@ -609,7 +344,7 @@ async fn list_training_jobs_supports_pagination() -> Result<()> {
         .bind("pending")
         .bind("{}")
         .bind("user1")
-        .execute(state.db.pool_result()?)
+        .execute(state.db.pool())
         .await?;
     }
 
@@ -705,7 +440,7 @@ async fn viewer_can_list_but_not_cancel() -> Result<()> {
     .bind("running")
     .bind("{}")
     .bind("user1")
-    .execute(state.db.pool_result()?)
+    .execute(state.db.pool())
     .await?;
 
     let viewer_claims = test_viewer_claims();

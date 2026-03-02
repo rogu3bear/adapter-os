@@ -9,7 +9,7 @@
 
 use crate::cli::Cli;
 use crate::shutdown::ShutdownCoordinator;
-use adapteros_config::{resolve_manifest_path, ConfigLoader, LoaderOptions};
+use adapteros_config::{resolve_manifest_path, ConfigLoader};
 use adapteros_core::{derive_seed, AosError, B3Hash};
 use adapteros_deterministic_exec::{init_global_executor, EnforcementMode, ExecutorConfig};
 use adapteros_model_hub::manifest::ManifestV3;
@@ -63,10 +63,7 @@ pub async fn initialize_executor(
 
     // Resolve manifest path with precedence: env > CLI > config > dev fallback (debug-only)
     let config_manifest_path = {
-        let loader = ConfigLoader::with_options(LoaderOptions {
-            allow_unknown_keys: true,
-            ..LoaderOptions::default()
-        });
+        let loader = ConfigLoader::new();
         match loader.load(vec![], Some(cli.config.clone())) {
             Ok(cfg) => cfg.get("manifest.path").map(PathBuf::from),
             Err(e) => {

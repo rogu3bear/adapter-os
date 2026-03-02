@@ -19,8 +19,6 @@ use crate::security::{create_session, upsert_user_session};
 #[cfg(all(feature = "dev-bypass", debug_assertions))]
 use crate::state::AppState;
 #[cfg(all(feature = "dev-bypass", debug_assertions))]
-use crate::tenant_visibility::is_workspace_tenant_id;
-#[cfg(all(feature = "dev-bypass", debug_assertions))]
 use crate::types::ErrorResponse;
 #[cfg(all(feature = "dev-bypass", debug_assertions))]
 use adapteros_api_types::auth::{LoginResponse, TenantSummary};
@@ -44,8 +42,6 @@ use blake3;
 use chrono::{DateTime, Duration, Utc};
 #[cfg(all(feature = "dev-bypass", debug_assertions))]
 use sqlx;
-#[cfg(all(feature = "dev-bypass", debug_assertions))]
-use std::collections::HashSet;
 #[cfg(all(feature = "dev-bypass", debug_assertions))]
 use tracing::{info, warn};
 
@@ -129,7 +125,7 @@ pub async fn dev_bypass_handler(
 
     // Ensure the "default" tenant exists in the database
     match sqlx::query_scalar::<_, String>("SELECT id FROM tenants WHERE id = 'default'")
-        .fetch_optional(state.db.pool_result()?)
+        .fetch_optional(state.db.pool())
         .await
     {
         Ok(Some(_)) => {
@@ -140,7 +136,7 @@ pub async fn dev_bypass_handler(
             if let Err(e) = sqlx::query(
                 "INSERT INTO tenants (id, name, itar_flag, created_at) VALUES ('default', 'Default', 0, datetime('now'))",
             )
-            .execute(state.db.pool_result()?)
+            .execute(state.db.pool())
             .await
             {
                 warn!(error = %e, tenant_id = %tenant_id, "Failed to create default tenant");
@@ -182,7 +178,7 @@ pub async fn dev_bypass_handler(
     // Ensure a default workspace exists for the dev user
     match sqlx::query_scalar::<_, String>("SELECT id FROM workspaces WHERE created_by = ? LIMIT 1")
         .bind(&user_id)
-        .fetch_optional(state.db.pool_result()?)
+        .fetch_optional(state.db.pool())
         .await
     {
         Ok(Some(ws_id)) => {
@@ -219,7 +215,7 @@ pub async fn dev_bypass_handler(
             )
             .bind(&ws_id)
             .bind(&user_id)
-            .execute(state.db.pool_result()?)
+            .execute(state.db.pool())
             .await
             {
                 warn!(error = %e, workspace_id = %ws_id, user_id = %user_id, "Failed to create default workspace");
@@ -250,7 +246,7 @@ pub async fn dev_bypass_handler(
 
     // Ensure the dev user has access to "system" workspace (used by frontend for /v1/workspaces/system/active)
     match sqlx::query_scalar::<_, String>("SELECT id FROM workspaces WHERE id = 'system'")
-        .fetch_optional(state.db.pool_result()?)
+        .fetch_optional(state.db.pool())
         .await
     {
         Ok(Some(_)) => {
@@ -285,7 +281,7 @@ pub async fn dev_bypass_handler(
                 "INSERT INTO workspaces (id, name, description, created_by, created_at, updated_at) VALUES ('system', 'System Workspace', 'System workspace for development', ?, datetime('now'), datetime('now'))",
             )
             .bind(&user_id)
-            .execute(state.db.pool_result()?)
+            .execute(state.db.pool())
             .await
             {
                 warn!(error = %e, workspace_id = "system", user_id = %user_id, "Failed to create system workspace");
@@ -604,7 +600,7 @@ async fn collect_tenant_summaries(
     let has_wildcard = admin_tenants.iter().any(|t| t == ADMIN_TENANT_WILDCARD);
 
     if has_wildcard {
-        let db_tenants = state.db.list_tenants().await.map_err(|e| {
+        let (db_tenants, _total) = state.db.list_tenants_paginated(100, 0).await.map_err(|e| {
             warn!(error = %e, "Failed to list tenants for dev bypass");
             (
                 StatusCode::INTERNAL_SERVER_ERROR,
@@ -614,7 +610,6 @@ async fn collect_tenant_summaries(
 
         return Ok(db_tenants
             .into_iter()
-            .filter(|t| is_workspace_tenant_id(&t.id))
             .map(|t| TenantSummary {
                 schema_version: API_SCHEMA_VERSION.to_string(),
                 id: t.id,
@@ -626,32 +621,27 @@ async fn collect_tenant_summaries(
     }
 
     let mut tenant_summaries = Vec::new();
-    let mut seen_tenant_ids = HashSet::new();
 
     if let Ok(Some(primary)) = state.db.get_tenant(tenant_id).await {
-        if is_workspace_tenant_id(&primary.id) && seen_tenant_ids.insert(primary.id.clone()) {
-            tenant_summaries.push(TenantSummary {
-                schema_version: API_SCHEMA_VERSION.to_string(),
-                id: primary.id,
-                name: primary.name,
-                status: primary.status,
-                created_at: Some(primary.created_at),
-            });
-        }
+        tenant_summaries.push(TenantSummary {
+            schema_version: API_SCHEMA_VERSION.to_string(),
+            id: primary.id,
+            name: primary.name,
+            status: primary.status,
+            created_at: Some(primary.created_at),
+        });
     }
 
     for admin_tenant in admin_tenants {
         if admin_tenant != tenant_id {
             if let Ok(Some(tenant)) = state.db.get_tenant(admin_tenant).await {
-                if is_workspace_tenant_id(&tenant.id) && seen_tenant_ids.insert(tenant.id.clone()) {
-                    tenant_summaries.push(TenantSummary {
-                        schema_version: API_SCHEMA_VERSION.to_string(),
-                        id: tenant.id,
-                        name: tenant.name,
-                        status: tenant.status,
-                        created_at: Some(tenant.created_at),
-                    });
-                }
+                tenant_summaries.push(TenantSummary {
+                    schema_version: API_SCHEMA_VERSION.to_string(),
+                    id: tenant.id,
+                    name: tenant.name,
+                    status: tenant.status,
+                    created_at: Some(tenant.created_at),
+                });
             }
         }
     }
@@ -702,7 +692,7 @@ pub async fn dev_bootstrap_handler(
     let system_tenant_id = match sqlx::query_scalar::<_, String>(
         "SELECT id FROM tenants WHERE id = 'system'",
     )
-    .fetch_optional(state.db.pool_result()?)
+    .fetch_optional(state.db.pool())
     .await
     {
         Ok(Some(id)) => {
@@ -715,7 +705,7 @@ pub async fn dev_bootstrap_handler(
             sqlx::query(
                 "INSERT INTO tenants (id, name, itar_flag, created_at) VALUES ('system', 'System', 0, datetime('now'))"
             )
-            .execute(state.db.pool_result()?)
+            .execute(state.db.pool())
             .await
             .map_err(|e| {
                 warn!(

@@ -8,7 +8,7 @@ async fn init_db() -> anyhow::Result<Db> {
     sqlx::query("INSERT INTO tenants (id, name) VALUES (?, ?)")
         .bind("tenant-1")
         .bind("Tenant One")
-        .execute(db.pool_result()?)
+        .execute(db.pool())
         .await?;
 
     Ok(db)

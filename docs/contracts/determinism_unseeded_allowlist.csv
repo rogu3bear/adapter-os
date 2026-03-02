@@ -1,2 +1,0 @@
-path,owner,expires_on,rationale
-crates/adapteros-deterministic-exec/src/seed.rs,qa-determinism-team,2026-06-30,NonDeterministic mode intentionally seeds benchmarking fallback via thread_rng and is not used for replay-safe strict mode.

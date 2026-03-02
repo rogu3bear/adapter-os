@@ -165,9 +165,9 @@ async fn dev_up(
     output.success("Development environment started");
     output.blank();
     output.info("Services:");
-    output.kv("API Server", "http://localhost:18080");
+    output.kv("API Server", "http://localhost:8080");
     if ui {
-        output.kv("UI Server", "http://localhost:18086");
+        output.kv("UI Server", "http://localhost:5173");
     }
     output.blank();
     output.info("To stop services: aosctl dev down");

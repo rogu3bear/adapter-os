@@ -16,7 +16,6 @@ use crate::security::validate_tenant_isolation;
 use crate::state::AppState;
 use crate::storage_usage::compute_tenant_storage_usage;
 use crate::types::{DatasetResponse, ErrorResponse};
-use adapteros_api_types::dataset_domain::{DatasetManifest, NormalizationNotes, SplitStats};
 #[cfg(feature = "embeddings")]
 use adapteros_config::resolve_tokenizer_path;
 #[cfg(feature = "embeddings")]
@@ -212,19 +211,6 @@ impl DefaultTrainingDatasetService {
             rag_texts.extend(rows.into_iter());
         }
 
-        let mut document_name_by_id: HashMap<String, String> = HashMap::new();
-        let documents = self
-            .state
-            .db
-            .get_documents_by_ids_ordered(&claims.tenant_id, document_ids)
-            .await
-            .map_err(|e| {
-                ApiError::db_error(format!("Failed to resolve source documents: {}", e))
-            })?;
-        for document in documents.into_iter().flatten() {
-            document_name_by_id.insert(document.id, document.name);
-        }
-
         // Build JSONL lines
         let mut jsonl_lines: Vec<String> = Vec::with_capacity(chunks.len());
         for chunk in &chunks {
@@ -236,53 +222,7 @@ impl DefaultTrainingDatasetService {
 
             if let Some(text) = text {
                 if !text.trim().is_empty() {
-                    let mut metadata = serde_json::Map::new();
-                    metadata.insert(
-                        "source_document_id".to_string(),
-                        serde_json::Value::String(chunk.document_id.clone()),
-                    );
-                    metadata.insert(
-                        "document_id".to_string(),
-                        serde_json::Value::String(chunk.document_id.clone()),
-                    );
-                    if let Some(name) = document_name_by_id.get(&chunk.document_id) {
-                        metadata.insert(
-                            "source_document_name".to_string(),
-                            serde_json::Value::String(name.clone()),
-                        );
-                    }
-                    metadata.insert(
-                        "source_chunk_index".to_string(),
-                        serde_json::Value::Number((chunk.chunk_index as i64).into()),
-                    );
-                    if let Some(page_number) = chunk.page_number {
-                        metadata.insert(
-                            "source_page_number".to_string(),
-                            serde_json::Value::Number((page_number as i64).into()),
-                        );
-                    }
-                    if let Some(start_offset) = chunk.start_offset {
-                        metadata.insert(
-                            "source_start_offset".to_string(),
-                            serde_json::Value::Number((start_offset as i64).into()),
-                        );
-                    }
-                    if let Some(end_offset) = chunk.end_offset {
-                        metadata.insert(
-                            "source_end_offset".to_string(),
-                            serde_json::Value::Number((end_offset as i64).into()),
-                        );
-                    }
-                    metadata.insert(
-                        "rag_doc_id".to_string(),
-                        serde_json::Value::String(rag_doc_id.clone()),
-                    );
-
-                    let json_obj = serde_json::json!({
-                        "prompt": "Use the context chunk to answer faithfully.",
-                        "completion": text,
-                        "metadata": metadata,
-                    });
+                    let json_obj = serde_json::json!({ "text": text });
                     jsonl_lines.push(json_obj.to_string());
                 }
             }
@@ -459,31 +399,6 @@ impl DefaultTrainingDatasetService {
                 ApiError::db_error(format!("Failed to update validation status: {}", e))
             })?;
 
-        // Training dataset validation expects a non-empty dataset manifest JSON.
-        let mut manifest_splits = HashMap::new();
-        manifest_splits.insert(
-            "train".to_string(),
-            SplitStats {
-                rows: jsonl_lines.len(),
-                avg_prompt_chars: 0.0,
-                avg_response_chars: 0.0,
-            },
-        );
-        let manifest_json = serde_json::to_string(&DatasetManifest {
-            dataset_id: dataset_id.clone(),
-            dataset_version_id: String::new(),
-            training_contract_version: adapteros_types::training::TRAINING_DATA_CONTRACT_VERSION
-                .to_string(),
-            repo_commit: None,
-            openapi_hash: None,
-            hash_b3: content_hash.clone(),
-            total_rows: jsonl_lines.len(),
-            dropped_rows: 0,
-            splits: manifest_splits,
-            normalization: NormalizationNotes::default(),
-        })
-        .map_err(|e| ApiError::internal(format!("Failed to serialize dataset manifest: {}", e)))?;
-
         // Create initial dataset version
         let dataset_version_id = self
             .state
@@ -495,48 +410,11 @@ impl DefaultTrainingDatasetService {
                 &dataset_path.to_string_lossy(),
                 &content_hash,
                 None, // manifest_path
-                Some(&manifest_json),
+                None, // manifest_json
                 Some(&claims.sub),
             )
             .await
             .map_err(|e| ApiError::db_error(format!("Failed to create dataset version: {}", e)))?;
-
-        let (rows, parse_errors, dropped) =
-            adapteros_db::training_datasets::build_training_rows_from_jsonl_bytes(
-                file_name,
-                content_bytes,
-                &dataset_id,
-                &dataset_version_id,
-                Some(&claims.tenant_id),
-                Some(&claims.sub),
-                Some(source_label),
-            );
-
-        if parse_errors > 0 || dropped > 0 {
-            self.cleanup_dataset(&dataset_id, &dataset_path).await;
-            return Err(ApiError::bad_request(format!(
-                "Generated dataset contains invalid rows (parse_errors={}, dropped={})",
-                parse_errors, dropped
-            ))
-            .into());
-        }
-
-        if rows.is_empty() {
-            self.cleanup_dataset(&dataset_id, &dataset_path).await;
-            return Err(ApiError::bad_request("No training rows generated").into());
-        }
-
-        let inserted = self
-            .state
-            .db
-            .bulk_insert_training_dataset_rows(&rows)
-            .await
-            .map_err(|e| ApiError::db_error(format!("Failed to insert training rows: {}", e)))?;
-
-        if inserted == 0 {
-            self.cleanup_dataset(&dataset_id, &dataset_path).await;
-            return Err(ApiError::bad_request("No training rows generated").into());
-        }
 
         self.state
             .db
@@ -652,7 +530,7 @@ impl DefaultTrainingDatasetService {
         data: &[u8],
         source_name: &str,
         mime_type: &str,
-        _name: Option<String>,
+        name: Option<String>,
         description: Option<String>,
     ) -> Result<DatasetResponse, (StatusCode, Json<ErrorResponse>)> {
         let tokenizer_path =
@@ -740,12 +618,7 @@ impl DefaultTrainingDatasetService {
             warn!(skipped, "Skipped training examples without Q/A provenance");
         }
 
-        let source = source_name.trim();
-        let dataset_name = if source.is_empty() {
-            "Q/A from document".to_string()
-        } else {
-            format!("Q/A from document: {}", source)
-        };
+        let dataset_name = name.unwrap_or_else(|| format!("Q/A from document: {}", source_name));
 
         self.build_dataset_from_jsonl_lines(
             claims,
@@ -769,7 +642,7 @@ impl DefaultTrainingDatasetService {
         data: &[u8],
         source_name: &str,
         mime_type: &str,
-        _name: Option<String>,
+        name: Option<String>,
         description: Option<String>,
         enrichment_mode: Option<String>,
     ) -> Result<DatasetResponse, (StatusCode, Json<ErrorResponse>)> {
@@ -922,12 +795,7 @@ impl DefaultTrainingDatasetService {
             "Synthesis enrichment complete"
         );
 
-        let source = source_name.trim();
-        let dataset_name = if source.is_empty() {
-            "Synthesis from source".to_string()
-        } else {
-            format!("Synthesis from: {}", source)
-        };
+        let dataset_name = name.unwrap_or_else(|| format!("Synthesis from: {}", source_name));
 
         self.build_dataset_from_jsonl_lines(
             claims,
@@ -1197,53 +1065,25 @@ impl TrainingDatasetService for DefaultTrainingDatasetService {
             // Tenant isolation check
             validate_tenant_isolation(claims, &doc.tenant_id)?;
 
-            // Prefer explicit indexed status, but tolerate stale status when chunks already exist.
+            // Ensure document is indexed
             if doc.status != "indexed" {
-                let chunks = self
-                    .state
-                    .db
-                    .get_document_chunks(&claims.tenant_id, doc_id)
-                    .await
-                    .map_err(|e| {
-                        ApiError::db_error(format!("Failed to get document chunks: {}", e))
-                    })?;
-
-                if chunks.is_empty() {
-                    return Err(ApiError::bad_request(format!(
-                        "Document must be indexed before conversion. Current status: {}",
-                        doc.status
-                    ))
-                    .into());
-                }
-
-                warn!(
-                    document_id = %doc_id,
-                    status = %doc.status,
-                    chunk_count = chunks.len(),
-                    "Using document chunks despite non-indexed status"
-                );
+                return Err(ApiError::bad_request(format!(
+                    "Document must be indexed before conversion. Current status: {}",
+                    doc.status
+                ))
+                .into());
             }
 
             doc_names.push(doc.name);
         }
 
-        doc_names.sort_by(|a, b| {
-            a.to_ascii_lowercase()
-                .cmp(&b.to_ascii_lowercase())
-                .then_with(|| a.cmp(b))
-        });
-
         let default_name = if doc_names.len() == 1 {
             format!("Training from doc: {}", doc_names[0])
         } else {
-            format!(
-                "Training from {} (+{} docs)",
-                doc_names[0],
-                doc_names.len() - 1
-            )
+            format!("Training from {} documents", doc_names.len())
         };
 
-        let dataset_name = default_name;
+        let dataset_name = params.name.unwrap_or(default_name);
 
         self.build_dataset_from_chunks(claims, &document_ids, dataset_name, params.description)
             .await
@@ -1292,7 +1132,9 @@ impl TrainingDatasetService for DefaultTrainingDatasetService {
         }
 
         let document_ids: Vec<String> = indexed_docs.iter().map(|d| d.id.clone()).collect();
-        let dataset_name = format!("Training from collection: {}", collection.name);
+        let dataset_name = params
+            .name
+            .unwrap_or_else(|| format!("Training from collection: {}", collection.name));
 
         self.build_dataset_from_chunks(claims, &document_ids, dataset_name, params.description)
             .await
@@ -1315,27 +1157,11 @@ impl TrainingDatasetService for DefaultTrainingDatasetService {
         validate_tenant_isolation(claims, &doc.tenant_id)?;
 
         if doc.status != "indexed" {
-            let chunks = self
-                .state
-                .db
-                .get_document_chunks(&claims.tenant_id, &params.document_id)
-                .await
-                .map_err(|e| ApiError::db_error(format!("Failed to get document chunks: {}", e)))?;
-
-            if chunks.is_empty() {
-                return Err(ApiError::bad_request(format!(
-                    "Document must be indexed before conversion. Current status: {}",
-                    doc.status
-                ))
-                .into());
-            }
-
-            warn!(
-                document_id = %params.document_id,
-                status = %doc.status,
-                chunk_count = chunks.len(),
-                "Using document chunks despite non-indexed status"
-            );
+            return Err(ApiError::bad_request(format!(
+                "Document must be indexed before conversion. Current status: {}",
+                doc.status
+            ))
+            .into());
         }
 
         self.create_from_document_ids(

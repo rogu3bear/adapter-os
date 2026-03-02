@@ -34,16 +34,11 @@ pub async fn metrics_endpoint(
     debug!("Generating Prometheus metrics endpoint response");
 
     // Lock collector for reading (prevents concurrent modification during encoding)
-    let collector_guard = collector.read().await;
+    let _collector = collector.read().await;
 
     // Encode all registered Prometheus metrics
     let encoder = TextEncoder::new();
-    let mut metric_families = collector_guard.gather_metric_families();
-    metric_families.retain(|family| !family.get_metric().is_empty());
-    if metric_families.is_empty() {
-        // Fallback to global registry for compatibility with externally registered metrics.
-        metric_families = prometheus::gather();
-    }
+    let metric_families = prometheus::gather();
 
     let mut buffer = Vec::new();
     encoder.encode(&metric_families, &mut buffer).map_err(|e| {
@@ -51,13 +46,10 @@ pub async fn metrics_endpoint(
         format!("Failed to encode metrics: {}", e)
     })?;
 
-    let mut body = String::from_utf8(buffer).map_err(|e| {
+    let body = String::from_utf8(buffer).map_err(|e| {
         error!(error = %e, "Failed to convert metrics to UTF-8");
         format!("Failed to convert metrics to UTF-8: {}", e)
     })?;
-    if body.is_empty() {
-        body = "# no metrics available\n".to_string();
-    }
 
     debug!(
         metrics_size = body.len(),

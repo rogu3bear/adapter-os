@@ -1,42 +1,25 @@
-use std::path::PathBuf;
+use std::collections::HashMap;
 use std::sync::Arc;
 
 use adapteros_client::uds::{
     CancelTrainingResponse, UdsTrainingStartRequest, UdsTrainingStartResponse,
 };
 use adapteros_config::{
-    prepare_socket_path, reject_tmp_persistent_path, resolve_training_worker_socket_for_worker,
-    ResolvedPath,
+    prepare_socket_path, resolve_training_worker_socket_for_worker, ResolvedPath,
 };
-use adapteros_core::rebase_var_path;
-use adapteros_db::Db;
 use adapteros_orchestrator::training::TrainingService;
-use anyhow::Context;
 use tokio::io::{AsyncReadExt, AsyncWriteExt};
 use tokio::net::{UnixListener, UnixStream};
+use tokio::sync::RwLock;
 use tracing::{error, info, warn};
 
 const MAX_HEADER_BYTES: usize = 16 * 1024;
 const MAX_BODY_BYTES: usize = 4 * 1024 * 1024;
 
-fn resolve_persistent_dir(
-    env_key: &str,
-    default_rel: &str,
-    label: &str,
-) -> anyhow::Result<PathBuf> {
-    let value = std::env::var(env_key)
-        .ok()
-        .filter(|v| !v.trim().is_empty())
-        .unwrap_or_else(|| default_rel.to_string());
-    let path = rebase_var_path(PathBuf::from(value));
-    reject_tmp_persistent_path(&path, label)
-        .map_err(|e| anyhow::anyhow!("Invalid {} path {}: {}", label, path.display(), e))?;
-    Ok(path)
-}
-
 #[derive(Clone)]
 struct AppState {
     service: Arc<TrainingService>,
+    cp_to_worker_job_map: Arc<RwLock<HashMap<String, String>>>,
 }
 
 struct HttpRequest {
@@ -67,112 +50,20 @@ async fn main() -> anyhow::Result<()> {
         "Training worker listening on UDS"
     );
 
-    let db = Db::connect_env()
-        .await
-        .context("Failed to connect training worker database")?;
-    let datasets_root = resolve_persistent_dir(
-        "AOS_DATASETS_DIR",
-        "var/datasets",
-        "training-worker-datasets-root",
-    )?;
-    std::fs::create_dir_all(&datasets_root).map_err(|e| {
-        anyhow::anyhow!(
-            "Failed to create datasets root {}: {}",
-            datasets_root.display(),
-            e
-        )
-    })?;
-    let artifacts_root = resolve_persistent_dir(
-        "AOS_ARTIFACTS_DIR",
-        "var/artifacts",
-        "training-worker-artifacts-root",
-    )?;
-    std::fs::create_dir_all(&artifacts_root).map_err(|e| {
-        anyhow::anyhow!(
-            "Failed to create artifacts root {}: {}",
-            artifacts_root.display(),
-            e
-        )
-    })?;
-
-    let mut training_service = TrainingService::with_db(db, datasets_root.clone());
-    training_service.set_artifacts_root(artifacts_root.clone());
     let state = AppState {
-        service: Arc::new(training_service),
+        service: Arc::new(TrainingService::new()),
+        cp_to_worker_job_map: Arc::new(RwLock::new(HashMap::new())),
     };
-    info!(
-        datasets_root = %datasets_root.display(),
-        artifacts_root = %artifacts_root.display(),
-        "Training worker initialized with DB-backed storage"
-    );
-
-    let shutdown = async {
-        let ctrl_c = async {
-            tokio::signal::ctrl_c()
-                .await
-                .expect("failed to install Ctrl+C handler");
-        };
-
-        #[cfg(unix)]
-        let terminate = async {
-            tokio::signal::unix::signal(tokio::signal::unix::SignalKind::terminate())
-                .expect("failed to install SIGTERM handler")
-                .recv()
-                .await;
-        };
-
-        #[cfg(not(unix))]
-        let terminate = std::future::pending::<()>();
-
-        tokio::select! {
-            _ = ctrl_c => {},
-            _ = terminate => {},
-        }
-    };
-    tokio::pin!(shutdown);
 
     loop {
-        tokio::select! {
-            biased;
-
-            _ = &mut shutdown => {
-                info!("Shutdown signal received, stopping accept loop");
-                break;
+        let (stream, _) = listener.accept().await?;
+        let state = state.clone();
+        tokio::spawn(async move {
+            if let Err(e) = handle_connection(stream, state).await {
+                warn!(error = %e, "Training worker request failed");
             }
-
-            accept_result = listener.accept() => {
-                match accept_result {
-                    Ok((stream, _)) => {
-                        let state = state.clone();
-                        tokio::spawn(async move {
-                            if let Err(e) = handle_connection(stream, state).await {
-                                warn!(error = %e, "Training worker request failed");
-                            }
-                        });
-                    }
-                    Err(e) => {
-                        warn!(error = %e, "Accept error");
-                    }
-                }
-            }
-        }
+        });
     }
-
-    // Allow in-flight handlers to complete
-    info!("Waiting for in-flight requests to complete");
-    tokio::time::sleep(std::time::Duration::from_secs(2)).await;
-
-    // Clean up UDS socket
-    if socket.path.exists() {
-        if let Err(e) = std::fs::remove_file(&socket.path) {
-            warn!(error = %e, path = %socket.path.display(), "failed to remove UDS socket on shutdown");
-        } else {
-            info!(path = %socket.path.display(), "removed UDS socket");
-        }
-    }
-
-    info!("Training worker shut down cleanly");
-    Ok(())
 }
 
 async fn handle_connection(mut stream: UnixStream, state: AppState) -> anyhow::Result<()> {
@@ -193,8 +84,7 @@ async fn handle_connection(mut stream: UnixStream, state: AppState) -> anyhow::R
 
             match state
                 .service
-                .start_training_with_job_id(
-                    cp_job_id.clone(),
+                .start_training(
                     start_req.adapter_name,
                     start_req.config,
                     start_req.template_id,
@@ -226,10 +116,15 @@ async fn handle_connection(mut stream: UnixStream, state: AppState) -> anyhow::R
                 )
                 .await
             {
-                Ok(_worker_job) => {
+                Ok(worker_job) => {
+                    {
+                        let mut mapping = state.cp_to_worker_job_map.write().await;
+                        mapping.insert(cp_job_id.clone(), worker_job.id.clone());
+                    }
+
                     let response = UdsTrainingStartResponse {
-                        job_id: cp_job_id.clone(),
-                        worker_job_id: Some(cp_job_id),
+                        job_id: cp_job_id,
+                        worker_job_id: Some(worker_job.id),
                         status: "accepted".to_string(),
                     };
                     let payload = serde_json::to_value(response)?;
@@ -248,19 +143,27 @@ async fn handle_connection(mut stream: UnixStream, state: AppState) -> anyhow::R
         ("POST", "/training/cancel") => {
             let cancel_req: CancelTrainingRequest = serde_json::from_str(&request.body)?;
             let requested_job_id = cancel_req.job_id.clone();
+            let resolved_job_id = {
+                let mapping = state.cp_to_worker_job_map.read().await;
+                mapping
+                    .get(&requested_job_id)
+                    .cloned()
+                    .unwrap_or_else(|| requested_job_id.clone())
+            };
 
             info!(
                 requested_job_id = %requested_job_id,
+                resolved_job_id = %resolved_job_id,
                 reason = ?cancel_req.reason,
                 "Received training cancellation request"
             );
 
-            let status = match state
-                .service
-                .cancel_job(&requested_job_id, None, None)
-                .await
-            {
-                Ok(_) => "cancelled",
+            let status = match state.service.cancel_job(&resolved_job_id, None, None).await {
+                Ok(_) => {
+                    let mut mapping = state.cp_to_worker_job_map.write().await;
+                    mapping.remove(&requested_job_id);
+                    "cancelled"
+                }
                 Err(e) => {
                     let msg = e.to_string();
                     if msg.contains("not found") {

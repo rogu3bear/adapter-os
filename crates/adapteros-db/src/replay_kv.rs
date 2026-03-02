@@ -276,6 +276,7 @@ impl Db {
     }
 }
 
+#[allow(dead_code)]
 pub fn replay_drift_count() -> u64 {
     REPLAY_DRIFT_COUNTER.load(Ordering::Relaxed)
 }

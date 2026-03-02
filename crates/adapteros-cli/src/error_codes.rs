@@ -511,7 +511,7 @@ pub fn all_error_codes() -> Vec<ErrorCode> {
              \x1b[1m  cargo run -p adapteros-server -- --config configs/cp.toml\x1b[0m\n\n\
              Check if any workers are registered:\n\n\
              \x1b[1m  ./aosctl status\x1b[0m",
-            docs = ["docs/QUICKSTART.md"]
+            docs = ["docs/QUICKSTART.md", "scripts/start.sh"]
         ),
         error_code!(
             ECode::E7004,
@@ -522,7 +522,7 @@ pub fn all_error_codes() -> Vec<ErrorCode> {
              Or start in development mode:\n\n\
              \x1b[1m  cargo run -p adapteros-server -- --config configs/cp.toml\x1b[0m\n\n\
              Verify the server is running:\n\n\
-             \x1b[1m  curl http://127.0.0.1:18080/healthz\x1b[0m",
+             \x1b[1m  curl http://127.0.0.1:8080/healthz\x1b[0m",
             docs = ["docs/QUICKSTART.md", "docs/BOOT_TROUBLESHOOTING.md"]
         ),
         // E8xxx: CLI/Config Errors
@@ -729,7 +729,7 @@ pub fn all_error_codes() -> Vec<ErrorCode> {
              2. Clean old telemetry bundles: aosctl gc-bundles\n\
              3. Remove unused adapters\n\
              4. Archive old CPs",
-            docs = ["crates/adapteros-cli/docs/aosctl_manual.md"]
+            docs = ["scripts/gc_bundles.sh"]
         ),
         error_code!(
             ECode::E9005,
@@ -1144,6 +1144,8 @@ impl From<&adapteros_core::AosError> for ExitCode {
             AosError::InvalidPathCharacters { .. } => ExitCode::Validation,
             AosError::TempDirUnavailable { .. } => ExitCode::Io,
             AosError::WatcherEventsDropped { .. } => ExitCode::InternalError,
+
+            _ => ExitCode::Other,
         }
     }
 }

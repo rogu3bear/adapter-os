@@ -3,7 +3,7 @@ use adapteros_core::{
     cache_attestation::CacheAttestation,
     compute_input_digest_v2, compute_output_digest, emit_observability_event, hash_token_decision,
     receipt_digest::{
-        canonical_json_string, compute_receipt_digest, ReceiptDigestInput, RECEIPT_SCHEMA_CURRENT,
+        canonical_json_string, compute_receipt_digest, ReceiptDigestInput, RECEIPT_SCHEMA_V7,
     },
     receipt_mismatch_event, update_run_head, AosError, B3Hash, EquipmentProfile, Result,
     CRYPTO_RECEIPT_SCHEMA_VERSION,
@@ -337,7 +337,7 @@ impl SqlTraceSink {
         .bind(&start.stack_id)
         .bind(&start.model_id)
         .bind(&start.policy_id)
-        .execute(db.pool_result()?)
+        .execute(db.pool())
         .await
         .map_err(|e| AosError::Database(format!("Failed to insert inference_trace: {e}")))?;
 
@@ -709,7 +709,7 @@ impl TraceSink for SqlTraceSink {
 
         let output_digest = Self::output_digest(finalization.output_tokens);
 
-        // Use canonical receipt digest computation (current schema)
+        // Use canonical receipt digest computation (V7 schema)
         let receipt_input = ReceiptDigestInput::new(
             self.start.context_digest,
             *self.run_head_hash.as_bytes(),
@@ -805,8 +805,8 @@ impl TraceSink for SqlTraceSink {
         )
         .with_disclosure_level(finalization.disclosure_level.clone());
 
-        let receipt_digest = compute_receipt_digest(&receipt_input, RECEIPT_SCHEMA_CURRENT)
-            .ok_or_else(|| AosError::Internal("receipt schema unsupported".into()))?;
+        let receipt_digest = compute_receipt_digest(&receipt_input, RECEIPT_SCHEMA_V7)
+            .ok_or_else(|| AosError::Internal("V7 receipt schema unsupported".into()))?;
 
         // Serialize stop_policy_digest_b3 to bytes for storage
         let stop_policy_digest_bytes = finalization
@@ -1017,7 +1017,7 @@ impl TraceSink for SqlTraceSink {
         .bind(&finalization.disclosure_level)
         .bind(&finalization.receipt_signing_kid)
         .bind(&finalization.receipt_signed_at)
-        .execute(self.db.pool_result()?)
+        .execute(self.db.pool())
         .await
         .map_err(|e| AosError::Database(format!("Failed to insert trace receipt: {e}")))?;
 
@@ -1168,7 +1168,7 @@ impl TraceSink for SqlTraceSink {
         )
         .bind(&receipt.tenant_id)
         .bind(&receipt.cancelled_at)
-        .execute(self.db.pool_result()?)
+        .execute(self.db.pool())
         .await
         .map_err(|e| AosError::Database(format!("Failed to insert cancellation receipt: {e}")))?;
 
@@ -1306,10 +1306,6 @@ pub async fn recompute_receipt(db: &Db, trace_id: &str) -> Result<TraceReceiptVe
                prefix_cache_hit,
                prefix_kv_bytes,
                model_cache_identity_v2_digest_b3,
-               equipment_profile_digest_b3,
-               processor_id,
-               mlx_version,
-               ane_version,
                copy_bytes,
                tokenizer_hash_b3,
                tokenizer_version,
@@ -1783,8 +1779,8 @@ pub async fn recompute_receipt(db: &Db, trace_id: &str) -> Result<TraceReceiptVe
     )
     .with_disclosure_level(stored.as_ref().and_then(|s| s.disclosure_level.clone()));
 
-    let recomputed_receipt_digest = compute_receipt_digest(&receipt_input, RECEIPT_SCHEMA_CURRENT)
-        .ok_or_else(|| AosError::Internal("receipt schema unsupported".into()))?;
+    let recomputed_receipt_digest = compute_receipt_digest(&receipt_input, RECEIPT_SCHEMA_V7)
+        .ok_or_else(|| AosError::Internal("V7 receipt schema unsupported".into()))?;
 
     // For recomputation, carry over input_digest and equipment_profile from stored receipt
     let (recomputed_input_digest_b3, recomputed_equipment_profile) = if let Some(stored) = &stored {
@@ -2471,7 +2467,7 @@ pub async fn get_provenance_chain(db: &Db, trace_id: &str) -> Result<ProvenanceC
         "#,
     )
     .bind(trace_id)
-    .fetch_optional(db.pool_result()?)
+    .fetch_optional(db.pool())
     .await
     .map_err(|e| AosError::Database(format!("Failed to fetch trace: {e}")))?;
 
@@ -2496,14 +2492,14 @@ pub async fn get_provenance_chain(db: &Db, trace_id: &str) -> Result<ProvenanceC
     // Get all token-level adapter selections
     let token_rows = sqlx::query(
         r#"
-        SELECT selected_adapter_ids, gates_q15
+        SELECT adapter_ids_blob, gates_blob
         FROM inference_trace_tokens
         WHERE trace_id = ?
         ORDER BY token_index ASC
         "#,
     )
     .bind(trace_id)
-    .fetch_all(db.pool_result()?)
+    .fetch_all(db.pool())
     .await
     .map_err(|e| AosError::Database(format!("Failed to fetch trace tokens: {e}")))?;
 
@@ -2512,23 +2508,11 @@ pub async fn get_provenance_chain(db: &Db, trace_id: &str) -> Result<ProvenanceC
         std::collections::HashMap::new();
 
     for row in token_rows {
-        let adapter_blob: Vec<u8> = match row.try_get::<Vec<u8>, _>("selected_adapter_ids") {
-            Ok(bytes) => bytes,
-            Err(_) => {
-                let text: String = row.try_get("selected_adapter_ids")?;
-                text.into_bytes()
-            }
-        };
-        let gates_blob: Vec<u8> = match row.try_get::<Vec<u8>, _>("gates_q15") {
-            Ok(bytes) => bytes,
-            Err(_) => {
-                let text: String = row.try_get("gates_q15")?;
-                text.into_bytes()
-            }
-        };
+        let adapter_ids_blob: Vec<u8> = row.get("adapter_ids_blob");
+        let gates_blob: Vec<u8> = row.get("gates_blob");
 
-        let adapter_ids = decode_adapter_ids_flexible(&adapter_blob);
-        let gates = decode_gates_q15_flexible(&gates_blob);
+        let adapter_ids = SqlTraceSink::decode_adapter_ids(&adapter_ids_blob);
+        let gates = SqlTraceSink::decode_gates_q15(&gates_blob);
 
         for (adapter_id, gate) in adapter_ids.into_iter().zip(gates.into_iter()) {
             adapter_gates.entry(adapter_id).or_default().push(gate);
@@ -2554,7 +2538,7 @@ pub async fn get_provenance_chain(db: &Db, trace_id: &str) -> Result<ProvenanceC
             "#,
         )
         .bind(&adapter_id)
-        .fetch_optional(db.pool_result()?)
+        .fetch_optional(db.pool())
         .await
         {
             Ok(row) => row,
@@ -2615,7 +2599,7 @@ pub async fn get_provenance_chain(db: &Db, trace_id: &str) -> Result<ProvenanceC
             "#,
         )
         .bind(dsv_id)
-        .fetch_all(db.pool_result()?)
+        .fetch_all(db.pool())
         .await
         {
             Ok(r) => r,

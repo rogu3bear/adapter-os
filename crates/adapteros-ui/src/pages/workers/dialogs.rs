@@ -342,6 +342,9 @@ pub fn SpawnWorkerDialog(
                                             <a class="text-primary hover:underline" href="/system">
                                                 "Open System (register node)"
                                             </a>
+                                            <a class="text-primary hover:underline" href="/stacks">
+                                                "Open Stacks (create deployment config)"
+                                            </a>
                                         </div>
                                     }.into_any()
                                 } else {

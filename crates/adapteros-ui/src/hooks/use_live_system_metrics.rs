@@ -1,61 +1,18 @@
 use super::{use_cached_api_resource, use_polling, CacheTtl, LoadingState, Refetch};
 use crate::api::{use_sse_json_events, ApiClient, SseState};
+use crate::components::{ChartPoint, DataSeries, TimeSeriesData};
 use adapteros_api_types::SystemMetricsResponse;
-
-/// A single data point in a time series.
-#[derive(Debug, Clone, PartialEq)]
-pub struct ChartPoint {
-    pub timestamp: u64,
-    pub value: f64,
-}
-
-impl ChartPoint {
-    pub fn new(timestamp: u64, value: f64) -> Self {
-        Self { timestamp, value }
-    }
-}
-
-/// A named series of data points.
-#[derive(Debug, Clone, PartialEq)]
-pub struct DataSeries {
-    pub name: String,
-    pub color: String,
-    pub points: Vec<ChartPoint>,
-}
-
-/// Time series data for line charts.
-#[derive(Debug, Clone, PartialEq, Default)]
-pub struct TimeSeriesData {
-    pub series: Vec<DataSeries>,
-}
-
-impl TimeSeriesData {
-    pub fn new() -> Self {
-        Self { series: Vec::new() }
-    }
-
-    pub fn has_data(&self) -> bool {
-        self.series.iter().any(|s| !s.points.is_empty())
-    }
-}
 use leptos::prelude::*;
-use std::collections::VecDeque;
-use std::sync::Arc;
-
-#[cfg(target_arch = "wasm32")]
 use std::cell::RefCell;
-#[cfg(target_arch = "wasm32")]
+use std::collections::VecDeque;
 use std::rc::Rc;
-#[cfg(target_arch = "wasm32")]
 use std::sync::atomic::{AtomicBool, AtomicI32, Ordering};
-#[cfg(target_arch = "wasm32")]
+use std::sync::Arc;
 use wasm_bindgen::JsCast;
 
 const METRICS_HISTORY_SIZE: usize = 60;
 const METRICS_SAMPLE_MIN_INTERVAL_MS: u64 = 250;
-#[cfg(target_arch = "wasm32")]
 const METRICS_LERP_FACTOR: f64 = 0.35;
-#[cfg(target_arch = "wasm32")]
 const METRICS_SNAP_EPSILON: f64 = 0.05;
 
 #[derive(Clone, Copy, Debug, Default, PartialEq, Eq)]
@@ -104,7 +61,6 @@ impl LiveSystemMetricsSnapshot {
         }
     }
 
-    #[cfg(target_arch = "wasm32")]
     fn lerp_toward(self, target: Self, factor: f64) -> Self {
         Self {
             cpu_usage: lerp_f32(self.cpu_usage, target.cpu_usage, factor),
@@ -133,7 +89,6 @@ impl LiveSystemMetricsSnapshot {
         }
     }
 
-    #[cfg(target_arch = "wasm32")]
     fn is_close_to(&self, other: &Self, epsilon: f64) -> bool {
         is_close_f32(self.cpu_usage, other.cpu_usage, epsilon)
             && is_close_f32(self.memory_usage, other.memory_usage, epsilon)
@@ -150,7 +105,6 @@ impl LiveSystemMetricsSnapshot {
 }
 
 #[derive(Clone, Copy)]
-#[allow(dead_code)]
 pub(crate) struct TimestampedMetrics {
     pub(crate) timestamp: u64,
     pub(crate) requests_per_second: f64,
@@ -173,7 +127,6 @@ pub struct MetricsHistory {
     snapshots: VecDeque<TimestampedMetrics>,
 }
 
-#[allow(dead_code)]
 impl MetricsHistory {
     pub(crate) fn push(&mut self, snapshot: LiveSystemMetricsSnapshot, timestamp: u64) {
         self.snapshots
@@ -220,7 +173,6 @@ impl MetricsHistory {
     }
 }
 
-#[allow(dead_code)]
 pub(crate) fn append_synthetic_second_point_if_needed(points: &mut Vec<ChartPoint>) {
     if points.len() != 1 {
         return;
@@ -441,23 +393,19 @@ fn apply_metrics_sample(
     });
 }
 
-#[cfg(target_arch = "wasm32")]
 fn lerp_f32(current: f32, target: f32, factor: f64) -> f32 {
     lerp_f64(current as f64, target as f64, factor) as f32
 }
 
-#[cfg(target_arch = "wasm32")]
 fn lerp_f64(current: f64, target: f64, factor: f64) -> f64 {
     let clamped = factor.clamp(0.0, 1.0);
     current + (target - current) * clamped
 }
 
-#[cfg(target_arch = "wasm32")]
 fn lerp_i32(current: i32, target: i32, factor: f64) -> i32 {
     lerp_f64(current as f64, target as f64, factor).round() as i32
 }
 
-#[cfg(target_arch = "wasm32")]
 fn lerp_option_f32(current: Option<f32>, target: Option<f32>, factor: f64) -> Option<f32> {
     match (current, target) {
         (Some(current), Some(target)) => Some(lerp_f32(current, target, factor)),
@@ -465,7 +413,6 @@ fn lerp_option_f32(current: Option<f32>, target: Option<f32>, factor: f64) -> Op
     }
 }
 
-#[cfg(target_arch = "wasm32")]
 fn lerp_option_i32(current: Option<i32>, target: Option<i32>, factor: f64) -> Option<i32> {
     match (current, target) {
         (Some(current), Some(target)) => Some(lerp_i32(current, target, factor)),
@@ -473,17 +420,14 @@ fn lerp_option_i32(current: Option<i32>, target: Option<i32>, factor: f64) -> Op
     }
 }
 
-#[cfg(target_arch = "wasm32")]
 fn is_close_f32(current: f32, target: f32, epsilon: f64) -> bool {
     is_close_f64(current as f64, target as f64, epsilon)
 }
 
-#[cfg(target_arch = "wasm32")]
 fn is_close_f64(current: f64, target: f64, epsilon: f64) -> bool {
     (current - target).abs() <= epsilon
 }
 
-#[cfg(target_arch = "wasm32")]
 fn is_close_option_f32(current: Option<f32>, target: Option<f32>, epsilon: f64) -> bool {
     match (current, target) {
         (Some(current), Some(target)) => is_close_f32(current, target, epsilon),

@@ -12,7 +12,7 @@ set -euo pipefail
 PROJECT_ROOT="$(cd "$(dirname "${BASH_SOURCE[0]}")/.." && pwd)"
 cd "$PROJECT_ROOT"
 
-BASE_URL="${AOS_BASE_URL:-http://localhost:18080}"
+BASE_URL="${AOS_BASE_URL:-http://localhost:8080}"
 SOCKET_PATH="${AOS_WORKER_SOCKET:-$PROJECT_ROOT/var/run/worker.sock}"
 
 TMP_DIR="$PROJECT_ROOT/var/tmp"

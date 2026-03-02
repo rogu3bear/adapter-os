@@ -1,26 +1,18 @@
+#![cfg(all(test, feature = "extended-tests"))]
+
 //! Integration tests for MLX model import functionality
 //!
 //! Tests verify that MLX model import command works correctly with mlx-ffi-backend feature.
 
-#[cfg(feature = "extended-tests")]
 use std::fs;
-#[cfg(feature = "extended-tests")]
+use std::path::PathBuf;
 use std::process::Command;
-#[cfg(feature = "extended-tests")]
 use tempfile::TempDir;
 
-#[cfg(feature = "extended-tests")]
 fn new_test_tempdir() -> TempDir {
     TempDir::with_prefix("aos-test-").expect("Failed to create temp directory")
 }
 
-#[cfg(not(feature = "extended-tests"))]
-#[test]
-fn mlx_import_integration_disabled_without_extended_tests() {
-    // Keep a concrete test target so cargo always emits an executable.
-}
-
-#[cfg(feature = "extended-tests")]
 #[test]
 #[cfg(any(feature = "mlx-ffi-backend", feature = "multi-backend"))]
 fn test_mlx_import_command_exists_with_feature() {
@@ -52,7 +44,6 @@ fn test_mlx_import_command_exists_with_feature() {
     );
 }
 
-#[cfg(feature = "extended-tests")]
 #[test]
 #[cfg(not(any(feature = "mlx-ffi-backend", feature = "multi-backend")))]
 fn test_mlx_import_command_not_available_without_feature() {
@@ -116,7 +107,6 @@ fn test_mlx_import_command_not_available_without_feature() {
     );
 }
 
-#[cfg(feature = "extended-tests")]
 #[test]
 #[cfg(any(feature = "mlx-ffi-backend", feature = "multi-backend"))]
 fn test_mlx_import_validates_files_exist() {

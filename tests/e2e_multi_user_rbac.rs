@@ -94,7 +94,7 @@ async fn test_multi_user_rbac_permissions() {
     let (_, viewer_role): (String, String) =
         sqlx::query_as("SELECT id, role FROM users WHERE email = ?")
             .bind("viewer@example.com")
-            .fetch_one(harness.db().pool_opt().expect("test requires SQL pool"))
+            .fetch_one(harness.db().pool())
             .await
             .expect("Viewer should exist");
 
@@ -103,7 +103,7 @@ async fn test_multi_user_rbac_permissions() {
     let (_, operator_role): (String, String) =
         sqlx::query_as("SELECT id, role FROM users WHERE email = ?")
             .bind("operator@example.com")
-            .fetch_one(harness.db().pool_opt().expect("test requires SQL pool"))
+            .fetch_one(harness.db().pool())
             .await
             .expect("Operator should exist");
 
@@ -115,7 +115,7 @@ async fn test_multi_user_rbac_permissions() {
     let (_, admin_role): (String, String) =
         sqlx::query_as("SELECT id, role FROM users WHERE email = ?")
             .bind("admin2@example.com")
-            .fetch_one(harness.db().pool_opt().expect("test requires SQL pool"))
+            .fetch_one(harness.db().pool())
             .await
             .expect("Admin should exist");
 
@@ -162,7 +162,7 @@ async fn test_viewer_cannot_delete_adapter() {
     // For now, verify that viewer role exists and has correct permissions in database
     let viewer_role: String = sqlx::query_scalar("SELECT role FROM users WHERE email = ?")
         .bind("viewer-test@example.com")
-        .fetch_one(harness.db().pool_opt().expect("test requires SQL pool"))
+        .fetch_one(harness.db().pool())
         .await
         .expect("Viewer should exist");
 
@@ -210,7 +210,7 @@ async fn test_operator_can_load_adapter() {
     // Verify operator has correct role
     let operator_role: String = sqlx::query_scalar("SELECT role FROM users WHERE email = ?")
         .bind("operator-test@example.com")
-        .fetch_one(harness.db().pool_opt().expect("test requires SQL pool"))
+        .fetch_one(harness.db().pool())
         .await
         .expect("Operator should exist");
 
@@ -226,7 +226,7 @@ async fn test_operator_can_load_adapter() {
     // For now, verify the adapter exists
     let adapter_id: String = sqlx::query_scalar("SELECT id FROM adapters WHERE id = ?")
         .bind("operator-load-adapter")
-        .fetch_one(harness.db().pool_opt().expect("test requires SQL pool"))
+        .fetch_one(harness.db().pool())
         .await
         .expect("Adapter should exist");
 
@@ -293,7 +293,7 @@ async fn test_audit_log_captures_all_actions() {
     // Verify audit logs exist (if audit_logs table is present)
     let audit_count: Result<i64, _> =
         sqlx::query_scalar("SELECT COUNT(*) as count FROM audit_logs")
-            .fetch_one(harness.db().pool_opt().expect("test requires SQL pool"))
+            .fetch_one(harness.db().pool())
             .await;
 
     if audit_count.is_ok() {
@@ -318,7 +318,7 @@ async fn test_tenant_isolation() {
         .bind("tenant-b")
         .bind("Tenant B")
         .bind(0)
-        .execute(harness.db().pool_opt().expect("test requires SQL pool"))
+        .execute(harness.db().pool())
         .await
         .expect("Failed to create second tenant");
 
@@ -343,7 +343,7 @@ async fn test_tenant_isolation() {
     .bind(1.0)
     .bind("[]")
     .bind("active")
-    .execute(harness.db().pool_opt().expect("test requires SQL pool"))
+    .execute(harness.db().pool())
     .await
     .expect("Failed to create adapter for tenant-b");
 
@@ -351,7 +351,7 @@ async fn test_tenant_isolation() {
     let adapter_a_tenant: String =
         sqlx::query_scalar("SELECT tenant_id FROM adapters WHERE id = ?")
             .bind("tenant-a-adapter")
-            .fetch_one(harness.db().pool_opt().expect("test requires SQL pool"))
+            .fetch_one(harness.db().pool())
             .await
             .expect("Adapter A should exist");
 
@@ -364,7 +364,7 @@ async fn test_tenant_isolation() {
     let adapter_b_tenant: String =
         sqlx::query_scalar("SELECT tenant_id FROM adapters WHERE id = ?")
             .bind("tenant-b-adapter")
-            .fetch_one(harness.db().pool_opt().expect("test requires SQL pool"))
+            .fetch_one(harness.db().pool())
             .await
             .expect("Adapter B should exist");
 
@@ -377,14 +377,14 @@ async fn test_tenant_isolation() {
     let tenant_a_adapters: i64 =
         sqlx::query_scalar("SELECT COUNT(*) as count FROM adapters WHERE tenant_id = ?")
             .bind("default")
-            .fetch_one(harness.db().pool_opt().expect("test requires SQL pool"))
+            .fetch_one(harness.db().pool())
             .await
             .expect("Should be able to count tenant-a adapters");
 
     let tenant_b_adapters: i64 =
         sqlx::query_scalar("SELECT COUNT(*) as count FROM adapters WHERE tenant_id = ?")
             .bind("tenant-b")
-            .fetch_one(harness.db().pool_opt().expect("test requires SQL pool"))
+            .fetch_one(harness.db().pool())
             .await
             .expect("Should be able to count tenant-b adapters");
 
@@ -433,7 +433,7 @@ async fn test_role_hierarchy() {
     // Verify all roles exist
     let users: Vec<(String, String)> =
         sqlx::query_as("SELECT email, role FROM users ORDER BY role")
-            .fetch_all(harness.db().pool_opt().expect("test requires SQL pool"))
+            .fetch_all(harness.db().pool())
             .await
             .expect("Failed to fetch users");
 

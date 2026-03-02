@@ -354,7 +354,7 @@ impl MetricsPersistenceService {
             for chunk in worker_metrics.chunks(self.config.batch_size) {
                 for metric in chunk {
                     if let Err(e) =
-                        ProcessHealthMetric::insert(self.db.pool_result()?, metric.clone()).await
+                        ProcessHealthMetric::insert(self.db.pool(), metric.clone()).await
                     {
                         error!("Failed to insert health metric: {}", e);
                         // Continue with other metrics rather than failing completely
@@ -398,8 +398,7 @@ impl MetricsPersistenceService {
         let cutoff_rfc3339 = cutoff.to_rfc3339();
 
         // Delete old health metrics
-        let deleted_count =
-            ProcessHealthMetric::delete_older_than(self.db.pool_result()?, cutoff).await?;
+        let deleted_count = ProcessHealthMetric::delete_older_than(self.db.pool(), cutoff).await?;
 
         info!("Cleaned up {} old health metrics", deleted_count);
 
@@ -453,7 +452,7 @@ impl MetricsPersistenceService {
         };
 
         ProcessHealthMetric::aggregate(
-            self.db.pool_result()?,
+            self.db.pool(),
             window,
             metric_name,
             None, // No tenant filter for now
@@ -477,7 +476,7 @@ impl MetricsPersistenceService {
             limit,
         };
 
-        ProcessHealthMetric::query(self.db.pool_result()?, filters).await
+        ProcessHealthMetric::query(self.db.pool(), filters).await
     }
 }
 

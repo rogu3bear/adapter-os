@@ -2,14 +2,9 @@
 //!
 //! Shown globally when inference is not ready. Terse and action-oriented:
 //! state the impact, name the cause, offer the fix. No mechanism explanations.
-//!
-//! Status surface strategy:
-//! - Primary: this banner for immediate readiness blockers.
-//! - Primary deep-dive: `/system` for full diagnostics and remediation context.
-//! - Secondary: Status Center and System Tray remain available for compact/power usage.
 
 use crate::components::inference_guidance::{guidance_for, primary_blocker};
-use crate::components::{Button, ButtonLink, ButtonSize, ButtonVariant, IconX};
+use crate::components::{Button, ButtonLink, ButtonSize, ButtonVariant};
 use crate::constants::ui_language;
 use crate::hooks::{use_system_status, LoadingState};
 use adapteros_api_types::InferenceReadyState;
@@ -22,12 +17,11 @@ pub fn InferenceBanner() -> impl IntoView {
     let status_center = crate::components::status_center::use_status_center();
 
     let retry = StoredValue::new(refetch);
-    let (dismissed, set_dismissed) = signal(false);
 
     view! {
         {move || match status.get() {
             LoadingState::Loaded(s) => {
-                if matches!(s.inference_ready, InferenceReadyState::True) || dismissed.get() {
+                if matches!(s.inference_ready, InferenceReadyState::True) {
                     return view! {}.into_any();
                 }
 
@@ -37,17 +31,8 @@ pub fn InferenceBanner() -> impl IntoView {
                 let extra_count = s.inference_blockers.len().saturating_sub(1);
 
                 view! {
-                    <div class="global-banner global-banner--warning relative" role="status" aria-live="polite">
-                        // Dismiss button
-                        <button
-                            class="absolute top-2 right-2 text-current opacity-60 hover:opacity-100 transition-opacity p-1"
-                            on:click=move |_| set_dismissed.set(true)
-                            aria-label="Dismiss Safety Shield"
-                            title="Dismiss Safety Shield"
-                        >
-                            <IconX class="w-4 h-4"/>
-                        </button>
-                        <div class="global-banner-content pr-8">
+                    <div class="global-banner global-banner--warning" role="status" aria-live="polite">
+                        <div class="global-banner-content">
                             <span class="global-banner-title">{ui_language::SAFETY_SHIELD}</span>
                             <span class="global-banner-message">
                                 {format!("{}.", guidance.reason)}

@@ -97,7 +97,6 @@ pub mod time;
 pub mod timeout;
 pub mod tokenizer_config;
 pub mod training;
-pub mod training_receipt_digest;
 pub mod validation;
 pub mod version;
 pub mod worker_status;

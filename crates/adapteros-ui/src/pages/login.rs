@@ -9,7 +9,6 @@ use std::sync::atomic::{AtomicBool, Ordering};
 use std::sync::Arc;
 
 /// Extract returnUrl query parameter from current URL
-#[cfg(target_arch = "wasm32")]
 fn get_return_url() -> Option<String> {
     web_sys::window()
         .and_then(|w| w.location().search().ok())
@@ -30,21 +29,6 @@ fn get_return_url() -> Option<String> {
             None
         })
 }
-
-#[cfg(not(target_arch = "wasm32"))]
-fn get_return_url() -> Option<String> {
-    None
-}
-
-#[cfg(target_arch = "wasm32")]
-fn navigate_to_target(target: &str) {
-    if let Some(window) = web_sys::window() {
-        let _ = window.location().set_href(target);
-    }
-}
-
-#[cfg(not(target_arch = "wasm32"))]
-fn navigate_to_target(_target: &str) {}
 
 /// Login page
 #[component]
@@ -89,7 +73,9 @@ pub fn Login() -> impl IntoView {
             let target = return_url
                 .get_value()
                 .unwrap_or_else(|| UserSettings::load().default_page.path().to_string());
-            navigate_to_target(&target);
+            if let Some(window) = web_sys::window() {
+                let _ = window.location().set_href(&target);
+            }
         }
     });
 
@@ -140,7 +126,9 @@ pub fn Login() -> impl IntoView {
                         let target = return_url.get_value().unwrap_or_else(|| {
                             UserSettings::load().default_page.path().to_string()
                         });
-                        navigate_to_target(&target);
+                        if let Some(window) = web_sys::window() {
+                            let _ = window.location().set_href(&target);
+                        }
                     }
                     Err(e) => {
                         // Only update signals if component is still mounted

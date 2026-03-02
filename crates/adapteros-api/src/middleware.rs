@@ -55,9 +55,7 @@ where
             http::Response::builder()
                 .status(StatusCode::INTERNAL_SERVER_ERROR)
                 .body(axum::body::Body::from("Internal server error"))
-                .unwrap_or_else(|_| {
-                    http::Response::new(axum::body::Body::from("Internal server error"))
-                })
+                .unwrap()
         })
     }))
 }

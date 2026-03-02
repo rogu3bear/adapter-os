@@ -96,17 +96,17 @@ pub fn SkeletonCard(
             {if has_header {
                 Some(view! {
                     <div class="card-header">
-                        <div class=format!("{} skeleton-text skeleton-card-header-title", variant_class)></div>
-                        <div class=format!("{} skeleton-text skeleton-card-header-subtitle", variant_class)></div>
+                        <div class=format!("{} skeleton-text", variant_class) style="width: 33%; height: 1.25rem;"></div>
+                        <div class=format!("{} skeleton-text", variant_class) style="width: 66%; height: 0.875rem; margin-top: 0.5rem;"></div>
                     </div>
                 })
             } else {
                 None
             }}
-            <div class="card-content skeleton-card-content-layout">
-                <div class=format!("{} skeleton-text skeleton-width-100", variant_class)></div>
-                <div class=format!("{} skeleton-text skeleton-width-85", variant_class)></div>
-                <div class=format!("{} skeleton-text skeleton-width-70", variant_class)></div>
+            <div class="card-content" style="display: flex; flex-direction: column; gap: 0.75rem;">
+                <div class=format!("{} skeleton-text", variant_class) style="width: 100%;"></div>
+                <div class=format!("{} skeleton-text", variant_class) style="width: 85%;"></div>
+                <div class=format!("{} skeleton-text", variant_class) style="width: 70%;"></div>
             </div>
         </div>
     }
@@ -150,10 +150,8 @@ pub fn SkeletonTable(
                                 view! {
                                     <th class="table-header-cell">
                                         <div
-                                            class=format!(
-                                                "{} skeleton-text skeleton-table-header-line",
-                                                variant_class
-                                            )
+                                            class=format!("{} skeleton-text", variant_class)
+                                            style="width: 60%;"
                                         ></div>
                                     </th>
                                 }
@@ -264,14 +262,15 @@ pub fn SkeletonDetailSection(
                 Some(view! {
                     <div class="card-header">
                         <div
-                            class=format!("{} skeleton-text skeleton-detail-title", variant_class)
+                            class=format!("{} skeleton-text", variant_class)
+                            style="width: 40%; height: 1.25rem;"
                         ></div>
                     </div>
                 })
             } else {
                 None
             }}
-            <div class="card-content skeleton-card-content-layout">
+            <div class="card-content" style="display: flex; flex-direction: column; gap: 0.75rem;">
                 {(0..rows)
                     .map(|i| {
                         // Vary widths for visual interest
@@ -325,20 +324,24 @@ pub fn SkeletonPageHeader(
         <div class=format!("{} flex items-center justify-between mb-6", full_class) aria-hidden="true">
             <div>
                 <div
-                    class=format!("{} skeleton-text skeleton-page-title-line", variant_class)
+                    class=format!("{} skeleton-text", variant_class)
+                    style="width: 12rem; height: 2rem; margin-bottom: 0.5rem;"
                 ></div>
                 <div
-                    class=format!("{} skeleton-text skeleton-page-subtitle-line", variant_class)
+                    class=format!("{} skeleton-text", variant_class)
+                    style="width: 20rem; height: 1rem;"
                 ></div>
             </div>
             {if has_actions {
                 Some(view! {
                     <div class="flex gap-2">
                         <div
-                            class=format!("{} skeleton-btn", variant_class)
+                            class=format!("{}", variant_class)
+                            style="width: 5rem; height: 2.5rem; border-radius: 0.375rem;"
                         ></div>
                         <div
-                            class=format!("{} skeleton-btn skeleton-btn-wide", variant_class)
+                            class=format!("{}", variant_class)
+                            style="width: 6rem; height: 2.5rem; border-radius: 0.375rem;"
                         ></div>
                     </div>
                 })
@@ -372,10 +375,12 @@ pub fn SkeletonStatsGrid(
                     view! {
                         <div class="card p-4">
                             <div
-                                class=format!("{} skeleton-text skeleton-stat-label", variant_class)
+                                class=format!("{} skeleton-text", variant_class)
+                                style="width: 50%; height: 0.875rem; margin-bottom: 0.5rem;"
                             ></div>
                             <div
-                                class=format!("{} skeleton-text skeleton-stat-value", variant_class)
+                                class=format!("{} skeleton-text", variant_class)
+                                style="width: 40%; height: 2rem;"
                             ></div>
                         </div>
                     }

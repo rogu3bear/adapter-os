@@ -32,7 +32,7 @@ async fn list_models_returns_tenant_scoped_results() -> Result<()> {
     .bind("config-1")
     .bind("tokenizer-1")
     .bind("tokenizer-cfg-1")
-    .execute(state.db.pool_result()?)
+    .execute(state.db.pool())
     .await?;
 
     adapteros_db::sqlx::query(
@@ -45,7 +45,7 @@ async fn list_models_returns_tenant_scoped_results() -> Result<()> {
     .bind("config-2")
     .bind("tokenizer-2")
     .bind("tokenizer-cfg-2")
-    .execute(state.db.pool_result()?)
+    .execute(state.db.pool())
     .await?;
 
     // Set model status for tenant-1
@@ -92,7 +92,7 @@ async fn get_model_status_returns_details() -> Result<()> {
     .bind("config-hash")
     .bind("tokenizer-hash")
     .bind("tokenizer-cfg-hash")
-    .execute(state.db.pool_result()?)
+    .execute(state.db.pool())
     .await?;
 
     state
@@ -132,7 +132,7 @@ async fn validate_model_checks_availability() -> Result<()> {
     .bind("config-hash")
     .bind("tokenizer-hash")
     .bind("tokenizer-cfg-hash")
-    .execute(state.db.pool_result()?)
+    .execute(state.db.pool())
     .await?;
 
     state
@@ -173,7 +173,7 @@ async fn get_all_models_status_returns_summary() -> Result<()> {
         .bind(format!("config-{}", i))
         .bind(format!("tokenizer-{}", i))
         .bind(format!("tokenizer-cfg-{}", i))
-        .execute(state.db.pool_result()?)
+        .execute(state.db.pool())
         .await?;
 
         state
@@ -240,7 +240,7 @@ async fn model_status_respects_tenant_isolation() -> Result<()> {
     .bind("config-hash")
     .bind("tokenizer-hash")
     .bind("tokenizer-cfg-hash")
-    .execute(state.db.pool_result()?)
+    .execute(state.db.pool())
     .await?;
 
     state
@@ -330,7 +330,7 @@ async fn model_status_differentiates_tenants() -> Result<()> {
     .bind("config-hash")
     .bind("tokenizer-hash")
     .bind("tokenizer-cfg-hash")
-    .execute(state.db.pool_result()?)
+    .execute(state.db.pool())
     .await?;
 
     // Set different statuses for different tenants

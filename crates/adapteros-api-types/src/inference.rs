@@ -240,18 +240,6 @@ pub struct InferResponse {
     /// Source citations for the response
     #[serde(default, skip_serializing_if = "Vec::is_empty")]
     pub citations: Vec<Citation>,
-    /// Source documents tied to adapters used during inference.
-    ///
-    /// Each entry includes a tenant-scoped download URL that the UI can render
-    /// as a clickable link for operator review.
-    #[serde(default, skip_serializing_if = "Vec::is_empty")]
-    pub document_links: Vec<DocumentLink>,
-    /// Adapter attachment provenance for trust/detail views.
-    #[serde(default, skip_serializing_if = "Vec::is_empty")]
-    pub adapter_attachments: Vec<AdapterAttachment>,
-    /// Explicit degraded/fallback notices for trust/detail views.
-    #[serde(default, skip_serializing_if = "Vec::is_empty")]
-    pub degraded_notices: Vec<DegradedNotice>,
     pub trace: InferenceTrace,
     /// Model used for inference
     #[serde(skip_serializing_if = "Option::is_none")]
@@ -327,12 +315,6 @@ pub struct DeterministicReceipt {
     pub stack_id: Option<String>,
     /// Adapter identifiers selected/used during inference.
     pub adapters_used: Vec<String>,
-    /// Immutable adapter version bindings resolved for this inference.
-    ///
-    /// In bit-identical mode, this binds each adapter to an explicit
-    /// `(repo_id, version_id)` pair used for routing and replay.
-    #[serde(default, skip_serializing_if = "Vec::is_empty")]
-    pub adapter_version_bindings: Vec<AdapterVersionBinding>,
     /// Model identifier used for this inference (base model).
     #[serde(skip_serializing_if = "Option::is_none")]
     pub model: Option<String>,
@@ -343,19 +325,6 @@ pub struct DeterministicReceipt {
     #[cfg(feature = "server")]
     #[cfg_attr(feature = "server", schema(value_type = String))]
     pub prompt_system_params_digest_b3: B3Hash,
-}
-
-/// Immutable adapter version binding for deterministic receipts.
-#[derive(Debug, Clone, Serialize, Deserialize)]
-#[cfg_attr(feature = "server", derive(utoipa::ToSchema))]
-#[serde(rename_all = "snake_case")]
-pub struct AdapterVersionBinding {
-    /// Adapter repository identifier.
-    pub adapter_repo_id: String,
-    /// Immutable adapter version identifier.
-    pub adapter_version_id: String,
-    /// Resolved adapter ID selected for execution.
-    pub adapter_id: String,
 }
 
 /// Sampling parameters applied for inference execution (receipt).
@@ -439,104 +408,6 @@ pub struct Citation {
     /// Rank of this citation in the result set
     #[serde(skip_serializing_if = "Option::is_none")]
     pub rank: Option<u32>,
-}
-
-/// Clickable source document link tied to inference provenance.
-#[derive(Debug, Clone, Serialize, Deserialize)]
-#[cfg_attr(feature = "server", derive(utoipa::ToSchema))]
-#[serde(rename_all = "snake_case")]
-pub struct DocumentLink {
-    /// Document identifier.
-    pub document_id: String,
-    /// Display name for UI rendering.
-    pub document_name: String,
-    /// Tenant-scoped download route.
-    pub download_url: String,
-    /// Adapter ID that contributed this document link.
-    #[serde(skip_serializing_if = "Option::is_none")]
-    pub adapter_id: Option<String>,
-    /// Dataset version through which this document was linked to the adapter.
-    #[serde(skip_serializing_if = "Option::is_none")]
-    pub dataset_version_id: Option<String>,
-    /// Source file marker from training dataset rows, when available.
-    #[serde(skip_serializing_if = "Option::is_none")]
-    pub source_file: Option<String>,
-}
-
-/// Why an adapter was attached to an inference response.
-#[derive(Debug, Clone, Serialize, Deserialize, PartialEq, Eq)]
-#[cfg_attr(feature = "server", derive(utoipa::ToSchema))]
-#[serde(rename_all = "snake_case")]
-pub enum AdapterAttachReason {
-    /// Explicitly requested by the caller in the request adapter set.
-    Requested,
-    /// Explicitly pinned by the caller/session.
-    Pinned,
-    /// Selected via stack/session routing policy.
-    StackRouting,
-    /// Attached due to fallback routing after degradation.
-    FallbackRouting,
-    /// Reason could not be determined from available execution context.
-    Unknown,
-}
-
-/// Adapter-level trust attachment metadata.
-#[derive(Debug, Clone, Serialize, Deserialize, PartialEq, Eq)]
-#[cfg_attr(feature = "server", derive(utoipa::ToSchema))]
-#[serde(rename_all = "snake_case")]
-pub struct AdapterAttachment {
-    /// Adapter ID used during this response.
-    pub adapter_id: String,
-    /// Human-readable label when available.
-    #[serde(skip_serializing_if = "Option::is_none")]
-    pub adapter_label: Option<String>,
-    /// Adapter repository ID when immutable pin metadata is available.
-    #[serde(skip_serializing_if = "Option::is_none")]
-    pub adapter_repo_id: Option<String>,
-    /// Exact adapter version ID when immutable pin metadata is available.
-    #[serde(skip_serializing_if = "Option::is_none")]
-    pub adapter_version_id: Option<String>,
-    /// Why this adapter was attached.
-    pub attach_reason: AdapterAttachReason,
-}
-
-/// Machine-readable degraded/failure taxonomy for chat trust surfaces.
-#[derive(Debug, Clone, Serialize, Deserialize, PartialEq, Eq)]
-#[cfg_attr(feature = "server", derive(utoipa::ToSchema))]
-#[serde(rename_all = "snake_case")]
-pub enum DegradedNoticeKind {
-    AttachFailure,
-    WorkerSemanticFallback,
-    RoutingOverride,
-    BlockedPins,
-    WorkerUnavailable,
-    FfiAttachFailure,
-}
-
-/// Severity level for degraded/failure notices.
-#[derive(Debug, Clone, Serialize, Deserialize, PartialEq, Eq)]
-#[cfg_attr(feature = "server", derive(utoipa::ToSchema))]
-#[serde(rename_all = "snake_case")]
-pub enum DegradedNoticeLevel {
-    Info,
-    Warning,
-    Critical,
-}
-
-/// Explicit degraded/fallback notice payload.
-#[derive(Debug, Clone, Serialize, Deserialize, PartialEq, Eq)]
-#[cfg_attr(feature = "server", derive(utoipa::ToSchema))]
-#[serde(rename_all = "snake_case")]
-pub struct DegradedNotice {
-    /// Taxonomy key for deterministic client handling.
-    pub kind: DegradedNoticeKind,
-    /// Severity for rendering priority.
-    pub level: DegradedNoticeLevel,
-    /// Plain-language operator message.
-    pub message: String,
-    /// True when behavior may differ semantically from the expected path.
-    #[serde(default)]
-    pub meaning_changed: bool,
 }
 
 impl Citation {

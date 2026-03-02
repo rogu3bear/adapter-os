@@ -32,19 +32,6 @@ export interface DoneEvent {
   prompt_tokens?: number;
   completion_tokens?: number;
   backend_used?: string;
-  citations?: Array<{
-    adapter_id: string;
-    file_path: string;
-    chunk_id: string;
-    offset_start?: number;
-    offset_end?: number;
-    preview: string;
-    page_number?: number;
-    relevance_score?: number;
-    rank?: number;
-    citation_id?: string;
-  }>;
-  adapters_used?: string[];
 }
 
 export interface AdapterState {
@@ -109,20 +96,6 @@ export function adapterStateUpdate(adapters: AdapterState[]): string {
 
 /** Build a Done SSE event. */
 export function doneEvent(opts: Partial<DoneEvent> = {}): string {
-  // Ensure citation objects include all required fields for the API Citation struct.
-  const citations = opts.citations?.map((c) => ({
-    adapter_id: c.adapter_id,
-    file_path: c.file_path,
-    chunk_id: c.chunk_id,
-    offset_start: c.offset_start ?? 0,
-    offset_end: c.offset_end ?? 0,
-    preview: c.preview ?? '',
-    ...(c.page_number != null && { page_number: c.page_number }),
-    ...(c.relevance_score != null && { relevance_score: c.relevance_score }),
-    ...(c.rank != null && { rank: c.rank }),
-    ...(c.citation_id && { citation_id: c.citation_id }),
-  }));
-
   return sseBlock({
     data: JSON.stringify({
       event: 'Done',
@@ -132,8 +105,6 @@ export function doneEvent(opts: Partial<DoneEvent> = {}): string {
       ...(opts.prompt_tokens != null && { prompt_tokens: opts.prompt_tokens }),
       ...(opts.completion_tokens != null && { completion_tokens: opts.completion_tokens }),
       ...(opts.backend_used && { backend_used: opts.backend_used }),
-      ...(citations?.length && { citations }),
-      ...(opts.adapters_used?.length && { adapters_used: opts.adapters_used }),
     }),
   });
 }
@@ -155,14 +126,11 @@ export function errorEvent(opts: ErrorEvent): string {
 
 export interface StreamOpts {
   runId?: string;
-  traceId?: string;
   text?: string;
   tokens?: string[];
   adapters?: AdapterState[];
   totalTokens?: number;
   latencyMs?: number;
-  citations?: DoneEvent['citations'];
-  adaptersUsed?: string[];
 }
 
 /**
@@ -189,15 +157,10 @@ export function buildStream(opts: StreamOpts = {}): string {
     doneEvent({
       total_tokens: opts.totalTokens ?? 8,
       latency_ms: opts.latencyMs ?? 50,
-      trace_id: opts.traceId ?? runId,
-      citations: opts.citations,
-      adapters_used: opts.adaptersUsed,
     })
   );
 
-  // Trailing newline so the last event gets its \n\n terminator.
-  // Without this, the WASM SSE parser leaves the Done event unprocessed.
-  return parts.join('\n') + '\n';
+  return parts.join('\n');
 }
 
 // ---------------------------------------------------------------------------

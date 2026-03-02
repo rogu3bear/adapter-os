@@ -22,7 +22,6 @@
 use adapteros_core::AosError;
 use adapteros_db::adapters::AtomicDualWriteConfig;
 use adapteros_server_api::config::{is_production, Config};
-use sqlx::Row;
 use std::sync::atomic::{AtomicU64, Ordering};
 use std::sync::{Arc, RwLock};
 use tracing::{error, info, warn};
@@ -1866,7 +1865,7 @@ fn uses_default_var_path(raw: &str) -> bool {
     candidate == "var" || candidate.starts_with("var/")
 }
 
-/// Evaluates invariant report and fails if fatal violations require boot blocking.
+/// Evaluates invariant report and fails if fatal violations exist in production.
 ///
 /// # Arguments
 ///
@@ -1875,7 +1874,7 @@ fn uses_default_var_path(raw: &str) -> bool {
 ///
 /// # Returns
 ///
-/// Returns `Ok(())` if startup is allowed, or `Err` with details if blocked.
+/// Returns `Ok(())` if no fatal violations, or `Err` with details if blocked.
 pub fn enforce_invariants(report: &InvariantReport, production: bool) -> Result<(), AosError> {
     // Log all violations
     for violation in &report.violations {
@@ -1920,13 +1919,8 @@ pub fn enforce_invariants(report: &InvariantReport, production: bool) -> Result<
         );
     }
 
-    // DAT-008 is strict fail-closed across all modes; other fatal checks stay production-gated.
-    let has_dat_008_fatal = report
-        .violations
-        .iter()
-        .any(|v| v.id == "DAT-008" && v.is_fatal());
-
-    if (production && report.has_fatal_violations()) || has_dat_008_fatal {
+    // In production, fatal violations block startup
+    if production && report.has_fatal_violations() {
         let fatal_ids: Vec<&str> = report
             .violations
             .iter()
@@ -1984,9 +1978,6 @@ fn collect_disabled_invariants(
     }
     if cfg.disable_dat_007_audit_chain {
         disabled.push("DAT-007");
-    }
-    if cfg.disable_dat_008_schema_contract {
-        disabled.push("DAT-008");
     }
     if cfg.disable_lif_002_executor_init {
         disabled.push("LIF-002");
@@ -2078,55 +2069,6 @@ fn collect_disabled_invariants(
     disabled
 }
 
-async fn find_missing_schema_contract_columns(
-    pool: &sqlx::SqlitePool,
-) -> Result<Vec<String>, sqlx::Error> {
-    const REQUIRED_COLUMNS: [(&str, &str); 13] = [
-        ("workers", "last_seen_at"),
-        ("system_settings", "value"),
-        ("inference_trace_tokens", "selected_adapter_ids"),
-        ("inference_trace_tokens", "gates_q15"),
-        ("training_dataset_rows", "prompt"),
-        ("training_dataset_rows", "response"),
-        ("training_dataset_rows", "source_line"),
-        ("plans", "cpid"),
-        ("plans", "metallib_hash_b3"),
-        ("plans", "kernel_hashes_json"),
-        ("telemetry_events", "event_data"),
-        ("request_log", "status_code"),
-        ("request_log", "latency_ms"),
-    ];
-
-    let mut missing = Vec::new();
-
-    for (table, column) in REQUIRED_COLUMNS {
-        let table_exists = sqlx::query_scalar::<_, i64>(
-            "SELECT COUNT(*) FROM sqlite_master WHERE type='table' AND name = ?",
-        )
-        .bind(table)
-        .fetch_one(pool)
-        .await?
-            > 0;
-
-        if !table_exists {
-            missing.push(format!("{}.{}", table, column));
-            continue;
-        }
-
-        let pragma_sql = format!("PRAGMA table_info({})", table);
-        let columns = sqlx::query(&pragma_sql).fetch_all(pool).await?;
-        let has_column = columns
-            .iter()
-            .any(|row| row.get::<String, _>("name") == column);
-
-        if !has_column {
-            missing.push(format!("{}.{}", table, column));
-        }
-    }
-
-    Ok(missing)
-}
-
 /// Validate invariants that require a live database connection.
 ///
 /// # Checked Invariants
@@ -2137,7 +2079,6 @@ async fn find_missing_schema_contract_columns(
 /// | `DAT-002` | Foreign key constraints enabled | Yes |
 /// | `DAT-006` | Migration table exists and has entries | Yes |
 /// | `DAT-007` | Audit chain table initialized | No (warning) |
-/// | `DAT-008` | Required schema columns exist | Yes (all modes) |
 pub async fn validate_post_db_invariants(
     config: &Arc<RwLock<Config>>,
     pool: &sqlx::SqlitePool,
@@ -2273,40 +2214,6 @@ pub async fn validate_post_db_invariants(
                         Severity::Warning
                     },
                     remediation: "Ensure database is accessible and migrations have run",
-                });
-            }
-        }
-    }
-
-    // =========================================================================
-    // DAT-008: Required schema columns exist
-    // =========================================================================
-    if invariants_config.disable_dat_008_schema_contract {
-        report.record_skip("DAT-008");
-    } else {
-        match find_missing_schema_contract_columns(pool).await {
-            Ok(missing) if missing.is_empty() => {
-                report.record_pass();
-            }
-            Ok(missing) => {
-                report.record_violation(InvariantViolation {
-                    id: "DAT-008",
-                    category: InvariantCategory::Database,
-                    message: format!(
-                        "Schema contract violation: missing required columns: {}",
-                        missing.join(", ")
-                    ),
-                    severity: Severity::Fatal,
-                    remediation: "Run migrations to restore the required schema contract",
-                });
-            }
-            Err(e) => {
-                report.record_violation(InvariantViolation {
-                    id: "DAT-008",
-                    category: InvariantCategory::Database,
-                    message: format!("Failed to validate schema contract: {}", e),
-                    severity: Severity::Fatal,
-                    remediation: "Ensure database is accessible and required tables exist",
                 });
             }
         }

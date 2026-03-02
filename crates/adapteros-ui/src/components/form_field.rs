@@ -9,12 +9,8 @@
 //!
 //! Optional hint text can be added below the label for additional context.
 
-use leptos::context::Provider;
 use leptos::prelude::*;
-use std::sync::atomic::{AtomicU64, Ordering};
 use wasm_bindgen::JsCast;
-
-static FORM_FIELD_ID_SEQ: AtomicU64 = AtomicU64::new(1);
 
 /// Context provided by FormField for child inputs.
 #[derive(Clone)]
@@ -126,8 +122,7 @@ pub fn FormField(
     error: Option<Signal<Option<String>>>,
     children: Children,
 ) -> impl IntoView {
-    let field_seq = FORM_FIELD_ID_SEQ.fetch_add(1, Ordering::Relaxed);
-    let field_id = format!("field-{}-{}", name, field_seq);
+    let field_id = format!("field-{}", name);
     let help_id = format!("{}-help", field_id);
     let error_id = format!("{}-error", field_id);
 
@@ -146,6 +141,12 @@ pub fn FormField(
         }
     };
 
+    provide_context(FormFieldContext {
+        field_id: field_id.clone(),
+        described_by: described_by.clone(),
+        required,
+    });
+
     view! {
         <div class="form-field">
             <LabelWithHelp
@@ -155,13 +156,7 @@ pub fn FormField(
                 help=help.clone()
             />
             <div class="form-field-control">
-                <Provider value=FormFieldContext {
-                    field_id: field_id.clone(),
-                    described_by: described_by.clone(),
-                    required,
-                }>
-                    {children()}
-                </Provider>
+                {children()}
             </div>
             {help.map(|text| view! {
                 <p id=help_id class="form-field-help">{text}</p>

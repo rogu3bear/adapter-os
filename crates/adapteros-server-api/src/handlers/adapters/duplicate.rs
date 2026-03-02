@@ -39,7 +39,7 @@ pub struct DuplicateAdapterRequest {
 /// Duplicate an existing adapter
 ///
 /// Creates a copy of an adapter with a new ID. The duplicate will have
-/// the original adapter set as its parent and fork_type="extension".
+/// the original adapter set as its parent and fork_type="duplicate".
 #[utoipa::path(
     post,
     path = "/v1/adapters/{adapter_id}/duplicate",

@@ -10,7 +10,7 @@ use crate::api::{
     UiInferenceTraceDetailResponse, UiTraceReceiptSummary,
 };
 use crate::components::async_state::ErrorDisplay;
-use crate::components::{IconX, Spinner};
+use crate::components::Spinner;
 use crate::constants::pagination::{TOKEN_DECISIONS_DOM_CAP, TOKEN_DECISIONS_PAGE_SIZE};
 use crate::hooks::LoadingState;
 use crate::signals::{perf_logging_enabled, try_use_notifications};
@@ -605,10 +605,12 @@ pub fn TokenDecisionsPaged(
                     has_more.set(detail.token_decisions_has_more);
                     if perf_enabled {
                         let elapsed_ms = started_at.elapsed().as_millis();
-                        crate::debug_log!(
-                            "[perf] token decisions page: {}ms (trace_id={})",
-                            elapsed_ms,
-                            trace_id
+                        web_sys::console::log_1(
+                            &format!(
+                                "[perf] token decisions page: {}ms (trace_id={})",
+                                elapsed_ms, trace_id
+                            )
+                            .into(),
                         );
                     }
                 }
@@ -616,7 +618,9 @@ pub fn TokenDecisionsPaged(
                     if let Some(notifications) = notifications {
                         notifications.error("Token decisions fetch failed", &err.to_string());
                     } else {
-                        crate::debug_warn!("Token decisions fetch failed: {}", err);
+                        web_sys::console::warn_1(
+                            &format!("Token decisions fetch failed: {}", err).into(),
+                        );
                     }
                 }
             }
@@ -835,8 +839,8 @@ pub fn TracePanel(
     let focus_origin: Arc<Mutex<Option<(String, bool)>>> = Arc::new(Mutex::new(None));
     let focus_origin_for_cleanup = focus_origin.clone();
 
-    let panel_ref_for_focus = panel_ref;
-    let close_button_ref_for_focus = close_button_ref;
+    let panel_ref_for_focus = panel_ref.clone();
+    let close_button_ref_for_focus = close_button_ref.clone();
     Effect::new(move |_| {
         if let Some(document) = web_sys::window().and_then(|window| window.document()) {
             let trigger_focus = document.active_element().map(|active| {
@@ -854,8 +858,8 @@ pub fn TracePanel(
             }
         }
 
-        let panel_ref = panel_ref_for_focus;
-        let close_button_ref = close_button_ref_for_focus;
+        let panel_ref = panel_ref_for_focus.clone();
+        let close_button_ref = close_button_ref_for_focus.clone();
         gloo_timers::callback::Timeout::new(0, move || {
             if let Some(close_button) = close_button_ref.get() {
                 let _ = close_button.focus();
@@ -885,8 +889,8 @@ pub fn TracePanel(
         }
     });
 
-    let panel_ref_for_keydown = panel_ref;
-    let on_close_for_keydown = on_close;
+    let panel_ref_for_keydown = panel_ref.clone();
+    let on_close_for_keydown = on_close.clone();
     let on_panel_keydown = move |ev: web_sys::KeyboardEvent| match ev.key().as_str() {
         "Escape" => {
             ev.prevent_default();
@@ -938,7 +942,7 @@ pub fn TracePanel(
         _ => {}
     };
 
-    let on_close_for_button = on_close;
+    let on_close_for_button = on_close.clone();
 
     view! {
         <div class="fixed inset-0 z-50 flex items-center justify-center bg-background/80 backdrop-blur-sm">
@@ -977,7 +981,9 @@ pub fn TracePanel(
                             }
                         }
                     >
-                        <IconX class="w-5 h-5"/>
+                        <svg class="w-5 h-5" fill="none" stroke="currentColor" viewBox="0 0 24 24">
+                            <path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M6 18L18 6M6 6l12 12"/>
+                        </svg>
                     </button>
                 </div>
                 <p id="trace-panel-description" class="sr-only">

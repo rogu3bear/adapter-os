@@ -68,7 +68,7 @@ impl Gate for MetallibGate {
              LIMIT 1"
         )
         .bind(&config.cpid)
-        .fetch_optional(db.pool_result()?)
+        .fetch_optional(db.pool())
         .await?
         .ok_or_else(|| AosError::NotFound(format!("No plan found for CPID: {}", config.cpid)))?;
 

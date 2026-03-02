@@ -43,7 +43,6 @@ pub mod api_config;
 pub mod app_state;
 pub mod background_tasks;
 pub mod egress_monitor;
-pub mod inference_warmup;
 
 mod config;
 pub mod database;
@@ -69,7 +68,6 @@ pub use database::{initialize_database, DatabaseContext};
 pub use executor::{derive_executor_seed, initialize_executor, ExecutorContext};
 pub use federation::{initialize_federation, FederationContext};
 pub use finalization::{finalize_boot, write_boot_report, BindConfig, BootArtifacts};
-pub use inference_warmup::run_startup_inference_warmup;
 pub use invariants::{
     boot_invariant_metrics, enforce_invariants, validate_boot_invariants,
     validate_post_db_invariants, BootInvariantMetrics, InvariantReport, InvariantViolation,

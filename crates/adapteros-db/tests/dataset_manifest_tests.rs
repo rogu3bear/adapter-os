@@ -28,7 +28,7 @@ async fn manifest_helpers_round_trip_and_enforce_tenant() -> Result<()> {
     sqlx::query("UPDATE training_datasets SET tenant_id = ? WHERE id = ?")
         .bind(&tenant_a)
         .bind(&dataset_id)
-        .execute(db.pool_result()?)
+        .execute(db.pool())
         .await?;
 
     let version_id = db

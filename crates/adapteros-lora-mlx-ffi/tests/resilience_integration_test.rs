@@ -63,7 +63,6 @@ mod resilience_tests {
             position: 0,
             attention_entropy: None,
             activations: None,
-            session_id: None,
         }
     }
 
@@ -228,7 +227,7 @@ mod resilience_tests {
 
     #[test]
     fn test_adapter_registration() {
-        let mut backend = create_test_backend();
+        let backend = create_test_backend();
 
         // Create and register an adapter
         let adapter = adapteros_lora_mlx_ffi::mock::create_mock_adapter("test-adapter", 4);
@@ -240,7 +239,7 @@ mod resilience_tests {
 
     #[test]
     fn test_adapter_hot_swap() {
-        let mut backend = create_test_backend();
+        let backend = create_test_backend();
 
         // Load adapter
         let adapter1 = adapteros_lora_mlx_ffi::mock::create_mock_adapter("adapter1", 4);

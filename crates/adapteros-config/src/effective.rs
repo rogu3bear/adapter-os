@@ -22,9 +22,8 @@
 use crate::guards::ConfigGuards;
 use crate::precedence::DeterministicConfig;
 use crate::schema::parse_bool;
+use crate::ConfigLoader;
 use crate::CoreMLComputePreference;
-use crate::{ConfigLoader, LoaderOptions};
-use adapteros_core::defaults::{DEFAULT_SERVER_HOST, DEFAULT_SERVER_PORT};
 use adapteros_core::{AosError, BackendKind, Result, SeedMode};
 use serde::{Deserialize, Serialize};
 use std::collections::HashMap;
@@ -82,12 +81,6 @@ pub struct EffectiveConfig {
     pub model_server: ModelServerSection,
     /// Worker safety configuration (timeouts and resource limits)
     pub worker_safety: WorkerSafetySection,
-    /// Instance identity (from manifest)
-    pub instance: InstanceSection,
-    /// Service toggles (from manifest)
-    pub services: ServicesSection,
-    /// Boot behavior (from manifest)
-    pub boot: BootSection,
     /// Source tracking for each config key
     sources: HashMap<String, String>,
     /// Whether running in production mode
@@ -97,7 +90,7 @@ pub struct EffectiveConfig {
 /// Server section configuration
 #[derive(Debug, Clone, Serialize, Deserialize)]
 pub struct ServerSection {
-    /// Server port (1-65535, default: 18080)
+    /// Server port (1-65535, default: 8080)
     pub port: u16,
     /// Bind address (default: 127.0.0.1)
     pub host: String,
@@ -422,10 +415,6 @@ pub struct DiagnosticsSection {
     pub batch_size: usize,
     /// Batch timeout in milliseconds (flush after T ms even if batch incomplete)
     pub batch_timeout_ms: u64,
-    /// Max consecutive persist failures before stale batch escalation
-    pub stale_batch_max_attempts: u32,
-    /// Max retry age in seconds before stale batch escalation
-    pub stale_batch_max_age_secs: u64,
 }
 
 /// Uploads section configuration
@@ -467,13 +456,8 @@ pub struct CircuitBreakerSection {
 pub struct ModelServerSection {
     /// Enable Model Server mode (workers connect to shared server)
     pub enabled: bool,
-    /// gRPC server address (e.g., "http://127.0.0.1:18085") for TCP deployments.
-    ///
-    /// Compatibility path: if `socket_path` is set, worker-side clients prefer UDS and this
-    /// address is treated as legacy fallback metadata.
+    /// gRPC server address (e.g., "http://127.0.0.1:50051")
     pub server_addr: String,
-    /// Unix domain socket path for UDS-first hardened deployments.
-    pub socket_path: Option<PathBuf>,
     /// Maximum KV cache sessions
     pub max_kv_cache_sessions: u32,
     /// Hot adapter promotion threshold (0.0 to 1.0)
@@ -486,8 +470,7 @@ impl Default for ModelServerSection {
     fn default() -> Self {
         Self {
             enabled: false,
-            server_addr: "http://127.0.0.1:18085".to_string(),
-            socket_path: None,
+            server_addr: "http://127.0.0.1:50051".to_string(),
             max_kv_cache_sessions: 32,
             hot_adapter_threshold: 0.10,
             kv_cache_limit_mb: 0,
@@ -533,14 +516,6 @@ pub struct WorkerSafetySection {
     pub max_cpu_time_secs: u64,
     /// Maximum consecutive failures (default: 3)
     pub max_consecutive_failures: u32,
-    /// Deadlock detector interval in seconds (default: 5)
-    pub deadlock_check_interval_secs: u64,
-    /// Maximum lock wait time before deadlock check in seconds (default: 30)
-    pub max_wait_time_secs: u64,
-    /// Maximum nested lock depth before warning (default: 10)
-    pub max_lock_depth: usize,
-    /// Timeout for deadlock recovery attempts in seconds (default: 10)
-    pub recovery_timeout_secs: u64,
 }
 
 impl Default for WorkerSafetySection {
@@ -562,53 +537,8 @@ impl Default for WorkerSafetySection {
             max_memory_growth_mb: 100,
             max_cpu_time_secs: 300,
             max_consecutive_failures: 3,
-            deadlock_check_interval_secs: 5,
-            max_wait_time_secs: 30,
-            max_lock_depth: 10,
-            recovery_timeout_secs: 10,
         }
     }
-}
-
-/// Instance identity section (from manifest [instance])
-#[derive(Debug, Clone, Serialize, Deserialize)]
-pub struct InstanceSection {
-    /// Human-readable instance name
-    pub name: String,
-    /// Profile used to generate this manifest (dev/production/reference)
-    pub profile: String,
-    /// ISO 8601 timestamp when manifest was generated
-    pub generated_at: Option<String>,
-    /// Manifest schema version
-    pub schema_version: u32,
-}
-
-/// Service toggle section (from manifest [services])
-#[derive(Debug, Clone, Serialize, Deserialize)]
-pub struct ServicesSection {
-    /// Start the LoRA worker process
-    pub worker: bool,
-    /// Start the Secure Enclave Daemon
-    pub secd: bool,
-    /// Start the Node Agent
-    pub node: bool,
-    /// Enable quick boot (skip non-essential checks)
-    pub quick_boot: bool,
-}
-
-/// Boot behavior section (from manifest [boot])
-#[derive(Debug, Clone, Serialize, Deserialize)]
-pub struct BootSection {
-    /// Logging profile (json/plain/debug/trace)
-    pub log_profile: String,
-    /// Health endpoint timeout in seconds
-    pub health_timeout_secs: u64,
-    /// Readiness endpoint timeout in seconds
-    pub readyz_timeout_secs: u64,
-    /// Auto-seed model into database on boot
-    pub auto_seed_model: bool,
-    /// Verify chat response after readiness
-    pub verify_chat: bool,
 }
 
 /// Source of a configuration value (for debugging/observability)
@@ -669,9 +599,6 @@ impl EffectiveConfig {
         let circuit_breaker = Self::build_circuit_breaker_section(&config);
         let model_server = Self::build_model_server_section(&config);
         let worker_safety = Self::build_worker_safety_section(&config);
-        let instance = Self::build_instance_section(&config);
-        let services = Self::build_services_section(&config);
-        let boot = Self::build_boot_section(&config);
 
         let effective_config = Self {
             inner: config,
@@ -694,9 +621,6 @@ impl EffectiveConfig {
             circuit_breaker,
             model_server,
             worker_safety,
-            instance,
-            services,
-            boot,
             sources,
             is_production,
         };
@@ -1027,11 +951,11 @@ impl EffectiveConfig {
             port: config
                 .get("server.port")
                 .and_then(|v| v.parse().ok())
-                .unwrap_or(DEFAULT_SERVER_PORT),
+                .unwrap_or(8080),
             host: config
                 .get("server.host")
                 .cloned()
-                .unwrap_or_else(|| DEFAULT_SERVER_HOST.to_string()),
+                .unwrap_or_else(|| "127.0.0.1".to_string()),
             production_mode: config
                 .get("server.production.mode")
                 .map(|v| v == "true")
@@ -1292,10 +1216,7 @@ impl EffectiveConfig {
                 .get("model.cache.max.mb")
                 .and_then(|v| v.parse().ok()),
             tokenizer_path: config.get("tokenizer.path").map(PathBuf::from),
-            manifest_path: config
-                .get("manifest.path")
-                .or_else(|| config.get("model.manifest"))
-                .map(PathBuf::from),
+            manifest_path: config.get("manifest.path").map(PathBuf::from),
         }
     }
 
@@ -1434,16 +1355,6 @@ impl EffectiveConfig {
             .and_then(|v| v.parse().ok())
             .unwrap_or(500);
 
-        let stale_batch_max_attempts = config
-            .get("diag.stale_batch_max_attempts")
-            .and_then(|v| v.parse().ok())
-            .unwrap_or(5);
-
-        let stale_batch_max_age_secs = config
-            .get("diag.stale_batch_max_age_secs")
-            .and_then(|v| v.parse().ok())
-            .unwrap_or(300);
-
         DiagnosticsSection {
             enabled,
             level,
@@ -1451,8 +1362,6 @@ impl EffectiveConfig {
             max_events_per_run,
             batch_size,
             batch_timeout_ms,
-            stale_batch_max_attempts,
-            stale_batch_max_age_secs,
         }
     }
 
@@ -1549,15 +1458,7 @@ impl EffectiveConfig {
         let server_addr = config
             .get("model_server.server_addr")
             .map(|s| s.to_string())
-            .unwrap_or_else(|| "http://127.0.0.1:18085".to_string());
-        let mut socket_path = config
-            .get("model_server.socket_path")
-            .map(|value| value.trim())
-            .filter(|value| !value.is_empty())
-            .map(PathBuf::from);
-        if socket_path.is_none() && server_addr.starts_with("unix://") {
-            socket_path = Some(PathBuf::from(server_addr.trim_start_matches("unix://")));
-        }
+            .unwrap_or_else(|| "http://127.0.0.1:50051".to_string());
 
         let max_kv_cache_sessions = config
             .get("model_server.max_kv_cache_sessions")
@@ -1577,7 +1478,6 @@ impl EffectiveConfig {
         ModelServerSection {
             enabled,
             server_addr,
-            socket_path,
             max_kv_cache_sessions,
             hot_adapter_threshold,
             kv_cache_limit_mb,
@@ -1665,26 +1565,6 @@ impl EffectiveConfig {
             .and_then(|v| v.parse().ok())
             .unwrap_or(3);
 
-        let deadlock_check_interval_secs = config
-            .get("worker.safety.deadlock_check_interval_secs")
-            .and_then(|v| v.parse().ok())
-            .unwrap_or(5);
-
-        let max_wait_time_secs = config
-            .get("worker.safety.max_wait_time_secs")
-            .and_then(|v| v.parse().ok())
-            .unwrap_or(30);
-
-        let max_lock_depth = config
-            .get("worker.safety.max_lock_depth")
-            .and_then(|v| v.parse().ok())
-            .unwrap_or(10);
-
-        let recovery_timeout_secs = config
-            .get("worker.safety.recovery_timeout_secs")
-            .and_then(|v| v.parse().ok())
-            .unwrap_or(10);
-
         WorkerSafetySection {
             inference_timeout_secs,
             evidence_timeout_secs,
@@ -1702,75 +1582,6 @@ impl EffectiveConfig {
             max_memory_growth_mb,
             max_cpu_time_secs,
             max_consecutive_failures,
-            deadlock_check_interval_secs,
-            max_wait_time_secs,
-            max_lock_depth,
-            recovery_timeout_secs,
-        }
-    }
-
-    fn build_instance_section(config: &DeterministicConfig) -> InstanceSection {
-        InstanceSection {
-            name: config
-                .get("instance.name")
-                .cloned()
-                .unwrap_or_else(|| "default".to_string()),
-            profile: config
-                .get("instance.profile")
-                .cloned()
-                .unwrap_or_else(|| "dev".to_string()),
-            generated_at: config.get("instance.generated_at").cloned(),
-            schema_version: config
-                .get("instance.schema_version")
-                .and_then(|v| v.parse().ok())
-                .unwrap_or(1),
-        }
-    }
-
-    fn build_services_section(config: &DeterministicConfig) -> ServicesSection {
-        ServicesSection {
-            worker: config
-                .get("services.worker")
-                .and_then(|v| parse_bool(v).ok())
-                .unwrap_or(true),
-            secd: config
-                .get("services.secd")
-                .and_then(|v| parse_bool(v).ok())
-                .unwrap_or(false),
-            node: config
-                .get("services.node")
-                .and_then(|v| parse_bool(v).ok())
-                .unwrap_or(false),
-            quick_boot: config
-                .get("services.quick_boot")
-                .or_else(|| config.get("boot.quick"))
-                .and_then(|v| parse_bool(v).ok())
-                .unwrap_or(false),
-        }
-    }
-
-    fn build_boot_section(config: &DeterministicConfig) -> BootSection {
-        BootSection {
-            log_profile: config
-                .get("boot.log_profile")
-                .cloned()
-                .unwrap_or_else(|| "json".to_string()),
-            health_timeout_secs: config
-                .get("boot.health_timeout_secs")
-                .and_then(|v| v.parse().ok())
-                .unwrap_or(15),
-            readyz_timeout_secs: config
-                .get("boot.readyz_timeout_secs")
-                .and_then(|v| v.parse().ok())
-                .unwrap_or(30),
-            auto_seed_model: config
-                .get("boot.auto_seed_model")
-                .and_then(|v| parse_bool(v).ok())
-                .unwrap_or(false),
-            verify_chat: config
-                .get("boot.verify_chat")
-                .and_then(|v| parse_bool(v).ok())
-                .unwrap_or(false),
         }
     }
 
@@ -1818,32 +1629,20 @@ pub fn init_effective_config(
     toml_path: Option<&str>,
     cli_args: Vec<String>,
 ) -> Result<&'static EffectiveConfig> {
-    if let Some(existing) = EFFECTIVE_CONFIG.get() {
-        return Ok(existing);
-    }
-
     // Load .env file first
     crate::model::load_dotenv();
     ConfigGuards::initialize()?;
 
     // Load via ConfigLoader with precedence: CLI > ENV > TOML > defaults
-    let loader = ConfigLoader::with_options(LoaderOptions {
-        allow_unknown_keys: true,
-        ..LoaderOptions::default()
-    });
+    let loader = ConfigLoader::new();
     let config = loader.load(cli_args, toml_path.map(String::from))?;
 
     // Build EffectiveConfig from DeterministicConfig
     let effective = EffectiveConfig::from_deterministic(config)?;
 
-    if EFFECTIVE_CONFIG.set(effective).is_err() {
-        if let Some(existing) = EFFECTIVE_CONFIG.get() {
-            return Ok(existing);
-        }
-        return Err(AosError::Config(
-            "EffectiveConfig already initialized".to_string(),
-        ));
-    }
+    EFFECTIVE_CONFIG
+        .set(effective)
+        .map_err(|_| AosError::Config("EffectiveConfig already initialized".to_string()))?;
 
     // Prevent further environment access after init
     ConfigGuards::freeze()?;
@@ -2090,33 +1889,6 @@ mod tests {
 
         assert!((effective.health.adapter.drift_hard_threshold - 0.15).abs() < f64::EPSILON);
         assert!((effective.health.adapter.high_tier_block_threshold - 0.10).abs() < f64::EPSILON);
-    }
-
-    #[test]
-    fn diagnostics_section_uses_stale_batch_defaults_and_overrides() {
-        use crate::precedence::DeterministicConfig;
-        use std::collections::HashMap;
-
-        let empty = DeterministicConfig::new_for_test(HashMap::new());
-        let default_effective =
-            EffectiveConfig::from_deterministic(empty).expect("default config should build");
-        assert_eq!(default_effective.diagnostics.stale_batch_max_attempts, 5);
-        assert_eq!(default_effective.diagnostics.stale_batch_max_age_secs, 300);
-
-        let mut values = HashMap::new();
-        values.insert("diag.stale_batch_max_attempts".to_string(), "9".to_string());
-        values.insert(
-            "diag.stale_batch_max_age_secs".to_string(),
-            "42".to_string(),
-        );
-        let overridden = DeterministicConfig::new_for_test(values);
-        let overridden_effective = EffectiveConfig::from_deterministic(overridden)
-            .expect("diagnostics override config should build");
-        assert_eq!(overridden_effective.diagnostics.stale_batch_max_attempts, 9);
-        assert_eq!(
-            overridden_effective.diagnostics.stale_batch_max_age_secs,
-            42
-        );
     }
 
     #[test]

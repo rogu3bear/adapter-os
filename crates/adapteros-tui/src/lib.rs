@@ -34,7 +34,7 @@ use ui::draw;
 /// Run the TUI dashboard
 ///
 /// # Arguments
-/// * `server_url` - Optional server URL override (default: http://localhost:18080)
+/// * `server_url` - Optional server URL override (default: http://localhost:8080)
 ///
 /// # Returns
 /// * `Ok(())` on successful exit

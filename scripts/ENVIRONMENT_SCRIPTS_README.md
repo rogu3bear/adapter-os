@@ -150,7 +150,7 @@ Your environment is configured! Next steps:
 2. Build the UI (Leptos WASM, served by backend):
    cd crates/adapteros-ui && trunk build --release
 
-3. Access the UI at http://localhost:18080
+3. Access the UI at http://localhost:8080
 
 ✅ Setup complete. Happy coding!
 ```
@@ -196,9 +196,9 @@ Your environment is configured! Next steps:
 
 === SERVER CONFIGURATION ===
 [CHECK] AOS_SERVER_PORT is set
-[PASS] AOS_SERVER_PORT=18080
-[CHECK] Port 18080 is available
-[PASS] Port 18080 is available
+[PASS] AOS_SERVER_PORT=8080
+[CHECK] Port 8080 is available
+[PASS] Port 8080 is available
 
 === DATABASE CONFIGURATION ===
 [CHECK] AOS_DATABASE_URL is set
@@ -518,63 +518,10 @@ chmod +x scripts/*.sh
 cargo run --release -p adapteros-server-api
 
 # Test connection
-curl http://localhost:18080/healthz
+curl http://localhost:8080/healthz
 
 # View logs
 RUST_LOG=debug cargo run --release -p adapteros-server-api
-```
-
----
-
-## Build Target Guardrails (Core Scripts)
-
-Core build/dev scripts now support flow-partitioned targets and incremental cache guardrails:
-
-- `scripts/ui-dev.sh`
-- `scripts/build-ui.sh`
-- `scripts/dev-up.sh`
-- `scripts/worker-up.sh`
-- `scripts/check_cache_staleness.sh`
-- `scripts/fresh-build.sh`
-
-### Target Partition Variables
-
-```bash
-# Root for flow-partitioned targets (default: var/target)
-AOS_BUILD_TARGET_ROOT=var/target
-
-# Optional per-flow overrides
-AOS_UI_TARGET_DIR=var/target/ui
-AOS_SERVER_TARGET_DIR=var/target/server
-AOS_WORKER_TARGET_DIR=var/target/worker
-AOS_TEST_TARGET_DIR=var/target/test
-```
-
-### Cache Guardrail Variables
-
-```bash
-# Wrapper policy for script-invoked build commands
-AOS_BUILD_USE_SCCACHE=1
-
-# Incremental cache thresholds
-AOS_INCREMENTAL_WARN_GB=6
-AOS_INCREMENTAL_PRUNE_GB=10
-AOS_INCREMENTAL_MAX_AGE_HOURS=72
-AOS_AUTO_PRUNE_INCREMENTAL=1
-```
-
-### Fresh Build Behavior
-
-`scripts/fresh-build.sh` now defaults to **surgical cleanup**:
-
-- Stops services and frees ports
-- Prunes incremental caches (legacy + flow-partitioned targets)
-- Skips blanket `cargo clean` and static/dist wipes unless requested
-
-Use full legacy cleanup explicitly:
-
-```bash
-./scripts/fresh-build.sh --full-clean
 ```
 
 ---

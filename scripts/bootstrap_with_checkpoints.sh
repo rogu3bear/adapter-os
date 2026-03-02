@@ -189,10 +189,10 @@ download_qwen() {
     
     echo "Downloading Qwen 2.5 7B model..."
     
-    if [[ -f "scripts/download-model.sh" ]]; then
-        bash scripts/download-model.sh
+    if [[ -f "scripts/download_model.sh" ]]; then
+        bash scripts/download_model.sh
     else
-        echo "Warning: scripts/download-model.sh not found"
+        echo "Warning: scripts/download_model.sh not found"
         echo "You'll need to manually download and import models"
     fi
 }

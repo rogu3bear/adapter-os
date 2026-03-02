@@ -184,7 +184,7 @@ async fn seed_dataset_version(
     .bind(trust_state)
     .bind(trust_state)
     .bind(version_id)
-    .execute(state.db.pool_result().expect("db pool"))
+    .execute(state.db.pool())
     .await
     .unwrap();
 }

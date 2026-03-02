@@ -29,7 +29,7 @@ async fn create_test_dataset(db: &Db, tenant_id: &str, name: &str) -> String {
     .bind(name)
     .bind(tenant_id)
     .bind("Test dataset for trust integration")
-    .execute(db.pool_result().unwrap())
+    .execute(db.pool())
     .await
     .expect("dataset created");
     id

@@ -15,7 +15,7 @@ use leptos::prelude::GetUntracked;
 /// the current page and selection. These actions are scored higher than
 /// regular results to appear at the top of the palette.
 ///
-/// Core routes only: documents, adapters, update-center, training, chat, models, workers, datasets.
+/// Core routes only: documents, adapters, training, chat, models, workers, datasets.
 pub fn generate_contextual_actions(ctx: &RouteContext) -> Vec<SearchResult> {
     let mut actions = Vec::new();
     let route = ctx.current_route.get_untracked();
@@ -51,8 +51,8 @@ pub fn generate_contextual_actions(ctx: &RouteContext) -> Vec<SearchResult> {
         }
     }
 
-    // Adapters / Update Center — run command workflow from selected skill
-    if route.starts_with("/adapters") || route.starts_with("/update-center") {
+    // Adapters — train new, test in chat
+    if route.starts_with("/adapters") {
         if let Some(ref sel) = entity {
             if sel.entity_type == "adapter" {
                 actions.push(SearchResult {
@@ -64,35 +64,8 @@ pub fn generate_contextual_actions(ctx: &RouteContext) -> Vec<SearchResult> {
                     action: SearchAction::Navigate(chat_path_with_adapter(&sel.entity_id)),
                     shortcut: None,
                 });
-                actions.push(SearchResult {
-                    id: format!("ctx-run-promote-{}", sel.entity_id),
-                    result_type: SearchResultType::Action,
-                    title: "Run Promote".to_string(),
-                    subtitle: Some(format!("{} · selected skill", sel.entity_name)),
-                    score: 2.0,
-                    action: SearchAction::Execute("run-promote-selected-adapter".to_string()),
-                    shortcut: None,
-                });
-                actions.push(SearchResult {
-                    id: format!("ctx-run-checkout-{}", sel.entity_id),
-                    result_type: SearchResultType::Action,
-                    title: "Run Checkout".to_string(),
-                    subtitle: Some(format!("{} · selected skill", sel.entity_name)),
-                    score: 1.95,
-                    action: SearchAction::Execute("run-checkout-selected-adapter".to_string()),
-                    shortcut: None,
-                });
-                actions.push(SearchResult {
-                    id: format!("ctx-feed-dataset-{}", sel.entity_id),
-                    result_type: SearchResultType::Action,
-                    title: "Feed Dataset".to_string(),
-                    subtitle: Some(format!("{} · continue with dataset", sel.entity_name)),
-                    score: 1.9,
-                    action: SearchAction::Execute("feed-dataset-selected-adapter".to_string()),
-                    shortcut: None,
-                });
             }
-        } else if route.starts_with("/adapters") {
+        } else {
             actions.push(SearchResult {
                 id: "ctx-train-new-adapter".to_string(),
                 result_type: SearchResultType::Action,
@@ -162,6 +135,39 @@ pub fn generate_contextual_actions(ctx: &RouteContext) -> Vec<SearchResult> {
                     shortcut: None,
                 });
             }
+        }
+    }
+
+    // Datasets — train from dataset, upload
+    if route.starts_with("/datasets") {
+        if let Some(ref sel) = entity {
+            if sel.entity_type == "dataset"
+                && (sel.entity_status.as_deref() == Some("ready")
+                    || sel.entity_status.as_deref() == Some("indexed"))
+            {
+                actions.push(SearchResult {
+                    id: format!("ctx-train-from-dataset-{}", sel.entity_id),
+                    result_type: SearchResultType::Action,
+                    title: "Create adapter from this training data".to_string(),
+                    subtitle: Some(sel.entity_name.clone()),
+                    score: 2.0,
+                    action: SearchAction::Navigate(format!(
+                        "/training?open_wizard=1&dataset_id={}",
+                        sel.entity_id
+                    )),
+                    shortcut: None,
+                });
+            }
+        } else {
+            actions.push(SearchResult {
+                id: "ctx-upload-dataset".to_string(),
+                result_type: SearchResultType::Action,
+                title: "Add your files".to_string(),
+                subtitle: Some("Upload files and create an adapter".to_string()),
+                score: 1.5,
+                action: SearchAction::Execute("open-dataset-upload".to_string()),
+                shortcut: None,
+            });
         }
     }
 

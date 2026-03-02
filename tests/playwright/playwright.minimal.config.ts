@@ -22,7 +22,7 @@ export default defineConfig({
   },
   reporter: [['html', { outputFolder: reportDir, open: 'never' }]],
   use: {
-    baseURL: 'http://127.0.0.1:18087',
+    baseURL: 'http://127.0.0.1:3210',
     trace: 'retain-on-failure',
     screenshot: 'only-on-failure',
     video: 'retain-on-failure',
@@ -32,8 +32,8 @@ export default defineConfig({
     { name: 'webkit', use: { browserName: 'webkit' } },
   ],
   webServer: {
-    command: 'cd ../../crates/adapteros-server/static-minimal && python -m http.server 18087',
-    url: 'http://127.0.0.1:18087/index-minimal.html',
+    command: 'cd ../../crates/adapteros-server/static-minimal && python -m http.server 3210',
+    url: 'http://127.0.0.1:3210/index-minimal.html',
     reuseExistingServer: true,
     timeout: 60_000,
   },

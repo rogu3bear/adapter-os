@@ -67,7 +67,7 @@ impl TestDbFixture {
 /// Ensure a tenant exists for fixture data and return its ID
 async fn ensure_fixture_tenant(db: &ProtectedDb) -> String {
     if let Some(id) = sqlx::query_scalar::<_, String>("SELECT id FROM tenants LIMIT 1")
-        .fetch_optional(db.pool_result().unwrap())
+        .fetch_optional(db.pool())
         .await
         .expect("Failed to query tenants")
     {
@@ -196,7 +196,7 @@ impl TestAdapterBuilder {
             )
             .bind(self.activation_count)
             .bind(&self.id)
-            .execute(db.pool_result().unwrap())
+            .execute(db.pool())
             .await
             .expect("Failed to set activation count for adapter");
         }
@@ -437,7 +437,7 @@ pub mod utils {
         let result: (i64,) =
             sqlx::query_as("SELECT COUNT(*) FROM adapters WHERE current_state = ?")
                 .bind(state)
-                .fetch_one(db.pool_result().unwrap())
+                .fetch_one(db.pool())
                 .await
                 .unwrap_or((0,));
 
@@ -447,7 +447,7 @@ pub mod utils {
     /// Count all adapters
     pub async fn count_all_adapters(db: &Db) -> i64 {
         let result: (i64,) = sqlx::query_as("SELECT COUNT(*) FROM adapters")
-            .fetch_one(db.pool_result().unwrap())
+            .fetch_one(db.pool())
             .await
             .unwrap_or((0,));
 
@@ -457,7 +457,7 @@ pub mod utils {
     /// Get total memory usage across all adapters
     pub async fn total_memory_usage(db: &Db) -> i64 {
         let result: (Option<i64>,) = sqlx::query_as("SELECT SUM(memory_bytes) FROM adapters")
-            .fetch_one(db.pool_result().unwrap())
+            .fetch_one(db.pool())
             .await
             .unwrap_or((None,));
 
@@ -468,7 +468,7 @@ pub mod utils {
     pub async fn list_adapters_with_state(db: &Db) -> Vec<(String, String)> {
         let rows: Vec<(String, String)> =
             sqlx::query_as("SELECT adapter_id, current_state FROM adapters")
-                .fetch_all(db.pool_result().unwrap())
+                .fetch_all(db.pool())
                 .await
                 .unwrap_or_default();
 
@@ -477,9 +477,7 @@ pub mod utils {
 
     /// Cleanup: reset database between tests
     pub async fn cleanup_adapters(db: &Db) {
-        let _ = sqlx::query("DELETE FROM adapters")
-            .execute(db.pool_result().unwrap())
-            .await;
+        let _ = sqlx::query("DELETE FROM adapters").execute(db.pool()).await;
     }
 }
 

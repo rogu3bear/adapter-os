@@ -5,39 +5,13 @@
 use crate::auth::Claims;
 use crate::state::AppState;
 use crate::types::*;
-use adapteros_core::error_codes;
 use axum::{extract::State, http::StatusCode, response::IntoResponse, Extension, Json};
 use chrono::{Duration, Utc};
 use serde_json::Value;
 use sqlx::Row;
 
-fn is_schema_contract_violation(message: &str) -> bool {
-    message.contains("no such table")
-        || message.contains("no such column")
-        || message.contains("has no column named")
-}
-
-fn map_metrics_db_error<E: std::fmt::Display>(error: E) -> (StatusCode, Json<ErrorResponse>) {
-    let message = error.to_string();
-    if is_schema_contract_violation(&message) {
-        return (
-            StatusCode::SERVICE_UNAVAILABLE,
-            Json(
-                ErrorResponse::new("schema contract violation")
-                    .with_code(error_codes::SCHEMA_CONTRACT_VIOLATION)
-                    .with_string_details(message),
-            ),
-        );
-    }
-
-    (
-        StatusCode::INTERNAL_SERVER_ERROR,
-        Json(
-            ErrorResponse::new("database error")
-                .with_code("DATABASE_ERROR")
-                .with_string_details(message),
-        ),
-    )
+fn is_missing_table_error(error: &sqlx::Error) -> bool {
+    error.to_string().contains("no such table")
 }
 
 struct PatchStats {
@@ -129,7 +103,19 @@ async fn fetch_patch_stats(
     .await
     {
         Ok(rows) => rows,
-        Err(e) => return Err(map_metrics_db_error(&e)),
+        Err(e) => {
+            if is_missing_table_error(&e) {
+                return Ok(PatchStats::empty());
+            }
+            return Err((
+                StatusCode::INTERNAL_SERVER_ERROR,
+                Json(
+                    ErrorResponse::new("database error")
+                        .with_code("DATABASE_ERROR")
+                        .with_string_details(e.to_string()),
+                ),
+            ));
+        }
     };
 
     let mut stats = PatchStats::empty();
@@ -157,7 +143,19 @@ async fn fetch_patch_stats(
     .await
     {
         Ok(rows) => rows,
-        Err(e) => return Err(map_metrics_db_error(&e)),
+        Err(e) => {
+            if is_missing_table_error(&e) {
+                return Ok(stats);
+            }
+            return Err((
+                StatusCode::INTERNAL_SERVER_ERROR,
+                Json(
+                    ErrorResponse::new("database error")
+                        .with_code("DATABASE_ERROR")
+                        .with_string_details(e.to_string()),
+                ),
+            ));
+        }
     };
 
     for row in validation_rows {
@@ -206,7 +204,19 @@ async fn fetch_secret_violations(
     .await
     {
         Ok(count) => count,
-        Err(e) => return Err(map_metrics_db_error(&e)),
+        Err(e) => {
+            if is_missing_table_error(&e) {
+                return Ok(0);
+            }
+            return Err((
+                StatusCode::INTERNAL_SERVER_ERROR,
+                Json(
+                    ErrorResponse::new("database error")
+                        .with_code("DATABASE_ERROR")
+                        .with_string_details(e.to_string()),
+                ),
+            ));
+        }
     };
 
     Ok(count as usize)
@@ -230,7 +240,19 @@ async fn fetch_router_metrics(
     .await
     {
         Ok(count) => count,
-        Err(e) => return Err(map_metrics_db_error(&e)),
+        Err(e) => {
+            if is_missing_table_error(&e) {
+                return Ok((0.0, 0.0, 0.0));
+            }
+            return Err((
+                StatusCode::INTERNAL_SERVER_ERROR,
+                Json(
+                    ErrorResponse::new("database error")
+                        .with_code("DATABASE_ERROR")
+                        .with_string_details(e.to_string()),
+                ),
+            ));
+        }
     };
 
     let avg_overhead: f64 = match sqlx::query_scalar::<_, Option<f64>>(
@@ -244,7 +266,19 @@ async fn fetch_router_metrics(
     .await
     {
         Ok(value) => value.unwrap_or(0.0),
-        Err(e) => return Err(map_metrics_db_error(&e)),
+        Err(e) => {
+            if is_missing_table_error(&e) {
+                return Ok((0.0, 0.0, 0.0));
+            }
+            return Err((
+                StatusCode::INTERNAL_SERVER_ERROR,
+                Json(
+                    ErrorResponse::new("database error")
+                        .with_code("DATABASE_ERROR")
+                        .with_string_details(e.to_string()),
+                ),
+            ));
+        }
     };
 
     let latencies: Vec<i64> = match sqlx::query_scalar::<_, i64>(
@@ -260,7 +294,19 @@ async fn fetch_router_metrics(
     .await
     {
         Ok(values) => values,
-        Err(e) => return Err(map_metrics_db_error(&e)),
+        Err(e) => {
+            if is_missing_table_error(&e) {
+                return Ok((0.0, 0.0, 0.0));
+            }
+            return Err((
+                StatusCode::INTERNAL_SERVER_ERROR,
+                Json(
+                    ErrorResponse::new("database error")
+                        .with_code("DATABASE_ERROR")
+                        .with_string_details(e.to_string()),
+                ),
+            ));
+        }
     };
 
     let latency_p95_ms = if latencies.is_empty() {
@@ -338,9 +384,9 @@ async fn build_code_metrics_at(
     let prev_start_str = prev_start.to_rfc3339();
     let prev_end_str = start.to_rfc3339();
 
-    let pool = state.db.pool();
-    let stats = fetch_patch_stats(pool, tenant_id, &start_str, &end_str).await?;
-    let prev_stats = fetch_patch_stats(pool, tenant_id, &prev_start_str, &prev_end_str).await?;
+    let stats = fetch_patch_stats(state.db.pool(), tenant_id, &start_str, &end_str).await?;
+    let prev_stats =
+        fetch_patch_stats(state.db.pool(), tenant_id, &prev_start_str, &prev_end_str).await?;
 
     let acceptance_rate = if stats.total > 0 {
         stats.completed as f32 / stats.total as f32
@@ -384,10 +430,11 @@ async fn build_code_metrics_at(
         0.0
     };
 
-    let secret_violations = fetch_secret_violations(pool, tenant_id, &start_str, &end_str).await?;
+    let secret_violations =
+        fetch_secret_violations(state.db.pool(), tenant_id, &start_str, &end_str).await?;
 
     let (latency_p95_ms, throughput_req_per_sec, router_overhead_pct) =
-        fetch_router_metrics(pool, tenant_id, &start_str, &end_str, duration).await?;
+        fetch_router_metrics(state.db.pool(), tenant_id, &start_str, &end_str, duration).await?;
 
     Ok(CodeMetricsResponse {
         cpid: cpid.to_string(),
@@ -454,7 +501,16 @@ pub async fn get_adapter_metrics(
         .db
         .list_adapters_for_tenant(&claims.tenant_id)
         .await
-        .map_err(map_metrics_db_error)?;
+        .map_err(|e| {
+            (
+                StatusCode::INTERNAL_SERVER_ERROR,
+                Json(
+                    ErrorResponse::new("failed to list adapters")
+                        .with_code("INTERNAL_SERVER_ERROR")
+                        .with_string_details(e.to_string()),
+                ),
+            )
+        })?;
 
     let mut performances = Vec::new();
     for adapter in adapters {
@@ -465,7 +521,7 @@ pub async fn get_adapter_metrics(
                 adapter.adapter_id.as_ref().unwrap_or(&adapter.id),
             )
             .await
-            .map_err(map_metrics_db_error)?;
+            .unwrap_or((0, 0, 0.0));
 
         let activation_rate = if total > 0 {
             (selected as f64 / total as f64) * 100.0
@@ -510,7 +566,7 @@ pub async fn get_system_metrics(
     use adapteros_system_metrics::SystemMetricsCollector;
     use std::time::{SystemTime, UNIX_EPOCH};
 
-    // Collect system metrics (always available, no DB needed)
+    // Collect system metrics
     let mut collector = SystemMetricsCollector::new();
     let metrics = collector.collect_metrics();
     let load_avg = collector.load_average();
@@ -520,92 +576,71 @@ pub async fn get_system_metrics(
         .unwrap_or_default()
         .as_secs();
 
-    // DB-backed metrics.
-    // request_log queries are contract-critical and must fail closed on schema drift.
-    let pool = state.db.pool_opt();
-
-    let active_workers = match pool {
-        Some(p) => {
-            sqlx::query_scalar::<_, i64>("SELECT COUNT(*) FROM workers WHERE status = 'healthy'")
-                .fetch_one(p)
-                .await
-                .unwrap_or(0) as i32
-        }
-        None => 0,
-    };
-
-    let requests_per_second =
-        match pool {
-            Some(p) => sqlx::query_scalar::<_, i64>(
-                "SELECT COUNT(*) FROM request_log WHERE timestamp > datetime('now', '-1 minute')",
-            )
-            .fetch_one(p)
+    // Collect additional metrics for frontend compatibility
+    // Workers in 'healthy' status are actively serving inference requests
+    let active_workers =
+        sqlx::query_scalar::<_, i64>("SELECT COUNT(*) FROM workers WHERE status = 'healthy'")
+            .fetch_one(state.db.pool())
             .await
-            .map_err(map_metrics_db_error)? as f32
-                / 60.0,
-            None => 0.0,
-        };
+            .unwrap_or(0) as i32;
 
-    let avg_latency_ms = match pool {
-        Some(p) => {
-            sqlx::query_scalar::<_, Option<f64>>(
-                "SELECT AVG(latency_ms) FROM request_log WHERE timestamp > datetime('now', '-5 minutes')",
-            )
-            .fetch_one(p)
-            .await
-            .map_err(map_metrics_db_error)?
-            .unwrap_or(0.0) as f32
-        }
-        None => 0.0,
-    };
+    let requests_per_second = sqlx::query_scalar::<_, i64>(
+        "SELECT COUNT(*) FROM request_log WHERE timestamp > datetime('now', '-1 minute')",
+    )
+    .fetch_one(state.db.pool())
+    .await
+    .map(|count| count as f32 / 60.0)
+    .unwrap_or(0.0);
 
-    let active_sessions = match pool {
-        Some(p) => sqlx::query_scalar::<_, i64>(
-            "SELECT COUNT(*) FROM chat_sessions WHERE updated_at > datetime('now', '-30 minutes')",
+    let avg_latency_ms = sqlx::query_scalar::<_, Option<f64>>(
+        "SELECT AVG(latency_ms) FROM request_log WHERE timestamp > datetime('now', '-5 minutes')",
+    )
+    .fetch_one(state.db.pool())
+    .await
+    .unwrap_or(None)
+    .unwrap_or(0.0) as f32;
+
+    // Calculate active sessions count
+    let active_sessions = sqlx::query_scalar::<_, i64>(
+        "SELECT COUNT(*) FROM chat_sessions WHERE updated_at > datetime('now', '-30 minutes')",
+    )
+    .fetch_one(state.db.pool())
+    .await
+    .unwrap_or(0) as i32;
+
+    // Calculate error rate from recent requests
+    let error_rate = {
+        let total = sqlx::query_scalar::<_, i64>(
+            "SELECT COUNT(*) FROM request_log WHERE timestamp > datetime('now', '-5 minutes')",
         )
-        .fetch_one(p)
+        .fetch_one(state.db.pool())
         .await
-        .unwrap_or(0) as i32,
-        None => 0,
-    };
+        .unwrap_or(0);
 
-    let error_rate = match pool {
-        Some(p) => {
-            let total = sqlx::query_scalar::<_, i64>(
-                "SELECT COUNT(*) FROM request_log WHERE timestamp > datetime('now', '-5 minutes')",
+        if total > 0 {
+            let errors = sqlx::query_scalar::<_, i64>(
+                "SELECT COUNT(*) FROM request_log WHERE timestamp > datetime('now', '-5 minutes') AND status_code >= 500",
             )
-            .fetch_one(p)
+            .fetch_one(state.db.pool())
             .await
-            .map_err(map_metrics_db_error)?;
-
-            if total > 0 {
-                let errors = sqlx::query_scalar::<_, i64>(
-                    "SELECT COUNT(*) FROM request_log WHERE timestamp > datetime('now', '-5 minutes') AND status_code >= 500",
-                )
-                .fetch_one(p)
-                .await
-                .map_err(map_metrics_db_error)?;
-                Some((errors as f32) / (total as f32))
-            } else {
-                Some(0.0)
-            }
+            .unwrap_or(0);
+            Some((errors as f32) / (total as f32))
+        } else {
+            Some(0.0)
         }
-        None => Some(0.0),
     };
 
-    let latency_p95_ms = match pool {
-        Some(p) => {
-            sqlx::query_scalar::<_, Option<f64>>(
-                "SELECT latency_ms FROM request_log WHERE timestamp > datetime('now', '-5 minutes') ORDER BY latency_ms DESC LIMIT 1 OFFSET (SELECT COUNT(*) * 5 / 100 FROM request_log WHERE timestamp > datetime('now', '-5 minutes'))",
-            )
-            .fetch_optional(p)
-            .await
-            .map_err(map_metrics_db_error)?
-            .flatten()
-            .map(|v| v as f32)
-        }
-        None => None,
-    };
+    // Tokens per second would come from inference telemetry - use 0.0 as default
+    let tokens_per_second: f32 = 0.0;
+
+    // Calculate p95 latency
+    let latency_p95_ms = sqlx::query_scalar::<_, Option<f64>>(
+        "SELECT latency_ms FROM request_log WHERE timestamp > datetime('now', '-5 minutes') ORDER BY latency_ms DESC LIMIT 1 OFFSET (SELECT COUNT(*) * 5 / 100 FROM request_log WHERE timestamp > datetime('now', '-5 minutes'))",
+    )
+    .fetch_one(state.db.pool())
+    .await
+    .unwrap_or(None)
+    .map(|v| v as f32);
 
     Ok(Json(SystemMetricsResponse {
         schema_version: adapteros_api_types::API_SCHEMA_VERSION.to_string(),
@@ -626,9 +661,10 @@ pub async fn get_system_metrics(
             load_15min: load_avg.2,
         },
         timestamp,
+        // Additional fields for frontend compatibility
         cpu_usage_percent: Some(metrics.cpu_usage as f32),
         memory_usage_percent: Some(metrics.memory_usage as f32),
-        tokens_per_second: Some(0.0),
+        tokens_per_second: Some(tokens_per_second),
         error_rate,
         active_sessions: Some(active_sessions),
         latency_p95_ms,
@@ -874,11 +910,11 @@ pub async fn metrics_handler(State(state): State<AppState>) -> impl IntoResponse
     }
 
     // Update alert metrics from database
-    if let Some(pool) = state.db.pool_opt() {
+    {
         use adapteros_db::process_monitoring::{AlertFilters, ProcessAlert};
 
         let filters = AlertFilters::default();
-        match ProcessAlert::list(pool, filters).await {
+        match ProcessAlert::list(state.db.pool(), filters).await {
             Ok(alerts) => {
                 let alert_tuples: Vec<(String, String, String, String, String)> = alerts
                     .iter()

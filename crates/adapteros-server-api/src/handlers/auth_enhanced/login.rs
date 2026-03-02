@@ -415,19 +415,28 @@ pub async fn login_handler(
     );
 
     // 10. Construct Response
-    // Only expose workspace tenants in user-facing auth summaries.
-    // Internal platform tenants (system/default) are intentionally hidden.
+    // We need to fetch accessible tenants for the response summary
+    // Since we don't have full admin_tenants logic in `User` struct yet (it's in Claims usually),
+    // we'll just return the primary tenant for now.
+    let tenants = vec![TenantSummary {
+        schema_version: API_SCHEMA_VERSION.to_string(),
+        id: user.tenant_id.clone(),
+        name: user.tenant_id.clone(), // We might need to fetch tenant name, but ID is sufficient for Summary if name unknown
+        status: None,
+        created_at: None,
+    }];
+    // Ideally we fetch the tenant to get the real name.
+
+    // Attempt to fetch tenant details for better UX
     let tenants = match state.db.get_tenant(&user.tenant_id).await {
-        Ok(Some(t)) if crate::tenant_visibility::is_workspace_tenant_id(&t.id) => {
-            vec![TenantSummary {
-                schema_version: API_SCHEMA_VERSION.to_string(),
-                id: t.id,
-                name: t.name,
-                status: t.status,
-                created_at: Some(t.created_at),
-            }]
-        }
-        _ => Vec::new(),
+        Ok(Some(t)) => vec![TenantSummary {
+            schema_version: API_SCHEMA_VERSION.to_string(),
+            id: t.id,
+            name: t.name,
+            status: t.status,
+            created_at: Some(t.created_at),
+        }],
+        _ => tenants,
     };
 
     // 11. Attach httpOnly cookies for browser auth

@@ -235,16 +235,6 @@ pub enum AosStorageError {
         reason: String,
     },
 
-    /// SQL pool not available for the current storage backend
-    ///
-    /// The system is running in KV-only mode (`AOS_STORAGE_BACKEND=kv_only`) and
-    /// the requested operation requires a SQL pool that was never initialized.
-    #[error("SQL pool not available for operation: {operation}")]
-    PoolNotAvailable {
-        /// The operation that required the pool
-        operation: String,
-    },
-
     /// Cache invalidation failed to propagate
     #[error("Cache invalidation failed: {reason}")]
     CacheInvalidationFailed {
@@ -587,9 +577,6 @@ mod tests {
                 operation: "decode".to_string(),
                 key: Some("model:xyz".to_string()),
                 reason: "invalid format".to_string(),
-            },
-            AosStorageError::PoolNotAvailable {
-                operation: "list adapters".to_string(),
             },
             AosStorageError::CacheInvalidationFailed {
                 reason: "broadcast failed".to_string(),

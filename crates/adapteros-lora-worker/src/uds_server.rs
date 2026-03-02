@@ -15,17 +15,14 @@ use adapteros_boot::key_ring::WorkerKeyRing;
 use adapteros_boot::{KeyUpdateRequest, KeyUpdateResponse, KEY_UPDATE_MAX_AGE_SECS};
 use adapteros_config::prepare_socket_path;
 use adapteros_core::{AosError, Result};
-use adapteros_inference_contract::{
-    is_uds_inference_path, WorkerInferRequest, LEGACY_UDS_INFER_PATH, UDS_INFER_CANCEL_PREFIX,
-    UDS_INFER_PATH, UDS_INFER_RESUME_PREFIX,
-};
 use adapteros_storage::secure_fs::traversal::normalize_path;
+use adapteros_transport_types::WorkerInferenceRequest;
 use blake3::Hasher;
 use ed25519_dalek::VerifyingKey;
 use serde_json;
 use std::path::PathBuf;
 use std::sync::{
-    atomic::{AtomicBool, Ordering},
+    atomic::{AtomicBool, AtomicU64, Ordering},
     Arc, RwLock,
 };
 use tokio::io::{AsyncReadExt, AsyncWriteExt};
@@ -58,10 +55,6 @@ pub struct ModelLoadResponse {
     pub status: String,
     /// Model ID that was loaded
     pub model_id: String,
-    /// Active model hash currently associated with the worker runtime.
-    pub active_model_hash: Option<String>,
-    /// Worker-local model lifecycle generation.
-    pub generation: Option<i64>,
     /// Estimated memory usage in MB
     pub memory_usage_mb: Option<i32>,
     /// Error message if status is "error"
@@ -78,6 +71,10 @@ const UDS_ACCEPT_FAILURE_THRESHOLD: u32 = 5;
 
 /// Maximum allowed size for JSON request bodies (16MB)
 const MAX_REQUEST_SIZE: usize = 16 * 1024 * 1024; // 16MB
+/// One-release compatibility telemetry for legacy inference payload fallback.
+/// TODO(remove next release): delete when control-plane canonical transport is universal.
+static LEGACY_PARSE_FALLBACK_COUNT: AtomicU64 = AtomicU64::new(0);
+
 fn trip_uds_accept_circuit_breaker(
     failure_count: u32,
     drain_flag: &AtomicBool,
@@ -105,15 +102,40 @@ fn parse_json_with_limit<T: serde::de::DeserializeOwned>(body: &str) -> Result<T
     serde_json::from_str(body).map_err(|e| AosError::Worker(format!("JSON parse error: {}", e)))
 }
 
-/// Parse ingress inference payloads using the canonical `WorkerInferRequest` transport shape.
-fn parse_inference_request(
+/// Parse ingress inference payloads with one-release compatibility:
+/// 1. canonical transport shape (`WorkerInferenceRequest`, strict unknown-field rejection)
+/// 2. legacy runtime shape (`InferenceRequest`) fallback
+fn parse_inference_request_with_compat(
     body: &str,
     arrival_instant: std::time::Instant,
 ) -> Result<InferenceRequest> {
-    let canonical_req = parse_json_with_limit::<WorkerInferRequest>(body)?;
-    let mut inference_req = InferenceRequest::from(canonical_req);
-    inference_req.arrival_instant = Some(arrival_instant);
-    Ok(inference_req)
+    match parse_json_with_limit::<WorkerInferenceRequest>(body) {
+        Ok(canonical_req) => {
+            let mut inference_req = InferenceRequest::from(canonical_req);
+            inference_req.arrival_instant = Some(arrival_instant);
+            Ok(inference_req)
+        }
+        Err(canonical_err) => {
+            let canonical_err_msg = canonical_err.to_string();
+            match parse_json_with_limit::<InferenceRequest>(body) {
+                Ok(mut legacy_req) => {
+                    let fallback_count =
+                        LEGACY_PARSE_FALLBACK_COUNT.fetch_add(1, Ordering::Relaxed) + 1;
+                    warn!(
+                        fallback_count = fallback_count,
+                        canonical_parse_error = %canonical_err_msg,
+                        "Falling back to legacy runtime inference parse path (TODO(remove next release))"
+                    );
+                    legacy_req.arrival_instant = Some(arrival_instant);
+                    Ok(legacy_req)
+                }
+                Err(legacy_err) => Err(AosError::Worker(format!(
+                    "Inference request parse failed for canonical and legacy shapes: canonical={}, legacy={}",
+                    canonical_err_msg, legacy_err
+                ))),
+            }
+        }
+    }
 }
 
 pub struct UdsServer<K: adapteros_lora_kernel_api::FusedKernels + StrictnessControl + 'static> {
@@ -144,7 +166,6 @@ impl<K: adapteros_lora_kernel_api::FusedKernels + StrictnessControl + 'static> U
         inference_cancellations: Arc<InferenceCancelRegistry>,
         api_key_db: Option<std::sync::Arc<Db>>,
         drain_flag: Arc<AtomicBool>,
-        backpressure: Arc<BackpressureGate>,
     ) -> Self {
         Self {
             socket_path,
@@ -152,7 +173,7 @@ impl<K: adapteros_lora_kernel_api::FusedKernels + StrictnessControl + 'static> U
             inference_cancellations,
             api_key_db,
             drain_flag,
-            backpressure,
+            backpressure: Arc::new(BackpressureGate::from_env()),
             worker_verifying_key: None,
             worker_id: "unknown".to_string(),
             jti_cache: None, // Not needed when auth is disabled
@@ -174,7 +195,6 @@ impl<K: adapteros_lora_kernel_api::FusedKernels + StrictnessControl + 'static> U
         inference_cancellations: Arc<InferenceCancelRegistry>,
         api_key_db: Option<std::sync::Arc<Db>>,
         drain_flag: Arc<AtomicBool>,
-        backpressure: Arc<BackpressureGate>,
         worker_verifying_key: VerifyingKey,
         worker_id: String,
         jti_cache: Arc<Mutex<JtiCacheStore>>,
@@ -190,7 +210,7 @@ impl<K: adapteros_lora_kernel_api::FusedKernels + StrictnessControl + 'static> U
             inference_cancellations,
             api_key_db,
             drain_flag,
-            backpressure,
+            backpressure: Arc::new(BackpressureGate::from_env()),
             worker_verifying_key: Some(Arc::new(worker_verifying_key)),
             worker_id,
             jti_cache: Some(jti_cache),
@@ -211,14 +231,12 @@ impl<K: adapteros_lora_kernel_api::FusedKernels + StrictnessControl + 'static> U
     /// * `drain_flag` - Flag to signal server drain
     /// * `worker_key_ring` - Key ring with rotation support
     /// * `worker_id` - Worker ID for token validation
-    #[allow(clippy::too_many_arguments)]
     pub fn new_with_key_ring(
         socket_path: PathBuf,
         worker: Arc<Mutex<Worker<K>>>,
         inference_cancellations: Arc<InferenceCancelRegistry>,
         api_key_db: Option<std::sync::Arc<Db>>,
         drain_flag: Arc<AtomicBool>,
-        backpressure: Arc<BackpressureGate>,
         worker_key_ring: Arc<RwLock<WorkerKeyRing>>,
         worker_id: String,
     ) -> Self {
@@ -240,7 +258,7 @@ impl<K: adapteros_lora_kernel_api::FusedKernels + StrictnessControl + 'static> U
             inference_cancellations,
             api_key_db,
             drain_flag,
-            backpressure,
+            backpressure: Arc::new(BackpressureGate::from_env()),
             worker_verifying_key: None,
             worker_id,
             jti_cache: None, // Key ring has its own JTI cache
@@ -543,7 +561,8 @@ impl<K: adapteros_lora_kernel_api::FusedKernels + StrictnessControl + 'static> U
     }
 
     fn is_inference_path(path: &str) -> bool {
-        is_uds_inference_path(path)
+        matches!(path, "/inference" | "/api/v1/infer" | "/inference/cancel")
+            || path.starts_with("/inference/cancel/")
     }
 
     async fn authenticate_inference_request(
@@ -595,7 +614,7 @@ impl<K: adapteros_lora_kernel_api::FusedKernels + StrictnessControl + 'static> U
         // Check if this path requires backpressure control (expensive operations only)
         let needs_backpressure = matches!(
             path.as_str(),
-            UDS_INFER_PATH | LEGACY_UDS_INFER_PATH | "/patch_proposal" | "/embed"
+            "/inference" | "/api/v1/infer" | "/patch_proposal" | "/embed"
         );
 
         // Acquire backpressure permit for expensive operations (fast-fail)
@@ -650,8 +669,8 @@ impl<K: adapteros_lora_kernel_api::FusedKernels + StrictnessControl + 'static> U
 
         // Route to appropriate handler
         match request.path.as_str() {
-            UDS_INFER_PATH | LEGACY_UDS_INFER_PATH => {
-                let inference_req = parse_inference_request(&request.body, start)?;
+            "/inference" | "/api/v1/infer" => {
+                let inference_req = parse_inference_request_with_compat(&request.body, start)?;
 
                 let auth_result = Self::authenticate_inference_request(
                     &request.headers,
@@ -688,7 +707,7 @@ impl<K: adapteros_lora_kernel_api::FusedKernels + StrictnessControl + 'static> U
                     Self::send_response(&mut stream, response).await?;
                 }
             }
-            path if path.starts_with(UDS_INFER_CANCEL_PREFIX) => {
+            path if path.starts_with("/inference/cancel") => {
                 #[derive(serde::Deserialize)]
                 struct CancelInferenceRequest {
                     #[serde(default)]
@@ -698,7 +717,7 @@ impl<K: adapteros_lora_kernel_api::FusedKernels + StrictnessControl + 'static> U
                 }
 
                 let request_id = path
-                    .trim_start_matches(UDS_INFER_CANCEL_PREFIX)
+                    .trim_start_matches("/inference/cancel")
                     .trim_start_matches('/');
                 if request_id.is_empty() {
                     Self::send_error(&mut stream, 400, "Missing request_id").await?;
@@ -747,12 +766,12 @@ impl<K: adapteros_lora_kernel_api::FusedKernels + StrictnessControl + 'static> U
                 });
                 Self::send_json_response(&mut stream, response).await?;
             }
-            path if path.starts_with(UDS_INFER_RESUME_PREFIX) => {
+            path if path.starts_with("/inference/resume") => {
                 // Human-in-the-loop resume endpoint
                 use adapteros_api_types::review::SubmitReviewRequest;
 
                 let pause_id = path
-                    .trim_start_matches(UDS_INFER_RESUME_PREFIX)
+                    .trim_start_matches("/inference/resume")
                     .trim_start_matches('/');
                 if pause_id.is_empty() {
                     Self::send_error(&mut stream, 400, "Missing pause_id").await?;
@@ -1032,8 +1051,6 @@ impl<K: adapteros_lora_kernel_api::FusedKernels + StrictnessControl + 'static> U
                         let response = ModelLoadResponse {
                             status: "error".to_string(),
                             model_id: "".to_string(),
-                            active_model_hash: None,
-                            generation: None,
                             memory_usage_mb: None,
                             error: Some(format!("Invalid request: {}", e)),
                             loaded_at: None,
@@ -1057,109 +1074,75 @@ impl<K: adapteros_lora_kernel_api::FusedKernels + StrictnessControl + 'static> U
                 // normalize_path also ensures the path exists (via canonicalize)
                 let _canonical_path = normalize_path(&load_req.model_path)
                     .map_err(|e| AosError::Worker(format!("Invalid model path: {}", e)))?;
-                let mut worker_guard = worker.lock().await;
-                let before = worker_guard.model_runtime_state();
-                let load_result = worker_guard
-                    .load_or_switch_runtime_model(&load_req.model_id, &load_req.model_path);
-                let runtime = worker_guard.model_runtime_state();
-                let memory_usage_mb = worker_guard.get_memory_usage_mb();
+                // Note: canonical_path validated but not used directly since model loading
+                // happens during worker initialization. This check prevents path traversal
+                // attacks even if model_path is later used for dynamic loading.
+
+                // The worker is already initialized with a model at startup.
+                // This endpoint verifies the model is loaded and returns status.
+                // For dynamic model switching, a more complex implementation would be needed.
+                //
+                // For now, we verify the worker is operational and return loaded status.
+                // The actual model loading happens during worker initialization via backend_factory.
+                let worker_guard = worker.lock().await;
+
+                // Check worker health and get memory stats
+                // Worker is healthy if we can access it (the method call succeeds)
+                let _adapter_count = worker_guard.get_adapter_states().len();
+                let actual_memory_mb = worker_guard.get_memory_usage_mb();
+                let is_healthy = true; // If we got here, worker is responsive
                 drop(worker_guard);
 
-                let response = match load_result {
-                    Ok(_) => {
-                        let status = if before.active_model_id.as_deref()
-                            == Some(load_req.model_id.as_str())
-                            && before.status == "ready"
-                        {
-                            "already_loaded"
-                        } else {
-                            "loaded"
-                        };
-                        ModelLoadResponse {
-                            status: status.to_string(),
-                            model_id: runtime
-                                .active_model_id
-                                .clone()
-                                .unwrap_or_else(|| load_req.model_id.clone()),
-                            active_model_hash: runtime.active_model_hash.clone(),
-                            generation: Some(runtime.generation),
-                            memory_usage_mb: Some(memory_usage_mb),
-                            error: runtime.last_error.clone(),
-                            loaded_at: Some(chrono::Utc::now().to_rfc3339()),
-                        }
-                    }
-                    Err(err) => ModelLoadResponse {
-                        status: "error".to_string(),
-                        model_id: runtime
-                            .active_model_id
-                            .clone()
-                            .unwrap_or_else(|| load_req.model_id.clone()),
-                        active_model_hash: runtime.active_model_hash.clone(),
-                        generation: Some(runtime.generation),
-                        memory_usage_mb: Some(memory_usage_mb),
-                        error: Some(err.to_string()),
-                        loaded_at: None,
-                    },
-                };
+                if is_healthy {
+                    // Use actual memory usage from worker, fall back to estimate if unavailable
+                    let memory_usage_mb = if actual_memory_mb > 0 {
+                        actual_memory_mb
+                    } else {
+                        // Estimate based on typical 7B model size (4-8GB)
+                        4096i32
+                    };
 
-                let json_value = serde_json::to_value(&response).map_err(|e| {
-                    AosError::Worker(format!("Failed to serialize response: {}", e))
-                })?;
-                Self::send_json_response(&mut stream, json_value).await?;
-            }
-            "/model/unload" => {
-                info!("Processing model unload request via UDS");
-                let mut worker_guard = worker.lock().await;
-                let before = worker_guard.model_runtime_state();
-                let unload_result = worker_guard.unload_runtime_model();
-                let runtime = worker_guard.model_runtime_state();
-                let memory_usage_mb = worker_guard.get_memory_usage_mb();
-                drop(worker_guard);
-
-                let response = match unload_result {
-                    Ok(_) => ModelLoadResponse {
-                        status: if before.active_model_id.is_some() {
-                            "unloaded".to_string()
-                        } else {
-                            "already_unloaded".to_string()
-                        },
-                        model_id: before.active_model_id.unwrap_or_default(),
-                        active_model_hash: runtime.active_model_hash.clone(),
-                        generation: Some(runtime.generation),
+                    let response = ModelLoadResponse {
+                        status: "loaded".to_string(),
+                        model_id: load_req.model_id,
                         memory_usage_mb: Some(memory_usage_mb),
                         error: None,
-                        loaded_at: None,
-                    },
-                    Err(err) => ModelLoadResponse {
-                        status: "error".to_string(),
-                        model_id: runtime.active_model_id.clone().unwrap_or_default(),
-                        active_model_hash: runtime.active_model_hash.clone(),
-                        generation: Some(runtime.generation),
-                        memory_usage_mb: Some(memory_usage_mb),
-                        error: Some(err.to_string()),
-                        loaded_at: None,
-                    },
-                };
+                        loaded_at: Some(chrono::Utc::now().to_rfc3339()),
+                    };
 
-                let json_value = serde_json::to_value(&response).map_err(|e| {
-                    AosError::Worker(format!("Failed to serialize response: {}", e))
-                })?;
-                Self::send_json_response(&mut stream, json_value).await?;
+                    info!(
+                        memory_usage_mb = memory_usage_mb,
+                        actual_from_worker = actual_memory_mb > 0,
+                        "Model load confirmed via UDS"
+                    );
+
+                    let json_value = serde_json::to_value(&response).map_err(|e| {
+                        AosError::Worker(format!("Failed to serialize response: {}", e))
+                    })?;
+                    Self::send_json_response(&mut stream, json_value).await?;
+                } else {
+                    let response = ModelLoadResponse {
+                        status: "error".to_string(),
+                        model_id: load_req.model_id,
+                        memory_usage_mb: None,
+                        error: Some("Worker is not healthy".to_string()),
+                        loaded_at: None,
+                    };
+                    let json_value = serde_json::to_value(&response).map_err(|e| {
+                        AosError::Worker(format!("Failed to serialize response: {}", e))
+                    })?;
+                    Self::send_json_response(&mut stream, json_value).await?;
+                }
             }
             "/model/status" => {
-                // Return current runtime model status with memory info.
+                // Return current model status with memory info
                 let worker_guard = worker.lock().await;
-                let runtime = worker_guard.model_runtime_state();
                 let adapter_states = worker_guard.get_adapter_states();
                 let memory_usage_mb = worker_guard.get_memory_usage_mb();
                 drop(worker_guard);
 
                 let status_response = serde_json::json!({
-                    "status": runtime.status,
-                    "active_model_id": runtime.active_model_id,
-                    "active_model_hash": runtime.active_model_hash,
-                    "generation": runtime.generation,
-                    "last_error": runtime.last_error,
+                    "status": "loaded",
                     "adapter_count": adapter_states.len(),
                     "memory_usage_mb": memory_usage_mb,
                     "timestamp": chrono::Utc::now().to_rfc3339()
@@ -1589,14 +1572,7 @@ impl<K: adapteros_lora_kernel_api::FusedKernels + StrictnessControl + 'static> U
         let inference_handle = tokio::spawn(async move {
             let mut worker_guard = worker_clone.lock().await;
             if let Err(e) = worker_guard.infer_stream(inference_req, tx).await {
-                let error_text = e.to_string();
-                if error_text.contains("Cancelled while streaming")
-                    || error_text.contains("Inference cancelled")
-                {
-                    tracing::warn!(error = %error_text, "Streaming inference cancelled");
-                } else {
-                    tracing::error!(error = %error_text, "Streaming inference failed");
-                }
+                tracing::error!(error = %e, "Streaming inference failed");
             }
         });
 
@@ -1954,13 +1930,39 @@ mod tests {
             "fim_suffix": "}"
         }"#;
 
-        let request = parse_inference_request(payload, std::time::Instant::now())
+        let request = parse_inference_request_with_compat(payload, std::time::Instant::now())
             .expect("canonical worker transport payload should parse");
 
         assert_eq!(request.cpid, "cpid-canonical");
         assert_eq!(request.fim_prefix.as_deref(), Some("fn main() {"));
         assert_eq!(request.fim_suffix.as_deref(), Some("}"));
         assert!(request.arrival_instant.is_some());
+    }
+
+    #[test]
+    fn test_parse_inference_request_falls_back_to_legacy_runtime_shape() {
+        let fallback_before =
+            LEGACY_PARSE_FALLBACK_COUNT.load(std::sync::atomic::Ordering::Relaxed);
+        let payload = r#"{
+            "cpid": "cpid-legacy",
+            "prompt": "hello",
+            "max_tokens": 8,
+            "legacy_runtime_only_field": true
+        }"#;
+
+        let request = parse_inference_request_with_compat(payload, std::time::Instant::now())
+            .expect("legacy runtime payload should parse via fallback path");
+
+        assert_eq!(request.cpid, "cpid-legacy");
+        assert_eq!(request.prompt, "hello");
+        assert_eq!(request.max_tokens, 8);
+        assert!(request.arrival_instant.is_some());
+        let fallback_after = LEGACY_PARSE_FALLBACK_COUNT.load(std::sync::atomic::Ordering::Relaxed);
+        assert_eq!(
+            fallback_after,
+            fallback_before + 1,
+            "legacy fallback counter should increment"
+        );
     }
 
     #[test]

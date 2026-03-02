@@ -2,9 +2,7 @@
 
 use crate::components::IconCheck;
 use crate::components::{Button, ButtonSize, ButtonVariant, Card, Select, Toggle};
-use crate::signals::{
-    update_setting, use_settings, use_ui_profile_state, DefaultPage, Density, Theme,
-};
+use crate::signals::{update_setting, use_settings, use_ui_profile_state, DefaultPage, Theme};
 use adapteros_api_types::UiProfile;
 use leptos::prelude::*;
 
@@ -15,7 +13,7 @@ pub fn PreferencesSection() -> impl IntoView {
 
     // Local signals bound to settings
     let theme = RwSignal::new(settings.get_untracked().theme.as_str().to_string());
-    let density = RwSignal::new(settings.get_untracked().density.as_str().to_string());
+    let compact_mode = RwSignal::new(settings.get_untracked().compact_mode);
     let show_timestamps = RwSignal::new(settings.get_untracked().show_timestamps);
     let default_page = RwSignal::new(settings.get_untracked().default_page.as_str().to_string());
     let ui_profile_state = use_ui_profile_state();
@@ -24,7 +22,7 @@ pub fn PreferencesSection() -> impl IntoView {
             .get_untracked()
             .ui_profile
             .or(ui_profile_state.get_untracked().runtime_profile)
-            .unwrap_or(UiProfile::Primary)
+            .unwrap_or(UiProfile::Full)
             .as_str()
             .to_string(),
     );
@@ -37,7 +35,7 @@ pub fn PreferencesSection() -> impl IntoView {
         let Some(theme_val) = theme.try_get() else {
             return;
         };
-        let Some(density_val) = density.try_get() else {
+        let Some(compact) = compact_mode.try_get() else {
             return;
         };
         let Some(timestamps) = show_timestamps.try_get() else {
@@ -47,12 +45,11 @@ pub fn PreferencesSection() -> impl IntoView {
             return;
         };
         let new_theme = Theme::parse(&theme_val);
-        let new_density = Density::parse(&density_val);
         let new_page = DefaultPage::parse(&page_val);
         update_setting(settings, |s| {
             s.theme = new_theme;
             s.apply_theme();
-            s.density = new_density;
+            s.compact_mode = compact;
             s.show_timestamps = timestamps;
             s.default_page = new_page;
         });
@@ -65,7 +62,7 @@ pub fn PreferencesSection() -> impl IntoView {
             return;
         };
         if s.ui_profile.is_none() {
-            let effective = profile_state.runtime_profile.unwrap_or(UiProfile::Primary);
+            let effective = profile_state.runtime_profile.unwrap_or(UiProfile::Full);
             let _ = ui_profile_value.try_set(effective.as_str().to_string());
         }
     });
@@ -94,7 +91,7 @@ pub fn PreferencesSection() -> impl IntoView {
 
         Effect::new(move || {
             let _ = theme.try_get();
-            let _ = density.try_get();
+            let _ = compact_mode.try_get();
             let _ = show_timestamps.try_get();
             let _ = default_page.try_get();
             let _ = ui_profile_value.try_get();
@@ -127,7 +124,7 @@ pub fn PreferencesSection() -> impl IntoView {
     #[cfg(not(target_arch = "wasm32"))]
     Effect::new(move || {
         let _ = theme.try_get();
-        let _ = density.try_get();
+        let _ = compact_mode.try_get();
         let _ = show_timestamps.try_get();
         let _ = default_page.try_get();
         let _ = ui_profile_value.try_get();
@@ -140,24 +137,19 @@ pub fn PreferencesSection() -> impl IntoView {
         ("dark".to_string(), "Dark".to_string()),
         ("system".to_string(), "System".to_string()),
     ];
-    let density_options = vec![
-        ("comfortable".to_string(), "Comfortable".to_string()),
-        ("compact".to_string(), "Compact".to_string()),
-    ];
 
     // Default page options
     let page_options = vec![
-        ("dashboard".to_string(), "Home".to_string()),
+        ("dashboard".to_string(), "Dashboard".to_string()),
         ("adapters".to_string(), "Adapters".to_string()),
         ("chat".to_string(), "Chat".to_string()),
-        ("training".to_string(), "Build".to_string()),
+        ("training".to_string(), "Training".to_string()),
         ("system".to_string(), "System".to_string()),
     ];
 
     let ui_profile_options = vec![
         ("primary".to_string(), "Primary".to_string()),
         ("full".to_string(), "Full".to_string()),
-        ("hud".to_string(), "HUD".to_string()),
     ];
 
     view! {
@@ -171,12 +163,11 @@ pub fn PreferencesSection() -> impl IntoView {
                         label="Theme".to_string()
                     />
 
-                    <Select
-                        value=density
-                        options=density_options
-                        label="Density".to_string()
+                    <Toggle
+                        checked=compact_mode
+                        label="Compact Mode".to_string()
+                        description="Reduce spacing and padding for a denser layout".to_string()
                     />
-                    <p class="text-xs text-muted-foreground">"Comfortable keeps generous spacing; Compact reduces card, table, and layout spacing."</p>
 
                     <Toggle
                         checked=show_timestamps

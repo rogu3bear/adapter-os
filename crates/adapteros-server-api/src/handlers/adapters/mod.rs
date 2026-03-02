@@ -138,8 +138,7 @@ pub use super::adapter_versions::{
 pub use super::{
     __path_get_adapter, __path_get_adapter_metrics, __path_get_commit, __path_get_commit_diff,
     __path_get_quality_metrics, __path_get_system_metrics, __path_list_adapters,
-    __path_list_commits, __path_patch_adapter, get_adapter, get_adapter_metrics,
-    get_adapter_repository, get_adapter_repository_policy, get_commit, get_commit_diff,
-    get_quality_metrics, get_system_metrics, list_adapter_repositories, list_adapters,
-    list_commits, patch_adapter,
+    __path_list_commits, get_adapter, get_adapter_metrics, get_adapter_repository,
+    get_adapter_repository_policy, get_commit, get_commit_diff, get_quality_metrics,
+    get_system_metrics, list_adapter_repositories, list_adapters, list_commits,
 };

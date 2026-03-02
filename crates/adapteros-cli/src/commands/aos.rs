@@ -3,6 +3,24 @@
 //! This module provides CLI commands for working with .aos adapter files.
 //! Uses adapteros-aos v3.0 types (see `crates/adapteros-aos/src/implementation.rs`).
 
+// ============================================================================
+// AOS COORDINATION HEADER
+// ============================================================================
+// File: crates/adapteros-cli/src/commands/aos.rs
+// Phase: 2 - System Integration
+// Assigned: Intern B (CLI Commands Team)
+// Status: STUBBED - Implementation pending
+// Dependencies: SingleFileAdapter, Database, Lifecycle Management
+// Last Updated: 2024-01-15
+//
+// COORDINATION NOTES:
+// - This file affects: CLI interface, user workflows, automation
+// - Changes require: Updates to SingleFileAdapter and Database schemas
+// - Testing needed: CLI integration tests and E2E workflows
+// - UI Impact: CLI commands may be called from UI components
+// - Lifecycle Impact: Load/verify commands affect adapter lifecycle
+// ============================================================================
+
 use super::aos_impl;
 use crate::output::OutputWriter;
 use adapteros_aos::single_file::{
@@ -61,7 +79,7 @@ fn serialize_weights_to_safetensors(weights: &WeightGroup) -> Result<Vec<u8>> {
     // Serialize to safetensors format
     let tensors = vec![("lora_a", lora_a_view), ("lora_b", lora_b_view)];
 
-    safetensors::tensor::serialize(tensors, None)
+    safetensors::tensor::serialize(tensors, &None)
         .map_err(|e| AosError::Training(format!("Failed to serialize weights: {}", e)))
 }
 
@@ -282,7 +300,7 @@ pub struct LoadArgs {
     pub adapter_id: Option<String>,
 
     /// Control plane base URL
-    #[arg(long, default_value = "http://127.0.0.1:18080")]
+    #[arg(long, default_value = "http://127.0.0.1:8080/api")]
     pub base_url: String,
 }
 

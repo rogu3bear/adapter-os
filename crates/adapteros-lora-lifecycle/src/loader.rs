@@ -221,24 +221,19 @@ fn select_segment_for_backend<'a>(
 pub struct AdapterLoader {
     /// Base path for adapter files
     base_path: PathBuf,
-    /// Currently loaded adapters (adapter_id -> (AdapterHandle, LoadedWeights))
-    loaded: Arc<parking_lot::RwLock<HashMap<u16, (AdapterHandle, LoadedWeights)>>>,
+    /// Currently loaded adapters (adapter_id -> (path, weights))
+    loaded: HashMap<u16, (PathBuf, LoadedWeights)>,
     /// Expected hashes from manifest
-    expected_hashes: Arc<parking_lot::RwLock<HashMap<String, B3Hash>>>,
+    expected_hashes: HashMap<String, B3Hash>,
     /// Whether to require signature verification for .aos files
     /// In debug builds, defaults to false (warn only)
     /// In release builds, defaults to true (enforced)
-    require_signatures: Arc<parking_lot::RwLock<bool>>,
+    require_signatures: bool,
     /// Expected base model identity (id + hash) for CoreML placement validation.
-    expected_base_model_id: Arc<parking_lot::RwLock<Option<String>>>,
-    expected_base_model_hash: Arc<parking_lot::RwLock<Option<B3Hash>>>,
+    expected_base_model_id: Option<String>,
+    expected_base_model_hash: Option<B3Hash>,
     /// Trusted public keys for sealed adapter verification
-    trusted_sealed_keys: Arc<parking_lot::RwLock<Vec<VerifyingKey>>>,
-    /// SingleFlight deduplicator for async loads
-    load_dedup: Arc<adapteros_core::singleflight::SingleFlight<u16, AdapterHandle, String>>,
-    /// SingleFlight deduplicator for sync loads
-    load_dedup_sync:
-        Arc<adapteros_core::singleflight::SingleFlightSync<u16, AdapterHandle, String>>,
+    trusted_sealed_keys: Vec<VerifyingKey>,
 }
 
 impl AdapterLoader {
@@ -264,18 +259,12 @@ impl AdapterLoader {
 
         Self {
             base_path,
-            loaded: Arc::new(parking_lot::RwLock::new(HashMap::new())),
-            expected_hashes: Arc::new(parking_lot::RwLock::new(expected_hashes)),
-            require_signatures: Arc::new(parking_lot::RwLock::new(require_signatures)),
-            expected_base_model_id: Arc::new(parking_lot::RwLock::new(None)),
-            expected_base_model_hash: Arc::new(parking_lot::RwLock::new(None)),
-            trusted_sealed_keys: Arc::new(parking_lot::RwLock::new(Vec::new())),
-            load_dedup: Arc::new(adapteros_core::singleflight::SingleFlight::new(
-                "adapter_load",
-            )),
-            load_dedup_sync: Arc::new(adapteros_core::singleflight::SingleFlightSync::new(
-                "adapter_load_sync",
-            )),
+            loaded: HashMap::new(),
+            expected_hashes,
+            require_signatures,
+            expected_base_model_id: None,
+            expected_base_model_hash: None,
+            trusted_sealed_keys: Vec::new(),
         }
     }
 
@@ -287,18 +276,12 @@ impl AdapterLoader {
     ) -> Self {
         Self {
             base_path,
-            loaded: Arc::new(parking_lot::RwLock::new(HashMap::new())),
-            expected_hashes: Arc::new(parking_lot::RwLock::new(expected_hashes)),
-            require_signatures: Arc::new(parking_lot::RwLock::new(require_signatures)),
-            expected_base_model_id: Arc::new(parking_lot::RwLock::new(None)),
-            expected_base_model_hash: Arc::new(parking_lot::RwLock::new(None)),
-            trusted_sealed_keys: Arc::new(parking_lot::RwLock::new(Vec::new())),
-            load_dedup: Arc::new(adapteros_core::singleflight::SingleFlight::new(
-                "adapter_load",
-            )),
-            load_dedup_sync: Arc::new(adapteros_core::singleflight::SingleFlightSync::new(
-                "adapter_load_sync",
-            )),
+            loaded: HashMap::new(),
+            expected_hashes,
+            require_signatures,
+            expected_base_model_id: None,
+            expected_base_model_hash: None,
+            trusted_sealed_keys: Vec::new(),
         }
     }
 
@@ -306,34 +289,37 @@ impl AdapterLoader {
     ///
     /// Sealed adapters (`.sealed` files) require signature verification against
     /// trusted keys. This method adds a key to the trusted set.
-    pub fn add_trusted_sealed_key(&self, key: VerifyingKey) {
-        self.trusted_sealed_keys.write().push(key);
+    pub fn add_trusted_sealed_key(&mut self, key: VerifyingKey) {
+        self.trusted_sealed_keys.push(key);
     }
 
     /// Add multiple trusted public keys for sealed adapter verification
-    pub fn add_trusted_sealed_keys(&self, keys: impl IntoIterator<Item = VerifyingKey>) {
-        self.trusted_sealed_keys.write().extend(keys);
+    pub fn add_trusted_sealed_keys(&mut self, keys: impl IntoIterator<Item = VerifyingKey>) {
+        self.trusted_sealed_keys.extend(keys);
     }
 
     /// Set whether signatures are required
-    pub fn set_require_signatures(&self, require: bool) {
-        *self.require_signatures.write() = require;
+    pub fn set_require_signatures(&mut self, require: bool) {
+        self.require_signatures = require;
     }
 
     /// Bind expected base model identity for CoreML-aware validation.
-    pub fn set_expected_base_model(&self, model_id: impl Into<String>, model_hash: Option<B3Hash>) {
-        *self.expected_base_model_id.write() = Some(model_id.into());
-        *self.expected_base_model_hash.write() = model_hash;
+    pub fn set_expected_base_model(
+        &mut self,
+        model_id: impl Into<String>,
+        model_hash: Option<B3Hash>,
+    ) {
+        self.expected_base_model_id = Some(model_id.into());
+        self.expected_base_model_hash = model_hash;
     }
 
     #[cfg(test)]
     pub fn signatures_required(&self) -> bool {
-        *self.require_signatures.read()
+        self.require_signatures
     }
 
     fn expected_hash(&self, adapter_name: &str) -> Result<B3Hash> {
         self.expected_hashes
-            .read()
             .get(adapter_name)
             .copied()
             .ok_or_else(|| {
@@ -345,8 +331,8 @@ impl AdapterLoader {
     }
 
     /// Register expected hash for a new adapter (called during import)
-    pub fn register_hash(&self, adapter_name: String, hash: B3Hash) {
-        self.expected_hashes.write().insert(adapter_name, hash);
+    pub fn register_hash(&mut self, adapter_name: String, hash: B3Hash) {
+        self.expected_hashes.insert(adapter_name, hash);
     }
 
     /// Get the base path for adapter files
@@ -355,7 +341,7 @@ impl AdapterLoader {
     }
 
     /// Load an adapter from disk (blocking call, use load_adapter_async for async contexts)
-    pub fn load_adapter(&self, adapter_id: u16, adapter_name: &str) -> Result<AdapterHandle> {
+    pub fn load_adapter(&mut self, adapter_id: u16, adapter_name: &str) -> Result<AdapterHandle> {
         self.load_adapter_for_backend(adapter_id, adapter_name, "auto")
     }
 
@@ -366,112 +352,82 @@ impl AdapterLoader {
     /// 2. `.aos` - Standard adapter archive format
     /// 3. `.safetensors` - Raw weights only
     pub fn load_adapter_for_backend(
-        &self,
+        &mut self,
         adapter_id: u16,
         adapter_name: &str,
         backend: &str,
     ) -> Result<AdapterHandle> {
-        let adapter_name_owned = adapter_name.to_string();
-        let backend_owned = backend.to_string();
+        let paths = resolve_adapter_paths(&self.base_path, adapter_name);
 
-        self.load_dedup_sync
-            .get_or_load(adapter_id, || {
-                // Check cache first
-                if let Some((handle, _)) = self.loaded.read().get(&adapter_id) {
-                    return Ok(handle.clone());
-                }
+        // Priority: .sealed > .aos > .safetensors
+        let (adapter_path, weights_data, metadata) = if paths.sealed.exists() {
+            tracing::debug!(
+                adapter_name = adapter_name,
+                path = %paths.sealed.display(),
+                "Loading from .sealed file"
+            );
+            let (data, meta) = self.load_from_sealed(&paths.sealed)?;
+            (paths.sealed, data, meta)
+        } else if paths.aos.exists() {
+            tracing::debug!(
+                adapter_name = adapter_name,
+                path = %paths.aos.display(),
+                "Loading from .aos file"
+            );
+            let (data, meta) = self.load_from_aos(&paths.aos, backend)?;
+            (paths.aos, data, meta)
+        } else if paths.safetensors.exists() {
+            tracing::debug!(
+                adapter_name = adapter_name,
+                path = %paths.safetensors.display(),
+                "Loading from .safetensors file"
+            );
+            let (data, meta) = self.load_and_parse_safetensors(&paths.safetensors)?;
+            (paths.safetensors, data, meta)
+        } else {
+            return Err(AosError::Lifecycle(format!(
+                "Adapter file not found: {} (checked .sealed, .aos, and .safetensors)",
+                adapter_name
+            )));
+        };
 
-                let paths = resolve_adapter_paths(&self.base_path, &adapter_name_owned);
+        let expected_hash = self.expected_hash(adapter_name)?;
+        let actual_hash = B3Hash::hash(&weights_data.data);
 
-                // Priority: .sealed > .aos > .safetensors
-                let (adapter_path, weights_data, metadata) = if paths.sealed.exists() {
-                    tracing::debug!(
-                        adapter_name = adapter_name_owned,
-                        path = %paths.sealed.display(),
-                        "Loading from .sealed file"
-                    );
-                    let (data, meta) = self
-                        .load_from_sealed(&paths.sealed)
-                        .map_err(|e| e.to_string())?;
-                    (paths.sealed, data, meta)
-                } else if paths.aos.exists() {
-                    tracing::debug!(
-                        adapter_name = adapter_name_owned,
-                        path = %paths.aos.display(),
-                        "Loading from .aos file"
-                    );
-                    let (data, meta) = self
-                        .load_from_aos(&paths.aos, &backend_owned)
-                        .map_err(|e| e.to_string())?;
-                    (paths.aos, data, meta)
-                } else if paths.safetensors.exists() {
-                    tracing::debug!(
-                        adapter_name = adapter_name_owned,
-                        path = %paths.safetensors.display(),
-                        "Loading from .safetensors file"
-                    );
-                    let (data, meta) = self
-                        .load_and_parse_safetensors(&paths.safetensors)
-                        .map_err(|e| e.to_string())?;
-                    (paths.safetensors, data, meta)
-                } else {
-                    return Err(format!(
-                        "Adapter file not found: {} (checked .sealed, .aos, and .safetensors)",
-                        adapter_name_owned
-                    ));
-                };
+        if actual_hash != expected_hash {
+            tracing::error!(
+                "Adapter hash mismatch for {} (expected {}, got {})",
+                adapter_name,
+                expected_hash,
+                actual_hash
+            );
+            return Err(AosError::AdapterHashMismatch {
+                adapter_id: adapter_name.to_string(),
+                expected: expected_hash,
+                actual: actual_hash,
+            });
+        }
 
-                let expected_hash = self
-                    .expected_hash(&adapter_name_owned)
-                    .map_err(|e| e.to_string())?;
-                let actual_hash = B3Hash::hash(&weights_data.data);
+        let memory_bytes = Self::calculate_memory_bytes(&metadata, weights_data.data.len());
+        self.loaded
+            .insert(adapter_id, (adapter_path.clone(), weights_data));
 
-                if actual_hash != expected_hash {
-                    tracing::error!(
-                        "Adapter hash mismatch for {} (expected {}, got {})",
-                        adapter_name_owned,
-                        expected_hash,
-                        actual_hash
-                    );
-                    return Err(AosError::AdapterHashMismatch {
-                        adapter_id: adapter_name_owned,
-                        expected: expected_hash,
-                        actual: actual_hash,
-                    }
-                    .to_string());
-                }
+        tracing::info!(
+            adapter_id = adapter_id,
+            adapter_name = adapter_name,
+            path = %adapter_path.display(),
+            memory_bytes = memory_bytes,
+            num_parameters = metadata.num_parameters,
+            rank = ?metadata.rank,
+            "Loaded adapter"
+        );
 
-                // Calculate memory usage (approximate based on file size)
-                let memory_bytes = match std::fs::metadata(&adapter_path) {
-                    Ok(meta) => meta.len() as usize,
-                    Err(_) => 0, // Fallback if file vanishes after read
-                };
-
-                // Construct complete handle
-                let handle = AdapterHandle {
-                    adapter_id,
-                    path: adapter_path.clone(),
-                    memory_bytes,
-                    metadata,
-                };
-
-                self.loaded
-                    .write()
-                    .insert(adapter_id, (handle.clone(), weights_data));
-
-                tracing::info!(
-                    adapter_id = adapter_id,
-                    adapter_name = adapter_name_owned,
-                    path = %adapter_path.display(),
-                    memory_bytes = memory_bytes,
-                    num_parameters = handle.metadata.num_parameters,
-                    rank = ?handle.metadata.rank,
-                    "Loaded adapter"
-                );
-
-                Ok(handle)
-            })
-            .map_err(|e| AosError::Lifecycle(e))
+        Ok(AdapterHandle {
+            adapter_id,
+            path: adapter_path,
+            memory_bytes,
+            metadata,
+        })
     }
 
     /// Load and verify a sealed adapter container
@@ -487,7 +443,7 @@ impl AdapterLoader {
         validate_nonzero_file(sealed_path)?;
 
         // Check that trusted keys are configured
-        if self.trusted_sealed_keys.read().is_empty() {
+        if self.trusted_sealed_keys.is_empty() {
             return Err(AosError::Crypto(
                 "No trusted keys configured for sealed adapter verification. \
                  Add trusted keys via add_trusted_sealed_key() before loading .sealed files."
@@ -505,7 +461,7 @@ impl AdapterLoader {
         })?;
 
         // Create loader with trusted keys and load the container
-        let loader = SealedAdapterLoader::new(self.trusted_sealed_keys.read().clone());
+        let loader = SealedAdapterLoader::new(self.trusted_sealed_keys.clone());
         let load_result = loader.load_from_bytes(&sealed_bytes);
 
         match load_result {
@@ -585,7 +541,7 @@ impl AdapterLoader {
 
     /// Load an adapter asynchronously using spawn_blocking
     pub async fn load_adapter_async(
-        &self,
+        &mut self,
         adapter_id: u16,
         adapter_name: &str,
     ) -> Result<AdapterHandle> {
@@ -599,7 +555,7 @@ impl AdapterLoader {
     /// Use the synchronous `load_adapter_for_backend()` method for sealed adapters,
     /// or wrap the call in `tokio::task::spawn_blocking()`.
     pub async fn load_adapter_async_for_backend(
-        &self,
+        &mut self,
         adapter_id: u16,
         adapter_name: &str,
         backend: &str,
@@ -608,147 +564,134 @@ impl AdapterLoader {
         let expected_hash = self.expected_hash(adapter_name)?;
         let adapter_name_owned = adapter_name.to_string();
         let backend_owned = backend.to_string();
-        let expected_base_model_id = self.expected_base_model_id.read().clone();
-        let expected_base_model_hash = *self.expected_base_model_hash.read();
-        let loaded_map_arc = self.loaded.clone();
+        let expected_base_model_id = self.expected_base_model_id.clone();
+        let expected_base_model_hash = self.expected_base_model_hash;
 
-        let loaded_handle = self
-            .load_dedup
-            .get_or_load(adapter_id, || async move {
-                // Check if already in map
-                if let Some((handle, _existing_weights)) = loaded_map_arc.read().get(&adapter_id) {
-                    return Ok(handle.clone());
-                }
+        let (handle, weights_data) = tokio::task::spawn_blocking(move || {
+            let paths = resolve_adapter_paths(&base_path, &adapter_name_owned);
 
-                let (handle, weights_data) = tokio::task::spawn_blocking(move || {
-                    let paths = resolve_adapter_paths(&base_path, &adapter_name_owned);
+            // Note: .sealed files not supported in async path yet
+            // Users should use sync API or wrap in spawn_blocking for sealed adapters
+            let (adapter_path, weights_data, metadata) = if paths.sealed.exists() {
+                return Err(AosError::Lifecycle(
+                    "Sealed adapters (.sealed) not yet supported in async load. \
+                     Use load_adapter_for_backend() synchronously."
+                        .to_string(),
+                ));
+            } else if paths.aos.exists() {
+                tracing::debug!(
+                    adapter_name = adapter_name_owned,
+                    path = %paths.aos.display(),
+                    "Loading from .aos file (async)"
+                );
+                // Load from .aos file
+                let (data, meta) = AdapterLoader::load_from_aos_static(
+                    &paths.aos,
+                    &backend_owned,
+                    expected_base_model_id.as_deref(),
+                    expected_base_model_hash.as_ref(),
+                )?;
+                (paths.aos, data, meta)
+            } else if paths.safetensors.exists() {
+                tracing::debug!(
+                    adapter_name = adapter_name_owned,
+                    path = %paths.safetensors.display(),
+                    "Loading from .safetensors file (async)"
+                );
+                validate_nonzero_file(&paths.safetensors)?;
+                // Load from .safetensors file
+                let file = File::open(&paths.safetensors).map_err(|e| {
+                    AosError::Lifecycle(format!("Failed to open adapter file: {}", e))
+                })?;
 
-                    // Note: .sealed files not supported in async path yet
-                    // Users should use sync API or wrap in spawn_blocking for sealed adapters
-                    let (adapter_path, weights_data, metadata) = if paths.sealed.exists() {
-                        return Err("Sealed adapters (.sealed) not yet supported in async load. Use load_adapter_for_backend() synchronously.".to_string());
-                    } else if paths.aos.exists() {
-                        tracing::debug!(
-                            adapter_name = adapter_name_owned,
-                            path = %paths.aos.display(),
-                            "Loading from .aos file (async)"
-                        );
-                        // Load from .aos file
-                        let (data, meta) = AdapterLoader::load_from_aos_static(
-                            &paths.aos,
-                            &backend_owned,
-                            expected_base_model_id.as_deref(),
-                            expected_base_model_hash.as_ref(),
-                        ).map_err(|e| e.to_string())?;
-                        (paths.aos, data, meta)
-                    } else if paths.safetensors.exists() {
-                        tracing::debug!(
-                            adapter_name = adapter_name_owned,
-                            path = %paths.safetensors.display(),
-                            "Loading from .safetensors file (async)"
-                        );
-                        validate_nonzero_file(&paths.safetensors).map_err(|e| e.to_string())?;
-                        // Load from .safetensors file
-                        let file = File::open(&paths.safetensors).map_err(|e| {
-                            format!("Failed to open adapter file: {}", e)
-                        })?;
+                let mmap = unsafe { Mmap::map(&file) }.map_err(|e| {
+                    AosError::Lifecycle(format!("Failed to mmap adapter file: {}", e))
+                })?;
 
-                        let mmap = unsafe { Mmap::map(&file) }.map_err(|e| {
-                            format!("Failed to mmap adapter file: {}", e)
-                        })?;
+                let mmap = Arc::new(mmap);
 
-                        let mmap = Arc::new(mmap);
+                // Parse SafeTensors to extract metadata
+                let tensors = SafeTensors::deserialize(&mmap).map_err(|e| {
+                    AosError::Lifecycle(format!("Failed to parse SafeTensors: {}", e))
+                })?;
 
-                        // Parse SafeTensors to extract metadata
-                        let tensors = SafeTensors::deserialize(&mmap).map_err(|e| {
-                            format!("Failed to parse SafeTensors: {}", e)
-                        })?;
+                let metadata = AdapterLoader::extract_metadata(&tensors);
 
-                        let metadata = AdapterLoader::extract_metadata(&tensors);
+                // Read data for hashing (mmap gives us zero-copy access)
+                let weights_data_vec = mmap.to_vec();
 
-                        // Read data for hashing (mmap gives us zero-copy access)
-                        let weights_data_vec = mmap.to_vec();
+                let loaded_weights = LoadedWeights {
+                    data: weights_data_vec,
+                    _mmap: Some(mmap),
+                };
 
-                        let loaded_weights = LoadedWeights {
-                            data: weights_data_vec,
-                            _mmap: Some(mmap),
-                        };
+                (paths.safetensors, loaded_weights, metadata)
+            } else {
+                return Err(AosError::Lifecycle(format!(
+                    "Adapter file not found: {} (checked .sealed, .aos, and .safetensors)",
+                    adapter_name_owned
+                )));
+            };
 
-                        (paths.safetensors, loaded_weights, metadata)
-                    } else {
-                        return Err(format!(
-                            "Adapter file not found: {} (checked .sealed, .aos, and .safetensors)",
-                            adapter_name_owned
-                        ));
-                    };
+            let actual_hash = B3Hash::hash(&weights_data.data);
 
-                    let actual_hash = B3Hash::hash(&weights_data.data);
+            if actual_hash != expected_hash {
+                tracing::error!(
+                    "Adapter hash mismatch for {} (expected {}, got {})",
+                    adapter_name_owned,
+                    expected_hash,
+                    actual_hash
+                );
+                return Err(AosError::AdapterHashMismatch {
+                    adapter_id: adapter_name_owned.clone(),
+                    expected: expected_hash,
+                    actual: actual_hash,
+                });
+            }
 
-                    if actual_hash != expected_hash {
-                        tracing::error!(
-                            "Adapter hash mismatch for {} (expected {}, got {})",
-                            adapter_name_owned,
-                            expected_hash,
-                            actual_hash
-                        );
-                        return Err(AosError::AdapterHashMismatch {
-                            adapter_id: adapter_name_owned.clone(),
-                            expected: expected_hash,
-                            actual: actual_hash,
-                        }.to_string());
-                    }
+            let memory_bytes =
+                AdapterLoader::calculate_memory_bytes(&metadata, weights_data.data.len());
 
-                    let memory_bytes =
-                        AdapterLoader::calculate_memory_bytes(&metadata, weights_data.data.len());
+            tracing::info!(
+                adapter_id = adapter_id,
+                adapter_name = adapter_name_owned,
+                path = %adapter_path.display(),
+                memory_bytes = memory_bytes,
+                num_parameters = metadata.num_parameters,
+                rank = ?metadata.rank,
+                "Loaded adapter async"
+            );
 
-                    let handle = AdapterHandle {
-                        adapter_id,
-                        path: adapter_path.clone(),
-                        memory_bytes,
-                        metadata,
-                    };
+            Ok((
+                AdapterHandle {
+                    adapter_id,
+                    path: adapter_path,
+                    memory_bytes,
+                    metadata,
+                },
+                weights_data,
+            ))
+        })
+        .await
+        .map_err(|e| AosError::Lifecycle(format!("Failed to spawn load task: {}", e)))??;
 
-                    tracing::info!(
-                        adapter_id = adapter_id,
-                        adapter_name = adapter_name_owned,
-                        path = %adapter_path.display(),
-                        memory_bytes = memory_bytes,
-                        num_parameters = handle.metadata.num_parameters,
-                        rank = ?handle.metadata.rank,
-                        "Loaded adapter async"
-                    );
+        // Update internal state
+        self.loaded
+            .insert(adapter_id, (handle.path.clone(), weights_data));
 
-                    Ok((
-                        handle,
-                        weights_data,
-                    ))
-                })
-                .await
-                .map_err(|e| format!("Failed to spawn load task: {}", e))??;
-
-                // If not in map, insert newly read weights
-                loaded_map_arc
-                    .write()
-                    .insert(adapter_id, (handle.clone(), weights_data));
-
-                Ok(handle)
-            })
-            .await
-            .map_err(|e: String| AosError::Lifecycle(e))?;
-
-        Ok(loaded_handle)
+        Ok(handle)
     }
 
     /// Unload an adapter from memory
     ///
     /// This removes the adapter from the loaded map and zeroizes the weights
     /// via the LoadedWeights drop implementation.
-    pub fn unload_adapter(&self, adapter_id: u16) -> Result<()> {
-        if let Some((handle, _weights)) = self.loaded.write().remove(&adapter_id) {
+    pub fn unload_adapter(&mut self, adapter_id: u16) -> Result<()> {
+        if let Some((path, _weights)) = self.loaded.remove(&adapter_id) {
             // Weights are automatically zeroized when dropped
             tracing::info!(
                 adapter_id = adapter_id,
-                path = %handle.path.display(),
+                path = %path.display(),
                 "Unloaded adapter (weights zeroized)"
             );
             Ok(())
@@ -762,12 +705,12 @@ impl AdapterLoader {
 
     /// Check if adapter is loaded
     pub fn is_loaded(&self, adapter_id: u16) -> bool {
-        self.loaded.read().contains_key(&adapter_id)
+        self.loaded.contains_key(&adapter_id)
     }
 
     /// Get number of loaded adapters
     pub fn loaded_count(&self) -> usize {
-        self.loaded.read().len()
+        self.loaded.len()
     }
 
     /// Load and parse SafeTensors file, returning weights and metadata
@@ -821,13 +764,11 @@ impl AdapterLoader {
         self.verify_aos_signature(aos_path)?;
 
         // Then load the weights
-        let expected_base_model_id_val = self.expected_base_model_id.read().clone();
-        let expected_base_model_hash_val = *self.expected_base_model_hash.read();
         Self::load_from_aos_static(
             aos_path,
             backend,
-            expected_base_model_id_val.as_deref(),
-            expected_base_model_hash_val.as_ref(),
+            self.expected_base_model_id.as_deref(),
+            self.expected_base_model_hash.as_ref(),
         )
     }
 
@@ -846,7 +787,7 @@ impl AdapterLoader {
         let mut archive = match ZipArchive::new(file) {
             Ok(arc) => arc,
             Err(e) => {
-                if *self.require_signatures.read() {
+                if self.require_signatures {
                     return Err(AosError::Io(format!("Failed to open .aos as ZIP: {}", e)));
                 } else {
                     tracing::warn!(
@@ -911,7 +852,7 @@ impl AdapterLoader {
                 Ok(())
             }
             None => {
-                if *self.require_signatures.read() {
+                if self.require_signatures {
                     Err(AosError::Validation(format!(
                         "Adapter {} has no signature (required in production mode)",
                         aos_path.display()
@@ -1362,16 +1303,11 @@ impl AdapterLoader {
         estimated
     }
 
-    pub fn get_weights(
-        &self,
-        adapter_id: u16,
-    ) -> Option<parking_lot::MappedRwLockReadGuard<'_, [u8]>> {
-        let guard = self.loaded.read();
-        parking_lot::RwLockReadGuard::try_map(guard, |g| {
-            g.get(&adapter_id)
-                .map(|(_, weights)| weights.data.as_slice())
-        })
-        .ok()
+    /// Get raw weight data for an adapter (for GPU upload)
+    pub fn get_weights(&self, adapter_id: u16) -> Option<&[u8]> {
+        self.loaded
+            .get(&adapter_id)
+            .map(|(_, weights)| weights.data.as_slice())
     }
 }
 
@@ -1579,7 +1515,7 @@ mod tests {
         );
 
         let serialized =
-            serialize(tensors, None).expect("Test SafeTensors serialization should succeed");
+            serialize(tensors, &None).expect("Test SafeTensors serialization should succeed");
         fs::write(path, &serialized).expect("Test file write should succeed");
         serialized
     }
@@ -1595,7 +1531,7 @@ mod tests {
 
         let mut expected_hashes = HashMap::new();
         expected_hashes.insert("test_adapter".to_string(), B3Hash::hash(&serialized));
-        let loader = AdapterLoader::new(temp_dir_path.clone(), expected_hashes);
+        let mut loader = AdapterLoader::new(temp_dir_path.clone(), expected_hashes);
 
         // Load adapter
         let handle = loader
@@ -1635,7 +1571,7 @@ mod tests {
         let mut expected_hashes = HashMap::new();
         expected_hashes.insert("test_adapter".to_string(), B3Hash::hash(b"different data"));
 
-        let loader = AdapterLoader::new(temp_dir_path.clone(), expected_hashes);
+        let mut loader = AdapterLoader::new(temp_dir_path.clone(), expected_hashes);
 
         match loader.load_adapter(0, "test_adapter") {
             Err(AosError::AdapterHashMismatch {
@@ -1646,16 +1582,6 @@ mod tests {
                 assert_eq!(adapter_id, "test_adapter");
                 assert_eq!(expected, B3Hash::hash(b"different data"));
                 assert_eq!(actual, B3Hash::hash(&serialized));
-            }
-            Err(AosError::Lifecycle(msg)) => {
-                assert!(
-                    msg.contains("Adapter hash mismatch"),
-                    "unexpected lifecycle error: {msg}"
-                );
-                assert!(
-                    msg.contains("test_adapter"),
-                    "unexpected lifecycle error: {msg}"
-                );
             }
             Err(e) => panic!("Unexpected error: {}", e),
             Ok(_) => panic!("Expected hash mismatch error"),
@@ -1678,7 +1604,7 @@ mod tests {
         .unwrap();
         let serialized = safetensors::tensor::serialize(
             [("lora_A.q_proj.weight".to_string(), tensor)].into_iter(),
-            None,
+            &None,
         )
         .unwrap();
         let tensors = SafeTensors::deserialize(&serialized).unwrap();
@@ -1732,7 +1658,7 @@ mod tests {
         );
 
         let serialized =
-            safetensors::tensor::serialize(tensors, None).expect("serialize should work");
+            safetensors::tensor::serialize(tensors, &None).expect("serialize should work");
 
         // Build per-layer hashes from original data
         let parsed = SafeTensors::deserialize(&serialized).unwrap();
@@ -1805,7 +1731,7 @@ mod tests {
 
         let mut expected_hashes = HashMap::new();
         expected_hashes.insert("test_adapter".to_string(), B3Hash::hash(&serialized));
-        let loader = AdapterLoader::new(temp_dir_path.to_path_buf(), expected_hashes);
+        let mut loader = AdapterLoader::new(temp_dir_path.to_path_buf(), expected_hashes);
 
         match loader.load_adapter(0, "test_adapter") {
             Err(AosError::AdapterLayerHashMismatch { layer_id, .. }) => {
@@ -1813,16 +1739,6 @@ mod tests {
                     layer_id.contains("layer_0.attn.q_proj"),
                     "unexpected layer id: {}",
                     layer_id
-                );
-            }
-            Err(AosError::Lifecycle(msg)) => {
-                assert!(
-                    msg.contains("Per-layer hash mismatch"),
-                    "unexpected lifecycle error: {msg}"
-                );
-                assert!(
-                    msg.contains("layer_0.attn.q_proj"),
-                    "unexpected lifecycle error: {msg}"
                 );
             }
             Err(e) => panic!("Unexpected error: {}", e),
@@ -1838,7 +1754,7 @@ mod tests {
         let mut expected_hashes = HashMap::new();
         expected_hashes.insert("missing_adapter".to_string(), B3Hash::hash(b"data"));
 
-        let loader = AdapterLoader::new(temp_dir_path.clone(), expected_hashes);
+        let mut loader = AdapterLoader::new(temp_dir_path.clone(), expected_hashes);
 
         match loader.load_adapter(0, "missing_adapter") {
             Err(AosError::Lifecycle(msg)) => {
@@ -1854,7 +1770,7 @@ mod tests {
         let temp_dir = new_test_tempdir("mplora_test_unload_not_loaded_");
         let temp_dir_path = temp_dir.path().to_path_buf();
 
-        let loader = AdapterLoader::new(temp_dir_path.clone(), HashMap::new());
+        let mut loader = AdapterLoader::new(temp_dir_path.clone(), HashMap::new());
 
         match loader.unload_adapter(99) {
             Err(AosError::Lifecycle(msg)) => {
@@ -1939,7 +1855,7 @@ mod tests {
                 )
                 .unwrap(),
             )],
-            None,
+            &None,
         )
         .unwrap();
 

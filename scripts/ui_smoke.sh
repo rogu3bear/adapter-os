@@ -9,8 +9,8 @@ set -Eeuo pipefail
 ROOT_DIR="$(cd "$(dirname "${BASH_SOURCE[0]}")/.." && pwd)"
 cd "$ROOT_DIR"
 
-: "${AOS_UI_URL:=http://localhost:${AOS_SERVER_PORT:-18080}}"
-: "${AOS_API_URL:=http://localhost:${AOS_SERVER_PORT:-18080}/api}"
+: "${AOS_UI_URL:=http://localhost:${AOS_SERVER_PORT:-8080}}"
+: "${AOS_API_URL:=http://localhost:${AOS_SERVER_PORT:-8080}/api}"
 : "${SMOKE_CONNECT_TIMEOUT_SECONDS:=2}"
 : "${SMOKE_HTTP_TIMEOUT_SECONDS:=10}"
 : "${SMOKE_DEV_BYPASS:=0}" # If 1, require /v1/auth/dev-bypass and run authed checks

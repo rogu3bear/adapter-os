@@ -85,19 +85,6 @@ const KNOWN_MANIFEST_FIELDS: &[&str] = &[
     "custom",
 ];
 
-/// Normalize manifest scope to a valid adapter_scopes value (global, tenant, repo, commit).
-/// Legacy values like "project" and "workspace" map to "tenant".
-fn normalize_adapter_scope(scope: &str) -> &'static str {
-    match scope.trim() {
-        "global" => "global",
-        "tenant" => "tenant",
-        "repo" => "repo",
-        "commit" => "commit",
-        "project" | "" | "workspace" => "tenant",
-        _ => "tenant",
-    }
-}
-
 // ============================================================================
 // Handlers
 // ============================================================================
@@ -421,13 +408,11 @@ pub async fn import_adapter(
         (scope_path, domain, group, operation)
     };
     let scope_hash = adapteros_aos::compute_scope_hash(&scope_path);
-    let scope_value = normalize_adapter_scope(
-        manifest
-            .get("scope")
-            .and_then(|v| v.as_str())
-            .unwrap_or("project"),
-    )
-    .to_string();
+    let scope_value = manifest
+        .get("scope")
+        .and_then(|v| v.as_str())
+        .unwrap_or("project")
+        .to_string();
     let canonical_segment = match file_view
         .segments
         .iter()
@@ -1076,7 +1061,7 @@ pub async fn import_adapter(
     // === AUTO-LOAD (Issue 2) ===
     // Register with lifecycle manager and optionally load
     if let Some(ref lifecycle) = state.lifecycle_manager {
-        let manager = lifecycle;
+        let mut manager = lifecycle.lock().await;
         let hash = B3Hash::from_hex(&weights_hash).unwrap_or_else(|_| B3Hash::hash(weights_data));
 
         match manager.register_adapter(

@@ -14,7 +14,7 @@ pub use adapteros_core::version::API_SCHEMA_VERSION;
 
 // For WASM builds, define a constant directly (must match core::version::API_SCHEMA_VERSION)
 #[cfg(not(feature = "server"))]
-pub const API_SCHEMA_VERSION: &str = "2.0.0";
+pub const API_SCHEMA_VERSION: &str = "1.0.0";
 
 /// Get the current API schema version as a String.
 /// Used as serde default for response types.

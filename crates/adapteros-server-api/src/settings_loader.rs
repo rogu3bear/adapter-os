@@ -170,7 +170,7 @@ mod tests {
             api_base_url: "http://localhost".to_string(),
         };
         let server = ServerSettings {
-            http_port: 18080,
+            http_port: 8080,
             https_port: None,
             uds_socket_path: None,
             production_mode: false,
@@ -199,7 +199,7 @@ mod tests {
         assert!(result.is_ok());
         let (g, s, sec, p) = result.unwrap();
         assert_eq!(g.system_name, "Test");
-        assert_eq!(s.http_port, 18080);
+        assert_eq!(s.http_port, 8080);
         assert_eq!(sec.jwt_mode, "eddsa");
         assert_eq!(p.max_adapters, 100);
     }

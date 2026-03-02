@@ -33,11 +33,12 @@
   "expected": {
     "run_head": "1dadfcd6b8063a1787e5c056e98a4b654e116b8597d6f10cf4d190ca439c40ab",
     "output_digest": "43fee4c248c11153279587030f0a7e84a5f90b6679f0436beec84b163fa61382",
-    "receipt_digest": "8def46a17cc979ae4aa61cd1953dc48360b0b503e38261e1484e8248256fe727",
+    "receipt_digest": "d0588eb25aca9dc6c66f1dc55049bdfcc5a453f9435313a299bdd0cf83d725f9",
     "merkle_root": "1dadfcd6b8063a1787e5c056e98a4b654e116b8597d6f10cf4d190ca439c40ab"
   },
   "assert_output_count_matches_tokens": true
 }
+
 
 
 

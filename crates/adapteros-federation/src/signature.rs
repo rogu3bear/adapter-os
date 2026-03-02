@@ -87,7 +87,7 @@ impl QuorumManager {
             "Initializing quorum tracking"
         );
 
-        let pool = self.db.pool_result()?;
+        let pool = self.db.pool();
         let bundle_hash_hex = bundle_hash.to_hex();
 
         sqlx::query(
@@ -120,7 +120,7 @@ impl QuorumManager {
             "Recording signature"
         );
 
-        let pool = self.db.pool_result()?;
+        let pool = self.db.pool();
         let bundle_hash_hex = bundle_hash.to_hex();
         let signature_hex = hex::encode(signature.to_bytes());
 
@@ -218,7 +218,7 @@ impl QuorumManager {
 
     /// Check if quorum is reached for a bundle
     pub async fn is_quorum_reached(&self, bundle_hash: &B3Hash) -> Result<bool> {
-        let pool = self.db.pool_result()?;
+        let pool = self.db.pool();
         let bundle_hash_hex = bundle_hash.to_hex();
 
         let row = sqlx::query(
@@ -243,7 +243,7 @@ impl QuorumManager {
 
     /// Get quorum status for a bundle
     pub async fn get_quorum_status(&self, bundle_hash: &B3Hash) -> Result<QuorumStatus> {
-        let pool = self.db.pool_result()?;
+        let pool = self.db.pool();
         let bundle_hash_hex = bundle_hash.to_hex();
 
         let row = sqlx::query(
@@ -282,7 +282,7 @@ impl QuorumManager {
     /// Build signature exchange from database
     pub async fn build_exchange(&self, bundle_hash: &B3Hash) -> Result<BundleSignatureExchange> {
         let status = self.get_quorum_status(bundle_hash).await?;
-        let pool = self.db.pool_result()?;
+        let pool = self.db.pool();
         let bundle_hash_hex = bundle_hash.to_hex();
 
         // Fetch all signatures for this bundle

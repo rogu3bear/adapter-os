@@ -81,7 +81,7 @@ Configurable stress test with environment-variable-driven parameters for custom 
 2. **Configure Test Environment:**
    ```bash
    # Set base URL for adapterOS instance
-   export MPLORA_TEST_URL="http://localhost:18080"
+   export MPLORA_TEST_URL="http://localhost:9443"
 
    # Configure tenant tokens (optional, for multi-tenant tests)
    export TENANT_A_TOKEN="your-tenant-a-token"

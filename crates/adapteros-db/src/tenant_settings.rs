@@ -84,7 +84,7 @@ impl Db {
             "#,
         )
         .bind(tenant_id)
-        .fetch_optional(self.pool_result()?)
+        .fetch_optional(self.pool())
         .await
         .map_err(db_err("get tenant settings"))?;
 
@@ -144,7 +144,7 @@ impl Db {
         .bind(use_default_stack_on_chat_create as i32)
         .bind(use_default_stack_on_infer_session as i32)
         .bind(&settings_json)
-        .execute(self.pool_result()?)
+        .execute(self.pool())
         .await
         .map_err(db_err("upsert tenant settings"))?;
 
@@ -168,7 +168,7 @@ impl Db {
             "SELECT use_default_stack_on_chat_create FROM tenant_settings WHERE tenant_id = ?",
         )
         .bind(tenant_id)
-        .fetch_optional(self.pool_result()?)
+        .fetch_optional(self.pool())
         .await
         .map_err(db_err("check inherit stack on chat create"))?;
 
@@ -189,7 +189,7 @@ impl Db {
             "SELECT use_default_stack_on_infer_session FROM tenant_settings WHERE tenant_id = ?",
         )
         .bind(tenant_id)
-        .fetch_optional(self.pool_result()?)
+        .fetch_optional(self.pool())
         .await
         .map_err(db_err("check fallback stack on infer"))?;
 
@@ -208,7 +208,7 @@ impl Db {
 
         let result = sqlx::query("DELETE FROM tenant_settings WHERE tenant_id = ?")
             .bind(tenant_id)
-            .execute(self.pool_result()?)
+            .execute(self.pool())
             .await
             .map_err(db_err("delete tenant settings"))?;
 

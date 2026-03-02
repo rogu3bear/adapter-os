@@ -4,7 +4,7 @@
 //! instead of a single spinner, improving perceived responsiveness for operations
 //! like training job start, model load, or bulk actions.
 
-use crate::components::{IconX, Spinner};
+use crate::components::Spinner;
 use leptos::prelude::*;
 
 /// A single stage in a multi-step operation.
@@ -135,7 +135,9 @@ pub fn ProgressStages(
                                                 </svg>
                                             }.into_any(),
                                             StageStatus::Error => view! {
-                                                <IconX class="w-4 h-4"/>
+                                                <svg class="w-4 h-4" fill="none" viewBox="0 0 24 24" stroke="currentColor">
+                                                    <path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M6 18L18 6M6 6l12 12"/>
+                                                </svg>
                                             }.into_any(),
                                             StageStatus::Active => view! {
                                                 <div class="progress-stage-spinner">

@@ -1,6 +1,7 @@
 //! Import MLX model command
 //!
-//! Imports and validates an MLX model directory for use with the MLX backend.
+//! MLX backend is temporarily disabled - requires MLX C++ library.
+//! See: crates/adapteros-lora-mlx-ffi/README.md for details.
 
 use crate::output::OutputWriter;
 use adapteros_core::AosError;
@@ -33,32 +34,15 @@ pub async fn run(
         "MLX model import requested but MLX backend is disabled"
     );
 
-    output.info("Verifying MLX model weights...");
+    output.error("MLX model import is temporarily disabled - requires MLX C++ library");
+    output.info("Alternative: Use Metal backend for inference");
+    output.info("See: crates/adapteros-lora-mlx-ffi/README.md for details");
 
-    #[cfg(feature = "multi-backend")]
-    {
-        // Defer to the FFI crate to perform the actual import/validation
-        match adapteros_lora_mlx_ffi::import_model(weights, config, tokenizer) {
-            Ok(_) => {
-                output.success("MLX model imported successfully");
-                Ok(())
-            }
-            Err(e) => {
-                output.error(&format!("Failed to import MLX model: {}", e));
-                Err(e.into())
-            }
-        }
+    Err(AosError::FeatureDisabled {
+        feature: "MLX model import".to_string(),
+        reason: "Requires MLX C++ library - see crates/adapteros-lora-mlx-ffi/README.md"
+            .to_string(),
+        alternative: Some("Use Metal backend for inference".to_string()),
     }
-
-    #[cfg(not(feature = "multi-backend"))]
-    {
-        let msg = "MLX backend disabled - requires multi-backend feature to be compiled";
-        output.error(msg);
-        Err(AosError::FeatureDisabled {
-            feature: "MLX Import".to_string(),
-            reason: msg.to_string(),
-            alternative: Some("Recompile adapteros-cli with --features multi-backend".to_string()),
-        }
-        .into())
-    }
+    .into())
 }

@@ -24,7 +24,7 @@ async fn create_test_worker(db: &Db, worker_id: &str, tenant_id: &str) -> Result
     sqlx::query("INSERT OR IGNORE INTO tenants (id, name) VALUES (?, ?)")
         .bind(tenant_id)
         .bind(tenant_id)
-        .execute(db.pool_result()?)
+        .execute(db.pool())
         .await?;
 
     // Seed a node record to satisfy FK
@@ -36,7 +36,7 @@ async fn create_test_worker(db: &Db, worker_id: &str, tenant_id: &str) -> Result
     .bind(node_id)
     .bind(format!("{}-host", tenant_id))
     .bind("http://localhost:0")
-    .execute(db.pool_result()?)
+    .execute(db.pool())
     .await?;
 
     // Seed a manifest and plan to satisfy worker FK
@@ -49,7 +49,7 @@ async fn create_test_worker(db: &Db, worker_id: &str, tenant_id: &str) -> Result
     .bind(&manifest_id)
     .bind(tenant_id)
     .bind(&manifest_hash)
-    .execute(db.pool_result()?)
+    .execute(db.pool())
     .await?;
 
     let plan_id = format!("plan-{}", tenant_id);
@@ -61,7 +61,7 @@ async fn create_test_worker(db: &Db, worker_id: &str, tenant_id: &str) -> Result
     .bind(tenant_id)
     .bind(format!("plan-b3-{}", tenant_id))
     .bind(&manifest_hash)
-    .execute(db.pool_result()?)
+    .execute(db.pool())
     .await?;
 
     sqlx::query(
@@ -72,7 +72,7 @@ async fn create_test_worker(db: &Db, worker_id: &str, tenant_id: &str) -> Result
     .bind(tenant_id)
     .bind(node_id)
     .bind(&plan_id)
-    .execute(db.pool_result()?)
+    .execute(db.pool())
     .await?;
     Ok(())
 }

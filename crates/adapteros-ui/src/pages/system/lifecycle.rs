@@ -51,17 +51,17 @@ pub fn AdminLifecyclePanel() -> impl IntoView {
                             .get("lifecycle")
                             .and_then(|v| v.as_str())
                             .unwrap_or("unknown");
-                        let _ = action_success.try_set(Some(format!(
+                        action_success.set(Some(format!(
                             "Shutdown accepted ({}). State: {}. Tracking: {}",
                             mode, lifecycle, tracking
                         )));
                     }
                     Err(e) => {
-                        let _ = action_error.try_set(Some(format!("Shutdown failed: {}", e)));
+                        action_error.set(Some(format!("Shutdown failed: {}", e)));
                     }
                 }
-                let _ = shutdown_loading.try_set(false);
-                let _ = shutdown_reason.try_set(String::new());
+                shutdown_loading.set(false);
+                shutdown_reason.set(String::new());
             });
         })
     };
@@ -94,18 +94,17 @@ pub fn AdminLifecyclePanel() -> impl IntoView {
                             .get("lifecycle")
                             .and_then(|v| v.as_str())
                             .unwrap_or("unknown");
-                        let _ = action_success.try_set(Some(format!(
+                        action_success.set(Some(format!(
                             "Maintenance accepted (scope: {}). State: {}. Tracking: {}",
                             scope, lifecycle, tracking
                         )));
                     }
                     Err(e) => {
-                        let _ = action_error
-                            .try_set(Some(format!("Maintenance request failed: {}", e)));
+                        action_error.set(Some(format!("Maintenance request failed: {}", e)));
                     }
                 }
-                let _ = maintenance_loading.try_set(false);
-                let _ = maintenance_reason.try_set(String::new());
+                maintenance_loading.set(false);
+                maintenance_reason.set(String::new());
             });
         })
     };
@@ -130,16 +129,16 @@ pub fn AdminLifecyclePanel() -> impl IntoView {
                             .get("lifecycle")
                             .and_then(|v| v.as_str())
                             .unwrap_or("unknown");
-                        let _ = action_success.try_set(Some(format!(
+                        action_success.set(Some(format!(
                             "Safe restart initiated. State: {}. Process will exit when drained; supervisor should restart.",
                             lifecycle
                         )));
                     }
                     Err(e) => {
-                        let _ = action_error.try_set(Some(format!("Safe restart failed: {}", e)));
+                        action_error.set(Some(format!("Safe restart failed: {}", e)));
                     }
                 }
-                let _ = restart_loading.try_set(false);
+                restart_loading.set(false);
             });
         })
     };

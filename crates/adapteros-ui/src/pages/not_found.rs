@@ -14,6 +14,9 @@ fn suggestions_for_path(path: &str) -> Vec<(&'static str, &'static str)> {
     if path.starts_with("/training") {
         suggestions.push(("View training jobs", "/training"));
     }
+    if path.starts_with("/stacks") {
+        suggestions.push(("View stacks", "/stacks"));
+    }
     if path.starts_with("/workers") {
         suggestions.push(("View workers", "/workers"));
     }
@@ -23,8 +26,17 @@ fn suggestions_for_path(path: &str) -> Vec<(&'static str, &'static str)> {
     if path.starts_with("/documents") {
         suggestions.push(("View documents", "/documents"));
     }
+    if path.starts_with("/datasets") {
+        suggestions.push(("View datasets", "/datasets"));
+    }
+    if path.starts_with("/repositories") {
+        suggestions.push(("View repositories", "/repositories"));
+    }
     if path.starts_with("/settings") {
         suggestions.push(("Go to settings", "/settings"));
+    }
+    if path.starts_with("/routing") {
+        suggestions.push(("View routing decisions", "/routing"));
     }
     if path.starts_with("/chat") {
         suggestions.push(("Open chat", "/chat"));
@@ -44,7 +56,7 @@ pub fn NotFound() -> impl IntoView {
         <NotFoundSurface
             title="Page not found"
             description="The requested page does not exist."
-            action_label="Go to Home"
+            action_label="Go to Dashboard"
             action_href="/"
             class="min-h-[60vh]".to_string()
         >

@@ -38,7 +38,7 @@ fn test_acceptable_select_query() {
 pub async fn get_status(state: AppState) -> Result<()> {
     // Acceptable: Read-only SELECT query
     let result = sqlx::query("SELECT last_run FROM determinism_checks LIMIT 1")
-        .fetch_optional(state.db.pool_result()?)
+        .fetch_optional(state.db.pool())
         .await?;
     Ok(())
 }
@@ -59,7 +59,7 @@ pub async fn get_status(state: AppState) -> Result<()> {
 fn test_transaction_context_acceptable() {
     let test_code = r#"
 pub async fn update_in_transaction(state: AppState) -> Result<()> {
-    let mut tx = state.db.pool_result()?.begin().await?;
+    let mut tx = state.db.pool().begin().await?;
     // Acceptable: Inside transaction
     sqlx::query("UPDATE adapters SET tier = ? WHERE adapter_id = ?")
         .bind(&new_tier)

@@ -144,7 +144,7 @@ pub async fn swap_adapters(
     // Execute the swap: unload old, load new using lifecycle manager
     // Unload old adapter via lifecycle manager
     if let Some(ref lifecycle) = state.lifecycle_manager {
-        let manager = lifecycle;
+        let mut manager = lifecycle.lock().await;
 
         // Unload old adapter
         if let Some(old_adapter_idx) = manager.get_adapter_idx(&req.old_adapter_id) {
@@ -195,7 +195,7 @@ pub async fn swap_adapters(
         }
 
         // Load new adapter via lifecycle manager
-        if let Err(e) = manager.get_or_reload_async(&req.new_adapter_id).await {
+        if let Err(e) = manager.get_or_reload(&req.new_adapter_id) {
             tracing::warn!(adapter_id = %req.new_adapter_id, error = %e, "Failed to load new adapter via lifecycle manager");
             return Err(
                 ApiError::internal("failed to load new adapter").with_details(e.to_string())

@@ -385,7 +385,7 @@ fn bench_adapter_hotswap(c: &mut Criterion) {
             BenchmarkId::new("register", format!("rank{}", rank)),
             &rank,
             |b, &r| {
-                let mut backend = create_benchmark_backend();
+                let backend = create_benchmark_backend();
 
                 b.iter(|| {
                     let adapter = create_mock_adapter("hotswap-adapter", r);
@@ -398,15 +398,15 @@ fn bench_adapter_hotswap(c: &mut Criterion) {
             BenchmarkId::new("unload", format!("rank{}", rank)),
             &rank,
             |b, &r| {
+                let backend = create_benchmark_backend();
+
                 b.iter_batched(
                     || {
                         // Setup: register adapter
-                        let mut backend = create_benchmark_backend();
                         let adapter = create_mock_adapter("hotswap-adapter", r);
                         let _ = backend.register_adapter(0, adapter);
-                        backend
                     },
-                    |mut backend| {
+                    |_| {
                         // Benchmark: unload adapter
                         let _ = backend.unload_adapter_runtime(0);
                     },

@@ -13,8 +13,8 @@ pub enum CoremlCommand {
 
 #[derive(Debug, Args, Clone)]
 pub struct CoremlStatusArgs {
-    /// Control plane base URL (default http://localhost:18080)
-    #[arg(long, env = "AOS_SERVER_URL", default_value = "http://localhost:18080")]
+    /// Control plane base URL (default http://localhost:8080)
+    #[arg(long, env = "AOS_SERVER_URL", default_value = "http://localhost:8080")]
     pub server_url: String,
 
     /// Filter by worker ID

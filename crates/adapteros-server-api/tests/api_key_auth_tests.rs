@@ -36,7 +36,7 @@ async fn init_test_db() -> Result<Db> {
     sqlx::query("INSERT INTO tenants (id, name) VALUES (?, ?)")
         .bind("test-tenant")
         .bind("Test Tenant")
-        .execute(db.pool_result()?)
+        .execute(db.pool())
         .await?;
 
     Ok(db)
@@ -452,7 +452,7 @@ async fn test_api_key_tenant_isolation() -> Result<()> {
     sqlx::query("INSERT INTO tenants (id, name) VALUES (?, ?)")
         .bind("other-tenant")
         .bind("Other Tenant")
-        .execute(db.pool_result()?)
+        .execute(db.pool())
         .await?;
 
     // Create users in different tenants
@@ -537,7 +537,7 @@ async fn test_list_api_keys_only_returns_tenant_keys() -> Result<()> {
     sqlx::query("INSERT INTO tenants (id, name) VALUES (?, ?)")
         .bind("another-tenant")
         .bind("Another Tenant")
-        .execute(db.pool_result()?)
+        .execute(db.pool())
         .await?;
 
     // Create users in different tenants

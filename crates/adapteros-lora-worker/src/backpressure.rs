@@ -137,25 +137,17 @@ impl Drop for BackpressurePermit {
 /// Uses a semaphore with `try_acquire()` for non-blocking admission control.
 /// When the gate is at capacity, requests are immediately rejected (fast-fail)
 /// rather than queuing indefinitely.
-use crate::limiter::ThunderingHerdConfig;
-
 pub struct BackpressureGate {
     semaphore: Arc<Semaphore>,
     max_concurrent: usize,
     in_flight: AtomicU64,
     rejected_count: AtomicU64,
     admitted_count: AtomicU64,
-    config: ThunderingHerdConfig,
 }
 
 impl BackpressureGate {
     /// Create a new backpressure gate with the specified maximum concurrent requests
     pub fn new(max_concurrent: usize) -> Self {
-        Self::new_with_config(max_concurrent, ThunderingHerdConfig::default())
-    }
-
-    /// Create with explicit config
-    pub fn new_with_config(max_concurrent: usize, config: ThunderingHerdConfig) -> Self {
         info!(max_concurrent, "Creating backpressure gate");
         Self {
             semaphore: Arc::new(Semaphore::new(max_concurrent)),
@@ -163,7 +155,6 @@ impl BackpressureGate {
             in_flight: AtomicU64::new(0),
             rejected_count: AtomicU64::new(0),
             admitted_count: AtomicU64::new(0),
-            config,
         }
     }
 
@@ -175,7 +166,7 @@ impl BackpressureGate {
             .ok()
             .and_then(|v| v.parse().ok())
             .unwrap_or(DEFAULT_MAX_CONCURRENT);
-        Self::new_with_config(max_concurrent, ThunderingHerdConfig::from_env())
+        Self::new(max_concurrent)
     }
 
     /// Try to acquire a permit without waiting (fast-fail)
@@ -232,15 +223,12 @@ impl BackpressureGate {
     /// Compute suggested retry delay in milliseconds based on current load
     ///
     /// Returns a delay that increases with load to provide natural backoff behavior.
+    /// Base delay is 100ms, scaling up to ~300ms at full capacity.
     pub fn suggested_retry_ms(&self) -> u64 {
-        let base_ms = self.config.base_retry_hint_ms;
-        let load_factor = if self.max_concurrent > 0 {
-            self.in_flight.load(Ordering::Relaxed) as f64 / self.max_concurrent as f64
-        } else {
-            1.0
-        };
-        let jitter =
-            (load_factor * self.config.max_retry_hint_ms as f64 * self.config.jitter_factor) as u64;
+        let base_ms = 100;
+        let load_factor =
+            self.in_flight.load(Ordering::Relaxed) as f64 / self.max_concurrent as f64;
+        let jitter = (load_factor * 200.0) as u64;
         base_ms + jitter
     }
 }
@@ -586,12 +574,7 @@ mod tests {
             retry_high > retry_low,
             "Retry delay should increase with load"
         );
-        let expected_max = gate.config.base_retry_hint_ms
-            + (gate.config.max_retry_hint_ms as f64 * gate.config.jitter_factor) as u64;
-        assert!(
-            retry_high <= expected_max,
-            "Max retry should respect configured cap"
-        );
+        assert!(retry_high <= 300, "Max retry should be around 300ms");
     }
 
     #[test]

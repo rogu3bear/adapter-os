@@ -97,6 +97,10 @@ pub struct TenantPolicyCustomizationOps {
 }
 
 impl TenantPolicyCustomizationOps {
+    #[allow(dead_code)]
+    fn pool(&self) -> &SqlitePool {
+        &self.pool
+    }
     pub fn new(pool: SqlitePool) -> Self {
         Self { pool }
     }

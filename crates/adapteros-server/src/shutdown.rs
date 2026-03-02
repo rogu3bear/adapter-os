@@ -139,18 +139,6 @@ pub async fn shutdown_signal_with_graduated_drain(
 
     info!("Shutdown signal received, beginning graduated drain");
 
-    // If still booting, fail immediately — no requests to drain
-    if boot_state.is_booting() {
-        warn!("Shutdown signal received during boot — failing immediately");
-        boot_state
-            .fail(adapteros_server_api::boot_state::FailureReason::new(
-                adapteros_server_api::boot_state::failure_codes::SHUTDOWN_DURING_BOOT,
-                "shutdown signal received before server reached ready state",
-            ))
-            .await;
-        return;
-    }
-
     // Transition to draining state
     boot_state.drain().await;
 

@@ -10,14 +10,6 @@ use tokio::sync::RwLock;
 use tracing::{error, info, warn};
 
 #[cfg(unix)]
-use nix::errno::Errno;
-#[cfg(unix)]
-use nix::sys::signal::{kill, Signal};
-#[cfg(unix)]
-use nix::sys::wait::{waitpid, WaitPidFlag, WaitStatus};
-#[cfg(unix)]
-use nix::unistd::Pid;
-#[cfg(unix)]
 use nix::unistd::{close, Gid, Uid};
 #[cfg(unix)]
 use std::os::unix::io::AsRawFd;
@@ -181,7 +173,7 @@ impl NodeAgent {
             }
 
             // Spawn the worker process with isolation applied
-            let mut child = match cmd.spawn() {
+            let child = match cmd.spawn() {
                 Ok(child) => {
                     drop(warning_write);
                     if can_read_warnings {
@@ -288,28 +280,6 @@ impl NodeAgent {
                 }
             };
 
-            match child.try_wait() {
-                Ok(Some(status)) => {
-                    error!(
-                        tenant_id = tenant_id,
-                        plan_id = plan_id,
-                        status = %status,
-                        "Worker exited immediately after spawn"
-                    );
-                    return Err(anyhow::anyhow!(
-                        "Worker process exited immediately after spawn: {}",
-                        status
-                    ));
-                }
-                Ok(None) => {}
-                Err(e) => {
-                    return Err(anyhow::anyhow!(
-                        "Failed to verify worker startup state: {}",
-                        e
-                    ));
-                }
-            }
-
             let pid = child.id();
 
             // Track worker
@@ -337,20 +307,29 @@ impl NodeAgent {
     pub async fn stop_worker(&self, pid: u32) -> Result<()> {
         info!("Stopping worker with PID {}", pid);
 
-        let worker = {
-            let mut workers = self.workers.write().await;
-            workers.remove(&pid)
-        };
-        if let Some(worker) = worker {
-            info!(
-                "Stopping tracked worker {} for tenant {}",
-                pid, worker.tenant_id
-            );
+        let mut workers = self.workers.write().await;
+        if let Some(worker) = workers.remove(&pid) {
+            info!("Worker {} for tenant {} stopped", pid, worker.tenant_id);
 
             // Send SIGTERM for graceful shutdown
             #[cfg(unix)]
             {
-                terminate_worker_process(pid).await?;
+                use nix::sys::signal::Signal;
+                use nix::unistd::Pid;
+                use std::time::Duration;
+
+                if let Err(e) = nix::sys::signal::kill(Pid::from_raw(pid as i32), Signal::SIGTERM) {
+                    tracing::warn!("Failed to send SIGTERM to PID {}: {}", pid, e);
+
+                    // Fallback to SIGKILL after timeout
+                    tokio::time::sleep(Duration::from_secs(10)).await;
+                    if let Err(e) =
+                        nix::sys::signal::kill(Pid::from_raw(pid as i32), Signal::SIGKILL)
+                    {
+                        tracing::error!("Failed to send SIGKILL to PID {}: {}", pid, e);
+                        return Err(anyhow::anyhow!("Failed to terminate process: {}", e));
+                    }
+                }
             }
 
             Ok(())
@@ -413,173 +392,6 @@ impl NodeAgent {
             memory_available_mb,
         })
     }
-
-    /// Terminate all tracked workers during graceful shutdown.
-    ///
-    /// Drains the worker map and sends SIGTERM (then SIGKILL) to each process.
-    /// Errors are logged but never propagated -- shutdown must not be aborted by
-    /// a single stubborn worker.
-    #[cfg(unix)]
-    pub async fn shutdown_all_workers(&self) {
-        let workers: HashMap<u32, WorkerInfo> = {
-            let mut map = self.workers.write().await;
-            map.drain().collect()
-        };
-
-        let total = workers.len();
-        if total == 0 {
-            info!("No workers to terminate");
-            return;
-        }
-
-        info!(count = total, "Terminating all workers");
-
-        let mut errors = 0usize;
-        for (pid, worker) in &workers {
-            match terminate_worker_process(*pid).await {
-                Ok(()) => {
-                    info!(
-                        pid = pid,
-                        tenant_id = %worker.tenant_id,
-                        "Worker terminated"
-                    );
-                }
-                Err(e) => {
-                    warn!(
-                        pid = pid,
-                        tenant_id = %worker.tenant_id,
-                        error = %e,
-                        "Failed to terminate worker"
-                    );
-                    errors += 1;
-                }
-            }
-        }
-
-        info!(
-            terminated = total - errors,
-            errors = errors,
-            "Worker shutdown complete"
-        );
-    }
-
-    /// Non-unix stub: just clears the worker map and logs.
-    #[cfg(not(unix))]
-    pub async fn shutdown_all_workers(&self) {
-        let count = {
-            let mut map = self.workers.write().await;
-            let n = map.len();
-            map.clear();
-            n
-        };
-        info!(
-            count = count,
-            "Cleared worker map (process termination not supported on this platform)"
-        );
-    }
-}
-
-#[cfg(unix)]
-const WORKER_GRACEFUL_SHUTDOWN_TIMEOUT: Duration = Duration::from_secs(10);
-#[cfg(unix)]
-const WORKER_FORCE_KILL_TIMEOUT: Duration = Duration::from_secs(2);
-#[cfg(unix)]
-const WORKER_SHUTDOWN_POLL_INTERVAL: Duration = Duration::from_millis(100);
-
-#[cfg(unix)]
-async fn terminate_worker_process(pid: u32) -> Result<()> {
-    terminate_worker_process_with_timeouts(
-        pid,
-        WORKER_GRACEFUL_SHUTDOWN_TIMEOUT,
-        WORKER_FORCE_KILL_TIMEOUT,
-        WORKER_SHUTDOWN_POLL_INTERVAL,
-    )
-    .await
-}
-
-#[cfg(unix)]
-async fn terminate_worker_process_with_timeouts(
-    pid: u32,
-    graceful_timeout: Duration,
-    force_kill_timeout: Duration,
-    poll_interval: Duration,
-) -> Result<()> {
-    let pid_raw = pid as i32;
-    let pid_obj = Pid::from_raw(pid_raw);
-
-    match kill(pid_obj, Signal::SIGTERM) {
-        Ok(()) => {}
-        Err(Errno::ESRCH) => {
-            info!(pid = pid, "Worker process already exited");
-            return Ok(());
-        }
-        Err(e) => {
-            return Err(anyhow::anyhow!(
-                "Failed to send SIGTERM to PID {}: {}",
-                pid,
-                e
-            ));
-        }
-    }
-
-    if wait_for_process_exit(pid_obj, graceful_timeout, poll_interval).await? {
-        return Ok(());
-    }
-
-    warn!(
-        pid = pid,
-        timeout_secs = graceful_timeout.as_secs(),
-        "Worker did not exit after SIGTERM, sending SIGKILL"
-    );
-
-    match kill(pid_obj, Signal::SIGKILL) {
-        Ok(()) => {}
-        Err(Errno::ESRCH) => return Ok(()),
-        Err(e) => {
-            return Err(anyhow::anyhow!(
-                "Failed to send SIGKILL to PID {}: {}",
-                pid,
-                e
-            ));
-        }
-    }
-
-    if wait_for_process_exit(pid_obj, force_kill_timeout, poll_interval).await? {
-        return Ok(());
-    }
-
-    Err(anyhow::anyhow!(
-        "Timed out waiting for PID {} to exit after SIGKILL",
-        pid
-    ))
-}
-
-#[cfg(unix)]
-async fn wait_for_process_exit(
-    pid: Pid,
-    timeout: Duration,
-    poll_interval: Duration,
-) -> Result<bool> {
-    let deadline = tokio::time::Instant::now() + timeout;
-    loop {
-        match waitpid(pid, Some(WaitPidFlag::WNOHANG)) {
-            Ok(WaitStatus::Exited(_, _) | WaitStatus::Signaled(_, _, _)) => return Ok(true),
-            Ok(WaitStatus::StillAlive | WaitStatus::Stopped(_, _) | WaitStatus::Continued(_)) => {}
-            Err(Errno::ECHILD) | Err(Errno::ESRCH) => return Ok(true),
-            Err(e) => {
-                return Err(anyhow::anyhow!(
-                    "Failed while waiting for PID {} to exit: {}",
-                    pid.as_raw(),
-                    e
-                ));
-            }
-        }
-
-        if tokio::time::Instant::now() >= deadline {
-            return Ok(false);
-        }
-        tokio::time::sleep(poll_interval).await;
-    }
 }
 
 #[cfg(unix)]
@@ -641,80 +453,4 @@ pub struct NodeHealth {
     pub pf_enabled: bool,
     pub worker_count: usize,
     pub memory_available_mb: u64,
-}
-
-#[cfg(all(test, unix))]
-mod tests {
-    use super::*;
-    use nix::libc;
-    use std::process::Command;
-
-    fn process_exists(pid: u32) -> bool {
-        // SAFETY: kill(pid, 0) probes process existence without sending a signal.
-        unsafe { libc::kill(pid as i32, 0) == 0 }
-    }
-
-    #[tokio::test]
-    async fn terminate_worker_process_reaps_normal_child() {
-        let child = Command::new("sh")
-            .args(["-c", "sleep 30"])
-            .spawn()
-            .expect("spawn sleep child");
-        let pid = child.id();
-        drop(child);
-
-        terminate_worker_process_with_timeouts(
-            pid,
-            Duration::from_secs(1),
-            Duration::from_secs(1),
-            Duration::from_millis(50),
-        )
-        .await
-        .expect("termination should succeed");
-
-        assert!(!process_exists(pid), "process should be terminated");
-    }
-
-    #[tokio::test]
-    async fn terminate_worker_process_handles_already_exited_pid() {
-        let mut child = Command::new("sh")
-            .args(["-c", "exit 0"])
-            .spawn()
-            .expect("spawn short-lived child");
-        let pid = child.id();
-        let _ = child.wait();
-
-        terminate_worker_process_with_timeouts(
-            pid,
-            Duration::from_secs(1),
-            Duration::from_secs(1),
-            Duration::from_millis(50),
-        )
-        .await
-        .expect("already-exited pid should be treated as success");
-    }
-
-    #[tokio::test]
-    async fn terminate_worker_process_force_kills_term_ignoring_child() {
-        let child = Command::new("sh")
-            .args(["-c", "trap '' TERM; while true; do sleep 1; done"])
-            .spawn()
-            .expect("spawn term-ignoring child");
-        let pid = child.id();
-        drop(child);
-
-        terminate_worker_process_with_timeouts(
-            pid,
-            Duration::from_millis(250),
-            Duration::from_secs(1),
-            Duration::from_millis(50),
-        )
-        .await
-        .expect("force-kill fallback should succeed");
-
-        assert!(
-            !process_exists(pid),
-            "process should be killed after timeout"
-        );
-    }
 }

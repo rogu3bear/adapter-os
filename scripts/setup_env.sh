@@ -287,11 +287,11 @@ print_section "Setting up model"
 echo ""
 
 if prompt_yes_no "Download model now? (required for inference)"; then
-    if [ -f ./scripts/download-model.sh ]; then
-        ./scripts/download-model.sh
+    if [ -f ./scripts/download_model.sh ]; then
+        ./scripts/download_model.sh
         print_step "Model download complete"
     else
-        print_info "download-model.sh not found"
+        print_info "download_model.sh not found"
         echo "Manually download a model:"
         echo "  huggingface-cli download mlx-community/Qwen2.5-7B-Instruct \\"
         echo "      --include '*.safetensors' '*.json' \\"
@@ -299,7 +299,7 @@ if prompt_yes_no "Download model now? (required for inference)"; then
     fi
 else
     print_info "Model setup skipped"
-    print_info "You can download later using: ./scripts/download-model.sh"
+    print_info "You can download later using: ./scripts/download_model.sh"
 fi
 
 # ═══════════════════════════════════════════════════════════════════════════════
@@ -372,7 +372,7 @@ if [ "$PROFILE_TYPE" = "dev" ]; then
     echo "2. Build and serve the UI (Leptos WASM):"
     echo "   cd crates/adapteros-ui && trunk build --release"
     echo ""
-    echo "3. Access the UI at http://localhost:${AOS_SERVER_PORT:-18080}"
+    echo "3. Access the UI at http://localhost:${AOS_SERVER_PORT:-8080}"
 
 elif [ "$PROFILE_TYPE" = "training" ]; then
     echo "1. Verify MLX is available:"
@@ -381,7 +381,7 @@ elif [ "$PROFILE_TYPE" = "training" ]; then
     echo "2. Start the server:"
     echo "   cargo run --release -p adapteros-server-api"
     echo ""
-    echo "3. Access training interface at http://localhost:${AOS_UI_PORT:-18081}/training"
+    echo "3. Access training interface at http://localhost:${AOS_UI_PORT:-3200}/training"
 
 elif [ "$PROFILE_TYPE" = "prod" ]; then
     echo "1. Secure your credentials:"

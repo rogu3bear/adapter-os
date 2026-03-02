@@ -9,7 +9,6 @@
 //! Citation: docs/llm-interface-specification.md §5.1
 
 use adapteros_core::{CircuitBreaker, CircuitBreakerConfig, StandardCircuitBreaker};
-use adapteros_inference_contract::{UDS_INFER_CANCEL_PREFIX, UDS_INFER_PATH};
 use serde::Deserialize;
 use serde_json;
 use std::path::Path;
@@ -183,11 +182,26 @@ fn default_status() -> String {
     "unknown".to_string()
 }
 
-/// Shared token payload type for streaming inference over UDS.
-pub type WorkerStreamToken = adapteros_inference_contract::WorkerStreamTokenPayload;
+/// Token payload for streaming inference over UDS.
+#[derive(Debug, Clone, Deserialize)]
+pub struct WorkerStreamToken {
+    pub text: String,
+    #[serde(default)]
+    pub token_id: Option<u32>,
+}
 
-/// Shared paused payload type for human-in-the-loop review.
-pub type WorkerStreamPaused = adapteros_inference_contract::WorkerStreamPausedPayload;
+/// Paused event payload for human-in-the-loop review.
+#[derive(Debug, Clone, Deserialize)]
+pub struct WorkerStreamPaused {
+    pub pause_id: String,
+    pub inference_id: String,
+    pub trigger_kind: String,
+    #[serde(default)]
+    pub context: Option<String>,
+    #[serde(default)]
+    pub text_so_far: Option<String>,
+    pub token_count: usize,
+}
 
 /// Streaming events emitted by the worker over UDS.
 #[derive(Debug)]
@@ -388,7 +402,7 @@ impl UdsClient {
 
         // Create HTTP request
         let http_request = format!(
-            "POST {UDS_INFER_PATH} HTTP/1.1\r\n\
+            "POST /inference HTTP/1.1\r\n\
              Host: worker\r\n\
              Content-Type: application/json\r\n\
              {}\
@@ -620,7 +634,7 @@ impl UdsClient {
 
         // Create HTTP request
         let http_request = format!(
-            "POST {UDS_INFER_PATH} HTTP/1.1\r\n\
+            "POST /inference HTTP/1.1\r\n\
              Host: worker\r\n\
              Content-Type: application/json\r\n\
              {}\
@@ -872,7 +886,7 @@ impl UdsClient {
 
         // Create HTTP request with SSE headers
         let http_request = format!(
-            "POST {UDS_INFER_PATH} HTTP/1.1\r\n\
+            "POST /inference HTTP/1.1\r\n\
              Host: worker\r\n\
              Content-Type: application/json\r\n\
              {}\
@@ -1438,7 +1452,7 @@ impl UdsClient {
 
         // Create HTTP request with signal streaming header
         let http_request = format!(
-            "POST {UDS_INFER_PATH} HTTP/1.1\r\n\
+            "POST /inference HTTP/1.1\r\n\
              Host: worker\r\n\
              Content-Type: application/json\r\n\
              Accept: text/event-stream\r\n\
@@ -1695,16 +1709,6 @@ impl UdsClient {
             .map_err(|e| UdsClientError::SerializationError(e.to_string()))
     }
 
-    /// Unload a model via worker UDS.
-    pub async fn unload_model(&self, uds_path: &Path) -> Result<ModelLoadResponse, UdsClientError> {
-        let response = self
-            .send_http_request(uds_path, "POST", "/model/unload", None)
-            .await?;
-
-        serde_json::from_value(response)
-            .map_err(|e| UdsClientError::SerializationError(e.to_string()))
-    }
-
     /// Get model status from worker via UDS
     ///
     /// Returns the current model status without triggering a load.
@@ -1783,23 +1787,22 @@ impl UdsClient {
         };
 
         let auth_header = Self::format_auth_header(authorization);
-        let cancel_path = format!("{UDS_INFER_CANCEL_PREFIX}/{request_id}");
 
         let http_request = if request_json.is_empty() {
             format!(
-                "POST {} HTTP/1.1\r\nHost: worker\r\n{}\r\n",
-                cancel_path, auth_header
+                "POST /inference/cancel/{} HTTP/1.1\r\nHost: worker\r\n{}\r\n",
+                request_id, auth_header
             )
         } else {
             format!(
-                "POST {} HTTP/1.1\r\n\
+                "POST /inference/cancel/{} HTTP/1.1\r\n\
                  Host: worker\r\n\
                  Content-Type: application/json\r\n\
                  {}\
                  Content-Length: {}\r\n\
                  \r\n\
                  {}",
-                cancel_path,
+                request_id,
                 auth_header,
                 request_json.len(),
                 request_json
@@ -2013,12 +2016,6 @@ pub struct ModelLoadResponse {
     pub status: String,
     /// Model ID that was loaded
     pub model_id: String,
-    /// Active runtime model hash after operation.
-    #[serde(default)]
-    pub active_model_hash: Option<String>,
-    /// Runtime model lifecycle generation after operation.
-    #[serde(default)]
-    pub generation: Option<i64>,
     /// Estimated memory usage in MB
     pub memory_usage_mb: Option<i32>,
     /// Error message if status is "error"
@@ -2318,8 +2315,6 @@ mod tests {
             status: "loaded".to_string(),
             model_id: "test-model-123".to_string(),
             memory_usage_mb: Some(4096),
-            active_model_hash: None,
-            generation: None,
             error: None,
             loaded_at: Some("2025-12-01T00:00:00Z".to_string()),
         };
@@ -2341,8 +2336,6 @@ mod tests {
             status: "error".to_string(),
             model_id: "test-model".to_string(),
             memory_usage_mb: None,
-            active_model_hash: None,
-            generation: None,
             error: Some("Model path does not exist".to_string()),
             loaded_at: None,
         };

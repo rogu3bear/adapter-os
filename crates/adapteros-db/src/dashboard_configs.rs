@@ -24,7 +24,7 @@ impl Db {
              ORDER BY position ASC",
         )
         .bind(user_id)
-        .fetch_all(self.pool_result()?)
+        .fetch_all(self.pool())
         .await
         .map_err(|e| AosError::Database(format!("Failed to get dashboard config: {}", e)))?;
 
@@ -57,7 +57,7 @@ impl Db {
         .bind(position)
         .bind(&now)
         .bind(&now)
-        .execute(self.pool_result()?)
+        .execute(self.pool())
         .await
         .map_err(|e| AosError::Database(format!("Failed to upsert widget config: {}", e)))?;
 
@@ -111,7 +111,7 @@ impl Db {
     pub async fn reset_dashboard_config(&self, user_id: &str) -> Result<()> {
         sqlx::query("DELETE FROM dashboard_configs WHERE user_id = ?")
             .bind(user_id)
-            .execute(self.pool_result()?)
+            .execute(self.pool())
             .await
             .map_err(|e| AosError::Database(format!("Failed to reset dashboard config: {}", e)))?;
 
@@ -123,7 +123,7 @@ impl Db {
         let count: i64 =
             sqlx::query_scalar("SELECT COUNT(*) FROM dashboard_configs WHERE user_id = ?")
                 .bind(user_id)
-                .fetch_one(self.pool_result()?)
+                .fetch_one(self.pool())
                 .await
                 .map_err(|e| {
                     AosError::Database(format!("Failed to check dashboard config: {}", e))

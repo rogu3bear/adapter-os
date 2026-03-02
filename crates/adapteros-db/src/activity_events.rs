@@ -191,7 +191,7 @@ impl Db {
         .bind(target_type)
         .bind(target_id)
         .bind(metadata_json)
-        .execute(self.pool_result()?)
+        .execute(self.pool())
         .await
         .map_err(|e| AosError::Database(format!("failed to create activity event: {}", e)))?;
         Ok(id)
@@ -206,7 +206,7 @@ impl Db {
             "#,
         )
         .bind(id)
-        .fetch_optional(self.pool_result()?)
+        .fetch_optional(self.pool())
         .await
         .map_err(|e| AosError::Database(format!("failed to fetch activity event '{}': {}", id, e)))?;
         Ok(event)
@@ -247,7 +247,7 @@ impl Db {
         }
 
         let events = q
-            .fetch_all(self.pool_result()?)
+            .fetch_all(self.pool())
             .await
             .map_err(db_err("list activity events"))?;
         Ok(events)
@@ -279,7 +279,7 @@ impl Db {
         .bind(user_id)
         .bind(tenant_id)
         .bind(limit)
-        .fetch_all(self.pool_result()?)
+        .fetch_all(self.pool())
         .await
         .map_err(|e| AosError::Database(format!("failed to list user workspace activity for user '{}' in tenant '{}': {}", user_id, tenant_id, e)))?;
         Ok(events)
@@ -308,7 +308,7 @@ impl Db {
             .bind(workspace_id)
             .bind(since_ts)
             .bind(limit)
-            .fetch_all(self.pool_result()?)
+            .fetch_all(self.pool())
             .await
             .map_err(|e| AosError::Database(format!("failed to list activity events since '{}' for workspace '{}': {}", since_ts, workspace_id, e)))?
         } else {
@@ -324,7 +324,7 @@ impl Db {
             )
             .bind(workspace_id)
             .bind(limit)
-            .fetch_all(self.pool_result()?)
+            .fetch_all(self.pool())
             .await
             .map_err(|e| AosError::Database(format!("failed to list activity events for workspace '{}': {}", workspace_id, e)))?
         };

@@ -10,7 +10,7 @@
 #   bash scripts/perf-smoke.sh
 #
 # Overrides (env):
-#   AOS_SERVER_URL            (default: http://localhost:${AOS_SERVER_PORT:-18080})
+#   AOS_SERVER_URL            (default: http://localhost:${AOS_SERVER_PORT:-8080})
 #   PERF_SKIP_DEV_UP=1        (skip starting services)
 #   PERF_DEV_UP_CMD           (override dev-up command; default uses scripts/service-manager.sh)
 #   PERF_READY_TIMEOUT_S      (default: 120)
@@ -34,7 +34,7 @@ fi
 ROOT_DIR="${SCRIPT_DIR}/.."
 cd "$ROOT_DIR" || exit 1
 
-: "${AOS_SERVER_PORT:=18080}"
+: "${AOS_SERVER_PORT:=8080}"
 : "${AOS_SERVER_URL:=http://localhost:${AOS_SERVER_PORT}}"
 API_BASE="${AOS_SERVER_URL%/}/api"
 

@@ -761,7 +761,7 @@ mod tests {
             .unwrap(),
         );
 
-        safetensors::serialize(&tensors, None).unwrap()
+        safetensors::serialize(&tensors, &None).unwrap()
     }
 
     #[test]
@@ -813,7 +813,7 @@ mod tests {
             .unwrap(),
         );
 
-        let serialized = safetensors::serialize(&tensors, None).unwrap();
+        let serialized = safetensors::serialize(&tensors, &None).unwrap();
         let st = SafeTensors::deserialize(&serialized).unwrap();
 
         // Currently returns None as safetensors 0.4.x has private metadata field

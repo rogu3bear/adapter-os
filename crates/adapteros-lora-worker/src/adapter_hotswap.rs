@@ -852,8 +852,7 @@ impl AdapterTable {
                 })
                 .collect();
             drop(refcounts_guard);
-            self.store
-                .install_force(rollback_stack.generation, store_entries);
+            self.store.install(rollback_stack.generation, store_entries);
         }
 
         // Retire the previous current stack if generation changed
@@ -1067,28 +1066,20 @@ impl AdapterTable {
         // Serialize checkpoints to JSON
         let serialized = serde_json::to_string_pretty(&*checkpoints)?;
 
-        let parent = path.parent().unwrap_or(std::path::Path::new("."));
-        let mut temp_file = tempfile::Builder::new()
-            .prefix("checkpoints_")
-            .suffix(".tmp")
-            .tempfile_in(parent)
-            .map_err(|e| AosError::Io(format!("Failed to create checkpoints temp file: {}", e)))?;
+        // Atomic write: write to temp file, then rename
+        let temp_path = path.with_extension("tmp");
+        std::fs::write(&temp_path, serialized)
+            .map_err(|e| AosError::Io(format!("Failed to write checkpoint temp file: {}", e)))?;
 
-        use std::io::Write;
-        temp_file
-            .write_all(serialized.as_bytes())
-            .map_err(|e| AosError::Io(format!("Failed to write checkpoints: {}", e)))?;
-        temp_file
-            .as_file_mut()
-            .sync_all()
-            .map_err(|e| AosError::Io(format!("Failed to sync checkpoints: {}", e)))?;
-
-        temp_file.persist(path).map_err(|e| {
-            AosError::Io(format!(
-                "Failed to atomically rename checkpoint file: {}",
-                e.error
-            ))
-        })?;
+        // Rename with cleanup on failure
+        if let Err(e) = std::fs::rename(&temp_path, path) {
+            // Clean up orphaned temp file
+            std::fs::remove_file(&temp_path).ok();
+            return Err(AosError::Io(format!(
+                "Failed to rename checkpoint file: {}",
+                e
+            )));
+        }
 
         tracing::info!(
             checkpoint_count = checkpoints.len(),
@@ -3648,7 +3639,6 @@ mod tests {
         B3Hash::hash(weights)
     }
 
-    #[allow(clippy::too_many_arguments)]
     fn write_test_adapter_with_load_metadata(
         path: &Path,
         adapter_id: &str,

@@ -19,7 +19,7 @@ Incident response procedures.
 ## Quick Commands
 
 ```bash
-curl -f http://localhost:18080/healthz
+curl -f http://localhost:8080/healthz
 ./aosctl doctor
 ./aosctl preflight
 ps aux | grep aos-worker

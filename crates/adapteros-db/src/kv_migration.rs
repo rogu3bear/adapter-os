@@ -243,7 +243,7 @@ impl Db {
             r#"SELECT id, tenant_id, name, description, metadata_json
              FROM document_collections"#
         )
-        .fetch_all(self.pool_result()?)
+        .fetch_all(self.pool())
         .await
         .map_err(|e| AosError::Database(e.to_string()))?;
 
@@ -274,7 +274,7 @@ impl Db {
                 "SELECT document_id FROM collection_documents WHERE collection_id = ?",
             )
             .bind(&id)
-            .fetch_all(self.pool_result()?)
+            .fetch_all(self.pool())
             .await
             .map_err(|e| AosError::Database(e.to_string()))?;
             for (doc_id,) in doc_ids {
@@ -432,7 +432,7 @@ impl Db {
              FROM policy_audit_decisions
              ORDER BY tenant_id, chain_sequence ASC"#,
         )
-        .fetch_all(self.pool_result()?)
+        .fetch_all(self.pool())
         .await
         .map_err(|e| AosError::Database(e.to_string()))?;
 
@@ -546,7 +546,7 @@ impl Db {
                       exclude_patterns_json, backend, backend_reason, backend_device, dataset_hash_b3
                FROM repository_training_jobs"#,
         )
-        .fetch_all(self.pool_result()?)
+        .fetch_all(self.pool())
         .await
         .map_err(|e| AosError::Database(e.to_string()))?;
 
@@ -629,7 +629,7 @@ impl Db {
              FROM repository_training_metrics WHERE training_job_id = ?"#,
                 job_id
             )
-            .fetch_all(self.pool_result()?)
+            .fetch_all(self.pool())
             .await
             {
                 Ok(rows) => rows,
@@ -729,7 +729,7 @@ impl Db {
                FROM chat_sessions
                ORDER BY tenant_id, last_activity_at DESC, id ASC"#,
         )
-        .fetch_all(self.pool_result()?)
+        .fetch_all(self.pool())
         .await
         .map_err(|e| AosError::Database(e.to_string()))?;
 
@@ -738,7 +738,7 @@ impl Db {
                FROM chat_messages
                ORDER BY session_id, sequence ASC, id ASC"#,
         )
-        .fetch_all(self.pool_result()?)
+        .fetch_all(self.pool())
         .await
         .map_err(|e| AosError::Database(e.to_string()))?;
 
@@ -1612,7 +1612,6 @@ pub enum MigrationDomain {
     PolicyAudit,
     TrainingJobs,
     ChatSessions,
-    TenantPolicyBindings,
 }
 
 impl MigrationDomain {
@@ -1628,7 +1627,6 @@ impl MigrationDomain {
             MigrationDomain::PolicyAudit => "policy_audit",
             MigrationDomain::TrainingJobs => "training_jobs",
             MigrationDomain::ChatSessions => "chat_sessions",
-            MigrationDomain::TenantPolicyBindings => "tenant_policy_bindings",
         }
     }
 
@@ -1737,19 +1735,6 @@ impl Db {
                     res.failed_ids
                         .into_iter()
                         .map(|id| format!("chat_session:{id}")),
-                );
-                Ok(res.total)
-            }
-            MigrationDomain::TenantPolicyBindings => {
-                let res = self.migrate_tenant_policy_bindings_to_kv().await?;
-                stats.total += res.total;
-                stats.migrated += res.migrated;
-                stats.skipped += res.skipped;
-                stats.failed += res.failed;
-                stats.errors.extend(
-                    res.failed_ids
-                        .into_iter()
-                        .map(|id| format!("policy_binding:{id}")),
                 );
                 Ok(res.total)
             }
@@ -2438,54 +2423,6 @@ impl Db {
         let mut scoped_opts = opts.clone();
         scoped_opts.tenant_filter = Some(tenant_id.to_string());
         self.migrate_domains(domains, &scoped_opts).await
-    }
-
-    /// Migrate tenant policy bindings to KV storage.
-    pub async fn migrate_tenant_policy_bindings_to_kv(&self) -> Result<MigrationStats> {
-        let kv_backend = self.kv_backend().ok_or_else(|| {
-            AosError::Config("KV backend not attached - call init_kv_backend() first".into())
-        })?;
-        let repo = crate::tenant_policy_bindings_kv::PolicyBindingKvRepository::new(
-            kv_backend.backend().clone(),
-        );
-        let mut stats = MigrationStats::default();
-
-        let rows = sqlx::query!(
-            r#"SELECT id, tenant_id, policy_pack_id, scope, enabled,
-                   created_at, created_by, updated_at, updated_by
-            FROM tenant_policy_bindings"#
-        )
-        .fetch_all(self.pool_result()?)
-        .await
-        .map_err(|e| AosError::Database(e.to_string()))?;
-
-        stats.total = rows.len();
-
-        for row in rows {
-            let id = row.id.clone().unwrap_or_default();
-            let kv_binding = crate::tenant_policy_bindings_kv::TenantPolicyBindingKv {
-                id: row.id.unwrap_or_default(),
-                tenant_id: row.tenant_id,
-                policy_pack_id: row.policy_pack_id,
-                scope: row.scope,
-                enabled: row.enabled != 0,
-                created_at: row.created_at,
-                created_by: row.created_by,
-                updated_at: row.updated_at,
-                updated_by: row.updated_by,
-            };
-
-            match repo.put_binding(kv_binding).await {
-                Ok(_) => stats.migrated += 1,
-                Err(e) => {
-                    stats.failed += 1;
-                    stats.failed_ids.push(id.clone());
-                    tracing::warn!(error = %e, binding_id = %id, "Failed to migrate tenant policy binding");
-                }
-            }
-        }
-
-        Ok(stats)
     }
 }
 

@@ -583,14 +583,15 @@ mod tests {
             .expect("Test generator creation should succeed");
 
         // Collect tokens from different steps
-        let tokens: Vec<u32> = (0..10)
-            .map(|step| {
-                gen.reseed_for_step(step)
-                    .expect("Test reseed should succeed");
-                gen.next_token(&logits)
-                    .expect("Test token generation should succeed")
-            })
-            .collect();
+        let mut tokens = Vec::new();
+        for step in 0..10 {
+            gen.reseed_for_step(step)
+                .expect("Test reseed should succeed");
+            let token = gen
+                .next_token(&logits)
+                .expect("Test token generation should succeed");
+            tokens.push(token);
+        }
 
         // Not all tokens should be the same (with very high probability)
         let first = tokens[0];

@@ -18,7 +18,7 @@ Follow `CONTRIBUTING.md` for guidelines. See `docs/` for full documentation.
 
 ## Path Hygiene (CRITICAL)
 
-- Runtime data: `var/` only (gitignored). Never `/tmp`, `/private/tmp`, `/var/tmp`.
+- Runtime data: `./var/` only (gitignored). Never `/tmp`, `/private/tmp`, `/var/tmp`.
 - Never create `var/` or `tmp/` directories inside crates.
 - Never leave test databases (`*-test.sqlite3`, UUID dirs) behind.
 - Cleanup: `find ./crates -type d -name "var" -not -path "*/target/*" -exec rm -rf {} +`

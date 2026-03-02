@@ -12,7 +12,6 @@
 //! - **V5**: Equipment profile and citation binding (Patent 3535886.0002 Claims 6, 9-10)
 //! - **V6**: Cross-run lineage for temporal ordering (Patent 3535886.0002 Claims 7-8)
 //! - **V7**: Determinism envelope + cache/tooling binding (Receipt Rectification V7)
-//! - **V8**: Adapter version binding digest (bit-identical adapter pinning)
 //!
 //! # Digest Algorithm
 //!
@@ -39,10 +38,8 @@ pub const RECEIPT_SCHEMA_V5: u8 = 5;
 pub const RECEIPT_SCHEMA_V6: u8 = 6;
 /// V7: Determinism envelope + cache/tooling binding (Receipt Rectification V7)
 pub const RECEIPT_SCHEMA_V7: u8 = 7;
-/// V8: Adapter version binding digest (bit-identical adapter pinning)
-pub const RECEIPT_SCHEMA_V8: u8 = 8;
 /// Current schema version for new receipts
-pub const RECEIPT_SCHEMA_CURRENT: u8 = RECEIPT_SCHEMA_V8;
+pub const RECEIPT_SCHEMA_CURRENT: u8 = RECEIPT_SCHEMA_V7;
 
 /// Input fields for receipt digest computation.
 ///
@@ -75,7 +72,7 @@ pub const RECEIPT_SCHEMA_CURRENT: u8 = RECEIPT_SCHEMA_V8;
 /// ## Cryptographic Binding
 ///
 /// All five fields are hashed into the receipt digest at every schema version
-/// (V1 through V8). Changing any single field produces a different digest.
+/// (V1 through V7). Changing any single field produces a different digest.
 /// This makes billing auditable: a third party can verify the claimed cache
 /// credit matches the receipt without access to the inference system.
 ///
@@ -249,10 +246,6 @@ pub struct ReceiptDigestInput {
     // V7 fields: Disclosure level
     #[serde(default)]
     pub disclosure_level: Option<String>,
-
-    // V8 fields: Adapter version binding
-    #[serde(default)]
-    pub adapter_version_bindings_digest_b3: Option<[u8; 32]>,
 }
 
 impl ReceiptDigestInput {
@@ -434,15 +427,6 @@ impl ReceiptDigestInput {
         self
     }
 
-    /// Set adapter version binding digest (V8+)
-    pub fn with_adapter_version_bindings_digest(
-        mut self,
-        adapter_version_bindings_digest_b3: Option<[u8; 32]>,
-    ) -> Self {
-        self.adapter_version_bindings_digest_b3 = adapter_version_bindings_digest_b3;
-        self
-    }
-
     /// Set equipment profile fields (V5+, Patent 3535886.0002 Claims 6, 9-10)
     pub fn with_equipment_profile(
         mut self,
@@ -533,7 +517,6 @@ pub fn compute_receipt_digest(input: &ReceiptDigestInput, schema_version: u8) ->
         RECEIPT_SCHEMA_V5 => Some(compute_v5_digest(input)),
         RECEIPT_SCHEMA_V6 => Some(compute_v6_digest(input)),
         RECEIPT_SCHEMA_V7 => Some(compute_v7_digest(input)),
-        RECEIPT_SCHEMA_V8 => Some(compute_v8_digest(input)),
         _ => {
             tracing::warn!(
                 schema_version = schema_version,
@@ -1242,24 +1225,6 @@ fn compute_v7_digest(input: &ReceiptDigestInput) -> B3Hash {
     ])
 }
 
-/// Compute V8 receipt digest.
-///
-/// V8 extends V7 with:
-/// - Adapter version bindings digest (bit-identical adapter pinning)
-fn compute_v8_digest(input: &ReceiptDigestInput) -> B3Hash {
-    let v7_digest = compute_v7_digest(input);
-    let adapter_version_bindings_bytes = input
-        .adapter_version_bindings_digest_b3
-        .map(|b| b.to_vec())
-        .unwrap_or_else(|| vec![0u8; 32]);
-
-    B3Hash::hash_multi(&[
-        &[RECEIPT_SCHEMA_V8],
-        &v7_digest.as_bytes()[..],
-        &adapter_version_bindings_bytes,
-    ])
-}
-
 // =============================================================================
 // Output Digest Computation
 // =============================================================================
@@ -1687,7 +1652,6 @@ mod tests {
         let v5 = compute_receipt_digest(&input, RECEIPT_SCHEMA_V5).unwrap();
         let v6 = compute_receipt_digest(&input, RECEIPT_SCHEMA_V6).unwrap();
         let v7 = compute_receipt_digest(&input, RECEIPT_SCHEMA_V7).unwrap();
-        let v8 = compute_receipt_digest(&input, RECEIPT_SCHEMA_V8).unwrap();
 
         assert_ne!(v1, v2, "V1 and V2 should differ");
         assert_ne!(v2, v3, "V2 and V3 should differ");
@@ -1695,7 +1659,6 @@ mod tests {
         assert_ne!(v4, v5, "V4 and V5 should differ");
         assert_ne!(v5, v6, "V5 and V6 should differ");
         assert_ne!(v6, v7, "V6 and V7 should differ");
-        assert_ne!(v7, v8, "V7 and V8 should differ");
     }
 
     #[test]
@@ -1795,25 +1758,6 @@ mod tests {
         let d2 = compute_receipt_digest(&without_lineage, RECEIPT_SCHEMA_V6).unwrap();
 
         assert_ne!(d1, d2, "Cross-run lineage should change V6 digest");
-    }
-
-    #[test]
-    fn test_v8_adapter_version_bindings_change_digest() {
-        let base_input =
-            ReceiptDigestInput::new([1u8; 32], [2u8; 32], [3u8; 32], 100, 10, 90, 50, 50);
-
-        let with_bindings = base_input
-            .clone()
-            .with_adapter_version_bindings_digest(Some([21u8; 32]));
-        let without_bindings = base_input;
-
-        let d1 = compute_receipt_digest(&with_bindings, RECEIPT_SCHEMA_V8).unwrap();
-        let d2 = compute_receipt_digest(&without_bindings, RECEIPT_SCHEMA_V8).unwrap();
-
-        assert_ne!(
-            d1, d2,
-            "Adapter version bindings digest should change V8 digest"
-        );
     }
 
     #[test]
@@ -2179,7 +2123,7 @@ mod tests {
     }
 
     /// Two inputs differing ONLY in `prefix_cached_token_count` must produce
-    /// different digests at every schema version (V1 through V8).
+    /// different digests at every schema version (V1 through V7).
     #[test]
     fn test_billing_fields_bound_across_schema_versions() {
         let input_a = ReceiptDigestInput::new([1u8; 32], [2u8; 32], [3u8; 32], 100, 10, 90, 50, 50);
@@ -2193,7 +2137,6 @@ mod tests {
             RECEIPT_SCHEMA_V5,
             RECEIPT_SCHEMA_V6,
             RECEIPT_SCHEMA_V7,
-            RECEIPT_SCHEMA_V8,
         ];
 
         for &v in &versions {

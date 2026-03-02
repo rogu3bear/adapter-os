@@ -33,6 +33,7 @@ python scripts/convert_mlx_to_coreml.py \
 
 - **[QUICKSTART_CONVERSION.md](scripts/QUICKSTART_CONVERSION.md)** - Fast-track guide
 - **[COREML_CONVERSION.md](scripts/COREML_CONVERSION.md)** - Comprehensive documentation
+- **[PHASE2_SUMMARY.md](scripts/PHASE2_SUMMARY.md)** - Implementation summary
 
 ## Scripts
 

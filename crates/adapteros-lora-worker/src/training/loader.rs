@@ -142,17 +142,9 @@ pub fn load_examples_from_manifest_with_framing<P: AsRef<Path>>(
     tokenizer: &QwenTokenizer,
     framing: &FramingConfig,
 ) -> Result<Vec<TrainingExampleV1>> {
-    let pad_token_id = match tokenizer.pad_token_id() {
-        Some(id) => id,
-        None => {
-            let eos_id = tokenizer.eos_token_id();
-            warn!(
-                eos_id,
-                "Tokenizer missing pad_token_id for dataset manifest; falling back to eos_token_id"
-            );
-            eos_id
-        }
-    };
+    let pad_token_id = tokenizer.pad_token_id().ok_or_else(|| {
+        AosError::Training("Tokenizer missing pad_token_id for dataset manifest".to_string())
+    })?;
     let vocab_size = tokenizer.vocab_size(true);
     load_examples_with_encoder_and_framing(
         manifest_path,
@@ -766,7 +758,7 @@ mod tests {
             0,
             1024,
             &default_framing,
-            encoder,
+            &encoder,
         )
         .unwrap();
 
@@ -777,7 +769,7 @@ mod tests {
             stride_tokens: 400,
         };
         let ex_big =
-            load_examples_with_encoder_and_framing(&manifest_path, 0, 1024, &big_framing, encoder)
+            load_examples_with_encoder_and_framing(&manifest_path, 0, 1024, &big_framing, &encoder)
                 .unwrap();
 
         // Bigger framing should produce fewer chunks

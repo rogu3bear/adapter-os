@@ -131,7 +131,7 @@ impl EvictionManager {
             "#,
         )
         .bind(adapter_id)
-        .execute(self.db.pool_result()?)
+        .execute(self.db.pool())
         .await
         .map_err(|e| AosError::Worker(format!("Failed to update adapter state: {}", e)))?;
 
@@ -329,7 +329,7 @@ impl MemoryPressureSelector {
         );
 
         let candidates: Vec<String> = sqlx::query_scalar(&query)
-            .fetch_all(db.pool_result()?)
+            .fetch_all(db.pool())
             .await
             .map_err(|e| AosError::Worker(format!("Failed to query adapters for eviction: {}", e)))?;
 
@@ -353,7 +353,7 @@ impl MemoryPressureSelector {
                OR load_state IN ('loaded', 'warm')
             "#,
         )
-        .fetch_all(db.pool_result()?)
+        .fetch_all(db.pool())
         .await
         .map_err(|e| AosError::Worker(format!("Failed to query adapters: {}", e)))?;
 

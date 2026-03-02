@@ -329,10 +329,9 @@ async fn test_streaming_infer_builds_prompt_from_chat_history() {
         effective_adapter_ids: None,
         stop_policy: None,
         context: None,
-        bit_identical: false,
     };
 
-    let _response = streaming_infer(
+    let _ = streaming_infer(
         State(state),
         Extension(claims),
         Extension(ClientIp("127.0.0.1".to_string())),
@@ -341,7 +340,8 @@ async fn test_streaming_infer_builds_prompt_from_chat_history() {
         None,
         Json(req),
     )
-    .await;
+    .await
+    .expect("sse response");
 
     let logs = String::from_utf8(buffer.lock().expect("lock").clone()).expect("utf8 logs");
     assert!(

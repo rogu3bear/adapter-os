@@ -381,36 +381,6 @@ mod integration_tests {
         Ok(())
     }
 
-    #[tokio::test]
-    async fn test_strict_dual_write_requires_kv_backend() -> Result<()> {
-        let mut db = Db::new_in_memory().await?;
-        let tenant_id = db.create_tenant("strict-missing-kv", false).await?;
-
-        db.set_storage_mode(StorageMode::DualWrite)?;
-        db.set_atomic_dual_write_config(AtomicDualWriteConfig::strict_atomic());
-        assert!(!db.has_kv_backend(), "KV backend should not be attached");
-
-        let params = test_adapter_params("strict-no-kv", &tenant_id)?;
-        let result = db.register_adapter_extended(params).await;
-        assert!(
-            result.is_err(),
-            "Strict dual-write should fail when KV backend is unavailable"
-        );
-        let err_text = result.unwrap_err().to_string();
-        assert!(
-            err_text.contains("KV backend unavailable"),
-            "Error should mention missing KV backend: {err_text}"
-        );
-
-        let adapter = db.get_adapter("strict-no-kv").await?;
-        assert!(
-            adapter.is_none(),
-            "SQL insert should not commit on strict KV absence"
-        );
-
-        Ok(())
-    }
-
     fn create_kv_repo(db: &Db, tenant_id: &str) -> AdapterKvRepository {
         let kv = db.kv_backend().expect(
             "Failed to get KV backend - backend must be attached to database for integration test",

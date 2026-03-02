@@ -86,25 +86,8 @@ pub fn cache_manifest(manifest_hash: &B3Hash, manifest_json: &str) {
             source = %resolved_cache.source,
             "Writing manifest cache entry"
         );
-        let mut tmp_file = match tempfile::Builder::new()
-            .prefix(&format!("{}_", manifest_hash.to_hex()))
-            .suffix(".json.tmp")
-            .tempfile_in(&cache_dir)
-        {
-            Ok(f) => f,
-            Err(e) => {
-                warn!(error = %e, dir = %cache_dir.display(), "Failed to create manifest cache temp file");
-                return;
-            }
-        };
-
-        if let Err(e) = std::io::Write::write_all(&mut tmp_file, manifest_json.as_bytes()) {
-            warn!(error = %e, "Failed to write manifest cache temp file");
-            return;
-        }
-
-        if let Err(e) = tmp_file.persist(&cache_path) {
-            warn!(error = %e.error, path = %cache_path.display(), "Failed to persist manifest cache temp file to final destination");
+        if let Err(e) = fs::write(&cache_path, manifest_json) {
+            warn!(error = %e, path = %cache_path.display(), "Failed to write manifest cache");
         }
     } else {
         warn!(

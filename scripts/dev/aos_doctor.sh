@@ -12,8 +12,8 @@ ROOT_DIR="$(cd "$(dirname "${BASH_SOURCE[0]}")/../.." && pwd)"
 cd "$ROOT_DIR"
 
 : "${AOS_VAR_DIR:=var}"
-: "${AOS_SERVER_PORT:=18080}"
-: "${AOS_UI_PORT:=18081}"
+: "${AOS_SERVER_PORT:=8080}"
+: "${AOS_UI_PORT:=3200}"
 
 if [[ "$AOS_VAR_DIR" == /tmp* || "$AOS_VAR_DIR" == /private/tmp* || "$AOS_VAR_DIR" == /var/tmp* ]]; then
   echo "ERROR: Refusing to operate on forbidden AOS_VAR_DIR under /tmp: $AOS_VAR_DIR" >&2

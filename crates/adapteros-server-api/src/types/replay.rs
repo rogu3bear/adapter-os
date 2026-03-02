@@ -12,11 +12,11 @@ use super::sampling::SamplingParams;
 pub struct ReplayKey {
     /// BLAKE3 hash of the manifest used
     pub manifest_hash: String,
-    /// Router seed for audit and adaptive tie-break replay.
+    /// Router seed for audit purposes (stored but currently unused)
     ///
-    /// Deterministic routing mode uses score/stable_id ordering and does not
-    /// depend on this seed. Adaptive routing mode derives reproducible tie-break
-    /// ordering from this value.
+    /// The router uses a deterministic algorithm (sorted by score, then by
+    /// stable_id for tie-breaking). This seed is stored for audit trail purposes
+    /// but does NOT currently affect routing decisions.
     #[serde(skip_serializing_if = "Option::is_none")]
     pub router_seed: Option<String>,
     /// Sampling parameters used

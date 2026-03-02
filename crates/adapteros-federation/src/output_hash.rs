@@ -83,7 +83,7 @@ impl OutputHashManager {
             "Recording output hash"
         );
 
-        let pool = self.db.pool_result()?;
+        let pool = self.db.pool();
         let output_hash_hex = output_hash.to_hex();
         let input_hash_hex = input_hash.to_hex();
         let deterministic_val = if deterministic { 1 } else { 0 };
@@ -108,7 +108,7 @@ impl OutputHashManager {
 
     /// Get output hashes for a session
     pub async fn get_session_hashes(&self, session_id: &str) -> Result<Vec<OutputHashRecord>> {
-        let pool = self.db.pool_result()?;
+        let pool = self.db.pool();
 
         let rows = sqlx::query(
             r#"
@@ -280,7 +280,7 @@ impl OutputHashManager {
 
     /// Get output hashes by input hash (for finding reproducible runs)
     pub async fn get_by_input_hash(&self, input_hash: &B3Hash) -> Result<Vec<OutputHashRecord>> {
-        let pool = self.db.pool_result()?;
+        let pool = self.db.pool();
         let input_hash_hex = input_hash.to_hex();
 
         let rows = sqlx::query(

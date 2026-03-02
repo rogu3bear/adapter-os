@@ -48,28 +48,37 @@ pub async fn security_headers_middleware(req: Request<axum::body::Body>, next: N
     // Note: 'unsafe-inline' and 'unsafe-eval' required for React runtime
     headers.insert(
         "Content-Security-Policy",
-        HeaderValue::from_static("default-src 'self'; script-src 'self' 'unsafe-inline' 'unsafe-eval'; style-src 'self' 'unsafe-inline'; img-src 'self' data: https:; font-src 'self'; connect-src 'self'; media-src 'none'; object-src 'none'; child-src 'none'; worker-src 'none'; frame-ancestors 'none'; base-uri 'self'; form-action 'self';"),
+        "default-src 'self'; script-src 'self' 'unsafe-inline' 'unsafe-eval'; style-src 'self' 'unsafe-inline'; img-src 'self' data: https:; font-src 'self'; connect-src 'self'; media-src 'none'; object-src 'none'; child-src 'none'; worker-src 'none'; frame-ancestors 'none'; base-uri 'self'; form-action 'self';"
+            .parse().expect("valid CSP header value"),
     );
 
     // Prevent clickjacking
-    headers.insert("X-Frame-Options", HeaderValue::from_static("DENY"));
+    headers.insert(
+        "X-Frame-Options",
+        "DENY".parse().expect("valid X-Frame-Options header value"),
+    );
 
     // Prevent MIME type sniffing
     headers.insert(
         "X-Content-Type-Options",
-        HeaderValue::from_static("nosniff"),
+        "nosniff"
+            .parse()
+            .expect("valid X-Content-Type-Options header value"),
     );
 
     // Control referrer information
     headers.insert(
         "Referrer-Policy",
-        HeaderValue::from_static("strict-origin-when-cross-origin"),
+        "strict-origin-when-cross-origin"
+            .parse()
+            .expect("valid Referrer-Policy header value"),
     );
 
     // Feature policy - disable potentially dangerous features
     headers.insert(
         "Permissions-Policy",
-        HeaderValue::from_static("camera=(), microphone=(), geolocation=(), payment=(), usb=(), magnetometer=(), accelerometer=(), gyroscope=(), ambient-light-sensor=(), autoplay=(), encrypted-media=(), fullscreen=(self), picture-in-picture=()"),
+        "camera=(), microphone=(), geolocation=(), payment=(), usb=(), magnetometer=(), accelerometer=(), gyroscope=(), ambient-light-sensor=(), autoplay=(), encrypted-media=(), fullscreen=(self), picture-in-picture=()"
+            .parse().expect("valid Permissions-Policy header value"),
     );
 
     // HTTP Strict Transport Security (HSTS)
@@ -77,17 +86,24 @@ pub async fn security_headers_middleware(req: Request<axum::body::Body>, next: N
     // Note: Only effective over HTTPS; browsers ignore this header over HTTP
     headers.insert(
         "Strict-Transport-Security",
-        HeaderValue::from_static("max-age=31536000; includeSubDomains"),
+        "max-age=31536000; includeSubDomains"
+            .parse()
+            .expect("valid Strict-Transport-Security header value"),
     );
 
     // Prevent caching of sensitive responses
     if should_add_cache_headers {
         headers.insert(
             "Cache-Control",
-            HeaderValue::from_static("no-cache, no-store, must-revalidate"),
+            "no-cache, no-store, must-revalidate"
+                .parse()
+                .expect("valid Cache-Control header value"),
         );
-        headers.insert("Pragma", HeaderValue::from_static("no-cache"));
-        headers.insert("Expires", HeaderValue::from_static("0"));
+        headers.insert(
+            "Pragma",
+            "no-cache".parse().expect("valid Pragma header value"),
+        );
+        headers.insert("Expires", "0".parse().expect("valid Expires header value"));
     }
 
     response
@@ -437,8 +453,8 @@ pub fn cors_layer() -> CorsLayer {
         Vec::new()
     } else {
         // Development mode: localhost origins (respects AOS_UI_PORT and AOS_SERVER_PORT)
-        let ui_port = std::env::var("AOS_UI_PORT").unwrap_or_else(|_| "18081".to_string());
-        let server_port = std::env::var("AOS_SERVER_PORT").unwrap_or_else(|_| "18080".to_string());
+        let ui_port = std::env::var("AOS_UI_PORT").unwrap_or_else(|_| "3200".to_string());
+        let server_port = std::env::var("AOS_SERVER_PORT").unwrap_or_else(|_| "8080".to_string());
         tracing::warn!(
             ui_port = %ui_port,
             server_port = %server_port,
@@ -736,9 +752,9 @@ mod tests {
         std::env::remove_var("ALLOWED_ORIGINS");
         std::env::remove_var("AOS_PRODUCTION_MODE");
         let dev_response =
-            preflight_request(build_cors_app(), "http://localhost:18081", Method::GET).await;
+            preflight_request(build_cors_app(), "http://localhost:3200", Method::GET).await;
         assert_eq!(dev_response.status(), StatusCode::OK);
-        assert_allow_origin(&dev_response, "http://localhost:18081");
+        assert_allow_origin(&dev_response, "http://localhost:3200");
         assert_preflight_headers(&dev_response);
 
         std::env::set_var(

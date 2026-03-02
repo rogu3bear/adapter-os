@@ -165,46 +165,14 @@ pub async fn list_adapter_versions(
             }
         });
 
-        let dataset_version_trust = if let Some(ref ids) = dataset_version_ids {
-            if ids.is_empty() {
-                None
-            } else {
-                let name_map = state
-                    .db
-                    .batch_resolve_dataset_version_names(ids)
-                    .await
-                    .unwrap_or_else(|e| {
-                        tracing::warn!(error = %e, "Failed to resolve dataset names for lineage");
-                        std::collections::HashMap::new()
-                    });
-                Some(
-                    ids.iter()
-                        .map(|id| {
-                            let (dataset_id, dataset_name) = name_map
-                                .get(id)
-                                .cloned()
-                                .unwrap_or_else(|| (String::new(), String::new()));
-                            DatasetVersionTrustSnapshot {
-                                dataset_version_id: id.clone(),
-                                trust_at_training_time: trust_map.get(id).cloned().flatten(),
-                                dataset_id: if dataset_id.is_empty() {
-                                    None
-                                } else {
-                                    Some(dataset_id)
-                                },
-                                dataset_name: if dataset_name.is_empty() {
-                                    None
-                                } else {
-                                    Some(dataset_name)
-                                },
-                            }
-                        })
-                        .collect::<Vec<_>>(),
-                )
-            }
-        } else {
-            None
-        };
+        let dataset_version_trust = dataset_version_ids.as_ref().map(|ids| {
+            ids.iter()
+                .map(|id| DatasetVersionTrustSnapshot {
+                    dataset_version_id: id.clone(),
+                    trust_at_training_time: trust_map.get(id).cloned().flatten(),
+                })
+                .collect()
+        });
 
         let (serveable, serveable_reason) =
             compute_serveable_state(&version.release_state, &version.adapter_trust_state);
@@ -413,46 +381,14 @@ pub async fn get_adapter_version(
         }
     });
 
-    let dataset_version_trust = if let Some(ref ids) = dataset_version_ids {
-        if ids.is_empty() {
-            None
-        } else {
-            let name_map = state
-                .db
-                .batch_resolve_dataset_version_names(ids)
-                .await
-                .unwrap_or_else(|e| {
-                    tracing::warn!(error = %e, "Failed to resolve dataset names for lineage");
-                    std::collections::HashMap::new()
-                });
-            Some(
-                ids.iter()
-                    .map(|id| {
-                        let (dataset_id, dataset_name) = name_map
-                            .get(id)
-                            .cloned()
-                            .unwrap_or_else(|| (String::new(), String::new()));
-                        DatasetVersionTrustSnapshot {
-                            dataset_version_id: id.clone(),
-                            trust_at_training_time: trust_map.get(id).cloned().flatten(),
-                            dataset_id: if dataset_id.is_empty() {
-                                None
-                            } else {
-                                Some(dataset_id)
-                            },
-                            dataset_name: if dataset_name.is_empty() {
-                                None
-                            } else {
-                                Some(dataset_name)
-                            },
-                        }
-                    })
-                    .collect::<Vec<_>>(),
-            )
-        }
-    } else {
-        None
-    };
+    let dataset_version_trust = dataset_version_ids.as_ref().map(|ids| {
+        ids.iter()
+            .map(|id| DatasetVersionTrustSnapshot {
+                dataset_version_id: id.clone(),
+                trust_at_training_time: trust_map.get(id).cloned().flatten(),
+            })
+            .collect()
+    });
 
     let (serveable, serveable_reason) =
         compute_serveable_state(&version.release_state, &version.adapter_trust_state);
@@ -751,29 +687,6 @@ pub async fn rollback_adapter_version_handler(
         .await;
 
     Ok(StatusCode::NO_CONTENT)
-}
-
-#[utoipa::path(
-    tag = "system",
-    post,
-    path = "/v1/adapter-repositories/{repo_id}/versions/checkout",
-    request_body = RollbackVersionRequest,
-    params(
-        ("repo_id" = String, Path, description = "Repository ID")
-    ),
-    responses(
-        (status = 204, description = "Checkout succeeded"),
-        (status = 404, description = "Repository or version not found", body = ErrorResponse)
-    )
-)]
-pub async fn checkout_adapter_version_handler(
-    State(state): State<AppState>,
-    Extension(claims): Extension<Claims>,
-    Path(repo_id): Path<String>,
-    Json(req): Json<RollbackVersionRequest>,
-) -> Result<StatusCode, (StatusCode, Json<ErrorResponse>)> {
-    rollback_adapter_version_handler(State(state), Extension(claims), Path(repo_id), Json(req))
-        .await
 }
 
 #[utoipa::path(

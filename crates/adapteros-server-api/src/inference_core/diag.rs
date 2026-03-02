@@ -132,12 +132,6 @@ pub fn suggest_recovery(error: &crate::types::InferenceError) -> Option<&'static
     use crate::types::InferenceError;
     match error {
         InferenceError::ValidationError(_) => Some("Check request parameters"),
-        InferenceError::BitIdenticalAdapterPinRequired(_) => {
-            Some("Use adapter_repo_id@adapter_version_id")
-        }
-        InferenceError::BitIdenticalAdapterPinInvalid(_) => {
-            Some("Use valid pinned adapter versions for this tenant")
-        }
         InferenceError::PermissionDenied(_) => Some("Verify credentials and tenant access"),
         InferenceError::PolicyViolation { .. } => Some("Review policy configuration"),
         InferenceError::WorkerNotAvailable(_) => Some("Retry after worker restart"),

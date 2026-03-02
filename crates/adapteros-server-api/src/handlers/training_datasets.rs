@@ -157,7 +157,7 @@ pub async fn create_training_dataset_from_upload(
 ///
 /// Notes:
 /// - This is an operational affordance for large uploads; it does not change determinism semantics.
-/// - Output artifacts are persisted under `var/` (repo hygiene).
+/// - Output artifacts are persisted under `./var/` (repo hygiene).
 #[cfg(feature = "embeddings")]
 #[utoipa::path(
     post,

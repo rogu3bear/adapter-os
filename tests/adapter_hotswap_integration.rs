@@ -60,7 +60,7 @@ fn create_test_safetensors_weights() -> Vec<u8> {
     let metadata: Option<HashMap<String, String>> = None;
 
     // Serialize to SafeTensors format
-    serialize(tensor_data, metadata).expect("Failed to serialize test SafeTensors")
+    serialize(tensor_data, &metadata).expect("Failed to serialize test SafeTensors")
 }
 
 #[cfg(target_os = "macos")]

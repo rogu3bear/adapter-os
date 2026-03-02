@@ -16,7 +16,7 @@ Internal development guidelines for adapterOS.
 
 ```bash
 cargo build --release --workspace
-./aosctl --rebuild --help
+ln -sf target/release/aosctl ./aosctl
 ```
 
 ---
@@ -42,7 +42,7 @@ cargo clippy --workspace -- -D warnings
 
 ## Path Hygiene
 
-- Runtime data: `var/` only (gitignored)
+- Runtime data: `./var/` only (gitignored)
 - Never create `var/` or `tmp/` inside crates
 - Never write to `/tmp`, `/private/tmp`, `/var/tmp`
 - Clean test artifacts: `find ./crates -type d -name "var" -not -path "*/target/*" -exec rm -rf {} +`

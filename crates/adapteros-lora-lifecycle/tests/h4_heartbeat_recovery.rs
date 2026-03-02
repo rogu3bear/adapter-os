@@ -101,7 +101,7 @@ async fn test_h4_5_minute_stale_detection() {
     sqlx::query("UPDATE adapters SET last_heartbeat = ?, load_state = 'cold' WHERE adapter_id = ?")
         .bind(old_timestamp)
         .bind("stale-adapter")
-        .execute(db.pool_result().unwrap())
+        .execute(db.pool())
         .await
         .unwrap();
 
@@ -153,7 +153,7 @@ async fn test_h4_auto_recovery_to_unloaded() {
     sqlx::query("UPDATE adapters SET last_heartbeat = ?, load_state = 'warm' WHERE adapter_id = ?")
         .bind(old_timestamp)
         .bind("recover-adapter")
-        .execute(db.pool_result().unwrap())
+        .execute(db.pool())
         .await
         .unwrap();
 
@@ -165,7 +165,7 @@ async fn test_h4_auto_recovery_to_unloaded() {
     let row: (String, Option<i64>) =
         sqlx::query_as("SELECT load_state, last_heartbeat FROM adapters WHERE adapter_id = ?")
             .bind("recover-adapter")
-            .fetch_one(db.pool_result().unwrap())
+            .fetch_one(db.pool())
             .await
             .unwrap();
 
@@ -214,7 +214,7 @@ async fn test_h4_threshold_edge_cases() {
     sqlx::query("UPDATE adapters SET last_heartbeat = ?, load_state = 'cold' WHERE adapter_id = ?")
         .bind(now - 299)
         .bind("edge-adapter")
-        .execute(db.pool_result().unwrap())
+        .execute(db.pool())
         .await
         .unwrap();
 
@@ -225,7 +225,7 @@ async fn test_h4_threshold_edge_cases() {
     sqlx::query("UPDATE adapters SET last_heartbeat = ? WHERE adapter_id = ?")
         .bind(now - 301)
         .bind("edge-adapter")
-        .execute(db.pool_result().unwrap())
+        .execute(db.pool())
         .await
         .unwrap();
 
@@ -277,7 +277,7 @@ async fn test_h4_unloaded_adapters_not_checked() {
     )
     .bind(old_timestamp)
     .bind("unloaded-adapter")
-    .execute(db.pool_result().unwrap())
+    .execute(db.pool())
     .await
     .unwrap();
 

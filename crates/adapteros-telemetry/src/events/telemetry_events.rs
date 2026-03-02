@@ -87,7 +87,7 @@ impl InferenceEvent {
         Self {
             timestamp_us: std::time::SystemTime::now()
                 .duration_since(std::time::UNIX_EPOCH)
-                .unwrap_or_default()
+                .unwrap()
                 .as_micros() as u64,
             session_id,
             request_id,
@@ -298,7 +298,7 @@ impl AbstainEvent {
         Self {
             timestamp_us: std::time::SystemTime::now()
                 .duration_since(std::time::UNIX_EPOCH)
-                .unwrap_or_default()
+                .unwrap()
                 .as_micros() as u64,
             reason: AbstainReason::LowConfidence { threshold },
             confidence,
@@ -318,7 +318,7 @@ impl AbstainEvent {
         Self {
             timestamp_us: std::time::SystemTime::now()
                 .duration_since(std::time::UNIX_EPOCH)
-                .unwrap_or_default()
+                .unwrap()
                 .as_micros() as u64,
             reason: AbstainReason::HighEntropy { threshold },
             confidence: 0.0,
@@ -338,7 +338,7 @@ impl AbstainEvent {
         Self {
             timestamp_us: std::time::SystemTime::now()
                 .duration_since(std::time::UNIX_EPOCH)
-                .unwrap_or_default()
+                .unwrap()
                 .as_micros() as u64,
             reason: AbstainReason::InsufficientEvidence { min_required },
             confidence: 0.0,
@@ -358,7 +358,7 @@ impl AbstainEvent {
         Self {
             timestamp_us: std::time::SystemTime::now()
                 .duration_since(std::time::UNIX_EPOCH)
-                .unwrap_or_default()
+                .unwrap()
                 .as_micros() as u64,
             reason: AbstainReason::MissingFields,
             confidence: 0.0,
@@ -435,7 +435,7 @@ impl AdapterEvictionEvent {
         Self {
             timestamp_us: std::time::SystemTime::now()
                 .duration_since(std::time::UNIX_EPOCH)
-                .unwrap_or_default()
+                .unwrap()
                 .as_micros() as u64,
             adapter_id,
             reason,
@@ -484,7 +484,7 @@ impl KReductionRequestEvent {
         Self {
             timestamp_us: std::time::SystemTime::now()
                 .duration_since(std::time::UNIX_EPOCH)
-                .unwrap_or_default()
+                .unwrap()
                 .as_micros() as u64,
             request_id,
             k_current,
@@ -536,7 +536,7 @@ impl KReductionEvaluationEvent {
         Self {
             timestamp_us: std::time::SystemTime::now()
                 .duration_since(std::time::UNIX_EPOCH)
-                .unwrap_or_default()
+                .unwrap()
                 .as_micros() as u64,
             request_id,
             evaluation_duration_us,
@@ -585,7 +585,7 @@ impl KReductionExecutionEvent {
         Self {
             timestamp_us: std::time::SystemTime::now()
                 .duration_since(std::time::UNIX_EPOCH)
-                .unwrap_or_default()
+                .unwrap()
                 .as_micros() as u64,
             request_id,
             execution_duration_us,
@@ -644,7 +644,7 @@ impl KReductionCompletionEvent {
         Self {
             timestamp_us: std::time::SystemTime::now()
                 .duration_since(std::time::UNIX_EPOCH)
-                .unwrap_or_default()
+                .unwrap()
                 .as_micros() as u64,
             request_id,
             total_duration_us,
@@ -685,7 +685,7 @@ impl KReductionEvent {
         Self {
             timestamp_us: std::time::SystemTime::now()
                 .duration_since(std::time::UNIX_EPOCH)
-                .unwrap_or_default()
+                .unwrap()
                 .as_micros() as u64,
             k_before,
             k_after,
@@ -741,7 +741,7 @@ impl CalibrationMetricsEvent {
         Self {
             timestamp_us: std::time::SystemTime::now()
                 .duration_since(std::time::UNIX_EPOCH)
-                .unwrap_or_default()
+                .unwrap()
                 .as_micros() as u64,
             accuracy,
             precision,
@@ -788,7 +788,7 @@ impl PerformanceBudgetViolationEvent {
         Self {
             timestamp_us: std::time::SystemTime::now()
                 .duration_since(std::time::UNIX_EPOCH)
-                .unwrap_or_default()
+                .unwrap()
                 .as_micros() as u64,
             violation: BudgetViolation::P95Latency { adapter_id },
             current_value: current_ms,
@@ -802,7 +802,7 @@ impl PerformanceBudgetViolationEvent {
         Self {
             timestamp_us: std::time::SystemTime::now()
                 .duration_since(std::time::UNIX_EPOCH)
-                .unwrap_or_default()
+                .unwrap()
                 .as_micros() as u64,
             violation: BudgetViolation::RouterOverhead,
             current_value: current_pct,
@@ -816,7 +816,7 @@ impl PerformanceBudgetViolationEvent {
         Self {
             timestamp_us: std::time::SystemTime::now()
                 .duration_since(std::time::UNIX_EPOCH)
-                .unwrap_or_default()
+                .unwrap()
                 .as_micros() as u64,
             violation: BudgetViolation::Throughput,
             current_value: current_tps,
@@ -863,7 +863,7 @@ impl PolicyHashValidationEvent {
         Self {
             timestamp_us: std::time::SystemTime::now()
                 .duration_since(std::time::UNIX_EPOCH)
-                .unwrap_or_default()
+                .unwrap()
                 .as_micros() as u64,
             policy_pack_id,
             prev_hash: hash.clone(),
@@ -882,7 +882,7 @@ impl PolicyHashValidationEvent {
         Self {
             timestamp_us: std::time::SystemTime::now()
                 .duration_since(std::time::UNIX_EPOCH)
-                .unwrap_or_default()
+                .unwrap()
                 .as_micros() as u64,
             policy_pack_id,
             prev_hash,
@@ -896,7 +896,7 @@ impl PolicyHashValidationEvent {
         Self {
             timestamp_us: std::time::SystemTime::now()
                 .duration_since(std::time::UNIX_EPOCH)
-                .unwrap_or_default()
+                .unwrap()
                 .as_micros() as u64,
             policy_pack_id,
             prev_hash: String::new(),
@@ -976,7 +976,7 @@ impl ResidencyProbeEvent {
         Self {
             timestamp_us: std::time::SystemTime::now()
                 .duration_since(std::time::UNIX_EPOCH)
-                .unwrap_or_default()
+                .unwrap()
                 .as_micros() as u64,
             base_model_id,
             manifest_hash,
@@ -1013,7 +1013,7 @@ impl ResidencyProbeEvent {
         Self {
             timestamp_us: std::time::SystemTime::now()
                 .duration_since(std::time::UNIX_EPOCH)
-                .unwrap_or_default()
+                .unwrap()
                 .as_micros() as u64,
             base_model_id,
             manifest_hash,
@@ -1050,7 +1050,7 @@ impl ResidencyProbeEvent {
         Self {
             timestamp_us: std::time::SystemTime::now()
                 .duration_since(std::time::UNIX_EPOCH)
-                .unwrap_or_default()
+                .unwrap()
                 .as_micros() as u64,
             base_model_id,
             manifest_hash,
@@ -1162,7 +1162,7 @@ impl KvResidencyEvent {
         Self {
             timestamp_us: std::time::SystemTime::now()
                 .duration_since(std::time::UNIX_EPOCH)
-                .unwrap_or_default()
+                .unwrap()
                 .as_micros() as u64,
             entry_id,
             from_state,
@@ -1241,7 +1241,7 @@ impl KvEvictionEvent {
         Self {
             timestamp_us: std::time::SystemTime::now()
                 .duration_since(std::time::UNIX_EPOCH)
-                .unwrap_or_default()
+                .unwrap()
                 .as_micros() as u64,
             entry_id,
             residency_state,
@@ -1308,7 +1308,7 @@ impl KvQuotaEvent {
         Self {
             timestamp_us: std::time::SystemTime::now()
                 .duration_since(std::time::UNIX_EPOCH)
-                .unwrap_or_default()
+                .unwrap()
                 .as_micros() as u64,
             event_type: KvQuotaEventType::QuotaExceeded { overage_bytes },
             current_usage_bytes,
@@ -1333,7 +1333,7 @@ impl KvQuotaEvent {
         Self {
             timestamp_us: std::time::SystemTime::now()
                 .duration_since(std::time::UNIX_EPOCH)
-                .unwrap_or_default()
+                .unwrap()
                 .as_micros() as u64,
             event_type: KvQuotaEventType::QuotaWarning {
                 threshold_percentage,
@@ -1359,7 +1359,7 @@ impl KvQuotaEvent {
         Self {
             timestamp_us: std::time::SystemTime::now()
                 .duration_since(std::time::UNIX_EPOCH)
-                .unwrap_or_default()
+                .unwrap()
                 .as_micros() as u64,
             event_type: KvQuotaEventType::QuotaNormal,
             current_usage_bytes,
@@ -1440,7 +1440,7 @@ impl BackendSelectionEvent {
         Self {
             timestamp_us: std::time::SystemTime::now()
                 .duration_since(std::time::UNIX_EPOCH)
-                .unwrap_or_default()
+                .unwrap()
                 .as_micros() as u64,
             request_id: None,
             session_id: None,
@@ -1465,7 +1465,7 @@ impl BackendSelectionEvent {
         Self {
             timestamp_us: std::time::SystemTime::now()
                 .duration_since(std::time::UNIX_EPOCH)
-                .unwrap_or_default()
+                .unwrap()
                 .as_micros() as u64,
             request_id: None,
             session_id: None,

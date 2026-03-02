@@ -191,7 +191,7 @@ pub async fn get_receipt_by_digest(
     )
     .bind(&digest.as_bytes()[..])
     .bind(&digest.as_bytes()[..])
-    .fetch_optional(state.db.pool_result()?)
+    .fetch_optional(state.db.pool())
     .await
     .map_err(ApiError::db_error)?
     .ok_or_else(|| ApiError::not_found("Receipt"))?;

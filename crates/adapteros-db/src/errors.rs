@@ -110,7 +110,7 @@ impl Db {
         .bind(&row.run_id)
         .bind(&row.receipt_hash)
         .bind(&row.route_digest)
-        .execute(self.pool_result()?)
+        .execute(self.pool())
         .await
         .map_err(|e| AosError::Database(format!("insert_error_instance: {}", e)))?;
 
@@ -128,7 +128,7 @@ impl Db {
         sample_error_id: &str,
     ) -> Result<()> {
         let mut tx = self
-            .pool_result()?
+            .pool()
             .begin()
             .await
             .map_err(|e| AosError::Database(format!("upsert_error_bucket: begin: {}", e)))?;
@@ -229,7 +229,7 @@ impl Db {
         )
         .bind(tenant_id)
         .bind(error_id)
-        .fetch_optional(self.pool_result()?)
+        .fetch_optional(self.pool())
         .await
         .map_err(|e| AosError::Database(format!("get_error_instance: {}", e)))?;
 
@@ -326,7 +326,7 @@ impl Db {
         }
 
         let rows = qb
-            .fetch_all(self.pool_result()?)
+            .fetch_all(self.pool())
             .await
             .map_err(|e| AosError::Database(format!("list_error_instances: {}", e)))?;
         Ok(rows)
@@ -358,7 +358,7 @@ impl Db {
             qb = qb.bind(code);
         }
         let rows = qb
-            .fetch_all(self.pool_result()?)
+            .fetch_all(self.pool())
             .await
             .map_err(|e| AosError::Database(format!("list_error_buckets: {}", e)))?;
         Ok(rows)

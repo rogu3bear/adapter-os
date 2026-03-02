@@ -20,7 +20,7 @@ async fn create_test_tenant(db: &Db, tenant_id: &str) -> Result<()> {
     sqlx::query("INSERT INTO tenants (id, name, itar_flag) VALUES (?, ?, 0)")
         .bind(tenant_id)
         .bind(tenant_id)
-        .execute(db.pool_result()?)
+        .execute(db.pool())
         .await
         .map_err(|e| AosError::Database(format!("Failed to create tenant: {}", e)))?;
     Ok(())
@@ -34,7 +34,7 @@ async fn create_test_document(db: &Db, doc_id: &str, tenant_id: &str) -> Result<
     )
     .bind(doc_id)
     .bind(tenant_id)
-    .execute(db.pool_result()?)
+    .execute(db.pool())
     .await
     .map_err(|e| AosError::Database(format!("Failed to create document: {}", e)))?;
     Ok(())
@@ -48,7 +48,7 @@ async fn create_test_collection(db: &Db, collection_id: &str, tenant_id: &str) -
     )
     .bind(collection_id)
     .bind(tenant_id)
-    .execute(db.pool_result()?)
+    .execute(db.pool())
     .await
     .map_err(|e| AosError::Database(format!("Failed to create collection: {}", e)))?;
     Ok(())
@@ -78,7 +78,7 @@ async fn test_document_chunks_rejects_cross_tenant_insert() -> Result<()> {
     .bind(Uuid::new_v4().to_string())
     .bind("tenant-b") // WRONG TENANT - should be tenant-a
     .bind("doc-a-1") // References tenant-a's document
-    .execute(db.pool_result()?)
+    .execute(db.pool())
     .await;
 
     assert!(
@@ -112,7 +112,7 @@ async fn test_document_chunks_allows_same_tenant_insert() -> Result<()> {
     .bind(Uuid::new_v4().to_string())
     .bind("tenant-a") // CORRECT TENANT
     .bind("doc-a-1")
-    .execute(db.pool_result()?)
+    .execute(db.pool())
     .await;
 
     assert!(
@@ -150,7 +150,7 @@ async fn test_collection_documents_rejects_cross_tenant_reference() -> Result<()
     .bind("tenant-a") // Collection's tenant
     .bind("coll-a-1")
     .bind("doc-b-1") // Document from different tenant!
-    .execute(db.pool_result()?)
+    .execute(db.pool())
     .await;
 
     assert!(
@@ -177,7 +177,7 @@ async fn test_collection_documents_allows_same_tenant_link() -> Result<()> {
     .bind("tenant-a")
     .bind("coll-a-1")
     .bind("doc-a-1")
-    .execute(db.pool_result()?)
+    .execute(db.pool())
     .await;
 
     assert!(
@@ -207,7 +207,7 @@ async fn test_adapter_dataset_trigger_rejects_cross_tenant() -> Result<()> {
     )
     .bind("dataset-b-1")
     .bind("tenant-b")
-    .execute(db.pool_result()?)
+    .execute(db.pool())
     .await?;
 
     // Try to create adapter in tenant-a referencing tenant-b's dataset
@@ -220,7 +220,7 @@ async fn test_adapter_dataset_trigger_rejects_cross_tenant() -> Result<()> {
     .bind("tenant-a") // Adapter tenant
     .bind(format!("hash-{}", adapter_id)) // Unique hash
     .bind("dataset-b-1") // Dataset from different tenant!
-    .execute(db.pool_result()?)
+    .execute(db.pool())
     .await;
 
     assert!(
@@ -257,7 +257,7 @@ async fn test_dataset_files_trigger_rejects_missing_dataset() -> Result<()> {
     .bind(Uuid::new_v4().to_string())
     .bind("non-existent-dataset")
     .bind("tenant-a")
-    .execute(db.pool_result()?)
+    .execute(db.pool())
     .await;
 
     assert!(
@@ -287,7 +287,7 @@ async fn test_dataset_files_trigger_rejects_null_tenant_on_parent() -> Result<()
          VALUES (?, 'Dataset No Tenant', 'jsonl', 'var/test-datasets', 'hash', 'valid', datetime('now'))",
     )
     .bind("dataset-no-tenant")
-    .execute(db.pool_result()?)
+    .execute(db.pool())
     .await?;
 
     // Try to add file to dataset that has NULL tenant_id
@@ -298,7 +298,7 @@ async fn test_dataset_files_trigger_rejects_null_tenant_on_parent() -> Result<()
     .bind(Uuid::new_v4().to_string())
     .bind("dataset-no-tenant")
     .bind("tenant-a")
-    .execute(db.pool_result()?)
+    .execute(db.pool())
     .await;
 
     assert!(
@@ -329,7 +329,7 @@ async fn test_dataset_files_allows_same_tenant() -> Result<()> {
     )
     .bind("dataset-a")
     .bind("tenant-a")
-    .execute(db.pool_result()?)
+    .execute(db.pool())
     .await?;
 
     // Add file with matching tenant_id - should succeed
@@ -340,7 +340,7 @@ async fn test_dataset_files_allows_same_tenant() -> Result<()> {
     .bind(Uuid::new_v4().to_string())
     .bind("dataset-a")
     .bind("tenant-a")
-    .execute(db.pool_result()?)
+    .execute(db.pool())
     .await;
 
     assert!(
@@ -365,7 +365,7 @@ async fn test_dataset_files_allows_null_file_tenant_id() -> Result<()> {
     )
     .bind("dataset-a")
     .bind("tenant-a")
-    .execute(db.pool_result()?)
+    .execute(db.pool())
     .await?;
 
     // Add file without tenant_id (NULL) - should succeed per trigger logic
@@ -375,7 +375,7 @@ async fn test_dataset_files_allows_null_file_tenant_id() -> Result<()> {
     )
     .bind(Uuid::new_v4().to_string())
     .bind("dataset-a")
-    .execute(db.pool_result()?)
+    .execute(db.pool())
     .await;
 
     assert!(
@@ -403,18 +403,18 @@ async fn test_orphan_check_constraint_behavior() -> Result<()> {
             count INTEGER NOT NULL CHECK(count = 0)
         )",
     )
-    .execute(db.pool_result()?)
+    .execute(db.pool())
     .await?;
 
     // Insert with count=0 should succeed
     let result_ok = sqlx::query("INSERT INTO _test_check (name, count) VALUES ('test1', 0)")
-        .execute(db.pool_result()?)
+        .execute(db.pool())
         .await;
     assert!(result_ok.is_ok(), "Insert with count=0 should succeed");
 
     // Insert with count=1 should fail due to CHECK constraint
     let result_fail = sqlx::query("INSERT INTO _test_check (name, count) VALUES ('test2', 1)")
-        .execute(db.pool_result()?)
+        .execute(db.pool())
         .await;
     assert!(
         result_fail.is_err(),
@@ -423,7 +423,7 @@ async fn test_orphan_check_constraint_behavior() -> Result<()> {
 
     // Cleanup
     sqlx::query("DROP TABLE _test_check")
-        .execute(db.pool_result()?)
+        .execute(db.pool())
         .await?;
 
     Ok(())

@@ -71,13 +71,13 @@ pub async fn list_process_logs(
             .bind(&worker_id)
             .bind(level)
             .bind(limit)
-            .fetch_all(state.db.pool_result()?)
+            .fetch_all(state.db.pool())
             .await
     } else {
         sqlx::query(&query.replace(" AND level = ?", ""))
             .bind(&worker_id)
             .bind(limit)
-            .fetch_all(state.db.pool_result()?)
+            .fetch_all(state.db.pool())
             .await
     };
 
@@ -133,7 +133,7 @@ pub async fn list_process_crashes(
         "SELECT * FROM process_crash_dumps WHERE worker_id = ? ORDER BY crash_timestamp DESC LIMIT 100",
     )
     .bind(&worker_id)
-    .fetch_all(state.db.pool_result()?)
+    .fetch_all(state.db.pool())
     .await
     .map_err(|e| {
         (
@@ -204,7 +204,7 @@ pub async fn start_debug_session(
     .bind(&req.config_json)
     .bind(&started_at)
     .bind(&claims.sub)
-    .execute(state.db.pool_result()?)
+    .execute(state.db.pool())
     .await
     .map_err(|e| {
         (
@@ -270,7 +270,7 @@ pub async fn run_troubleshooting_step(
     .bind(&req.step_type)
     .bind(&req.command)
     .bind(&started_at)
-    .execute(state.db.pool_result()?)
+    .execute(state.db.pool())
     .await
     .map_err(|e| {
         (
@@ -323,7 +323,7 @@ pub async fn list_process_monitoring_rules(
     let tenant_id = params.get("tenant_id").map(|s| s.as_str());
     let is_active = params.get("is_active").and_then(|s| s.parse::<bool>().ok());
 
-    let rules = ProcessMonitoringRule::list(state.db.pool_result()?, tenant_id, is_active)
+    let rules = ProcessMonitoringRule::list(state.db.pool(), tenant_id, is_active)
         .await
         .map_err(|e| {
             (
@@ -396,7 +396,7 @@ pub async fn create_process_monitoring_rule(
         created_by: Some(claims.sub.clone()),
     };
 
-    let id = ProcessMonitoringRule::create(state.db.pool_result()?, db_req)
+    let id = ProcessMonitoringRule::create(state.db.pool(), db_req)
         .await
         .map_err(|e| {
             (
@@ -465,7 +465,7 @@ pub async fn list_process_alerts(
     };
 
     // Return empty list on database error (graceful degradation for empty/missing tables)
-    let alerts = ProcessAlert::list(state.db.pool_result()?, filters)
+    let alerts = ProcessAlert::list(state.db.pool(), filters)
         .await
         .unwrap_or_else(|e| {
             tracing::warn!(error = %e, "Failed to list process alerts, returning empty list");
@@ -522,7 +522,7 @@ pub async fn acknowledge_process_alert(
         .map_err(<(StatusCode, Json<ErrorResponse>)>::from)?;
 
     ProcessAlert::update_status(
-        state.db.pool_result()?,
+        state.db.pool(),
         &alert_id,
         AlertStatus::Acknowledged,
         Some(&claims.sub),
@@ -594,7 +594,7 @@ pub async fn list_process_anomalies(
         offset: None,
     };
 
-    let anomalies = ProcessAnomaly::list(state.db.pool_result()?, filters)
+    let anomalies = ProcessAnomaly::list(state.db.pool(), filters)
         .await
         .map_err(|e| {
             (
@@ -662,7 +662,7 @@ pub async fn update_process_anomaly_status(
     )
     .bind(new_status.to_string())
     .bind(&anomaly_id)
-    .execute(state.db.pool_result()?)
+    .execute(state.db.pool())
     .await
     .map_err(|e| {
         (
@@ -725,12 +725,12 @@ pub async fn list_process_monitoring_dashboards(
         sqlx::query(&query)
             .bind(tenant_id)
             .bind(shared)
-            .fetch_all(state.db.pool_result()?)
+            .fetch_all(state.db.pool())
             .await
     } else {
         sqlx::query(&query.replace(" AND is_shared = ?", ""))
             .bind(tenant_id)
-            .fetch_all(state.db.pool_result()?)
+            .fetch_all(state.db.pool())
             .await
     };
 
@@ -803,7 +803,7 @@ pub async fn create_process_monitoring_dashboard(
     .bind(&claims.sub)
     .bind(&now)
     .bind(&now)
-    .execute(state.db.pool_result()?)
+    .execute(state.db.pool())
     .await
     .map_err(|e| {
         (
@@ -871,7 +871,7 @@ pub async fn list_process_health_metrics(
     };
 
     // Query health metrics from database
-    let metrics = adapteros_system_metrics::ProcessHealthMetric::query(state.db.pool_result()?, filters)
+    let metrics = adapteros_system_metrics::ProcessHealthMetric::query(state.db.pool(), filters)
         .await
         .map_err(|e| {
             (
@@ -935,12 +935,12 @@ pub async fn list_process_monitoring_reports(
         sqlx::query(&query)
             .bind(tenant_id)
             .bind(rt)
-            .fetch_all(state.db.pool_result()?)
+            .fetch_all(state.db.pool())
             .await
     } else {
         sqlx::query(&query.replace(" AND report_type = ?", ""))
             .bind(tenant_id)
-            .fetch_all(state.db.pool_result()?)
+            .fetch_all(state.db.pool())
             .await
     };
 
@@ -1016,7 +1016,7 @@ pub async fn create_process_monitoring_report(
     .bind(&now)
     .bind(&claims.sub)
     .bind(&now)
-    .execute(state.db.pool_result()?)
+    .execute(state.db.pool())
     .await
     .map_err(|e| {
         (

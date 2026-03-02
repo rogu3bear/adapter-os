@@ -55,13 +55,13 @@ impl SupervisorClient {
     /// Create a new supervisor client
     ///
     /// # Arguments
-    /// * `base_url` - Base URL of the supervisor API (e.g., "http://localhost:18082")
+    /// * `base_url` - Base URL of the supervisor API (e.g., "http://localhost:3301")
     ///
     /// # Example
     /// ```no_run
     /// use adapteros_server_api::supervisor_client::SupervisorClient;
     ///
-    /// let client = SupervisorClient::new("http://localhost:18082");
+    /// let client = SupervisorClient::new("http://localhost:3301");
     /// ```
     pub fn new(base_url: impl Into<String>) -> Self {
         let client = Client::builder()
@@ -546,12 +546,11 @@ mod tests {
 
     #[test]
     fn test_client_creation() {
-        let client = match build_client_or_skip(|| SupervisorClient::new("http://localhost:18082"))
-        {
+        let client = match build_client_or_skip(|| SupervisorClient::new("http://localhost:3301")) {
             Some(client) => client,
             None => return,
         };
-        assert_eq!(client.base_url, "http://localhost:18082");
+        assert_eq!(client.base_url, "http://localhost:3301");
         assert_eq!(client.max_retries, 3);
     }
 
@@ -625,13 +624,13 @@ mod tests {
 
     #[test]
     fn test_client_with_config() {
-        let client = match build_client_or_skip(|| SupervisorClient::new("http://localhost:18082"))
-        {
-            Some(client) => client,
-            None => return,
-        }
-        .with_timeout(Duration::from_secs(5))
-        .with_max_retries(5);
+        let client =
+            match build_client_or_skip(|| SupervisorClient::new("http://localhost:3301")) {
+                Some(client) => client,
+                None => return,
+            }
+            .with_timeout(Duration::from_secs(5))
+            .with_max_retries(5);
 
         assert_eq!(client.timeout, Duration::from_secs(5));
         assert_eq!(client.max_retries, 5);

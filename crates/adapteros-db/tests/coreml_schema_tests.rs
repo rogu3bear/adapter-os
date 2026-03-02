@@ -12,7 +12,7 @@ async fn create_test_db() -> Result<Db> {
 
 async fn column_types(db: &Db, table: &str) -> Result<HashMap<String, String>> {
     let rows = sqlx::query(&format!("PRAGMA table_info({})", table))
-        .fetch_all(db.pool_result()?)
+        .fetch_all(db.pool())
         .await?;
 
     let mut types = HashMap::new();
@@ -32,7 +32,7 @@ async fn coreml_migrations_and_schema_are_applied() -> Result<()> {
     let versions: Vec<i64> = sqlx::query_scalar(
         "SELECT version FROM _sqlx_migrations WHERE version IN (173, 174) ORDER BY version",
     )
-    .fetch_all(db.pool_result()?)
+    .fetch_all(db.pool())
     .await?;
     assert_eq!(
         versions,
@@ -44,7 +44,7 @@ async fn coreml_migrations_and_schema_are_applied() -> Result<()> {
     let fusion_table_exists: bool = sqlx::query_scalar(
         "SELECT EXISTS(SELECT 1 FROM sqlite_master WHERE type='table' AND name='coreml_fusion_pairs')",
     )
-    .fetch_one(db.pool_result()?)
+    .fetch_one(db.pool())
     .await?;
     assert!(
         fusion_table_exists,

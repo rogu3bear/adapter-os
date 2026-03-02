@@ -128,7 +128,7 @@ mod tests {
     fn roundtrip_store() {
         let (_dir, path) = with_temp_store();
         let store = AuthStore {
-            base_url: "http://localhost:18080".to_string(),
+            base_url: "http://localhost:8080".to_string(),
             tenant_id: "tenant-a".to_string(),
             token: "abc123".to_string(),
             refresh_token: Some("refresh123".to_string()),

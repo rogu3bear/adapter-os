@@ -425,11 +425,7 @@ async fn collect_inference_status(
         push_blocker(&mut blockers, InferenceBlocker::WorkerMissing);
     }
 
-    let model_statuses = match tenant_id {
-        Some(tid) => state.db.list_base_model_statuses_for_tenant(tid).await,
-        None => state.db.list_base_model_statuses().await,
-    };
-    let model_statuses = match model_statuses {
+    let model_statuses = match state.db.list_base_model_statuses().await {
         Ok(statuses) => statuses,
         Err(e) => {
             warn!(error = %e, "Failed to load base model status for inference readiness");
@@ -468,23 +464,21 @@ async fn collect_inference_status(
         None => all_states,
     };
 
-    if any_ready {
-        let has_mismatch = active_states.iter().any(|active| {
-            let Some(model_id) = active.active_base_model_id.as_deref() else {
-                return false;
-            };
+    let has_mismatch = active_states.iter().any(|active| {
+        let Some(model_id) = active.active_base_model_id.as_deref() else {
+            return false;
+        };
 
-            let ready = model_statuses
-                .iter()
-                .find(|status| status.tenant_id == active.tenant_id && status.model_id == model_id)
-                .map(|status| ModelLoadStatus::parse_status(&status.status).is_ready())
-                .unwrap_or(false);
+        let ready = model_statuses
+            .iter()
+            .find(|status| status.tenant_id == active.tenant_id && status.model_id == model_id)
+            .map(|status| ModelLoadStatus::parse_status(&status.status).is_ready())
+            .unwrap_or(false);
 
-            !ready
-        });
-        if has_mismatch {
-            push_blocker(&mut blockers, InferenceBlocker::ActiveModelMismatch);
-        }
+        !ready
+    });
+    if has_mismatch {
+        push_blocker(&mut blockers, InferenceBlocker::ActiveModelMismatch);
     }
 
     let ready = if blockers.is_empty() {
@@ -509,23 +503,16 @@ async fn collect_kernel_status(
     // STABILITY: Use pool_opt() to avoid panic if database is in KV-only mode
     let pool_available = state.db.pool_opt().is_some_and(|p| !p.is_closed());
     if db_ready && pool_available {
-        let model_statuses = match tenant_id {
-            Some(tid) => state.db.list_base_model_statuses_for_tenant(tid).await,
-            None => state.db.list_base_model_statuses().await,
-        };
-        match model_statuses {
-            Ok(statuses) => {
-                if statuses.is_empty() {
-                    // no model summary when no tenant-scoped rows exist
-                } else {
-                    let aggregated = aggregate_status(statuses.iter());
-                    model_summary = Some(ModelStatusSummary {
-                        status: aggregated.status.as_str().to_string(),
-                        model_id: aggregated.latest.map(|m| m.model_id.clone()),
-                        updated_at: aggregated.latest.map(|m| m.updated_at.clone()),
-                    });
-                }
+        match state.db.list_base_model_statuses().await {
+            Ok(statuses) if !statuses.is_empty() => {
+                let aggregated = aggregate_status(statuses.iter());
+                model_summary = Some(ModelStatusSummary {
+                    status: aggregated.status.as_str().to_string(),
+                    model_id: aggregated.latest.map(|m| m.model_id.clone()),
+                    updated_at: aggregated.latest.map(|m| m.updated_at.clone()),
+                });
             }
+            Ok(_) => {}
             Err(e) => {
                 warn!(error = %e, "Failed to load model status for system status");
             }

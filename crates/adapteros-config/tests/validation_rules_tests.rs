@@ -171,7 +171,7 @@ fn test_url_validation_http_valid() {
         .with_schema(schema)
         .add_value(
             "api.url".to_string(),
-            "http://localhost:18080".to_string(),
+            "http://localhost:8080".to_string(),
             adapteros_config::types::PrecedenceLevel::Manifest,
             "test".to_string(),
         )

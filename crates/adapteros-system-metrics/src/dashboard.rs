@@ -125,7 +125,7 @@ impl DashboardService {
             "SELECT dashboard_config FROM process_monitoring_dashboards WHERE id = ?",
         )
         .bind(dashboard_id)
-        .fetch_all(self.db.pool_result()?)
+        .fetch_all(self.db.pool())
         .await
         .map_err(|e| {
             adapteros_core::AosError::Database(format!("Failed to get dashboard config: {}", e))
@@ -184,7 +184,7 @@ impl DashboardService {
             limit: Some(1000),
         };
 
-        let metrics = ProcessHealthMetric::query(self.db.pool_result()?, filters).await?;
+        let metrics = ProcessHealthMetric::query(self.db.pool(), filters).await?;
 
         let points: Vec<TimeSeriesPoint> = metrics
             .into_iter()
@@ -231,7 +231,7 @@ impl DashboardService {
             limit: Some(1),
         };
 
-        let metrics = ProcessHealthMetric::query(self.db.pool_result()?, filters).await?;
+        let metrics = ProcessHealthMetric::query(self.db.pool(), filters).await?;
         let current_value = metrics.first().map(|m| m.metric_value).unwrap_or(0.0);
 
         let status = if current_value >= config.threshold_critical {
@@ -285,7 +285,7 @@ impl DashboardService {
             offset: None,
         };
 
-        let alerts = ProcessAlert::list(self.db.pool_result()?, filters).await?;
+        let alerts = ProcessAlert::list(self.db.pool(), filters).await?;
 
         let alert_summaries: Vec<AlertSummary> = alerts
             .into_iter()
@@ -347,7 +347,7 @@ impl DashboardService {
                 offset: None,
             };
 
-            let anomalies = ProcessAnomaly::list(self.db.pool_result()?, filters).await?;
+            let anomalies = ProcessAnomaly::list(self.db.pool(), filters).await?;
 
             let latest_anomaly = anomalies.first().map(|a| AnomalySummary {
                 id: a.id.clone(),
@@ -405,7 +405,7 @@ impl DashboardService {
             limit: Some(100),
         };
 
-        let metrics = ProcessHealthMetric::query(self.db.pool_result()?, filters).await?;
+        let metrics = ProcessHealthMetric::query(self.db.pool(), filters).await?;
 
         if metrics.is_empty() {
             return Ok(WidgetData {
@@ -499,7 +499,7 @@ impl DashboardService {
             limit: Some(1),
         };
 
-        let metrics = ProcessHealthMetric::query(self.db.pool_result()?, filters).await?;
+        let metrics = ProcessHealthMetric::query(self.db.pool(), filters).await?;
         let current_value = metrics.first().map(|m| m.metric_value).unwrap_or(0.0);
 
         let status = match config.operator.as_str() {

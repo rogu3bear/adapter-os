@@ -25,7 +25,7 @@ async fn create_test_diag_run(
     sqlx::query("INSERT OR IGNORE INTO tenants (id, name) VALUES (?, ?)")
         .bind(tenant_id)
         .bind(format!("Test Tenant {}", tenant_id))
-        .execute(db.pool_result()?)
+        .execute(db.pool())
         .await?;
 
     let now = Utc::now();
@@ -40,7 +40,7 @@ async fn create_test_diag_run(
     .bind(trace_id)
     .bind(now.timestamp_millis())
     .bind(now.to_rfc3339())
-    .execute(db.pool_result()?)
+    .execute(db.pool())
     .await?;
 
     sqlx::query(
@@ -53,7 +53,7 @@ async fn create_test_diag_run(
     .bind(tenant_id)
     .bind(0_i64)
     .bind(1000_i64)
-    .execute(db.pool_result()?)
+    .execute(db.pool())
     .await?;
 
     Ok(())
@@ -118,11 +118,11 @@ async fn create_bundle_export_accepts_run_id_lookup() -> anyhow::Result<()> {
     assert_eq!(response.manifest.run_id, run_id);
     assert!(!response.export_id.is_empty());
 
-    // Test hygiene: remove generated bundle file in var/exports.
+    // Test hygiene: remove generated bundle file in ./var/exports.
     if let Some((file_path,)) =
         sqlx::query_as::<_, (String,)>("SELECT file_path FROM diag_bundle_exports WHERE id = ?")
             .bind(&response.export_id)
-            .fetch_optional(state.db.pool_result()?)
+            .fetch_optional(state.db.pool())
             .await?
     {
         let _ = tokio::fs::remove_file(file_path).await;
@@ -133,7 +133,7 @@ async fn create_bundle_export_accepts_run_id_lookup() -> anyhow::Result<()> {
         sqlx::query_as("SELECT trace_id FROM diag_runs WHERE id = ? AND tenant_id = ?")
             .bind(&run_id)
             .bind(&tenant_id)
-            .fetch_one(state.db.pool_result()?)
+            .fetch_one(state.db.pool())
             .await?;
     assert_eq!(stored.0, trace_id);
 

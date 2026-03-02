@@ -337,13 +337,13 @@ async fn ensure_adapter_schema(db: &Db) -> Result<()> {
     let has_lora_strength: i64 = sqlx::query_scalar(
         "SELECT COUNT(*) FROM pragma_table_info('adapters') WHERE name = 'lora_strength'",
     )
-    .fetch_one(db.pool_result()?)
+    .fetch_one(db.pool())
     .await
     .unwrap_or(1);
 
     if has_lora_strength == 0 {
         sqlx::query("ALTER TABLE adapters ADD COLUMN lora_strength REAL")
-            .execute(db.pool_result()?)
+            .execute(db.pool())
             .await
             .map_err(|e| {
                 AosError::Database(format!("Failed to add lora_strength column: {}", e))
@@ -396,7 +396,7 @@ mod tests {
             ),
         ];
 
-        serialize(tensors, None).expect("serialize test safetensors")
+        serialize(tensors, &None).expect("serialize test safetensors")
     }
 
     fn new_test_tempdir() -> tempfile::TempDir {
@@ -438,7 +438,7 @@ mod tests {
         sqlx::query("UPDATE models SET tenant_id = ? WHERE id = ?")
             .bind(&tenant_id)
             .bind(&model_id)
-            .execute(db.pool_result().expect("db pool"))
+            .execute(db.pool())
             .await
             .expect("assign model tenant");
         let tmp = new_test_tempdir();

@@ -1,61 +1,75 @@
 # ERRORS
 
-Canonical error codes are defined in `/Users/star/Dev/adapter-os/crates/adapteros-core/src/error_codes.rs`.
+Canonical error codes. Source: `adapteros-core/error_codes.rs`.
 
-## Response Contract
+---
 
-Public API errors must include:
+## Response Format
 
 ```json
 {
-  "message": "Human-readable summary",
-  "code": "CANONICAL_ERROR_CODE",
-  "details": {
-    "legacy_code": "OPTIONAL_OLD_CODE"
-  }
+  "code": "NOT_FOUND",
+  "message": "Adapter not found",
+  "details": null
 }
 ```
 
-- `code` is canonical.
-- `details.legacy_code` is optional compatibility metadata during migration.
-- `ErrorResponse` type: `/Users/star/Dev/adapter-os/crates/adapteros-api-types/src/lib.rs`.
+**Type:** `adapteros_api_types::ErrorResponse`. Handlers use `ApiError::not_found("NOT_FOUND", "message")`.
 
-## Canonicalization Rules
+---
 
-- Server handlers should emit via `ApiError` constructors in `/Users/star/Dev/adapter-os/crates/adapteros-server-api/src/api_error.rs`.
-- Dynamic or legacy codes are normalized by `/Users/star/Dev/adapter-os/crates/adapteros-server-api/src/error_code_normalization.rs`.
-- Middleware enforcement in `/Users/star/Dev/adapter-os/crates/adapteros-server-api/src/middleware/error_code_enforcement.rs` guarantees canonical `code` for JSON error responses.
+## Categories
 
-## Drift Governance
+```mermaid
+flowchart TB
+    subgraph 4xx["4xx Client Errors"]
+        A["400: BAD_REQUEST, VALIDATION_ERROR<br/>PARSE_ERROR, INVALID_HASH<br/>PREFLIGHT_FAILED, DETERMINISM_ERROR"]
+        B["401: UNAUTHORIZED<br/>TOKEN_MISSING, TOKEN_EXPIRED"]
+        C["403: FORBIDDEN<br/>PERMISSION_DENIED, POLICY_VIOLATION"]
+        D["404: NOT_FOUND<br/>ADAPTER_NOT_FOUND, MODEL_NOT_FOUND"]
+        E["409: CONFLICT<br/>ADAPTER_HASH_MISMATCH, DUPLICATE_REQUEST"]
+        F["422: REASONING_LOOP_DETECTED"]
+        G["429: TOO_MANY_REQUESTS, BACKPRESSURE"]
+    end
 
-Single command:
+    subgraph 5xx["5xx Server Errors"]
+        H["500: INTERNAL_ERROR<br/>DATABASE_ERROR, CRYPTO_ERROR"]
+        I["502: BAD_GATEWAY<br/>NETWORK_ERROR, BASE_LLM_ERROR"]
+        J["503: SERVICE_UNAVAILABLE<br/>WORKER_UNAVAILABLE"]
+    end
 
-```bash
-bash /Users/star/Dev/adapter-os/scripts/check_error_code_drift.sh
+    4xx --> A
+    4xx --> B
+    4xx --> C
+    4xx --> D
+    4xx --> E
+    4xx --> F
+    4xx --> G
+    5xx --> H
+    5xx --> I
+    5xx --> J
 ```
 
-This script:
+---
 
-1. Regenerates inventory artifacts under `/Users/star/Dev/adapter-os/docs/error-inventory/`.
-2. Validates that literal `with_code("...")` emissions are canonical or allowlisted.
-3. Detects new `ErrorResponse::new(...)` emission sites without nearby `.with_code(...)`.
-4. Fails CI on uncatalogued drift.
+## Key Codes (by domain)
 
-## Inventory Artifacts
+| Domain | Codes |
+|--------|-------|
+| Validation | BAD_REQUEST, VALIDATION_ERROR, PARSE_ERROR, MISSING_FIELD, INVALID_CPID |
+| Auth | UNAUTHORIZED, TOKEN_MISSING, TOKEN_EXPIRED, INVALID_SIGNATURE |
+| Policy | FORBIDDEN, PERMISSION_DENIED, POLICY_VIOLATION |
+| Resources | NOT_FOUND, ADAPTER_NOT_FOUND, MODEL_NOT_FOUND, WORKER_UNAVAILABLE |
+| Determinism | DETERMINISM_ERROR |
+| Rate limit | TOO_MANY_REQUESTS, BACKPRESSURE |
+| Worker | SERVICE_UNAVAILABLE, WORKER_UNAVAILABLE, BAD_GATEWAY |
 
-- `/Users/star/Dev/adapter-os/docs/error-inventory/ERROR_CODE_INVENTORY.md`
-- `/Users/star/Dev/adapter-os/docs/error-inventory/error_codes_inventory.json`
-- `/Users/star/Dev/adapter-os/docs/error-inventory/error-code-disposition.csv`
+---
 
-## Adding a New Error Code
+## Lookup
 
-1. Add constant to `/Users/star/Dev/adapter-os/crates/adapteros-core/src/error_codes.rs`.
-2. Use that constant from handlers (`ApiError` or canonical mapping).
-3. If replacing an existing external code, add alias mapping in normalization and carry `legacy_code`.
-4. Run drift check script and commit updated inventory artifacts.
+```bash
+./aosctl explain <code>
+```
 
-## Alias/Deprecation Policy
-
-- Existing externally visible non-canonical codes may remain as aliases temporarily.
-- During migration window, return canonical `code` and preserve prior value in `details.legacy_code`.
-- Deprecation/disposition decisions are tracked in `/Users/star/Dev/adapter-os/docs/error-inventory/error-code-disposition.csv`.
+**Source:** `adapteros-cli/src/commands/explain.rs` reads from `adapteros-core` error code registry.

@@ -74,7 +74,7 @@ async fn test_determinism_policy_enforcement() {
     // Verify adapter exists with correct tier (persistent = deterministic)
     let tier: String = sqlx::query_scalar("SELECT tier FROM adapters WHERE id = ?")
         .bind("deterministic-adapter")
-        .fetch_one(harness.db().pool_result().unwrap())
+        .fetch_one(harness.db().pool())
         .await
         .expect("Adapter should exist");
 
@@ -102,7 +102,7 @@ async fn test_router_policy_enforcement() {
     // Verify all adapters have rank (required for routing)
     let adapters: Vec<(String, i64)> =
         sqlx::query_as("SELECT id, rank FROM adapters WHERE id LIKE 'router-adapter-%'")
-            .fetch_all(harness.db().pool_result().unwrap())
+            .fetch_all(harness.db().pool())
             .await
             .expect("Should be able to fetch router adapters");
 
@@ -146,7 +146,7 @@ async fn test_evidence_policy_enforcement() {
 
     // Verify audit logs if table exists
     let audit_check = sqlx::query("SELECT COUNT(*) as count FROM audit_logs")
-        .fetch_one(harness.db().pool_result().unwrap())
+        .fetch_one(harness.db().pool())
         .await;
 
     if audit_check.is_ok() {
@@ -258,7 +258,7 @@ async fn test_input_validation_policy() {
     .bind(8)
     .bind(1.0)
     .bind("[]")
-    .execute(harness.db().pool_result().unwrap())
+    .execute(harness.db().pool())
     .await;
 
     // Database should enforce length constraints
@@ -286,7 +286,7 @@ async fn test_tenant_isolation_policy() {
         .bind("tenant-iso-a")
         .bind("Tenant Iso A")
         .bind(0)
-        .execute(harness.db().pool_result().unwrap())
+        .execute(harness.db().pool())
         .await
         .expect("Failed to create tenant-iso-a");
 
@@ -294,7 +294,7 @@ async fn test_tenant_isolation_policy() {
         .bind("tenant-iso-b")
         .bind("Tenant Iso B")
         .bind(0)
-        .execute(harness.db().pool_result().unwrap())
+        .execute(harness.db().pool())
         .await
         .expect("Failed to create tenant-iso-b");
 
@@ -311,7 +311,7 @@ async fn test_tenant_isolation_policy() {
     .bind(8)
     .bind(1.0)
     .bind("[]")
-    .execute(harness.db().pool_result().unwrap())
+    .execute(harness.db().pool())
     .await
     .expect("Failed to create adapter for tenant-iso-a");
 
@@ -327,7 +327,7 @@ async fn test_tenant_isolation_policy() {
     .bind(8)
     .bind(1.0)
     .bind("[]")
-    .execute(harness.db().pool_result().unwrap())
+    .execute(harness.db().pool())
     .await
     .expect("Failed to create adapter for tenant-iso-b");
 
@@ -335,7 +335,7 @@ async fn test_tenant_isolation_policy() {
     let tenant_a_count: (i64,) =
         sqlx::query_as("SELECT COUNT(*) FROM adapters WHERE tenant_id = ?")
             .bind("tenant-iso-a")
-            .fetch_one(harness.db().pool_result().unwrap())
+            .fetch_one(harness.db().pool())
             .await
             .expect("Should be able to count tenant-iso-a adapters");
 
@@ -348,7 +348,7 @@ async fn test_tenant_isolation_policy() {
     let tenant_b_count: (i64,) =
         sqlx::query_as("SELECT COUNT(*) FROM adapters WHERE tenant_id = ?")
             .bind("tenant-iso-b")
-            .fetch_one(harness.db().pool_result().unwrap())
+            .fetch_one(harness.db().pool())
             .await
             .expect("Should be able to count tenant-iso-b adapters");
 
@@ -370,7 +370,7 @@ async fn test_typed_errors_policy() {
 
     // Test that database operations return proper error types
     let result = sqlx::query("SELECT * FROM nonexistent_table_xyz")
-        .fetch_one(harness.db().pool_result().unwrap())
+        .fetch_one(harness.db().pool())
         .await;
 
     assert!(result.is_err(), "Should return error for nonexistent table");
@@ -441,7 +441,7 @@ async fn test_all_23_canonical_policies() {
     let adapter: (String, i64, String) =
         sqlx::query_as("SELECT tier, rank, hash_b3 FROM adapters WHERE id = ?")
             .bind("policy-check-adapter")
-            .fetch_one(harness.db().pool_result().unwrap())
+            .fetch_one(harness.db().pool())
             .await
             .expect("Adapter should exist");
 

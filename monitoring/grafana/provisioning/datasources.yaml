@@ -7,7 +7,7 @@ datasources:
   - name: Prometheus
     type: prometheus
     access: proxy
-    url: ${PROMETHEUS_URL:-http://localhost:18084}
+    url: ${PROMETHEUS_URL:-http://localhost:9090}
     isDefault: true
     editable: false
     jsonData:
@@ -22,7 +22,7 @@ datasources:
   # - name: Tempo
   #   type: tempo
   #   access: proxy
-  #   url: ${TEMPO_URL:-http://localhost:18081}
+  #   url: ${TEMPO_URL:-http://localhost:3200}
   #   editable: false
   #   jsonData:
   #     tracesToLogs:

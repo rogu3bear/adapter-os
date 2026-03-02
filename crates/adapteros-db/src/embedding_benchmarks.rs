@@ -50,7 +50,7 @@ impl Db {
             .bind(format!("%{}%", filter))
             .bind(limit as i64)
             .bind(offset as i64)
-            .fetch_all(self.pool_result()?)
+            .fetch_all(self.pool())
             .await
             .map_err(|e| {
                 AosError::Database(format!("Failed to list embedding benchmarks: {}", e))
@@ -70,7 +70,7 @@ impl Db {
             .bind(tenant_id)
             .bind(limit as i64)
             .bind(offset as i64)
-            .fetch_all(self.pool_result()?)
+            .fetch_all(self.pool())
             .await
             .map_err(|e| {
                 AosError::Database(format!("Failed to list embedding benchmarks: {}", e))
@@ -92,13 +92,13 @@ impl Db {
             )
             .bind(tenant_id)
             .bind(format!("%{}%", filter))
-            .fetch_one(self.pool_result()?)
+            .fetch_one(self.pool())
             .await
             .map_err(|e| AosError::Database(format!("Failed to count embedding benchmarks: {}", e)))?
         } else {
             sqlx::query_as("SELECT COUNT(*) FROM embedding_benchmarks WHERE tenant_id = ?")
                 .bind(tenant_id)
-                .fetch_one(self.pool_result()?)
+                .fetch_one(self.pool())
                 .await
                 .map_err(|e| {
                     AosError::Database(format!("Failed to count embedding benchmarks: {}", e))

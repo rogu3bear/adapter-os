@@ -8,16 +8,12 @@ use crate::api_error::{ApiError, ApiResult};
 use crate::auth::{hash_password, is_production_mode, Claims};
 use crate::security::validate_tenant_isolation;
 use crate::state::AppState;
-use adapteros_api_types::workers::WorkerCapabilities;
 use adapteros_core::{AosError, B3Hash};
 use adapteros_db::adapters::AdapterRegistrationBuilder;
 use adapteros_db::models::ModelRegistrationBuilder;
 use adapteros_db::sqlx::{self, Executor, Row};
 use adapteros_db::{
     policy_audit::AUDIT_CHAIN_DIVERGED_CODE,
-    training_datasets::{
-        CreateDatasetHashInputsParams, CreateDatasetParams, CreateTrainingDatasetRowParams,
-    },
     CreateRepositoryParams as CreateAdapterRepositoryParams,
     CreateVersionParams as CreateAdapterVersionParams,
 };
@@ -119,54 +115,6 @@ fn hash_bytes(label: &str) -> [u8; 32] {
     B3Hash::hash(label.as_bytes()).to_bytes()
 }
 
-fn canonical_worker_backend(label: &str) -> Option<String> {
-    match label.to_ascii_lowercase().as_str() {
-        "mlxbridge" | "mlx-bridge" | "bridge" => Some("bridge".to_string()),
-        "mlx" => Some("mlx".to_string()),
-        "metal" => Some("metal".to_string()),
-        "coreml" | "core-ml" => Some("coreml".to_string()),
-        "cpu" => Some("cpu".to_string()),
-        _ => None,
-    }
-}
-
-fn worker_caps_json_for_fixture(backend: Option<&str>, gpu_backward: bool) -> String {
-    let backend_kind = backend
-        .and_then(canonical_worker_backend)
-        .unwrap_or_else(|| {
-            if gpu_backward {
-                "mlx".to_string()
-            } else {
-                "coreml".to_string()
-            }
-        });
-
-    let (supports_step, supports_bulk, supports_logits, supports_streaming) =
-        match backend_kind.as_str() {
-            "bridge" => (false, true, false, false),
-            "mlx" | "metal" | "coreml" => (true, false, true, true),
-            _ => (false, false, false, false),
-        };
-    let implementation = if backend_kind == "bridge" {
-        Some("mlx_subprocess".to_string())
-    } else {
-        None
-    };
-    let multi_backend = matches!(backend_kind.as_str(), "mlx" | "bridge");
-
-    serde_json::to_string(&WorkerCapabilities {
-        backend_kind,
-        implementation,
-        supports_step,
-        supports_bulk,
-        supports_logits,
-        supports_streaming,
-        gpu_backward,
-        multi_backend,
-    })
-    .unwrap_or_else(|_| "{}".to_string())
-}
-
 fn map_err(err: impl Into<AosError>) -> ApiError {
     let err = err.into();
     eprintln!("[TESTKIT ERROR] {}", err);
@@ -185,7 +133,7 @@ pub struct TestkitResetResponse {
 pub async fn reset(State(state): State<AppState>) -> ApiResult<TestkitResetResponse> {
     ensure_e2e_mode()?;
 
-    let pool = state.db.pool_result()?;
+    let pool = state.db.pool();
     let mut conn = pool.acquire().await.map_err(map_err)?;
 
     sqlx::query("PRAGMA foreign_keys=OFF")
@@ -262,7 +210,7 @@ pub struct SeedMinimalResponse {
 #[axum::debug_handler]
 pub async fn seed_minimal(State(state): State<AppState>) -> ApiResult<SeedMinimalResponse> {
     ensure_e2e_mode()?;
-    let pool = state.db.pool_result()?;
+    let pool = state.db.pool();
     let pinned_primary =
         serde_json::to_string(&vec![ADAPTER_ID]).unwrap_or_else(|_| "[]".to_string());
     let pinned_secondary =
@@ -385,20 +333,10 @@ pub async fn seed_minimal(State(state): State<AppState>) -> ApiResult<SeedMinima
             .map_err(map_err)?;
     }
 
-    let model_fixture_dir = std::path::Path::new("var/testkit/models");
-    tokio::fs::create_dir_all(model_fixture_dir)
-        .await
-        .map_err(map_err)?;
-    let model_fixture_path = format!("var/testkit/models/{MODEL_ID}.safetensors");
-    tokio::fs::write(&model_fixture_path, b"testkit-model-weights")
-        .await
-        .map_err(map_err)?;
-
     sqlx::query(
         r#"
         UPDATE models SET
             tenant_id = ?,
-            model_path = ?,
             backend = 'mlx',
             quantization = 'q4_0',
             format = 'safetensors',
@@ -410,7 +348,6 @@ pub async fn seed_minimal(State(state): State<AppState>) -> ApiResult<SeedMinima
         "#,
     )
     .bind(TENANT_ID)
-    .bind(&model_fixture_path)
     .bind(FIXED_TS)
     .bind("seed-fixtures")
     .bind(MODEL_ID)
@@ -557,20 +494,10 @@ pub async fn seed_minimal(State(state): State<AppState>) -> ApiResult<SeedMinima
             .map_err(map_err)?;
     }
 
-    let model_fixture_path_secondary =
-        format!("var/testkit/models/{MODEL_ID_SECONDARY}.safetensors");
-    tokio::fs::write(
-        &model_fixture_path_secondary,
-        b"testkit-model-weights-secondary",
-    )
-    .await
-    .map_err(map_err)?;
-
     sqlx::query(
         r#"
         UPDATE models SET
             tenant_id = ?,
-            model_path = ?,
             backend = 'mlx',
             quantization = 'q4_0',
             format = 'safetensors',
@@ -582,7 +509,6 @@ pub async fn seed_minimal(State(state): State<AppState>) -> ApiResult<SeedMinima
         "#,
     )
     .bind(TENANT_ID_SECONDARY)
-    .bind(&model_fixture_path_secondary)
     .bind(FIXED_TS)
     .bind("seed-fixtures")
     .bind(MODEL_ID_SECONDARY)
@@ -746,7 +672,7 @@ pub async fn create_trace_fixture(
         .unwrap_or_else(|| vec![ADAPTER_ID.to_string(), ADAPTER_ID_SECONDARY.to_string()]);
     let token_count = req.token_count.unwrap_or(TRACE_TOKEN_COUNT).max(1);
     let trace_id = TRACE_ID.to_string();
-    let pool = state.db.pool_result()?;
+    let pool = state.db.pool();
 
     // Clear existing fixture rows for idempotency
     sqlx::query("DELETE FROM inference_trace_receipts WHERE trace_id = ?")
@@ -886,7 +812,7 @@ pub async fn create_diag_run_fixture(
 
     sqlx::query("DELETE FROM diag_runs WHERE id = ?")
         .bind(&run_id)
-        .execute(state.db.pool_result()?)
+        .execute(state.db.pool())
         .await
         .map_err(map_err)?;
 
@@ -908,7 +834,7 @@ pub async fn create_diag_run_fixture(
     .bind("b3:diag-run-manifest-fixture")
     .bind(&status)
     .bind(1_i64)
-    .execute(state.db.pool_result()?)
+    .execute(state.db.pool())
     .await
     .map_err(map_err)?;
 
@@ -943,7 +869,7 @@ pub async fn create_evidence_fixture(
     let tenant_id = req.tenant_id.unwrap_or_else(|| TENANT_ID.to_string());
     let inference_id = req.inference_id.unwrap_or_else(|| TRACE_ID.to_string());
 
-    let pool = state.db.pool_result()?;
+    let pool = state.db.pool();
 
     // Clear old fixture rows
     sqlx::query("DELETE FROM inference_evidence WHERE id = ?")
@@ -1127,7 +1053,7 @@ pub async fn create_repo(
         sqlx::query("UPDATE adapter_repositories SET id = ? WHERE id = ?")
             .bind(&repo_id)
             .bind(&created_id)
-            .execute(state.db.pool_result()?)
+            .execute(state.db.pool())
             .await
             .map_err(map_err)?;
     }
@@ -1136,7 +1062,7 @@ pub async fn create_repo(
     sqlx::query("DELETE FROM repositories WHERE tenant_id = ? AND repo_id = ?")
         .bind(&tenant_id)
         .bind(&repo_id)
-        .execute(state.db.pool_result()?)
+        .execute(state.db.pool())
         .await
         .map_err(map_err)?;
 
@@ -1216,7 +1142,7 @@ pub async fn create_adapter_version(
         sqlx::query("UPDATE adapter_versions SET id = ? WHERE id = ?")
             .bind(&version_id)
             .bind(&created)
-            .execute(state.db.pool_result()?)
+            .execute(state.db.pool())
             .await
             .map_err(map_err)?;
     }
@@ -1306,7 +1232,7 @@ pub async fn create_training_job_stub(
     )
     .bind(&base_model_id)
     .bind(&tenant_id)
-    .fetch_optional(state.db.pool_result()?)
+    .fetch_optional(state.db.pool())
     .await
     {
         Ok(Some(_)) => Some(base_model_id.as_str()),
@@ -1323,7 +1249,7 @@ pub async fn create_training_job_stub(
     )
     .bind(&stack_id)
     .bind(&tenant_id)
-    .fetch_optional(state.db.pool_result()?)
+    .fetch_optional(state.db.pool())
     .await
     {
         Ok(Some(_)) => Some(stack_id.as_str()),
@@ -1385,7 +1311,7 @@ pub async fn create_training_job_stub(
     .bind(base_model_id_fk)
     .bind("b3_testkit_adapter_content")
     .bind(serde_json::json!({"description": "Testkit adapter for training stub demo"}).to_string())
-    .execute(state.db.pool_result()?)
+    .execute(state.db.pool())
     .await
     {
         tracing::warn!(error = %e, "Failed to seed adapter for training job stub");
@@ -1419,13 +1345,13 @@ pub async fn create_training_job_stub(
     .bind("{}")
     .bind("{}")
     .bind(POLICY_ACTOR)
-    .execute(state.db.pool_result()?)
+    .execute(state.db.pool())
     .await
     .map_err(map_err)?;
 
     sqlx::query("DELETE FROM repository_training_jobs WHERE id = ?")
         .bind(&job_id)
-        .execute(state.db.pool_result()?)
+        .execute(state.db.pool())
         .await
         .map_err(map_err)?;
 
@@ -1449,7 +1375,7 @@ pub async fn create_training_job_stub(
     .bind(&adapter_id)
     .bind(base_model_id_fk)
     .bind(stack_id_fk)
-    .execute(state.db.pool_result()?)
+    .execute(state.db.pool())
     .await
     .map_err(map_err)?;
 
@@ -1557,7 +1483,7 @@ pub async fn create_document_fixture(
     .bind(r#"{"source":"testkit","fixture":"document"}"#)
     .bind(req.error_message.as_deref())
     .bind(req.error_code.as_deref())
-    .execute(state.db.pool_result()?)
+    .execute(state.db.pool())
     .await
     .map_err(map_err)?;
 
@@ -1566,50 +1492,9 @@ pub async fn create_document_fixture(
     sqlx::query("DELETE FROM document_chunks WHERE tenant_id = ? AND document_id = ?")
         .bind(&tenant_id)
         .bind(&document_id)
-        .execute(state.db.pool_result()?)
+        .execute(state.db.pool())
         .await
         .map_err(map_err)?;
-
-    // Indexed/ready fixtures should expose at least one deterministic chunk so
-    // dataset-from-documents conversion paths behave like real indexed documents.
-    if matches!(status.as_str(), "indexed" | "ready") {
-        let chunk_id = format!("{document_id}-chunk-0");
-        let chunk_hash =
-            B3Hash::hash(format!("testkit-chunk:{tenant_id}:{document_id}:0").as_bytes()).to_hex();
-
-        sqlx::query(
-            r#"
-            INSERT INTO document_chunks (
-                id, tenant_id, document_id, chunk_index, page_number, start_offset, end_offset,
-                chunk_hash, text_preview, embedding_json
-            )
-            VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
-            ON CONFLICT(id) DO UPDATE SET
-                tenant_id = excluded.tenant_id,
-                document_id = excluded.document_id,
-                chunk_index = excluded.chunk_index,
-                page_number = excluded.page_number,
-                start_offset = excluded.start_offset,
-                end_offset = excluded.end_offset,
-                chunk_hash = excluded.chunk_hash,
-                text_preview = excluded.text_preview,
-                embedding_json = excluded.embedding_json
-            "#,
-        )
-        .bind(&chunk_id)
-        .bind(&tenant_id)
-        .bind(&document_id)
-        .bind(0_i64)
-        .bind(1_i64)
-        .bind(0_i64)
-        .bind(64_i64)
-        .bind(&chunk_hash)
-        .bind("Deterministic testkit indexed chunk")
-        .bind(r#"{"vector":[0.1,0.2,0.3]}"#)
-        .execute(state.db.pool_result()?)
-        .await
-        .map_err(map_err)?;
-    }
 
     Ok(Json(DocumentFixtureResponse {
         document_id,
@@ -1668,7 +1553,7 @@ pub async fn create_collection_fixture(
     .bind(&description)
     .bind(FIXED_TS)
     .bind(FIXED_TS)
-    .execute(state.db.pool_result()?)
+    .execute(state.db.pool())
     .await
     .map_err(map_err)?;
 
@@ -1683,7 +1568,7 @@ pub async fn create_collection_fixture(
     .bind(&collection_id)
     .bind(&document_id)
     .bind(FIXED_TS)
-    .execute(state.db.pool_result()?)
+    .execute(state.db.pool())
     .await
     .map_err(map_err)?;
 
@@ -1720,101 +1605,53 @@ pub async fn create_dataset_fixture(
 
     // Keep fixture paths under var/testkit to satisfy path hygiene rules.
     let storage_path = format!("var/testkit/datasets/{}", dataset_id);
-    let hash_b3 = B3Hash::hash(format!("testkit-dataset:{tenant_id}:{dataset_id}").as_bytes())
-        .to_hex()
-        .to_string();
+    let hash_b3 = format!(
+        "b3_testkit_{}",
+        B3Hash::hash(format!("testkit-dataset:{tenant_id}:{dataset_id}").as_bytes()).to_hex()
+    );
 
-    // Recreate deterministically with a version + row so the dataset can be used by
-    // canonical training-start routes in real E2E flows.
-    if let Err(e) = state.db.delete_training_dataset(&dataset_id).await {
-        tracing::warn!(
-            dataset_id = %dataset_id,
-            error = %e,
-            "testkit create_dataset_fixture: could not delete existing dataset (continuing)"
-        );
-    }
-
-    let params = CreateDatasetParams::builder()
-        .id(&dataset_id)
-        .name(&name)
-        .description("Seeded dataset fixture")
-        .format("jsonl")
-        .hash_b3(&hash_b3)
-        .storage_path(&storage_path)
-        .status("ready")
-        .dataset_type("training")
-        .purpose("training")
-        .collection_method("manual")
-        .ownership("tenant")
-        .category("codebase")
-        .metadata_json(r#"{"source":"testkit","fixture":"dataset"}"#)
-        .tenant_id(&tenant_id)
-        .created_by(POLICY_ACTOR)
-        .build()
-        .map_err(map_err)?;
-
-    let (_, version_id) = state
-        .db
-        .create_training_dataset_from_params_with_version(
-            &params,
-            Some("v1"),
-            &storage_path,
-            &hash_b3,
-            None,
-            None,
+    sqlx::query(
+        r#"
+        INSERT INTO training_datasets (
+            id, name, description, file_count, total_size_bytes, format, hash_b3, storage_path,
+            validation_status, metadata_json, created_by, created_at, updated_at,
+            tenant_id, status, dataset_hash_b3
         )
-        .await
-        .map_err(map_err)?;
-
-    state
-        .db
-        .update_dataset_validation(&dataset_id, "valid", None, None)
-        .await
-        .map_err(map_err)?;
-    state
-        .db
-        .update_dataset_version_safety_status(
-            &version_id,
-            Some("clean"),
-            Some("clean"),
-            Some("clean"),
-            Some("clean"),
+        VALUES (
+            ?, ?, ?, 1, 1024, 'jsonl', ?, ?,
+            'valid', ?, ?, ?, ?,
+            ?, 'ready', ?
         )
-        .await
-        .map_err(map_err)?;
-    state
-        .db
-        .update_dataset_version_structural_validation(&version_id, "valid", None)
-        .await
-        .map_err(map_err)?;
-
-    let row = CreateTrainingDatasetRowParams::builder(
-        &dataset_id,
-        "What is AdapterOS?",
-        "AdapterOS is a multi-LoRA platform.",
+        ON CONFLICT(id) DO UPDATE SET
+            name = excluded.name,
+            description = excluded.description,
+            file_count = excluded.file_count,
+            total_size_bytes = excluded.total_size_bytes,
+            format = excluded.format,
+            hash_b3 = excluded.hash_b3,
+            storage_path = excluded.storage_path,
+            validation_status = excluded.validation_status,
+            metadata_json = excluded.metadata_json,
+            updated_at = excluded.updated_at,
+            tenant_id = excluded.tenant_id,
+            status = excluded.status,
+            dataset_hash_b3 = excluded.dataset_hash_b3
+        "#,
     )
-    .dataset_version_id(version_id.clone())
-    .tenant_id(&tenant_id)
-    .created_by(POLICY_ACTOR)
-    .build();
-
-    state
-        .db
-        .insert_training_dataset_row(&row)
-        .await
-        .map_err(map_err)?;
-
-    let mut hash_inputs = CreateDatasetHashInputsParams::new(&hash_b3, 1, 1, 0);
-    hash_inputs.dataset_id = Some(dataset_id.clone());
-    hash_inputs.tenant_id = Some(tenant_id.clone());
-    hash_inputs.created_by = Some(POLICY_ACTOR.to_string());
-    hash_inputs.ingestion_mode = "manual_fixture".to_string();
-    hash_inputs.generator = "testkit".to_string();
-    state
-        .db
-        .record_dataset_hash_inputs(&hash_inputs)
-        .await
-        .map_err(map_err)?;
+    .bind(&dataset_id)
+    .bind(&name)
+    .bind("Seeded dataset fixture")
+    .bind(&hash_b3)
+    .bind(&storage_path)
+    .bind(r#"{"source":"testkit","fixture":"dataset"}"#)
+    .bind(POLICY_ACTOR)
+    .bind(FIXED_TS)
+    .bind(FIXED_TS)
+    .bind(&tenant_id)
+    .bind(&hash_b3)
+    .execute(state.db.pool())
+    .await
+    .map_err(map_err)?;
 
     Ok(Json(DatasetFixtureResponse {
         tenant_id,
@@ -1826,8 +1663,6 @@ pub async fn create_dataset_fixture(
 pub struct WorkerFixtureRequest {
     pub tenant_id: Option<String>,
     pub worker_id: Option<String>,
-    pub backend: Option<String>,
-    pub gpu_backward: Option<bool>,
 }
 
 #[derive(Debug, Serialize)]
@@ -1847,20 +1682,6 @@ pub async fn create_worker_fixture(
 
     let tenant_id = req.tenant_id.unwrap_or_else(|| TENANT_ID.to_string());
     let worker_id = req.worker_id.unwrap_or_else(|| WORKER_ID.to_string());
-    let backend = req
-        .backend
-        .and_then(|value| {
-            let trimmed = value.trim().to_string();
-            if trimmed.is_empty() {
-                None
-            } else {
-                Some(trimmed)
-            }
-        })
-        .and_then(|value| canonical_worker_backend(&value).or(Some(value)));
-    let capabilities_json = req
-        .gpu_backward
-        .map(|enabled| worker_caps_json_for_fixture(backend.as_deref(), enabled));
 
     // Node
     sqlx::query(
@@ -1881,7 +1702,7 @@ pub async fn create_worker_fixture(
     .bind(FIXED_TS)
     .bind(r#"{"source":"testkit"}"#)
     .bind(FIXED_TS)
-    .execute(state.db.pool_result()?)
+    .execute(state.db.pool())
     .await
     .map_err(map_err)?;
 
@@ -1900,7 +1721,7 @@ pub async fn create_worker_fixture(
     .bind(MANIFEST_HASH_B3)
     .bind(r#"{"source":"testkit","fixture":"manifest"}"#)
     .bind(FIXED_TS)
-    .execute(state.db.pool_result()?)
+    .execute(state.db.pool())
     .await
     .map_err(map_err)?;
 
@@ -1927,7 +1748,7 @@ pub async fn create_worker_fixture(
     .bind(LAYOUT_HASH_B3)
     .bind(r#"{"source":"testkit","fixture":"plan"}"#)
     .bind(FIXED_TS)
-    .execute(state.db.pool_result()?)
+    .execute(state.db.pool())
     .await
     .map_err(map_err)?;
 
@@ -1938,9 +1759,9 @@ pub async fn create_worker_fixture(
         r#"
         INSERT INTO workers (
             id, tenant_id, node_id, plan_id, uds_path, pid, status, started_at, last_seen_at,
-            backend, capabilities_json, adapters_loaded_json, health_status, last_transition_at, last_transition_reason
+            adapters_loaded_json, health_status, last_transition_at, last_transition_reason
         )
-        VALUES (?, ?, ?, ?, ?, ?, 'healthy', ?, ?, ?, ?, ?, 'healthy', ?, ?)
+        VALUES (?, ?, ?, ?, ?, ?, 'healthy', ?, ?, ?, 'healthy', ?, ?)
         ON CONFLICT(id) DO UPDATE SET
             tenant_id = excluded.tenant_id,
             node_id = excluded.node_id,
@@ -1949,8 +1770,6 @@ pub async fn create_worker_fixture(
             pid = excluded.pid,
             status = excluded.status,
             last_seen_at = excluded.last_seen_at,
-            backend = excluded.backend,
-            capabilities_json = excluded.capabilities_json,
             adapters_loaded_json = excluded.adapters_loaded_json,
             health_status = excluded.health_status,
             last_transition_at = excluded.last_transition_at,
@@ -1965,12 +1784,10 @@ pub async fn create_worker_fixture(
     .bind(12345_i64)
     .bind(FIXED_TS)
     .bind(FIXED_TS)
-    .bind(backend.as_deref())
-    .bind(capabilities_json.as_deref())
     .bind(r#"["adapter-test"]"#)
     .bind(FIXED_TS)
     .bind("testkit-worker-fixture")
-    .execute(state.db.pool_result()?)
+    .execute(state.db.pool())
     .await
     .map_err(map_err)?;
 

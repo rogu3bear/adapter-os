@@ -21,8 +21,6 @@
     "test:detail": "node scripts/pw-run.mjs -c playwright.ui.config.ts -- --project=chromium --grep @detail",
     "test:flow": "node scripts/pw-run.mjs -c playwright.ui.config.ts -- --project=chromium --grep @flow",
     "test:empty": "node scripts/pw-run.mjs -c playwright.ui.config.ts -- --project=chromium --grep @empty",
-    "test:audit": "node scripts/pw-run.mjs -c playwright.ui.config.ts -- --grep @audit",
-    "test:gate:quality": "node scripts/check-visual-snapshot-contract.mjs && node scripts/pw-run.mjs -c playwright.ui.config.ts -- ui/console.regression.spec.ts ui/routes.best_practices.audit.spec.ts ui/visual.spec.ts ui/runs.spec.ts",
     "test:visual": "node scripts/pw-run.mjs -c playwright.ui.config.ts -- visual.spec",
     "demo": "node scripts/pw-run.mjs -c playwright.demo.config.ts --",
     "demo:headed": "node scripts/pw-run.mjs -c playwright.demo.config.ts -- --headed",

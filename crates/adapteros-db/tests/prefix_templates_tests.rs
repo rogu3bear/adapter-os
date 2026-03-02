@@ -23,7 +23,7 @@ async fn setup_db() -> Arc<Db> {
         sqlx::query("INSERT OR IGNORE INTO tenants (id, name) VALUES (?, ?)")
             .bind(tenant_id)
             .bind(format!("Test {}", tenant_id))
-            .execute(db.pool_result().unwrap())
+            .execute(db.pool())
             .await
             .expect("Failed to seed tenant");
     }

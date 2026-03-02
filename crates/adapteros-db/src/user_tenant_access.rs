@@ -38,7 +38,7 @@ pub async fn grant_user_tenant_access(
     .bind(&granted_at)
     .bind(reason)
     .bind(expires_at)
-    .execute(db.pool_result()?)
+    .execute(db.pool())
     .await?;
 
     Ok(())
@@ -49,7 +49,7 @@ pub async fn revoke_user_tenant_access(db: &Db, user_id: &str, tenant_id: &str) 
     sqlx::query("DELETE FROM user_tenant_access WHERE user_id = ? AND tenant_id = ?")
         .bind(user_id)
         .bind(tenant_id)
-        .execute(db.pool_result()?)
+        .execute(db.pool())
         .await?;
 
     Ok(())
@@ -68,7 +68,7 @@ pub async fn get_user_tenant_access(db: &Db, user_id: &str) -> Result<Vec<String
     )
     .bind(user_id)
     .bind(&now)
-    .fetch_all(db.pool_result()?)
+    .fetch_all(db.pool())
     .await?;
 
     Ok(tenant_ids)
@@ -89,7 +89,7 @@ pub async fn get_user_tenant_access_details(
     )
     .bind(user_id)
     .bind(&now)
-    .fetch_all(db.pool_result()?)
+    .fetch_all(db.pool())
     .await?;
 
     Ok(access)
@@ -103,7 +103,7 @@ pub async fn cleanup_expired_tenant_access(db: &Db) -> Result<usize> {
         "DELETE FROM user_tenant_access WHERE expires_at IS NOT NULL AND expires_at <= ?",
     )
     .bind(&now)
-    .execute(db.pool_result()?)
+    .execute(db.pool())
     .await?;
 
     Ok(result.rows_affected() as usize)
@@ -146,7 +146,7 @@ mod tests {
             )
             "#,
         )
-        .execute(db.pool_result().unwrap())
+        .execute(db.pool())
         .await
         .expect("Failed to create table");
 

@@ -275,7 +275,7 @@ async fn test_adapter_state_transitions() {
     let result: Result<String, _> =
         sqlx::query_scalar("SELECT lifecycle_state FROM adapters WHERE id = ?")
             .bind("state-test-adapter")
-            .fetch_one(harness.db().pool_result().unwrap())
+            .fetch_one(harness.db().pool())
             .await;
 
     assert!(result.is_ok(), "Adapter should exist in database");
@@ -286,7 +286,7 @@ async fn test_adapter_state_transitions() {
     let update_result = sqlx::query("UPDATE adapters SET lifecycle_state = ? WHERE id = ?")
         .bind("deprecated")
         .bind("state-test-adapter")
-        .execute(harness.db().pool_result().unwrap())
+        .execute(harness.db().pool())
         .await;
 
     assert!(
@@ -296,7 +296,7 @@ async fn test_adapter_state_transitions() {
 
     let state: String = sqlx::query_scalar("SELECT lifecycle_state FROM adapters WHERE id = ?")
         .bind("state-test-adapter")
-        .fetch_one(harness.db().pool_result().unwrap())
+        .fetch_one(harness.db().pool())
         .await
         .unwrap();
 
@@ -321,7 +321,7 @@ async fn test_adapter_activation_tracking() {
     // Note: The adapters table uses 'active' column (INTEGER) for tracking active state
     let result: (i64,) = sqlx::query_as("SELECT active FROM adapters WHERE id = ?")
         .bind("activation-test-adapter")
-        .fetch_one(harness.db().pool_result().unwrap())
+        .fetch_one(harness.db().pool())
         .await
         .unwrap();
 
@@ -331,13 +331,13 @@ async fn test_adapter_activation_tracking() {
     sqlx::query("UPDATE adapters SET active = ? WHERE id = ?")
         .bind(0)
         .bind("activation-test-adapter")
-        .execute(harness.db().pool_result().unwrap())
+        .execute(harness.db().pool())
         .await
         .unwrap();
 
     let result: (i64,) = sqlx::query_as("SELECT active FROM adapters WHERE id = ?")
         .bind("activation-test-adapter")
-        .fetch_one(harness.db().pool_result().unwrap())
+        .fetch_one(harness.db().pool())
         .await
         .unwrap();
 

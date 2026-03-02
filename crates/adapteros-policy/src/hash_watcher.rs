@@ -454,7 +454,7 @@ impl PolicyHashWatcher {
 
         // Insert quarantine record
         self.db
-            .pool_result()?
+            .pool()
             .execute(
                 sqlx::query(
                     r#"

@@ -5,6 +5,7 @@
 
 use adapteros_core::{AosError, Result};
 use adapteros_storage::KvBackend;
+use chrono::Utc;
 use serde::{Deserialize, Serialize};
 use std::sync::Arc;
 
@@ -126,6 +127,11 @@ impl TrainingJobKvRepository {
 
     fn metric_job_index(tenant_id: &str, job_id: &str, step: i64, id: &str) -> String {
         format!("tenant/{tenant_id}/training_metric_job/{job_id}:{step:020}:{id}")
+    }
+
+    #[allow(dead_code)]
+    fn now_ts() -> String {
+        Utc::now().format("%Y-%m-%d %H:%M:%S").to_string()
     }
 
     pub async fn put_job(&self, job: &TrainingJobKv) -> Result<()> {

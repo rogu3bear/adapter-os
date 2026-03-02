@@ -12,7 +12,7 @@ BLUE='\033[0;34m'
 NC='\033[0m' # No Color
 
 # Configuration
-SERVER_URL="${AOS_SERVER_URL:-http://localhost:18080}"
+SERVER_URL="${AOS_SERVER_URL:-http://localhost:8080}"
 BASE_URL="${SERVER_URL}"
 
 # Test counters

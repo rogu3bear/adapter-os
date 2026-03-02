@@ -388,7 +388,7 @@ pub async fn download_run_evidence(
     let mut model_warnings = Vec::new();
     let status_record = state
         .db
-        .get_effective_base_model_status_for_tenant(&metadata.tenant_id)
+        .get_base_model_status(&metadata.tenant_id)
         .await
         .map_err(ApiError::db_error)?;
     let model_snapshot = if let Some(status) = status_record {

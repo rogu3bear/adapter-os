@@ -85,9 +85,6 @@ pub struct WorkerRegistrationRequest {
     /// Whether worker is running in strict mode (fail-closed on errors)
     #[serde(default)]
     pub strict_mode: bool,
-    /// Active model identifier at registration time (for restart continuity)
-    #[serde(skip_serializing_if = "Option::is_none")]
-    pub active_model_id: Option<String>,
 }
 
 /// Structured backend capabilities for worker registration and routing
@@ -197,21 +194,9 @@ pub struct WorkerStatusNotification {
     /// BLAKE3 hash of the currently loaded model (for routing affinity)
     #[serde(skip_serializing_if = "Option::is_none")]
     pub loaded_model_hash: Option<String>,
-    /// Runtime active model identifier currently serving on this worker.
-    #[serde(skip_serializing_if = "Option::is_none")]
-    pub active_model_id: Option<String>,
-    /// Runtime active model hash currently serving on this worker.
-    #[serde(skip_serializing_if = "Option::is_none")]
-    pub active_model_hash: Option<String>,
     /// Current model load state (unloaded, loading, loaded, error)
     #[serde(skip_serializing_if = "Option::is_none")]
     pub model_load_state: Option<WorkerModelLoadState>,
-    /// Lifecycle generation counter for model switch serialization on worker.
-    #[serde(skip_serializing_if = "Option::is_none")]
-    pub model_generation: Option<i64>,
-    /// Last model runtime error reported by worker.
-    #[serde(skip_serializing_if = "Option::is_none")]
-    pub model_error: Option<String>,
     /// Total cache memory usage in bytes (more precise than cache_used_mb)
     #[serde(skip_serializing_if = "Option::is_none")]
     pub cache_memory_bytes: Option<u64>,
@@ -293,21 +278,6 @@ pub struct WorkerResponse {
     /// Example: "wrk-brave-falcon". Populated when the ID uses the TypedId format.
     #[serde(skip_serializing_if = "Option::is_none")]
     pub display_name: Option<String>,
-    /// Runtime active model identifier currently serving on this worker.
-    #[serde(skip_serializing_if = "Option::is_none")]
-    pub active_model_id: Option<String>,
-    /// Runtime active model hash currently serving on this worker.
-    #[serde(skip_serializing_if = "Option::is_none")]
-    pub active_model_hash: Option<String>,
-    /// Lifecycle generation counter for worker model transitions.
-    #[serde(skip_serializing_if = "Option::is_none")]
-    pub model_generation: Option<i64>,
-    /// Runtime model load state for routing/readiness visibility.
-    #[serde(skip_serializing_if = "Option::is_none")]
-    pub model_load_state: Option<WorkerModelLoadState>,
-    /// Last model lifecycle error reported by worker runtime.
-    #[serde(skip_serializing_if = "Option::is_none")]
-    pub model_error: Option<String>,
 }
 
 /// Worker status update

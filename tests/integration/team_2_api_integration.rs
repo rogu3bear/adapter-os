@@ -65,7 +65,7 @@ mod tests {
 
         // Query adapters - in real implementation would use HTTP client
         let result = sqlx::query("SELECT id FROM adapters")
-            .fetch_all(harness.db().pool_result().unwrap())
+            .fetch_all(harness.db().pool())
             .await;
 
         assert!(result.is_ok());
@@ -102,7 +102,7 @@ mod tests {
         // Query adapter - in real implementation would GET /v1/adapters/{adapter_id}
         let result = sqlx::query("SELECT id, tier FROM adapters WHERE id = ?")
             .bind("get-test-adapter")
-            .fetch_one(harness.db().pool_result().unwrap())
+            .fetch_one(harness.db().pool())
             .await;
 
         assert!(result.is_ok());
@@ -122,7 +122,7 @@ mod tests {
         // In real implementation would DELETE /v1/adapters/{adapter_id}
         let delete_result = sqlx::query("DELETE FROM adapters WHERE id = ?")
             .bind("delete-test-adapter")
-            .execute(harness.db().pool_result().unwrap())
+            .execute(harness.db().pool())
             .await;
 
         assert!(delete_result.is_ok());
@@ -145,7 +145,7 @@ mod tests {
             .expect("Failed to create dataset 2");
 
         let result = sqlx::query("SELECT id FROM training_datasets")
-            .fetch_all(harness.db().pool_result().unwrap())
+            .fetch_all(harness.db().pool())
             .await;
 
         assert!(result.is_ok());
@@ -181,7 +181,7 @@ mod tests {
         // Verify dataset validation status
         let result = sqlx::query("SELECT validation_status FROM training_datasets WHERE id = ?")
             .bind("validate-test")
-            .fetch_one(harness.db().pool_result().unwrap())
+            .fetch_one(harness.db().pool())
             .await;
 
         assert!(result.is_ok());
@@ -205,7 +205,7 @@ mod tests {
 
         let result = sqlx::query("SELECT id, status FROM training_jobs WHERE id = ?")
             .bind("job-1")
-            .fetch_one(harness.db().pool_result().unwrap())
+            .fetch_one(harness.db().pool())
             .await;
 
         assert!(result.is_ok());
@@ -229,7 +229,7 @@ mod tests {
 
         let result = sqlx::query("SELECT progress_pct, loss FROM training_jobs WHERE id = ?")
             .bind("job-get-test")
-            .fetch_one(harness.db().pool_result().unwrap())
+            .fetch_one(harness.db().pool())
             .await;
 
         assert!(result.is_ok());
@@ -278,7 +278,7 @@ mod tests {
 
         for i in 0..5 {
             let adapter_id = format!("concurrent-adapter-{}", i);
-            let db = harness.db().pool_result().unwrap().clone();
+            let db = harness.db().pool().clone();
 
             tasks.push(tokio::spawn(async move {
                 sqlx::query(
@@ -308,7 +308,7 @@ mod tests {
             .expect("Failed to initialize harness");
 
         let result = sqlx::query("SELECT id FROM tenants")
-            .fetch_all(harness.db().pool_result().unwrap())
+            .fetch_all(harness.db().pool())
             .await;
 
         assert!(result.is_ok());
@@ -324,6 +324,6 @@ mod tests {
         // Verify metrics can be retrieved
         // In real implementation would GET /v1/metrics
         let state = harness.state_ref();
-        assert!(state.db().pool_result().unwrap().acquire().await.is_ok());
+        assert!(state.db().pool().acquire().await.is_ok());
     }
 }

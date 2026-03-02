@@ -59,7 +59,7 @@ async fn corrupt_storage_emits_corrupt_metric() {
     .bind(Some("expected"))
     .bind(Some("actual"))
     .bind(Some("test corruption"))
-    .execute(state.db.pool_result().expect("db pool"))
+    .execute(state.db.pool())
     .await
     .expect("insert issue");
 
@@ -111,7 +111,7 @@ async fn blocked_trust_emits_unsafe_metric() {
     sqlx::query("UPDATE training_datasets SET tenant_id = ? WHERE id = ?")
         .bind(&claims.tenant_id)
         .bind(dataset_id)
-        .execute(state.db.pool_result().expect("db pool"))
+        .execute(state.db.pool())
         .await
         .expect("dataset tenant");
     state
@@ -133,7 +133,7 @@ async fn blocked_trust_emits_unsafe_metric() {
         "UPDATE training_dataset_versions SET trust_state = 'blocked', overall_trust_status = 'blocked' WHERE id = ?",
     )
     .bind(dataset_version_id)
-    .execute(state.db.pool_result().expect("db pool"))
+    .execute(state.db.pool())
     .await
     .expect("mark blocked");
 

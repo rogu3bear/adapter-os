@@ -42,7 +42,7 @@ async fn create_test_tenant(db: &Db, tenant_id: &str) -> Result<()> {
     sqlx::query("INSERT INTO tenants (id, name, itar_flag) VALUES (?, ?, 0)")
         .bind(tenant_id)
         .bind(tenant_id)
-        .execute(db.pool_result()?)
+        .execute(db.pool())
         .await
         .map_err(|e| {
             adapteros_core::AosError::Database(format!("Failed to create tenant: {}", e))
@@ -142,7 +142,7 @@ async fn create_test_adapter(
     sqlx::query("UPDATE adapters SET current_state = ? WHERE id = ?")
         .bind(state)
         .bind(&id)
-        .execute(db.pool_result()?)
+        .execute(db.pool())
         .await
         .map_err(|e| {
             adapteros_core::AosError::Database(format!("Failed to set adapter state: {}", e))
@@ -226,7 +226,7 @@ async fn pinned_adapter_cross_tenant_is_indistinguishable_from_not_found() -> Re
     .bind("hash-config")
     .bind("hash-tokenizer")
     .bind("hash-tokenizer-cfg")
-    .execute(state.db.pool_result()?)
+    .execute(state.db.pool())
     .await?;
 
     state
@@ -241,7 +241,7 @@ async fn pinned_adapter_cross_tenant_is_indistinguishable_from_not_found() -> Re
     .bind("test-node-1")
     .bind("test-node-1")
     .bind("http://localhost")
-    .execute(state.db.pool_result()?)
+    .execute(state.db.pool())
     .await?;
 
     sqlx::query(
@@ -252,7 +252,7 @@ async fn pinned_adapter_cross_tenant_is_indistinguishable_from_not_found() -> Re
     .bind("tenant-1")
     .bind("test-manifest-hash")
     .bind("{}")
-    .execute(state.db.pool_result()?)
+    .execute(state.db.pool())
     .await?;
 
     sqlx::query(
@@ -266,7 +266,7 @@ async fn pinned_adapter_cross_tenant_is_indistinguishable_from_not_found() -> Re
     .bind("test-manifest-hash")
     .bind("[]")
     .bind("layout-b3:test-plan-1")
-    .execute(state.db.pool_result()?)
+    .execute(state.db.pool())
     .await?;
 
     let worker_id = "test-worker-1".to_string();

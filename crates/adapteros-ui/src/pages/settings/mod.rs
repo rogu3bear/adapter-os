@@ -34,13 +34,12 @@ pub fn Settings() -> impl IntoView {
 
     view! {
         <PageScaffold
-            title="Settings"
-            subtitle="Tune workspace behavior, trust guarantees, and account preferences."
+            title="Control Room Settings"
+            subtitle="Tune workspace behavior, trust guarantees, and kernel integrations."
             breadcrumbs=vec![
-                PageBreadcrumbItem::label("System"),
+                PageBreadcrumbItem::label("Org"),
                 PageBreadcrumbItem::current("Settings"),
             ]
-            full_width=true
         >
             <PageScaffoldActions slot>
                 <div class="flex items-center gap-2 rounded-full border border-border px-3 py-1 text-xs text-muted-foreground">
@@ -55,7 +54,7 @@ pub fn Settings() -> impl IntoView {
                     ("preferences", "Workspace"),
                     ("api", "Network"),
                     ("security", "Safety"),
-                    ("system", "System"),
+                    ("system", "Kernel"),
                 ]
                 active=active_tab
             />

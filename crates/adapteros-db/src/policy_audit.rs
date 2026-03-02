@@ -137,7 +137,7 @@ impl Db {
              LIMIT 2",
         )
         .bind(tenant_id)
-        .fetch_all(self.pool_result()?)
+        .fetch_all(self.pool())
         .await
         .db_err("fetch policy audit tail")?;
 
@@ -207,7 +207,7 @@ impl Db {
              LIMIT 1",
         )
         .bind(tenant_id)
-        .fetch_optional(self.pool_result()?)
+        .fetch_optional(self.pool())
         .await
         .db_err("fetch latest policy audit entry")?;
 
@@ -224,7 +224,7 @@ impl Db {
              WHERE id = ?",
         )
         .bind(&entry_id)
-        .execute(self.pool_result()?)
+        .execute(self.pool())
         .await
         .db_err("corrupt policy audit tail")?;
 
@@ -375,7 +375,7 @@ impl Db {
         .bind(&entry.previous_hash)
         .bind(&entry.entry_hash)
         .bind(entry.chain_sequence)
-        .execute(self.pool_result()?)
+        .execute(self.pool())
         .await
         .map_err(|e| AosError::Database(e.to_string()))?;
 
@@ -468,12 +468,12 @@ impl Db {
         let decisions = if let Some(tid) = tenant_id {
             sqlx::query_as::<_, PolicyAuditDecision>(query)
                 .bind(tid)
-                .fetch_all(self.pool_result()?)
+                .fetch_all(self.pool())
                 .await
                 .db_err("fetch policy audit decisions")?
         } else {
             sqlx::query_as::<_, PolicyAuditDecision>(query)
-                .fetch_all(self.pool_result()?)
+                .fetch_all(self.pool())
                 .await
                 .db_err("fetch policy audit decisions")?
         };
@@ -659,7 +659,7 @@ impl Db {
         let tenants: Vec<String> = sqlx::query_scalar(
             "SELECT DISTINCT tenant_id FROM policy_audit_decisions ORDER BY tenant_id",
         )
-        .fetch_all(self.pool_result()?)
+        .fetch_all(self.pool())
         .await
         .db_err("fetch distinct tenant IDs for policy audit")?;
 
@@ -795,7 +795,7 @@ impl Db {
         }
 
         let decisions = q
-            .fetch_all(self.pool_result()?)
+            .fetch_all(self.pool())
             .await
             .map_err(db_err("query policy decisions"))?;
         Ok(decisions)
@@ -1200,7 +1200,7 @@ mod tests {
              WHERE chain_sequence = 2 AND tenant_id = ?",
         )
         .bind("tenant-a")
-        .execute(db.pool_result().unwrap())
+        .execute(db.pool())
         .await
         .unwrap();
 
@@ -1247,7 +1247,7 @@ mod tests {
              WHERE chain_sequence = 3 AND tenant_id = ?",
         )
         .bind("tenant-a")
-        .execute(db.pool_result().unwrap())
+        .execute(db.pool())
         .await
         .unwrap();
 
@@ -1315,7 +1315,7 @@ mod tests {
         .bind("fake-hash")
         .bind("fake-prev")
         .bind(5i64) // Gap: jumping from 2 to 5
-        .execute(db.pool_result().unwrap())
+        .execute(db.pool())
         .await
         .unwrap();
 
@@ -1369,7 +1369,7 @@ mod tests {
              WHERE chain_sequence = 1 AND tenant_id = ?",
         )
         .bind("tenant-a")
-        .execute(db.pool_result().unwrap())
+        .execute(db.pool())
         .await
         .unwrap();
 

@@ -120,15 +120,8 @@ impl RouterEventDigest {
     /// This method panics if serialization fails. For fallible operation,
     /// use `try_canonical_bytes()` instead.
     pub fn canonical_bytes(&self) -> Vec<u8> {
-        self.try_canonical_bytes().unwrap_or_else(|e| {
-            tracing::error!(
-                target: "security.crypto",
-                error = %e,
-                step = self.step,
-                "Failed to serialize RouterEventDigest"
-            );
-            vec![] // Fallback for catastrophic serialization failure
-        })
+        self.try_canonical_bytes()
+            .expect("RouterEventDigest::canonical_bytes() failed: JCS serialization should never fail for a struct with primitive fields (usize, u16, i16, Option<B3Hash>). This indicates memory corruption or a serde_jcs library bug.")
     }
 
     /// Compute the BLAKE3 hash of this event.
@@ -383,15 +376,8 @@ impl EnvironmentIdentity {
     /// This method panics if serialization fails. For fallible operation,
     /// use `try_canonical_bytes()` instead.
     pub fn canonical_bytes(&self) -> Vec<u8> {
-        self.try_canonical_bytes().unwrap_or_else(|e| {
-            tracing::error!(
-                target: "security.crypto",
-                error = %e,
-                backend = %self.backend_identity,
-                "Failed to serialize EnvironmentIdentity"
-            );
-            vec![]
-        })
+        self.try_canonical_bytes()
+            .expect("EnvironmentIdentity::canonical_bytes() failed: JCS serialization should never fail for a struct with String and Option<u64> fields. Expected state: all string fields are valid UTF-8. This indicates memory corruption, invalid UTF-8 in backend_identity or git_commit_hash, or a serde_jcs library bug.")
     }
 
     /// Compute the BLAKE3 hash of this environment identity.
@@ -498,15 +484,8 @@ impl MerkleBundleCommits {
     /// This method panics if serialization fails. For fallible operation,
     /// use `try_canonical_bytes()` instead.
     pub fn canonical_bytes(&self) -> Vec<u8> {
-        self.try_canonical_bytes().unwrap_or_else(|e| {
-            tracing::error!(
-                target: "security.crypto",
-                error = %e,
-                request_hash = %self.request_hash.to_hex(),
-                "Failed to serialize MerkleBundleCommits"
-            );
-            vec![]
-        })
+        self.try_canonical_bytes()
+            .expect("MerkleBundleCommits::canonical_bytes() failed: JCS serialization should never fail for a struct with B3Hash and Vec<String> fields. Expected state: all B3Hash values are valid 32-byte arrays, all adapter stable IDs are valid UTF-8. This indicates memory corruption, invalid UTF-8 in adapter_stack_stable_ids, or a serde_jcs library bug.")
     }
 
     /// Compute the combined BLAKE3 hash of all commits.

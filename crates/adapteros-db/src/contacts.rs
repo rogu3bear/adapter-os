@@ -202,7 +202,7 @@ impl Db {
         builder = builder.bind(id);
 
         let result = builder
-            .execute(self.pool_result()?)
+            .execute(self.pool())
             .await
             .map_err(|e| AosError::Database(e.to_string()))?;
 
@@ -244,7 +244,7 @@ impl Db {
         .bind(&params.tenant_id)
         .bind(&params.name)
         .bind(&params.category)
-        .fetch_optional(self.pool_result()?)
+        .fetch_optional(self.pool())
         .await
         .map_err(|e| AosError::Database(e.to_string()))?;
 
@@ -266,7 +266,7 @@ impl Db {
             .bind(&params.role)
             .bind(&params.metadata_json)
             .bind(&id)
-            .execute(self.pool_result()?)
+            .execute(self.pool())
             .await
             .map_err(|e| AosError::Database(e.to_string()))?;
 
@@ -286,7 +286,7 @@ impl Db {
             .bind(&params.role)
             .bind(&params.metadata_json)
             .bind(&params.discovered_by)
-            .execute(self.pool_result()?)
+            .execute(self.pool())
             .await
             .map_err(|e| AosError::Database(e.to_string()))?;
 
@@ -309,7 +309,7 @@ impl Db {
         )
         .bind(tenant_id)
         .bind(name)
-        .fetch_optional(self.pool_result()?)
+        .fetch_optional(self.pool())
         .await
         .map_err(|e| AosError::Database(e.to_string()))?;
 
@@ -326,7 +326,7 @@ impl Db {
              WHERE id = ?",
         )
         .bind(id)
-        .fetch_optional(self.pool_result()?)
+        .fetch_optional(self.pool())
         .await
         .map_err(|e| AosError::Database(e.to_string()))?;
 
@@ -352,7 +352,7 @@ impl Db {
         .bind(tenant_id)
         .bind(limit)
         .bind(offset)
-        .fetch_all(self.pool_result()?)
+        .fetch_all(self.pool())
         .await
         .map_err(|e| AosError::Database(e.to_string()))?;
 
@@ -401,7 +401,7 @@ impl Db {
         .bind(cpid)
         .bind(interaction_type)
         .bind(context_json)
-        .execute(self.pool_result()?)
+        .execute(self.pool())
         .await
         .map_err(|e| AosError::Database(e.to_string()))?;
 
@@ -423,7 +423,7 @@ impl Db {
         )
         .bind(contact_id)
         .bind(limit)
-        .fetch_all(self.pool_result()?)
+        .fetch_all(self.pool())
         .await
         .map_err(|e| AosError::Database(e.to_string()))?;
 
@@ -451,7 +451,7 @@ impl Db {
         )
         .bind(tenant_id)
         .bind(limit)
-        .fetch_all(self.pool_result()?)
+        .fetch_all(self.pool())
         .await
         .map_err(|e| AosError::Database(e.to_string()))?;
 
@@ -552,7 +552,7 @@ impl Db {
              WHERE contact_id = ?",
         )
         .bind(contact_id)
-        .fetch_one(self.pool_result()?)
+        .fetch_one(self.pool())
         .await
         .map_err(|e| AosError::Database(e.to_string()))?;
 

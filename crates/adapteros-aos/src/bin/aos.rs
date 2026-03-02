@@ -615,7 +615,7 @@ async fn start_ui(pid_file: &str, cli: &Cli) -> Result<()> {
         .map_err(|e| AosError::Io(format!("Failed to clone UI log file: {}", e)))?;
 
     // Respect AOS_UI_PORT for port offset strategy
-    let ui_port = std::env::var("AOS_UI_PORT").unwrap_or_else(|_| "18081".to_string());
+    let ui_port = std::env::var("AOS_UI_PORT").unwrap_or_else(|_| "3200".to_string());
     let mut cmd = Command::new("pnpm");
     cmd.args(["dev", "--host", "0.0.0.0", "--port", &ui_port])
         .current_dir("ui")
@@ -674,8 +674,8 @@ fn resolve_backend_binary() -> String {
 async fn wait_for_backend_ready(pid: u32) -> Result<()> {
     let client = reqwest::Client::new();
     let urls = [
-        "http://127.0.0.1:18080/v1/meta",
-        "http://127.0.0.1:18080/healthz",
+        "http://127.0.0.1:3300/v1/meta",
+        "http://127.0.0.1:3300/healthz",
     ];
 
     let max_attempts = 30;

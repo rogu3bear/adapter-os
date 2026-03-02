@@ -12,10 +12,11 @@ Get adapterOS running on macOS in a few steps.
 
 ---
 
-## 1. Bootstrap CLI Launcher
+## 1. Build
 
 ```bash
-./aosctl --rebuild --help
+cargo build --release -p adapteros-cli --features tui
+ln -sf target/release/aosctl ./aosctl
 ```
 
 ---
@@ -28,26 +29,20 @@ Get adapterOS running on macOS in a few steps.
 
 ---
 
-## 3. Model (Required For Default `./start`)
+## 3. Model (Optional)
 
 Download an MLX model and set the path:
 
 ```bash
-# Example: Qwen3.5 27B
-huggingface-cli download Qwen/Qwen3.5-27B \
+# Example: Llama 3.2 3B
+huggingface-cli download mlx-community/Llama-3.2-3B-Instruct-4bit \
   --include "*.safetensors" "*.json" \
-  --local-dir var/models/Qwen3.5-27B
+  --local-dir var/models/Llama-3.2-3B-Instruct-4bit
 
-export AOS_MODEL_PATH=var/models/Qwen3.5-27B
+export AOS_MLX_FFI_MODEL=var/models/Llama-3.2-3B-Instruct-4bit
 ```
 
 Or use `./aosctl models seed` if configured.
-
-If you only need backend/UI startup (no inference worker), you can skip model setup and run:
-
-```bash
-./start --skip-worker
-```
 
 ---
 
@@ -57,7 +52,7 @@ If you only need backend/UI startup (no inference worker), you can skip model se
 ./start
 ```
 
-Server runs on port 18080. UI is served from the same port.
+Server runs on port 8080. UI is served from the same port.
 
 ---
 
@@ -67,14 +62,6 @@ Bypass auth for UI iteration:
 
 ```bash
 AOS_DEV_NO_AUTH=1 ./start
-```
-
-Run a standalone UI dev server (proxying backend routes) when working on frontend-only changes:
-
-```bash
-bash scripts/ui-dev.sh
-# or directly:
-cd crates/adapteros-ui && trunk serve
 ```
 
 ---

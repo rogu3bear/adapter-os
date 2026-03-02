@@ -39,7 +39,7 @@ async fn test_migration_application() -> Result<()> {
     // Query the migrations table to verify migrations were applied
     // Note: Switched from refinery to sqlx migrations
     let migration_count: i64 = sqlx::query_scalar("SELECT COUNT(*) FROM _sqlx_migrations")
-        .fetch_one(db.pool_result()?)
+        .fetch_one(db.pool())
         .await
         .unwrap_or(0);
 
@@ -61,7 +61,7 @@ async fn test_adapter_struct_columns_exist() -> Result<()> {
 
     // Get all column names from adapters table
     let rows = sqlx::query("PRAGMA table_info(adapters)")
-        .fetch_all(db.pool_result()?)
+        .fetch_all(db.pool())
         .await?;
 
     let mut db_columns = HashSet::new();
@@ -180,7 +180,7 @@ async fn test_adapter_insert_statement_valid() -> Result<()> {
          FROM adapters WHERE id = ?",
     )
     .bind(&adapter_id)
-    .fetch_one(db.pool_result()?)
+    .fetch_one(db.pool())
     .await?;
 
     let stored_aos_path: Option<String> = row.get("aos_file_path");
@@ -264,7 +264,7 @@ async fn test_taxonomy_validation() -> Result<()> {
     // Verify the semantic name was stored correctly
     let row = sqlx::query("SELECT adapter_name, tenant_namespace, domain, purpose, revision FROM adapters WHERE id = ?")
         .bind(&id)
-        .fetch_one(db.pool_result()?)
+        .fetch_one(db.pool())
         .await?;
 
     let adapter_name: Option<String> = row.get("adapter_name");
@@ -312,7 +312,7 @@ async fn test_aos_file_metadata_storage() -> Result<()> {
     // Verify .aos metadata was stored
     let row = sqlx::query("SELECT aos_file_path, aos_file_hash FROM adapters WHERE id = ?")
         .bind(&id)
-        .fetch_one(db.pool_result()?)
+        .fetch_one(db.pool())
         .await?;
 
     let stored_aos_path: Option<String> = row.get("aos_file_path");
@@ -341,14 +341,14 @@ async fn test_pinned_adapters_table_exists() -> Result<()> {
 
     // Verify table exists by querying it
     let count: i64 = sqlx::query_scalar("SELECT COUNT(*) FROM pinned_adapters")
-        .fetch_one(db.pool_result()?)
+        .fetch_one(db.pool())
         .await?;
 
     assert_eq!(count, 0, "Initially should have no pinned adapters");
 
     // Verify the view exists
     let view_count: i64 = sqlx::query_scalar("SELECT COUNT(*) FROM active_pinned_adapters")
-        .fetch_one(db.pool_result()?)
+        .fetch_one(db.pool())
         .await?;
 
     assert_eq!(view_count, 0, "Initially should have no active pins");
@@ -364,7 +364,7 @@ async fn test_tick_ledger_federation_columns() -> Result<()> {
 
     // Get column info for tick_ledger_entries
     let rows = sqlx::query("PRAGMA table_info(tick_ledger_entries)")
-        .fetch_all(db.pool_result()?)
+        .fetch_all(db.pool())
         .await?;
 
     let mut columns = HashSet::new();

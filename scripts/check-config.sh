@@ -3,7 +3,7 @@
 #
 # Checks:
 # - Env vars used by dev-up/smoke scripts (ports, DB path)
-# - Core commands exist (cargo, sqlite3/psql) and optional tooling checks (node, pnpm)
+# - Required commands exist (cargo, pnpm, node, sqlite3/psql)
 # - Required ports are free (or shows what is using them)
 # - Prints PASS/FAIL summary
 
@@ -12,7 +12,6 @@ set -o pipefail
 SCRIPT_DIR="$(cd "$(dirname "${BASH_SOURCE[0]}")" && pwd)"
 ROOT_DIR="$(cd "$SCRIPT_DIR/.." && pwd)"
 cd "$ROOT_DIR" || exit 1
-source "$ROOT_DIR/scripts/lib/ports.sh"
 
 usage() {
   cat <<'EOF'
@@ -247,8 +246,6 @@ else
   info "Skipping .env loading (--no-dotenv)"
 fi
 
-aos_apply_port_pane_defaults
-
 echo ""
 echo "Env vars (ports, DB)"
 echo "--------------------"
@@ -259,7 +256,7 @@ if [[ -n "${AOS_SERVER_PORT:-}" ]]; then
     pass "AOS_SERVER_PORT=$AOS_SERVER_PORT"
   fi
 else
-  warn "AOS_SERVER_PORT not set (default: 18080)"
+  warn "AOS_SERVER_PORT not set (default: 8080)"
 fi
 if [[ -n "${API_PORT:-}" ]]; then
   if validate_port "API_PORT" "$API_PORT"; then
@@ -298,7 +295,7 @@ if [[ -n "${AOS_UI_PORT:-}" ]]; then
     pass "AOS_UI_PORT=$AOS_UI_PORT"
   fi
 else
-  warn "AOS_UI_PORT not set (default: 18081)"
+  warn "AOS_UI_PORT not set (default: 3200)"
 fi
 if [[ -n "${UI_PORT:-}" ]]; then
   if validate_port "UI_PORT" "$UI_PORT"; then
@@ -315,7 +312,7 @@ if [[ -n "$DB_URL" ]]; then
   pass "AOS_DATABASE_URL=$DB_URL"
 elif [[ -n "${DATABASE_URL:-}" ]]; then
   DB_URL="$DATABASE_URL"
-  warn "AOS_DATABASE_URL is not set; falling back to DATABASE_URL=$DATABASE_URL"
+  fail "AOS_DATABASE_URL is not set (but DATABASE_URL is). Set: AOS_DATABASE_URL=$DATABASE_URL"
 else
   fail "AOS_DATABASE_URL is not set (copy .env.example -> .env)"
   DB_URL=""
@@ -343,14 +340,14 @@ check "node"
 if have_cmd node; then
   pass "node: $(command -v node)"
 else
-  warn "Missing 'node' (optional for runtime; needed for UI/tooling such as Playwright)"
+  fail "Missing 'node' (required for UI)"
 fi
 
 check "pnpm"
 if have_cmd pnpm; then
   pass "pnpm: $(command -v pnpm)"
 else
-  warn "Missing 'pnpm' (optional for runtime; needed for some UI/tooling workflows)"
+  fail "Missing 'pnpm' (required for UI; try: corepack enable && corepack prepare pnpm@latest --activate)"
 fi
 
 check "sqlite3/psql (based on AOS_DATABASE_URL)"
@@ -408,7 +405,7 @@ elif [[ -n "${API_URL:-}" ]]; then
 elif [[ -n "${ADAPTEROS_BASE_URL:-}" ]]; then
   EFFECTIVE_BACKEND_PORT="$(extract_url_port "$ADAPTEROS_BASE_URL" 2>/dev/null || true)"
 fi
-EFFECTIVE_BACKEND_PORT="${EFFECTIVE_BACKEND_PORT:-18080}"
+EFFECTIVE_BACKEND_PORT="${EFFECTIVE_BACKEND_PORT:-8080}"
 
 EFFECTIVE_UI_PORT=""
 if [[ -n "${AOS_UI_PORT:-}" ]]; then
@@ -416,7 +413,7 @@ if [[ -n "${AOS_UI_PORT:-}" ]]; then
 elif [[ -n "${UI_PORT:-}" ]]; then
   EFFECTIVE_UI_PORT="$UI_PORT"
 fi
-EFFECTIVE_UI_PORT="${EFFECTIVE_UI_PORT:-18081}"
+EFFECTIVE_UI_PORT="${EFFECTIVE_UI_PORT:-3200}"
 
 check "Effective port values"
 if validate_port "backend port" "$EFFECTIVE_BACKEND_PORT" && validate_port "ui port" "$EFFECTIVE_UI_PORT"; then

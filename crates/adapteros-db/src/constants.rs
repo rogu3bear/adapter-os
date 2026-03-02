@@ -64,7 +64,7 @@ pub const DATASET_SCAN_ROOT_COLUMNS: &str = "id, dataset_id, dataset_version_id,
      path, label, file_count, byte_count, content_hash_b3, scanned_at, ordinal, \
      repo_name, repo_slug, commit_sha, branch, remote_url, \
      hkdf_algorithm_version, parser_algorithm_version, path_normalization_version, codegraph_version, \
-     tenant_id, created_at, created_at AS updated_at, created_by, metadata_json";
+     tenant_id, created_at, created_by, metadata_json";
 
 /// Codebase dataset row table columns for SELECT queries
 ///

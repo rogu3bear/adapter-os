@@ -19,6 +19,8 @@ mod components;
 pub mod config_presets;
 pub mod dataset_wizard;
 mod detail;
+pub mod generate_wizard;
+mod readiness;
 mod state;
 pub mod utils;
 mod wizard;
@@ -26,7 +28,7 @@ mod wizard;
 use crate::api::ApiClient;
 use crate::components::{
     AsyncBoundary, Button, ButtonSize, ButtonVariant, PageBreadcrumbItem, PageScaffold,
-    PageScaffoldActions, PageScaffoldInspector, PageScaffoldPrimaryAction, SplitPanel,
+    PageScaffoldActions, PageScaffoldPrimaryAction, SplitPanel,
 };
 use crate::hooks::{use_cached_api_resource, use_conditional_polling, CacheTtl, LoadingState};
 use crate::signals::{try_use_route_context, SelectedEntity};
@@ -37,6 +39,7 @@ use std::sync::Arc;
 
 use components::{CoremlFilters, StatusFilter, TrainingJobList};
 use detail::TrainingJobDetail;
+use readiness::BackendReadinessPanel;
 use state::{matches_coreml_filters, CoremlFilterState};
 use wizard::CreateJobWizard;
 
@@ -63,20 +66,20 @@ pub fn TrainingDetailRoute() -> impl IntoView {
 
     view! {
         <PageScaffold
-            title="Build Details"
-            subtitle="Inspect status, logs, and artifacts for this adapter build."
+            title="Skill Build"
+            subtitle="Inspect status, logs, and artifacts for this skill build."
             breadcrumbs=vec![
-                PageBreadcrumbItem::new("Build", "/training"),
-                PageBreadcrumbItem::current("Build Details"),
+                PageBreadcrumbItem::new("Train", "/training"),
+                PageBreadcrumbItem::new("Skill Builds", "/training"),
+                PageBreadcrumbItem::current("Details"),
             ]
-            full_width=true
         >
             {move || {
                 let id = job_id.get();
                 if id.is_empty() {
                     view! {
                         <div class="py-8 text-sm text-muted-foreground">
-                            "Build ID is missing from the route."
+                            "Skill build ID is missing from the route."
                         </div>
                     }
                     .into_any()
@@ -121,9 +124,6 @@ pub fn Training() -> impl IntoView {
     let initial_batch_size = RwSignal::new(None::<String>);
     let initial_rank = RwSignal::new(None::<String>);
     let initial_alpha = RwSignal::new(None::<String>);
-    let initial_repo_id = RwSignal::new(None::<String>);
-    let initial_branch = RwSignal::new(None::<String>);
-    let initial_source_version_id = RwSignal::new(None::<String>);
 
     // Adapter name filter (from adapter detail provenance link)
     let adapter_name_filter = RwSignal::new(None::<String>);
@@ -148,10 +148,7 @@ pub fn Training() -> impl IntoView {
             || params.get("job_id").is_some()
             || params.get("adapter_name").is_some()
             || params.get("return_to").is_some()
-            || params.get("base_model_id").is_some()
-            || params.get("repo_id").is_some()
-            || params.get("branch").is_some()
-            || params.get("source_version_id").is_some();
+            || params.get("base_model_id").is_some();
         if !has_params {
             return;
         }
@@ -191,18 +188,6 @@ pub fn Training() -> impl IntoView {
         if let Some(alpha) = params.get("alpha") {
             initial_alpha.set(Some(alpha.clone()));
         }
-        if let Some(repo_id) = params.get("repo_id") {
-            initial_repo_id.set(Some(repo_id.clone()));
-            create_dialog_open.set(true);
-        }
-        if let Some(branch) = params.get("branch") {
-            initial_branch.set(Some(branch.clone()));
-            create_dialog_open.set(true);
-        }
-        if let Some(source_version_id) = params.get("source_version_id") {
-            initial_source_version_id.set(Some(source_version_id.clone()));
-            create_dialog_open.set(true);
-        }
         // Generic wizard auto-open (from chat/adapters CTAs)
         if params.get("open_wizard").as_deref() == Some("1") {
             create_dialog_open.set(true);
@@ -221,16 +206,13 @@ pub fn Training() -> impl IntoView {
         }
         // Mark consumed and clean URL without route navigation/remount.
         params_consumed.set(true);
-        #[cfg(target_arch = "wasm32")]
-        {
-            if let Some(window) = web_sys::window() {
-                if let Ok(history) = window.history() {
-                    let _ = history.replace_state_with_url(
-                        &wasm_bindgen::JsValue::NULL,
-                        "",
-                        Some("/training"),
-                    );
-                }
+        if let Some(window) = web_sys::window() {
+            if let Ok(history) = window.history() {
+                let _ = history.replace_state_with_url(
+                    &wasm_bindgen::JsValue::NULL,
+                    "",
+                    Some("/training"),
+                );
             }
         }
     });
@@ -333,13 +315,12 @@ pub fn Training() -> impl IntoView {
 
     view! {
         <PageScaffold
-            title="Build"
+            title="Adapter Training"
             subtitle="Create adapters, monitor training progress, and open chat when they are ready."
             breadcrumbs=vec![
-                PageBreadcrumbItem::new("Build", "/training"),
-                PageBreadcrumbItem::current("Build"),
+                PageBreadcrumbItem::new("Train", "/training"),
+                PageBreadcrumbItem::current("Skill Builds"),
             ]
-            full_width=true
         >
             <PageScaffoldPrimaryAction slot>
                 <Button
@@ -358,96 +339,30 @@ pub fn Training() -> impl IntoView {
                     "Refresh"
                 </Button>
             </PageScaffoldActions>
-            <PageScaffoldInspector slot>
-                <div class="context-rail">
-                    <section class="context-rail-section">
-                        <p class="context-rail-eyebrow">"Context"</p>
-                        <h2 class="context-rail-title">"Build"</h2>
-                        <p class="context-rail-copy">
-                            "Track build progress and keep filter state visible as jobs move from pending to complete."
-                        </p>
-                    </section>
-                    <section class="context-rail-section">
-                        <h3 class="context-rail-heading">"Current view"</h3>
-                        <dl class="context-rail-kv">
-                            <div>
-                                <dt>"Status filter"</dt>
-                                <dd>
-                                    {move || {
-                                        let selected = status_filter.try_get().unwrap_or_default();
-                                        if selected.is_empty() {
-                                            "All".to_string()
-                                        } else {
-                                            selected
-                                        }
-                                    }}
-                                </dd>
-                            </div>
-                            <div>
-                                <dt>"CoreML filters"</dt>
-                                <dd>
-                                    {move || {
-                                        let filters = coreml_filter.try_get().unwrap_or_default();
-                                        let mut active = Vec::new();
-                                        if filters.requested {
-                                            active.push("Requested");
-                                        }
-                                        if filters.exported {
-                                            active.push("Exported");
-                                        }
-                                        if filters.fallback {
-                                            active.push("Fallback");
-                                        }
-                                        if active.is_empty() {
-                                            "None".to_string()
-                                        } else {
-                                            active.join(", ")
-                                        }
-                                    }}
-                                </dd>
-                            </div>
-                            <div>
-                                <dt>"Selected job"</dt>
-                                <dd class="context-rail-value-mono">
-                                    {move || {
-                                        selected_job_id
-                                            .try_get()
-                                            .flatten()
-                                            .unwrap_or_else(|| "None".to_string())
-                                    }}
-                                </dd>
-                            </div>
-                        </dl>
-                    </section>
-                    <section class="context-rail-section">
-                        <h3 class="context-rail-heading">"Next step"</h3>
-                        <p class="context-rail-copy">
-                            {move || {
-                                if selected_job_id.try_get().flatten().is_some() {
-                                    "Review logs and artifacts in the detail pane, then open chat from the completed adapter."
-                                } else {
-                                    "Create a new adapter or select an existing job to open details."
-                                }
-                            }}
-                        </p>
-                    </section>
-                </div>
-            </PageScaffoldInspector>
 
-            <details class="page-controls-disclosure">
-                <summary class="page-controls-summary">
+            <details class="mb-3 rounded-lg border border-border/60 bg-card/60 px-3 py-2">
+                <summary class="cursor-pointer text-xs font-semibold uppercase tracking-wide text-muted-foreground">
                     "Filters"
                 </summary>
-                <div class="page-controls-content">
+                <div class="mt-3 flex flex-wrap items-center gap-3">
                     <StatusFilter filter=status_filter/>
                     <CoremlFilters filter=coreml_filter/>
+                </div>
+            </details>
+
+            <details class="mb-4 rounded-lg border border-border/60 bg-card/60 px-3 py-2">
+                <summary class="cursor-pointer text-xs font-semibold uppercase tracking-wide text-muted-foreground">
+                    "Backend readiness"
+                </summary>
+                <div class="mt-3">
+                    <BackendReadinessPanel/>
                 </div>
             </details>
 
             <SplitPanel
                 has_selection=has_selection
                 on_close=Callback::new(move |_| on_close_detail())
-                back_label="Back to Build"
+                back_label="Back to Training Jobs"
                 list_panel=move || {
                     view! {
                         <AsyncBoundary
@@ -504,9 +419,6 @@ pub fn Training() -> impl IntoView {
                 initial_batch_size=initial_batch_size
                 initial_rank=initial_rank
                 initial_alpha=initial_alpha
-                initial_repo_id=initial_repo_id
-                initial_branch=initial_branch
-                initial_source_version_id=initial_source_version_id
             />
         </PageScaffold>
     }

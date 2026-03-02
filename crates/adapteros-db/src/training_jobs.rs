@@ -388,6 +388,71 @@ impl Db {
         }
     }
 
+    #[allow(dead_code)]
+    fn record_to_kv(record: &TrainingJobRecord) -> TrainingJobKv {
+        TrainingJobKv {
+            id: record.id.clone(),
+            repo_id: record.repo_id.clone(),
+            target_branch: record.target_branch.clone(),
+            base_version_id: record.base_version_id.clone(),
+            draft_version_id: record.draft_version_id.clone(),
+            code_commit_sha: record.code_commit_sha.clone(),
+            training_config_json: record.training_config_json.clone(),
+            status: record.status.clone(),
+            progress_json: record.progress_json.clone(),
+            started_at: record.started_at.clone(),
+            completed_at: record.completed_at.clone(),
+            created_by: record.created_by.clone(),
+            adapter_name: record.adapter_name.clone(),
+            template_id: record.template_id.clone(),
+            created_at: record.created_at.clone(),
+            metadata_json: record.metadata_json.clone(),
+            config_hash_b3: record.config_hash_b3.clone(),
+            dataset_id: record.dataset_id.clone(),
+            correlation_id: record.correlation_id.clone(),
+            dataset_version_id: record.dataset_version_id.clone(),
+            base_model_id: record.base_model_id.clone(),
+            collection_id: record.collection_id.clone(),
+            tenant_id: record.tenant_id.clone(),
+            build_id: record.build_id.clone(),
+            source_documents_json: record.source_documents_json.clone(),
+            synthetic_mode: record.synthetic_mode.map(|v| v != 0),
+            data_lineage_mode: record.data_lineage_mode.clone(),
+            retryable: record.retryable,
+            retry_of_job_id: record.retry_of_job_id.clone(),
+            stack_id: record.stack_id.clone(),
+            adapter_id: record.adapter_id.clone(),
+            weights_hash_b3: record.weights_hash_b3.clone(),
+            artifact_path: record.artifact_path.clone(),
+            produced_version_id: record.produced_version_id.clone(),
+            hyperparameters_json: record.hyperparameters_json.clone(),
+            data_spec_json: record.data_spec_json.clone(),
+            metrics_snapshot_id: record.metrics_snapshot_id.clone(),
+            is_deterministic_run: record.is_deterministic_run.map(|v| v != 0),
+            global_seed_hex: record.global_seed_hex.clone(),
+            determinism_config_json: record.determinism_config_json.clone(),
+            seed_mode: record.seed_mode.clone(),
+            // Fields from migration 0253
+            category: record.category.clone(),
+            description: record.description.clone(),
+            language: record.language.clone(),
+            symbol_targets_json: record.symbol_targets_json.clone(),
+            framework_id: record.framework_id.clone(),
+            framework_version: record.framework_version.clone(),
+            lora_tier: record.lora_tier.clone(),
+            lora_strength: record.lora_strength,
+            scope: record.scope.clone(),
+            api_patterns_json: record.api_patterns_json.clone(),
+            repo_scope: record.repo_scope.clone(),
+            file_patterns_json: record.file_patterns_json.clone(),
+            exclude_patterns_json: record.exclude_patterns_json.clone(),
+            backend: record.backend.clone(),
+            backend_reason: record.backend_reason.clone(),
+            backend_device: record.backend_device.clone(),
+            dataset_hash_b3: record.dataset_hash_b3.clone(),
+        }
+    }
+
     fn kv_to_record(kv: &TrainingJobKv) -> TrainingJobRecord {
         TrainingJobRecord {
             id: kv.id.clone(),
@@ -491,7 +556,7 @@ impl Db {
             .bind(None::<String>)
             .bind(None::<String>)
             .bind(DEFAULT_SEED_MODE)
-            .execute(self.pool_result()?)
+            .execute(self.pool())
             .await
             .map_err(|e| AosError::Database(e.to_string()))?;
         } else if !self.storage_mode().write_to_kv() {
@@ -584,62 +649,12 @@ impl Db {
     pub async fn get_training_job(&self, job_id: &str) -> Result<Option<TrainingJobRecord>> {
         if self.storage_mode().read_from_kv() {
             if let Some(repo) = self.get_training_job_kv_repo() {
-                let kv_job = repo
+                let job = repo
                     .get_job(job_id)
                     .await?
                     .map(|kv| Self::kv_to_record(&kv));
-
-                if let Some(kv_record) = kv_job {
-                    if self.storage_mode().sql_fallback_enabled()
-                        && self.storage_mode().read_from_sql()
-                    {
-                        let sql_job = sqlx::query_as::<_, TrainingJobRecord>(
-                            "SELECT id, repo_id, target_branch, base_version_id, draft_version_id, code_commit_sha,
-                                    training_config_json, status, progress_json,
-                                    started_at, completed_at, created_by, adapter_name, template_id,
-                                    created_at, metadata_json, config_hash_b3,
-                                    dataset_id, correlation_id, dataset_version_id, base_model_id, collection_id, tenant_id, build_id, source_documents_json,
-                                    synthetic_mode, data_lineage_mode,
-                                    retryable, retry_of_job_id, stack_id, adapter_id, weights_hash_b3, artifact_path, produced_version_id,
-                                    hyperparameters_json, data_spec_json, metrics_snapshot_id,
-                                    is_deterministic_run, global_seed_hex, determinism_config_json, seed_mode
-                             FROM repository_training_jobs WHERE id = ?",
-                        )
-                        .bind(job_id)
-                        .fetch_optional(self.pool_result()?)
-                        .await
-                        .map_err(|e| AosError::Database(e.to_string()))?;
-
-                        if let Some(sql_record) = sql_job {
-                            let kv_terminal = matches!(
-                                kv_record.status.as_str(),
-                                "failed" | "completed" | "cancelled"
-                            );
-                            let sql_terminal = matches!(
-                                sql_record.status.as_str(),
-                                "failed" | "completed" | "cancelled"
-                            );
-
-                            if kv_record.status != sql_record.status && sql_terminal && !kv_terminal
-                            {
-                                warn!(
-                                    job_id = %job_id,
-                                    kv_status = %kv_record.status,
-                                    sql_status = %sql_record.status,
-                                    "KV/SQL training status divergence detected; preferring terminal SQL state"
-                                );
-                                return Ok(Some(sql_record));
-                            }
-                        }
-                    } else {
-                        return Ok(Some(kv_record));
-                    }
-
-                    return Ok(Some(kv_record));
-                }
-
-                if !self.storage_mode().sql_fallback_enabled() {
-                    return Ok(None);
+                if !self.storage_mode().sql_fallback_enabled() || job.is_some() {
+                    return Ok(job);
                 }
             }
         }
@@ -661,7 +676,7 @@ impl Db {
              FROM repository_training_jobs WHERE id = ?",
         )
         .bind(job_id)
-        .fetch_optional(self.pool_result()?)
+        .fetch_optional(self.pool())
         .await
         .map_err(|e| AosError::Database(e.to_string()))?;
 
@@ -695,7 +710,7 @@ impl Db {
         )
         .bind(adapter_id)
         .bind(tenant_id)
-        .fetch_optional(self.pool_result()?)
+        .fetch_optional(self.pool())
         .await
         .map_err(|e| AosError::Database(e.to_string()))?;
 
@@ -731,7 +746,7 @@ impl Db {
             )
             .bind(&progress_json)
             .bind(job_id)
-            .execute(self.pool_result()?)
+            .execute(self.pool())
             .await
             .map_err(|e| AosError::Database(e.to_string()))?;
         } else if !self.storage_mode().write_to_kv() {
@@ -776,7 +791,7 @@ impl Db {
             .bind(status)
             .bind(completed_at)
             .bind(job_id)
-            .execute(self.pool_result()?)
+            .execute(self.pool())
             .await
             .map_err(|e| AosError::Database(e.to_string()))?;
         } else if !self.storage_mode().write_to_kv() {
@@ -829,7 +844,7 @@ impl Db {
             .bind(version_id)
             .bind(metrics_snapshot_id)
             .bind(job_id)
-            .execute(self.pool_result()?)
+            .execute(self.pool())
             .await
             .map_err(|e| AosError::Database(e.to_string()))?;
         } else if !self.storage_mode().write_to_kv() {
@@ -884,7 +899,7 @@ impl Db {
              ORDER BY started_at DESC",
         )
         .bind(repo_id)
-        .fetch_all(self.pool_result()?)
+        .fetch_all(self.pool())
         .await
         .map_err(|e| AosError::Database(e.to_string()))?;
 
@@ -942,7 +957,7 @@ impl Db {
              ORDER BY started_at DESC",
         )
         .bind(status)
-        .fetch_all(self.pool_result()?)
+        .fetch_all(self.pool())
         .await
         .map_err(|e| AosError::Database(e.to_string()))?;
 
@@ -1005,7 +1020,7 @@ impl Db {
              ORDER BY rtj.created_at DESC",
         )
         .bind(tenant_id)
-        .fetch_all(self.pool_result()?)
+        .fetch_all(self.pool())
         .await
         .map_err(|e| {
             AosError::Database(format!("Failed to list training jobs for tenant: {}", e))
@@ -1029,7 +1044,7 @@ impl Db {
         if self.storage_mode().write_to_sql() {
             sqlx::query("DELETE FROM repository_training_jobs WHERE id = ?")
                 .bind(job_id)
-                .execute(self.pool_result()?)
+                .execute(self.pool())
                 .await
                 .map_err(|e| AosError::Database(e.to_string()))?;
         } else if !self.storage_mode().write_to_kv() {
@@ -1103,7 +1118,7 @@ impl Db {
             .bind(weights_hash_b3)
             .bind(artifact_path)
             .bind(job_id)
-            .execute(self.pool_result()?)
+            .execute(self.pool())
             .await
             .map_err(|e| AosError::Database(e.to_string()))?;
         } else if !self.storage_mode().write_to_kv() {
@@ -1143,7 +1158,7 @@ impl Db {
             )
             .bind(adapter_name)
             .bind(job_id)
-            .execute(self.pool_result()?)
+            .execute(self.pool())
             .await
             .map_err(|e| AosError::Database(e.to_string()))?;
         } else if !self.storage_mode().write_to_kv() {
@@ -1207,7 +1222,7 @@ impl Db {
              WHERE metadata_json LIKE ?",
         )
         .bind(format!("%\"adapter_id\":\"{}\"%", adapter_id))
-        .fetch_optional(self.pool_result()?)
+        .fetch_optional(self.pool())
         .await
         .map_err(|e| AosError::Database(e.to_string()))?;
 
@@ -1243,7 +1258,7 @@ impl Db {
             )
             .bind(config_hash_b3)
             .bind(job_id)
-            .execute(self.pool_result()?)
+            .execute(self.pool())
             .await
             .map_err(|e| AosError::Database(e.to_string()))?;
         } else if !self.storage_mode().write_to_kv() {
@@ -1306,7 +1321,7 @@ impl Db {
             .bind(determinism_config_json)
             .bind(seed_mode)
             .bind(job_id)
-            .execute(self.pool_result()?)
+            .execute(self.pool())
             .await
             .map_err(|e| AosError::Database(e.to_string()))?;
         } else if !self.storage_mode().write_to_kv() {
@@ -1371,7 +1386,7 @@ impl Db {
              ORDER BY started_at DESC",
         )
         .bind(config_hash_b3)
-        .fetch_all(self.pool_result()?)
+        .fetch_all(self.pool())
         .await
         .map_err(|e| AosError::Database(e.to_string()))?;
 
@@ -1514,7 +1529,7 @@ impl Db {
             .bind(None::<String>)
             .bind(None::<String>)
             .bind(DEFAULT_SEED_MODE)
-            .execute(self.pool_result()?)
+            .execute(self.pool())
             .await
             .map_err(|e| AosError::Database(e.to_string()))?;
         } else if !self.storage_mode().write_to_kv() {
@@ -1648,6 +1663,26 @@ impl Db {
         Ok(id)
     }
 
+    #[allow(dead_code)]
+    async fn link_datasets_from_data_spec(
+        &self,
+        job_id: &str,
+        data_spec_json: Option<&str>,
+        primary_dataset_id: Option<&str>,
+        created_by: &str,
+        tenant_id: Option<&str>,
+    ) -> Result<()> {
+        let selections = parse_dataset_version_selections(data_spec_json);
+        self.link_datasets_from_selections(
+            job_id,
+            selections,
+            primary_dataset_id,
+            created_by,
+            tenant_id,
+        )
+        .await
+    }
+
     async fn link_datasets_from_selections(
         &self,
         job_id: &str,
@@ -1739,7 +1774,7 @@ impl Db {
              WHERE tj.dataset_id = ?",
         )
         .bind(dataset_id)
-        .fetch_all(self.pool_result()?)
+        .fetch_all(self.pool())
         .await
         .map_err(|e| AosError::Database(e.to_string()))?;
 
@@ -1758,7 +1793,7 @@ impl Db {
         sqlx::query("UPDATE adapters SET training_job_id = ? WHERE id = ?")
             .bind(training_job_id)
             .bind(adapter_id)
-            .execute(self.pool_result()?)
+            .execute(self.pool())
             .await
             .map_err(|e| AosError::Database(e.to_string()))?;
 
@@ -1801,7 +1836,7 @@ impl Db {
         .bind(epoch)
         .bind(metric_name)
         .bind(value)
-        .execute(self.pool_result()?)
+        .execute(self.pool())
         .await
         .map_err(|e| AosError::Database(format!("Failed to insert training metric: {}", e)))?;
 
@@ -1926,7 +1961,7 @@ impl Db {
         };
 
         let metrics = query
-            .fetch_all(self.pool_result()?)
+            .fetch_all(self.pool())
             .await
             .map_err(|e| AosError::Database(format!("Failed to fetch training metrics: {}", e)))?;
 
@@ -1956,7 +1991,7 @@ impl Db {
         )
         .bind(retryable_int)
         .bind(job_id)
-        .execute(self.pool_result()?)
+        .execute(self.pool())
         .await
         .map_err(|e| {
             AosError::Database(format!(
@@ -1997,7 +2032,7 @@ impl Db {
              ORDER BY started_at DESC",
         )
         .bind(original_job_id)
-        .fetch_all(self.pool_result()?)
+        .fetch_all(self.pool())
         .await
         .map_err(|e| {
             AosError::Database(format!("Failed to get retry chain for job {}: {}", original_job_id, e))
@@ -2026,7 +2061,7 @@ impl Db {
         )
         .bind(original_job_id)
         .bind(job_id)
-        .execute(self.pool_result()?)
+        .execute(self.pool())
         .await
         .map_err(|e| AosError::Database(format!("Failed to update retry_of_job_id: {}", e)))?;
 
@@ -2064,7 +2099,7 @@ impl Db {
         .bind(stack_id)
         .bind(adapter_id)
         .bind(job_id)
-        .execute(self.pool_result()?)
+        .execute(self.pool())
         .await
         .map_err(|e| {
             AosError::Database(format!("Failed to update training job result IDs: {}", e))
@@ -2127,7 +2162,7 @@ impl Db {
         .bind(&metadata_json)
         .bind(job_id)
         .bind(tenant_id)
-        .execute(self.pool_result()?)
+        .execute(self.pool())
         .await
         .map_err(|e| {
             AosError::Database(format!("Failed to update training job priority: {}", e))
@@ -2278,7 +2313,7 @@ impl Db {
         .bind(tenant_id)
         .bind(job_id)
         .bind(dataset_id)
-        .execute(self.pool_result()?)
+        .execute(self.pool())
         .await
         .map_err(|e| {
             AosError::Database(format!("Failed to update training job dataset link: {}", e))
@@ -2340,7 +2375,7 @@ impl Db {
             .bind(dataset_id)
             .bind(resolved_version_id)
             .bind(job_id)
-            .execute(self.pool_result()?)
+            .execute(self.pool())
             .await
             .map_err(|e| {
                 AosError::Database(format!("Failed to link training job to dataset: {}", e))
@@ -2416,7 +2451,7 @@ impl Db {
              ORDER BY started_at DESC",
         )
         .bind(dataset_id)
-        .fetch_all(self.pool_result()?)
+        .fetch_all(self.pool())
         .await
         .map_err(|e| {
             AosError::Database(format!(
@@ -2487,7 +2522,7 @@ impl Db {
              ORDER BY started_at DESC",
         )
         .bind(dataset_version_id)
-        .fetch_all(self.pool_result()?)
+        .fetch_all(self.pool())
         .await
         .map_err(|e| {
             AosError::Database(format!(
@@ -2524,7 +2559,7 @@ impl Db {
         )
         .bind(dataset_id)
         .bind(tenant_id)
-        .fetch_one(self.pool_result()?)
+        .fetch_one(self.pool())
         .await
         .map_err(|e| {
             AosError::Database(format!(
@@ -2555,7 +2590,7 @@ impl Db {
              WHERE dataset_id = ? AND status IN ('pending', 'running', 'queued')",
         )
         .bind(dataset_id)
-        .fetch_one(self.pool_result()?)
+        .fetch_one(self.pool())
         .await
         .map_err(|e| {
             AosError::Database(format!(
@@ -2638,7 +2673,7 @@ impl Db {
             .bind(dataset_id_for_link.as_deref())
             .bind(correlation_id.as_deref())
             .bind(job_id)
-            .execute(self.pool_result()?)
+            .execute(self.pool())
             .await
             .map_err(|e| {
                 AosError::Database(format!(
@@ -2702,7 +2737,7 @@ impl Db {
             )
             .bind(data_spec_json)
             .bind(job_id)
-            .execute(self.pool_result()?)
+            .execute(self.pool())
             .await
             .map_err(|e| {
                 AosError::Database(format!("Failed to update training job data spec: {}", e))
@@ -2796,7 +2831,7 @@ impl Db {
             .bind(resolved_version_id)
             .bind(data_spec_json)
             .bind(job_id)
-            .execute(self.pool_result()?)
+            .execute(self.pool())
             .await
             .map_err(|e| {
                 AosError::Database(format!(
@@ -2943,7 +2978,7 @@ impl Db {
         .bind(tenant_id)
         .bind(&params.created_by)
         .bind(&params.metadata_json)
-        .execute(self.pool_result()?)
+        .execute(self.pool())
         .await
         .map_err(|e| {
             if e.to_string().contains("UNIQUE constraint failed") {
@@ -3056,7 +3091,7 @@ impl Db {
         )
         .bind(job_id)
         .bind(dataset_id)
-        .execute(self.pool_result()?)
+        .execute(self.pool())
         .await
         .map_err(|e| {
             AosError::Database(format!("Failed to unlink dataset from training job: {}", e))
@@ -3092,7 +3127,7 @@ impl Db {
                 ordinal ASC",
         )
         .bind(job_id)
-        .fetch_all(self.pool_result()?)
+        .fetch_all(self.pool())
         .await
         .map_err(|e| {
             AosError::Database(format!("Failed to get datasets for training job: {}", e))
@@ -3119,7 +3154,7 @@ impl Db {
              ORDER BY created_at DESC",
         )
         .bind(dataset_id)
-        .fetch_all(self.pool_result()?)
+        .fetch_all(self.pool())
         .await
         .map_err(|e| {
             AosError::Database(format!("Failed to get training jobs for dataset: {}", e))
@@ -3149,7 +3184,7 @@ impl Db {
              ORDER BY created_at DESC",
         )
         .bind(dataset_version_id)
-        .fetch_all(self.pool_result()?)
+        .fetch_all(self.pool())
         .await
         .map_err(|e| {
             AosError::Database(format!(
@@ -3185,7 +3220,7 @@ impl Db {
         )
         .bind(job_id)
         .bind(dataset_id)
-        .fetch_optional(self.pool_result()?)
+        .fetch_optional(self.pool())
         .await
         .map_err(|e| {
             AosError::Database(format!("Failed to get training job dataset link: {}", e))
@@ -3247,7 +3282,7 @@ impl Db {
 
         q.bind(job_id)
             .bind(dataset_id)
-            .execute(self.pool_result()?)
+            .execute(self.pool())
             .await
             .map_err(|e| {
                 AosError::Database(format!("Failed to update training job dataset link: {}", e))
@@ -3281,7 +3316,7 @@ impl Db {
         )
         .bind(job_id)
         .bind(role)
-        .fetch_all(self.pool_result()?)
+        .fetch_all(self.pool())
         .await
         .map_err(|e| {
             AosError::Database(format!(
@@ -3306,7 +3341,7 @@ impl Db {
         let count: (i64,) =
             sqlx::query_as("SELECT COUNT(*) FROM training_job_datasets WHERE training_job_id = ?")
                 .bind(job_id)
-                .fetch_one(self.pool_result()?)
+                .fetch_one(self.pool())
                 .await
                 .map_err(|e| {
                     AosError::Database(format!("Failed to count datasets for training job: {}", e))
@@ -3330,7 +3365,7 @@ impl Db {
     pub async fn delete_all_dataset_links_for_training_job(&self, job_id: &str) -> Result<u64> {
         let result = sqlx::query("DELETE FROM training_job_datasets WHERE training_job_id = ?")
             .bind(job_id)
-            .execute(self.pool_result()?)
+            .execute(self.pool())
             .await
             .map_err(|e| {
                 AosError::Database(format!(
@@ -3395,7 +3430,7 @@ impl Db {
         )
         .bind(&cutoff_str)
         .bind(&cutoff_str)
-        .fetch_all(self.pool_result()?)
+        .fetch_all(self.pool())
         .await
         .map_err(|e| AosError::Database(format!("Failed to find orphaned training jobs: {}", e)))?;
 
@@ -3434,7 +3469,7 @@ impl Db {
             )
             .bind(&now)
             .bind(job_id)
-            .execute(self.pool_result()?)
+            .execute(self.pool())
             .await
             .map_err(|e| AosError::Database(e.to_string()))?;
         } else if !self.storage_mode().write_to_kv() {
@@ -3513,7 +3548,7 @@ impl Db {
             .bind(&now)
             .bind(&metadata_str)
             .bind(job_id)
-            .execute(self.pool_result()?)
+            .execute(self.pool())
             .await
             .map_err(|e| AosError::Database(e.to_string()))?;
         } else if !self.storage_mode().write_to_kv() {

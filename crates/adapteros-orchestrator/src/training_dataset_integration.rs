@@ -419,18 +419,9 @@ impl TrainingDatasetManager {
     ) -> Result<(Vec<WorkerTrainingExample>, TrainingFramingPolicy)> {
         let content = tokio::fs::read_to_string(path).await?;
         let tokenizer = self.load_text_tokenizer()?;
-        let pad_token_id = match tokenizer.pad_token_id() {
-            Some(id) => id,
-            None => {
-                let eos_id = tokenizer.eos_token_id();
-                tracing::warn!(
-                    dataset_id = %dataset_id,
-                    eos_id,
-                    "Tokenizer missing pad_token_id for training dataset integration; falling back to eos_token_id"
-                );
-                eos_id
-            }
-        };
+        let pad_token_id = tokenizer
+            .pad_token_id()
+            .ok_or_else(|| AosError::Validation("Tokenizer missing pad_token_id".to_string()))?;
 
         let mut examples = Vec::new();
         let mut schema_mode: Option<TrainingFramingPolicy> = None;
@@ -706,14 +697,8 @@ mod tests {
     }
 
     fn fixture_tokenizer_path() -> PathBuf {
-        let raw = PathBuf::from(env!("CARGO_MANIFEST_DIR"))
-            .join("..")
-            .join("..")
-            .join("var")
-            .join("models")
-            .join("Qwen2.5-1.5B-Instruct-4bit")
-            .join("tokenizer.json");
-        std::fs::canonicalize(raw).expect("canonical fixture tokenizer path")
+        PathBuf::from(env!("CARGO_MANIFEST_DIR"))
+            .join("../../tests/fixtures/models/tiny-test/tokenizer.json")
     }
 
     /// Minimal in-memory DB for dataset validation gates (no global migrations)
@@ -734,7 +719,6 @@ mod tests {
                 status TEXT NOT NULL DEFAULT 'uploaded' CHECK (status IN ('uploaded','processing','ready','failed')),
                 validation_status TEXT NOT NULL DEFAULT 'pending',
                 validation_errors TEXT,
-                validation_errors_json TEXT,
                 metadata_json TEXT,
                 created_by TEXT,
                 created_at TEXT NOT NULL DEFAULT (datetime('now')),
@@ -765,7 +749,7 @@ mod tests {
                 scan_roots_updated_at TEXT
             )",
         )
-        .execute(db.pool_result().unwrap())
+        .execute(db.pool())
         .await
         .unwrap();
 
@@ -891,7 +875,7 @@ mod tests {
         .bind(None::<String>)
         .bind(None::<String>)
         .bind(None::<String>)
-        .execute(db.pool_result().unwrap())
+        .execute(db.pool())
         .await
         .unwrap();
 
@@ -946,7 +930,7 @@ mod tests {
         .bind(None::<String>)
         .bind(None::<String>)
         .bind(None::<String>)
-        .execute(db.pool_result().unwrap())
+        .execute(db.pool())
         .await
         .unwrap();
 

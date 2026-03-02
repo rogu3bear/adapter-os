@@ -1,18 +1,13 @@
 use crate::api_error::{ApiError, ApiResult};
 use crate::auth::Claims;
-use crate::control_plane::model_worker_lifecycle_reducer::{
-    ModelWorkerLifecycleEvent, ModelWorkerLifecycleReducer,
-};
 use crate::middleware::require_any_role;
 use crate::sse::{SseStreamType, SystemHealthEvent};
 use crate::state::AppState;
 use crate::types::*;
 use crate::worker_capabilities::{normalize_worker_capabilities, parse_worker_capabilities};
 use adapteros_api_types::workers::{
-    WorkerModelLoadState, WorkerRegistrationRequest, WorkerRegistrationResponse,
-    WorkerStatusNotification,
+    WorkerRegistrationRequest, WorkerRegistrationResponse, WorkerStatusNotification,
 };
-use adapteros_api_types::ModelLoadStatus;
 use adapteros_config::reject_tmp_socket;
 use adapteros_core::{
     identity::IdentityEnvelope, version::API_SCHEMA_VERSION, AosError, WorkerStatus,
@@ -36,27 +31,10 @@ pub struct ListWorkersQuery {
 }
 
 pub(crate) fn is_terminal_worker_status(status: &str) -> bool {
-    WorkerStatus::from_str(status)
-        .map(|parsed| parsed.is_terminal())
-        .unwrap_or_else(|_| status.eq_ignore_ascii_case("failed"))
-}
-
-fn model_status_notification_to_lifecycle_status(state: &WorkerModelLoadState) -> &'static str {
-    match state {
-        WorkerModelLoadState::Unloaded => "no-model",
-        WorkerModelLoadState::Loading => "loading",
-        WorkerModelLoadState::Loaded => "ready",
-        WorkerModelLoadState::Error(_) => "error",
-    }
-}
-
-fn lifecycle_status_to_worker_model_state(status: &str) -> WorkerModelLoadState {
-    match ModelLoadStatus::parse_status(status) {
-        ModelLoadStatus::Ready => WorkerModelLoadState::Loaded,
-        ModelLoadStatus::Loading | ModelLoadStatus::Checking => WorkerModelLoadState::Loading,
-        ModelLoadStatus::Error => WorkerModelLoadState::Error("worker reported error".to_string()),
-        ModelLoadStatus::NoModel | ModelLoadStatus::Unloading => WorkerModelLoadState::Unloaded,
-    }
+    status.eq_ignore_ascii_case("stopped")
+        || status.eq_ignore_ascii_case("error")
+        || status.eq_ignore_ascii_case("crashed")
+        || status.eq_ignore_ascii_case("failed")
 }
 
 async fn push_worker_health_event(
@@ -250,11 +228,6 @@ pub async fn worker_spawn(
         coreml_failure_stage: None,
         coreml_failure_reason: None,
         display_name,
-        active_model_id: None,
-        active_model_hash: None,
-        model_generation: None,
-        model_load_state: None,
-        model_error: None,
     }))
 }
 
@@ -341,7 +314,6 @@ pub async fn list_workers(
 
         // Get runtime info if available
         let runtime = state.worker_runtime.get(&w.id);
-        let durable_model_state = state.db.get_worker_model_state(&w.id).await.ok().flatten();
         let (cache_used_mb, cache_max_mb, cache_pinned_entries, cache_active_entries) =
             if let Some(ref rt) = runtime {
                 (
@@ -396,11 +368,7 @@ pub async fn list_workers(
             backend: w.backend,
             model_id,
             model_hash: w.model_hash_b3.clone(),
-            model_loaded: w.model_hash_b3.is_some()
-                || durable_model_state
-                    .as_ref()
-                    .map(|state| ModelLoadStatus::parse_status(&state.status).is_ready())
-                    .unwrap_or(false),
+            model_loaded: w.model_hash_b3.is_some(),
             tokenizer_hash_b3,
             tokenizer_vocab_size,
             cache_used_mb,
@@ -414,46 +382,6 @@ pub async fn list_workers(
                 .as_ref()
                 .and_then(|rt| rt.coreml_failure_reason.clone()),
             display_name,
-            active_model_id: runtime
-                .as_ref()
-                .and_then(|rt| rt.active_model_id.clone())
-                .or_else(|| {
-                    durable_model_state
-                        .as_ref()
-                        .and_then(|state| state.active_model_id.clone())
-                }),
-            active_model_hash: runtime
-                .as_ref()
-                .and_then(|rt| {
-                    rt.active_model_hash
-                        .clone()
-                        .or_else(|| rt.loaded_model_hash.clone())
-                })
-                .or_else(|| {
-                    durable_model_state
-                        .as_ref()
-                        .and_then(|state| state.active_model_hash_b3.clone())
-                }),
-            model_generation: runtime
-                .as_ref()
-                .and_then(|rt| rt.model_generation)
-                .or_else(|| durable_model_state.as_ref().map(|state| state.generation)),
-            model_load_state: runtime
-                .as_ref()
-                .and_then(|rt| rt.model_load_state.clone())
-                .or_else(|| {
-                    durable_model_state
-                        .as_ref()
-                        .map(|state| lifecycle_status_to_worker_model_state(&state.status))
-                }),
-            model_error: runtime
-                .as_ref()
-                .and_then(|rt| rt.model_error.clone())
-                .or_else(|| {
-                    durable_model_state
-                        .as_ref()
-                        .and_then(|state| state.last_error.clone())
-                }),
         });
     }
 
@@ -1410,36 +1338,6 @@ pub async fn register_worker(
         .await
         .map_err(ApiError::db_error)?;
 
-    // Seed worker_model_state for model affinity routing at registration
-    {
-        let seed_status = if req.model_hash.is_some() {
-            "ready"
-        } else {
-            "no-model"
-        };
-        if let Err(e) = state
-            .db
-            .upsert_worker_model_state(
-                &req.worker_id,
-                &req.tenant_id,
-                req.active_model_id.as_deref(),
-                req.model_hash.as_deref(),
-                req.active_model_id.as_deref(),
-                seed_status,
-                0,
-                None,
-                None,
-            )
-            .await
-        {
-            warn!(
-                worker_id = %req.worker_id,
-                error = %e,
-                "Failed to seed worker_model_state at registration (non-fatal)"
-            );
-        }
-    }
-
     state.worker_runtime.insert(
         req.worker_id.clone(),
         crate::state::WorkerRuntimeInfo {
@@ -1455,12 +1353,8 @@ pub async fn register_worker(
             tokenizer_vocab_size: req.tokenizer_vocab_size,
             coreml_failure_stage: None,
             coreml_failure_reason: None,
-            loaded_model_hash: req.model_hash.clone(),
-            active_model_id: req.active_model_id.clone(),
-            active_model_hash: req.model_hash.clone(),
+            loaded_model_hash: None,
             model_load_state: None,
-            model_generation: None,
-            model_error: None,
             cache_stats: None,
         },
     );
@@ -1589,20 +1483,6 @@ pub async fn notify_worker_status(
         "Worker status updated successfully"
     );
 
-    let lifecycle_reducer = ModelWorkerLifecycleReducer::from_env(state.db.clone());
-    lifecycle_reducer
-        .reduce(ModelWorkerLifecycleEvent::WorkerStatusChanged {
-            tenant_id: worker_tenant_id.clone(),
-            worker_id: req.worker_id.clone(),
-            status: req.status.clone(),
-            reason: req.reason.clone(),
-        })
-        .await
-        .map_err(|e| {
-            ApiError::internal("failed to process worker lifecycle reducer event")
-                .with_details(e.to_string())
-        })?;
-
     // Emit SSE lifecycle event for worker state change
     state
         .sse_manager
@@ -1617,11 +1497,10 @@ pub async fn notify_worker_status(
         )
         .await;
 
-    let event_kind = match WorkerStatus::from_str(&req.status) {
-        Ok(WorkerStatus::Error) => HealthEventKind::FatalError,
-        Ok(_) => HealthEventKind::HealthStateChange,
-        Err(_) if req.status.eq_ignore_ascii_case("failed") => HealthEventKind::FatalError,
-        Err(_) => HealthEventKind::HealthStateChange,
+    let event_kind = if req.status.eq_ignore_ascii_case("crashed") {
+        HealthEventKind::FatalError
+    } else {
+        HealthEventKind::HealthStateChange
     };
 
     push_worker_health_event(
@@ -1642,12 +1521,7 @@ pub async fn notify_worker_status(
         || req.cache_active_entries.is_some()
         || req.cache_memory_bytes.is_some()
         || req.cache_hit_ratio.is_some();
-    let has_model_updates = req.loaded_model_hash.is_some()
-        || req.active_model_id.is_some()
-        || req.active_model_hash.is_some()
-        || req.model_load_state.is_some()
-        || req.model_generation.is_some()
-        || req.model_error.is_some();
+    let has_model_updates = req.loaded_model_hash.is_some() || req.model_load_state.is_some();
 
     if has_cache_updates || has_model_updates {
         if let Some(mut entry) = state.worker_runtime.get_mut(&req.worker_id) {
@@ -1668,24 +1542,9 @@ pub async fn notify_worker_status(
             // Update model state for smarter routing
             if let Some(ref hash) = req.loaded_model_hash {
                 entry.loaded_model_hash = Some(hash.clone());
-                if req.active_model_hash.is_none() {
-                    entry.active_model_hash = Some(hash.clone());
-                }
-            }
-            if let Some(ref model_id) = req.active_model_id {
-                entry.active_model_id = Some(model_id.clone());
-            }
-            if let Some(ref hash) = req.active_model_hash {
-                entry.active_model_hash = Some(hash.clone());
             }
             if let Some(ref load_state) = req.model_load_state {
                 entry.model_load_state = Some(load_state.clone());
-            }
-            if let Some(generation) = req.model_generation {
-                entry.model_generation = Some(generation);
-            }
-            if let Some(ref model_error) = req.model_error {
-                entry.model_error = Some(model_error.clone());
             }
 
             // Update aggregated cache stats
@@ -1710,51 +1569,6 @@ pub async fn notify_worker_status(
                     cache_stats.hit_ratio = Some(v);
                 }
             }
-        }
-    }
-
-    if has_model_updates {
-        let status = req
-            .model_load_state
-            .as_ref()
-            .map(model_status_notification_to_lifecycle_status)
-            .map(|s| s.to_string())
-            .or_else(|| {
-                if req.model_error.is_some() {
-                    Some("error".to_string())
-                } else {
-                    None
-                }
-            });
-        let last_error = req.model_error.clone().or_else(|| {
-            req.model_load_state.as_ref().and_then(|state| match state {
-                WorkerModelLoadState::Error(msg) => Some(msg.clone()),
-                _ => None,
-            })
-        });
-
-        if let Err(e) = lifecycle_reducer
-            .reduce(ModelWorkerLifecycleEvent::WorkerModelTelemetry {
-                tenant_id: worker_tenant_id.clone(),
-                worker_id: req.worker_id.clone(),
-                active_model_id: req.active_model_id.clone(),
-                active_model_hash_b3: req
-                    .active_model_hash
-                    .clone()
-                    .or_else(|| req.loaded_model_hash.clone()),
-                desired_model_id: req.active_model_id.clone(),
-                status,
-                generation: req.model_generation,
-                last_error,
-                memory_usage_mb: req.cache_used_mb.map(|v| v as i32),
-            })
-            .await
-        {
-            warn!(
-                worker_id = %req.worker_id,
-                error = %e,
-                "Failed to process worker model telemetry in lifecycle reducer"
-            );
         }
     }
 

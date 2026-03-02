@@ -1,14 +1,9 @@
 #!/usr/bin/env bash
 
-# Migration hygiene guardrail (numbering/collision scope):
+# Migration hygiene guardrail:
 # - detects duplicate migration numbers
 # - detects gaps (with a small allowlist for historical holes)
 # - detects filename collisions (case-insensitive)
-#
-# Canonical role in migration checks:
-# - scripts/check_migrations.sh: numbering, gaps, collisions
-# - scripts/check-migrations.sh: signatures + duplicate-number gate
-# - scripts/db/check_migrations.sh: CI/test wrapper that orchestrates both
 #
 # Fails fast with a non-zero exit code on violations.
 

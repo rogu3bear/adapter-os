@@ -52,8 +52,7 @@ pub use types::*;
 // Re-export helper functions that may be needed externally
 pub use helpers::{
     dataset_quota_limits, map_validation_diagnostics, map_validation_errors, map_validation_status,
-    quota_error, resolve_source_derived_dataset_name, MAX_FILE_COUNT, MAX_FILE_SIZE,
-    MAX_TOTAL_SIZE, STREAM_BUFFER_SIZE,
+    quota_error, MAX_FILE_COUNT, MAX_FILE_SIZE, MAX_TOTAL_SIZE, STREAM_BUFFER_SIZE,
 };
 
 // Re-export all handler functions
@@ -61,7 +60,7 @@ pub use chunked_handlers::{
     cancel_chunked_upload, cleanup_expired_sessions, complete_chunked_upload,
     get_upload_session_status, list_upload_sessions, retry_chunk, upload_chunk,
 };
-pub use crud::{delete_dataset, get_dataset, get_dataset_adapters, list_datasets, update_dataset};
+pub use crud::{delete_dataset, get_dataset, list_datasets};
 pub use files::{
     get_dataset_file_content, get_dataset_file_content_for_workspace, get_dataset_files,
     get_dataset_files_for_workspace, get_dataset_statistics, list_workspace_files,
@@ -125,11 +124,7 @@ pub use crud::__path_delete_dataset;
 #[doc(hidden)]
 pub use crud::__path_get_dataset;
 #[doc(hidden)]
-pub use crud::__path_get_dataset_adapters;
-#[doc(hidden)]
 pub use crud::__path_list_datasets;
-#[doc(hidden)]
-pub use crud::__path_update_dataset;
 #[doc(hidden)]
 pub use files::__path_get_dataset_file_content;
 #[doc(hidden)]

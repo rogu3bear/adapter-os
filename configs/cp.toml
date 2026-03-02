@@ -1,8 +1,8 @@
 # adapterOS Control Plane Configuration
 
 [server]
-# Use 18080 for development (UI expects this)
-port = 18080
+# Use 8080 for development (UI expects this)
+port = 8080
 bind = "127.0.0.1"
 production_mode = false
 
@@ -15,7 +15,7 @@ determinism_mode = "besteffort"
 [db]
 # Use explicit scheme so loader maps to database.url correctly
 path = "sqlite://var/aos-cp.sqlite3"
-storage_mode = "kv_primary"
+storage_mode = "sql_only"
 # Raised from 20→50: SQLite WAL mode handles concurrent readers well;
 # 50 avoids pool-exhaustion under multi-tenant load without stressing the file.
 pool_size = 50
@@ -177,7 +177,7 @@ production_mode = false
 # Default: false (workers load models directly - legacy mode)
 enabled = false
 # gRPC server address for Model Server
-server_addr = "http://127.0.0.1:18085"
+server_addr = "http://127.0.0.1:50051"
 # Maximum KV cache sessions (each session is a conversation context)
 max_kv_cache_sessions = 32
 # Hot adapter promotion threshold (adapters with >10% activation are cached in Model Server)

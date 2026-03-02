@@ -22,7 +22,7 @@
 
 use std::fs;
 use std::io::{BufRead, BufReader};
-use std::path::{Path, PathBuf};
+use std::path::Path;
 use std::process::{Command, Stdio};
 use std::time::{Duration, Instant};
 
@@ -169,36 +169,6 @@ fn wait_with_timeout(
     }
 }
 
-fn resolve_worker_bin() -> anyhow::Result<PathBuf> {
-    for env_key in ["CARGO_BIN_EXE_aos_worker", "CARGO_BIN_EXE_aos-worker"] {
-        if let Ok(path) = std::env::var(env_key) {
-            let candidate = PathBuf::from(path);
-            if candidate.exists() {
-                return Ok(candidate);
-            }
-        }
-    }
-
-    let mut candidates = Vec::new();
-    if let Ok(current_exe) = std::env::current_exe() {
-        if let Some(debug_dir) = current_exe.parent().and_then(|deps_dir| deps_dir.parent()) {
-            candidates.push(debug_dir.join("aos-worker"));
-            candidates.push(debug_dir.join("aos_worker"));
-        }
-    }
-    candidates.extend([
-        PathBuf::from("target/debug/aos-worker"),
-        PathBuf::from("target/debug/aos_worker"),
-        PathBuf::from("target/release/aos-worker"),
-        PathBuf::from("target/release/aos_worker"),
-    ]);
-
-    candidates
-        .into_iter()
-        .find(|candidate| candidate.exists())
-        .ok_or_else(|| anyhow::anyhow!("could not locate aos-worker binary for startup test"))
-}
-
 /// Test that worker fails fast at startup if cache budget is not configured.
 /// This verifies the fail-fast behavior required by PRD-RECT-005.
 #[test]
@@ -232,39 +202,27 @@ base:
 "#,
     )?;
 
-    // Force config resolution to a file that intentionally omits model.cache.max.mb.
-    // This avoids host/workspace config leakage from configs/cp.toml.
-    let config_dir = tempfile::Builder::new()
-        .prefix("startup-lifecycle-no-cache-budget-")
-        .tempdir_in(std::env::current_dir()?)?;
-    let config_toml_path = config_dir.path().join("cp.toml");
-    fs::write(
-        &config_toml_path,
-        r#"
-[model]
-path = "unused-for-startup-fail-fast-test"
-"#,
-    )?;
-
-    // Spawn worker binary directly (avoid `cargo run` overhead/flakes).
-    // This should fail fast at startup, NOT when trying to load a model.
-    let worker_bin = resolve_worker_bin()?;
-    let mut command = Command::new(&worker_bin);
+    // Spawn worker WITHOUT setting AOS_MODEL_CACHE_MAX_MB
+    // This should fail fast at startup, NOT when trying to load a model
+    let mut command = Command::new("cargo");
     let start = Instant::now();
 
     let mut child = command
+        .arg("run")
+        .arg("-p")
+        .arg("adapteros-lora-worker")
+        .arg("--bin")
+        .arg("aos-worker")
+        .arg("--")
         .arg("--uds-path")
         .arg(uds_path)
         .arg("--manifest")
         .arg(manifest_path.to_str().unwrap())
         .env_remove("AOS_MODEL_CACHE_MAX_MB") // Ensure it's not set
         .env("AOS_DEV_NO_AUTH", "1")
-        .env("AOS_SKIP_DOTENV", "1")
-        .env("AOS_CONFIG_TOML", config_toml_path.to_str().unwrap())
         .stdout(Stdio::piped())
         .stderr(Stdio::piped())
-        .spawn()
-        .map_err(|err| anyhow::anyhow!("failed to spawn {}: {}", worker_bin.display(), err))?;
+        .spawn()?;
 
     // Wait for process to exit
     let status = wait_with_timeout(&mut child, Duration::from_secs(30))?;
@@ -283,18 +241,20 @@ path = "unused-for-startup-fail-fast-test"
     // Cleanup
     let _ = fs::remove_file(uds_path);
 
-    // Verify process failed with config error semantics.
+    // Verify exit code is 1 (EXIT_CONFIG_ERROR)
     assert!(
         !status.success(),
         "Worker should fail when cache budget not configured"
     );
-    assert!(
-        matches!(status.code(), Some(1)),
-        "Worker should fail with config error semantics (expected exit code 1), got {:?}",
-        status.code()
+    assert_eq!(
+        status.code(),
+        Some(1),
+        "Worker should exit with code 1 (EXIT_CONFIG_ERROR)"
     );
 
-    // Verify the worker failed reasonably fast.
+    // Verify the worker failed FAST (within a few seconds, not after expensive operations)
+    // The comment in aos_worker.rs says this should save "100-200ms of wasted work"
+    // Let's be generous and say it should fail within 10 seconds
     assert!(
         elapsed < Duration::from_secs(10),
         "Worker should fail fast, but took {:?}",

@@ -89,8 +89,8 @@ fn api_cors_layer() -> CorsLayer {
         );
         Vec::new()
     } else {
-        let ui_port = std::env::var("AOS_UI_PORT").unwrap_or_else(|_| "18081".to_string());
-        let server_port = std::env::var("AOS_SERVER_PORT").unwrap_or_else(|_| "18080".to_string());
+        let ui_port = std::env::var("AOS_UI_PORT").unwrap_or_else(|_| "3200".to_string());
+        let server_port = std::env::var("AOS_SERVER_PORT").unwrap_or_else(|_| "8080".to_string());
         [
             format!("http://localhost:{}", ui_port),
             format!("http://127.0.0.1:{}", ui_port),

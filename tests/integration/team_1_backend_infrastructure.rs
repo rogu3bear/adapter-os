@@ -28,7 +28,7 @@ mod tests {
 
         // Verify database is initialized
         let db = harness.db();
-        assert!(db.pool_result().unwrap().acquire().await.is_ok(), "Database should be accessible");
+        assert!(db.pool().acquire().await.is_ok(), "Database should be accessible");
     }
 
     #[tokio::test]
@@ -40,7 +40,7 @@ mod tests {
         // Test basic health check
         // Note: This would require making actual HTTP requests via the router
         // Implementation depends on axum-test setup
-        assert!(harness.state_ref().db().pool_result().unwrap().acquire().await.is_ok());
+        assert!(harness.state_ref().db().pool().acquire().await.is_ok());
     }
 
     #[tokio::test]
@@ -58,7 +58,7 @@ mod tests {
         // Verify adapter exists in database
         let result = sqlx::query("SELECT id FROM adapters WHERE id = ?")
             .bind("lifecycle-test-001")
-            .fetch_optional(harness.db().pool_result().unwrap())
+            .fetch_optional(harness.db().pool())
             .await;
 
         assert!(result.is_ok(), "Query should succeed");
@@ -74,7 +74,7 @@ mod tests {
         // Test that memory management is properly initialized
         // Would verify memory pressure calculations in real implementation
         let db = harness.db();
-        assert!(db.pool_result().unwrap().acquire().await.is_ok());
+        assert!(db.pool().acquire().await.is_ok());
     }
 
     #[tokio::test]
@@ -85,7 +85,7 @@ mod tests {
 
         // Verify backend factory can be accessed
         // This is a structural test - actual backend selection tested in Team 3
-        assert!(harness.state_ref().db().pool_result().unwrap().acquire().await.is_ok());
+        assert!(harness.state_ref().db().pool().acquire().await.is_ok());
     }
 
     #[tokio::test]
@@ -106,7 +106,7 @@ mod tests {
 
         for table in tables {
             let result = sqlx::query(&format!("SELECT 1 FROM {} LIMIT 1", table))
-                .fetch_optional(harness.db().pool_result().unwrap())
+                .fetch_optional(harness.db().pool())
                 .await;
 
             assert!(result.is_ok(), "Table {} should exist", table);
@@ -127,7 +127,7 @@ mod tests {
 
         // Verify heartbeat table exists and can be queried
         let result = sqlx::query("SELECT 1 FROM lifecycle_state_transitions LIMIT 1")
-            .fetch_optional(harness.db().pool_result().unwrap())
+            .fetch_optional(harness.db().pool())
             .await;
 
         assert!(result.is_ok(), "Lifecycle table should exist");
@@ -148,7 +148,7 @@ mod tests {
         // Verify tenant isolation
         let result = sqlx::query("SELECT id FROM adapters WHERE tenant_id = ?")
             .bind("default")
-            .fetch_all(harness.db().pool_result().unwrap())
+            .fetch_all(harness.db().pool())
             .await;
 
         assert!(result.is_ok());
@@ -163,7 +163,7 @@ mod tests {
 
         // Verify tiers are properly managed
         // In real implementation, would test promotion/demotion logic
-        assert!(harness.state_ref().db().pool_result().unwrap().acquire().await.is_ok());
+        assert!(harness.state_ref().db().pool().acquire().await.is_ok());
     }
 
     #[tokio::test]
@@ -180,7 +180,7 @@ mod tests {
 
         let result = sqlx::query("SELECT activation_pct FROM adapters WHERE id = ?")
             .bind("activation-test")
-            .fetch_one(harness.db().pool_result().unwrap())
+            .fetch_one(harness.db().pool())
             .await;
 
         assert!(result.is_ok());
@@ -201,7 +201,7 @@ mod tests {
         // Verify initial state
         let result = sqlx::query("SELECT lifecycle_state FROM adapters WHERE id = ?")
             .bind("full-lifecycle-test")
-            .fetch_one(harness.db().pool_result().unwrap())
+            .fetch_one(harness.db().pool())
             .await;
 
         assert!(result.is_ok());

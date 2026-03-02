@@ -1,15 +1,21 @@
 //! Audit page tab components
 //!
-//! Individual tab views for the audit event timeline.
+//! Individual tab views for timeline, hash chain, merkle tree, compliance, and embeddings.
 
-use crate::api::{AuditLogEntry, AuditLogsResponse};
-use crate::components::{
-    Badge, BadgeVariant, Card, ErrorDisplay, SkeletonTable, Table, TableBody, TableCell, TableHead,
-    TableHeader, TableRow,
+use crate::api::{
+    ApiClient, AuditChainEntry, AuditChainResponse, AuditLogEntry, AuditLogsResponse,
+    ChainVerificationResponse, ComplianceAuditResponse, ComplianceControl,
+    EmbeddingBenchmarkReport,
 };
-use crate::hooks::LoadingState;
-use crate::utils::{format_datetime, status_display_label};
+use crate::components::{
+    loaded_signal, Badge, BadgeVariant, Card, Column, DataTable, ErrorDisplay, SkeletonCard,
+    SkeletonStatsGrid, SkeletonTable, Table, TableBody, TableCell, TableHead, TableHeader,
+    TableRow,
+};
+use crate::hooks::{use_api_resource, LoadingState};
+use crate::utils::format_datetime;
 use leptos::prelude::*;
+use std::sync::Arc;
 
 /// Page size for client-side pagination (reduces initial DOM nodes)
 const AUDIT_PAGE_SIZE: usize = 25;
@@ -133,7 +139,6 @@ fn TimelineRow(entry: AuditLogEntry) -> impl IntoView {
         "pending" => BadgeVariant::Warning,
         _ => BadgeVariant::Secondary,
     };
-    let status_label = status_display_label(&entry.status);
 
     // Link to Run Detail whenever a resource_id is present (MVP correlation)
     let is_run_resource = entry.resource_id.is_some();
@@ -190,9 +195,7 @@ fn TimelineRow(entry: AuditLogEntry) -> impl IntoView {
                 </div>
             </TableCell>
             <TableCell>
-                <span title=entry.status.clone()>
-                    <Badge variant=status_variant>{status_label}</Badge>
-                </span>
+                <Badge variant=status_variant>{entry.status.clone()}</Badge>
             </TableCell>
         </TableRow>
     }
@@ -259,4 +262,842 @@ fn derive_event_labels(entry: &AuditLogEntry, is_run_resource: bool) -> Vec<Stri
     }
 
     labels
+}
+
+// ============================================================================
+// Hash Chain Tab
+// ============================================================================
+
+#[component]
+pub fn HashChainTab(
+    chain: ReadSignal<LoadingState<AuditChainResponse>>,
+    /// Optional retry callback for error state
+    #[prop(optional)]
+    on_retry: Option<Callback<()>>,
+) -> impl IntoView {
+    // Client-side pagination to reduce DOM nodes (same pattern as TimelineTab)
+    let visible_count = RwSignal::new(AUDIT_PAGE_SIZE);
+
+    view! {
+        <Card>
+            {move || {
+                match chain.get() {
+                    LoadingState::Idle | LoadingState::Loading => {
+                        view! {
+                            <div class="space-y-4">
+                                <SkeletonCard has_header=true />
+                                <SkeletonCard has_header=true />
+                                <SkeletonCard has_header=true />
+                            </div>
+                        }
+                        .into_any()
+                    }
+                    LoadingState::Loaded(data) => {
+                        if data.entries.is_empty() {
+                            view! {
+                                <div class="text-center py-12">
+                                    <p class="text-muted-foreground">"No chain entries found"</p>
+                                </div>
+                            }
+                            .into_any()
+                        } else {
+                            let entry_count = data.entries.len();
+                            let entries_data = data.entries;
+
+                            view! {
+                                <div class="space-y-0">
+                                    {move || {
+                                        let count = visible_count.get().min(entry_count);
+                                        entries_data
+                                            .iter()
+                                            .take(count)
+                                            .enumerate()
+                                            .map(|(idx, entry)| {
+                                                let is_first = idx == 0;
+                                                view! { <ChainEntryRow entry=entry.clone() is_first=is_first/> }
+                                            })
+                                            .collect::<Vec<_>>()
+                                    }}
+                                </div>
+
+                                // Show more button if there are hidden items
+                                {move || {
+                                    let count = visible_count.get();
+                                    let remaining = entry_count.saturating_sub(count);
+                                    if remaining > 0 {
+                                        view! {
+                                            <div class="flex items-center justify-center py-4 border-t">
+                                                <button
+                                                    class="text-sm text-primary hover:underline focus:outline-none focus:ring-2 focus:ring-ring focus:ring-offset-2 rounded"
+                                                    on:click=move |_| {
+                                                        visible_count.update(|c| *c = (*c + AUDIT_PAGE_SIZE).min(entry_count));
+                                                    }
+                                                >
+                                                    {format!("Show more ({} remaining)", remaining)}
+                                                </button>
+                                            </div>
+                                        }.into_any()
+                                    } else {
+                                        view! { <div></div> }.into_any()
+                                    }
+                                }}
+
+                                <div class="flex items-center justify-between mt-4 pt-4 border-t">
+                                    <p class="text-sm text-muted-foreground">
+                                        {format!("Showing {} of {} entries", visible_count.get().min(entry_count), entry_count)}
+                                    </p>
+                                </div>
+                            }
+                            .into_any()
+                        }
+                    }
+                    LoadingState::Error(e) => {
+                        let retry = on_retry;
+                        match retry {
+                            Some(callback) => {
+                                view! { <ErrorDisplay error=e on_retry=callback/> }.into_any()
+                            }
+                            None => view! { <ErrorDisplay error=e /> }.into_any(),
+                        }
+                    }
+                }
+            }}
+        </Card>
+    }
+}
+
+#[component]
+fn ChainEntryRow(entry: AuditChainEntry, is_first: bool) -> impl IntoView {
+    let verification_class = if entry.verified {
+        "text-status-success"
+    } else {
+        "text-status-error"
+    };
+
+    let hash_short = adapteros_id::format_hash_short(&entry.entry_hash);
+
+    let prev_hash_display = entry
+        .previous_hash
+        .clone()
+        .map(|h| adapteros_id::format_hash_short(&h))
+        .unwrap_or_else(|| "GENESIS".to_string());
+
+    let border_class = if entry.verified {
+        "border-status-success bg-status-success/10"
+    } else {
+        "border-status-error bg-status-error/10"
+    };
+
+    let prev_hash_class = if entry.previous_hash.is_none() {
+        "text-primary"
+    } else {
+        "text-foreground"
+    };
+
+    view! {
+        <div class="relative">
+            // Connector line
+            {move || {
+                if !is_first {
+                    view! { <div class="absolute left-6 -top-4 w-0.5 h-4 bg-border"></div> }
+                        .into_any()
+                } else {
+                    view! {}.into_any()
+                }
+            }}
+
+            <div class="flex items-start gap-4 p-4 hover:bg-muted/50 rounded-lg transition-colors">
+                // Chain link icon with verification status
+                <div class=format!(
+                    "flex-shrink-0 h-12 w-12 rounded-full border-2 flex items-center justify-center {}",
+                    border_class,
+                )>
+                    <svg
+                        class=format!("h-5 w-5 {}", verification_class)
+                        viewBox="0 0 24 24"
+                        fill="none"
+                        stroke="currentColor"
+                        stroke-width="2"
+                    >
+                        <path d="M10 13a5 5 0 0 0 7.54.54l3-3a5 5 0 0 0-7.07-7.07l-1.72 1.71"/>
+                        <path d="M14 11a5 5 0 0 0-7.54-.54l-3 3a5 5 0 0 0 7.07 7.07l1.71-1.71"/>
+                    </svg>
+                </div>
+
+                // Entry details
+                <div class="flex-1 min-w-0">
+                    <div class="flex items-center gap-2 mb-1">
+                        <span class="text-sm font-medium">
+                            {format!("#{}", entry.chain_sequence)}
+                        </span>
+                        <Badge variant=BadgeVariant::Outline>{entry.action.clone()}</Badge>
+                        <Badge variant=BadgeVariant::Secondary>{entry.resource_type.clone()}</Badge>
+                        {move || {
+                            if entry.verified {
+                                view! { <Badge variant=BadgeVariant::Success>"Verified"</Badge> }
+                                    .into_any()
+                            } else {
+                                view! { <Badge variant=BadgeVariant::Destructive>"Invalid"</Badge> }
+                                    .into_any()
+                            }
+                        }}
+                    </div>
+
+                    <p class="text-xs text-muted-foreground mb-2">{format_datetime(&entry.timestamp)}</p>
+
+                    // Hash visualization
+                    <div class="grid grid-cols-1 md:grid-cols-2 gap-4 p-3 bg-muted/30 rounded-md font-mono text-xs">
+                        <div>
+                            <p class="text-muted-foreground mb-1">"Entry Hash"</p>
+                            <p class="text-foreground" title=entry.entry_hash.clone()>
+                                {hash_short}
+                            </p>
+                        </div>
+                        <div>
+                            <p class="text-muted-foreground mb-1">"Previous Hash"</p>
+                            <p
+                                class=prev_hash_class
+                                title=entry.previous_hash.clone().unwrap_or_default()
+                            >
+                                {prev_hash_display}
+                            </p>
+                        </div>
+                    </div>
+                </div>
+
+                // Arrow indicating chain direction
+                <div class="flex-shrink-0 text-muted-foreground">
+                    <svg
+                        class="h-5 w-5"
+                        viewBox="0 0 24 24"
+                        fill="none"
+                        stroke="currentColor"
+                        stroke-width="2"
+                    >
+                        <line x1="12" y1="5" x2="12" y2="19"/>
+                        <polyline points="19 12 12 19 5 12"/>
+                    </svg>
+                </div>
+            </div>
+        </div>
+    }
+}
+
+// ============================================================================
+// Merkle Tree Tab
+// ============================================================================
+
+#[component]
+pub fn MerkleTreeTab(
+    chain: ReadSignal<LoadingState<AuditChainResponse>>,
+    verification: ReadSignal<LoadingState<ChainVerificationResponse>>,
+    /// Optional retry callback for error state
+    #[prop(optional)]
+    _on_retry: Option<Callback<()>>,
+) -> impl IntoView {
+    // Note: MerkleTree tab doesn't have direct error state as it shares signals with
+    // HashChain. The parent page handles retry via the refresh all button.
+    view! {
+        <div class="grid gap-6 md:grid-cols-2">
+            // Merkle Tree Visualization
+            <Card title="Merkle Tree Structure".to_string()>
+                {move || {
+                    match chain.get() {
+                        LoadingState::Loaded(data) => {
+                            let merkle_root = data
+                                .merkle_root
+                                .clone()
+                                .unwrap_or_else(|| "Not Available".to_string());
+                            let merkle_root_short = adapteros_id::format_hash_short(&merkle_root);
+                            let entry_count = data.total_entries;
+                            let tree_depth = if entry_count > 0 {
+                                ((entry_count as f64).log2().ceil() as usize).max(1)
+                            } else {
+                                0
+                            };
+                            view! {
+                                <div class="space-y-4">
+                                    // Info note
+                                    <div class="text-xs text-muted-foreground bg-muted/50 rounded p-2">
+                                        "Simplified view. Full proof paths require backend support."
+                                    </div>
+
+                                    // Root visualization
+                                    <div class="flex flex-col items-center">
+                                        <div class="p-4 bg-primary/10 border-2 border-primary rounded-lg text-center max-w-xs">
+                                            <p class="text-xs text-muted-foreground mb-1">
+                                                "Merkle Root (BLAKE3)"
+                                            </p>
+                                            <p class="font-mono text-xs break-all" title=merkle_root.clone()>
+                                                {merkle_root_short}
+                                            </p>
+                                        </div>
+
+                                        // Tree branches
+                                        <div class="w-0.5 h-6 bg-border"></div>
+
+                                        <div class="flex items-center gap-4">
+                                            <div class="w-8 h-0.5 bg-border"></div>
+                                            <div class="w-0.5 h-6 bg-border"></div>
+                                            <div class="w-8 h-0.5 bg-border"></div>
+                                        </div>
+
+                                        <div class="flex items-center gap-6 mt-2">
+                                            <div class="p-2 bg-status-info/10 border border-status-info rounded text-center">
+                                                <p class="text-xs text-muted-foreground">
+                                                    "Left Subtree"
+                                                </p>
+                                                <p class="text-xs font-mono">
+                                                    {format!("{}", entry_count / 2)}
+                                                </p>
+                                            </div>
+                                            <div class="p-2 bg-status-info/10 border border-status-info rounded text-center">
+                                                <p class="text-xs text-muted-foreground">
+                                                    "Right Subtree"
+                                                </p>
+                                                <p class="text-xs font-mono">
+                                                    {format!("{}", entry_count - entry_count / 2)}
+                                                </p>
+                                            </div>
+                                        </div>
+
+                                        // More levels indication
+                                        {(tree_depth > 2).then(|| view! {
+                                            <div class="mt-4 text-center">
+                                                <p class="text-xs text-muted-foreground">
+                                                    {format!("... {} more levels to leaf nodes ...", tree_depth - 2)}
+                                                </p>
+                                            </div>
+                                        })}
+
+                                        // Leaf count
+                                        <div class="mt-4 flex items-center gap-4">
+                                            <div class="p-2 bg-status-success/10 border border-status-success rounded text-center">
+                                                <p class="text-xs text-muted-foreground">"Leaf Nodes"</p>
+                                                <p class="text-sm font-mono font-bold">{entry_count.to_string()}</p>
+                                            </div>
+                                        </div>
+                                    </div>
+
+                                    // Tree stats
+                                    <div class="grid grid-cols-1 sm:grid-cols-3 gap-2 pt-4 border-t text-center">
+                                        <div>
+                                            <p class="text-xs text-muted-foreground">"Total Entries"</p>
+                                            <p class="text-sm font-mono">{entry_count.to_string()}</p>
+                                        </div>
+                                        <div>
+                                            <p class="text-xs text-muted-foreground">"Tree Depth"</p>
+                                            <p class="text-sm font-mono">{tree_depth.to_string()}</p>
+                                        </div>
+                                        <div>
+                                            <p class="text-xs text-muted-foreground">"Hash Algorithm"</p>
+                                            <p class="text-sm font-mono">"BLAKE3"</p>
+                                        </div>
+                                    </div>
+
+                                    // Legend
+                                    <div class="flex items-center gap-4 justify-center pt-2">
+                                        <div class="flex items-center gap-1">
+                                            <div class="w-2 h-2 bg-primary rounded"></div>
+                                            <span class="text-xs text-muted-foreground">"Root"</span>
+                                        </div>
+                                        <div class="flex items-center gap-1">
+                                            <div class="w-2 h-2 bg-status-info rounded"></div>
+                                            <span class="text-xs text-muted-foreground">"Internal"</span>
+                                        </div>
+                                        <div class="flex items-center gap-1">
+                                            <div class="w-2 h-2 bg-status-success rounded"></div>
+                                            <span class="text-xs text-muted-foreground">"Leaf"</span>
+                                        </div>
+                                    </div>
+                                </div>
+                            }
+                            .into_any()
+                        }
+                        LoadingState::Loading => {
+                            view! {
+                                <SkeletonCard has_header=true />
+                            }
+                            .into_any()
+                        }
+                        _ => {
+                            view! {
+                                <div class="text-center py-12 text-muted-foreground">
+                                    "No data available"
+                                </div>
+                            }
+                            .into_any()
+                        }
+                    }
+                }}
+            </Card>
+
+            // Verification Details
+            <Card title="Verification Status".to_string()>
+                {move || {
+                    match verification.get() {
+                        LoadingState::Loaded(v) => {
+                            let status_class = if v.chain_valid {
+                                "bg-status-success/10 border border-status-success"
+                            } else {
+                                "bg-status-error/10 border border-status-error"
+                            };
+                            let text_class = if v.chain_valid {
+                                "text-status-success"
+                            } else {
+                                "text-status-error"
+                            };
+                            view! {
+                                <div class="space-y-4">
+                                    // Status indicator
+                                    <div class=format!("p-4 rounded-lg {}", status_class)>
+                                        <div class="flex items-center gap-3">
+                                            {if v.chain_valid {
+                                                view! {
+                                                    <svg
+                                                        class="h-8 w-8 text-status-success"
+                                                        viewBox="0 0 24 24"
+                                                        fill="none"
+                                                        stroke="currentColor"
+                                                        stroke-width="2"
+                                                    >
+                                                        <path d="M22 11.08V12a10 10 0 1 1-5.93-9.14"/>
+                                                        <polyline points="22 4 12 14.01 9 11.01"/>
+                                                    </svg>
+                                                }
+                                                .into_any()
+                                            } else {
+                                                view! {
+                                                    <svg
+                                                        class="h-8 w-8 text-status-error"
+                                                        viewBox="0 0 24 24"
+                                                        fill="none"
+                                                        stroke="currentColor"
+                                                        stroke-width="2"
+                                                    >
+                                                        <circle cx="12" cy="12" r="10"/>
+                                                        <line x1="15" y1="9" x2="9" y2="15"/>
+                                                        <line x1="9" y1="9" x2="15" y2="15"/>
+                                                    </svg>
+                                                }
+                                                .into_any()
+                                            }}
+                                            <div>
+                                                <p class=format!("text-lg font-bold {}", text_class)>
+                                                    {if v.chain_valid {
+                                                        "Chain Verified"
+                                                    } else {
+                                                        "Verification Failed"
+                                                    }}
+                                                </p>
+                                                <p class="text-sm text-muted-foreground">
+                                                    {format!(
+                                                        "{} of {} entries verified",
+                                                        v.verified_entries,
+                                                        v.total_entries,
+                                                    )}
+                                                </p>
+                                            </div>
+                                        </div>
+                                    </div>
+
+                                    // Details
+                                    <div class="space-y-2">
+                                        <div class="flex justify-between py-2 border-b">
+                                            <span class="text-muted-foreground">"Total Entries"</span>
+                                            <span class="font-medium">{v.total_entries}</span>
+                                        </div>
+                                        <div class="flex justify-between py-2 border-b">
+                                            <span class="text-muted-foreground">
+                                                "Verified Entries"
+                                            </span>
+                                            <span class="font-medium">{v.verified_entries}</span>
+                                        </div>
+                                        {v
+                                            .first_invalid_sequence
+                                            .map(|seq| {
+                                                view! {
+                                                    <div class="flex justify-between py-2 border-b">
+                                                        <span class="text-muted-foreground">
+                                                            "First Invalid"
+                                                        </span>
+                                                        <span class="font-medium text-status-error">
+                                                            {format!("#{}", seq)}
+                                                        </span>
+                                                    </div>
+                                                }
+                                            })}
+                                        <div class="flex justify-between py-2 border-b">
+                                            <span class="text-muted-foreground">"Verified At"</span>
+                                            <span class="font-mono text-sm">
+                                                {v.verification_timestamp.clone()}
+                                            </span>
+                                        </div>
+                                        {v
+                                            .merkle_root
+                                            .clone()
+                                            .map(|root| {
+                                                view! {
+                                                    <div class="py-2">
+                                                        <span class="text-muted-foreground block mb-1">
+                                                            "Merkle Root"
+                                                        </span>
+                                                        <span class="font-mono text-xs break-all">
+                                                            {root}
+                                                        </span>
+                                                    </div>
+                                                }
+                                            })}
+                                    </div>
+
+                                    {v
+                                        .error_message
+                                        .clone()
+                                        .map(|err| {
+                                            view! {
+                                                <div class="p-3 bg-status-error/10 border border-status-error rounded-md">
+                                                    <p class="text-sm text-status-error">{err}</p>
+                                                </div>
+                                            }
+                                        })}
+                                </div>
+                            }
+                            .into_any()
+                        }
+                        LoadingState::Loading => {
+                            view! {
+                                <SkeletonCard has_header=true />
+                            }
+                            .into_any()
+                        }
+                        _ => {
+                            view! {
+                                <div class="text-center py-12 text-muted-foreground">
+                                    "No verification data"
+                                </div>
+                            }
+                            .into_any()
+                        }
+                    }
+                }}
+            </Card>
+        </div>
+    }
+}
+
+// ============================================================================
+// Compliance Tab
+// ============================================================================
+
+#[component]
+pub fn ComplianceTab(
+    compliance: ReadSignal<LoadingState<ComplianceAuditResponse>>,
+    /// Optional retry callback for error state
+    #[prop(optional)]
+    on_retry: Option<Callback<()>>,
+) -> impl IntoView {
+    view! {
+        <Card>
+            {move || {
+                match compliance.get() {
+                    LoadingState::Loaded(data) => {
+                        view! {
+                            <div class="space-y-6">
+                                // Summary stats
+                                <div class="grid gap-4 md:grid-cols-4">
+                                    <div class="p-4 bg-muted/30 rounded-lg">
+                                        <p class="text-sm text-muted-foreground">"Compliance Rate"</p>
+                                        <p class="text-2xl font-bold">
+                                            {
+                                                // Handle both formats: decimal (0-1) and percentage (0-100)
+                                                let rate = if data.compliance_rate > 1.0 {
+                                                    // API returned percentage, use as-is
+                                                    data.compliance_rate
+                                                } else {
+                                                    // API returned decimal, convert to percentage
+                                                    data.compliance_rate * 100.0
+                                                };
+                                                format!("{:.1}%", rate.min(100.0))
+                                            }
+                                        </p>
+                                    </div>
+                                    <div class="p-4 bg-muted/30 rounded-lg">
+                                        <p class="text-sm text-muted-foreground">"Total Controls"</p>
+                                        <p class="text-2xl font-bold">{data.total_controls}</p>
+                                    </div>
+                                    <div class="p-4 bg-muted/30 rounded-lg">
+                                        <p class="text-sm text-muted-foreground">"Compliant"</p>
+                                        <p class="text-2xl font-bold text-status-success">
+                                            {data.compliant_controls}
+                                        </p>
+                                    </div>
+                                    <div class="p-4 bg-muted/30 rounded-lg">
+                                        <p class="text-sm text-muted-foreground">"Violations"</p>
+                                        <p class="text-2xl font-bold text-status-error">
+                                            {data.active_violations}
+                                        </p>
+                                    </div>
+                                </div>
+
+                                // Controls list
+                                <div class="overflow-x-auto">
+                                    <h3 class="heading-4 mb-4">"Compliance Controls"</h3>
+                                    {
+                                        let controls_signal = Signal::derive({
+                                            let controls = data.controls.clone();
+                                            move || controls.clone()
+                                        });
+                                        let columns = vec![
+                                            Column::custom("Control ID", |c: &ComplianceControl| {
+                                                let id = c.control_id.clone();
+                                                view! { <span class="font-mono text-sm">{id}</span> }
+                                            }),
+                                            Column::text("Name", |c: &ComplianceControl| c.control_name.clone()),
+                                            Column::custom("Status", |c: &ComplianceControl| {
+                                                let variant = match c.status.as_str() {
+                                                    "compliant" => BadgeVariant::Success,
+                                                    "non_compliant" => BadgeVariant::Destructive,
+                                                    "pending" => BadgeVariant::Warning,
+                                                    _ => BadgeVariant::Secondary,
+                                                };
+                                                let status = c.status.clone();
+                                                view! { <Badge variant=variant>{status}</Badge> }
+                                            }),
+                                            Column::custom("Last Checked", |c: &ComplianceControl| {
+                                                let checked = c.last_checked.clone();
+                                                view! { <span class="text-sm text-muted-foreground">{checked}</span> }
+                                            }),
+                                            Column::custom("Findings", |c: &ComplianceControl| {
+                                                let count = c.findings.len();
+                                                view! { <span class="text-sm">{count}{" findings"}</span> }
+                                            }),
+                                        ];
+                                        view! {
+                                            <DataTable
+                                                data=loaded_signal(controls_signal)
+                                                columns=columns
+                                                empty_title="No controls found"
+                                                card=false
+                                            />
+                                        }
+                                    }
+                                </div>
+
+                                <p class="text-xs text-muted-foreground">
+                                    {format!("Last updated: {}", data.timestamp)}
+                                </p>
+                            </div>
+                        }
+                        .into_any()
+                    }
+                    LoadingState::Loading => {
+                        view! {
+                            <div class="space-y-6">
+                                <SkeletonStatsGrid count=4 />
+                                <SkeletonTable rows=5 columns=5 />
+                            </div>
+                        }
+                        .into_any()
+                    }
+                    LoadingState::Error(e) => {
+                        let retry = on_retry;
+                        match retry {
+                            Some(callback) => {
+                                view! { <ErrorDisplay error=e on_retry=callback/> }.into_any()
+                            }
+                            None => view! { <ErrorDisplay error=e /> }.into_any(),
+                        }
+                    }
+                    _ => {
+                        view! {
+                            <div class="text-center py-12 text-muted-foreground">
+                                "No compliance data available"
+                            </div>
+                        }
+                        .into_any()
+                    }
+                }
+            }}
+        </Card>
+    }
+}
+
+// ============================================================================
+// Embeddings Tab
+// ============================================================================
+
+#[component]
+pub fn EmbeddingsTab() -> impl IntoView {
+    // Fetch benchmark reports from API
+    let (benchmarks, refetch) = use_api_resource(|client: Arc<ApiClient>| async move {
+        client.list_embedding_benchmarks(None).await
+    });
+
+    let on_retry = Callback::new(move |_| refetch.run(()));
+
+    view! {
+        {move || {
+            match benchmarks.get() {
+                LoadingState::Idle | LoadingState::Loading => {
+                    view! {
+                        <div class="space-y-6">
+                            <SkeletonStatsGrid count=4 />
+                            <SkeletonTable rows=5 columns=6 />
+                        </div>
+                    }
+                    .into_any()
+                }
+                LoadingState::Loaded(data) => {
+                    if data.benchmarks.is_empty() {
+                        view! {
+                            <div class="space-y-6">
+                                <div class="bg-muted/50 border border-border rounded-md p-4 text-center">
+                                    <p class="text-sm text-muted-foreground">
+                                        "No benchmark data available. Run "
+                                        <code class="font-mono bg-muted px-1 rounded">"aosctl embed bench"</code>
+                                        " to generate benchmarks."
+                                    </p>
+                                </div>
+                            </div>
+                        }
+                        .into_any()
+                    } else {
+                        let reports = data.benchmarks.clone();
+                        let latest = reports.first().cloned();
+                        let latest_recall = latest.as_ref().map(|r| r.recall_at_10).unwrap_or(0.0);
+                        let latest_ndcg = latest.as_ref().map(|r| r.ndcg_at_10).unwrap_or(0.0);
+                        let latest_mrr = latest.as_ref().map(|r| r.mrr_at_10).unwrap_or(0.0);
+                        let determinism_ok = latest.as_ref().map(|r| r.determinism_pass).unwrap_or(false);
+                        let determinism_runs = latest.as_ref().map(|r| r.determinism_runs).unwrap_or(0);
+
+                        view! {
+                            <div class="space-y-6">
+                                // Summary cards row
+                                <div class="grid gap-4 md:grid-cols-4">
+                                    <Card>
+                                        <div class="p-4">
+                                            <p class="text-sm text-muted-foreground">"Recall@10"</p>
+                                            <p class="text-2xl font-bold">{format!("{:.1}%", latest_recall * 100.0)}</p>
+                                            <p class="text-xs text-muted-foreground">"Latest benchmark"</p>
+                                        </div>
+                                    </Card>
+                                    <Card>
+                                        <div class="p-4">
+                                            <p class="text-sm text-muted-foreground">"nDCG@10"</p>
+                                            <p class="text-2xl font-bold">{format!("{:.1}%", latest_ndcg * 100.0)}</p>
+                                            <p class="text-xs text-muted-foreground">"Normalized discounted gain"</p>
+                                        </div>
+                                    </Card>
+                                    <Card>
+                                        <div class="p-4">
+                                            <p class="text-sm text-muted-foreground">"MRR@10"</p>
+                                            <p class="text-2xl font-bold">{format!("{:.1}%", latest_mrr * 100.0)}</p>
+                                            <p class="text-xs text-muted-foreground">"Mean reciprocal rank"</p>
+                                        </div>
+                                    </Card>
+                                    <Card>
+                                        <div class="p-4">
+                                            <p class="text-sm text-muted-foreground">"Determinism"</p>
+                                            <div class="flex items-center gap-2">
+                                                {if determinism_ok {
+                                                    view! {
+                                                        <Badge variant=BadgeVariant::Success>"PASS"</Badge>
+                                                    }.into_any()
+                                                } else {
+                                                    view! {
+                                                        <Badge variant=BadgeVariant::Destructive>"FAIL"</Badge>
+                                                    }.into_any()
+                                                }}
+                                            </div>
+                                            <p class="text-xs text-muted-foreground mt-1">
+                                                {format!("{} verification runs", determinism_runs)}
+                                            </p>
+                                        </div>
+                                    </Card>
+                                </div>
+
+                                // Reports table
+                                <div class="overflow-x-auto">{
+                                    let reports_signal = Signal::derive({
+                                        let reports = reports.clone();
+                                        move || reports.clone()
+                                    });
+                                    let columns = vec![
+                                        Column::custom("Timestamp", |r: &EmbeddingBenchmarkReport| {
+                                            let ts = format_datetime(&r.timestamp);
+                                            let id = r.report_id.clone();
+                                            view! {
+                                                <div>
+                                                    <p class="text-sm font-mono">{ts}</p>
+                                                    <p class="text-xs text-muted-foreground font-mono">{id}</p>
+                                                </div>
+                                            }
+                                        }),
+                                        Column::custom("Model", |r: &EmbeddingBenchmarkReport| {
+                                            let display = if r.is_finetuned {
+                                                format!("{} (finetuned)", r.model_name)
+                                            } else {
+                                                r.model_name.clone()
+                                            };
+                                            let hash = adapteros_id::format_hash_short(&r.model_hash);
+                                            view! {
+                                                <div>
+                                                    <p class="text-sm">{display}</p>
+                                                    <p class="text-xs text-muted-foreground font-mono">{hash}</p>
+                                                </div>
+                                            }
+                                        }),
+                                        Column::custom("Corpus", |r: &EmbeddingBenchmarkReport| {
+                                            let version = r.corpus_version.clone();
+                                            let chunks = r.num_chunks;
+                                            view! {
+                                                <div>
+                                                    <p class="text-sm">{version}</p>
+                                                    <p class="text-xs text-muted-foreground">{format!("{} chunks", chunks)}</p>
+                                                </div>
+                                            }
+                                        }),
+                                        Column::custom("Recall@10", |r: &EmbeddingBenchmarkReport| {
+                                            let val = format!("{:.1}%", r.recall_at_10 * 100.0);
+                                            view! { <span class="font-mono text-sm">{val}</span> }
+                                        }),
+                                        Column::custom("nDCG@10", |r: &EmbeddingBenchmarkReport| {
+                                            let val = format!("{:.1}%", r.ndcg_at_10 * 100.0);
+                                            view! { <span class="font-mono text-sm">{val}</span> }
+                                        }),
+                                        Column::custom("Determinism", |r: &EmbeddingBenchmarkReport| {
+                                            let variant = if r.determinism_pass {
+                                                BadgeVariant::Success
+                                            } else {
+                                                BadgeVariant::Destructive
+                                            };
+                                            let label = if r.determinism_pass { "PASS" } else { "FAIL" };
+                                            view! { <Badge variant=variant>{label}</Badge> }
+                                        }),
+                                    ];
+                                    view! {
+                                        <DataTable
+                                            data=loaded_signal(reports_signal)
+                                            columns=columns
+                                            empty_title="No benchmarks found"
+                                        />
+                                    }
+                                }</div>
+                            </div>
+                        }
+                        .into_any()
+                    }
+                }
+                LoadingState::Error(e) => {
+                    let on_retry = on_retry;
+                    view! {
+                        <div class="p-4">
+                            <ErrorDisplay error=e on_retry=on_retry />
+                        </div>
+                    }
+                    .into_any()
+                }
+            }
+        }}
+    }
 }

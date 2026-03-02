@@ -26,7 +26,7 @@ pub fn adapter_routes() -> Router<AppState> {
         )
         .route(
             "/v1/adapters/{adapter_id}",
-            get(handlers::adapters::get_adapter).patch(handlers::adapters::patch_adapter),
+            get(handlers::adapters::get_adapter),
         )
         .route(
             "/v1/adapters/register",
@@ -61,10 +61,6 @@ pub fn adapter_routes() -> Router<AppState> {
         .route(
             "/v1/adapter-repositories/{repo_id}/versions/rollback",
             post(handlers::rollback_adapter_version_handler),
-        )
-        .route(
-            "/v1/adapter-repositories/{repo_id}/versions/checkout",
-            post(handlers::checkout_adapter_version_handler),
         )
         .route(
             "/v1/adapter-repositories/{repo_id}/resolve-version",

@@ -78,7 +78,7 @@ async fn seed_policy_audit(db: &Db, tenant_id: &str) -> Result<()> {
     .bind(&hash1)
     .bind::<Option<String>>(None)
     .bind(1_i64)
-    .execute(db.pool_result()?)
+    .execute(db.pool())
     .await?;
 
     let id2 = "audit-2";
@@ -118,7 +118,7 @@ async fn seed_policy_audit(db: &Db, tenant_id: &str) -> Result<()> {
     .bind(&hash2)
     .bind(&hash1)
     .bind(2_i64)
-    .execute(db.pool_result()?)
+    .execute(db.pool())
     .await?;
 
     Ok(())
@@ -131,7 +131,7 @@ async fn seed_training_job(db: &Db, tenant_id: &str) -> Result<()> {
            (id, repo_id, path, branch, analysis_json, evidence_json, security_scan_json, status, created_by)
            VALUES ('git-1', 'repo-1', 'var/repo', 'main', '{}', '{}', '{}', 'ready', 'admin-user')"#,
     )
-    .execute(db.pool_result()?)
+    .execute(db.pool())
     .await?;
 
     sqlx::query(
@@ -147,7 +147,7 @@ async fn seed_training_job(db: &Db, tenant_id: &str) -> Result<()> {
             0, NULL, NULL, NULL)"#,
     )
     .bind(tenant_id)
-    .execute(db.pool_result()?)
+    .execute(db.pool())
     .await?;
 
     sqlx::query(
@@ -155,7 +155,7 @@ async fn seed_training_job(db: &Db, tenant_id: &str) -> Result<()> {
            (id, training_job_id, step, epoch, metric_name, metric_value, metric_timestamp)
            VALUES ('metric-1', 'job-1', 1, 0, 'loss', 0.5, datetime('now'))"#,
     )
-    .execute(db.pool_result()?)
+    .execute(db.pool())
     .await?;
 
     Ok(())
@@ -172,7 +172,7 @@ async fn seed_chat(db: &Db, tenant_id: &str) -> Result<()> {
     .bind(&now)
     .bind(&now)
     .bind(&now)
-    .execute(db.pool_result()?)
+    .execute(db.pool())
     .await?;
 
     sqlx::query(
@@ -183,7 +183,7 @@ async fn seed_chat(db: &Db, tenant_id: &str) -> Result<()> {
     .bind(tenant_id)
     .bind(&now)
     .bind(&now)
-    .execute(db.pool_result()?)
+    .execute(db.pool())
     .await?;
 
     Ok(())
@@ -203,7 +203,7 @@ async fn migrate_policy_training_chat_to_kv_and_diff_clean() -> Result<()> {
 
     // Relax FK checks for synthetic fixture inserts
     sqlx::query("PRAGMA foreign_keys = OFF")
-        .execute(db.pool_result()?)
+        .execute(db.pool())
         .await?;
 
     let tenant_id = "default";
@@ -212,7 +212,7 @@ async fn migrate_policy_training_chat_to_kv_and_diff_clean() -> Result<()> {
     seed_chat(&db, tenant_id).await?;
 
     sqlx::query("PRAGMA foreign_keys = ON")
-        .execute(db.pool_result()?)
+        .execute(db.pool())
         .await?;
 
     let domains = vec![

@@ -1079,7 +1079,7 @@ pub async fn activate_stack(
     // This ensures adapters are at least Warm state when they become part of active stack
     // Without this, adapters remain Unloaded/Cold even when stack is active
     if let Some(ref lifecycle) = state.lifecycle_manager {
-        let lm = lifecycle;
+        let lm = lifecycle.lock().await;
 
         // Ensure lifecycle manager knows which stack is active (in-memory routing state)
         lm.load_and_activate_stack(&id).await.map_err(|e| {
@@ -1130,6 +1130,7 @@ pub async fn activate_stack(
             promoted_count = promotion_results.iter().filter(|(_, success)| *success).count(),
             "Promoted adapters for stack activation via lifecycle manager"
         );
+        drop(lm);
     }
 
     Ok(Json(serde_json::json!({

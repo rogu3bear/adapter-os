@@ -105,10 +105,10 @@ pub fn Workers() -> impl IntoView {
     });
 
     // Debug logging for list sizes
-    #[cfg(all(debug_assertions, target_arch = "wasm32"))]
+    #[cfg(debug_assertions)]
     Effect::new(move |_| {
         if let Some(LoadingState::Loaded(ref w)) = workers.try_get() {
-            crate::debug_log!("[list] workers: {} items", w.len());
+            web_sys::console::log_1(&format!("[list] workers: {} items", w.len()).into());
         }
     });
 
@@ -233,10 +233,9 @@ pub fn Workers() -> impl IntoView {
             title="Workers"
             subtitle="Workers run inference requests. Spawn one, monitor health, and control lifecycle.".to_string()
             breadcrumbs=vec![
-                PageBreadcrumbItem::new("System", "/workers"),
+                PageBreadcrumbItem::new("Observe", "/workers"),
                 PageBreadcrumbItem::current("Workers"),
             ]
-            full_width=true
         >
             <PageScaffoldPrimaryAction slot>
                 <Button
@@ -774,11 +773,10 @@ pub fn WorkerDetail() -> impl IntoView {
         <PageScaffold
             title="Worker Detail"
             breadcrumbs=vec![
-                PageBreadcrumbItem::new("System", "/workers"),
+                PageBreadcrumbItem::new("Observe", "/workers"),
                 PageBreadcrumbItem::new("Workers", "/workers"),
                 PageBreadcrumbItem::current(worker_id()),
             ]
-            full_width=true
         >
             <PageScaffoldActions slot>
                 <div data-testid="worker-detail-refresh-page">

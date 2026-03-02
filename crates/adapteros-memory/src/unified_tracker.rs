@@ -182,7 +182,7 @@ impl GpuBufferFingerprint {
         let checkpoint_hash = B3Hash::hash_multi(&[first_sample, last_sample, mid_sample]);
         let allocated_at = SystemTime::now()
             .duration_since(UNIX_EPOCH)
-            .unwrap_or_default()
+            .unwrap()
             .as_secs();
 
         Self {
@@ -324,7 +324,7 @@ impl UnifiedMemoryTracker {
         buffer_bytes: u64,
         kv_cache_bytes: u64,
     ) {
-        let mut allocations = self.allocations.write().unwrap_or_else(|e| e.into_inner());
+        let mut allocations = self.allocations.write().unwrap();
         let entry = allocations.entry(adapter_id).or_insert_with(Vec::new);
 
         let allocation = BackendAllocation {
@@ -361,7 +361,7 @@ impl UnifiedMemoryTracker {
 
     /// Untrack adapter (remove all backend allocations)
     pub fn untrack_adapter(&self, adapter_id: u32) -> Option<u64> {
-        let mut allocations = self.allocations.write().unwrap_or_else(|e| e.into_inner());
+        let mut allocations = self.allocations.write().unwrap();
         let removed = allocations.remove(&adapter_id);
 
         if let Some(allocs) = removed {
@@ -384,7 +384,7 @@ impl UnifiedMemoryTracker {
 
     /// Store GPU buffer fingerprint
     pub fn store_fingerprint(&self, adapter_id: u32, fingerprint: GpuBufferFingerprint) {
-        let mut allocations = self.allocations.write().unwrap_or_else(|e| e.into_inner());
+        let mut allocations = self.allocations.write().unwrap();
         if let Some(allocs) = allocations.get_mut(&adapter_id) {
             // Find Metal allocation and update fingerprint
             for alloc in allocs.iter_mut() {
@@ -402,7 +402,7 @@ impl UnifiedMemoryTracker {
         adapter_id: u32,
         current: &GpuBufferFingerprint,
     ) -> Result<bool> {
-        let allocations = self.allocations.read().unwrap_or_else(|e| e.into_inner());
+        let allocations = self.allocations.read().unwrap();
         if let Some(allocs) = allocations.get(&adapter_id) {
             for alloc in allocs {
                 if alloc.backend == BackendType::Metal {
@@ -431,7 +431,7 @@ impl UnifiedMemoryTracker {
         adapter_id: u32,
         bytes: u64,
     ) -> (bool, f64, Option<(f64, f64, usize)>) {
-        let mut baselines = self.baselines.write().unwrap_or_else(|e| e.into_inner());
+        let mut baselines = self.baselines.write().unwrap();
         if let Some(baseline) = baselines.get_mut(&adapter_id) {
             let (within_tolerance, z_score) = baseline.check_footprint(bytes);
             let stats = baseline.stats();
@@ -447,7 +447,7 @@ impl UnifiedMemoryTracker {
 
     /// Get total memory used across all backends
     pub fn get_total_memory(&self) -> u64 {
-        let allocations = self.allocations.read().unwrap_or_else(|e| e.into_inner());
+        let allocations = self.allocations.read().unwrap();
         allocations
             .values()
             .flat_map(|allocs| allocs.iter())
@@ -457,7 +457,7 @@ impl UnifiedMemoryTracker {
 
     /// Get memory used by specific backend
     pub fn get_backend_memory(&self, backend: BackendType) -> u64 {
-        let allocations = self.allocations.read().unwrap_or_else(|e| e.into_inner());
+        let allocations = self.allocations.read().unwrap();
         allocations
             .values()
             .flat_map(|allocs| allocs.iter())
@@ -468,7 +468,7 @@ impl UnifiedMemoryTracker {
 
     /// Get memory used by specific adapter
     pub fn get_adapter_memory(&self, adapter_id: u32) -> u64 {
-        let allocations = self.allocations.read().unwrap_or_else(|e| e.into_inner());
+        let allocations = self.allocations.read().unwrap();
         allocations
             .get(&adapter_id)
             .map(|allocs| {
@@ -482,7 +482,7 @@ impl UnifiedMemoryTracker {
 
     /// Get all allocations for an adapter (across all backends)
     pub fn get_adapter_allocations(&self, adapter_id: u32) -> Vec<(BackendType, u64)> {
-        let allocations = self.allocations.read().unwrap_or_else(|e| e.into_inner());
+        let allocations = self.allocations.read().unwrap();
         allocations
             .get(&adapter_id)
             .map(|allocs| {
@@ -548,7 +548,7 @@ impl UnifiedMemoryTracker {
         &self,
         pinned_adapters: &[u32],
     ) -> Vec<(u32, BackendType, u64, f32)> {
-        let allocations = self.allocations.read().unwrap_or_else(|e| e.into_inner());
+        let allocations = self.allocations.read().unwrap();
         let mut candidates = Vec::new();
 
         for (adapter_id, allocs) in allocations.iter() {
@@ -583,22 +583,13 @@ impl UnifiedMemoryTracker {
 
     /// Get number of tracked adapters
     pub fn adapter_count(&self) -> usize {
-        self.allocations
-            .read()
-            .unwrap_or_else(|e| e.into_inner())
-            .len()
+        self.allocations.read().unwrap().len()
     }
 
     /// Clear all allocations
     pub fn clear(&self) {
-        self.allocations
-            .write()
-            .unwrap_or_else(|e| e.into_inner())
-            .clear();
-        self.baselines
-            .write()
-            .unwrap_or_else(|e| e.into_inner())
-            .clear();
+        self.allocations.write().unwrap().clear();
+        self.baselines.write().unwrap().clear();
     }
 }
 

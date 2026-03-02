@@ -15,7 +15,7 @@ use tracing::info;
 pub async fn fetch_bundle_metadata(db: &Db, bundle_id: &str) -> Result<(String, String), sqlx::Error> {
     let row = sqlx::query("SELECT metadata_json FROM telemetry_bundles WHERE id = ?")
         .bind(bundle_id)
-        .fetch_optional(db.pool_result()?)
+        .fetch_optional(db.pool())
         .await?;
     let metadata: serde_json::Value = if let Some(r) = row {
         serde_json::from_str(r.get("metadata_json")).map_err(|e| AosError::Serialization(format!("Invalid metadata JSON: {}", e)))?

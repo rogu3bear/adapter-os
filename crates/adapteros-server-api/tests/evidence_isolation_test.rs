@@ -28,7 +28,7 @@ async fn test_evidence_by_inference_tenant_isolation() -> Result<()> {
     )
     .bind(doc_id)
     .bind(&tenant_a)
-    .execute(db.pool_result()?)
+    .execute(db.pool())
     .await?;
 
     sqlx::query(
@@ -38,7 +38,7 @@ async fn test_evidence_by_inference_tenant_isolation() -> Result<()> {
     .bind(chunk_id)
     .bind(&tenant_a)
     .bind(doc_id)
-    .execute(db.pool_result()?)
+    .execute(db.pool())
     .await?;
 
     // Create evidence for tenant A
@@ -119,7 +119,7 @@ async fn test_evidence_by_message_tenant_isolation() -> Result<()> {
     )
     .bind(doc_id)
     .bind(&tenant_a)
-    .execute(db.pool_result()?)
+    .execute(db.pool())
     .await?;
 
     sqlx::query(
@@ -129,7 +129,7 @@ async fn test_evidence_by_message_tenant_isolation() -> Result<()> {
     .bind(chunk_id)
     .bind(&tenant_a)
     .bind(doc_id)
-    .execute(db.pool_result()?)
+    .execute(db.pool())
     .await?;
 
     // Create evidence for tenant A with a specific message_id
@@ -195,7 +195,7 @@ async fn test_evidence_by_session_tenant_isolation() -> Result<()> {
     )
     .bind(doc_id)
     .bind(&tenant_a)
-    .execute(db.pool_result()?)
+    .execute(db.pool())
     .await?;
 
     sqlx::query(
@@ -205,7 +205,7 @@ async fn test_evidence_by_session_tenant_isolation() -> Result<()> {
     .bind(chunk_id)
     .bind(&tenant_a)
     .bind(doc_id)
-    .execute(db.pool_result()?)
+    .execute(db.pool())
     .await?;
 
     // Create a chat session for tenant A (required for session_id FK)
@@ -216,7 +216,7 @@ async fn test_evidence_by_session_tenant_isolation() -> Result<()> {
     )
     .bind(session_id)
     .bind(&tenant_a)
-    .execute(db.pool_result()?)
+    .execute(db.pool())
     .await?;
 
     // Create evidence for tenant A with a specific session_id
@@ -284,7 +284,7 @@ async fn test_evidence_multi_tenant_no_leakage() -> Result<()> {
         .bind(&doc_id)
         .bind(*tenant_id)
         .bind(format!("hash-{}", i))
-        .execute(db.pool_result()?)
+        .execute(db.pool())
         .await?;
 
         sqlx::query(
@@ -294,7 +294,7 @@ async fn test_evidence_multi_tenant_no_leakage() -> Result<()> {
         .bind(&chunk_id)
         .bind(*tenant_id)
         .bind(&doc_id)
-        .execute(db.pool_result()?)
+        .execute(db.pool())
         .await?;
 
         // Create 5 evidence records per tenant with same inference_id pattern

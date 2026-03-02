@@ -48,7 +48,7 @@ else
 fi
 
 # Set DATABASE_URL
-export DATABASE_URL="postgresql://postgres:aos_password@localhost:18091/adapteros"
+export DATABASE_URL="postgresql://postgres:aos_password@localhost:5432/adapteros"
 echo "DATABASE_URL set to: $DATABASE_URL"
 
 echo "Colima development environment ready!"

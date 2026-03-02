@@ -23,6 +23,16 @@ pub struct TensorInfo {
     pub data_len: u64,
 }
 
+/// Safetensors header metadata (parsed from file)
+#[derive(Debug, Clone)]
+#[allow(dead_code)]
+struct SafetensorsHeader {
+    /// Mapping of tensor name to info
+    pub tensors: HashMap<String, TensorInfo>,
+    /// Header size in bytes
+    pub header_size: u64,
+}
+
 /// Loader for safetensors format files
 pub struct SafetensorsLoader {
     /// Parsed tensor metadata

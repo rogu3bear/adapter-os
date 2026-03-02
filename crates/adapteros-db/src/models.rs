@@ -429,7 +429,7 @@ impl Db {
         .bind(&params.tokenizer_hash_b3)
         .bind(&params.tokenizer_cfg_hash_b3)
         .bind(&params.metadata_json)
-        .execute(self.pool_result()?)
+        .execute(self.pool())
         .await?;
         Ok(id)
     }
@@ -438,7 +438,7 @@ impl Db {
         let query = format!("SELECT {} FROM models WHERE id = ?", MODEL_COLUMNS);
         let model = sqlx::query_as::<_, Model>(&query)
             .bind(id)
-            .fetch_optional(self.pool_result()?)
+            .fetch_optional(self.pool())
             .await?;
         Ok(model)
     }
@@ -454,7 +454,7 @@ impl Db {
         );
         let model = sqlx::query_as::<_, Model>(&query)
             .bind(name)
-            .fetch_optional(self.pool_result()?)
+            .fetch_optional(self.pool())
             .await?;
         Ok(model)
     }
@@ -464,7 +464,7 @@ impl Db {
         let query = format!("SELECT {} FROM models WHERE hash_b3 = ?", MODEL_COLUMNS);
         let model = sqlx::query_as::<_, Model>(&query)
             .bind(hash_b3)
-            .fetch_optional(self.pool_result()?)
+            .fetch_optional(self.pool())
             .await?;
         Ok(model)
     }
@@ -507,7 +507,7 @@ impl Db {
         );
         let models = sqlx::query_as::<_, Model>(&query)
             .bind(tenant_id)
-            .fetch_all(self.pool_result()?)
+            .fetch_all(self.pool())
             .await?;
         Ok(models)
     }
@@ -576,7 +576,7 @@ impl Db {
         .bind(size_bytes)
         .bind(&now)
         .bind(&now)
-        .execute(self.pool_result()?)
+        .execute(self.pool())
         .await?;
 
         Ok(id)
@@ -667,7 +667,7 @@ impl Db {
         .bind(size_bytes)
         .bind(&now)
         .bind(&now)
-        .execute(self.pool_result()?)
+        .execute(self.pool())
         .await?;
 
         Ok(id)
@@ -691,7 +691,7 @@ impl Db {
         .bind(error_message)
         .bind(&now)
         .bind(model_id)
-        .execute(self.pool_result()?)
+        .execute(self.pool())
         .await?;
 
         Ok(())
@@ -713,7 +713,7 @@ impl Db {
         .bind(&now)
         .bind(model_id)
         .bind(model_id)
-        .execute(self.pool_result()?)
+        .execute(self.pool())
         .await?;
 
         if result.rows_affected() == 0 {
@@ -746,7 +746,7 @@ impl Db {
                 .bind(format!("%{}%", model.name))
                 .bind(format!("%{}%", model_path))
                 .bind(format!("%{}%", model.name))
-                .fetch_one(self.pool_result()?)
+                .fetch_one(self.pool())
                 .await?
             } else {
                 // Search by model name in metadata
@@ -755,7 +755,7 @@ impl Db {
                      WHERE metadata_json LIKE ?",
                 )
                 .bind(format!("%{}%", model.name))
-                .fetch_one(self.pool_result()?)
+                .fetch_one(self.pool())
                 .await?
             };
 
@@ -786,7 +786,7 @@ impl Db {
             } else {
                 String::new()
             })
-            .fetch_one(self.pool_result()?)
+            .fetch_one(self.pool())
             .await?;
 
             Ok(count)
@@ -837,13 +837,9 @@ impl Db {
 
         // Pre-check: reject if model is currently loaded
         let statuses = self.list_base_model_statuses().await?;
-        let is_loaded = statuses.iter().any(|s| {
-            s.model_id == id
-                && matches!(
-                    s.status.as_str(),
-                    "ready" | "loading" | "loaded" | "checking"
-                )
-        });
+        let is_loaded = statuses
+            .iter()
+            .any(|s| s.model_id == id && (s.status == "loaded" || s.status == "loading"));
         if is_loaded {
             return Err(anyhow::anyhow!(
                 "Cannot delete model '{}': model is currently loaded or loading",
@@ -854,13 +850,13 @@ impl Db {
         // Delete associated base_model_status records
         sqlx::query("DELETE FROM base_model_status WHERE model_id = ?")
             .bind(id)
-            .execute(self.pool_result()?)
+            .execute(self.pool())
             .await?;
 
         // Delete the model
         let result = sqlx::query("DELETE FROM models WHERE id = ?")
             .bind(id)
-            .execute(self.pool_result()?)
+            .execute(self.pool())
             .await?;
 
         if result.rows_affected() == 0 {
@@ -881,11 +877,10 @@ impl Db {
     ) -> Result<()> {
         let now = chrono::Utc::now().to_rfc3339();
 
-        // Normalize legacy statuses into canonical model load states.
-        // Legacy aliases are accepted on input but canonical values are persisted.
+        // Normalize legacy statuses into canonical model load states (aligned with DB CHECK)
         let normalized_status = match status {
-            "loaded" | "ready" => "ready",
-            "unloaded" | "no-model" | "none" => "no-model",
+            "loaded" | "ready" => "loaded",
+            "unloaded" | "no-model" | "none" => "unloaded",
             "loading" => "loading",
             "unloading" => "unloading",
             "checking" => "loading",
@@ -893,34 +888,11 @@ impl Db {
             other => {
                 tracing::warn!(
                     status = %other,
-                    "Unknown base model status; coercing to no-model"
+                    "Unknown base model status; coercing to unloaded"
                 );
-                "no-model"
+                "unloaded"
             }
         };
-
-        // Enforce single-active loaded model per tenant: before setting a model to
-        // `ready`, demote other tenant-scoped transitional/ready rows to `no-model`.
-        // This order avoids violating the unique ready-per-tenant index.
-        if normalized_status == "ready" {
-            sqlx::query(
-                "UPDATE base_model_status
-                 SET status = 'no-model',
-                     error_message = NULL,
-                     memory_usage_mb = NULL,
-                     unloaded_at = ?,
-                     updated_at = ?
-                 WHERE tenant_id = ?
-                   AND model_id != ?
-                   AND status IN ('ready', 'loaded', 'loading', 'checking', 'unloading')",
-            )
-            .bind(&now)
-            .bind(&now)
-            .bind(tenant_id)
-            .bind(model_id)
-            .execute(self.pool_result()?)
-            .await?;
-        }
 
         // Check if status record exists
         let existing = sqlx::query_scalar::<_, i64>(
@@ -928,7 +900,7 @@ impl Db {
         )
         .bind(tenant_id)
         .bind(model_id)
-        .fetch_one(self.pool_result()?)
+        .fetch_one(self.pool())
         .await?;
 
         if existing > 0 {
@@ -942,7 +914,7 @@ impl Db {
             .bind(&now)
             .bind(tenant_id)
             .bind(model_id)
-            .execute(self.pool_result()?)
+            .execute(self.pool())
             .await?;
         } else {
             // Insert new record
@@ -958,30 +930,30 @@ impl Db {
             .bind(memory_usage_mb)
             .bind(&now)
             .bind(&now)
-            .execute(self.pool_result()?)
+            .execute(self.pool())
             .await?;
         }
 
         // Update loaded_at/unloaded_at timestamps based on normalized status
         match normalized_status {
-            "ready" => {
+            "loaded" => {
                 sqlx::query(
                     "UPDATE base_model_status SET loaded_at = ? WHERE tenant_id = ? AND model_id = ?"
                 )
                 .bind(&now)
                 .bind(tenant_id)
                 .bind(model_id)
-                .execute(self.pool_result()?)
+                .execute(self.pool())
                 .await?;
             }
-            "no-model" => {
+            "unloaded" => {
                 sqlx::query(
                     "UPDATE base_model_status SET unloaded_at = ? WHERE tenant_id = ? AND model_id = ?"
                 )
                 .bind(&now)
                 .bind(tenant_id)
                 .bind(model_id)
-                .execute(self.pool_result()?)
+                .execute(self.pool())
                 .await?;
             }
             _ => {}
@@ -996,60 +968,9 @@ impl Db {
             "SELECT id, tenant_id, model_id, status, loaded_at, unloaded_at, error_message, memory_usage_mb, created_at, updated_at FROM base_model_status WHERE tenant_id = ? ORDER BY updated_at DESC LIMIT 1"
         )
         .bind(tenant_id)
-        .fetch_optional(self.pool_result()?)
+        .fetch_optional(self.pool())
         .await?;
         Ok(status)
-    }
-
-    /// List all base model statuses for a single tenant, newest first.
-    pub async fn list_base_model_statuses_for_tenant(
-        &self,
-        tenant_id: &str,
-    ) -> Result<Vec<BaseModelStatus>> {
-        let statuses = sqlx::query_as::<_, BaseModelStatus>(
-            "SELECT id, tenant_id, model_id, status, loaded_at, unloaded_at, error_message, memory_usage_mb, created_at, updated_at
-             FROM base_model_status
-             WHERE tenant_id = ?
-             ORDER BY updated_at DESC",
-        )
-        .bind(tenant_id)
-        .fetch_all(self.pool_result()?)
-        .await?;
-        Ok(statuses)
-    }
-
-    /// Get the most recent ready/loaded base model row for a tenant.
-    pub async fn get_ready_base_model_for_tenant(
-        &self,
-        tenant_id: &str,
-    ) -> Result<Option<BaseModelStatus>> {
-        let status = sqlx::query_as::<_, BaseModelStatus>(
-            "SELECT id, tenant_id, model_id, status, loaded_at, unloaded_at, error_message, memory_usage_mb, created_at, updated_at
-             FROM base_model_status
-             WHERE tenant_id = ? AND status IN ('ready', 'loaded')
-             ORDER BY updated_at DESC
-             LIMIT 1",
-        )
-        .bind(tenant_id)
-        .fetch_optional(self.pool_result()?)
-        .await?;
-        Ok(status)
-    }
-
-    /// Get the effective base model status for a tenant.
-    ///
-    /// Deterministic precedence:
-    /// 1) most recent ready/loaded model (routable path)
-    /// 2) most recent tenant status row
-    pub async fn get_effective_base_model_status_for_tenant(
-        &self,
-        tenant_id: &str,
-    ) -> Result<Option<BaseModelStatus>> {
-        if let Some(ready) = self.get_ready_base_model_for_tenant(tenant_id).await? {
-            return Ok(Some(ready));
-        }
-
-        self.get_base_model_status(tenant_id).await
     }
 
     /// Get base model status for a specific model (tenant-scoped).
@@ -1063,7 +984,7 @@ impl Db {
         )
         .bind(tenant_id)
         .bind(model_id)
-        .fetch_optional(self.pool_result()?)
+        .fetch_optional(self.pool())
         .await?;
         Ok(status)
     }
@@ -1073,7 +994,7 @@ impl Db {
         let statuses = sqlx::query_as::<_, BaseModelStatus>(
             "SELECT id, tenant_id, model_id, status, loaded_at, unloaded_at, error_message, memory_usage_mb, created_at, updated_at FROM base_model_status ORDER BY updated_at DESC"
         )
-        .fetch_all(self.pool_result()?)
+        .fetch_all(self.pool())
         .await?;
         Ok(statuses)
     }

@@ -22,7 +22,7 @@ MODEL_DIR="${REPO_ROOT}/var/model-cache/models"
 MODEL_NAME="qwen2.5-7b-mlx"
 MODEL_PATH="${MODEL_DIR}/${MODEL_NAME}"
 DATABASE_PATH="${REPO_ROOT}/var/aos-cp.sqlite3"
-API_URL="http://localhost:${AOS_SERVER_PORT:-18080}"
+API_URL="http://localhost:${AOS_SERVER_PORT:-8080}"
 
 # =============================================================================
 # Helper Functions
@@ -205,6 +205,7 @@ build_project() {
     # Build CLI with TUI
     log_step "Building CLI..."
     cargo build --release -p adapteros-cli --features tui 2>&1 | tail -5
+    ln -sf target/release/aosctl ./aosctl
 
     # Build UI if pnpm available
     if command -v pnpm &>/dev/null && [ -d "${REPO_ROOT}/ui" ]; then
@@ -344,7 +345,7 @@ print_instructions() {
     echo -e "     ${BLUE}./start${NC}"
     echo ""
     echo "  2. Open browser:"
-    echo -e "     ${BLUE}http://localhost:\${AOS_UI_PORT:-18081}${NC}"
+    echo -e "     ${BLUE}http://localhost:\${AOS_UI_PORT:-3200}${NC}"
     echo ""
     echo "Reference Flow:"
     echo "  /dashboard     - System overview"

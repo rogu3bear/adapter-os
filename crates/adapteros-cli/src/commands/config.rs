@@ -1665,7 +1665,7 @@ fn collect_effective_config(args: &ShowArgs, should_redact: bool) -> Result<Vec<
         ("AOS_MODEL_BACKEND", "model", "auto"),
         ("AOS_MODEL_ARCHITECTURE", "model", ""),
         ("AOS_SERVER_HOST", "server", "127.0.0.1"),
-        ("AOS_SERVER_PORT", "server", "18080"),
+        ("AOS_SERVER_PORT", "server", "8080"),
         ("AOS_SERVER_WORKERS", "server", "4"),
         ("AOS_SERVER_TIMEOUT", "server", "30s"),
         ("AOS_SERVER_UDS_SOCKET", "server", ""),
@@ -2295,7 +2295,7 @@ mod tests {
 
     #[test]
     fn test_validate_port() {
-        assert!(validate_port("18080").is_ok());
+        assert!(validate_port("8080").is_ok());
         assert!(validate_port("1").is_ok());
         assert!(validate_port("65535").is_ok());
         assert!(validate_port("0").is_err());
@@ -2348,7 +2348,7 @@ mod tests {
 
     #[test]
     fn test_validate_url() {
-        assert!(validate_url("http://localhost:18080").is_ok());
+        assert!(validate_url("http://localhost:8080").is_ok());
         assert!(validate_url("https://example.com").is_ok());
         assert!(validate_url("unix:///var/run/aos.sock").is_ok());
         assert!(validate_url("ftp://example.com").is_err());
@@ -2746,7 +2746,7 @@ KEY4=value4
         let env_path = dir.path().join("test.env");
 
         // Create initial file
-        std::fs::write(&env_path, "AOS_SERVER_PORT=18080\nOTHER_VAR=value\n").unwrap();
+        std::fs::write(&env_path, "AOS_SERVER_PORT=8080\nOTHER_VAR=value\n").unwrap();
 
         // Update existing variable
         let args = SetArgs {
@@ -2765,7 +2765,7 @@ KEY4=value4
         let content = std::fs::read_to_string(&env_path).unwrap();
         assert!(content.contains("AOS_SERVER_PORT=9090"));
         assert!(content.contains("OTHER_VAR=value"));
-        assert!(!content.contains("AOS_SERVER_PORT=18080"));
+        assert!(!content.contains("AOS_SERVER_PORT=8080"));
     }
 
     #[test]

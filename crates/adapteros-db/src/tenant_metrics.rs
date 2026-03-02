@@ -135,7 +135,7 @@ impl TenantStorageMetrics {
         let doc_size: i64 =
             sqlx::query("SELECT COALESCE(SUM(file_size), 0) FROM documents WHERE tenant_id = ?")
                 .bind(tenant_id)
-                .fetch_one(db.pool_result()?)
+                .fetch_one(db.pool())
                 .await
                 .map_err(|e| {
                     AosError::Database(format!("Failed to calculate document storage: {}", e))
@@ -147,7 +147,7 @@ impl TenantStorageMetrics {
             "SELECT COALESCE(SUM(LENGTH(text) + LENGTH(embedding_json)), 0) FROM rag_documents WHERE tenant_id = ?",
         )
         .bind(tenant_id)
-        .fetch_one(db.pool_result()?)
+        .fetch_one(db.pool())
         .await
         .map_err(|e| AosError::Database(format!("Failed to calculate RAG storage: {}", e)))?
         .get(0);

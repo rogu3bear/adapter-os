@@ -158,7 +158,7 @@ RUST_LOG=debug cargo test --test e2e
 
 ### Boot Entrypoint for E2E
 - Canonical boot path: `./start` (delegates to `scripts/service-manager.sh`, includes drift checks and health waits)
-- Use `./start` for stack orchestration; avoid legacy bootstrap scripts in new tests.
+- Legacy scripts (`scripts/run_complete_system.sh`, bootstrap variants) are deprecated and guarded by opt-in prompts (default No); avoid in new tests.
 - Dev boot smoke coverage lives at `tests/dev_boot.rs` and exercises `./start` help/status.
 
 ### Test Configuration

@@ -10,8 +10,8 @@ use clap::Subcommand;
 pub enum AuthCommand {
     /// Log in and persist token for CLI use
     Login {
-        /// Control plane base URL (default: AOS_SERVER_URL or http://localhost:18080)
-        #[arg(long, env = "AOS_SERVER_URL", default_value = "http://localhost:18080")]
+        /// Control plane base URL (default: AOS_SERVER_URL or http://localhost:8080)
+        #[arg(long, env = "AOS_SERVER_URL", default_value = "http://localhost:8080")]
         server_url: String,
 
         /// Account email

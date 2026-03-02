@@ -60,7 +60,7 @@ pub async fn check_rate_limit(db: &Db, tenant_id: &str) -> Result<RateLimitResul
          WHERE tenant_id = ?"
     )
     .bind(tenant_id)
-    .fetch_optional(db.pool_result()?)
+    .fetch_optional(db.pool())
     .await?;
 
     if let Some(mut bucket) = bucket {
@@ -85,7 +85,7 @@ pub async fn check_rate_limit(db: &Db, tenant_id: &str) -> Result<RateLimitResul
             .bind(&bucket.window_start)
             .bind(&bucket.last_updated)
             .bind(tenant_id)
-            .execute(db.pool_result()?)
+            .execute(db.pool())
             .await?;
 
             debug!(
@@ -115,7 +115,7 @@ pub async fn check_rate_limit(db: &Db, tenant_id: &str) -> Result<RateLimitResul
         .bind(bucket.requests_count)
         .bind(&bucket.last_updated)
         .bind(tenant_id)
-        .execute(db.pool_result()?)
+        .execute(db.pool())
         .await?;
 
         let allowed = bucket.requests_count <= bucket.max_requests;
@@ -154,7 +154,7 @@ pub async fn check_rate_limit(db: &Db, tenant_id: &str) -> Result<RateLimitResul
         .bind(window_size)
         .bind(default_max)
         .bind(&last_updated)
-        .execute(db.pool_result()?)
+        .execute(db.pool())
         .await?;
 
         debug!(
@@ -187,7 +187,7 @@ pub async fn update_rate_limit(db: &Db, tenant_id: &str, max_requests: i64) -> R
     .bind(&now)
     .bind(max_requests)
     .bind(&now)
-    .execute(db.pool_result()?)
+    .execute(db.pool())
     .await?;
 
     debug!(
@@ -207,7 +207,7 @@ pub async fn get_rate_limit_status(db: &Db, tenant_id: &str) -> Result<Option<Ra
          WHERE tenant_id = ?"
     )
     .bind(tenant_id)
-    .fetch_optional(db.pool_result()?)
+    .fetch_optional(db.pool())
     .await?;
 
     if let Some(bucket) = bucket {
@@ -242,7 +242,7 @@ pub async fn reset_rate_limit(db: &Db, tenant_id: &str) -> Result<()> {
     .bind(&now)
     .bind(&now)
     .bind(tenant_id)
-    .execute(db.pool_result()?)
+    .execute(db.pool())
     .await?;
 
     debug!(tenant_id = %tenant_id, "Reset rate limit");
@@ -265,7 +265,7 @@ mod tests {
                 last_updated TEXT NOT NULL DEFAULT (datetime('now'))
             )",
         )
-        .execute(db.pool_result().expect("db pool available"))
+        .execute(db.pool())
         .await
         .expect("Failed to create rate_limit_buckets table");
     }

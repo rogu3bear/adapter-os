@@ -1,7 +1,6 @@
 use crate::auth::Claims;
 use crate::middleware::require_any_role;
 use crate::state::AppState;
-use crate::tenant_visibility::{claim_can_access_tenant, is_workspace_tenant_id};
 use crate::types::ErrorResponse;
 use adapteros_db::users::Role;
 use axum::{
@@ -174,10 +173,7 @@ pub async fn list_plugins(
 
     let mut plugins_list = vec![];
 
-    for tenant in tenants
-        .into_iter()
-        .filter(|t| is_workspace_tenant_id(&t.id) && claim_can_access_tenant(&claims, &t.id))
-    {
+    for tenant in tenants {
         if let Some(tenant_health) = health_map.get(&tenant.id) {
             for (name, h) in tenant_health {
                 let enabled = state

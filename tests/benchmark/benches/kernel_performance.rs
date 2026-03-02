@@ -36,7 +36,6 @@ fn bench_metal_kernels(c: &mut Criterion) {
             position: 0,
             attention_entropy: None,
             activations: None,
-            session_id: None,
         };
 
         // Create router ring with sample adapters
@@ -53,7 +52,6 @@ fn bench_metal_kernels(c: &mut Criterion) {
                         position: 0,
                         attention_entropy: None,
                         activations: None,
-                        session_id: None,
                     };
                     let _ = kernels.run_step(&router_ring, &mut io_copy);
                 }

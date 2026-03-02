@@ -1,6 +1,6 @@
 # TRAINING
 
-LoRA adapter training. Source: `crates/adapteros-lora-worker/`, `crates/adapteros-server-api/src/handlers/training.rs`, `crates/adapteros-cli/src/commands/train*.rs`.
+LoRA adapter training. Source: `adapteros-lora-worker/`, `adapteros-server-api/src/handlers/training.rs`, `adapteros-cli/commands/train*.rs`.
 
 ---
 
@@ -48,7 +48,7 @@ flowchart TB
 ./aosctl train list --status running
 ```
 
-**Source:** `crates/adapteros-cli/src/commands/train_cli.rs`. Calls `POST /v1/training/jobs`.
+**Source:** `adapteros-cli/src/commands/train_cli.rs`. Calls `POST /v1/training/jobs`.
 
 ### Local training
 
@@ -57,7 +57,7 @@ flowchart TB
 ./aosctl train local --resume  # Resume from checkpoint
 ```
 
-**Source:** `crates/adapteros-cli/src/commands/train.rs`. Uses `MicroLoRATrainer` from `crates/adapteros-lora-worker`.
+**Source:** `adapteros-cli/src/commands/train.rs`. Uses `MicroLoRATrainer` from `adapteros-lora-worker`.
 
 ### Docs training
 
@@ -66,7 +66,7 @@ flowchart TB
 ./aosctl train-docs --docs-dir ./docs --register --tenant-id default --base-model-id Llama-3.2-3B-Instruct-4bit
 ```
 
-**Source:** `crates/adapteros-cli/src/commands/train_docs.rs`.
+**Source:** `adapteros-cli/src/commands/train_docs.rs`.
 
 ---
 

@@ -112,6 +112,12 @@ impl ServiceControl {
         }
     }
 
+    #[allow(dead_code)]
+    pub async fn start_backend(&self) -> Result<ServiceCommandResult> {
+        self.run_aos(&["start", "backend"], "aos start backend")
+            .await
+    }
+
     async fn run_aos(&self, args: &[&str], display: &str) -> Result<ServiceCommandResult> {
         let mut cmd = Command::new(&self.aos_command);
         for arg in args {

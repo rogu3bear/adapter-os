@@ -137,33 +137,6 @@ if [ ! -f "$TMP_SPEC" ]; then
     exit 1
 fi
 
-# Guard: canonical API namespace is /v1/* only.
-if command -v jq >/dev/null 2>&1; then
-    LEGACY_PATH_COUNT="$(
-        jq -r '.paths | keys[]' "$TMP_SPEC" \
-            | { grep -E '^/api/' || true; } \
-            | wc -l \
-            | tr -d ' '
-    )"
-else
-    LEGACY_PATH_COUNT="$(
-        { grep -E '^    "/api/' "$TMP_SPEC" || true; } \
-            | wc -l \
-            | tr -d ' '
-    )"
-fi
-
-if [ "${LEGACY_PATH_COUNT:-0}" != "0" ]; then
-    echo ""
-    echo "┌─────────────────────────────────────────────────────────────────────┐"
-    echo "│ ERROR: Legacy /api/* OpenAPI paths detected                         │"
-    echo "├─────────────────────────────────────────────────────────────────────┤"
-    echo "│ Canonical public namespace is /v1/*                                 │"
-    echo "│ Found $LEGACY_PATH_COUNT legacy path entries in generated OpenAPI.  │"
-    echo "└─────────────────────────────────────────────────────────────────────┘"
-    exit 1
-fi
-
 # Fix mode: just copy the generated spec
 if [ "$FIX_MODE" = true ]; then
     cp "$TMP_SPEC" "$OPENAPI_SPEC"

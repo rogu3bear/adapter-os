@@ -49,9 +49,7 @@ log_pass ".env file found"
 # Load .env using unified loader
 SCRIPT_DIR="$(cd "$(dirname "${BASH_SOURCE[0]}")/.." && pwd)"
 source "$SCRIPT_DIR/scripts/lib/env-loader.sh"
-source "$SCRIPT_DIR/scripts/lib/ports.sh"
 load_env_file ".env" --no-override
-aos_apply_port_pane_defaults
 
 # ═══════════════════════════════════════════════════════════════════════════════
 # MODEL CONFIGURATION CHECKS
@@ -67,7 +65,7 @@ else
     log_pass "AOS_MODEL_PATH=$AOS_MODEL_PATH"
     if [ ! -d "$AOS_MODEL_PATH" ]; then
         log_warn "Model directory not found: $AOS_MODEL_PATH"
-        log_warn "Run: ./scripts/download-model.sh"
+        log_warn "Run: ./scripts/download_model.sh"
     else
         if [ -f "$AOS_MODEL_PATH/config.json" ]; then
             log_pass "Model config.json found"
@@ -100,8 +98,8 @@ echo -e "${BLUE}=== SERVER CONFIGURATION ===${NC}"
 
 log_check "AOS_SERVER_PORT is set"
 if [ -z "$AOS_SERVER_PORT" ]; then
-    log_warn "AOS_SERVER_PORT not set (will use 18080)"
-    PORT=18080
+    log_warn "AOS_SERVER_PORT not set (will use 8080)"
+    PORT=8080
 else
     PORT=$AOS_SERVER_PORT
     log_pass "AOS_SERVER_PORT=$PORT"

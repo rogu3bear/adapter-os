@@ -16,63 +16,14 @@
 
 use crate::{
     adapter_hotswap, inference_management::InferenceCancelRegistry, CoremlVerificationSnapshot,
-    HealthMonitor, HotSwapManager, KvCache, Worker, WorkerModelRuntimeState,
+    HealthMonitor, HotSwapManager, KvCache, Worker,
 };
-use adapteros_core::{AosError, B3Hash, Result};
+use adapteros_core::{B3Hash, Result};
 use adapteros_lora_kernel_api::FusedKernels;
 use adapteros_telemetry::TelemetryWriter;
 use parking_lot::RwLock;
 use std::sync::Arc;
 use std::sync::Mutex as StdMutex;
-
-/// Apply a runtime model load/switch transition.
-///
-/// Switch failures are fail-safe: if a ready model is already active, it remains active.
-pub fn apply_runtime_model_load_transition(
-    state: &mut WorkerModelRuntimeState,
-    model_id: &str,
-    model_path: &str,
-) -> Result<()> {
-    let model_path_ref = std::path::Path::new(model_path);
-
-    if state.active_model_id.as_deref() == Some(model_id) && state.status == "ready" {
-        return Ok(());
-    }
-
-    state.generation = state.generation.saturating_add(1);
-    state.status = "loading".to_string();
-    state.last_error = None;
-
-    if !model_path_ref.exists() {
-        let err = format!("Model path does not exist: {}", model_path_ref.display());
-        let keep_previous = state.active_model_id.is_some();
-        state.last_error = Some(err.clone());
-        if keep_previous {
-            state.status = "ready".to_string();
-        } else {
-            state.status = "error".to_string();
-        }
-        return Err(AosError::NotFound(err));
-    }
-
-    let hash = blake3::hash(model_path.as_bytes()).to_hex().to_string();
-    state.active_model_id = Some(model_id.to_string());
-    state.active_model_hash = Some(hash);
-    state.status = "ready".to_string();
-    state.last_error = None;
-
-    Ok(())
-}
-
-/// Apply a runtime model unload transition.
-pub fn apply_runtime_model_unload_transition(state: &mut WorkerModelRuntimeState) {
-    state.generation = state.generation.saturating_add(1);
-    state.status = "unloading".to_string();
-    state.active_model_id = None;
-    state.active_model_hash = None;
-    state.last_error = None;
-    state.status = "no-model".to_string();
-}
 
 /// Worker utility methods and accessors
 impl<K: FusedKernels + crate::StrictnessControl + Send + Sync + 'static> Worker<K> {
@@ -171,37 +122,5 @@ impl<K: FusedKernels + crate::StrictnessControl + Send + Sync + 'static> Worker<
     /// Get cloned reference to inference cancellation registry
     pub fn inference_cancel_registry(&self) -> Arc<InferenceCancelRegistry> {
         self.inference_cancellations.clone()
-    }
-
-    /// Get current worker model runtime lifecycle state.
-    pub fn model_runtime_state(&self) -> WorkerModelRuntimeState {
-        self.model_runtime_state
-            .lock()
-            .map(|state| state.clone())
-            .unwrap_or_default()
-    }
-
-    /// Load or switch the runtime model state used by UDS model lifecycle endpoints.
-    ///
-    /// Switch failures are fail-safe: if a ready model is already active, it remains active.
-    pub fn load_or_switch_runtime_model(
-        &self,
-        model_id: &str,
-        model_path: &str,
-    ) -> Result<WorkerModelRuntimeState> {
-        let mut state = self.model_runtime_state.lock().map_err(|_| {
-            AosError::Internal("Worker model runtime state lock poisoned".to_string())
-        })?;
-        apply_runtime_model_load_transition(&mut state, model_id, model_path)?;
-        Ok(state.clone())
-    }
-
-    /// Unload the active runtime model state used by UDS model lifecycle endpoints.
-    pub fn unload_runtime_model(&self) -> Result<WorkerModelRuntimeState> {
-        let mut state = self.model_runtime_state.lock().map_err(|_| {
-            AosError::Internal("Worker model runtime state lock poisoned".to_string())
-        })?;
-        apply_runtime_model_unload_transition(&mut state);
-        Ok(state.clone())
     }
 }

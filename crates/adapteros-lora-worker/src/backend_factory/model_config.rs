@@ -1,6 +1,6 @@
 use crate::model_key::ModelCacheIdentity;
 use adapteros_config::schema::{parse_bool, parse_byte_size};
-use adapteros_config::{reject_tmp_persistent_path, ConfigLoader, LoaderOptions, ModelConfig};
+use adapteros_config::{reject_tmp_persistent_path, ConfigLoader, ModelConfig};
 use adapteros_core::{AosError, Result};
 use adapteros_lora_kernel_api::attestation::BackendType;
 use std::path::Path;
@@ -50,21 +50,18 @@ pub(crate) fn resolve_model_cache_budget_bytes() -> Result<u64> {
     // 2) Config file (env + TOML via ConfigLoader). Prefer explicit path override if provided.
     let toml_path = resolve_config_toml_path()?;
 
-    let config = ConfigLoader::with_options(LoaderOptions {
-        allow_unknown_keys: true,
-        ..LoaderOptions::default()
-    })
-    .load(Vec::new(), toml_path.clone())
-    .map_err(|e| {
-        let scope = toml_path
-            .as_ref()
-            .map(|p| format!(" from {}", p))
-            .unwrap_or_default();
-        AosError::Config(format!(
-            "Failed to load configuration{} for model cache budget: {}",
-            scope, e
-        ))
-    })?;
+    let config = ConfigLoader::new()
+        .load(Vec::new(), toml_path.clone())
+        .map_err(|e| {
+            let scope = toml_path
+                .as_ref()
+                .map(|p| format!(" from {}", p))
+                .unwrap_or_default();
+            AosError::Config(format!(
+                "Failed to load configuration{} for model cache budget: {}",
+                scope, e
+            ))
+        })?;
 
     if let Some(raw) = config.get("model.cache.max.mb") {
         let parsed: u64 = raw.parse().map_err(|_| {
@@ -133,21 +130,18 @@ pub fn resolve_base_model_pin_enabled() -> Result<bool> {
     }
 
     let toml_path = resolve_config_toml_path()?;
-    let config = ConfigLoader::with_options(LoaderOptions {
-        allow_unknown_keys: true,
-        ..LoaderOptions::default()
-    })
-    .load(Vec::new(), toml_path.clone())
-    .map_err(|e| {
-        let scope = toml_path
-            .as_ref()
-            .map(|p| format!(" from {}", p))
-            .unwrap_or_default();
-        AosError::Config(format!(
-            "Failed to load configuration{} for base model pinning: {}",
-            scope, e
-        ))
-    })?;
+    let config = ConfigLoader::new()
+        .load(Vec::new(), toml_path.clone())
+        .map_err(|e| {
+            let scope = toml_path
+                .as_ref()
+                .map(|p| format!(" from {}", p))
+                .unwrap_or_default();
+            AosError::Config(format!(
+                "Failed to load configuration{} for base model pinning: {}",
+                scope, e
+            ))
+        })?;
 
     if let Some(raw) = config.get("model.cache.pin_base_model") {
         let parsed = parse_bool(raw).map_err(|e| {
@@ -177,21 +171,18 @@ pub fn resolve_base_model_pin_budget_bytes() -> Result<Option<u64>> {
     }
 
     let toml_path = resolve_config_toml_path()?;
-    let config = ConfigLoader::with_options(LoaderOptions {
-        allow_unknown_keys: true,
-        ..LoaderOptions::default()
-    })
-    .load(Vec::new(), toml_path.clone())
-    .map_err(|e| {
-        let scope = toml_path
-            .as_ref()
-            .map(|p| format!(" from {}", p))
-            .unwrap_or_default();
-        AosError::Config(format!(
-            "Failed to load configuration{} for base model pin budget: {}",
-            scope, e
-        ))
-    })?;
+    let config = ConfigLoader::new()
+        .load(Vec::new(), toml_path.clone())
+        .map_err(|e| {
+            let scope = toml_path
+                .as_ref()
+                .map(|p| format!(" from {}", p))
+                .unwrap_or_default();
+            AosError::Config(format!(
+                "Failed to load configuration{} for base model pin budget: {}",
+                scope, e
+            ))
+        })?;
 
     if let Some(raw) = config.get("model.cache.pin_budget_bytes") {
         let parsed = parse_byte_size(raw).map_err(|e| {
@@ -224,21 +215,18 @@ pub fn resolve_base_model_pin_conflict_mode() -> Result<PinConflictMode> {
     }
 
     let toml_path = resolve_config_toml_path()?;
-    let config = ConfigLoader::with_options(LoaderOptions {
-        allow_unknown_keys: true,
-        ..LoaderOptions::default()
-    })
-    .load(Vec::new(), toml_path.clone())
-    .map_err(|e| {
-        let scope = toml_path
-            .as_ref()
-            .map(|p| format!(" from {}", p))
-            .unwrap_or_default();
-        AosError::Config(format!(
-            "Failed to load configuration{} for base model pin conflict mode: {}",
-            scope, e
-        ))
-    })?;
+    let config = ConfigLoader::new()
+        .load(Vec::new(), toml_path.clone())
+        .map_err(|e| {
+            let scope = toml_path
+                .as_ref()
+                .map(|p| format!(" from {}", p))
+                .unwrap_or_default();
+            AosError::Config(format!(
+                "Failed to load configuration{} for base model pin conflict mode: {}",
+                scope, e
+            ))
+        })?;
 
     if let Some(raw) = config.get("model.cache.pin_conflict_mode") {
         let parsed = PinConflictMode::from_str(raw).map_err(|e| {

@@ -78,7 +78,7 @@ async fn test_alert_creation_broadcasts_to_sse() {
     };
 
     // Insert test rule
-    adapteros_db::process_monitoring::ProcessMonitoringRule::create(db_arc.pool_result().unwrap(), &rule).await.unwrap();
+    adapteros_db::process_monitoring::ProcessMonitoringRule::create(db_arc.pool(), &rule).await.unwrap();
 
     // Trigger alert creation
     alert_evaluator.trigger_alert(&rule, 85.0).await.unwrap();

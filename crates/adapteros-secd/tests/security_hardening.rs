@@ -109,21 +109,6 @@ impl TimingStats {
         *self.measurements.iter().max().unwrap_or(&0)
     }
 
-    fn percentile(&self, p: f64) -> f64 {
-        if self.measurements.is_empty() {
-            return 0.0;
-        }
-        let mut sorted = self.measurements.clone();
-        sorted.sort_unstable();
-        let n = sorted.len() - 1;
-        let idx = ((n as f64) * p.clamp(0.0, 1.0)).round() as usize;
-        sorted[idx.min(n)] as f64
-    }
-
-    fn median(&self) -> f64 {
-        self.percentile(0.5)
-    }
-
     fn variance(&self) -> f64 {
         let mean = self.mean();
         let sum_sq_diff: f64 = self
@@ -141,69 +126,9 @@ impl TimingStats {
         self.variance().sqrt()
     }
 
-    fn cv_ratio_for(values: &[f64]) -> f64 {
-        if values.is_empty() {
-            return 0.0;
-        }
-        let mean = values.iter().sum::<f64>() / values.len() as f64;
-        if mean <= f64::EPSILON {
-            return 0.0;
-        }
-        let var = values
-            .iter()
-            .map(|v| {
-                let d = *v - mean;
-                d * d
-            })
-            .sum::<f64>()
-            / values.len() as f64;
-        var.sqrt() / mean
-    }
-
-    fn winsorized_values(&self, lower_pct: f64, upper_pct: f64) -> Vec<f64> {
-        let mut sorted = self.measurements.clone();
-        sorted.sort_unstable();
-        if sorted.is_empty() {
-            return Vec::new();
-        }
-        let n = sorted.len() - 1;
-        let low_idx = ((n as f64) * lower_pct).floor() as usize;
-        let high_idx = ((n as f64) * upper_pct).ceil() as usize;
-        let low = sorted[low_idx.min(n)];
-        let high = sorted[high_idx.min(n)];
-
-        sorted
-            .into_iter()
-            .map(|v| {
-                if v < low {
-                    low as f64
-                } else if v > high {
-                    high as f64
-                } else {
-                    v as f64
-                }
-            })
-            .collect()
-    }
-
-    fn cv_ratio(&self) -> f64 {
-        let mean = self.mean();
-        if mean <= f64::EPSILON {
-            0.0
-        } else {
-            self.stddev() / mean
-        }
-    }
-
-    fn robust_cv_ratio(&self) -> f64 {
-        // Suppress scheduler outliers in microbench tests.
-        let winsorized = self.winsorized_values(0.10, 0.90);
-        Self::cv_ratio_for(&winsorized)
-    }
-
     /// Coefficient of Variation: StdDev / Mean (as percentage)
     fn cv_percent(&self) -> f64 {
-        self.cv_ratio() * 100.0
+        (self.stddev() / self.mean()) * 100.0
     }
 
     fn print_summary(&self, label: &str) {
@@ -224,14 +149,7 @@ impl TimingStats {
 
     /// Check if coefficient of variation is within acceptable bounds
     fn is_constant_time(&self, max_cv: f64) -> bool {
-        // Near-zero-duration paths are quantized by timer resolution; range is
-        // a more stable signal than CV in that regime.
-        if self.mean() < 1.0 {
-            let p95 = self.percentile(0.95);
-            let p05 = self.percentile(0.05);
-            return (p95 - p05) <= 2.0;
-        }
-        self.robust_cv_ratio() <= max_cv
+        self.cv_percent() <= max_cv
     }
 }
 
@@ -291,11 +209,7 @@ fn test_seal_timing_consistency() {
     // for a given data size. Each size should have low CV internally.
 
     // For very small data, system noise dominates
-    let small_threshold = if small_stats.median() < 10.0 {
-        5.0
-    } else {
-        0.50
-    };
+    let small_threshold = if small_stats.mean() < 10.0 { 5.0 } else { 0.50 };
     assert!(
         small_stats.is_constant_time(small_threshold),
         "Small data seal timing is NOT constant-time (CV: {:.2}%, threshold: {:.2}%)",
@@ -751,13 +665,8 @@ fn test_key_reuse_timing_consistency() {
     let cached_stats = TimingStats::new(cached_times);
     cached_stats.print_summary("Key Reuse (All Cached)");
 
-    // Cached key operations are typically very short; relax threshold under
-    // microsecond-scale jitter the same way other timing tests do.
-    let threshold = if cached_stats.median() < 20.0 {
-        3.0
-    } else {
-        0.50
-    };
+    // Cached key operations should have consistent timing
+    let threshold = 0.50; // 50% for cached key operations
     assert!(
         cached_stats.is_constant_time(threshold),
         "Cached key reuse timing is NOT constant (CV: {:.2}%, threshold: {:.2}%)",

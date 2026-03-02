@@ -91,7 +91,7 @@ impl Db {
         .bind(&params.dataset_id)
         .bind(&params.dataset_version_id)
         .bind(&params.dataset_hash_b3)
-        .execute(self.pool_result()?)
+        .execute(self.pool())
         .await
         .map_err(|e| AosError::Database(format!("Failed to create training snapshot: {}", e)))?;
 
@@ -124,7 +124,7 @@ impl Db {
             "#,
         )
         .bind(adapter_id)
-        .fetch_optional(self.pool_result()?)
+        .fetch_optional(self.pool())
         .await
         .map_err(|e| AosError::Database(format!("Failed to fetch training snapshot: {}", e)))?;
 
@@ -150,7 +150,7 @@ impl Db {
             "#,
         )
         .bind(training_job_id)
-        .fetch_all(self.pool_result()?)
+        .fetch_all(self.pool())
         .await
         .map_err(|e| {
             AosError::Database(format!("Failed to fetch training job snapshots: {}", e))
@@ -178,7 +178,7 @@ impl Db {
             "#,
         )
         .bind(collection_id)
-        .fetch_all(self.pool_result()?)
+        .fetch_all(self.pool())
         .await
         .map_err(|e| AosError::Database(format!("Failed to fetch collection snapshots: {}", e)))?;
 
@@ -190,7 +190,7 @@ impl Db {
             "SELECT tenant_id FROM repository_training_jobs WHERE id = ? LIMIT 1",
         )
         .bind(training_job_id)
-        .fetch_one(self.pool_result()?)
+        .fetch_one(self.pool())
         .await
         {
             Ok(id) => Ok(id),
@@ -215,7 +215,7 @@ impl Db {
             "SELECT tenant_id FROM document_collections WHERE id = ? LIMIT 1",
         )
         .bind(collection_id)
-        .fetch_one(self.pool_result()?)
+        .fetch_one(self.pool())
         .await
         {
             Ok(id) => Ok(id),
@@ -277,12 +277,12 @@ mod tests {
     use super::*;
 
     // Helper to create a document collection for FK constraint
-    async fn create_collection(db: &Db, collection_id: &str) -> Result<()> {
+    async fn create_collection(db: &Db, collection_id: &str) {
         // Create tenant first
         let tenant_id = match db.create_tenant("Test Tenant", false).await {
             Ok(id) => id,
             Err(_) => sqlx::query_scalar::<_, String>("SELECT id FROM tenants LIMIT 1")
-                .fetch_one(db.pool_result()?)
+                .fetch_one(db.pool())
                 .await
                 .expect("No tenant found"),
         };
@@ -293,15 +293,13 @@ mod tests {
         )
         .bind(collection_id)
         .bind(&tenant_id)
-        .execute(db.pool_result()?)
+        .execute(db.pool())
         .await
         .expect("Failed to create collection");
-
-        Ok(())
     }
 
     #[tokio::test]
-    async fn test_create_and_retrieve_snapshot() -> Result<()> {
+    async fn test_create_and_retrieve_snapshot() {
         let db = Db::new_in_memory().await.unwrap();
 
         let adapter_id = "adapter-001";
@@ -353,12 +351,10 @@ mod tests {
         let config: serde_json::Value =
             serde_json::from_str(&snapshot.chunking_config_json).unwrap();
         assert_eq!(config["chunk_size"], 512);
-
-        Ok(())
     }
 
     #[tokio::test]
-    async fn test_get_snapshots_by_training_job() -> Result<()> {
+    async fn test_get_snapshots_by_training_job() {
         let db = Db::new_in_memory().await.unwrap();
 
         let training_job_id = "job-002";
@@ -391,18 +387,16 @@ mod tests {
         for snapshot in &snapshots {
             assert_eq!(snapshot.training_job_id, training_job_id);
         }
-
-        Ok(())
     }
 
     #[tokio::test]
-    async fn test_get_snapshots_by_collection() -> Result<()> {
+    async fn test_get_snapshots_by_collection() {
         let db = Db::new_in_memory().await.unwrap();
 
         let collection_id = "collection-003";
 
         // Create the collection first to satisfy FK constraint
-        create_collection(&db, collection_id).await.unwrap();
+        create_collection(&db, collection_id).await;
 
         // Create multiple snapshots for the same collection
         for i in 1..=2 {
@@ -429,7 +423,5 @@ mod tests {
         for snapshot in &snapshots {
             assert_eq!(snapshot.collection_id.as_deref(), Some(collection_id));
         }
-
-        Ok(())
     }
 }

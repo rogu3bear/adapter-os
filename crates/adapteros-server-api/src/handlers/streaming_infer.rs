@@ -22,6 +22,7 @@ use crate::api_error::ApiError;
 use crate::auth::{is_dev_bypass_enabled, AuthMode, Claims, PrincipalType, JWT_ISSUER};
 use crate::backpressure::check_uma_backpressure;
 use crate::chat_context::build_chat_prompt;
+use crate::citations::collect_citations_for_adapters;
 use crate::handlers::rag_common::{retrieve_rag_context, store_rag_evidence};
 use crate::inference_core::InferenceCore;
 use crate::ip_extraction::ClientIp;
@@ -106,9 +107,6 @@ pub struct StreamingInferRequest {
     /// Specific adapters to use
     #[serde(skip_serializing_if = "Option::is_none")]
     pub adapters: Option<Vec<String>>,
-    /// Request strict bit-identical deterministic behavior.
-    #[serde(default)]
-    pub bit_identical: bool,
     /// Random seed for reproducibility.
     ///
     /// Required when the effective determinism mode is strict and tenant policy
@@ -156,15 +154,10 @@ impl From<(&StreamingInferRequest, &Claims)> for InferenceRequestInternal {
             admin_override: is_admin,
             stream: true, // Always streaming for this endpoint
             require_step: true,
-            allow_fallback: if req.bit_identical {
-                false
-            } else {
-                !matches!(
-                    req.backend,
-                    Some(backend) if backend != adapteros_core::BackendKind::Auto
-                )
-            },
-            bit_identical: req.bit_identical,
+            allow_fallback: !matches!(
+                req.backend,
+                Some(backend) if backend != adapteros_core::BackendKind::Auto
+            ),
             rag_enabled: req.collection_id.is_some(), // Enable RAG if collection_id provided
             rag_collection_id: req.collection_id.clone(),
             adapter_stack: req.adapter_stack.clone(),
@@ -340,21 +333,6 @@ pub enum InferenceEvent {
         /// Citations attached to the response
         #[serde(skip_serializing_if = "Option::is_none")]
         citations: Option<Vec<adapteros_api_types::inference::Citation>>,
-        /// Source documents attached to the response as clickable links.
-        #[serde(skip_serializing_if = "Option::is_none")]
-        document_links: Option<Vec<adapteros_api_types::inference::DocumentLink>>,
-        /// Adapter attachments with reason + exact version metadata.
-        #[serde(skip_serializing_if = "Option::is_none")]
-        adapter_attachments: Option<Vec<adapteros_api_types::inference::AdapterAttachment>>,
-        /// Explicit degraded/fallback notices.
-        #[serde(skip_serializing_if = "Option::is_none")]
-        degraded_notices: Option<Vec<adapteros_api_types::inference::DegradedNotice>>,
-        /// Whether backend fallback occurred during execution.
-        #[serde(default)]
-        fallback_triggered: bool,
-        /// Backend selected after fallback (if different from requested).
-        #[serde(skip_serializing_if = "Option::is_none")]
-        fallback_backend: Option<String>,
         /// Stop reason code (PRD: Hard Deterministic Stop Controller)
         #[serde(skip_serializing_if = "Option::is_none")]
         stop_reason_code: Option<adapteros_api_types::inference::StopReasonCode>,
@@ -371,12 +349,7 @@ pub enum InferenceEvent {
         pending_evidence_ids: Vec<String>,
     },
     /// Error occurred
-    Error {
-        message: String,
-        recoverable: bool,
-        #[serde(skip_serializing_if = "Option::is_none")]
-        code: Option<String>,
-    },
+    Error { message: String, recoverable: bool },
     /// Adapter state update for visualization
     AdapterStateUpdate { adapters: Vec<AdapterStateInfo> },
 }
@@ -1469,14 +1442,6 @@ struct LoadingStreamState {
     unavailable_pinned_adapters: Option<Vec<String>>,
     /// Routing fallback mode
     pinned_routing_fallback: Option<String>,
-    /// Whether backend fallback occurred during execution.
-    fallback_triggered: bool,
-    /// Backend selected after fallback (if different from requested).
-    fallback_backend: Option<String>,
-    /// Adapter attachments with reason + exact version metadata.
-    adapter_attachments: Vec<adapteros_api_types::inference::AdapterAttachment>,
-    /// Explicit degraded/fallback notices.
-    degraded_notices: Vec<adapteros_api_types::inference::DegradedNotice>,
     /// User claims for policy enforcement
     claims: Option<crate::auth::Claims>,
     /// Session token adapter lock (if present)
@@ -1539,10 +1504,6 @@ impl LoadingStreamState {
             request_id,
             unavailable_pinned_adapters: None,
             pinned_routing_fallback: None,
-            fallback_triggered: false,
-            fallback_backend: None,
-            adapter_attachments: Vec::new(),
-            degraded_notices: Vec::new(),
             stop_reason_code: None,
             stop_reason_token_index: None,
             stop_policy_digest_b3: None,
@@ -1611,7 +1572,6 @@ impl LoadingStreamState {
                         Some(InferenceEvent::Error {
                             message: format!("Failed to check adapter state: {}", e),
                             recoverable: false,
-                            code: None,
                         })
                     }
                 }
@@ -1633,7 +1593,6 @@ impl LoadingStreamState {
                         Some(InferenceEvent::Error {
                             message: format!("Failed to load adapter: {}", e),
                             recoverable: true,
-                            code: None,
                         })
                     }
                 }
@@ -1652,7 +1611,6 @@ impl LoadingStreamState {
                         Some(InferenceEvent::Error {
                             message: format!("Adapter failed to become ready: {}", e),
                             recoverable: true,
-                            code: None,
                         })
                     }
                 }
@@ -1664,7 +1622,6 @@ impl LoadingStreamState {
                         return Some(InferenceEvent::Error {
                             message: format!("Inference failed: {}", e),
                             recoverable: false,
-                            code: None,
                         });
                     }
                 }
@@ -1777,15 +1734,19 @@ impl LoadingStreamState {
                     Some(Ok(result)) => {
                         self.unavailable_pinned_adapters = result.unavailable_pinned_adapters;
                         self.pinned_routing_fallback = result.pinned_routing_fallback;
-                        self.fallback_triggered = result.fallback_triggered;
-                        self.fallback_backend = result.fallback_backend.clone();
-                        self.adapter_attachments = result.adapter_attachments.clone();
-                        self.degraded_notices = result.degraded_notices.clone();
                         self.stop_reason_code = result.stop_reason_code;
                         self.stop_reason_token_index = result.stop_reason_token_index;
                         self.stop_policy_digest_b3 = result.stop_policy_digest_b3.clone();
-                        let citations = result.citations;
-                        let document_links = result.document_links;
+
+                        // Collect citations (best-effort, non-blocking if empty)
+                        let citations = collect_citations_for_adapters(
+                            &self.state,
+                            &self.tenant_id,
+                            std::slice::from_ref(&self.adapter_id),
+                            &self.request.prompt,
+                            3,
+                        )
+                        .await;
 
                         // Fire OnAfterInference hook at stream completion
                         // NOTE: For streaming, this is fire-and-forget audit logging only.
@@ -1848,23 +1809,6 @@ impl LoadingStreamState {
                             } else {
                                 Some(citations)
                             },
-                            document_links: if document_links.is_empty() {
-                                None
-                            } else {
-                                Some(document_links)
-                            },
-                            adapter_attachments: if self.adapter_attachments.is_empty() {
-                                None
-                            } else {
-                                Some(self.adapter_attachments.clone())
-                            },
-                            degraded_notices: if self.degraded_notices.is_empty() {
-                                None
-                            } else {
-                                Some(self.degraded_notices.clone())
-                            },
-                            fallback_triggered: self.fallback_triggered,
-                            fallback_backend: self.fallback_backend.clone(),
                             stop_reason_code: self.stop_reason_code,
                             stop_reason_token_index: self.stop_reason_token_index,
                             stop_policy_digest_b3: self.stop_policy_digest_b3.clone(),
@@ -1874,12 +1818,10 @@ impl LoadingStreamState {
                     Some(Err(err)) => Some(InferenceEvent::Error {
                         message: format!("Inference failed: {}", err),
                         recoverable: false,
-                        code: Some(err.error_code().to_string()),
                     }),
                     None => Some(InferenceEvent::Error {
                         message: "Stream ended without completion".to_string(),
                         recoverable: false,
-                        code: None,
                     }),
                 }
             }
@@ -2202,15 +2144,6 @@ struct StreamState {
     stop_reason_code: Option<adapteros_api_types::inference::StopReasonCode>,
     stop_reason_token_index: Option<u32>,
     stop_policy_digest_b3: Option<String>,
-    citations: Vec<adapteros_api_types::inference::Citation>,
-    document_links: Vec<adapteros_api_types::inference::DocumentLink>,
-    adapters_used: Vec<String>,
-    unavailable_pinned_adapters: Option<Vec<String>>,
-    pinned_routing_fallback: Option<String>,
-    fallback_triggered: bool,
-    fallback_backend: Option<String>,
-    adapter_attachments: Vec<adapteros_api_types::inference::AdapterAttachment>,
-    degraded_notices: Vec<adapteros_api_types::inference::DegradedNotice>,
     // Pending RAG evidence IDs for message binding
     pending_evidence_ids: Vec<String>,
     // Stream lifecycle tracking for reliability
@@ -2323,15 +2256,6 @@ impl StreamState {
             stop_reason_code: None,
             stop_reason_token_index: None,
             stop_policy_digest_b3: None,
-            citations: Vec::new(),
-            document_links: Vec::new(),
-            adapters_used: Vec::new(),
-            unavailable_pinned_adapters: None,
-            pinned_routing_fallback: None,
-            fallback_triggered: false,
-            fallback_backend: None,
-            adapter_attachments: Vec::new(),
-            degraded_notices: Vec::new(),
             pending_evidence_ids,
             // Stream lifecycle fields
             stream_id,
@@ -2569,17 +2493,6 @@ impl StreamState {
                                         self.stop_reason_code = result.stop_reason_code;
                                         self.stop_reason_token_index = result.stop_reason_token_index;
                                         self.stop_policy_digest_b3 = result.stop_policy_digest_b3.clone();
-                                        self.citations = result.citations.clone();
-                                        self.document_links = result.document_links.clone();
-                                        self.adapters_used = result.adapters_used.clone();
-                                        self.unavailable_pinned_adapters =
-                                            result.unavailable_pinned_adapters.clone();
-                                        self.pinned_routing_fallback =
-                                            result.pinned_routing_fallback.clone();
-                                        self.fallback_triggered = result.fallback_triggered;
-                                        self.fallback_backend = result.fallback_backend.clone();
-                                        self.adapter_attachments = result.adapter_attachments.clone();
-                                        self.degraded_notices = result.degraded_notices.clone();
                                         self.clear_pause_state();
                                         // Capture finish_reason for stream_finished event
                                         self.captured_finish_reason = Some(result.finish_reason.clone());
@@ -2856,15 +2769,6 @@ impl StreamState {
                     "total_tokens": total_tokens,
                     "duration_ms": duration_ms,
                     "finish_reason": self.captured_finish_reason,
-                    "citations": self.citations.clone(),
-                    "document_links": self.document_links.clone(),
-                    "adapters_used": self.adapters_used.clone(),
-                    "unavailable_pinned_adapters": self.unavailable_pinned_adapters.clone(),
-                    "pinned_routing_fallback": self.pinned_routing_fallback.clone(),
-                    "fallback_triggered": self.fallback_triggered,
-                    "fallback_backend": self.fallback_backend.clone(),
-                    "adapter_attachments": self.adapter_attachments.clone(),
-                    "degraded_notices": self.degraded_notices.clone(),
                     "timestamp_ms": std::time::SystemTime::now()
                         .duration_since(std::time::UNIX_EPOCH)
                         .map(|d| d.as_millis() as u64)
@@ -3205,11 +3109,6 @@ mod tests {
             unavailable_pinned_adapters: None,
             pinned_routing_fallback: None,
             citations: None,
-            document_links: None,
-            adapter_attachments: None,
-            degraded_notices: None,
-            fallback_triggered: false,
-            fallback_backend: None,
             stop_reason_code: None,
             stop_reason_token_index: None,
             stop_policy_digest_b3: None,
@@ -3230,11 +3129,6 @@ mod tests {
             unavailable_pinned_adapters: Some(vec!["pin-1".to_string(), "pin-2".to_string()]),
             pinned_routing_fallback: Some("stack_only".to_string()),
             citations: None,
-            document_links: None,
-            adapter_attachments: None,
-            degraded_notices: None,
-            fallback_triggered: false,
-            fallback_backend: None,
             stop_reason_code: None,
             stop_reason_token_index: None,
             stop_policy_digest_b3: None,
@@ -3653,7 +3547,6 @@ mod tests {
         let event = InferenceEvent::Error {
             message: "Test error".to_string(),
             recoverable: true,
-            code: None,
         };
 
         let json = serde_json::to_string(&event).unwrap();
@@ -3780,7 +3673,6 @@ mod tests {
             reasoning_mode: false,
             stop_policy: None,
             context: None,
-            bit_identical: false,
         };
 
         // Create mock claims
@@ -3860,7 +3752,6 @@ mod tests {
             reasoning_mode: true,
             stop_policy: None,
             context: None,
-            bit_identical: false,
         };
 
         let claims = Claims {
@@ -3918,7 +3809,6 @@ mod tests {
             reasoning_mode: false,
             stop_policy: None,
             context: None,
-            bit_identical: false,
         };
 
         let claims = Claims {
@@ -3946,62 +3836,6 @@ mod tests {
         // RAG should be disabled when no collection_id
         assert!(!internal.rag_enabled);
         assert!(internal.rag_collection_id.is_none());
-    }
-
-    #[test]
-    fn test_streaming_request_bit_identical_sets_internal_strict_flags() {
-        use crate::auth::Claims;
-
-        let streaming_req = StreamingInferRequest {
-            prompt: "Pinned run".to_string(),
-            model: None,
-            backend: None,
-            coreml_mode: None,
-            stack_id: None,
-            max_tokens: default_max_tokens(),
-            temperature: default_temperature(),
-            top_p: None,
-            top_k: None,
-            stop: vec![],
-            adapter_stack: None,
-            adapters: Some(vec!["repo-a@ver-1".to_string()]),
-            seed: Some(42),
-            adapter_strength_overrides: None,
-            require_evidence: false,
-            collection_id: None,
-            domain: None,
-            routing_determinism_mode: None,
-            session_id: None,
-            effective_adapter_ids: None,
-            reasoning_mode: false,
-            stop_policy: None,
-            context: None,
-            bit_identical: true,
-        };
-
-        let claims = Claims {
-            sub: "user".to_string(),
-            email: String::new(),
-            tenant_id: "tenant".to_string(),
-            role: "operator".to_string(),
-            roles: Vec::new(),
-            admin_tenants: Vec::new(),
-            device_id: None,
-            session_id: None,
-            mfa_level: None,
-            rot_id: None,
-            exp: 0,
-            iat: 0,
-            jti: TypedId::new(IdPrefix::Tok).to_string(),
-            nbf: 0,
-            iss: JWT_ISSUER.to_string(),
-            auth_mode: AuthMode::BearerToken,
-            principal_type: Some(PrincipalType::User),
-        };
-
-        let internal: InferenceRequestInternal = (&streaming_req, &claims).into();
-        assert!(internal.bit_identical);
-        assert!(!internal.allow_fallback);
     }
 
     #[test]
@@ -4222,7 +4056,6 @@ mod tests {
             effective_adapter_ids: None,
             stop_policy: None,
             context: None,
-            bit_identical: false,
         };
 
         let mut stream = LoadingStreamState::new(

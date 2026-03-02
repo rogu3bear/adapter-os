@@ -50,7 +50,7 @@
 ./scripts/run_load_tests.sh \
     --requests 1000 \
     --concurrency 50 \
-    --url http://localhost:18080 \
+    --url http://localhost:9443 \
     --all
 ```
 
@@ -75,7 +75,7 @@
 
 ```bash
 # Optional: Configure test environment
-export MPLORA_TEST_URL="http://localhost:18080"
+export MPLORA_TEST_URL="http://localhost:9443"
 export TENANT_A_TOKEN="your-token-here"
 export TENANT_B_TOKEN="your-token-here"
 export TENANT_C_TOKEN="your-token-here"
@@ -115,7 +115,7 @@ Request Latency Metrics:
 
 ### Server Not Running
 ```
-Warning: Cannot reach adapterOS server at http://localhost:18080
+Warning: Cannot reach adapterOS server at http://localhost:9443
 ```
 **Fix**: Start the server with `cargo run --bin adapteros-server`
 

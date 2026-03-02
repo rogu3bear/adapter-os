@@ -32,7 +32,7 @@ async fn build_test_state_with_general(
     adapteros_db::sqlx::query(
         "INSERT OR IGNORE INTO tenants (id, name) VALUES ('tenant-1', 'Test Tenant')",
     )
-    .execute(db.pool_result().expect("db pool available"))
+    .execute(db.pool())
     .await
     .unwrap();
 

@@ -555,7 +555,7 @@ async fn test_prefix_template_crud_integration() {
 
     // Create tenant first (FK constraint)
     sqlx::query("INSERT INTO tenants (id, name) VALUES ('tenant-1', 'Test Tenant')")
-        .execute(db.pool_result().unwrap())
+        .execute(db.pool())
         .await
         .expect("Failed to create tenant");
 
@@ -666,7 +666,7 @@ async fn test_prefix_template_tenant_isolation() {
     sqlx::query(
         "INSERT INTO tenants (id, name) VALUES ('tenant-1', 'Tenant 1'), ('tenant-2', 'Tenant 2')",
     )
-    .execute(db.pool_result().unwrap())
+    .execute(db.pool())
     .await
     .expect("Failed to create tenants");
 
@@ -736,7 +736,7 @@ async fn test_prefix_kv_receipt_fields_persistence() {
 
     // Create tenant
     sqlx::query("INSERT INTO tenants (id, name) VALUES ('tenant-1', 'Test Tenant')")
-        .execute(db.pool_result().unwrap())
+        .execute(db.pool())
         .await
         .expect("Failed to create tenant");
 
@@ -868,7 +868,7 @@ async fn test_prefix_kv_receipt_fields_persistence() {
          WHERE trace_id = ?",
     )
     .bind(&trace_id)
-    .fetch_one(db.pool_result().unwrap())
+    .fetch_one(db.pool())
     .await
     .expect("Failed to query receipt");
 
@@ -946,7 +946,7 @@ async fn test_cache_attestation_required_when_cache_credits_claimed() {
     let db = Arc::new(Db::new_in_memory().await.expect("Failed to create test db"));
 
     sqlx::query("INSERT INTO tenants (id, name) VALUES ('tenant-1', 'Test Tenant')")
-        .execute(db.pool_result().unwrap())
+        .execute(db.pool())
         .await
         .expect("Failed to create tenant");
 
@@ -1040,7 +1040,7 @@ async fn test_cache_attestation_invalid_signature_rejected() {
     let db = Arc::new(Db::new_in_memory().await.expect("Failed to create test db"));
 
     sqlx::query("INSERT INTO tenants (id, name) VALUES ('tenant-1', 'Test Tenant')")
-        .execute(db.pool_result().unwrap())
+        .execute(db.pool())
         .await
         .expect("Failed to create tenant");
 
@@ -1149,7 +1149,7 @@ async fn test_cache_attestation_token_count_mismatch_rejected() {
     let db = Arc::new(Db::new_in_memory().await.expect("Failed to create test db"));
 
     sqlx::query("INSERT INTO tenants (id, name) VALUES ('tenant-1', 'Test Tenant')")
-        .execute(db.pool_result().unwrap())
+        .execute(db.pool())
         .await
         .expect("Failed to create tenant");
 
@@ -1256,7 +1256,7 @@ async fn test_cache_attestation_cache_key_mismatch_rejected() {
     let db = Arc::new(Db::new_in_memory().await.expect("Failed to create test db"));
 
     sqlx::query("INSERT INTO tenants (id, name) VALUES ('tenant-1', 'Test Tenant')")
-        .execute(db.pool_result().unwrap())
+        .execute(db.pool())
         .await
         .expect("Failed to create tenant");
 
@@ -1647,7 +1647,7 @@ async fn test_prefix_resolver_integration() {
 
     // Create tenant
     sqlx::query("INSERT INTO tenants (id, name) VALUES ('tenant-1', 'Test Tenant')")
-        .execute(db.pool_result().unwrap())
+        .execute(db.pool())
         .await
         .expect("Failed to create tenant");
 
@@ -1712,7 +1712,7 @@ async fn test_prefix_resolver_fallback_to_system() {
 
     // Create tenant
     sqlx::query("INSERT INTO tenants (id, name) VALUES ('tenant-1', 'Test Tenant')")
-        .execute(db.pool_result().unwrap())
+        .execute(db.pool())
         .await
         .expect("Failed to create tenant");
 

@@ -51,7 +51,7 @@ async fn init_test_db() -> anyhow::Result<Arc<Db>> {
     sqlx::query("INSERT INTO tenants (id, name, itar_flag) VALUES (?, ?, 0)")
         .bind("tenant-test")
         .bind("Test Tenant")
-        .execute(db.pool_result().unwrap())
+        .execute(db.pool())
         .await?;
 
     Ok(db)
@@ -95,7 +95,7 @@ async fn create_processing_document_with_time(
     )
     .bind(minutes_ago)
     .bind(&doc_id)
-    .execute(db.pool_result().unwrap())
+    .execute(db.pool())
     .await?;
 
     Ok(doc_id)
@@ -501,7 +501,7 @@ async fn test_stale_recovery_tenant_isolation() -> anyhow::Result<()> {
     sqlx::query("INSERT INTO tenants (id, name, itar_flag) VALUES (?, ?, 0)")
         .bind("tenant-other")
         .bind("Other Tenant")
-        .execute(db.pool_result().unwrap())
+        .execute(db.pool())
         .await?;
 
     // Create stale documents in both tenants
@@ -562,7 +562,7 @@ async fn test_get_retryable_documents() -> anyhow::Result<()> {
     // Manually set retry_count to max_retries
     sqlx::query("UPDATE documents SET status = 'failed', retry_count = max_retries WHERE id = ?")
         .bind(&failed_max_retries)
-        .execute(db.pool_result().unwrap())
+        .execute(db.pool())
         .await?;
 
     // Create documents in other states (should not be returned)

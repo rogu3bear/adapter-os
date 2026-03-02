@@ -53,7 +53,7 @@ async fn create_kv_primary_db() -> (Db, TempDir) {
     let kv_db = KvDb::init_redb(&kv_path).unwrap();
 
     // Create Db in KvPrimary mode
-    let pool = db_sql.pool_result().expect("db pool available").clone();
+    let pool = db_sql.pool().clone();
     let db = Db::new(pool, Some(Arc::new(kv_db)), StorageMode::KvPrimary);
 
     // Ensure storage mode is correctly set
@@ -62,7 +62,7 @@ async fn create_kv_primary_db() -> (Db, TempDir) {
 
     // Create default tenant for testing
     sqlx::query("INSERT INTO tenants (id, name) VALUES ('default-tenant', 'Default Test Tenant')")
-        .execute(db.pool_result().expect("db pool available"))
+        .execute(db.pool())
         .await
         .unwrap();
 
@@ -88,12 +88,12 @@ async fn create_dual_write_db() -> (Db, TempDir) {
     let kv_db = KvDb::init_redb(&kv_path).unwrap();
 
     // Create Db in DualWrite mode
-    let pool = db_sql.pool_result().expect("db pool available").clone();
+    let pool = db_sql.pool().clone();
     let db = Db::new(pool, Some(Arc::new(kv_db)), StorageMode::DualWrite);
 
     // Create default tenant
     sqlx::query("INSERT INTO tenants (id, name) VALUES ('default-tenant', 'Default Test Tenant')")
-        .execute(db.pool_result().expect("db pool available"))
+        .execute(db.pool())
         .await
         .unwrap();
 
@@ -342,7 +342,7 @@ async fn test_kv_primary_fallback_on_kv_none() {
     .bind(&params.tier)
     .bind(&params.category)
     .bind(&params.scope)
-    .execute(db.pool_result().expect("db pool available"))
+    .execute(db.pool())
     .await
     .unwrap();
 
@@ -398,7 +398,7 @@ async fn test_kv_primary_fallback_on_kv_error() {
     .bind(&params.tier)
     .bind(&params.category)
     .bind(&params.scope)
-    .execute(db.pool_result().expect("db pool available"))
+    .execute(db.pool())
     .await
     .unwrap();
 
@@ -550,7 +550,7 @@ async fn test_kv_primary_list_fallback() {
         .bind("warm")
         .bind("code")
         .bind("global")
-        .execute(db.pool_result().expect("db pool available"))
+        .execute(db.pool())
         .await
         .unwrap();
     }
@@ -786,7 +786,7 @@ async fn test_kv_primary_mixed_data_sources() {
     .bind("warm")
     .bind("code")
     .bind("global")
-    .execute(db.pool_result().expect("db pool available"))
+    .execute(db.pool())
     .await
     .unwrap();
 

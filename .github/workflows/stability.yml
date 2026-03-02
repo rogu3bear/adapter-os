@@ -1,0 +1,63 @@
+name: Stability Gate
+
+on:
+  push:
+    branches: [main]
+  pull_request:
+    branches: [main]
+  workflow_dispatch:
+
+jobs:
+  stability:
+    name: Stability Check
+    runs-on: ubuntu-latest
+    steps:
+      - name: Checkout
+        uses: actions/checkout@v4
+
+      - name: Setup Rust (nightly + miri)
+        uses: dtolnay/rust-toolchain@nightly
+        with:
+          components: rustfmt, clippy, miri
+
+      - name: Prepare Miri
+        run: cargo miri setup
+
+      - name: Setup Node.js
+        uses: actions/setup-node@v4
+        with:
+          node-version: '20'
+          cache: 'pnpm'
+          cache-dependency-path: ui/pnpm-lock.yaml
+
+      - name: Install pnpm
+        uses: pnpm/action-setup@v2
+        with:
+          version: 9
+
+      - name: Seed test env
+        run: |
+          echo "AOS_DATABASE_URL=sqlite:var/aos-cp.sqlite3" > .env
+
+      - name: Run stability gate
+        run: scripts/ci/stability.sh
+
+  ignored-tests:
+    name: Ignored Test Sweep (Non-blocking)
+    runs-on: ubuntu-latest
+    continue-on-error: true
+    steps:
+      - name: Checkout
+        uses: actions/checkout@v4
+
+      - name: Setup Rust (nightly)
+        uses: dtolnay/rust-toolchain@nightly
+        with:
+          components: rustfmt, clippy
+
+      - name: Seed test env
+        run: |
+          echo "AOS_DATABASE_URL=sqlite:var/aos-cp.sqlite3" > .env
+
+      - name: Run ignored test sweep
+        run: make test-ignored

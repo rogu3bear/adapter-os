@@ -189,7 +189,7 @@ aosctl status cluster
 
 **What is Deploying?** Deployment copies **Adapter** files to the system directory, registers them with semantic names (tenant/domain/purpose/revision), and makes them available for use in **Stacks**.
 
-The `deploy` tree replaces the former `scripts/deploy_adapters.sh` script (removed).
+The `deploy` tree replaces the legacy `scripts/deploy_adapters.sh` script.
 
 - `aosctl deploy adapters`
   - Deploys adapter directories, `.aos` files, or `.safetensors` weights.
@@ -269,7 +269,7 @@ aosctl infer --adapter my_adapter \
   - Key flags:
     - `--stack <id>` - Use specific adapter stack
     - `--model <id>` - Use specific model
-    - `--server-url <url>` - Custom server URL (default: http://127.0.0.1:18080/api)
+    - `--server-url <url>` - Custom server URL (default: http://127.0.0.1:8080/api)
     - `--timeout <secs>` - Request timeout (default: 30)
   
 - `aosctl chat prompt` - Send a single prompt and exit
@@ -444,7 +444,7 @@ aosctl backend-status --detailed --json
 
 - `aosctl tui` - Launch interactive TUI dashboard
   - Key flags:
-    - `--server-url <url>` - Server URL (default: http://localhost:18080)
+    - `--server-url <url>` - Server URL (default: http://localhost:8080)
 
 **Quick Keys:**
 - `b` - Boot services
@@ -504,7 +504,7 @@ Chat commands provide interactive and programmatic access to chat sessions.
   - Key flags:
     - `--stack`: Specify stack ID for multi-adapter routing.
     - `--owner-system`: Mark session as system-owned (for automated workflows).
-    - `--base-url`: Control plane URL (default: http://127.0.0.1:18080).
+    - `--base-url`: Control plane URL (default: http://127.0.0.1:8080).
     - `-v, --verbose`: Show detailed request/response info.
   - Type `/quit` or `/exit` to end the session.
   - Use `Ctrl+C` to cancel the current request.

@@ -16,6 +16,3 @@
  */
 
 export { meta as skeletonMeta } from './_skeleton.spec';
-export { meta as createAdapterMeta } from './create-adapter.spec';
-export { meta as trustNativeMeta } from './trust-native.spec';
-export { meta as replaySignedVerifyMeta } from './replay-signed-verify.spec';

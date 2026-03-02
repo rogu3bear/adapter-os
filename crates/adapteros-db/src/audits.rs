@@ -37,7 +37,7 @@ impl Db {
         .bind(bundle_id)
         .bind(result_json)
         .bind(status)
-        .execute(self.pool_result()?)
+        .execute(self.pool())
         .await
         .map_err(|e| AosError::Database(e.to_string()))?;
         Ok(id)
@@ -47,7 +47,7 @@ impl Db {
         let audits = sqlx::query_as::<_, Audit>(
             "SELECT id, tenant_id, cpid, suite_name, bundle_id, result_json, status, created_at FROM audits ORDER BY created_at DESC"
         )
-        .fetch_all(self.pool_result()?)
+        .fetch_all(self.pool())
         .await
         .map_err(|e| AosError::Database(e.to_string()))?;
         Ok(audits)
@@ -58,7 +58,7 @@ impl Db {
             "SELECT id, tenant_id, cpid, suite_name, bundle_id, result_json, status, created_at FROM audits WHERE id = ?"
         )
         .bind(id)
-        .fetch_optional(self.pool_result()?)
+        .fetch_optional(self.pool())
         .await
         .map_err(|e| AosError::Database(e.to_string()))?;
         Ok(audit)

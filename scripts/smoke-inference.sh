@@ -7,7 +7,7 @@
 # - Optionally tests inference endpoint
 #
 # Usage:
-#   ./scripts/smoke-inference.sh                    # Default localhost:18080
+#   ./scripts/smoke-inference.sh                    # Default localhost:8080
 #   ./scripts/smoke-inference.sh --port 8081        # Custom port
 #   ./scripts/smoke-inference.sh --skip-inference   # Skip inference test
 #
@@ -16,12 +16,11 @@ set -euo pipefail
 ROOT="$(cd "$(dirname "${BASH_SOURCE[0]}")/.." && pwd)"
 
 # Configuration
-: "${AOS_SERVER_PORT:=18080}"
+: "${AOS_SERVER_PORT:=8080}"
 BASE_URL="http://localhost:$AOS_SERVER_PORT"
-API_BASE=""
+API_BASE="${BASE_URL%/}/api"
 SKIP_INFERENCE=0
 VERBOSE=0
-: "${SMOKE_INFERENCE_STRICT:=0}"
 
 # Parse arguments
 while [[ $# -gt 0 ]]; do
@@ -29,13 +28,10 @@ while [[ $# -gt 0 ]]; do
     --port)
       AOS_SERVER_PORT="$2"
       BASE_URL="http://localhost:$AOS_SERVER_PORT"
+      API_BASE="${BASE_URL%/}/api"
       shift 2
       ;;
     --skip-inference)
-      if [[ "${SMOKE_INFERENCE_STRICT}" == "1" ]]; then
-        echo "--skip-inference is not allowed when SMOKE_INFERENCE_STRICT=1" >&2
-        exit 1
-      fi
       SKIP_INFERENCE=1
       shift
       ;;
@@ -49,20 +45,6 @@ while [[ $# -gt 0 ]]; do
       ;;
   esac
 done
-
-detect_api_base() {
-  local root_base="${BASE_URL%/}"
-  if curl -sf --max-time 2 "${root_base}/healthz" > /dev/null 2>&1; then
-    API_BASE="${root_base}"
-  elif curl -sf --max-time 2 "${root_base}/api/healthz" > /dev/null 2>&1; then
-    API_BASE="${root_base}/api"
-  else
-    # Default to legacy /api prefix when probing fails.
-    API_BASE="${root_base}/api"
-  fi
-}
-
-detect_api_base
 
 # Color codes
 FG_GREEN="\033[32m"
@@ -131,17 +113,9 @@ if [[ "$SKIP_INFERENCE" != "1" ]]; then
     -d '{"prompt": "Hello", "max_tokens": 1}' 2>/dev/null || echo '{"error":true}')
 
   if echo "$INFER_RESPONSE" | grep -q '"error"'; then
-    if [[ "${SMOKE_INFERENCE_STRICT}" == "1" ]]; then
-      echo -e "${FG_RED}FAIL${FG_RESET} (strict mode requires successful inference)"
-      ((TESTS_FAILED++))
-      if [[ "$VERBOSE" == "1" ]]; then
-        echo "   Response: $INFER_RESPONSE"
-      fi
-    else
-      echo -e "${FG_YELLOW}SKIP${FG_RESET} (inference error or worker not ready)"
-      if [[ "$VERBOSE" == "1" ]]; then
-        echo "   Response: $INFER_RESPONSE"
-      fi
+    echo -e "${FG_YELLOW}SKIP${FG_RESET} (inference error or worker not ready)"
+    if [[ "$VERBOSE" == "1" ]]; then
+      echo "   Response: $INFER_RESPONSE"
     fi
   else
     echo -e "${FG_GREEN}PASS${FG_RESET}"

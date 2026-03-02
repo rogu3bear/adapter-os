@@ -249,7 +249,7 @@ impl SyncRegistry {
             .bind(&revision)
             .bind(parent_id)
             .bind(&fork_type_str)
-            .execute(self.db.pool_result()?)
+            .execute(self.db.pool())
             .await
             .map_err(|e| AosError::Registry(format!("Failed to register adapter: {}", e)))
         })?;
@@ -276,7 +276,7 @@ impl SyncRegistry {
                 "#,
             )
             .bind(id)
-            .fetch_optional(self.db.pool_result()?)
+            .fetch_optional(self.db.pool())
             .await
             .map_err(|e| AosError::Registry(format!("Failed to get adapter: {}", e)))?;
 
@@ -297,7 +297,7 @@ impl SyncRegistry {
                 "#,
             )
             .bind(parsed_name.to_string())
-            .fetch_optional(self.db.pool_result()?)
+            .fetch_optional(self.db.pool())
             .await
             .map_err(|e| AosError::Registry(format!("Failed to get adapter: {}", e)))?;
 
@@ -315,7 +315,7 @@ impl SyncRegistry {
                 FROM adapters
                 "#,
             )
-            .fetch_all(self.db.pool_result()?)
+            .fetch_all(self.db.pool())
             .await
             .map_err(|e| AosError::Registry(format!("Failed to list adapters: {}", e)))?;
 
@@ -343,7 +343,7 @@ impl SyncRegistry {
             .bind(tenant)
             .bind(domain)
             .bind(purpose)
-            .fetch_all(self.db.pool_result()?)
+            .fetch_all(self.db.pool())
             .await
             .map_err(|e| AosError::Registry(format!("Failed to query adapters: {}", e)))?;
 
@@ -409,7 +409,7 @@ impl SyncRegistry {
             .bind(id)
             .bind(uid as i64)
             .bind(gid as i64)
-            .execute(self.db.pool_result()?)
+            .execute(self.db.pool())
             .await
             .map_err(|e| AosError::Registry(format!("Failed to register tenant: {}", e)))
         })?;
@@ -424,7 +424,7 @@ impl SyncRegistry {
                 "SELECT id, uid, gid, created_at FROM tenants WHERE id = ?1",
             )
             .bind(id)
-            .fetch_optional(self.db.pool_result()?)
+            .fetch_optional(self.db.pool())
             .await
             .map_err(|e| AosError::Registry(format!("Failed to get tenant: {}", e)))?;
 
@@ -438,7 +438,7 @@ impl SyncRegistry {
             sqlx::query("UPDATE adapters SET activation_pct = ?1 WHERE adapter_id = ?2")
                 .bind(pct)
                 .bind(adapter_id)
-                .execute(self.db.pool_result()?)
+                .execute(self.db.pool())
                 .await
                 .map_err(|e| AosError::Registry(format!("Failed to update activation: {}", e)))
         })?;
@@ -502,7 +502,7 @@ impl SyncRegistry {
                 "#,
             )
             .bind(name)
-            .fetch_optional(self.db.pool_result()?)
+            .fetch_optional(self.db.pool())
             .await
             .map_err(|e| AosError::Registry(format!("Failed to get model: {}", e)))?;
 
@@ -532,7 +532,7 @@ impl SyncRegistry {
             .bind(&model.license_text)
             .bind(model.weights_hash.to_hex())
             .bind(model.model_card_hash.map(|h| h.to_hex()))
-            .execute(self.db.pool_result()?)
+            .execute(self.db.pool())
             .await
             .map_err(|e| {
                 let err_msg = e.to_string();
@@ -570,7 +570,7 @@ impl SyncRegistry {
                 ORDER BY created_at DESC
                 "#,
             )
-            .fetch_all(self.db.pool_result()?)
+            .fetch_all(self.db.pool())
             .await
             .map_err(|e| AosError::Registry(format!("Failed to list models: {}", e)))?;
 

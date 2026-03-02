@@ -1,11 +1,11 @@
 //! Guard test to prevent hardcoded network values from entering the codebase.
 //!
 //! Network defaults should be centralized in `adapteros_core::defaults`:
-//! - `DEFAULT_SERVER_PORT` (18080)
-//! - `DEFAULT_UI_PORT` (18081)
+//! - `DEFAULT_SERVER_PORT` (8080)
+//! - `DEFAULT_UI_PORT` (3200)
 //! - `DEFAULT_SERVER_HOST` ("127.0.0.1")
-//! - `DEFAULT_SERVER_URL` -> "http://127.0.0.1:18080"
-//! - `DEFAULT_API_URL` -> "http://127.0.0.1:18080/api"
+//! - `DEFAULT_SERVER_URL` -> "http://127.0.0.1:8080"
+//! - `DEFAULT_API_URL` -> "http://127.0.0.1:8080/api"
 //!
 //! This test scans source files and fails if it finds hardcoded network values
 //! outside of allowed exceptions (tests, documentation, the defaults module itself).
@@ -15,18 +15,18 @@ use std::path::{Path, PathBuf};
 
 /// Patterns that indicate hardcoded network values.
 const HARDCODED_PATTERNS: &[&str] = &[
-    r#""localhost:18080""#,
-    r#""localhost:18081""#,
-    r#""localhost:18090""#,
-    r#""127.0.0.1:18080""#,
-    r#""127.0.0.1:18081""#,
-    r#""127.0.0.1:18090""#,
-    r#""http://localhost:18080""#,
-    r#""http://127.0.0.1:18080""#,
-    r#""http://localhost:18080/api""#,
-    r#""http://127.0.0.1:18080/api""#,
-    r#""http://localhost:18081""#,
-    r#""http://127.0.0.1:18081""#,
+    r#""localhost:8080""#,
+    r#""localhost:3200""#,
+    r#""localhost:9011""#,
+    r#""127.0.0.1:8080""#,
+    r#""127.0.0.1:3200""#,
+    r#""127.0.0.1:9011""#,
+    r#""http://localhost:8080""#,
+    r#""http://127.0.0.1:8080""#,
+    r#""http://localhost:8080/api""#,
+    r#""http://127.0.0.1:8080/api""#,
+    r#""http://localhost:3200""#,
+    r#""http://127.0.0.1:3200""#,
 ];
 
 /// Files that are allowed to contain hardcoded values (the source of truth).
@@ -95,12 +95,12 @@ fn no_hardcoded_network_values_in_sources() {
             Found hardcoded network values (use adapteros_core::defaults instead):\n\n\
             {}\n\n\
             Fix: Import and use these from adapteros_core::defaults:\n\
-            - DEFAULT_SERVER_PORT (18080)\n\
-            - DEFAULT_UI_PORT (18081)\n\
+            - DEFAULT_SERVER_PORT (8080)\n\
+            - DEFAULT_UI_PORT (3200)\n\
             - DEFAULT_SERVER_HOST (\"127.0.0.1\")\n\
-            - default_server_url() -> \"http://127.0.0.1:18080\"\n\
-            - default_api_url() -> \"http://127.0.0.1:18080/api\"\n\
-            - default_ui_url() -> \"http://127.0.0.1:18081\"\n",
+            - default_server_url() -> \"http://127.0.0.1:8080\"\n\
+            - default_api_url() -> \"http://127.0.0.1:8080/api\"\n\
+            - default_ui_url() -> \"http://127.0.0.1:3200\"\n",
             violations
                 .iter()
                 .map(|(path, line_num, line)| format!(

@@ -36,7 +36,6 @@ use adapteros_core::BackendKind;
 use adapteros_db::workers::WorkerWithBinding;
 use adapteros_db::Db;
 use serde::Serialize;
-use std::collections::HashSet;
 #[cfg(unix)]
 use std::os::unix::fs::FileTypeExt;
 use std::sync::Arc;
@@ -121,8 +120,6 @@ pub struct WorkerRequirements {
     pub capabilities: RequiredCapabilities,
     /// Prefer workers with cache hits (for prefix caching)
     pub prefer_cache_hit: bool,
-    /// Optional requested model ID for affinity scoring.
-    pub model_id: Option<String>,
 }
 
 impl WorkerRequirements {
@@ -133,7 +130,6 @@ impl WorkerRequirements {
             manifest_hash: manifest_hash.to_string(),
             capabilities: RequiredCapabilities::from_request(request),
             prefer_cache_hit: true, // Default to preferring cache hits
-            model_id: request.model.clone(),
         }
     }
 
@@ -144,7 +140,6 @@ impl WorkerRequirements {
             manifest_hash: manifest_hash.to_string(),
             capabilities: RequiredCapabilities::any(),
             prefer_cache_hit: false,
-            model_id: None,
         }
     }
 }
@@ -384,28 +379,11 @@ impl<'a> WorkerSelector<'a> {
             });
         }
 
-        let preferred_workers: HashSet<String> = if let Some(model_id) = req.model_id.as_deref() {
-            self.db
-                .list_ready_worker_ids_for_model(&req.tenant_id, model_id)
-                .await
-                .unwrap_or_default()
-                .into_iter()
-                .collect()
-        } else {
-            HashSet::new()
-        };
-
         // Step 4: Sort by selection score and pick best
         compatible.sort_by(|a, b| {
-            let a_affinity = preferred_workers.contains(&a.binding.id);
-            let b_affinity = preferred_workers.contains(&b.binding.id);
-            b_affinity
-                .cmp(&a_affinity)
-                .then_with(|| {
-                    a.selection_score()
-                        .partial_cmp(&b.selection_score())
-                        .unwrap_or(std::cmp::Ordering::Equal)
-                })
+            a.selection_score()
+                .partial_cmp(&b.selection_score())
+                .unwrap_or(std::cmp::Ordering::Equal)
                 .then_with(|| a.binding.id.cmp(&b.binding.id)) // Tie-break by ID for determinism
         });
 
@@ -446,45 +424,49 @@ impl<'a> WorkerSelector<'a> {
         base_delay: std::time::Duration,
         max_elapsed: std::time::Duration,
     ) -> Result<WorkerWithBinding, SelectionError> {
-        use adapteros_core::recovery::RecoveryOrchestratorBuilder;
-        use adapteros_core::retry_policy::RetryPolicy;
+        use std::time::Instant;
 
-        let policy = RetryPolicy {
-            max_attempts,
-            base_delay,
-            max_delay: max_elapsed,
-            backoff_factor: 2.0,
-            jitter: false,
-            ..RetryPolicy::fast("worker-selection")
-        };
+        let deadline = Instant::now() + max_elapsed;
+        let mut attempt: u32 = 0;
+        let mut delay = base_delay;
 
-        let orchestrator = RecoveryOrchestratorBuilder::new("worker-selection")
-            .with_retry_policy(policy)
-            .build();
+        loop {
+            attempt += 1;
+            let remaining = deadline.saturating_duration_since(Instant::now());
 
-        let outcome = orchestrator
-            .execute(|| async { self.select_best_worker(req).await })
-            .await;
-
-        match outcome.result {
-            Ok(worker) => {
-                let attempt = outcome.stats.retry_attempts + 1;
-                if attempt > 1 {
-                    info!(
-                        tenant_id = %req.tenant_id,
-                        worker_id = %worker.id,
-                        attempt = attempt,
-                        "Selected compatible worker after retry"
-                    );
+            match self.select_best_worker(req).await {
+                Ok(worker) => {
+                    if attempt > 1 {
+                        info!(
+                            tenant_id = %req.tenant_id,
+                            worker_id = %worker.id,
+                            attempt = attempt,
+                            "Selected compatible worker after retry"
+                        );
+                    }
+                    return Ok(worker);
                 }
-                Ok(worker)
-            }
-            Err(e) => {
-                let err_msg = e.to_string();
-                if let Some(source) = e.into_source() {
-                    Err(source)
-                } else {
-                    Err(SelectionError::DatabaseError(err_msg))
+                Err(e) => {
+                    let should_retry =
+                        e.is_retryable() && attempt < max_attempts && !remaining.is_zero();
+
+                    if should_retry {
+                        warn!(
+                            attempt = attempt,
+                            max_attempts = max_attempts,
+                            delay_ms = delay.as_millis() as u64,
+                            remaining_budget_ms = remaining.as_millis() as u64,
+                            tenant_id = %req.tenant_id,
+                            error = %e,
+                            "Worker selection failed, retrying"
+                        );
+
+                        let actual_delay = delay.min(remaining);
+                        tokio::time::sleep(actual_delay).await;
+                        delay *= 2;
+                    } else {
+                        return Err(e);
+                    }
                 }
             }
         }
@@ -559,24 +541,6 @@ impl SelectionError {
             }
             _ => None,
         }
-    }
-}
-
-impl adapteros_core::recovery::RecoveryClassifier for SelectionError {
-    fn is_retryable(&self) -> bool {
-        self.is_retryable()
-    }
-
-    fn counts_as_failure(&self) -> bool {
-        self.is_retryable()
-    }
-
-    fn recommended_delay(&self) -> Option<std::time::Duration> {
-        None
-    }
-
-    fn should_fallback(&self) -> bool {
-        false
     }
 }
 

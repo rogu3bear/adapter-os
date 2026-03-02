@@ -459,7 +459,7 @@ impl Db {
         .bind(params.priority.unwrap_or(0))
         .bind(&params.created_by)
         .bind(&metadata_json)
-        .execute(self.pool_result()?)
+        .execute(self.pool())
         .await
         .map_err(|e| AosError::Database(format!("Failed to create lifecycle rule: {}", e)))?;
 
@@ -488,7 +488,7 @@ impl Db {
              WHERE id = ?"
         )
         .bind(rule_id)
-        .fetch_optional(self.pool_result()?)
+        .fetch_optional(self.pool())
         .await
         .map_err(|e| AosError::Database(format!("Failed to get lifecycle rule: {}", e)))?;
 
@@ -544,7 +544,7 @@ impl Db {
         }
 
         let rows = q
-            .fetch_all(self.pool_result()?)
+            .fetch_all(self.pool())
             .await
             .map_err(|e| AosError::Database(format!("Failed to list lifecycle rules: {}", e)))?;
 
@@ -621,7 +621,7 @@ impl Db {
         q = q.bind(rule_id);
 
         let result = q
-            .execute(self.pool_result()?)
+            .execute(self.pool())
             .await
             .map_err(|e| AosError::Database(format!("Failed to update lifecycle rule: {}", e)))?;
 
@@ -646,7 +646,7 @@ impl Db {
     pub async fn delete_lifecycle_rule(&self, rule_id: &str) -> Result<()> {
         sqlx::query("DELETE FROM lifecycle_rules WHERE id = ?")
             .bind(rule_id)
-            .execute(self.pool_result()?)
+            .execute(self.pool())
             .await
             .map_err(|e| AosError::Database(format!("Failed to delete lifecycle rule: {}", e)))?;
 
@@ -665,7 +665,7 @@ impl Db {
         )
         .bind(if enabled { 1 } else { 0 })
         .bind(rule_id)
-        .execute(self.pool_result()?)
+        .execute(self.pool())
         .await
         .map_err(|e| AosError::Database(format!("Failed to update lifecycle rule: {}", e)))?;
 

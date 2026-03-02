@@ -48,12 +48,12 @@ async fn create_test_db(mode: StorageMode) -> (Db, TempDir) {
     let kv_db = KvDb::init_redb(&kv_path).unwrap();
 
     // Create Db with specified storage mode
-    let pool = db_sql.pool_result().unwrap().clone();
+    let pool = db_sql.pool().clone();
     let db = Db::new(pool, Some(Arc::new(kv_db)), mode);
 
     // Create default tenant for testing
     sqlx::query("INSERT INTO tenants (id, name) VALUES ('default-tenant', 'Default Test Tenant')")
-        .execute(db.pool_result().unwrap())
+        .execute(db.pool())
         .await
         .unwrap();
 

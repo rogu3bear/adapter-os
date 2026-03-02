@@ -93,10 +93,7 @@ pub fn Select(
 ) -> impl IntoView {
     let full_class = format!("select {}", class);
     let field_ctx = use_form_field_context();
-    let input_id = StoredValue::new(
-        id.or_else(|| field_ctx.as_ref().map(|ctx| ctx.field_id.clone()))
-            .unwrap_or_else(|| format!("select-{}", uuid::Uuid::new_v4().simple())),
-    );
+    let input_id = id.or_else(|| field_ctx.as_ref().map(|ctx| ctx.field_id.clone()));
     let described_by = field_ctx.and_then(|ctx| ctx.described_by.clone());
 
     // Only apply aria-label when no visible label is provided
@@ -105,12 +102,12 @@ pub fn Select(
     view! {
         <div class="grid w-full gap-1.5">
             {label.map(|l| view! {
-                <label class="label" for=input_id.get_value()>
+                <label class="label" for=input_id.clone()>
                     {l}
                 </label>
             })}
             <select
-                id=input_id.get_value()
+                id=input_id
                 name=name
                 class=full_class
                 disabled=move || disabled.try_get().unwrap_or(false)

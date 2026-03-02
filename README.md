@@ -21,8 +21,9 @@ adapterOS enables **deterministic multi-adapter inference** on Apple Silicon:
 ## Quick Start
 
 ```bash
-# Bootstrap CLI launcher (builds/rebuilds aosctl as needed)
-./aosctl --rebuild --help
+# Build
+cargo build --release -p adapteros-cli --features tui
+ln -sf target/release/aosctl ./aosctl
 
 # Initialize
 ./aosctl db migrate
@@ -32,24 +33,6 @@ adapterOS enables **deterministic multi-adapter inference** on Apple Silicon:
 ```
 
 See [QUICKSTART.md](QUICKSTART.md) for full setup.
-
----
-
-## QA Visual Gate
-
-The canonical UI quality gate is Playwright-based and runs as dual-browser blocking checks on macOS:
-
-```bash
-cd tests/playwright
-npm run test:gate:quality -- --project=chromium
-npm run test:gate:quality -- --project=webkit
-```
-
-Baseline policy:
-- Canonical visual baselines are macOS snapshots (`*-darwin.png`).
-- Gate execution enforces a snapshot contract precheck that fails on missing active or orphaned baselines.
-
-See [tests/playwright/README.md](tests/playwright/README.md) for lane composition, run artifacts, and troubleshooting.
 
 ---
 

@@ -1,48 +1,91 @@
-# API/OpenAPI Quick Reference
+# API Types Quick Reference
 
-> **TL;DR**: After API route/schema changes, run `./scripts/ci/check_openapi_drift.sh --fix`.
+> **TL;DR**: Run `make gen-types` after changing API handlers/models in Rust.
 
 ## Quick Commands
 
 ```bash
-# CI-equivalent drift check
-./scripts/ci/check_openapi_drift.sh
+# After making API changes in Rust
+make gen-types
 
-# Regenerate committed OpenAPI spec when drift exists
-./scripts/ci/check_openapi_drift.sh --fix
+# Check if types are in sync (like CI does)
+make check-types-drift
 
-# Validate runtime route inventory coverage against OpenAPI
-./scripts/ci/check_route_inventory_openapi_coverage.sh
+# Generate all SDKs (TS + Python)
+make gen-sdks
 ```
 
-## When to Regenerate OpenAPI
+## When to Regenerate Types
 
-Run `./scripts/ci/check_openapi_drift.sh --fix` after:
+Run `make gen-types` after:
 
-- Adding or removing API routes
-- Changing request/response schemas
-- Updating `utoipa` annotations
-- Renaming fields used in API DTOs
+- ✅ Adding new API endpoints
+- ✅ Modifying request/response types
+- ✅ Changing field names or types
+- ✅ Adding/removing fields from schemas
+- ✅ Updating utoipa annotations
 
-## CI Drift Failure
+## CI Drift Check
 
-If CI reports OpenAPI drift, fix with:
+The CI will fail with this error if types are out of sync:
+
+```
+::error::Generated TypeScript types are out of sync with OpenAPI spec!
+```
+
+**Fix it:**
 
 ```bash
-./scripts/ci/check_openapi_drift.sh --fix
-git add docs/api/openapi.json
-git commit -m "chore: sync OpenAPI spec"
+make gen-types
+git add ui/src/api/generated.ts
+git commit -m "chore: update generated API types"
 ```
 
 ## File Locations
 
-- **Committed canonical spec**: `docs/api/openapi.json`
-- **Generated check artifact**: `target/codegen/openapi.check.json`
-- **Exporter default output path**: `target/codegen/openapi.json`
-- **Exporter binary source**: `crates/adapteros-server-api/src/bin/export-openapi.rs`
+- **Generated Types**: `ui/src/api/generated.ts` (auto-generated, don't edit)
+- **OpenAPI Spec**: `target/codegen/openapi.json` (auto-generated)
+- **Script**: `scripts/generate-sdks.sh`
+- **Config**: `codegen/`
+
+## Example Workflow
+
+1. **Edit Rust API handler:**
+   ```rust
+   #[derive(ToSchema, Serialize)]
+   pub struct NewType {
+       pub id: String,
+       pub name: String,
+   }
+   ```
+
+2. **Regenerate types:**
+   ```bash
+   make gen-types
+   ```
+
+3. **Use in TypeScript:**
+   ```typescript
+   import type { components } from '@/api/generated';
+
+   type NewType = components['schemas']['NewType'];
+   ```
+
+4. **Commit both:**
+   ```bash
+   git add crates/adapteros-server-api/
+   git add ui/src/api/generated.ts
+   git commit -m "feat: add NewType endpoint"
+   ```
 
 ## Full Documentation
 
-- [API Reference](../docs/API_REFERENCE.md)
-- [APIS](../docs/APIS.md)
-- [Route Inventory Coverage Exclusions](../docs/api/openapi_route_coverage_exclusions.txt)
+- [API Type Generation Guide](../docs/API_TYPE_GENERATION.md)
+- [Codegen README](../codegen/README.md)
+- [Summary](../API_TYPE_GENERATION_SUMMARY.md)
+
+## Help
+
+```bash
+./scripts/generate-sdks.sh --help
+```

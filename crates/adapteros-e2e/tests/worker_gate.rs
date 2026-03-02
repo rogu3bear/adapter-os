@@ -1,11 +1,6 @@
 #![cfg(feature = "worker-gate")]
 
 use adapteros_core::tokenizer_config::SpecialTokenMap;
-use adapteros_core::training_receipt_digest::{
-    compute_training_receipt_digest_v1, TrainingPhaseDigestStatusV1, TrainingReceiptDigestInputV1,
-    TRAINING_RECEIPT_SCHEMA_V1,
-};
-use adapteros_core::B3Hash;
 use serde::Serialize;
 use serde_json::{json, Map, Value};
 use std::fs::{self, File};
@@ -66,9 +61,6 @@ struct WorkerGateRun {
     manifest_path: PathBuf,
     model_path: PathBuf,
     tokenizer_path: PathBuf,
-    training_receipt_digest_b3: String,
-    training_receipt_digest_path: PathBuf,
-    training_receipt_manifest_path: PathBuf,
     startup_error: Option<String>,
     infer_error: Option<String>,
     shutdown_error: Option<String>,
@@ -84,10 +76,6 @@ fn worker_gate() {
         run_check_with_worker_gate("worker_shutdown_clean", check_worker_shutdown_clean),
         run_check_with_worker_gate("shutdown_panic_free", check_shutdown_panic_free),
         run_check_with_worker_gate("pinned_residency", check_pinned_residency),
-        run_check_with_worker_gate(
-            "training_receipt_bundle_consistency",
-            check_training_receipt_bundle_consistency,
-        ),
     ];
 
     let passed = checks.iter().filter(|c| c.status == "pass").count();
@@ -259,42 +247,6 @@ fn check_pinned_residency(run: &WorkerGateRun) -> Result<Value, String> {
     }))
 }
 
-fn check_training_receipt_bundle_consistency(run: &WorkerGateRun) -> Result<Value, String> {
-    let digest_bytes = fs::read(&run.training_receipt_digest_path).map_err(|e| e.to_string())?;
-    let digest_text = String::from_utf8(digest_bytes).map_err(|e| e.to_string())?;
-    let digest_from_file = digest_text.trim().to_string();
-
-    let manifest_value: Value = serde_json::from_slice(
-        &fs::read(&run.training_receipt_manifest_path).map_err(|e| e.to_string())?,
-    )
-    .map_err(|e| e.to_string())?;
-    let digest_from_manifest = manifest_value
-        .get("training_receipt_digest_b3")
-        .and_then(|v| v.as_str())
-        .ok_or_else(|| "training_receipt_digest_b3 missing in manifest".to_string())?
-        .to_string();
-
-    if digest_from_file != digest_from_manifest {
-        return Err(format!(
-            "training receipt digest mismatch: file={} manifest={}",
-            digest_from_file, digest_from_manifest
-        ));
-    }
-
-    if digest_from_file != run.training_receipt_digest_b3 {
-        return Err(format!(
-            "training receipt digest mismatch: file={} runtime={}",
-            digest_from_file, run.training_receipt_digest_b3
-        ));
-    }
-
-    Ok(json!({
-        "training_receipt_digest_b3": digest_from_file,
-        "digest_path": run.training_receipt_digest_path.display().to_string(),
-        "manifest_path": run.training_receipt_manifest_path.display().to_string(),
-    }))
-}
-
 fn run_worker_gate() -> Result<WorkerGateRun, String> {
     let root = repo_root();
     let report_dir = root.join("target/worker-gate");
@@ -383,16 +335,6 @@ fn run_worker_gate() -> Result<WorkerGateRun, String> {
         None => (None, false),
     };
 
-    let (training_receipt_digest_b3, training_receipt_digest_path, training_receipt_manifest_path) =
-        write_training_receipt_bundle(
-            &report_dir,
-            &manifest_path,
-            &model_path,
-            &tokenizer_path,
-            telemetry_bytes,
-            success_count,
-        )?;
-
     Ok(WorkerGateRun {
         success_count,
         attempts,
@@ -406,9 +348,6 @@ fn run_worker_gate() -> Result<WorkerGateRun, String> {
         manifest_path,
         model_path,
         tokenizer_path,
-        training_receipt_digest_b3,
-        training_receipt_digest_path,
-        training_receipt_manifest_path,
         startup_error,
         infer_error,
         shutdown_error,
@@ -438,75 +377,6 @@ fn write_report(report: &GateReport) -> Result<PathBuf, String> {
     let payload = serde_json::to_string_pretty(report).map_err(|e| e.to_string())?;
     fs::write(&path, payload).map_err(|e| e.to_string())?;
     Ok(path)
-}
-
-fn write_training_receipt_bundle(
-    report_dir: &Path,
-    manifest_path: &Path,
-    model_path: &Path,
-    tokenizer_path: &Path,
-    telemetry_bytes: u64,
-    success_count: usize,
-) -> Result<(String, PathBuf, PathBuf), String> {
-    let manifest_digest = B3Hash::hash(
-        &fs::read(manifest_path)
-            .map_err(|e| format!("failed to read worker manifest for digesting: {}", e))?,
-    );
-    let model_path_digest = B3Hash::hash(model_path.to_string_lossy().as_bytes());
-    let tokenizer_digest = B3Hash::hash(
-        &fs::read(tokenizer_path)
-            .map_err(|e| format!("failed to read worker tokenizer for digesting: {}", e))?,
-    );
-
-    let digest_input = TrainingReceiptDigestInputV1 {
-        schema_version: TRAINING_RECEIPT_SCHEMA_V1,
-        pipeline_id: "worker-gate-training-bundle".to_string(),
-        contract_version: 1,
-        training_contract_version: Some("worker-gate-v1".to_string()),
-        dataset_id: "worker-gate".to_string(),
-        dataset_content_hash: manifest_digest.to_hex().to_string(),
-        preprocess_id: None,
-        preprocess_hash: None,
-        split_hash: model_path_digest.to_hex().to_string(),
-        training_config_hash: tokenizer_digest.to_hex().to_string(),
-        base_model_hash: model_path_digest.to_hex().to_string(),
-        phase_statuses: vec![TrainingPhaseDigestStatusV1 {
-            phase: "packaging".to_string(),
-            status: "completed".to_string(),
-            phase_id: "worker_gate_bundle_v1".to_string(),
-            inputs_hash: B3Hash::hash(format!("manifest:{}", manifest_path.display()).as_bytes())
-                .to_hex()
-                .to_string(),
-            outputs_hash: B3Hash::hash(
-                format!(
-                    "telemetry_bytes:{};success_count:{}",
-                    telemetry_bytes, success_count
-                )
-                .as_bytes(),
-            )
-            .to_hex()
-            .to_string(),
-        }],
-    };
-    let digest = compute_training_receipt_digest_v1(&digest_input)
-        .to_hex()
-        .to_string();
-
-    let digest_path = report_dir.join("training_receipt.digest");
-    let bundle_manifest_path = report_dir.join("training_receipt_manifest.json");
-    fs::write(&digest_path, format!("{digest}\n")).map_err(|e| e.to_string())?;
-
-    let bundle_manifest = json!({
-        "schema_version": 1,
-        "training_receipt_schema_version": TRAINING_RECEIPT_SCHEMA_V1,
-        "training_receipt_digest_b3": digest,
-        "source_manifest_path": manifest_path.display().to_string(),
-        "source_model_path": model_path.display().to_string(),
-        "source_tokenizer_path": tokenizer_path.display().to_string(),
-    });
-    write_json(&bundle_manifest_path, &bundle_manifest)?;
-
-    Ok((digest, digest_path, bundle_manifest_path))
 }
 
 fn build_binaries(root: &Path) -> Result<(), String> {
@@ -552,7 +422,7 @@ fn spawn_worker(
         .arg(tokenizer_path)
         .arg("--backend")
         .arg("mock")
-        .env("AOS_CP_URL", "http://127.0.0.1:18084")
+        .env("AOS_CP_URL", "http://127.0.0.1:9090")
         .env("AOS_WORKER_DISABLE_CP_REGISTRATION", "1")
         .env("AOS_MODEL_PATH", model_path)
         .env("AOS_TOKENIZER_PATH", tokenizer_path)

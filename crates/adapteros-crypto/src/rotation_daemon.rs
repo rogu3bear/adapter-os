@@ -29,10 +29,6 @@ use std::time::Duration;
 use tokio::sync::RwLock;
 use tracing::{debug, error, info, warn};
 
-const ROTATION_FAILURE_ESCALATION_THRESHOLD: u32 = 3;
-const ROTATION_FAILURE_COOLDOWN_BASE_SECS: u64 = 30;
-const ROTATION_FAILURE_COOLDOWN_MAX_SECS: u64 = 300;
-
 /// Entry representing an encrypted DEK stored in the database
 #[derive(Clone, Debug)]
 pub struct EncryptedDekEntry {
@@ -226,7 +222,6 @@ impl RotationDaemon {
     /// Main daemon loop
     async fn run_daemon_loop(&self) {
         let mut shutdown_rx = self.shutdown_tx.subscribe();
-        let mut consecutive_failures = 0u32;
 
         info!("Key rotation daemon started");
 
@@ -235,14 +230,6 @@ impl RotationDaemon {
 
             if !policy.auto_rotate {
                 debug!("Auto-rotation disabled, daemon sleeping");
-                if consecutive_failures > 0 {
-                    info!(
-                        target: "security.rotation",
-                        consecutive_failures,
-                        "Auto-rotation disabled, clearing failure budget"
-                    );
-                    consecutive_failures = 0;
-                }
                 // Sleep for 1 hour if auto-rotation is disabled
                 tokio::select! {
                     _ = tokio::time::sleep(Duration::from_secs(3600)) => continue,
@@ -255,45 +242,8 @@ impl RotationDaemon {
 
             tokio::select! {
                 _ = tokio::time::sleep(check_interval) => {
-                    match self.check_and_rotate_keys().await {
-                        Ok(_) => {
-                            if consecutive_failures > 0 {
-                                info!(
-                                    target: "security.rotation",
-                                    consecutive_failures,
-                                    "Rotation daemon recovered after consecutive failures"
-                                );
-                            }
-                            consecutive_failures = 0;
-                        }
-                        Err(e) => {
-                            consecutive_failures = consecutive_failures.saturating_add(1);
-                            let cooldown = rotation_failure_cooldown(consecutive_failures);
-                            error!(
-                                target: "security.rotation",
-                                error = %e,
-                                consecutive_failures,
-                                cooldown_secs = cooldown.as_secs(),
-                                "Failed to check and rotate keys"
-                            );
-                            if consecutive_failures >= ROTATION_FAILURE_ESCALATION_THRESHOLD {
-                                error!(
-                                    target: "security.rotation",
-                                    event = "daemon_failure_escalated",
-                                    consecutive_failures,
-                                    escalation_threshold = ROTATION_FAILURE_ESCALATION_THRESHOLD,
-                                    cooldown_secs = cooldown.as_secs(),
-                                    "crypto key rotation failure budget exceeded"
-                                );
-                            }
-                            tokio::select! {
-                                _ = tokio::time::sleep(cooldown) => {}
-                                _ = shutdown_rx.recv() => {
-                                    info!("Rotation daemon shutting down");
-                                    break;
-                                }
-                            }
-                        }
+                    if let Err(e) = self.check_and_rotate_keys().await {
+                        error!(error = %e, "Failed to check and rotate keys");
                     }
                 }
                 _ = shutdown_rx.recv() => {
@@ -627,13 +577,6 @@ impl RotationDaemon {
     }
 }
 
-fn rotation_failure_cooldown(consecutive_failures: u32) -> Duration {
-    let backoff_shift = consecutive_failures.saturating_sub(1).min(4);
-    let multiplier = 1u64 << backoff_shift;
-    let secs = ROTATION_FAILURE_COOLDOWN_BASE_SECS.saturating_mul(multiplier);
-    Duration::from_secs(secs.min(ROTATION_FAILURE_COOLDOWN_MAX_SECS))
-}
-
 #[cfg(test)]
 mod tests {
     use super::*;
@@ -755,13 +698,5 @@ mod tests {
             RotationReason::PolicyEnforced.to_string(),
             "policy_enforced"
         );
-    }
-
-    #[tokio::test]
-    async fn test_rotation_failure_cooldown_bounds() {
-        assert_eq!(rotation_failure_cooldown(1), Duration::from_secs(30));
-        assert_eq!(rotation_failure_cooldown(2), Duration::from_secs(60));
-        assert_eq!(rotation_failure_cooldown(3), Duration::from_secs(120));
-        assert_eq!(rotation_failure_cooldown(10), Duration::from_secs(300));
     }
 }

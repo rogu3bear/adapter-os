@@ -68,7 +68,7 @@ check_pattern "$ROOT_DIR/docs/UI_WALKTHROUGH.md" 'CANONICAL_USER_WORKFLOW.md' 'U
 if [[ "$run_opt_tests" -eq 1 ]]; then
   log "running focused determinism/accounting tests"
   (cd "$ROOT_DIR" && cargo test --test determinism_core_suite -- --test-threads=8)
-  (cd "$ROOT_DIR" && cargo test -p adapter-os --no-default-features --test determinism_replay_harness -- --test-threads=1 --nocapture)
+  (cd "$ROOT_DIR" && cargo test --test determinism_replay_harness -- --test-threads=1 --nocapture)
   (cd "$ROOT_DIR" && cargo test --test prefix_kv_cache_integration)
 fi
 

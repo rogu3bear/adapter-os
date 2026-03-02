@@ -1710,7 +1710,7 @@ impl Db {
         )
         .bind(adapter_id)
         .bind(requesting_tenant_id)
-        .fetch_optional(self.pool_result()?)
+        .fetch_optional(self.pool())
         .await
         .map_err(|e| AosError::database(e.to_string()))?;
         Ok(tenant_id)
@@ -1845,7 +1845,7 @@ impl Db {
         .bind(&params.base_model)
         .bind(&params.category)
         .bind(&params.tier)
-        .execute(self.pool_result()?)
+        .execute(self.pool())
         .await
         .map_err(|e| AosError::database(format!("Failed to store .aos metadata: {}", e)))?;
 
@@ -1891,7 +1891,7 @@ impl Db {
              WHERE adapter_id = ?",
         )
         .bind(adapter_id)
-        .fetch_optional(self.pool_result()?)
+        .fetch_optional(self.pool())
         .await
         .map_err(|e| AosError::database(format!("Failed to get .aos metadata: {}", e)))?;
 
@@ -1909,7 +1909,7 @@ impl Db {
     pub async fn delete_adapter_file_metadata(&self, adapter_id: &str) -> Result<bool> {
         let result = sqlx::query("DELETE FROM aos_adapter_metadata WHERE adapter_id = ?")
             .bind(adapter_id)
-            .execute(self.pool_result()?)
+            .execute(self.pool())
             .await
             .map_err(|e| AosError::database(format!("Failed to delete .aos metadata: {}", e)))?;
 
@@ -2043,7 +2043,7 @@ impl Db {
             .bind(&content_hash_b3)
             .bind(tenant_id)
             .bind(adapter_id)
-            .execute(self.pool_result()?)
+            .execute(self.pool())
             .await
             .map_err(|e| AosError::Database(format!("Failed to update .aos metadata: {}", e)))?;
 
@@ -2141,7 +2141,7 @@ impl Db {
         .bind(content_hash)
         .bind(manifest)
         .bind(adapter_id)
-        .execute(self.pool_result()?)
+        .execute(self.pool())
         .await
         .map_err(|e| AosError::database(format!("Failed to update adapter hashes: {}", e)))?
         .rows_affected();
@@ -2323,7 +2323,7 @@ impl Db {
             .bind(&update.revision)
             .bind(&adapter.tenant_id)
             .bind(adapter_id)
-            .execute(self.pool_result()?)
+            .execute(self.pool())
             .await
             .map_err(|e| AosError::Database(format!("Failed to update adapter alias: {}", e)))?;
 
@@ -2368,141 +2368,6 @@ impl Db {
                     tenant_id = %adapter.tenant_id,
                     mode = "dual-write",
                     "Adapter alias updated in both SQL and KV backends"
-                );
-            }
-        }
-
-        Ok(())
-    }
-
-    /// Update adapter display name (simple string) with lifecycle gating.
-    ///
-    /// Updates the `name` column shown in the UI. Use this for user-friendly
-    /// renames (e.g. "My Adapter"). For semantic naming (tenant/domain/purpose/revision),
-    /// use [`update_adapter_alias_for_tenant`].
-    ///
-    /// - `name: Some(s)` sets display name to trimmed `s` (empty string rejected)
-    /// - `name: None` clears to default (adapter_id)
-    /// - Blocked for Active, Deprecated, Retired, Failed (same gating as alias)
-    pub async fn update_adapter_display_name_for_tenant(
-        &self,
-        tenant_id: &str,
-        adapter_id: &str,
-        name: Option<&str>,
-    ) -> Result<()> {
-        let adapter = self
-            .get_adapter_for_tenant(tenant_id, adapter_id)
-            .await?
-            .ok_or_else(|| AosError::NotFound(format!("Adapter not found: {}", adapter_id)))?;
-
-        let lifecycle_state = LifecycleState::from_str(&adapter.lifecycle_state).map_err(|_| {
-            AosError::Validation(format!(
-                "Invalid lifecycle state '{}' for adapter {}",
-                adapter.lifecycle_state, adapter_id
-            ))
-        })?;
-
-        if !lifecycle_state.is_mutable() {
-            match lifecycle_state {
-                LifecycleState::Active | LifecycleState::Deprecated => {
-                    return Err(AosError::PolicyViolation(format!(
-                        "Display name update blocked for adapter '{}' in {} state",
-                        adapter_id,
-                        lifecycle_state.as_str()
-                    )));
-                }
-                LifecycleState::Retired | LifecycleState::Failed => {
-                    return Err(AosError::PolicyViolation(format!(
-                        "Display name update blocked for adapter '{}' in terminal {} state",
-                        adapter_id,
-                        lifecycle_state.as_str()
-                    )));
-                }
-                _ => {
-                    return Err(AosError::PolicyViolation(format!(
-                        "Display name update not allowed for adapter '{}' in {} state",
-                        adapter_id,
-                        lifecycle_state.as_str()
-                    )));
-                }
-            }
-        }
-
-        let display_name = match name {
-            Some(s) => {
-                let trimmed = s.trim();
-                if trimmed.is_empty() {
-                    return Err(AosError::Validation(
-                        "Display name cannot be empty".to_string(),
-                    ));
-                }
-                trimmed.to_string()
-            }
-            None => adapter
-                .adapter_id
-                .as_deref()
-                .unwrap_or(adapter_id)
-                .to_string(),
-        };
-
-        if self.storage_mode().write_to_sql() {
-            let result = sqlx::query(
-                "UPDATE adapters SET name = ?, updated_at = datetime('now')
-                 WHERE tenant_id = ? AND adapter_id = ?",
-            )
-            .bind(&display_name)
-            .bind(&adapter.tenant_id)
-            .bind(adapter_id)
-            .execute(self.pool_result()?)
-            .await
-            .map_err(|e| {
-                AosError::Database(format!("Failed to update adapter display name: {}", e))
-            })?;
-
-            if result.rows_affected() == 0 {
-                return Err(AosError::NotFound(format!(
-                    "Adapter not found: {}",
-                    adapter_id
-                )));
-            }
-        } else if !self.storage_mode().write_to_kv() {
-            return Err(AosError::Database(
-                "No backend available for update_adapter_display_name".to_string(),
-            ));
-        }
-
-        if let Some(repo) = self.get_adapter_kv_repo(&adapter.tenant_id) {
-            if let Err(e) = repo
-                .update_adapter_display_name_kv(adapter_id, &display_name)
-                .await
-            {
-                self.record_kv_write_fallback("adapters.update_display_name");
-                if self.dual_write_requires_strict() {
-                    error!(
-                        error = %e,
-                        adapter_id = %adapter_id,
-                        tenant_id = %adapter.tenant_id,
-                        mode = "dual-write-strict",
-                        "CONSISTENCY WARNING: SQL display name update committed but KV write failed in strict mode. Use ensure_consistency() to repair."
-                    );
-                    return Err(AosError::Database(format!(
-                        "Display name update succeeded in SQL but failed in KV (strict mode): {e}"
-                    )));
-                } else {
-                    warn!(
-                        error = %e,
-                        adapter_id = %adapter_id,
-                        tenant_id = %adapter.tenant_id,
-                        mode = "dual-write",
-                        "Failed to update adapter display name in KV backend"
-                    );
-                }
-            } else {
-                debug!(
-                    adapter_id = %adapter_id,
-                    tenant_id = %adapter.tenant_id,
-                    mode = "dual-write",
-                    "Adapter display name updated in both SQL and KV backends"
                 );
             }
         }
@@ -2602,7 +2467,7 @@ impl Db {
         .bind(&params.content_hash_b3)
         .bind(&params.manifest_hash)
         .bind(adapter_internal_id)
-        .execute(self.pool_result()?)
+        .execute(self.pool())
         .await
         .map_err(|e| AosError::database(format!("Failed to update adapter AOS fields: {}", e)))?;
 
@@ -2723,7 +2588,7 @@ impl Db {
             .bind(&patch.registration_timestamp)
             .bind(&patch.manifest_hash)
             .bind(adapter_internal_id)
-            .execute(self.pool_result()?)
+            .execute(self.pool())
             .await
             .map_err(|e| {
                 AosError::database(format!("Failed to persist adapter metadata: {}", e))
@@ -2805,7 +2670,7 @@ impl Db {
         .bind(new_path.as_deref())
         .bind(new_hash.as_deref())
         .bind(adapter_internal_id)
-        .execute(self.pool_result()?)
+        .execute(self.pool())
         .await
         .map_err(|e| {
             AosError::database(format!(
@@ -3315,19 +3180,9 @@ impl Db {
         // 3. Execute KV write
         // 4. If both succeed, commit the transaction
         // 5. If KV fails, rollback the transaction (not committed yet, so this works atomically)
-        let kv_repo_available = self.get_adapter_kv_repo(&params.tenant_id).is_some();
-        if self.storage_mode().write_to_kv()
-            && self.dual_write_requires_strict()
-            && !kv_repo_available
-        {
-            return Err(AosError::database(
-                "KV backend unavailable for strict adapter registration".to_string(),
-            ));
-        }
-
         let needs_dual_write = self.storage_mode().write_to_sql()
             && self.storage_mode().write_to_kv()
-            && kv_repo_available;
+            && self.get_adapter_kv_repo(&params.tenant_id).is_some();
 
         // Write to SQL when allowed by storage mode
         if self.storage_mode().write_to_sql() {
@@ -3632,7 +3487,7 @@ impl Db {
             ADAPTER_SELECT_FIELDS
         );
         let adapters = sqlx::query_as::<_, Adapter>(&query)
-            .fetch_all(self.pool_result()?)
+            .fetch_all(self.pool())
             .await
             .map_err(|e| AosError::database(e.to_string()))?;
         Ok(adapters)
@@ -3656,7 +3511,7 @@ impl Db {
             ADAPTER_SELECT_FIELDS
         );
         let adapters = sqlx::query_as::<_, Adapter>(&query)
-            .fetch_all(self.pool_result()?)
+            .fetch_all(self.pool())
             .await
             .map_err(|e| AosError::database(e.to_string()))?;
         Ok(adapters)
@@ -3703,7 +3558,7 @@ impl Db {
             ADAPTER_SELECT_FIELDS
         );
         let adapters = sqlx::query_as::<_, Adapter>(&query)
-            .fetch_all(self.pool_result()?)
+            .fetch_all(self.pool())
             .await
             .map_err(|e| {
                 AosError::database(format!("Failed to list all adapters (system): {}", e))
@@ -3839,7 +3694,7 @@ impl Db {
                 "SELECT 1 FROM sqlite_master WHERE type='index' AND name = ? LIMIT 1",
             )
             .bind("idx_adapters_tenant_active_tier_created")
-            .fetch_optional(self.pool_result()?)
+            .fetch_optional(self.pool())
             .await?;
 
             if index_exists.is_none() {
@@ -3854,7 +3709,7 @@ impl Db {
 
         // Phase 2: Execution Time Budgets
         let timeout_duration = self.get_query_timeout();
-        let pool = self.pool_result()?.clone();
+        let pool = self.pool().clone();
         let tenant_id_owned = tenant_id.to_string();
 
         let adapters_future = async move {
@@ -3930,7 +3785,7 @@ impl Db {
     pub async fn delete_adapter(&self, id: &str) -> Result<()> {
         // Use a transaction to ensure atomicity of pin check + delete (TOCTOU fix)
         let mut tx = self
-            .pool_result()?
+            .pool()
             .begin()
             .await
             .map_err(|e| AosError::database(e.to_string()))?;
@@ -4284,7 +4139,7 @@ impl Db {
             let tenant_result: Option<String> =
                 sqlx::query_scalar("SELECT tenant_id FROM adapters WHERE adapter_id = ?")
                     .bind(adapter_id)
-                    .fetch_optional(self.pool_result()?)
+                    .fetch_optional(self.pool())
                     .await
                     .map_err(|e| AosError::database(e.to_string()))?;
 
@@ -4326,7 +4181,7 @@ impl Db {
         );
         let adapter = sqlx::query_as::<_, Adapter>(&query)
             .bind(adapter_id)
-            .fetch_optional(self.pool_result()?)
+            .fetch_optional(self.pool())
             .await
             .map_err(|e| AosError::database(e.to_string()))?;
         Ok(adapter)
@@ -4343,40 +4198,8 @@ impl Db {
             if let Some(repo) = self.get_adapter_kv_repo(tenant_id) {
                 match repo.get_adapter_kv(adapter_id).await {
                     Ok(Some(adapter)) => {
-                        let content_hash_missing = adapter
-                            .content_hash_b3
-                            .as_ref()
-                            .map(|h| h.trim().is_empty())
-                            .unwrap_or(true);
-                        let manifest_hash_missing = adapter
-                            .manifest_hash
-                            .as_ref()
-                            .map(|h| h.trim().is_empty())
-                            .unwrap_or(true);
-
-                        if self.storage_mode().sql_fallback_enabled()
-                            && (content_hash_missing || manifest_hash_missing)
-                        {
-                            self.record_kv_read_fallback(
-                                "adapters.get_for_tenant.stale_hash_fields",
-                            );
-                            debug!(
-                                adapter_id = %adapter_id,
-                                tenant_id = %tenant_id,
-                                mode = "kv-fallback",
-                                content_hash_missing,
-                                manifest_hash_missing,
-                                "KV adapter missing hash fields, falling back to SQL (tenant-scoped)"
-                            );
-                        } else {
-                            debug!(
-                                adapter_id = %adapter_id,
-                                tenant_id = %tenant_id,
-                                mode = "kv-primary",
-                                "Retrieved adapter from KV (tenant-scoped)"
-                            );
-                            return Ok(Some(adapter));
-                        }
+                        debug!(adapter_id = %adapter_id, tenant_id = %tenant_id, mode = "kv-primary", "Retrieved adapter from KV (tenant-scoped)");
+                        return Ok(Some(adapter));
                     }
                     Ok(None) if self.storage_mode().sql_fallback_enabled() => {
                         self.record_kv_read_fallback("adapters.get_for_tenant.none");
@@ -4408,7 +4231,7 @@ impl Db {
             .bind(tenant_id)
             .bind(adapter_id)
             .bind(adapter_id)
-            .fetch_all(self.pool_result()?)
+            .fetch_all(self.pool())
             .await
             .map_err(|e| AosError::database(e.to_string()))?;
         let execution_time = start_time.elapsed();
@@ -4443,38 +4266,6 @@ impl Db {
             _ => Err(AosError::validation(format!(
                 "Ambiguous adapter_id '{}' for tenant '{}'",
                 adapter_id, tenant_id
-            ))),
-        }
-    }
-
-    /// Get adapter by immutable `(repo_id, adapter_version_id)` for a tenant.
-    ///
-    /// Returns `None` when no adapter is linked to the provided version pair.
-    pub async fn get_adapter_for_tenant_repo_version(
-        &self,
-        tenant_id: &str,
-        repo_id: &str,
-        adapter_version_id: &str,
-    ) -> Result<Option<Adapter>> {
-        let query = format!(
-            "SELECT {} FROM adapters WHERE tenant_id = ? AND repo_id = ? AND adapter_version_id = ? LIMIT 2",
-            ADAPTER_SELECT_FIELDS
-        );
-
-        let mut adapters = sqlx::query_as::<_, Adapter>(&query)
-            .bind(tenant_id)
-            .bind(repo_id)
-            .bind(adapter_version_id)
-            .fetch_all(self.pool_result()?)
-            .await
-            .map_err(|e| AosError::database(e.to_string()))?;
-
-        match adapters.len() {
-            0 => Ok(None),
-            1 => Ok(Some(adapters.remove(0))),
-            _ => Err(AosError::validation(format!(
-                "Ambiguous adapter version binding '{}'@'{}' for tenant '{}'",
-                repo_id, adapter_version_id, tenant_id
             ))),
         }
     }
@@ -4555,7 +4346,7 @@ impl Db {
         let adapter: Option<Adapter> = sqlx::query_as::<_, Adapter>(&query)
             .bind(tenant_id)
             .bind(hash_b3)
-            .fetch_optional(self.pool_result()?)
+            .fetch_optional(self.pool())
             .await
             .map_err(|e| {
                 AosError::database(format!("Failed to find adapter by hash for tenant: {}", e))
@@ -4645,7 +4436,7 @@ impl Db {
         );
         let adapter = sqlx::query_as::<_, Adapter>(&query)
             .bind(content_hash_b3)
-            .fetch_optional(self.pool_result()?)
+            .fetch_optional(self.pool())
             .await
             .map_err(|e| {
                 AosError::database(format!("Failed to find adapter by content hash: {}", e))
@@ -4672,7 +4463,7 @@ impl Db {
         .bind(request_id)
         .bind(gate_value)
         .bind(if selected { 1 } else { 0 })
-        .execute(self.pool_result()?)
+        .execute(self.pool())
         .await
         .map_err(|e| AosError::database(e.to_string()))?;
         Ok(id)
@@ -4693,7 +4484,7 @@ impl Db {
         )
         .bind(adapter_id)
         .bind(limit)
-        .fetch_all(self.pool_result()?)
+        .fetch_all(self.pool())
         .await
         .map_err(|e| AosError::database(e.to_string()))?;
         Ok(activations)
@@ -4717,7 +4508,7 @@ impl Db {
         .bind(tenant_id)
         .bind(adapter_id)
         .bind(adapter_id)
-        .fetch_one(self.pool_result()?)
+        .fetch_one(self.pool())
         .await
         .map_err(|e| AosError::database(e.to_string()))?;
 
@@ -4747,7 +4538,7 @@ impl Db {
             LIMIT 1"#,
         )
         .bind(adapter_id)
-        .fetch_optional(self.pool_result()?)
+        .fetch_optional(self.pool())
         .await
         .map_err(|e| AosError::database(e.to_string()))?;
 
@@ -4771,7 +4562,7 @@ impl Db {
             WHERE adapter_id = ? AND recorded_at > datetime('now', '-1 hour')"#,
         )
         .bind(adapter_id)
-        .fetch_optional(self.pool_result()?)
+        .fetch_optional(self.pool())
         .await
         .map_err(|e| AosError::database(e.to_string()))?;
 
@@ -4793,7 +4584,7 @@ impl Db {
         .bind(tenant_id)
         .bind(adapter_id)
         .bind(adapter_id)
-        .execute(self.pool_result()?)
+        .execute(self.pool())
         .await
         .map_err(|e| AosError::database(e.to_string()))?;
 
@@ -4841,7 +4632,7 @@ impl Db {
         .bind(tenant_id)
         .bind(adapter_id)
         .bind(adapter_id)
-        .execute(self.pool_result()?)
+        .execute(self.pool())
         .await
         .map_err(|e| AosError::database(e.to_string()))?;
 
@@ -5284,7 +5075,7 @@ impl Db {
         let adapters = sqlx::query_as::<_, Adapter>(&query)
             .bind(tenant_id)
             .bind(category)
-            .fetch_all(self.pool_result()?)
+            .fetch_all(self.pool())
             .await
             .map_err(|e| AosError::database(e.to_string()))?;
         Ok(adapters)
@@ -5330,7 +5121,7 @@ impl Db {
         let adapters = sqlx::query_as::<_, Adapter>(&query)
             .bind(tenant_id)
             .bind(scope)
-            .fetch_all(self.pool_result()?)
+            .fetch_all(self.pool())
             .await
             .map_err(|e| AosError::database(e.to_string()))?;
         Ok(adapters)
@@ -5390,7 +5181,7 @@ impl Db {
         let adapters = sqlx::query_as::<_, Adapter>(&query)
             .bind(tenant_id)
             .bind(state)
-            .fetch_all(self.pool_result()?)
+            .fetch_all(self.pool())
             .await
             .map_err(|e| AosError::database(e.to_string()))?;
         Ok(adapters)
@@ -5413,7 +5204,7 @@ impl Db {
              ORDER BY category, scope, current_state",
         )
         .bind(tenant_id)
-        .fetch_all(self.pool_result()?)
+        .fetch_all(self.pool())
         .await
         .map_err(|e| AosError::database(e.to_string()))?;
 
@@ -5540,7 +5331,7 @@ impl Db {
         let adapters = sqlx::query_as::<_, Adapter>(&query)
             .bind(adapter_id)
             .bind(adapter_id)
-            .fetch_all(self.pool_result()?)
+            .fetch_all(self.pool())
             .await
             .map_err(|e| AosError::database(e.to_string()))?;
         Ok(adapters)
@@ -5594,7 +5385,7 @@ impl Db {
         );
         let adapters = sqlx::query_as::<_, Adapter>(&query)
             .bind(adapter_id)
-            .fetch_all(self.pool_result()?)
+            .fetch_all(self.pool())
             .await
             .map_err(|e| AosError::database(e.to_string()))?;
         Ok(adapters)
@@ -5628,7 +5419,7 @@ impl Db {
         );
         let adapters = sqlx::query_as::<_, Adapter>(&query)
             .bind(adapter_id)
-            .fetch_all(self.pool_result()?)
+            .fetch_all(self.pool())
             .await
             .map_err(|e| AosError::database(e.to_string()))?;
         Ok(adapters)
@@ -5655,7 +5446,7 @@ impl Db {
         .bind(tenant_namespace)
         .bind(domain)
         .bind(purpose)
-        .fetch_optional(self.pool_result()?)
+        .fetch_optional(self.pool())
         .await
         .map_err(|e| AosError::database(e.to_string()))?;
 
@@ -5692,7 +5483,7 @@ impl Db {
         .bind(tenant_namespace)
         .bind(domain)
         .bind(purpose)
-        .fetch_all(self.pool_result()?)
+        .fetch_all(self.pool())
         .await
         .map_err(|e| AosError::database(e.to_string()))?;
 
@@ -5746,7 +5537,7 @@ impl Db {
         .bind(tier)
         .bind(adapter_id)
         .bind(tenant_id)
-        .execute(self.pool_result()?)
+        .execute(self.pool())
         .await
         .map_err(|e| AosError::database(format!("Failed to update adapter tier: {}", e)))?;
 
@@ -5792,7 +5583,7 @@ impl Db {
         )
         .bind(lora_strength)
         .bind(adapter_id)
-        .execute(self.pool_result()?)
+        .execute(self.pool())
         .await
         .map_err(|e| AosError::database(format!("Failed to update adapter strength: {}", e)))?;
 
@@ -5812,7 +5603,7 @@ impl Db {
         );
         let adapter = match sqlx::query_as::<_, Adapter>(&query)
             .bind(adapter_id)
-            .fetch_optional(self.pool_result()?)
+            .fetch_optional(self.pool())
             .await
             .map_err(|e| AosError::database(e.to_string()))?
         {
@@ -6216,7 +6007,7 @@ impl Db {
                AND active = 1",
         )
         .bind(tenant_id)
-        .fetch_all(self.pool_result()?)
+        .fetch_all(self.pool())
         .await
         .map_err(|e| AosError::database(format!("Failed to query adapters: {}", e)))?;
 
@@ -6233,7 +6024,7 @@ impl Db {
         .bind(archived_by)
         .bind(reason)
         .bind(tenant_id)
-        .execute(self.pool_result()?)
+        .execute(self.pool())
         .await
         .map_err(|e| AosError::database(format!("Failed to archive adapters: {}", e)))?;
 
@@ -6337,7 +6128,7 @@ impl Db {
         .bind(reason)
         .bind(adapter_id)
         .bind(tenant_id)
-        .execute(self.pool_result()?)
+        .execute(self.pool())
         .await
         .map_err(|e| AosError::database(format!("Failed to archive adapter: {}", e)))?
         .rows_affected();
@@ -6394,7 +6185,7 @@ impl Db {
 
         let adapters = sqlx::query_as::<_, Adapter>(&query)
             .bind(limit)
-            .fetch_all(self.pool_result()?)
+            .fetch_all(self.pool())
             .await
             .map_err(|e| AosError::database(format!("Failed to find GC candidates: {}", e)))?;
 
@@ -6470,7 +6261,7 @@ impl Db {
             Some(tid) => sqlx::query_as::<_, Adapter>(&query)
                 .bind(tid)
                 .bind(limit)
-                .fetch_all(self.pool_result()?)
+                .fetch_all(self.pool())
                 .await
                 .map_err(|e| {
                     AosError::database(format!(
@@ -6480,7 +6271,7 @@ impl Db {
                 })?,
             None => sqlx::query_as::<_, Adapter>(&query)
                 .bind(limit)
-                .fetch_all(self.pool_result()?)
+                .fetch_all(self.pool())
                 .await
                 .map_err(|e| {
                     AosError::database(format!(
@@ -6548,7 +6339,7 @@ impl Db {
         )
         .bind(adapter_id)
         .bind(tenant_id)
-        .execute(self.pool_result()?)
+        .execute(self.pool())
         .await
         .map_err(|e| AosError::database(format!("Failed to mark adapter purged: {}", e)))?
         .rows_affected();
@@ -6586,7 +6377,7 @@ impl Db {
         let result: Option<(Option<String>, Option<String>)> =
             sqlx::query_as("SELECT archived_at, purged_at FROM adapters WHERE adapter_id = ?")
                 .bind(adapter_id)
-                .fetch_optional(self.pool_result()?)
+                .fetch_optional(self.pool())
                 .await
                 .map_err(|e| AosError::database(e.to_string()))?;
 
@@ -6648,7 +6439,7 @@ impl Db {
         )
         .bind(adapter_id)
         .bind(tenant_id)
-        .execute(self.pool_result()?)
+        .execute(self.pool())
         .await
         .map_err(|e| AosError::database(format!("Failed to unarchive adapter: {}", e)))?
         .rows_affected();
@@ -6686,7 +6477,7 @@ impl Db {
                AND purged_at IS NULL",
         )
         .bind(tenant_id)
-        .fetch_one(self.pool_result()?)
+        .fetch_one(self.pool())
         .await
         .map_err(|e| AosError::database(format!("Failed to count archived adapters: {}", e)))?;
 
@@ -6703,7 +6494,7 @@ impl Db {
                AND purged_at IS NOT NULL",
         )
         .bind(tenant_id)
-        .fetch_one(self.pool_result()?)
+        .fetch_one(self.pool())
         .await
         .map_err(|e| AosError::database(format!("Failed to count purged adapters: {}", e)))?;
 
@@ -6729,7 +6520,7 @@ impl Db {
         )
         .bind(adapter_id)
         .bind(tenant_id)
-        .fetch_one(self.pool_result()?)
+        .fetch_one(self.pool())
         .await
         .map_err(|e| AosError::database(e.to_string()))?;
 
@@ -6759,7 +6550,7 @@ impl Db {
         )
         .bind(adapter_id)
         .bind(tenant_id)
-        .fetch_one(self.pool_result()?)
+        .fetch_one(self.pool())
         .await
         .map_err(|e| AosError::database(e.to_string()))?;
 
@@ -6789,7 +6580,7 @@ impl Db {
         .bind(memory_bytes)
         .bind(adapter_id)
         .bind(tenant_id)
-        .execute(self.pool_result()?)
+        .execute(self.pool())
         .await
         .map_err(|e| AosError::database(e.to_string()))?
         .rows_affected();
@@ -6819,7 +6610,7 @@ impl Db {
         .bind(tier)
         .bind(adapter_id)
         .bind(tenant_id)
-        .execute(self.pool_result()?)
+        .execute(self.pool())
         .await
         .map_err(|e| AosError::database(e.to_string()))?
         .rows_affected();
@@ -6852,7 +6643,7 @@ impl Db {
         .bind(hash_b3)
         .bind(adapter_id)
         .bind(tenant_id)
-        .execute(self.pool_result()?)
+        .execute(self.pool())
         .await
         .map_err(|e| AosError::database(e.to_string()))?
         .rows_affected();
@@ -6875,7 +6666,7 @@ impl Db {
             sqlx::query("DELETE FROM adapters WHERE adapter_id = ? AND tenant_id = ?")
                 .bind(adapter_id)
                 .bind(tenant_id)
-                .execute(self.pool_result()?)
+                .execute(self.pool())
                 .await
                 .map_err(|e| AosError::database(e.to_string()))?
                 .rows_affected();
@@ -6909,7 +6700,7 @@ impl Db {
     /// Creates a copy of an existing adapter with a new ID and name.
     /// The new adapter will have:
     /// - `parent_id` set to the source adapter's ID
-    /// - `fork_type` set to "extension" (duplicate lineage)
+    /// - `fork_type` set to "duplicate"
     /// - A new unique ID and hash
     /// - Initial state set to 'cold'
     ///
@@ -6943,70 +6734,6 @@ impl Db {
             .map(|s| s.to_string())
             .unwrap_or_else(|| format!("{} (copy)", source.name));
 
-        // Generate semantic alias fields for the duplicate when lineage metadata is available.
-        // Keep adapter display name separate from semantic adapter_name taxonomy.
-        let semantic_fields = match (
-            source.tenant_namespace.as_deref().map(str::trim),
-            source.domain.as_deref().map(str::trim),
-            source.purpose.as_deref().map(str::trim),
-        ) {
-            (Some(tenant_namespace), Some(domain), Some(purpose))
-                if !tenant_namespace.is_empty() && !domain.is_empty() && !purpose.is_empty() =>
-            {
-                let latest_row: Option<(String,)> = sqlx::query_as(
-                    r#"
-                    SELECT revision FROM adapters
-                    WHERE tenant_namespace = ?1 AND domain = ?2 AND purpose = ?3
-                      AND revision IS NOT NULL
-                    ORDER BY CAST(REPLACE(REPLACE(revision, 'r', ''), 'R', '') AS INTEGER) DESC
-                    LIMIT 1
-                    "#,
-                )
-                .bind(tenant_namespace)
-                .bind(domain)
-                .bind(purpose)
-                .fetch_optional(self.pool_result()?)
-                .await
-                .map_err(|e| AosError::database(e.to_string()))?;
-
-                let next_revision_number = latest_row
-                    .as_ref()
-                    .and_then(|(revision,)| {
-                        revision
-                            .trim()
-                            .trim_start_matches('r')
-                            .trim_start_matches('R')
-                            .parse::<u32>()
-                            .ok()
-                    })
-                    .unwrap_or(0)
-                    + 1;
-                let revision = format!("r{:03}", next_revision_number);
-
-                match AdapterName::new(tenant_namespace, domain, purpose, &revision) {
-                    Ok(parsed) => Some((
-                        parsed.to_string(),
-                        tenant_namespace.to_string(),
-                        domain.to_string(),
-                        purpose.to_string(),
-                        revision,
-                    )),
-                    Err(error) => {
-                        warn!(
-                            %error,
-                            tenant_namespace = %tenant_namespace,
-                            domain = %domain,
-                            purpose = %purpose,
-                            source_adapter_id = %source_adapter_id,
-                            "Skipping semantic alias fields for duplicated adapter due invalid lineage metadata"
-                        );
-                        None
-                    }
-                }
-            }
-            _ => None,
-        };
-
         // Generate a new hash for the duplicate
         let new_hash = {
             let mut hasher = blake3::Hasher::new();
@@ -7039,13 +6766,13 @@ impl Db {
             expires_at: None, // Don't copy expiration
             aos_file_path: source.aos_file_path.clone(),
             aos_file_hash: source.aos_file_hash.clone(),
-            adapter_name: semantic_fields.as_ref().map(|fields| fields.0.clone()),
-            tenant_namespace: semantic_fields.as_ref().map(|fields| fields.1.clone()),
-            domain: semantic_fields.as_ref().map(|fields| fields.2.clone()),
-            purpose: semantic_fields.as_ref().map(|fields| fields.3.clone()),
-            revision: semantic_fields.as_ref().map(|fields| fields.4.clone()),
-            parent_id: Some(source.id.clone()),
-            fork_type: Some("extension".to_string()),
+            adapter_name: Some(name.clone()),
+            tenant_namespace: source.tenant_namespace.clone(),
+            domain: source.domain.clone(),
+            purpose: source.purpose.clone(),
+            revision: Some("1".to_string()), // Start at revision 1
+            parent_id: Some(source_adapter_id.to_string()),
+            fork_type: Some("duplicate".to_string()),
             fork_reason: Some("User-requested copy".to_string()),
             base_model_id: source.base_model_id.clone(),
             recommended_for_moe: source.recommended_for_moe,
@@ -7082,30 +6809,10 @@ impl Db {
         };
 
         // Register the new adapter
-        self.register_adapter_extended(params).await?;
-
-        // Preserve deterministic provenance requirements by cloning training snapshot evidence
-        // from the source adapter when present.
-        if let Some(source_snapshot) = self
-            .get_adapter_training_snapshot(source_adapter_id)
-            .await?
-        {
-            self.create_training_snapshot(crate::adapter_snapshots::CreateSnapshotParams {
-                adapter_id: new_adapter_id.clone(),
-                training_job_id: source_snapshot.training_job_id,
-                collection_id: source_snapshot.collection_id,
-                documents_json: source_snapshot.documents_json,
-                chunk_manifest_hash: source_snapshot.chunk_manifest_hash,
-                chunking_config_json: source_snapshot.chunking_config_json,
-                dataset_id: source_snapshot.dataset_id,
-                dataset_version_id: source_snapshot.dataset_version_id,
-                dataset_hash_b3: source_snapshot.dataset_hash_b3,
-            })
-            .await?;
-        }
+        let new_id = self.register_adapter_extended(params).await?;
 
         // Fetch and return the new adapter using tenant-scoped access
-        self.get_adapter_for_tenant(tenant_id, &new_adapter_id)
+        self.get_adapter_for_tenant(tenant_id, &new_id)
             .await?
             .ok_or_else(|| AosError::database("Failed to retrieve duplicated adapter".to_string()))
     }

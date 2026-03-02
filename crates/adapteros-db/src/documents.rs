@@ -138,7 +138,7 @@ impl Db {
         .bind(params.file_size)
         .bind(&params.mime_type)
         .bind(params.page_count)
-        .execute(self.pool_result()?)
+        .execute(self.pool())
         .await
         .map_err(db_err("create document"))?;
         Ok(())
@@ -193,7 +193,7 @@ impl Db {
         )
         .bind(id)
         .bind(tenant_id)
-        .fetch_optional(self.pool_result()?)
+        .fetch_optional(self.pool())
         .await
         .map_err(db_err("get document"))
     }
@@ -295,7 +295,7 @@ impl Db {
         }
 
         let documents = query_builder
-            .fetch_all(self.pool_result()?)
+            .fetch_all(self.pool())
             .await
             .map_err(db_err("get documents by IDs"))?;
 
@@ -339,7 +339,7 @@ impl Db {
              ORDER BY created_at DESC",
         )
         .bind(tenant_id)
-        .fetch_all(self.pool_result()?)
+        .fetch_all(self.pool())
         .await
         .map_err(db_err("list documents"))?;
         Ok(documents)
@@ -368,7 +368,7 @@ impl Db {
             // Get total count for this tenant
             let total = sqlx::query("SELECT COUNT(*) as cnt FROM documents WHERE tenant_id = ?")
                 .bind(tenant_id)
-                .fetch_one(self.pool_result()?)
+                .fetch_one(self.pool())
                 .await
                 .map_err(db_err("count documents"))?
                 .try_get::<i64, _>(0)
@@ -387,7 +387,7 @@ impl Db {
             .bind(tenant_id)
             .bind(limit)
             .bind(offset)
-            .fetch_all(self.pool_result()?)
+            .fetch_all(self.pool())
             .await
             .map_err(db_err("list documents"))?;
 
@@ -436,7 +436,7 @@ impl Db {
             )
             .bind(tenant_id)
             .bind(content_hash)
-            .fetch_optional(self.pool_result()?)
+            .fetch_optional(self.pool())
             .await
             .map_err(db_err("find document by hash"))?;
             return Ok(document);
@@ -466,7 +466,7 @@ impl Db {
             )
             .bind(status)
             .bind(id)
-            .execute(self.pool_result()?)
+            .execute(self.pool())
             .await
             .map_err(db_err("update document status"))?;
             return Ok(());
@@ -536,7 +536,7 @@ impl Db {
             .bind(params.end_offset)
             .bind(&params.chunk_hash)
             .bind(&params.text_preview)
-            .execute(self.pool_result()?)
+            .execute(self.pool())
             .await
             .map_err(db_err("create document chunk"))?;
         } else if !self.storage_mode().write_to_kv() {
@@ -602,7 +602,7 @@ impl Db {
             )
             .bind(document_id)
             .bind(tenant_id)
-            .fetch_all(self.pool_result()?)
+            .fetch_all(self.pool())
             .await
             .map_err(db_err("get document chunks"))?;
             return Ok(chunks);
@@ -673,7 +673,7 @@ impl Db {
             }
 
             let chunks = query_builder
-                .fetch_all(self.pool_result()?)
+                .fetch_all(self.pool())
                 .await
                 .map_err(db_err("get chunks for documents"))?;
             return Ok(chunks);
@@ -707,7 +707,7 @@ impl Db {
              WHERE id = ?",
             )
             .bind(chunk_id)
-            .fetch_optional(self.pool_result()?)
+            .fetch_optional(self.pool())
             .await
             .map_err(db_err("get chunk by ID"))?;
             return Ok(chunk);
@@ -733,7 +733,7 @@ impl Db {
         )
         .bind(document_id)
         .bind(chunk_index)
-        .fetch_optional(self.pool_result()?)
+        .fetch_optional(self.pool())
         .await
         .map_err(|e| {
             AosError::Database(format!("Failed to get chunk by document and index: {}", e))
@@ -746,7 +746,7 @@ impl Db {
         let count: (i64,) =
             sqlx::query_as("SELECT COUNT(*) FROM document_chunks WHERE document_id = ?")
                 .bind(document_id)
-                .fetch_one(self.pool_result()?)
+                .fetch_one(self.pool())
                 .await
                 .map_err(|e| {
                     AosError::Database(format!("Failed to count document chunks: {}", e))
@@ -771,7 +771,7 @@ impl Db {
         )
         .bind(tenant_id)
         .bind(status)
-        .fetch_all(self.pool_result()?)
+        .fetch_all(self.pool())
         .await
         .map_err(db_err("get documents by status"))?;
         Ok(documents)
@@ -786,7 +786,7 @@ impl Db {
         )
         .bind(metadata_json)
         .bind(id)
-        .execute(self.pool_result()?)
+        .execute(self.pool())
         .await
         .map_err(db_err("update document metadata"))?;
         Ok(())
@@ -796,7 +796,7 @@ impl Db {
     pub async fn count_documents_by_tenant(&self, tenant_id: &str) -> Result<i64> {
         let count: (i64,) = sqlx::query_as("SELECT COUNT(*) FROM documents WHERE tenant_id = ?")
             .bind(tenant_id)
-            .fetch_one(self.pool_result()?)
+            .fetch_one(self.pool())
             .await
             .map_err(db_err("count documents"))?;
         Ok(count.0)
@@ -807,7 +807,7 @@ impl Db {
         let size: (Option<i64>,) =
             sqlx::query_as("SELECT SUM(file_size) FROM documents WHERE tenant_id = ?")
                 .bind(tenant_id)
-                .fetch_one(self.pool_result()?)
+                .fetch_one(self.pool())
                 .await
                 .map_err(|e| {
                     AosError::Database(format!("Failed to get total document size: {}", e))
@@ -911,7 +911,7 @@ impl Db {
         .bind(error_code)
         .bind(document_id)
         .bind(tenant_id)
-        .execute(self.pool_result()?)
+        .execute(self.pool())
         .await
         .map_err(|e| AosError::Database(format!("Failed to mark document as failed: {}", e)))?;
 
@@ -937,7 +937,7 @@ impl Db {
         .bind(page_count)
         .bind(document_id)
         .bind(tenant_id)
-        .execute(self.pool_result()?)
+        .execute(self.pool())
         .await
         .map_err(|e| AosError::Database(format!("Failed to mark document as indexed: {}", e)))?;
 
@@ -961,7 +961,7 @@ impl Db {
         )
         .bind(document_id)
         .bind(tenant_id)
-        .execute(self.pool_result()?)
+        .execute(self.pool())
         .await
         .map_err(|e| AosError::Database(format!("Failed to prepare document retry: {}", e)))?;
 
@@ -989,7 +989,7 @@ impl Db {
         )
         .bind(tenant_id)
         .bind(limit)
-        .fetch_all(self.pool_result()?)
+        .fetch_all(self.pool())
         .await
         .map_err(|e| AosError::Database(format!("Failed to get retryable documents: {}", e)))?;
 
@@ -1017,7 +1017,7 @@ impl Db {
         )
         .bind(tenant_id)
         .bind(stale_threshold_minutes)
-        .execute(self.pool_result()?)
+        .execute(self.pool())
         .await
         .map_err(|e| AosError::Database(format!("Failed to reset stale documents: {}", e)))?;
 

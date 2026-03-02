@@ -3337,30 +3337,13 @@ extern "C" mlx_array_t* mlx_model_forward_with_cache_and_lora(
     mx::array input_ids = input_wrapper->arr;
     bool use_cache = (kv_cache != nullptr);
 
-    // Resolve a weight tensor, dequantizing when 4-bit packed weights are present.
-    auto get_weight = [&](const std::string& weight_key) -> mx::array {
-      auto weight_it = weights.find(weight_key + ".weight");
-      if (weight_it == weights.end()) {
-        throw std::runtime_error("Weight not found: " + weight_key + ".weight");
-      }
-
-      auto scales_it = weights.find(weight_key + ".scales");
-      if (scales_it != weights.end()) {
-        return model_wrapper->get_weight_with_dequant(weight_key);
-      }
-      return weight_it->second;
-    };
-
     // Linear projection helper
     auto linear = [&](const mx::array& x, const std::string& weight_key) -> mx::array {
-      mx::array output = mx::matmul(x, mx::transpose(get_weight(weight_key)));
-
-      auto bias_it = weights.find(weight_key + ".bias");
-      if (bias_it != weights.end()) {
-        output = mx::add(output, bias_it->second);
+      auto it = weights.find(weight_key + ".weight");
+      if (it == weights.end()) {
+        throw std::runtime_error("Weight not found: " + weight_key + ".weight");
       }
-
-      return output;
+      return mx::matmul(x, mx::transpose(it->second));
     };
 
     // RMSNorm helper
@@ -3404,9 +3387,9 @@ extern "C" mlx_array_t* mlx_model_forward_with_cache_and_lora(
     // Embedding lookup
     mx::array embed_weights = [&]() -> mx::array {
       auto it = weights.find("model.embed_tokens.weight");
-      if (it != weights.end()) return get_weight("model.embed_tokens");
+      if (it != weights.end()) return it->second;
       auto lm_it = weights.find("lm_head.weight");
-      if (lm_it != weights.end()) return get_weight("lm_head");
+      if (lm_it != weights.end()) return lm_it->second;
       throw std::runtime_error("Embedding weights not found");
     }();
 
@@ -3519,9 +3502,9 @@ extern "C" mlx_array_t* mlx_model_forward_with_cache_and_lora(
     // LM head
     mx::array lm_head = [&]() -> mx::array {
       auto it = weights.find("lm_head.weight");
-      if (it != weights.end()) return get_weight("lm_head");
+      if (it != weights.end()) return it->second;
       auto embed_it = weights.find("model.embed_tokens.weight");
-      if (embed_it != weights.end()) return get_weight("model.embed_tokens");
+      if (embed_it != weights.end()) return embed_it->second;
       throw std::runtime_error("LM head weights not found");
     }();
 

@@ -9,7 +9,6 @@
 use crate::permissions::{require_permission, Permission};
 use crate::{AppState, Claims, ErrorResponse};
 use adapteros_api_types::API_SCHEMA_VERSION;
-use adapteros_core::error_codes;
 use adapteros_system_metrics::SystemMetricsCollector;
 use axum::{extract::State, http::StatusCode, Extension, Json};
 use serde::{Deserialize, Serialize};
@@ -83,59 +82,6 @@ fn schema_version() -> String {
     API_SCHEMA_VERSION.to_string()
 }
 
-fn is_schema_contract_violation(message: &str) -> bool {
-    message.contains("no such table")
-        || message.contains("no such column")
-        || message.contains("has no column named")
-}
-
-fn map_system_overview_db_error<E: std::fmt::Display>(
-    error: E,
-) -> (StatusCode, Json<ErrorResponse>) {
-    let message = error.to_string();
-    if is_schema_contract_violation(&message) {
-        return (
-            StatusCode::SERVICE_UNAVAILABLE,
-            Json(
-                ErrorResponse::new("schema contract violation")
-                    .with_code(error_codes::SCHEMA_CONTRACT_VIOLATION)
-                    .with_string_details(message),
-            ),
-        );
-    }
-
-    (
-        StatusCode::INTERNAL_SERVER_ERROR,
-        Json(
-            ErrorResponse::new("database error")
-                .with_code("DATABASE_ERROR")
-                .with_string_details(message),
-        ),
-    )
-}
-
-async fn require_schema_table(
-    state: &AppState,
-    table: &str,
-) -> Result<(), (StatusCode, Json<ErrorResponse>)> {
-    let exists = state
-        .db
-        .table_exists(table)
-        .await
-        .map_err(map_system_overview_db_error)?;
-    if !exists {
-        return Err((
-            StatusCode::SERVICE_UNAVAILABLE,
-            Json(
-                ErrorResponse::new("schema contract violation")
-                    .with_code(error_codes::SCHEMA_CONTRACT_VIOLATION)
-                    .with_string_details(format!("missing required table: {}", table)),
-            ),
-        ));
-    }
-    Ok(())
-}
-
 /// Get system overview
 #[utoipa::path(
     tag = "system",
@@ -152,9 +98,6 @@ pub async fn get_system_overview(
     // Role check: All roles can view system overview
     require_permission(&claims, Permission::MetricsView)?;
 
-    require_schema_table(&state, "telemetry_events").await?;
-    require_schema_table(&state, "routing_decisions").await?;
-
     let mut collector = SystemMetricsCollector::new();
     let metrics = collector.collect_metrics();
     let load_avg = collector.load_average();
@@ -165,23 +108,11 @@ pub async fn get_system_overview(
         .as_secs();
 
     // Count active sessions, workers, and adapters using Db trait methods
-    let active_sessions = state
-        .db
-        .count_active_chat_sessions()
-        .await
-        .map_err(map_system_overview_db_error)? as i32;
+    let active_sessions = state.db.count_active_chat_sessions().await.unwrap_or(0) as i32;
 
-    let active_workers = state
-        .db
-        .count_active_workers()
-        .await
-        .map_err(map_system_overview_db_error)? as i32;
+    let active_workers = state.db.count_active_workers().await.unwrap_or(0) as i32;
 
-    let adapter_count = state
-        .db
-        .count_active_adapters()
-        .await
-        .map_err(map_system_overview_db_error)? as i32;
+    let adapter_count = state.db.count_active_adapters().await.unwrap_or(0) as i32;
 
     // Check service health
     let services = check_service_health(&state).await;
@@ -258,7 +189,7 @@ pub async fn check_service_health(state: &AppState) -> Vec<ServiceStatus> {
         tokio::time::timeout(timeout_duration, check_database_health(state)),
         tokio::time::timeout(timeout_duration, check_lifecycle_manager_health(state)),
         tokio::time::timeout(timeout_duration, check_telemetry_health(state)),
-        tokio::time::timeout(timeout_duration, check_mlx_backend_health(state)),
+        tokio::time::timeout(timeout_duration, check_mlx_backend_health()),
         tokio::time::timeout(timeout_duration, check_router_health(state)),
     );
 
@@ -343,126 +274,109 @@ async fn check_database_health(state: &AppState) -> (ServiceHealthStatus, Option
 /// Check lifecycle manager health
 async fn check_lifecycle_manager_health(state: &AppState) -> (ServiceHealthStatus, Option<String>) {
     if let Some(ref lifecycle) = state.lifecycle_manager {
-        (
-            ServiceHealthStatus::Healthy,
-            Some("Lifecycle manager is operational".to_string()),
-        )
+        // Check if lifecycle manager is operational by checking lock
+        match lifecycle.try_lock() {
+            Ok(_) => (
+                ServiceHealthStatus::Healthy,
+                Some("Lifecycle manager is operational".to_string()),
+            ),
+            Err(_) => (
+                ServiceHealthStatus::Degraded,
+                Some("Lifecycle manager is busy".to_string()),
+            ),
+        }
     } else {
         (
-            ServiceHealthStatus::Healthy,
-            Some("Standalone mode (Lifecycle manager not configured)".to_string()),
+            ServiceHealthStatus::Unknown,
+            Some("Lifecycle manager not configured".to_string()),
         )
     }
 }
 
 /// Check telemetry health
 ///
-/// Checks if the telemetry broadcast channel has active receivers (consumers running).
+/// First verifies the telemetry_events table exists before querying.
+/// This prevents silent failures when the table hasn't been created yet.
 async fn check_telemetry_health(state: &AppState) -> (ServiceHealthStatus, Option<String>) {
-    let active_receivers = state.telemetry_tx.receiver_count();
-    let dev_mode = crate::is_dev_bypass_enabled();
+    // First check if the telemetry_events table exists using Db method
+    let table_exists = state
+        .db
+        .table_exists("telemetry_events")
+        .await
+        .unwrap_or(false);
 
+    if !table_exists {
+        return (
+            ServiceHealthStatus::Unknown,
+            Some("Telemetry not configured (table missing)".to_string()),
+        );
+    }
+
+    // Check if telemetry events are being written
     match state.db.count_table_rows("telemetry_events").await {
-        Ok(count) => {
-            if active_receivers > 0 {
-                (
-                    ServiceHealthStatus::Healthy,
-                    Some(format!(
-                        "Telemetry active ({} receivers, {} events)",
-                        active_receivers, count
-                    )),
-                )
-            } else if dev_mode {
-                (
-                    ServiceHealthStatus::Healthy,
-                    Some(format!(
-                        "Telemetry suspended in Dev Mode ({} events recorded)",
-                        count
-                    )),
-                )
-            } else {
-                (
-                    ServiceHealthStatus::Degraded,
-                    Some(format!(
-                        "No active telemetry listeners ({} events recorded)",
-                        count
-                    )),
-                )
-            }
-        }
-        Err(e) => {
-            if is_schema_contract_violation(&e.to_string()) {
-                return (
-                    ServiceHealthStatus::Unhealthy,
-                    Some(format!("Schema contract violation: {}", e)),
-                );
-            }
-            (
-                ServiceHealthStatus::Unknown,
-                Some("Telemetry status unknown".to_string()),
-            )
-        }
+        Ok(count) if count > 0 => (
+            ServiceHealthStatus::Healthy,
+            Some(format!("Telemetry active ({} events)", count)),
+        ),
+        Ok(_) => (
+            ServiceHealthStatus::Degraded,
+            Some("No telemetry events".to_string()),
+        ),
+        Err(_) => (
+            ServiceHealthStatus::Unknown,
+            Some("Telemetry status unknown".to_string()),
+        ),
     }
 }
 
 /// Check MLX backend health
-async fn check_mlx_backend_health(state: &AppState) -> (ServiceHealthStatus, Option<String>) {
-    // Check if any actively registered worker in the node reports MLX capabilities
-    let has_mlx_worker = state.worker_runtime.iter().any(|entry| {
-        entry.value().backend.as_deref() == Some("mlx")
-            || entry
-                .value()
-                .capabilities
-                .iter()
-                .any(|cap| cap.to_lowercase().contains("mlx"))
-    });
-
-    if has_mlx_worker {
-        return (
-            ServiceHealthStatus::Healthy,
-            Some("MLX worker is registered and responsive".to_string()),
-        );
-    }
-
-    // Fallback: check if the process env var is set (for CP-only offline configurations)
+async fn check_mlx_backend_health() -> (ServiceHealthStatus, Option<String>) {
+    // Check if MLX model is configured
     if std::env::var("AOS_MLX_FFI_MODEL").is_ok() {
         (
             ServiceHealthStatus::Healthy,
-            Some("MLX backend configured globally".to_string()),
+            Some("MLX backend configured".to_string()),
         )
     } else {
         (
-            ServiceHealthStatus::Healthy,
-            Some("No active MLX workers found (Optional)".to_string()),
+            ServiceHealthStatus::Unknown,
+            Some("MLX backend not configured".to_string()),
         )
     }
 }
 
 /// Check router health
 ///
-/// Router is an inline component during inference. We check for table existence
-/// as proof of schema readiness, and report the number of decisions if any.
+/// First verifies the routing_decisions table exists before querying.
+/// This prevents silent failures when the table hasn't been created yet.
 async fn check_router_health(state: &AppState) -> (ServiceHealthStatus, Option<String>) {
+    // First check if the routing_decisions table exists using Db method
+    let table_exists = state
+        .db
+        .table_exists("routing_decisions")
+        .await
+        .unwrap_or(false);
+
+    if !table_exists {
+        return (
+            ServiceHealthStatus::Unknown,
+            Some("Router not configured (table missing)".to_string()),
+        );
+    }
+
+    // Check if router has made recent decisions
     match state.db.count_table_rows("routing_decisions").await {
-        Ok(count) => {
-            let msg = if count > 0 {
-                format!("Router standing by ({} decisions recorded)", count)
-            } else {
-                "Router standing by (no decisions yet)".to_string()
-            };
-            (ServiceHealthStatus::Healthy, Some(msg))
-        }
-        Err(e) => {
-            if is_schema_contract_violation(&e.to_string()) {
-                return (
-                    ServiceHealthStatus::Unhealthy,
-                    Some(format!("Schema contract violation: {}", e)),
-                );
-            }
-            (
-                ServiceHealthStatus::Unknown,
-                Some("Router status unknown".to_string()),
-            )
-        }
+        Ok(count) if count > 0 => (
+            ServiceHealthStatus::Healthy,
+            Some(format!("Router active ({} decisions)", count)),
+        ),
+        Ok(_) => (
+            ServiceHealthStatus::Degraded,
+            Some("No recent routing decisions".to_string()),
+        ),
+        Err(_) => (
+            ServiceHealthStatus::Unknown,
+            Some("Router status unknown".to_string()),
+        ),
     }
 }

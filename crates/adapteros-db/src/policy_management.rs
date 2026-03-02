@@ -133,7 +133,7 @@ impl Db {
         .bind(description)
         .bind(&created_at)
         .bind(created_by)
-        .execute(self.pool_result()?)
+        .execute(self.pool())
         .await
         .map_err(db_err("store policy pack"))?;
 
@@ -144,7 +144,7 @@ impl Db {
     pub async fn get_policy_pack(&self, id: &str) -> Result<Option<PolicyPack>> {
         let pack = sqlx::query_as::<_, PolicyPack>("SELECT * FROM policy_packs WHERE id = ?")
             .bind(id)
-            .fetch_optional(self.pool_result()?)
+            .fetch_optional(self.pool())
             .await
             .map_err(db_err("fetch policy pack"))?;
 
@@ -178,7 +178,7 @@ impl Db {
         }
 
         let packs = q
-            .fetch_all(self.pool_result()?)
+            .fetch_all(self.pool())
             .await
             .map_err(db_err("list policy packs"))?;
 
@@ -192,7 +192,7 @@ impl Db {
         sqlx::query("UPDATE policy_packs SET status = 'active', activated_at = ? WHERE id = ?")
             .bind(&activated_at)
             .bind(id)
-            .execute(self.pool_result()?)
+            .execute(self.pool())
             .await
             .map_err(db_err("activate policy pack"))?;
 
@@ -208,7 +208,7 @@ impl Db {
         )
         .bind(&deprecated_at)
         .bind(id)
-        .execute(self.pool_result()?)
+        .execute(self.pool())
         .await
         .map_err(db_err("deprecate policy pack"))?;
 
@@ -245,7 +245,7 @@ impl Db {
         .bind(enforced as i32)
         .bind(&assigned_at)
         .bind(assigned_by)
-        .execute(self.pool_result()?)
+        .execute(self.pool())
         .await
         .map_err(db_err("assign policy"))?;
 
@@ -266,7 +266,7 @@ impl Db {
             )
             .bind(target_type)
             .bind(tid)
-            .fetch_all(self.pool_result()?)
+            .fetch_all(self.pool())
             .await
         } else {
             sqlx::query_as::<_, PolicyAssignment>(
@@ -275,7 +275,7 @@ impl Db {
                  ORDER BY priority DESC, assigned_at DESC",
             )
             .bind(target_type)
-            .fetch_all(self.pool_result()?)
+            .fetch_all(self.pool())
             .await
         }
         .map_err(db_err("get policy assignments"))?;
@@ -287,7 +287,7 @@ impl Db {
     pub async fn remove_policy_assignment(&self, assignment_id: &str) -> Result<()> {
         sqlx::query("DELETE FROM policy_assignments WHERE id = ?")
             .bind(assignment_id)
-            .execute(self.pool_result()?)
+            .execute(self.pool())
             .await
             .map_err(|e| {
                 AosError::Database(format!("Failed to remove policy assignment: {}", e))
@@ -331,7 +331,7 @@ impl Db {
         .bind(violation_message)
         .bind(violation_details_json)
         .bind(&detected_at)
-        .execute(self.pool_result()?)
+        .execute(self.pool())
         .await
         .map_err(db_err("record policy violation"))?;
 
@@ -382,7 +382,7 @@ impl Db {
         }
 
         let violations = q
-            .fetch_all(self.pool_result()?)
+            .fetch_all(self.pool())
             .await
             .map_err(db_err("get policy violations"))?;
 
@@ -407,7 +407,7 @@ impl Db {
         .bind(resolved_by)
         .bind(resolution_notes)
         .bind(violation_id)
-        .execute(self.pool_result()?)
+        .execute(self.pool())
         .await
         .map_err(db_err("resolve policy violation"))?;
 
@@ -458,7 +458,7 @@ impl Db {
         .bind(&calculated_at)
         .bind(period_start)
         .bind(period_end)
-        .execute(self.pool_result()?)
+        .execute(self.pool())
         .await
         .map_err(db_err("store compliance score"))?;
 
@@ -482,7 +482,7 @@ impl Db {
                 .bind(target_type)
                 .bind(tid)
                 .bind(ppid)
-                .fetch_optional(self.pool_result()?)
+                .fetch_optional(self.pool())
                 .await
             } else {
                 sqlx::query_as::<_, ComplianceScore>(
@@ -492,7 +492,7 @@ impl Db {
                 )
                 .bind(target_type)
                 .bind(ppid)
-                .fetch_optional(self.pool_result()?)
+                .fetch_optional(self.pool())
                 .await
             }
         } else if let Some(tid) = target_id {
@@ -503,7 +503,7 @@ impl Db {
             )
             .bind(target_type)
             .bind(tid)
-            .fetch_optional(self.pool_result()?)
+            .fetch_optional(self.pool())
             .await
         } else {
             sqlx::query_as::<_, ComplianceScore>(
@@ -512,7 +512,7 @@ impl Db {
                  ORDER BY calculated_at DESC LIMIT 1",
             )
             .bind(target_type)
-            .fetch_optional(self.pool_result()?)
+            .fetch_optional(self.pool())
             .await
         }
         .map_err(db_err("get compliance score"))?;
@@ -531,7 +531,7 @@ impl Db {
              ORDER BY priority DESC, assigned_at DESC",
         )
         .bind(stack_id)
-        .fetch_all(self.pool_result()?)
+        .fetch_all(self.pool())
         .await
         .map_err(|e| {
             AosError::Database(format!("Failed to get stack policy assignments: {}", e))
@@ -559,7 +559,7 @@ impl Db {
              ORDER BY pv.detected_at DESC",
         )
         .bind(stack_id)
-        .fetch_all(self.pool_result()?)
+        .fetch_all(self.pool())
         .await
         .unwrap_or_else(|_| vec![]);
 
@@ -667,7 +667,7 @@ impl Db {
         )
         .bind(stack_id)
         .bind(&cutoff_str)
-        .fetch_all(self.pool_result()?)
+        .fetch_all(self.pool())
         .await
         .map_err(db_err("get recent stack violations"))?;
 
@@ -693,7 +693,7 @@ impl Db {
                 .bind(tid)
                 .bind(ppid)
                 .bind(limit)
-                .fetch_all(self.pool_result()?)
+                .fetch_all(self.pool())
                 .await
             } else {
                 sqlx::query_as::<_, ComplianceScore>(
@@ -704,7 +704,7 @@ impl Db {
                 .bind(target_type)
                 .bind(ppid)
                 .bind(limit)
-                .fetch_all(self.pool_result()?)
+                .fetch_all(self.pool())
                 .await
             }
         } else if let Some(tid) = target_id {
@@ -716,7 +716,7 @@ impl Db {
             .bind(target_type)
             .bind(tid)
             .bind(limit)
-            .fetch_all(self.pool_result()?)
+            .fetch_all(self.pool())
             .await
         } else {
             sqlx::query_as::<_, ComplianceScore>(
@@ -726,7 +726,7 @@ impl Db {
             )
             .bind(target_type)
             .bind(limit)
-            .fetch_all(self.pool_result()?)
+            .fetch_all(self.pool())
             .await
         }
         .map_err(db_err("get compliance trend"))?;

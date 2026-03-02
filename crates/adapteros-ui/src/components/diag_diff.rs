@@ -1,7 +1,6 @@
 //! Diagnostic diff results components.
 
 use crate::components::{Badge, BadgeVariant, Card};
-use crate::utils::status_display_label;
 use adapteros_api_types::diagnostics::{
     AnchorComparison, DiagDiffResponse, DiagRunResponse, FirstDivergence, RouterStepDiff,
 };
@@ -59,15 +58,12 @@ fn RunInfoCard(run: DiagRunResponse, label: &'static str) -> impl IntoView {
         "failed" => BadgeVariant::Destructive,
         _ => BadgeVariant::Secondary,
     };
-    let status_label = status_display_label(&run.status);
 
     view! {
         <div class="p-4 bg-muted/30 rounded-lg space-y-2">
             <div class="flex items-center justify-between">
                 <span class="text-sm font-medium">{label}</span>
-                <span title=run.status.clone()>
-                    <Badge variant=status_variant>{status_label}</Badge>
-                </span>
+                <Badge variant=status_variant>{run.status.clone()}</Badge>
             </div>
             <div class="text-xs text-muted-foreground space-y-1">
                 <p><span class="font-medium">"Trace: "</span><span class="font-mono">{run.trace_id.clone()}</span></p>

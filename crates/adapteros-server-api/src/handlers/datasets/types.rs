@@ -14,32 +14,6 @@ pub struct ListDatasetsQuery {
     pub workspace_id: Option<String>,
 }
 
-/// Adapter lineage entry for dataset adapters response
-#[derive(Debug, Clone, Serialize, Deserialize, ToSchema)]
-pub struct DatasetAdapterEntry {
-    pub adapter_id: String,
-    pub dataset_version_id: Option<String>,
-    pub training_job_id: Option<String>,
-}
-
-/// Response for adapters using a dataset
-#[derive(Debug, Clone, Serialize, Deserialize, ToSchema)]
-pub struct DatasetAdaptersResponse {
-    pub adapters: Vec<DatasetAdapterEntry>,
-}
-
-/// Request to update dataset metadata (name, description)
-#[derive(Debug, Clone, Serialize, Deserialize, ToSchema)]
-#[serde(deny_unknown_fields)]
-pub struct UpdateDatasetRequest {
-    /// New dataset name (optional)
-    #[serde(skip_serializing_if = "Option::is_none")]
-    pub name: Option<String>,
-    /// New dataset description (optional)
-    #[serde(skip_serializing_if = "Option::is_none")]
-    pub description: Option<String>,
-}
-
 /// Request to initiate a chunked upload
 #[derive(Debug, Clone, Serialize, Deserialize, ToSchema)]
 #[serde(deny_unknown_fields)]
@@ -199,29 +173,6 @@ pub struct CreateDatasetVersionRequest {
     pub manifest_path: Option<String>,
     #[serde(skip_serializing_if = "Option::is_none")]
     pub manifest_json: Option<Value>,
-    /// Optional base dataset version to edit from. Defaults to latest when omitted.
-    #[serde(skip_serializing_if = "Option::is_none")]
-    pub base_dataset_version_id: Option<String>,
-    /// Optional row edits. When provided, the server creates a new immutable version from
-    /// the base version rows with these edits applied.
-    #[serde(skip_serializing_if = "Option::is_none")]
-    pub row_edits: Option<Vec<DatasetRowEditRequest>>,
-}
-
-/// Row-level edit request for versioned dataset updates.
-#[derive(Debug, Clone, Deserialize, ToSchema)]
-#[serde(deny_unknown_fields)]
-pub struct DatasetRowEditRequest {
-    /// Canonical row identifier from the base dataset version.
-    pub row_id: String,
-    #[serde(skip_serializing_if = "Option::is_none")]
-    pub prompt: Option<String>,
-    #[serde(skip_serializing_if = "Option::is_none")]
-    pub response: Option<String>,
-    #[serde(skip_serializing_if = "Option::is_none")]
-    pub weight: Option<f32>,
-    #[serde(skip_serializing_if = "Option::is_none")]
-    pub split: Option<String>,
 }
 
 /// Response from creating a dataset version

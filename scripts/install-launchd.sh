@@ -1,8 +1,8 @@
 #!/usr/bin/env bash
-# Install adapterOS stack guardian as a launchd service on macOS
+# Install adapterOS worker as a launchd service on macOS
 #
-# The guardian is a per-user LaunchAgent that periodically ensures backend
-# and worker are running via scripts/service-manager.sh.
+# This script installs the aos-worker as a system-level launchd service
+# with automatic restart on failure.
 
 set -euo pipefail
 
@@ -37,119 +37,74 @@ if [[ "$(uname)" != "Darwin" ]]; then
     exit 1
 fi
 
+# Check if binary exists
+WORKER_BIN="$PROJECT_ROOT/target/release/aos-worker"
+if [[ ! -f "$WORKER_BIN" ]]; then
+    error "Worker binary not found at $WORKER_BIN"
+    error "Please build the project first: cargo build --release"
+    exit 1
+fi
+
 # Configuration
-GUARDIAN_LABEL="com.adapteros.stack.guardian"
-GUARDIAN_PLIST_NAME="${GUARDIAN_LABEL}.plist"
-GUARDIAN_PLIST_SOURCE="$SCRIPT_DIR/launchd/${GUARDIAN_PLIST_NAME}.template"
-GUARDIAN_PLIST_DEST="$HOME/Library/LaunchAgents/$GUARDIAN_PLIST_NAME"
-GUARDIAN_SCRIPT="$SCRIPT_DIR/launchd/aos-launchd-ensure.sh"
-GUARDIAN_LOG="$PROJECT_ROOT/var/logs/launchd-guardian.log"
+PLIST_NAME="com.adapteros.worker.plist"
+PLIST_SOURCE="$SCRIPT_DIR/launchd/$PLIST_NAME"
+PLIST_DEST="$HOME/Library/LaunchAgents/$PLIST_NAME"
 
-BACKEND_LABEL="com.adapteros.backend"
-BACKEND_PLIST_NAME="${BACKEND_LABEL}.plist"
-BACKEND_PLIST_SOURCE="$SCRIPT_DIR/launchd/${BACKEND_PLIST_NAME}.template"
-BACKEND_PLIST_DEST="$HOME/Library/LaunchAgents/$BACKEND_PLIST_NAME"
-BACKEND_SCRIPT="$SCRIPT_DIR/launchd/aos-launchd-run-backend.sh"
-BACKEND_LOG="$PROJECT_ROOT/var/logs/launchd-backend.log"
-
-UID_NUM="$(id -u)"
-TARGET_DOMAIN="gui/${UID_NUM}"
-
-# Verify required files exist
-if [[ ! -f "$GUARDIAN_PLIST_SOURCE" ]]; then
-    error "Guardian plist template not found at $GUARDIAN_PLIST_SOURCE"
-    exit 1
-fi
-if [[ ! -f "$BACKEND_PLIST_SOURCE" ]]; then
-    error "Backend plist template not found at $BACKEND_PLIST_SOURCE"
-    exit 1
-fi
-if [[ ! -x "$GUARDIAN_SCRIPT" ]]; then
-    error "Guardian script not executable at $GUARDIAN_SCRIPT"
-    exit 1
-fi
-if [[ ! -x "$BACKEND_SCRIPT" ]]; then
-    error "Backend launchd script not executable at $BACKEND_SCRIPT"
+# Verify plist exists
+if [[ ! -f "$PLIST_SOURCE" ]]; then
+    error "Plist file not found at $PLIST_SOURCE"
     exit 1
 fi
 
-info "Installing adapterOS stack guardian as launchd service..."
+info "Installing adapterOS Worker as launchd service..."
 info ""
 
 # Create necessary directories
 info "Creating directories..."
+mkdir -p /var/log/aos
+mkdir -p /var/run/aos/default
+mkdir -p /var/lib/aos/manifests
+mkdir -p /var/lib/aos/models
 mkdir -p "$HOME/Library/LaunchAgents"
-mkdir -p "$PROJECT_ROOT/var/logs"
-mkdir -p "$PROJECT_ROOT/var/run"
 
-# Render plists to LaunchAgents with absolute paths
-info "Rendering launchd plists..."
-sed \
-    -e "s#__PROJECT_ROOT__#${PROJECT_ROOT}#g" \
-    -e "s#__LAUNCHD_LOG__#${GUARDIAN_LOG}#g" \
-    "$GUARDIAN_PLIST_SOURCE" > "$GUARDIAN_PLIST_DEST"
-chmod 644 "$GUARDIAN_PLIST_DEST"
+# Install binary to /usr/local/bin
+info "Installing worker binary to /usr/local/bin..."
+sudo cp "$WORKER_BIN" /usr/local/bin/aos-worker
+sudo chmod +x /usr/local/bin/aos-worker
 
-sed \
-    -e "s#__PROJECT_ROOT__#${PROJECT_ROOT}#g" \
-    -e "s#__LAUNCHD_BACKEND_LOG__#${BACKEND_LOG}#g" \
-    "$BACKEND_PLIST_SOURCE" > "$BACKEND_PLIST_DEST"
-chmod 644 "$BACKEND_PLIST_DEST"
+# Copy plist to LaunchAgents
+info "Installing launchd plist..."
+cp "$PLIST_SOURCE" "$PLIST_DEST"
 
-# Unload legacy worker-only job if present
-if launchctl print "${TARGET_DOMAIN}/com.adapteros.worker" >/dev/null 2>&1; then
-    warning "Unloading legacy com.adapteros.worker job..."
-    launchctl bootout "${TARGET_DOMAIN}/com.adapteros.worker" >/dev/null 2>&1 || true
+# Unload existing service if running
+if launchctl list | grep -q "com.adapteros.worker"; then
+    warning "Service already loaded, unloading..."
+    launchctl unload "$PLIST_DEST" 2>/dev/null || true
 fi
 
-# Reload backend and guardian
-for label in "$BACKEND_LABEL" "$GUARDIAN_LABEL"; do
-    if launchctl print "${TARGET_DOMAIN}/${label}" >/dev/null 2>&1; then
-        warning "${label} already loaded, reloading..."
-        launchctl bootout "${TARGET_DOMAIN}/${label}" >/dev/null 2>&1 || true
-    fi
-done
-
-info "Bootstrapping backend service..."
-if [[ -x "$SCRIPT_DIR/service-manager.sh" ]]; then
-    info "Handing backend ownership to launchd (stopping existing backend first)..."
-    "$SCRIPT_DIR/service-manager.sh" stop backend graceful >/dev/null 2>&1 || true
-fi
-launchctl bootstrap "${TARGET_DOMAIN}" "$BACKEND_PLIST_DEST"
-launchctl enable "${TARGET_DOMAIN}/${BACKEND_LABEL}" >/dev/null 2>&1 || true
-launchctl kickstart -k "${TARGET_DOMAIN}/${BACKEND_LABEL}" >/dev/null 2>&1 || true
-
-info "Bootstrapping guardian service..."
-launchctl bootstrap "${TARGET_DOMAIN}" "$GUARDIAN_PLIST_DEST"
-launchctl enable "${TARGET_DOMAIN}/${GUARDIAN_LABEL}" >/dev/null 2>&1 || true
-launchctl kickstart -k "${TARGET_DOMAIN}/${GUARDIAN_LABEL}" >/dev/null 2>&1 || true
+# Load service
+info "Loading service..."
+launchctl load "$PLIST_DEST"
 
 # Wait a moment for service to start
 sleep 2
 
 # Check status
-if launchctl print "${TARGET_DOMAIN}/${GUARDIAN_LABEL}" >/dev/null 2>&1 &&
-    launchctl print "${TARGET_DOMAIN}/${BACKEND_LABEL}" >/dev/null 2>&1; then
-    success "Services installed and loaded successfully."
+if launchctl list | grep -q "com.adapteros.worker"; then
+    success "Service installed and loaded successfully!"
     info ""
     info "Service management commands:"
-    info "  Backend start:   launchctl kickstart -k ${TARGET_DOMAIN}/${BACKEND_LABEL}"
-    info "  Backend stop:    launchctl bootout ${TARGET_DOMAIN}/${BACKEND_LABEL}"
-    info "  Backend status:  launchctl print ${TARGET_DOMAIN}/${BACKEND_LABEL}"
-    info "  Backend logs:    tail -f ${BACKEND_LOG}"
-    info ""
-    info "  Guardian start:  launchctl kickstart -k ${TARGET_DOMAIN}/${GUARDIAN_LABEL}"
-    info "  Guardian stop:   launchctl bootout ${TARGET_DOMAIN}/${GUARDIAN_LABEL}"
-    info "  Guardian status: launchctl print ${TARGET_DOMAIN}/${GUARDIAN_LABEL}"
-    info "  Guardian logs:   tail -f ${GUARDIAN_LOG}"
+    info "  Start:   launchctl start com.adapteros.worker"
+    info "  Stop:    launchctl stop com.adapteros.worker"
+    info "  Restart: launchctl kickstart -k gui/\$(id -u)/com.adapteros.worker"
+    info "  Status:  launchctl list | grep adapteros"
+    info "  Logs:    tail -f /var/log/aos/worker-*.log"
     info ""
     info "To uninstall:"
-    info "  launchctl bootout ${TARGET_DOMAIN}/${GUARDIAN_LABEL}"
-    info "  launchctl bootout ${TARGET_DOMAIN}/${BACKEND_LABEL}"
-    info "  rm $GUARDIAN_PLIST_DEST"
-    info "  rm $BACKEND_PLIST_DEST"
+    info "  launchctl unload $PLIST_DEST"
+    info "  rm $PLIST_DEST"
 else
-    error "One or more services failed to load. Check system logs:"
+    error "Service failed to load. Check system logs:"
     error "  log show --predicate 'subsystem == \"com.apple.launchd\"' --last 5m"
     exit 1
 fi

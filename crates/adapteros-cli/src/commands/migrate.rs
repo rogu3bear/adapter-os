@@ -2,7 +2,12 @@
 //!
 //! Migrate existing adapters to .aos format
 
+use crate::commands::NOT_IMPLEMENTED_MESSAGE;
 use crate::output::OutputWriter;
+use adapteros_core::AosError;
+// Removed: use adapteros_core::B3Hash;
+// Removed: use adapteros_lora_worker::training::{TrainingConfig, TrainingExample};
+// Removed: use adapteros_aos::single_file::{...};
 
 use anyhow::Result;
 use clap::{Parser, Subcommand};
@@ -17,7 +22,7 @@ pub struct MigrateArgs {
 
 #[derive(Debug, Subcommand, Clone)]
 pub enum MigrateCmd {
-    /// Migrate adapter directory to .aos file
+    /// Migrate adapter directory to .aos file [NOT IMPLEMENTED]
     Adapter(AdapterMigrateArgs),
 }
 
@@ -46,41 +51,11 @@ pub async fn run(args: MigrateArgs, output: &OutputWriter) -> Result<()> {
     }
 }
 
-async fn migrate_adapter(args: AdapterMigrateArgs, output: &OutputWriter) -> Result<()> {
-    output.info(&format!(
-        "Migrating adapter from {} to {}",
-        args.source.display(),
-        args.output.display()
-    ));
+async fn migrate_adapter(_args: AdapterMigrateArgs, output: &OutputWriter) -> Result<()> {
+    output.warning("migrate adapter command is temporarily disabled");
+    output.info(NOT_IMPLEMENTED_MESSAGE);
 
-    // Convert Option<String> to Option<&str> for adapter_id
-    let adapter_id = args.adapter_id.as_deref();
-
-    // Call the migration logic from adapteros_aos
-    match adapteros_aos::single_file::migrate_adapter(
-        adapter_id,
-        &args.source,
-        &args.output,
-        &args.version,
-    )
-    .await
-    {
-        Ok(result) => {
-            output.success(&format!(
-                "Successfully migrated adapter. Duration: {}ms",
-                result.duration_ms
-            ));
-            if !result.warnings.is_empty() {
-                output.warning("Migration completed with warnings:");
-                for warning in result.warnings {
-                    output.warning(&format!("  - {}", warning));
-                }
-            }
-            Ok(())
-        }
-        Err(e) => {
-            output.error(&format!("Failed to migrate adapter: {}", e));
-            Err(e.into())
-        }
-    }
+    Err(anyhow::anyhow!(AosError::Config(
+        NOT_IMPLEMENTED_MESSAGE.to_string()
+    )))
 }

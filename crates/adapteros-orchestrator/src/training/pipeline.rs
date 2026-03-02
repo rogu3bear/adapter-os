@@ -3,10 +3,6 @@
 use std::collections::{BTreeMap, HashMap};
 use std::path::{Path, PathBuf};
 
-use adapteros_core::training_receipt_digest::{
-    compute_training_receipt_digest_v1, TrainingPhaseDigestStatusV1, TrainingReceiptDigestInputV1,
-    TRAINING_RECEIPT_SCHEMA_V1,
-};
 use adapteros_core::{AosError, B3Hash, Result};
 use adapteros_lora_worker::training::trainer::TrainingResult;
 use blake3::Hasher;
@@ -132,10 +128,6 @@ pub struct PipelineReceiptV1 {
     pub started_at_unix_ms: u64,
     pub finished_at_unix_ms: Option<u64>,
     pub phase_statuses: Vec<PhaseStatusV1>,
-    #[serde(default, skip_serializing_if = "Option::is_none")]
-    pub canonical_receipt_schema_version: Option<u8>,
-    #[serde(default, skip_serializing_if = "Option::is_none")]
-    pub canonical_receipt_digest_b3: Option<String>,
 }
 
 impl PipelineReceiptV1 {
@@ -158,37 +150,6 @@ impl PipelineReceiptV1 {
             started_at_unix_ms,
             finished_at_unix_ms: None,
             phase_statuses: Vec::new(),
-            canonical_receipt_schema_version: None,
-            canonical_receipt_digest_b3: None,
-        }
-    }
-
-    pub fn to_training_receipt_digest_input_v1(&self) -> TrainingReceiptDigestInputV1 {
-        let phase_statuses = self
-            .phase_statuses
-            .iter()
-            .map(|status| TrainingPhaseDigestStatusV1 {
-                phase: status.phase.as_str().to_string(),
-                status: status.status.as_str().to_string(),
-                phase_id: status.phase_id.clone(),
-                inputs_hash: status.inputs_hash.clone(),
-                outputs_hash: status.outputs_hash.clone(),
-            })
-            .collect();
-
-        TrainingReceiptDigestInputV1 {
-            schema_version: TRAINING_RECEIPT_SCHEMA_V1,
-            contract_version: self.contract_version,
-            training_contract_version: self.training_contract_version.clone(),
-            pipeline_id: self.pipeline_id.clone(),
-            dataset_id: self.dataset_id.clone(),
-            dataset_content_hash: self.dataset_content_hash.clone(),
-            preprocess_id: self.preprocess_id.clone(),
-            preprocess_hash: self.preprocess_hash.clone(),
-            split_hash: self.split_hash.clone(),
-            training_config_hash: self.training_config_hash.clone(),
-            base_model_hash: self.base_model_hash.clone(),
-            phase_statuses,
         }
     }
 }
@@ -404,7 +365,7 @@ impl TrainingPipeline {
             }
         }
 
-        let mut pipeline = Self {
+        let pipeline = Self {
             state,
             paths,
             receipt,
@@ -836,12 +797,7 @@ impl TrainingPipeline {
         Ok(())
     }
 
-    async fn persist_pipeline_receipt(&mut self) -> Result<()> {
-        let digest_input = self.to_training_receipt_digest_input();
-        let digest = compute_training_receipt_digest_v1(&digest_input).to_hex();
-        self.receipt.canonical_receipt_schema_version = Some(TRAINING_RECEIPT_SCHEMA_V1);
-        self.receipt.canonical_receipt_digest_b3 = Some(digest.to_string());
-
+    async fn persist_pipeline_receipt(&self) -> Result<()> {
         let json = serde_json::to_string_pretty(&self.receipt).map_err(|e| {
             AosError::Training(format!("Failed to serialize pipeline receipt: {}", e))
         })?;
@@ -898,10 +854,6 @@ impl TrainingPipeline {
             ))
         })?;
         Ok(Some(training_result))
-    }
-
-    fn to_training_receipt_digest_input(&self) -> TrainingReceiptDigestInputV1 {
-        self.receipt.to_training_receipt_digest_input_v1()
     }
 }
 

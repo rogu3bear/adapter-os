@@ -88,10 +88,6 @@ pub enum WorkerErrorDetails {
 pub enum InferenceError {
     /// Prompt validation failed
     ValidationError(String),
-    /// Bit-identical mode requires explicit immutable adapter pins.
-    BitIdenticalAdapterPinRequired(String),
-    /// Bit-identical mode received invalid/unresolvable adapter pins.
-    BitIdenticalAdapterPinInvalid(String),
     /// Worker not available
     WorkerNotAvailable(String),
     /// Worker communication failed
@@ -216,8 +212,6 @@ impl std::fmt::Display for InferenceError {
     fn fmt(&self, f: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
         match self {
             Self::ValidationError(msg) => write!(f, "Validation error: {}", msg),
-            Self::BitIdenticalAdapterPinRequired(msg) => write!(f, "Validation error: {}", msg),
-            Self::BitIdenticalAdapterPinInvalid(msg) => write!(f, "Validation error: {}", msg),
             Self::WorkerNotAvailable(msg) => write!(f, "Worker not available: {}", msg),
             Self::WorkerError(msg) => write!(f, "Worker error: {}", msg),
             Self::Timeout(msg) => write!(f, "Timeout: {}", msg),
@@ -284,8 +278,6 @@ impl InferenceError {
         use axum::http::StatusCode;
         match self {
             Self::ValidationError(_) => StatusCode::BAD_REQUEST,
-            Self::BitIdenticalAdapterPinRequired(_) => StatusCode::BAD_REQUEST,
-            Self::BitIdenticalAdapterPinInvalid(_) => StatusCode::BAD_REQUEST,
             Self::WorkerNotAvailable(_) => StatusCode::SERVICE_UNAVAILABLE,
             Self::WorkerError(_) => StatusCode::INTERNAL_SERVER_ERROR,
             Self::Timeout(_) => StatusCode::REQUEST_TIMEOUT,
@@ -316,8 +308,6 @@ impl InferenceError {
     pub fn error_code(&self) -> &'static str {
         match self {
             Self::ValidationError(_) => "VALIDATION_ERROR",
-            Self::BitIdenticalAdapterPinRequired(_) => "BIT_IDENTICAL_ADAPTER_PIN_REQUIRED",
-            Self::BitIdenticalAdapterPinInvalid(_) => "BIT_IDENTICAL_ADAPTER_PIN_INVALID",
             Self::WorkerNotAvailable(_) => "SERVICE_UNAVAILABLE",
             Self::WorkerError(_) => "INTERNAL_ERROR",
             Self::Timeout(_) => "REQUEST_TIMEOUT",
@@ -364,8 +354,6 @@ impl InferenceError {
             }
             Self::Timeout(_) => None,
             Self::ValidationError(_) => None,
-            Self::BitIdenticalAdapterPinRequired(_) => None,
-            Self::BitIdenticalAdapterPinInvalid(_) => None,
             Self::ClientClosed(_) => None,
             Self::RagError(msg) => {
                 if msg.to_lowercase().contains("trace") {
@@ -443,8 +431,6 @@ impl HasECode for InferenceError {
         match self {
             // E8xxx: CLI/Config errors
             Self::ValidationError(_) => ECode::E8001, // Invalid Configuration
-            Self::BitIdenticalAdapterPinRequired(_) => ECode::E8001, // Invalid Configuration
-            Self::BitIdenticalAdapterPinInvalid(_) => ECode::E8001, // Invalid Configuration
             Self::ClientClosed(_) => ECode::E8001,    // Client-side issue
 
             // E9xxx: OS/Environment issues

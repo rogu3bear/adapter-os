@@ -1,9 +1,5 @@
 #!/usr/bin/env bash
-# Migration check wrapper for tests/CI.
-# Canonical role in migration checks:
-# - scripts/db/check_migrations.sh: CI/test orchestration wrapper
-# - scripts/check_migrations.sh: numbering/gap/collision checks
-# - scripts/check-migrations.sh: signatures + duplicate-number gate
+# Migration and signature hygiene gate for tests/CI.
 set -euo pipefail
 
 ROOT_DIR="$(cd "$(dirname "${BASH_SOURCE[0]}")/../.." && pwd)"

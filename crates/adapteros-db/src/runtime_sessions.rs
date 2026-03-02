@@ -248,7 +248,7 @@ impl Db {
             .bind(&session.adapters_root)
             .bind(&session.database_path)
             .bind(&session.var_dir)
-            .execute(self.pool_result()?)
+            .execute(self.pool())
             .await
             .db_err("insert runtime session")?;
 
@@ -354,7 +354,7 @@ impl Db {
             )
             .bind(reason)
             .bind(id)
-            .execute(self.pool_result()?)
+            .execute(self.pool())
             .await
             .db_err("end runtime session")?;
         }
@@ -428,7 +428,7 @@ impl Db {
             )
             .bind(retention_days)
             .bind(max_per_host)
-            .execute(self.pool_result()?)
+            .execute(self.pool())
             .await
             .db_err("cleanup old sessions")?;
 

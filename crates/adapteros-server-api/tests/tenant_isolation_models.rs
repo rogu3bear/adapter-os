@@ -36,7 +36,7 @@ async fn create_test_tenant(db: &Db, tenant_id: &str) -> Result<()> {
     sqlx::query("INSERT INTO tenants (id, name, itar_flag) VALUES (?, ?, 0)")
         .bind(tenant_id)
         .bind(tenant_id)
-        .execute(db.pool_result()?)
+        .execute(db.pool())
         .await
         .map_err(|e| AosError::Database(format!("Failed to create tenant: {}", e)))?;
     Ok(())
@@ -94,14 +94,14 @@ async fn create_test_model(
             sqlx::query("UPDATE models SET tenant_id = ? WHERE id = ?")
                 .bind(tid)
                 .bind(&id)
-                .execute(db.pool_result()?)
+                .execute(db.pool())
                 .await
                 .map_err(|e| AosError::Database(format!("Failed to set tenant_id: {}", e)))?;
         }
         None => {
             sqlx::query("UPDATE models SET tenant_id = NULL WHERE id = ?")
                 .bind(&id)
-                .execute(db.pool_result()?)
+                .execute(db.pool())
                 .await
                 .map_err(|e| AosError::Database(format!("Failed to set tenant_id NULL: {}", e)))?;
         }
@@ -173,7 +173,7 @@ async fn test_get_model_by_name_for_tenant_respects_tenant_isolation() -> Result
 
     // Set import_status to 'available' for both models so they can be found by name
     sqlx::query("UPDATE models SET import_status = 'available'")
-        .execute(db.pool_result()?)
+        .execute(db.pool())
         .await?;
 
     // Tenant A should resolve to their own model and not see tenant-b's
@@ -226,7 +226,7 @@ async fn test_global_models_visible_to_all_tenants() -> Result<()> {
     // Set import_status to 'available' so it can be found by name
     sqlx::query("UPDATE models SET import_status = 'available' WHERE id = ?")
         .bind(&global_model_id)
-        .execute(db.pool_result()?)
+        .execute(db.pool())
         .await?;
 
     // Tenant A should see the global model
@@ -290,7 +290,7 @@ async fn test_load_model_denies_cross_tenant_access() -> Result<()> {
         "UPDATE models SET model_path = '/tmp/dummy', import_status = 'available' WHERE id = ?",
     )
     .bind(&model_a_id)
-    .execute(state.db.pool_result()?)
+    .execute(state.db.pool())
     .await?;
 
     // Tenant B tries to load tenant A's model
@@ -617,7 +617,7 @@ async fn test_tenants_resolve_models_by_name_with_isolation() -> Result<()> {
 
     // Set all to available
     sqlx::query("UPDATE models SET import_status = 'available'")
-        .execute(db.pool_result()?)
+        .execute(db.pool())
         .await?;
 
     // Each tenant should resolve to their own model
@@ -720,7 +720,7 @@ async fn test_empty_tenant_sees_only_global_models() -> Result<()> {
 
     // Set to available
     sqlx::query("UPDATE models SET import_status = 'available'")
-        .execute(db.pool_result()?)
+        .execute(db.pool())
         .await?;
 
     // Empty tenant should only see global model
@@ -772,7 +772,7 @@ async fn test_model_with_null_tenant_id_treated_as_global() -> Result<()> {
     // Make the model explicitly global
     sqlx::query("UPDATE models SET tenant_id = NULL WHERE id = ?")
         .bind(&null_model_id)
-        .execute(db.pool_result()?)
+        .execute(db.pool())
         .await?;
 
     // Verify tenant_id is NULL
@@ -892,7 +892,7 @@ async fn test_get_all_models_status_cross_tenant_filtered() -> Result<()> {
 
     // Set both models to available
     sqlx::query("UPDATE models SET import_status = 'available'")
-        .execute(state.db.pool_result()?)
+        .execute(state.db.pool())
         .await?;
 
     // Create base_model_status records for both tenants
@@ -901,7 +901,7 @@ async fn test_get_all_models_status_cross_tenant_filtered() -> Result<()> {
     )
     .bind("tenant-a")
     .bind(&model_a_id)
-    .execute(state.db.pool_result()?)
+    .execute(state.db.pool())
     .await?;
 
     sqlx::query(
@@ -909,7 +909,7 @@ async fn test_get_all_models_status_cross_tenant_filtered() -> Result<()> {
     )
     .bind("tenant-b")
     .bind(&model_b_id)
-    .execute(state.db.pool_result()?)
+    .execute(state.db.pool())
     .await?;
 
     // Non-admin from tenant-a should only see tenant-a's model status
@@ -957,7 +957,7 @@ async fn test_get_base_model_status_cross_tenant_denied() -> Result<()> {
         "UPDATE models SET import_status = 'available', model_path = '/tmp/dummy' WHERE id = ?",
     )
     .bind(&model_b_id)
-    .execute(state.db.pool_result()?)
+    .execute(state.db.pool())
     .await?;
 
     // Create base_model_status for tenant-b
@@ -966,7 +966,7 @@ async fn test_get_base_model_status_cross_tenant_denied() -> Result<()> {
     )
     .bind("tenant-b")
     .bind(&model_b_id)
-    .execute(state.db.pool_result()?)
+    .execute(state.db.pool())
     .await?;
 
     // Non-admin from tenant-a tries to query tenant-b's base model status
@@ -1014,7 +1014,7 @@ async fn test_admin_with_admin_tenants_can_access_cross_tenant_model_status() ->
         "UPDATE models SET import_status = 'available', model_path = '/tmp/dummy' WHERE id = ?",
     )
     .bind(&model_a_id)
-    .execute(state.db.pool_result()?)
+    .execute(state.db.pool())
     .await?;
 
     // Create base_model_status for tenant-a
@@ -1023,7 +1023,7 @@ async fn test_admin_with_admin_tenants_can_access_cross_tenant_model_status() ->
     )
     .bind("tenant-a")
     .bind(&model_a_id)
-    .execute(state.db.pool_result()?)
+    .execute(state.db.pool())
     .await?;
 
     // Admin from system with admin_tenants grant for tenant-a

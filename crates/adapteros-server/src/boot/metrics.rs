@@ -58,7 +58,7 @@ pub async fn initialize_metrics(
     config: Arc<RwLock<Config>>,
     shutdown_coordinator: &mut ShutdownCoordinator,
     background_tasks: Arc<BackgroundTaskTracker>,
-    _boot_state: &BootStateManager,
+    boot_state: &BootStateManager,
     _production_mode: bool,
 ) -> Result<MetricsContext> {
     // Initialize UDS metrics exporter (zero-network metrics per Egress Ruleset #1)
@@ -253,11 +253,20 @@ pub async fn initialize_metrics(
             Err(e) => {
                 // PRD-4.8: Make UDS bind failure louder - metrics loss is a critical observability gap
                 background_tasks.record_failed("UDS metrics exporter", &e.to_string(), true);
-
-                let err_msg = format!("CRITICAL: UDS metrics exporter failed to bind at {} - metrics export disabled. Check socket permissions and ensure no other process is using the socket. Error: {}", socket_path.display(), e);
-                error!("{}", err_msg);
-
-                return Err(anyhow::anyhow!(err_msg));
+                boot_state.record_boot_warning(
+                    "metrics-uds",
+                    format!(
+                        "UDS metrics exporter failed to bind at {}: {}",
+                        socket_path.display(),
+                        e
+                    ),
+                );
+                error!(
+                    error = %e,
+                    socket_path = %socket_path.display(),
+                    "CRITICAL: UDS metrics exporter failed to bind - metrics export disabled. \
+                     Check socket permissions and ensure no other process is using the socket."
+                );
             }
         }
     }

@@ -658,8 +658,7 @@ mod tests {
             }],
         };
 
-        let json = serde_json::to_string(&chunk)
-            .unwrap_or_else(|e| format!(r#"{{"error": "Serialization failed: {}"}}"#, e));
+        let json = serde_json::to_string(&chunk).expect("Failed to serialize test chunk");
         assert!(json.contains("Hello"));
         assert!(json.contains("chat.completion.chunk"));
     }

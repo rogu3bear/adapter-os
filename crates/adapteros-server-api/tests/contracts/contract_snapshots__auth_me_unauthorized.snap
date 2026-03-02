@@ -1,5 +1,6 @@
 ---
 source: crates/adapteros-server-api/tests/contract_snapshots.rs
+assertion_line: 383
 expression: "json!({\n    \"status\": auth_me_unauth_status.as_u16(), \"body\": auth_me_unauth_body\n})"
 ---
 {
@@ -8,12 +9,12 @@ expression: "json!({\n    \"status\": auth_me_unauth_status.as_u16(), \"body\": 
       "*"
     ],
     "created_at": "<timestamp>",
-    "display_name": "dev-admin@adapteros.local",
+    "display_name": "dev-no-auth@adapteros.local",
     "email": "<redacted>",
     "mfa_enabled": false,
     "permissions": [],
     "role": "admin",
-    "schema_version": "2.0.0",
+    "schema_version": "1.0.0",
     "tenant_id": "default",
     "user_id": "<redacted>"
   },

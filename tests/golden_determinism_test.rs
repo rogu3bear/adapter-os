@@ -204,7 +204,7 @@ fn load_golden_suite() -> Result<GoldenSuite, String> {
 #[ignore] // Requires running server
 async fn test_golden_determinism() {
     let base_url =
-        std::env::var("AOS_TEST_URL").unwrap_or_else(|_| "http://localhost:18080".to_string());
+        std::env::var("AOS_TEST_URL").unwrap_or_else(|_| "http://localhost:8080".to_string());
 
     println!("\n═══════════════════════════════════════════════════════");
     println!(" GOLDEN DETERMINISM TESTS");

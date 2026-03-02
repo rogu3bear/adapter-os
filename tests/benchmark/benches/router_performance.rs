@@ -39,7 +39,6 @@ fn generate_adapter_info(count: usize) -> Vec<AdapterInfo> {
             scope_path: Some(format!("/src/module_{}", i % 10)),
             lora_tier: Some(format!("tier_{}", i % 3)),
             base_model: Some("qwen-7b".to_string()),
-            version_weight: 1.0,
             recommended_for_moe: true,
             reasoning_specialties: Vec::new(),
             adapter_type: Some("standard".to_string()),

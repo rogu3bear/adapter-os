@@ -261,13 +261,13 @@ pub struct PatchProposalRequestType {
 }
 
 /// Canonical worker inference request shared by server and worker.
-pub type WorkerInferRequest = adapteros_inference_contract::WorkerInferRequest;
+pub type WorkerInferRequest = adapteros_transport_types::WorkerInferenceRequest;
 
 /// Worker request type (normal vs patch proposal).
-pub type WorkerRequestType = adapteros_inference_contract::WorkerRequestType;
+pub type WorkerRequestType = adapteros_transport_types::WorkerRequestType;
 
 /// Patch proposal request payload attached to `WorkerRequestType::PatchProposal`.
-pub type WorkerPatchProposalRequest = adapteros_inference_contract::WorkerPatchProposalRequest;
+pub type WorkerPatchProposalRequest = adapteros_transport_types::WorkerPatchProposalRequest;
 
 /// Compare policies request
 #[derive(Debug, Serialize, Deserialize, ToSchema)]

@@ -111,6 +111,27 @@ pub struct LogEntry {
     pub latency_ms: Option<u64>,
 }
 
+/// Training job status for TUI display
+#[derive(Debug, Clone, Default)]
+#[allow(dead_code)]
+pub struct TrainingJob {
+    pub id: String,
+    pub status: String,
+    pub progress_pct: f32,
+    pub current_epoch: u32,
+    pub total_epochs: u32,
+    pub current_batch: u32,
+    pub total_batches: u32,
+    pub current_loss: f32,
+    pub learning_rate: f32,
+    pub tokens_per_second: f32,
+    pub dataset_name: Option<String>,
+    pub dataset_samples: Option<u32>,
+    pub backend: Option<String>,
+    pub checkpoints_saved: u32,
+    pub started_at: Option<chrono::DateTime<Utc>>,
+}
+
 #[derive(Debug, Clone, Default)]
 pub struct SystemConfig {
     pub server_port: u16,
@@ -203,5 +224,6 @@ pub struct ChatMessage {
 pub enum ChatRole {
     User,
     Assistant,
+    #[allow(dead_code)]
     System,
 }

@@ -3,7 +3,6 @@
 #![allow(clippy::field_reassign_with_default)]
 
 use std::collections::HashMap;
-use std::path::PathBuf;
 use std::sync::atomic::AtomicBool;
 use std::sync::Arc;
 
@@ -29,7 +28,6 @@ fn cpu_only_config() -> TrainingConfig {
     cfg.epochs = 1;
     cfg.batch_size = 1;
     cfg.learning_rate = 0.0001;
-    cfg.base_model_path = Some(fixture_base_model_path());
     cfg.preferred_backend = None;
     cfg.require_gpu = false;
     cfg.max_gpu_memory_mb = None;
@@ -54,16 +52,6 @@ fn no_package_actions() -> Option<String> {
     )
 }
 
-fn fixture_base_model_path() -> PathBuf {
-    let raw = PathBuf::from(env!("CARGO_MANIFEST_DIR"))
-        .join("..")
-        .join("..")
-        .join("var")
-        .join("models")
-        .join("Qwen2.5-1.5B-Instruct-4bit");
-    std::fs::canonicalize(raw).expect("canonical fixture base model path")
-}
-
 #[test]
 fn map_preferred_backend_coreml_does_not_inject_default_fallback() {
     let mapped = map_preferred_backend(Some(TrainingBackendKind::CoreML), None);
@@ -85,7 +73,6 @@ fn map_preferred_backend_coreml_respects_explicit_fallback() {
 async fn cpu_training_succeeds_without_gpu_init() {
     let _env = TestEnvGuard::new();
     std::env::set_var("AOS_FORCE_GPU_BACKEND", "none");
-    std::env::set_var("AOS_MODEL_PATH", fixture_base_model_path());
     let jobs = Arc::new(RwLock::new(HashMap::new()));
     let job_id = "cpu-job".to_string();
     let config = cpu_only_config();
@@ -98,7 +85,7 @@ async fn cpu_training_succeeds_without_gpu_init() {
         "adapter-cpu".to_string(),
         config,
         None,
-        true,
+        false,
         DataLineageMode::Synthetic,
         None,
         None,
@@ -114,36 +101,26 @@ async fn cpu_training_succeeds_without_gpu_init() {
     )
     .await;
 
-    assert!(
-        result.is_ok(),
-        "CPU training should succeed, got: {:?}",
-        result
-    );
+    assert!(result.is_ok(), "CPU training should succeed");
     let jobs_guard = jobs.read().await;
     let finished = jobs_guard.get(&job_id).unwrap();
     assert_eq!(finished.status, TrainingJobStatus::Completed);
-    assert!(
-        finished.require_gpu.is_none() || finished.require_gpu == Some(false),
-        "require_gpu should be unset or false for CPU training"
-    );
-    let backend = finished
-        .backend
-        .as_deref()
-        .unwrap_or("")
-        .to_ascii_lowercase();
-    assert!(
-        backend.is_empty() || backend == "cpu",
-        "backend should be unset or cpu for CPU training"
+    assert_eq!(finished.require_gpu, Some(false));
+    assert_eq!(
+        finished
+            .backend
+            .as_deref()
+            .unwrap_or("")
+            .to_ascii_lowercase(),
+        "cpu"
     );
     std::env::remove_var("AOS_FORCE_GPU_BACKEND");
-    std::env::remove_var("AOS_MODEL_PATH");
 }
 
 #[tokio::test]
 async fn coreml_preference_records_fallback_reason() {
     let _env = TestEnvGuard::new();
     std::env::set_var("AOS_FORCE_GPU_BACKEND", "none");
-    std::env::set_var("AOS_MODEL_PATH", fixture_base_model_path());
     let jobs = Arc::new(RwLock::new(HashMap::new()));
     let job_id = "coreml-pref-job".to_string();
     let mut config = cpu_only_config();
@@ -162,7 +139,7 @@ async fn coreml_preference_records_fallback_reason() {
         "adapter-coreml-pref".to_string(),
         config,
         None,
-        true,
+        false,
         DataLineageMode::Synthetic,
         None,
         None,
@@ -180,22 +157,24 @@ async fn coreml_preference_records_fallback_reason() {
 
     assert!(
         result.is_ok(),
-        "CoreML request should fall back deterministically, got: {:?}",
-        result
+        "CoreML request should fall back deterministically"
     );
     let jobs_guard = jobs.read().await;
     let finished = jobs_guard.get(&job_id).unwrap();
-    let backend = finished
-        .backend
-        .as_deref()
-        .unwrap_or("")
-        .to_ascii_lowercase();
+    let reason = finished.backend_reason.clone().unwrap_or_default();
     assert!(
-        backend.is_empty() || backend == "cpu",
-        "backend should be unset or cpu for deterministic CoreML fallback"
+        reason.contains("coreml"),
+        "expected backend_reason to mention CoreML fallback, got: {reason}"
+    );
+    assert_eq!(
+        finished
+            .backend
+            .as_deref()
+            .unwrap_or("")
+            .to_ascii_lowercase(),
+        "cpu"
     );
     std::env::remove_var("AOS_FORCE_GPU_BACKEND");
-    std::env::remove_var("AOS_MODEL_PATH");
 }
 
 #[tokio::test]
@@ -211,9 +190,6 @@ async fn gpu_optional_falls_back_when_init_fails() {
     let job_id = "gpu-fallback-job".to_string();
     let mut config = cpu_only_config();
     config.preferred_backend = Some(TrainingBackendKind::Metal);
-    // Keep this test on a tiny invalid model fixture so full-suite runs do not
-    // accidentally load the heavyweight shared model path.
-    config.base_model_path = Some(temp_model.path().to_path_buf());
     let job = TrainingJob::new(
         job_id.clone(),
         "adapter-gpu-fallback".to_string(),
@@ -227,7 +203,7 @@ async fn gpu_optional_falls_back_when_init_fails() {
         "adapter-gpu-fallback".to_string(),
         config,
         None,
-        true,
+        false,
         DataLineageMode::Synthetic,
         None,
         None,
@@ -250,14 +226,13 @@ async fn gpu_optional_falls_back_when_init_fails() {
     let jobs_guard = jobs.read().await;
     let finished = jobs_guard.get(&job_id).unwrap();
     assert_eq!(finished.status, TrainingJobStatus::Completed);
-    let backend = finished
-        .backend
-        .as_deref()
-        .unwrap_or("")
-        .to_ascii_lowercase();
-    assert!(
-        backend.is_empty() || backend == "cpu",
-        "backend should be unset or cpu for optional GPU fallback, got: {backend}"
+    assert_eq!(
+        finished
+            .backend
+            .as_deref()
+            .unwrap_or("")
+            .to_ascii_lowercase(),
+        "cpu"
     );
 
     std::env::remove_var("AOS_FORCE_GPU_BACKEND");
@@ -268,7 +243,6 @@ async fn gpu_optional_falls_back_when_init_fails() {
 async fn gpu_required_errors_when_unavailable() {
     let _env = TestEnvGuard::new();
     std::env::set_var("AOS_FORCE_GPU_BACKEND", "none");
-    std::env::set_var("AOS_MODEL_PATH", fixture_base_model_path());
     let jobs = Arc::new(RwLock::new(HashMap::new()));
     let job_id = "gpu-required-job".to_string();
     let mut config = gpu_required_config();
@@ -286,7 +260,7 @@ async fn gpu_required_errors_when_unavailable() {
         "adapter-gpu-required".to_string(),
         config,
         None,
-        true,
+        false,
         DataLineageMode::Synthetic,
         None,
         None,
@@ -302,20 +276,12 @@ async fn gpu_required_errors_when_unavailable() {
     )
     .await;
 
-    assert!(
-        result.is_err(),
-        "GPU-required job should error without GPU, got: {:?}",
-        result
-    );
+    assert!(result.is_err(), "GPU-required job should error without GPU");
     let jobs_guard = jobs.read().await;
     let failed = jobs_guard.get(&job_id).unwrap();
     assert_eq!(failed.status, TrainingJobStatus::Failed);
-    assert!(
-        failed.require_gpu.is_none() || failed.require_gpu == Some(true),
-        "require_gpu should be unset or true for GPU-required failures"
-    );
+    assert_eq!(failed.require_gpu, Some(true));
     std::env::remove_var("AOS_FORCE_GPU_BACKEND");
-    std::env::remove_var("AOS_MODEL_PATH");
 }
 
 // ---------------------------------------------------------------------------

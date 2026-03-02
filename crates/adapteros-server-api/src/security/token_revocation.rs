@@ -22,7 +22,7 @@ pub struct RevokedToken {
 pub async fn is_token_revoked(db: &Db, jti: &str) -> Result<bool> {
     let result = sqlx::query_scalar::<_, i64>("SELECT COUNT(*) FROM revoked_tokens WHERE jti = ?")
         .bind(jti)
-        .fetch_one(db.pool_result()?)
+        .fetch_one(db.pool())
         .await?;
 
     Ok(result > 0)
@@ -52,7 +52,7 @@ pub async fn revoke_token(
     .bind(revoked_by)
     .bind(reason)
     .bind(expires_at)
-    .execute(db.pool_result()?)
+    .execute(db.pool())
     .await?;
 
     info!(
@@ -81,7 +81,7 @@ pub async fn revoke_all_user_tokens(
     let sessions = sqlx::query_as::<_, (String, String)>(&query)
         .bind(user_id)
         .bind(tenant_id)
-        .fetch_all(db.pool_result()?)
+        .fetch_all(db.pool())
         .await?;
 
     let count = sessions.len();
@@ -120,7 +120,7 @@ pub async fn cleanup_expired_revocations(db: &Db) -> Result<usize> {
 
     let result = sqlx::query("DELETE FROM revoked_tokens WHERE expires_at < ?")
         .bind(&now)
-        .execute(db.pool_result()?)
+        .execute(db.pool())
         .await?;
 
     let count = result.rows_affected() as usize;
@@ -143,7 +143,7 @@ pub async fn get_user_revocations(db: &Db, user_id: &str, limit: i64) -> Result<
     )
     .bind(user_id)
     .bind(limit.min(100))
-    .fetch_all(db.pool_result()?)
+    .fetch_all(db.pool())
     .await?;
 
     Ok(tokens)
@@ -166,7 +166,7 @@ mod tests {
                 expires_at TEXT NOT NULL
             )",
         )
-        .execute(db.pool_result().expect("db pool available"))
+        .execute(db.pool())
         .await
         .expect("Failed to create revoked_tokens table");
 
@@ -188,7 +188,7 @@ mod tests {
                 locked INTEGER NOT NULL DEFAULT 0
             )",
         )
-        .execute(db.pool_result().expect("db pool available"))
+        .execute(db.pool())
         .await
         .expect("Failed to create user_sessions table");
     }

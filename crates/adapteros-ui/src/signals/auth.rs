@@ -312,27 +312,17 @@ impl AuthAction {
         // Try to get user info - will succeed if we have valid auth cookies
         let result = self.client.me().await;
 
-        // Only update state if this is still the current attempt.
-        // If we received a stale *successful* auth result and the visible state is
-        // still loading, promote it to authenticated to prevent loading deadlocks.
-        let current_attempt = self.current_attempt();
-        if current_attempt != my_attempt {
+        // Only update state if this is still the current attempt
+        // (prevents late-arriving results from overwriting newer state)
+        if self.current_attempt() != my_attempt {
             boot_log(
                 "auth",
                 &format!(
                     "ignoring stale result (attempt {} != current {})",
-                    my_attempt, current_attempt
+                    my_attempt,
+                    self.current_attempt()
                 ),
             );
-            if self.state.get_untracked().is_loading() {
-                if let Ok(user) = result {
-                    if !user.tenant_id.is_empty() {
-                        boot_log("auth", "recovered loading state from stale successful auth");
-                        self.client.set_auth_status(true);
-                        self.state.set(AuthState::Authenticated(Box::new(user)));
-                    }
-                }
-            }
             return;
         }
 

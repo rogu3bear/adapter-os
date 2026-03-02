@@ -135,7 +135,7 @@ impl Db {
         .bind(params.timeout_secs)
         .bind(params.max_concurrent)
         .bind(&now)
-        .execute(self.pool_result()?)
+        .execute(self.pool())
         .await
         .map_err(|e| {
             adapteros_core::AosError::Database(format!("Failed to create batch job: {}", e))
@@ -160,7 +160,7 @@ impl Db {
         )
         .bind(id)
         .bind(tenant_id)
-        .fetch_optional(self.pool_result()?)
+        .fetch_optional(self.pool())
         .await
         .map_err(|e| {
             adapteros_core::AosError::Database(format!("Failed to fetch batch job: {}", e))
@@ -189,7 +189,7 @@ impl Db {
         .bind(status)
         .bind(completed_at.unwrap_or(&now))
         .bind(id)
-        .execute(self.pool_result()?)
+        .execute(self.pool())
         .await
         .map_err(|e| {
             adapteros_core::AosError::Database(format!("Failed to update batch job status: {}", e))
@@ -209,7 +209,7 @@ impl Db {
              WHERE id = ?",
         )
         .bind(id)
-        .execute(self.pool_result()?)
+        .execute(self.pool())
         .await
         .map_err(|e| {
             adapteros_core::AosError::Database(format!(
@@ -232,7 +232,7 @@ impl Db {
              WHERE id = ?",
         )
         .bind(id)
-        .execute(self.pool_result()?)
+        .execute(self.pool())
         .await
         .map_err(|e| {
             adapteros_core::AosError::Database(format!(
@@ -302,7 +302,7 @@ impl Db {
             "#,
         )
         .bind(batch_job_id)
-        .fetch_all(self.pool_result()?)
+        .fetch_all(self.pool())
         .await
         .map_err(|e| {
             adapteros_core::AosError::Database(format!("Failed to fetch batch items: {}", e))
@@ -339,7 +339,7 @@ impl Db {
         .bind(latency_ms)
         .bind(&now)
         .bind(id)
-        .execute(self.pool_result()?)
+        .execute(self.pool())
         .await
         .map_err(|e| {
             adapteros_core::AosError::Database(format!("Failed to update batch item result: {}", e))
@@ -360,7 +360,7 @@ impl Db {
         )
         .bind(status)
         .bind(id)
-        .execute(self.pool_result()?)
+        .execute(self.pool())
         .await
         .map_err(|e| {
             adapteros_core::AosError::Database(format!("Failed to update batch item status: {}", e))

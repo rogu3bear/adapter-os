@@ -563,7 +563,5 @@ pub fn init_logging(
         );
     }
 
-    info!(allocator = "mimalloc", "Global allocator configured");
-
     Ok((guard, otel_guard))
 }

@@ -22,7 +22,7 @@ require_cmd python3
 
 AOSCTL="${ROOT_DIR}/aosctl"
 if [ ! -x "$AOSCTL" ]; then
-  die "aosctl launcher not found at ${AOSCTL}" "Ensure repo launcher exists and is executable: ./aosctl --rebuild --help"
+  die "aosctl not found at ${AOSCTL}" "Build: cargo build -p adapteros-cli && ln -sf target/debug/aosctl ./aosctl"
 fi
 
 DATASET_PATH="${1:-${ROOT_DIR}/var/datasets/minimal.jsonl}"
@@ -35,7 +35,7 @@ fi
 
 AUTH_PATH="${ROOT_DIR}/var/tmp/dev-auth.json"
 mkdir -p "$(dirname "$AUTH_PATH")"
-BASE_URL="${AOS_SERVER_URL:-http://127.0.0.1:18080}"
+BASE_URL="${AOS_SERVER_URL:-http://127.0.0.1:8080}"
 TENANT_ID="${AOS_TENANT_ID:-default}"
 
 cat > "$AUTH_PATH" <<EOF
@@ -44,10 +44,9 @@ EOF
 
 export AOSCTL_AUTH_PATH="$AUTH_PATH"
 
-# Redirect stderr so only JSON is captured (tracing logs go to stderr)
-upload_json="$("$AOSCTL" --json dataset ingest "$DATASET_PATH" --format jsonl --name "$DATASET_NAME" --description "$DATASET_DESC" 2>/dev/null)"
+upload_json="$("$AOSCTL" --json dataset ingest "$DATASET_PATH" --format jsonl --name "$DATASET_NAME" --description "$DATASET_DESC")"
 
-parsed="$(printf '%s' "$upload_json" | python3 -c '
+parsed="$(printf '%s' "$upload_json" | python3 - <<'PY'
 import json
 import sys
 
@@ -59,6 +58,7 @@ if not dataset_id or not version_id:
     sys.exit(1)
 print(f"dataset_id={dataset_id}")
 print(f"dataset_version_id={version_id}")
-')" || die "Failed to parse dataset upload response" "Check server logs in var/logs/backend.log."
+PY
+)" || die "Failed to parse dataset upload response" "Check server logs in var/logs/backend.log."
 
 echo "$parsed"

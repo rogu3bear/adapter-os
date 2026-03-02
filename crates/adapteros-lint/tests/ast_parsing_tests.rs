@@ -92,7 +92,7 @@ pub async fn handler(state: AppState) -> Result<()> {
 fn test_context_detection_transaction() {
     let test_code = r#"
 pub async fn handler(state: AppState) -> Result<()> {
-    let mut tx = state.db.pool_result()?.begin().await?;
+    let mut tx = state.db.pool().begin().await?;
     // Inside transaction - should be acceptable
     sqlx::query("UPDATE adapters SET tier = ? WHERE adapter_id = ?")
         .bind(&new_tier)

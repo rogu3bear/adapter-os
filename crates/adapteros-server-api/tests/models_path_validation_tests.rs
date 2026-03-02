@@ -39,7 +39,7 @@ async fn load_model_returns_404_when_model_path_missing() {
     .bind("mlx")
     .bind(missing_path)
     .bind(&claims.tenant_id)
-    .execute(state.db.pool_result().expect("db pool"))
+    .execute(state.db.pool())
     .await
     .expect("insert model");
 
@@ -117,7 +117,7 @@ async fn load_model_rejects_path_outside_allowed_root() {
     .bind("mlx")
     .bind(model_dir.to_string_lossy().to_string())
     .bind(&claims.tenant_id)
-    .execute(state.db.pool_result().expect("db pool"))
+    .execute(state.db.pool())
     .await
     .expect("insert model");
 

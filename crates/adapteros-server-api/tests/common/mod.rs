@@ -97,12 +97,12 @@ pub async fn setup_state(_uds_path: Option<&PathBuf>) -> anyhow::Result<AppState
     adapteros_db::sqlx::query(
         "INSERT OR IGNORE INTO tenants (id, name) VALUES ('default', 'Default Tenant')",
     )
-    .execute(db.pool_result()?)
+    .execute(db.pool())
     .await?;
     adapteros_db::sqlx::query(
         "INSERT OR IGNORE INTO tenants (id, name) VALUES ('tenant-1', 'Test Tenant 1')",
     )
-    .execute(db.pool_result()?)
+    .execute(db.pool())
     .await?;
 
     // Seed users referenced by claims to satisfy FK constraints in chat sessions
@@ -114,7 +114,7 @@ pub async fn setup_state(_uds_path: Option<&PathBuf>) -> anyhow::Result<AppState
     .bind("Tenant One User")
     .bind("test-hash")
     .bind("admin")
-    .execute(db.pool_result()?)
+    .execute(db.pool())
     .await?;
 
     adapteros_db::sqlx::query(
@@ -125,7 +125,7 @@ pub async fn setup_state(_uds_path: Option<&PathBuf>) -> anyhow::Result<AppState
     .bind("Default Viewer")
     .bind("test-hash")
     .bind("viewer")
-    .execute(db.pool_result()?)
+    .execute(db.pool())
     .await?;
 
     // Dev bypass user (used when AOS_DEV_NO_AUTH=1)
@@ -137,7 +137,7 @@ pub async fn setup_state(_uds_path: Option<&PathBuf>) -> anyhow::Result<AppState
     .bind("Dev Bypass User")
     .bind("dev-hash")
     .bind("admin")
-    .execute(db.pool_result()?)
+    .execute(db.pool())
     .await?;
 
     // Create workspace for default tenant (required for dev bypass auth)
@@ -147,29 +147,7 @@ pub async fn setup_state(_uds_path: Option<&PathBuf>) -> anyhow::Result<AppState
     .bind("default")
     .bind("Default Workspace")
     .bind("dev-no-auth")
-    .execute(db.pool_result()?)
-    .await?;
-
-    // Create workspace and membership for tenant-scoped auth tests.
-    adapteros_db::sqlx::query(
-        "INSERT OR IGNORE INTO workspaces (id, name, created_by) VALUES (?, ?, ?)",
-    )
-    .bind("tenant-1")
-    .bind("Tenant 1 Workspace")
-    .bind("tenant-1-user")
-    .execute(db.pool_result()?)
-    .await?;
-    adapteros_db::sqlx::query(
-        "INSERT OR IGNORE INTO workspace_members (id, workspace_id, tenant_id, user_id, role, permissions_json, added_by) VALUES (?, ?, ?, ?, ?, ?, ?)",
-    )
-    .bind("wsm-tenant-1-user")
-    .bind("tenant-1")
-    .bind("tenant-1")
-    .bind("tenant-1-user")
-    .bind("owner")
-    .bind::<Option<&str>>(None)
-    .bind("tenant-1-user")
-    .execute(db.pool_result()?)
+    .execute(db.pool())
     .await?;
 
     // 3. Create test JWT secret
@@ -260,21 +238,14 @@ pub async fn setup_state(_uds_path: Option<&PathBuf>) -> anyhow::Result<AppState
 
 pub async fn register_test_model(state: &AppState, model_path: &Path) -> anyhow::Result<String> {
     let model_name = format!("test-model-{}", uuid::Uuid::new_v4());
-    let model_hash = adapteros_core::B3Hash::hash(model_name.as_bytes()).to_hex();
     let params = ModelRegistrationBuilder::new()
         .name(model_name)
-        .hash_b3(model_hash)
+        .hash_b3("hash")
         .config_hash_b3("config-hash")
         .tokenizer_hash_b3("tok-hash")
         .tokenizer_cfg_hash_b3("tok-cfg-hash")
         .build()?;
     let model_id = state.db.register_model(params).await?;
-    // Tests often create tenant-scoped repositories; mark seeded models as shared
-    // to satisfy base_model tenant guards consistently.
-    adapteros_db::sqlx::query("UPDATE models SET tenant_id = 'system' WHERE id = ?")
-        .bind(&model_id)
-        .execute(state.db.pool_result()?)
-        .await?;
     state
         .db
         .update_model_path(&model_id, model_path.to_str().unwrap_or_default())
@@ -291,23 +262,6 @@ pub async fn register_test_worker(
     let node_id = format!("node-{}", worker_id);
     let plan_id = format!("plan-{}", worker_id);
     let manifest_hash = format!("manifest-{}", worker_id);
-    let uds_path = format!("var/run/{}/worker.sock", worker_id);
-
-    let uds_path_buf = PathBuf::from(&uds_path);
-    if let Some(parent) = uds_path_buf.parent() {
-        std::fs::create_dir_all(parent)?;
-    }
-    let _ = std::fs::remove_file(&uds_path_buf);
-    #[cfg(unix)]
-    {
-        // Create a real Unix socket node so selector availability checks pass in integration tests.
-        let listener = std::os::unix::net::UnixListener::bind(&uds_path_buf)?;
-        drop(listener);
-    }
-    #[cfg(not(unix))]
-    {
-        std::fs::File::create(&uds_path_buf)?;
-    }
 
     adapteros_db::sqlx::query(
         "INSERT OR IGNORE INTO nodes (id, hostname, agent_endpoint, status) VALUES (?, ?, ?, 'active')",
@@ -315,7 +269,7 @@ pub async fn register_test_worker(
     .bind(&node_id)
     .bind("test-node")
     .bind("http://localhost:0")
-    .execute(state.db.pool_result()?)
+    .execute(state.db.pool())
     .await?;
 
     adapteros_db::sqlx::query(
@@ -325,7 +279,7 @@ pub async fn register_test_worker(
     .bind(tenant_id)
     .bind(&manifest_hash)
     .bind("{}")
-    .execute(state.db.pool_result()?)
+    .execute(state.db.pool())
     .await?;
 
     adapteros_db::sqlx::query(
@@ -337,7 +291,7 @@ pub async fn register_test_worker(
     .bind(&manifest_hash)
     .bind("[]")
     .bind("layout-b3:test")
-    .execute(state.db.pool_result()?)
+    .execute(state.db.pool())
     .await?;
 
     let params = WorkerRegistrationParams {
@@ -345,7 +299,7 @@ pub async fn register_test_worker(
         tenant_id: tenant_id.to_string(),
         node_id: node_id.clone(),
         plan_id: plan_id.clone(),
-        uds_path,
+        uds_path: format!("var/run/{}/worker.sock", worker_id),
         pid: 1234,
         manifest_hash,
         backend: Some(caps.backend_kind.clone()),
@@ -486,7 +440,7 @@ pub async fn insert_training_job(
     .bind(status)
     .bind(progress_json)
     .bind("tester")
-    .execute(state.db.pool_result()?)
+    .execute(state.db.pool())
     .await?;
 
     Ok(())
@@ -582,7 +536,7 @@ pub async fn create_test_dataset(state: &AppState, dataset_id: &str) -> anyhow::
     .bind("valid")
     .bind("jsonl")
     .bind("var/test-datasets")
-    .execute(state.db.pool_result()?)
+    .execute(state.db.pool())
     .await?;
 
     Ok(())
@@ -597,7 +551,7 @@ pub async fn create_test_tenant(
     adapteros_db::sqlx::query("INSERT OR IGNORE INTO tenants (id, name) VALUES (?, ?)")
         .bind(tenant_id)
         .bind(name)
-        .execute(state.db.pool_result()?)
+        .execute(state.db.pool())
         .await?;
 
     Ok(())
@@ -607,7 +561,7 @@ pub async fn create_test_tenant(
 pub async fn delete_test_adapter(state: &AppState, adapter_id: &str) -> anyhow::Result<()> {
     adapteros_db::sqlx::query("DELETE FROM adapters WHERE id = ?")
         .bind(adapter_id)
-        .execute(state.db.pool_result()?)
+        .execute(state.db.pool())
         .await?;
 
     Ok(())
@@ -617,7 +571,7 @@ pub async fn delete_test_adapter(state: &AppState, adapter_id: &str) -> anyhow::
 pub async fn delete_test_dataset(state: &AppState, dataset_id: &str) -> anyhow::Result<()> {
     adapteros_db::sqlx::query("DELETE FROM training_datasets WHERE id = ?")
         .bind(dataset_id)
-        .execute(state.db.pool_result()?)
+        .execute(state.db.pool())
         .await?;
 
     Ok(())
@@ -627,7 +581,7 @@ pub async fn delete_test_dataset(state: &AppState, dataset_id: &str) -> anyhow::
 pub async fn delete_test_training_job(state: &AppState, job_id: &str) -> anyhow::Result<()> {
     adapteros_db::sqlx::query("DELETE FROM repository_training_jobs WHERE id = ?")
         .bind(job_id)
-        .execute(state.db.pool_result()?)
+        .execute(state.db.pool())
         .await?;
 
     Ok(())

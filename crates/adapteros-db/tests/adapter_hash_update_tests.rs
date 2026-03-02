@@ -6,7 +6,7 @@ async fn create_tenant(db: &Db, tenant_id: &str) -> Result<()> {
     sqlx::query("INSERT INTO tenants (id, name, itar_flag) VALUES (?, ?, 0)")
         .bind(tenant_id)
         .bind(tenant_id)
-        .execute(db.pool_result()?)
+        .execute(db.pool())
         .await
         .map_err(|e| AosError::database(format!("Failed to create tenant: {}", e)))?;
     Ok(())
@@ -39,7 +39,7 @@ async fn adapter_hash_update_repairs_existing_row_for_tenant() -> Result<()> {
         .bind(original_updated_at)
         .bind("tenant-a")
         .bind("adapter-a")
-        .execute(db.pool_result()?)
+        .execute(db.pool())
         .await
         .map_err(|e| AosError::database(e.to_string()))?;
 
@@ -59,7 +59,7 @@ async fn adapter_hash_update_repairs_existing_row_for_tenant() -> Result<()> {
     )
     .bind("tenant-a")
     .bind("adapter-a")
-    .fetch_one(db.pool_result()?)
+    .fetch_one(db.pool())
     .await
     .map_err(|e| AosError::database(e.to_string()))?;
     assert_ne!(updated_at, original_updated_at);
@@ -123,14 +123,14 @@ async fn adapter_hash_update_with_duplicate_adapter_id_is_tenant_scoped() -> Res
         .bind(tenant_a_original_updated_at)
         .bind("tenant-a")
         .bind("adapter-shared")
-        .execute(db.pool_result()?)
+        .execute(db.pool())
         .await
         .map_err(|e| AosError::database(e.to_string()))?;
     sqlx::query("UPDATE adapters SET updated_at = ? WHERE tenant_id = ? AND adapter_id = ?")
         .bind(tenant_b_original_updated_at)
         .bind("tenant-b")
         .bind("adapter-shared")
-        .execute(db.pool_result()?)
+        .execute(db.pool())
         .await
         .map_err(|e| AosError::database(e.to_string()))?;
 
@@ -162,7 +162,7 @@ async fn adapter_hash_update_with_duplicate_adapter_id_is_tenant_scoped() -> Res
     )
     .bind("tenant-a")
     .bind("adapter-shared")
-    .fetch_one(db.pool_result()?)
+    .fetch_one(db.pool())
     .await
     .map_err(|e| AosError::database(e.to_string()))?;
     assert_ne!(tenant_a_updated_at, tenant_a_original_updated_at);
@@ -172,7 +172,7 @@ async fn adapter_hash_update_with_duplicate_adapter_id_is_tenant_scoped() -> Res
     )
     .bind("tenant-b")
     .bind("adapter-shared")
-    .fetch_one(db.pool_result()?)
+    .fetch_one(db.pool())
     .await
     .map_err(|e| AosError::database(e.to_string()))?;
     assert_eq!(tenant_b_updated_at, tenant_b_original_updated_at);

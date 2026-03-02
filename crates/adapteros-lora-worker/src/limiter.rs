@@ -34,8 +34,6 @@ pub struct ResourceLimits {
     pub max_concurrent_training: usize,
     pub max_tokens_per_second: usize,
     pub max_memory_per_request: u64,
-    /// Maximum total process memory allowed (0 = disabled)
-    pub max_total_memory: u64,
     pub max_cpu_time_per_request: Duration,
     pub max_requests_per_minute: usize,
     /// Maximum file descriptor usage percentage before rejecting requests
@@ -58,7 +56,6 @@ impl Default for ResourceLimits {
             max_concurrent_training: 2,
             max_tokens_per_second: 1000, // Increased default from 40 to avoid choking 30B models
             max_memory_per_request: 50 * 1024 * 1024, // 50MB
-            max_total_memory: 0,         // Disabled by default
             max_cpu_time_per_request: Duration::from_secs(300), // Increased from 30s to 5m for long gens
             max_requests_per_minute: 100,
             max_fd_usage_percent: 90.0,  // Reject at 90% FD usage
@@ -93,15 +90,6 @@ impl ResourceLimits {
                 .ok()
                 .and_then(|v| v.parse().ok())
                 .unwrap_or(defaults.max_requests_per_minute),
-            max_total_memory: std::env::var("AOS_LIMIT_MAX_TOTAL_MEMORY_MB")
-                .ok()
-                .and_then(|v| v.parse::<u64>().ok())
-                .map(|v| v * 1024 * 1024)
-                .unwrap_or(defaults.max_total_memory),
-            thread_pool_size: std::env::var("AOS_LIMIT_THREAD_POOL_SIZE")
-                .ok()
-                .and_then(|v| v.parse().ok())
-                .unwrap_or(defaults.thread_pool_size),
             ..defaults
         }
     }
@@ -207,29 +195,6 @@ impl Default for ThunderingHerdConfig {
 }
 
 impl ThunderingHerdConfig {
-    /// Load config from environment variables
-    pub fn from_env() -> Self {
-        let defaults = Self::default();
-        Self {
-            min_request_interval_ms: std::env::var("AOS_LIMIT_MIN_REQUEST_INTERVAL_MS")
-                .ok()
-                .and_then(|v| v.parse().ok())
-                .unwrap_or(defaults.min_request_interval_ms),
-            jitter_factor: std::env::var("AOS_LIMIT_JITTER_FACTOR")
-                .ok()
-                .and_then(|v| v.parse().ok())
-                .unwrap_or(defaults.jitter_factor),
-            base_retry_hint_ms: std::env::var("AOS_LIMIT_BASE_RETRY_HINT_MS")
-                .ok()
-                .and_then(|v| v.parse().ok())
-                .unwrap_or(defaults.base_retry_hint_ms),
-            max_retry_hint_ms: std::env::var("AOS_LIMIT_MAX_RETRY_HINT_MS")
-                .ok()
-                .and_then(|v| v.parse().ok())
-                .unwrap_or(defaults.max_retry_hint_ms),
-        }
-    }
-
     /// Validate the configuration
     pub fn validate(&self) -> Result<()> {
         if self.jitter_factor <= 0.0 {
@@ -965,7 +930,6 @@ mod tests {
             max_concurrent_training: 10,
             max_tokens_per_second: 5000,
             max_memory_per_request: 100 * 1024 * 1024, // 100MB
-            max_total_memory: 0,
             max_cpu_time_per_request: Duration::from_secs(600),
             max_requests_per_minute: 500,
             max_fd_usage_percent: 85.0,
@@ -1085,7 +1049,6 @@ mod tests {
             max_concurrent_training: 1,
             max_tokens_per_second: 1,
             max_memory_per_request: 1,
-            max_total_memory: 0,
             max_cpu_time_per_request: Duration::from_millis(1),
             max_requests_per_minute: 1,
             max_fd_usage_percent: 0.001,
@@ -1103,7 +1066,6 @@ mod tests {
             max_concurrent_training: usize::MAX,
             max_tokens_per_second: usize::MAX,
             max_memory_per_request: u64::MAX,
-            max_total_memory: 0,
             max_cpu_time_per_request: Duration::from_secs(u64::MAX / 1_000_000_000),
             max_requests_per_minute: usize::MAX,
             max_fd_usage_percent: 100.0,
@@ -1378,7 +1340,6 @@ mod tests {
             max_concurrent_training: 0,
             max_tokens_per_second: 0, // Invalid - checked second
             max_memory_per_request: 0,
-            max_total_memory: 0,
             max_cpu_time_per_request: Duration::ZERO,
             max_requests_per_minute: 0,
             max_fd_usage_percent: 0.0, // Invalid

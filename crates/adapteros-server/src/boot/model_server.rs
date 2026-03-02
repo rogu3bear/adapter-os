@@ -99,26 +99,20 @@ pub async fn check_model_server_readiness(config: &EffectiveConfig) -> Result<Mo
         });
     }
 
-    let endpoint_label = if let Some(socket_path) = &config.model_server.socket_path {
-        format!("unix://{}", socket_path.display())
-    } else {
-        config.model_server.server_addr.clone()
-    };
+    let server_addr = config.model_server.server_addr.clone();
     info!(
-        endpoint = %endpoint_label,
+        server_addr = %server_addr,
         "Model Server mode enabled, checking readiness"
     );
 
-    // Create client with boot-appropriate timeouts.
-    let mut client_config = if let Some(socket_path) = config.model_server.socket_path.clone() {
-        ModelServerClientConfig::from_socket_path(socket_path)
-    } else {
-        ModelServerClientConfig::with_addr(config.model_server.server_addr.clone())
+    // Create client with boot-appropriate timeouts
+    let client_config = ModelServerClientConfig {
+        server_addr: server_addr.clone(),
+        connect_timeout: HEALTH_CHECK_TIMEOUT,
+        request_timeout: HEALTH_CHECK_TIMEOUT,
+        max_retries: 1, // We handle retries in this function
+        retry_backoff_base: Duration::from_millis(100),
     };
-    client_config.connect_timeout = HEALTH_CHECK_TIMEOUT;
-    client_config.request_timeout = HEALTH_CHECK_TIMEOUT;
-    client_config.max_retries = 1; // We handle retries in this function
-    client_config.retry_backoff_base = Duration::from_millis(100);
 
     let client = ModelServerClient::new(client_config);
 
@@ -131,7 +125,7 @@ pub async fn check_model_server_readiness(config: &EffectiveConfig) -> Result<Mo
             Ok(health_response) => {
                 if health_response.status == STATUS_HEALTHY {
                     info!(
-                        endpoint = %endpoint_label,
+                        server_addr = %server_addr,
                         attempt = attempt,
                         model_id = %health_response.model_id,
                         uptime_seconds = health_response.uptime_seconds,
@@ -139,11 +133,11 @@ pub async fn check_model_server_readiness(config: &EffectiveConfig) -> Result<Mo
                     );
                     return Ok(ModelServerContext {
                         enabled: true,
-                        server_addr: Some(endpoint_label),
+                        server_addr: Some(server_addr),
                     });
                 } else {
                     warn!(
-                        endpoint = %endpoint_label,
+                        server_addr = %server_addr,
                         attempt = attempt,
                         status = health_response.status,
                         message = %health_response.message,
@@ -154,7 +148,7 @@ pub async fn check_model_server_readiness(config: &EffectiveConfig) -> Result<Mo
             Err(e) => {
                 if attempt < MAX_RETRY_ATTEMPTS {
                     debug!(
-                        endpoint = %endpoint_label,
+                        server_addr = %server_addr,
                         attempt = attempt,
                         max_attempts = MAX_RETRY_ATTEMPTS,
                         error = %e,
@@ -162,7 +156,7 @@ pub async fn check_model_server_readiness(config: &EffectiveConfig) -> Result<Mo
                     );
                 } else {
                     warn!(
-                        endpoint = %endpoint_label,
+                        server_addr = %server_addr,
                         attempt = attempt,
                         error = %e,
                         "Model Server health check failed (final attempt)"
@@ -178,10 +172,10 @@ pub async fn check_model_server_readiness(config: &EffectiveConfig) -> Result<Mo
 
     // All retries exhausted
     Err(AosError::Config(format!(
-        "Model Server endpoint {} not reachable after {}s. \
+        "Model Server at {} not reachable after {}s. \
          Ensure Model Server is running and accessible. \
          Set model_server.enabled = false to disable this check.",
-        endpoint_label, MAX_RETRY_ATTEMPTS
+        server_addr, MAX_RETRY_ATTEMPTS
     )))
 }
 
@@ -199,15 +193,9 @@ pub async fn check_model_server_readiness(config: &EffectiveConfig) -> Result<Mo
         });
     }
 
-    let endpoint_label = if let Some(socket_path) = &config.model_server.socket_path {
-        format!("unix://{}", socket_path.display())
-    } else {
-        config.model_server.server_addr.clone()
-    };
-
     // Model Server is enabled but feature is not compiled in
     warn!(
-        endpoint = %endpoint_label,
+        server_addr = %config.model_server.server_addr,
         "Model Server mode enabled in config but 'model-server' feature not compiled in"
     );
 
@@ -227,11 +215,11 @@ mod tests {
     fn test_model_server_context_debug() {
         let ctx = ModelServerContext {
             enabled: true,
-            server_addr: Some("http://127.0.0.1:18085".to_string()),
+            server_addr: Some("http://127.0.0.1:50051".to_string()),
         };
         let debug_str = format!("{:?}", ctx);
         assert!(debug_str.contains("enabled: true"));
-        assert!(debug_str.contains("127.0.0.1:18085"));
+        assert!(debug_str.contains("127.0.0.1:50051"));
     }
 
     #[test]

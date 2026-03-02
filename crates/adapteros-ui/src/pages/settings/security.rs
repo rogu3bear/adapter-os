@@ -318,7 +318,7 @@ fn MfaCard() -> impl IntoView {
                     }
                     LoadingState::Error(e) => {
                         // Server errors (5xx) likely mean MFA is not implemented
-                        let is_unavailable = matches!(e.as_ref(), crate::api::ApiError::Server(_));
+                        let is_unavailable = matches!(&e, crate::api::ApiError::Server(_));
                         if is_unavailable {
                             view! {
                                 <AlertBanner

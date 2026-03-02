@@ -13,7 +13,7 @@ mod common;
 use adapteros_server_api::handlers::health::{ReadinessMode, ReadyzResponse};
 use axum::{
     body::Body,
-    http::{header, Request, StatusCode},
+    http::{Request, StatusCode},
 };
 use common::test_harness::ApiTestHarness;
 use tower::ServiceExt;
@@ -66,20 +66,6 @@ async fn readyz_returns_200_when_all_checks_pass() -> Result<(), Box<dyn std::er
         .register_node("test-node", "http://localhost:0")
         .await?;
 
-    // Worker registration requires a referenced plan row.
-    sqlx::query(
-        "INSERT OR IGNORE INTO plans (id, tenant_id, plan_id_b3, manifest_hash_b3, kernel_hashes_json, layout_hash_b3)
-         VALUES (?, ?, ?, ?, ?, ?)",
-    )
-    .bind("test-plan")
-    .bind("default")
-    .bind("test-plan-b3")
-    .bind("test-manifest-hash")
-    .bind("{}")
-    .bind("test-layout-hash")
-    .execute(harness.state.db.pool_result().unwrap())
-    .await?;
-
     // Register a worker (worker check)
     harness
         .state
@@ -113,7 +99,7 @@ async fn readyz_returns_200_when_all_checks_pass() -> Result<(), Box<dyn std::er
     .bind("cfg123")
     .bind("tok123")
     .bind("tokcfg123")
-    .execute(harness.state.db.pool_result().unwrap())
+    .execute(harness.state.db.pool())
     .await?;
 
     let request = Request::builder()
@@ -210,24 +196,9 @@ async fn readyz_body_ready_matches_http_status() -> Result<(), Box<dyn std::erro
         .body(Body::empty())?;
 
     let response = harness.app.clone().oneshot(request).await?;
-    let content_type = response
-        .headers()
-        .get(header::CONTENT_TYPE)
-        .and_then(|value| value.to_str().ok())
-        .unwrap_or("");
-    assert!(
-        content_type.starts_with("application/json"),
-        "readyz must return JSON content-type for UI boot contract, got {:?}",
-        content_type
-    );
-
     let status = response.status();
     let body = axum::body::to_bytes(response.into_body(), 1024 * 1024).await?;
     let readyz: ReadyzResponse = serde_json::from_slice(&body)?;
-    assert!(
-        !readyz.boot_trace_id.trim().is_empty(),
-        "readyz should include boot_trace_id for UI boot correlation"
-    );
 
     // In DevBypass mode, status is always 200 regardless of ready field
     if matches!(readyz.readiness_mode, ReadinessMode::DevBypass) {

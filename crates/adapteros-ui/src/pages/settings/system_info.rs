@@ -4,7 +4,6 @@ use crate::components::{
     Badge, BadgeVariant, Button, ButtonVariant, Card, DetailGridRow, ErrorDisplay, Spinner,
 };
 use crate::hooks::{use_health, LoadingState};
-use crate::utils::status_display_label;
 use adapteros_api_types::HealthResponse;
 use leptos::prelude::*;
 
@@ -94,17 +93,13 @@ fn HealthInfo(health: HealthResponse) -> impl IntoView {
         "degraded" | "warning" => BadgeVariant::Warning,
         _ => BadgeVariant::Destructive,
     };
-    let health_status = health.status.clone();
-    let health_status_label = status_display_label(&health_status);
 
     view! {
         <div class="space-y-2">
             <DetailGridRow label="Status">
-                <span title=health_status.clone()>
-                    <Badge variant=status_variant>
-                        {health_status_label}
-                    </Badge>
-                </span>
+                <Badge variant=status_variant>
+                    {health.status.clone()}
+                </Badge>
             </DetailGridRow>
             <DetailGridRow label="Version" mono=true>
                 <span class="text-sm font-mono">{health.version.clone()}</span>

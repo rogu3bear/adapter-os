@@ -2,7 +2,7 @@
 //!
 //! Shared CSS: `.inline-error-banner`, `.inline-warning-banner`.
 
-use crate::components::IconX;
+use crate::components::icons::IconX;
 use leptos::prelude::*;
 
 /// Inline error banner for displaying error messages (e.g. form validation, action failures).

@@ -187,7 +187,11 @@ fn test_routing_matches_golden_baselines() {
     let _ = tracing_subscriber::fmt().with_env_filter("info").try_init();
 
     // Look for golden_runs in standard locations
-    let possible_paths = [Path::new("golden_runs"), Path::new("../golden_runs")];
+    let possible_paths = [
+        Path::new("golden_runs"),
+        Path::new("var/golden_runs"),
+        Path::new("../golden_runs"),
+    ];
 
     let golden_runs_dir = possible_paths
         .iter()

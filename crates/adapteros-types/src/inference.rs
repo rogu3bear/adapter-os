@@ -241,12 +241,6 @@ pub struct InferRequest<Backend = String, Interval = FusionInterval, StopPolicy 
     /// Enable server-sent event streaming.
     #[serde(skip_serializing_if = "Option::is_none")]
     pub stream: Option<bool>,
-    /// Request bit-identical deterministic execution semantics.
-    ///
-    /// When true, callers must provide explicit immutable adapter pins
-    /// (`adapter_repo_id@adapter_version_id`) and strict validation is enforced.
-    #[serde(skip_serializing_if = "Option::is_none")]
-    pub bit_identical: Option<bool>,
     /// Require evidence payloads in receipts.
     #[serde(skip_serializing_if = "Option::is_none")]
     pub require_evidence: Option<bool>,
