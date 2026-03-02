@@ -205,24 +205,6 @@ import_matrix_heatmap.png
 import_network_diagram.png
 import_summary_stats.png
 
-# Media (images, videos, etc.) - generated or local
-*.png
-*.jpg
-*.jpeg
-*.gif
-*.webp
-*.ico
-*.mp4
-*.webm
-*.mov
-*.avi
-*.mkv
-*.m4v
-*.wav
-*.mp3
-*.ogg
-*.flac
-
 # Implementation reports (generated files - local development only)
 *_IMPLEMENTATION_*.md
 *_EXECUTION_*.md

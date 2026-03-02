@@ -1,0 +1,1298 @@
+name: CI
+
+on:
+  push:
+    branches: [main]
+  pull_request:
+    branches: [main]
+
+# ==========================================================================
+# Tier 1: Fast checks (every PR, ~2-5 min each)
+# These must pass before Tier 2 jobs run.
+# ==========================================================================
+
+jobs:
+  format:
+    name: "Tier 1: Format Check"
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+      - uses: dtolnay/rust-toolchain@stable
+      - name: Check format
+        run: cargo fmt --all -- --check
+
+  env-path-policy:
+    name: "Tier 1: PRD-13 Path Policy Check"
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+      - name: Check env path policy
+        run: ./scripts/check_env_paths.sh
+
+  anchor-contract:
+    name: "Tier 1: ANCHOR Contract Guard"
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+      - name: Run ANCHOR contract guard
+        run: ./scripts/ci/check_anchor_contract.sh
+
+  rectification-contracts:
+    name: "Tier 1: Rectification Contract Guard"
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+        with:
+          fetch-depth: 0
+      - name: Run rectification contract suite
+        run: ./scripts/contracts/check_all.sh
+
+  fast-math-scan:
+    name: "Tier 1: Fast-Math Flag Scan"
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+      - name: Scan for forbidden compiler flags
+        run: bash scripts/check_fast_math_flags.sh
+
+  test-artifact-hygiene:
+    name: "Tier 1: Test Artifact Hygiene"
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+      - name: Check for test artifact pollution
+        run: bash scripts/ci/check_test_artifacts.sh
+      - name: Check runtime log path contract
+        run: bash scripts/ci/check_runtime_log_contract.sh
+
+  docs-grounding:
+    name: "Tier 1: Docs Grounding"
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+      - name: Check docs grounding (hallucination prevention)
+        run: ./scripts/ci/check_docs_grounding.sh
+
+  feature-matrix:
+    name: "Tier 1: Feature Matrix Tests"
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+      - uses: dtolnay/rust-toolchain@stable
+      - name: Run feature matrix checks
+        run: cargo xtask check-all --verbose
+
+  clippy:
+    name: "Tier 1: Clippy Lints"
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+      - uses: dtolnay/rust-toolchain@stable
+        with:
+          components: clippy
+      - name: Run clippy
+        run: cargo clippy --workspace --all-targets --exclude adapteros-lora-mlx-ffi -- -D warnings
+
+  test:
+    name: "Tier 1: Test Suite"
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+      - uses: dtolnay/rust-toolchain@stable
+      - name: Guard legacy AOS flag in CI
+        run: |
+          case "${AOS_ALLOW_LEGACY_AOS:-0}" in
+            1|true|TRUE|yes|YES)
+              echo "::error::AOS_ALLOW_LEGACY_AOS must remain disabled in CI tests"
+              exit 1
+              ;;
+            *)
+              echo "Legacy AOS flag is not enabled (expected)"
+              ;;
+          esac
+      - name: Run tests
+        run: cargo test --workspace --all-targets --exclude adapteros-lora-mlx-ffi
+
+  bench-compile-smoke:
+    name: "Tier 1: Benchmark Compile Smoke"
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+      - uses: dtolnay/rust-toolchain@stable
+      - name: Verify all benchmark targets compile
+        run: bash scripts/ci/bench_compile_smoke.sh
+
+  worker-ui-compile-check:
+    name: "Tier 1: Worker/UI Compile Check"
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+      - uses: dtolnay/rust-toolchain@stable
+        with:
+          targets: wasm32-unknown-unknown
+      - name: Check worker (mlx feature)
+        run: RUSTC_WRAPPER= cargo check -p adapteros-lora-worker --features mlx
+      - name: Check UI (wasm target)
+        run: RUSTC_WRAPPER= cargo check -p adapteros-ui --target wasm32-unknown-unknown
+
+  crate-version-patch-roll:
+    name: "Tier 1: Crate Version Patch Roll"
+    runs-on: ubuntu-latest
+    permissions:
+      contents: write
+    steps:
+      - uses: actions/checkout@v4
+        with:
+          fetch-depth: 0
+          ref: ${{ github.head_ref || github.ref_name }}
+      - name: Resolve diff base ref
+        id: base_ref
+        run: |
+          set -euo pipefail
+
+          if [ "${{ github.event_name }}" = "pull_request" ]; then
+            BASE_REF="origin/${{ github.base_ref }}"
+            git fetch origin "${{ github.base_ref }}" --depth=1
+          else
+            BASE_REF="origin/main"
+            git fetch origin main --depth=1
+          fi
+
+          if ! git rev-parse --verify "$BASE_REF" >/dev/null 2>&1; then
+            echo "::error::Unable to resolve base ref: $BASE_REF"
+            exit 1
+          fi
+
+          echo "base_ref=$BASE_REF" >> "$GITHUB_OUTPUT"
+      - name: Select gate mode
+        id: gate_mode
+        run: |
+          set -euo pipefail
+
+          if [ "${{ github.event_name }}" = "pull_request" ] && \
+             [ "${{ github.repository }}" = "${{ github.event.pull_request.head.repo.full_name }}" ]; then
+            echo "mode=autobump" >> "$GITHUB_OUTPUT"
+            echo "can_push=true" >> "$GITHUB_OUTPUT"
+            echo "Using autobump mode for same-repo PR."
+          else
+            echo "mode=check" >> "$GITHUB_OUTPUT"
+            echo "can_push=false" >> "$GITHUB_OUTPUT"
+            echo "Using check-only mode (fork PR or non-PR context)."
+          fi
+      - name: Run crate version patch roll gate
+        run: |
+          bash scripts/ci/check_crate_patch_roll.sh \
+            --mode "${{ steps.gate_mode.outputs.mode }}" \
+            --base-ref "${{ steps.base_ref.outputs.base_ref }}"
+      - name: Commit and push auto-bumps
+        if: steps.gate_mode.outputs.can_push == 'true'
+        run: |
+          set -euo pipefail
+
+          if git diff --quiet -- crates/*/Cargo.toml; then
+            echo "No crate version changes to commit."
+            exit 0
+          fi
+
+          git config user.name "github-actions[bot]"
+          git config user.email "41898282+github-actions[bot]@users.noreply.github.com"
+          git add crates/*/Cargo.toml
+
+          if git diff --cached --quiet; then
+            echo "No staged crate version changes."
+            exit 0
+          fi
+
+          git commit -m "ci: auto-roll crate versions"
+          git push origin "HEAD:${{ github.head_ref }}"
+
+  # ==========================================================================
+  # Tier 1 Gate: All fast checks must pass before Tier 2 proceeds
+  # ==========================================================================
+  tier-1-gate:
+    name: "Tier 1 Gate"
+    runs-on: ubuntu-latest
+    needs:
+      - format
+      - clippy
+      - test
+      - fast-math-scan
+      - env-path-policy
+      - anchor-contract
+      - rectification-contracts
+      - test-artifact-hygiene
+      - bench-compile-smoke
+      - worker-ui-compile-check
+      - crate-version-patch-roll
+    if: always()
+    steps:
+      - name: Check Tier 1 results
+        run: |
+          # Fail if any required Tier 1 job failed or was cancelled
+          RESULTS='${{ toJSON(needs.*.result) }}'
+          echo "Tier 1 job results: $RESULTS"
+          if echo "$RESULTS" | grep -qE '"failure"|"cancelled"'; then
+            echo "::error::Tier 1 gate failed. One or more fast checks did not pass."
+            exit 1
+          fi
+          echo "Tier 1 gate passed. Proceeding to Tier 2."
+
+  # ==========================================================================
+  # Tier 2: Integration & Determinism (after Tier 1 passes)
+  # ==========================================================================
+
+  playwright-concurrency-smoke:
+    name: "Tier 2: Playwright Concurrency Smoke (Advisory)"
+    needs: tier-1-gate
+    runs-on: ubuntu-latest
+    continue-on-error: true
+    timeout-minutes: 45
+    env:
+      PLAYWRIGHT_BROWSERS_PATH: ${{ github.workspace }}/var/playwright/browsers
+      PW_TEST_TMPDIR: ${{ github.workspace }}/var/playwright/tmp
+    steps:
+      - uses: actions/checkout@v4
+      - uses: dtolnay/rust-toolchain@stable
+      - uses: actions/setup-node@v4
+        with:
+          node-version: '20'
+      - name: Install Playwright dependencies
+        run: |
+          cd tests/playwright
+          npm ci
+      - name: Install Playwright browsers
+        run: |
+          cd tests/playwright
+          npx playwright install --with-deps chromium webkit
+      - name: Run advisory concurrency smoke
+        id: concurrency
+        run: |
+          cd tests/playwright
+          npm run test:ci:concurrency
+      - name: Summarize advisory result
+        if: always()
+        run: |
+          echo "## Playwright Concurrency Smoke (Advisory)" >> $GITHUB_STEP_SUMMARY
+          echo "" >> $GITHUB_STEP_SUMMARY
+          echo "- Step outcome: \`${{ steps.concurrency.outcome }}\`" >> $GITHUB_STEP_SUMMARY
+          echo "- This check is advisory and non-blocking." >> $GITHUB_STEP_SUMMARY
+      - name: Upload concurrency-a artifacts
+        if: always()
+        uses: actions/upload-artifact@v4
+        with:
+          name: playwright-concurrency-a
+          path: var/playwright/runs/ci-concurrency-a/
+          if-no-files-found: ignore
+      - name: Upload concurrency-b artifacts
+        if: always()
+        uses: actions/upload-artifact@v4
+        with:
+          name: playwright-concurrency-b
+          path: var/playwright/runs/ci-concurrency-b/
+          if-no-files-found: ignore
+
+  playwright-ui-detail-gate:
+    name: "Tier 2: Playwright UI Detail Gate"
+    needs: tier-1-gate
+    runs-on: ubuntu-latest
+    timeout-minutes: 35
+    env:
+      PLAYWRIGHT_BROWSERS_PATH: ${{ github.workspace }}/var/playwright/browsers
+      PW_TEST_TMPDIR: ${{ github.workspace }}/var/playwright/tmp
+    steps:
+      - uses: actions/checkout@v4
+      - uses: dtolnay/rust-toolchain@stable
+      - uses: actions/setup-node@v4
+        with:
+          node-version: '20'
+      - name: Install Playwright dependencies
+        run: |
+          cd tests/playwright
+          npm ci
+      - name: Install Playwright browser
+        run: |
+          cd tests/playwright
+          npx playwright install --with-deps chromium
+      - name: Run console regression guard
+        run: |
+          cd tests/playwright
+          npm run test:ui -- --project=chromium ui/console.regression.spec.ts
+      - name: Run style-audit visual regression
+        run: |
+          cd tests/playwright
+          npm run test:ui -- --project=chromium ui/visual.spec.ts --grep "style audit"
+      - name: Run blocking UI detail flows
+        run: |
+          cd tests/playwright
+          npm run test:ui -- --project=chromium ui/runs.spec.ts ui/repositories.spec.ts
+      - name: Upload detail gate artifacts
+        if: failure()
+        uses: actions/upload-artifact@v4
+        with:
+          name: playwright-ui-detail-gate
+          path: var/playwright/runs/
+          if-no-files-found: ignore
+
+  extended-tenant-isolation-tests:
+    name: "Tier 2: Extended Tenant Isolation Tests"
+    needs: tier-1-gate
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+      - uses: dtolnay/rust-toolchain@stable
+      - name: Guard legacy AOS flag in CI
+        run: |
+          case "${AOS_ALLOW_LEGACY_AOS:-0}" in
+            1|true|TRUE|yes|YES)
+              echo "::error::AOS_ALLOW_LEGACY_AOS must remain disabled in CI tests"
+              exit 1
+              ;;
+            *)
+              echo "Legacy AOS flag is not enabled (expected)"
+              ;;
+          esac
+      - name: Run extended tenant isolation tests
+        run: cargo test --test integration --features extended-tests tenant_isolation -- --nocapture
+
+  test-macos:
+    name: "Tier 2: Test Suite (macOS, full workspace)"
+    needs: tier-1-gate
+    runs-on: macos-14
+    steps:
+      - uses: actions/checkout@v4
+      - uses: dtolnay/rust-toolchain@stable
+      - name: Guard legacy AOS flag in CI
+        run: |
+          case "${AOS_ALLOW_LEGACY_AOS:-0}" in
+            1|true|TRUE|yes|YES)
+              echo "::error::AOS_ALLOW_LEGACY_AOS must remain disabled in CI tests"
+              exit 1
+              ;;
+            *)
+              echo "Legacy AOS flag is not enabled (expected)"
+              ;;
+          esac
+      - name: Run tests
+        run: cargo test --workspace --all-targets
+
+  test-macos-production:
+    name: "Tier 2: Test Suite (macOS, production-macos)"
+    needs: tier-1-gate
+    runs-on: macos-14
+    steps:
+      - uses: actions/checkout@v4
+      - uses: dtolnay/rust-toolchain@stable
+      - name: Guard legacy AOS flag in CI
+        run: |
+          case "${AOS_ALLOW_LEGACY_AOS:-0}" in
+            1|true|TRUE|yes|YES)
+              echo "::error::AOS_ALLOW_LEGACY_AOS must remain disabled in CI tests"
+              exit 1
+              ;;
+            *)
+              echo "Legacy AOS flag is not enabled (expected)"
+              ;;
+          esac
+      - name: Run tests with production-macos features
+        run: |
+          cargo test --workspace --all-targets \
+            --features production-macos \
+            --exclude adapteros-lora-mlx-ffi
+
+  hardware-residency:
+    name: "Tier 2: Hardware Residency Tests"
+    needs: tier-1-gate
+    runs-on: macos-14
+    steps:
+      - uses: actions/checkout@v4
+      - uses: dtolnay/rust-toolchain@stable
+      - name: Run hardware residency tests
+        run: |
+          cargo test --workspace \
+            --features hardware-residency \
+            -- --ignored --nocapture
+
+  kv-primary:
+    name: "Tier 2: KV Primary Mode"
+    needs: tier-1-gate
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+      - uses: dtolnay/rust-toolchain@stable
+      - name: Prepare KV path
+        run: mkdir -p /tmp/aos-kv
+      - name: Guard legacy AOS flag in CI
+        run: |
+          case "${AOS_ALLOW_LEGACY_AOS:-0}" in
+            1|true|TRUE|yes|YES)
+              echo "::error::AOS_ALLOW_LEGACY_AOS must remain disabled in CI tests"
+              exit 1
+              ;;
+            *)
+              echo "Legacy AOS flag is not enabled (expected)"
+              ;;
+          esac
+      - name: Detect KV-only coverage readiness
+        id: coverage
+        run: |
+          python - <<'PY'
+          import os, re, pathlib
+
+          content = pathlib.Path("crates/adapteros-db/src/lib.rs").read_text()
+          match = re.search(r"const UNSUPPORTED: &[^\[]*\[(.*?)\];", content, re.S)
+          entries = []
+          if match:
+              for line in match.group(1).splitlines():
+                  line = line.strip().strip(",")
+                  if not line or line in ('""', "''"):
+                      continue
+                  entries.append(line.strip().strip('"'))
+
+          ready = len(entries) == 0
+          with open(os.environ["GITHUB_OUTPUT"], "a", encoding="utf-8") as fh:
+              fh.write(f"coverage_ready={'true' if ready else 'false'}\n")
+              fh.write(f"unsupported_domains={','.join(entries)}\n")
+
+          if ready:
+              print("KV-only coverage ready; enabling kv_only smoke")
+          else:
+              print(f"KV-only coverage incomplete; unsupported domains: {entries}")
+          PY
+      - name: Run KV-primary smoke suite
+        env:
+          AOS_STORAGE_BACKEND: kv_primary
+          AOS_KV_PATH: /tmp/aos-kv/aos-kv.redb
+        run: |
+          cargo test -p adapteros-db -- --nocapture
+          cargo test -p adapteros-server-api -- --nocapture
+      - name: Run KV-only smoke (gated)
+        if: steps.coverage.outputs.coverage_ready == 'true'
+        env:
+          AOS_STORAGE_BACKEND: kv_only
+          AOS_KV_PATH: /tmp/aos-kv/aos-kv.redb
+        run: cargo test -p adapteros-db --test kv_only_paths -- --nocapture
+      - name: Skip KV-only smoke (coverage incomplete)
+        if: steps.coverage.outputs.coverage_ready != 'true'
+        run: 'echo "KV-only smoke skipped; unsupported domains: ${{ steps.coverage.outputs.unsupported_domains }}"'
+
+  kv-verify:
+    name: "Tier 2: KV Drift Verify"
+    needs: tier-1-gate
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+      - uses: dtolnay/rust-toolchain@stable
+      - name: Run SQL↔KV verify gate
+        env:
+          KV_VERIFY_DB: /tmp/aos-ci.sqlite3
+          KV_VERIFY_KV: /tmp/aos-kv.redb
+          KV_VERIFY_OUT: kv-verify.json
+        run: |
+          set -euo pipefail
+          make kv-verify KV_VERIFY_DB=$KV_VERIFY_DB KV_VERIFY_KV=$KV_VERIFY_KV KV_VERIFY_OUT=$KV_VERIFY_OUT
+          cat kv-verify.json
+          jq -e '(.drift == 0) and (.fallback == 0) and (.errors == 0) and (.degraded == false)' kv-verify.json
+
+  # ==========================================================================
+  # Gold Standard E2E Test (Tier 2: runs after Tier 1 passes)
+  # ==========================================================================
+  gold-standard-e2e:
+    name: "Tier 2: Gold Standard E2E Test"
+    needs: tier-1-gate
+    runs-on: macos-14
+    timeout-minutes: 5
+    env:
+      AOS_DEV_NO_AUTH: "1"
+      AOS_BACKEND: mock
+      AOS_DETERMINISM_SEED: "2a2a2a2a2a2a2a2a2a2a2a2a2a2a2a2a2a2a2a2a2a2a2a2a2a2a2a2a2a2a2a2a"
+      RUST_BACKTRACE: "1"
+      RUST_LOG: "adapteros=debug,tower_http=warn"
+    steps:
+      - uses: actions/checkout@v4
+      - uses: dtolnay/rust-toolchain@stable
+      - name: Run gold standard E2E test
+        run: cargo test --test gold_standard_e2e -- --test-threads=2 --nocapture
+      - name: Upload failure artifacts
+        if: failure()
+        uses: actions/upload-artifact@v4
+        with:
+          name: gold-standard-e2e-failures
+          path: target/test-failures/
+
+  # ==========================================================================
+  # Happy Path Smoke Test (Tier 2: runs after Tier 1 passes)
+  # ==========================================================================
+  happy-path-smoke:
+    name: "Tier 2: Happy Path Smoke Test"
+    needs: tier-1-gate
+    runs-on: macos-14
+    timeout-minutes: 5
+    env:
+      AOS_DEV_NO_AUTH: "1"
+      AOS_BACKEND: mock
+      RUST_BACKTRACE: "1"
+      RUST_LOG: "warn"
+    steps:
+      - uses: actions/checkout@v4
+      - uses: dtolnay/rust-toolchain@stable
+      - name: Install sqlx-cli
+        run: cargo install sqlx-cli --version 0.8.2 --no-default-features --features sqlite --locked
+      - name: Run happy path smoke test
+        run: ./scripts/test/smoke_happy_path.sh --verbose
+      - name: Upload failure logs
+        if: failure()
+        uses: actions/upload-artifact@v4
+        with:
+          name: happy-path-smoke-logs
+          path: var/smoke-happy-path/
+
+  # ==========================================================================
+  # Streaming Reliability Tests (Tier 2: runs after Tier 1 passes)
+  # ==========================================================================
+  streaming-reliability:
+    name: "Tier 2: Streaming Reliability Tests"
+    needs: tier-1-gate
+    runs-on: macos-14
+    timeout-minutes: 10
+    env:
+      AOS_DEV_NO_AUTH: "1"
+      RUST_BACKTRACE: "1"
+      RUST_LOG: "adapteros=debug,tower_http=warn"
+    steps:
+      - uses: actions/checkout@v4
+      - uses: dtolnay/rust-toolchain@stable
+      - name: Run streaming reliability tests
+        run: cargo test -p adapteros-server-api --test streaming_reliability -- --test-threads=2 --nocapture
+      - name: Upload failure artifacts
+        if: failure()
+        uses: actions/upload-artifact@v4
+        with:
+          name: streaming-reliability-failures
+          path: target/test-failures/
+
+  # ==========================================================================
+  # Determinism Replay Harness (runs on all PRs and main pushes)
+  # ==========================================================================
+  replay-harness:
+    name: "Tier 2: Determinism Replay Harness"
+    needs: tier-1-gate
+    runs-on: macos-14
+    timeout-minutes: 20
+    # Run on PRs and main pushes to catch replay regressions before merge
+    env:
+      AOS_DEV_NO_AUTH: "1"
+      AOS_BACKEND: mock
+      AOS_DETERMINISM_SEED: "2a2a2a2a2a2a2a2a2a2a2a2a2a2a2a2a2a2a2a2a2a2a2a2a2a2a2a2a2a2a2a2a"
+      RUST_BACKTRACE: "1"
+      RUST_LOG: "adapteros=debug"
+    steps:
+      - uses: actions/checkout@v4
+      - uses: dtolnay/rust-toolchain@stable
+      - name: Run replay harness (serial execution)
+        run: cargo test --test determinism_replay_harness -- --test-threads=1 --nocapture
+      - name: Upload failure artifacts
+        if: failure()
+        uses: actions/upload-artifact@v4
+        with:
+          name: replay-harness-failures
+          path: target/test-failures/
+      - name: Upload golden fixtures
+        uses: actions/upload-artifact@v4
+        with:
+          name: golden-fixtures
+          path: tests/fixtures/golden/
+
+  # ==========================================================================
+  # Determinism Gate (minimal regression harness)
+  # ==========================================================================
+  determinism-gate:
+    name: "Tier 2: Determinism Gate"
+    needs: tier-1-gate
+    runs-on: ubuntu-latest
+    timeout-minutes: 10
+    env:
+      RUST_BACKTRACE: "1"
+      # Force SQLx offline mode so CI doesn't depend on an external/host database.
+      SQLX_OFFLINE: "1"
+    steps:
+      - uses: actions/checkout@v4
+      - uses: dtolnay/rust-toolchain@stable
+      - name: Run minimal determinism regression harness (serial)
+        run: |
+          set -euo pipefail
+
+          cargo test -p adapteros-core --test determinism_regression_harness -- --test-threads=1
+
+          cargo test -p adapteros-db --test cache_attestation_enforcement -- --test-threads=1
+
+  # ==========================================================================
+  # Determinism Suite
+  # ==========================================================================
+  determinism:
+    name: "Tier 2: Determinism Suite"
+    needs: tier-1-gate
+    runs-on: ubuntu-latest
+    timeout-minutes: 15
+    env:
+      AOS_DEV_NO_AUTH: "1"
+      AOS_BACKEND: mock
+      RUST_BACKTRACE: "1"
+    steps:
+      - uses: actions/checkout@v4
+      - uses: dtolnay/rust-toolchain@stable
+      - name: Determinism smoke fixtures
+        run: cargo test --test determinism_smoke -- --nocapture
+      - name: Run determinism check
+        run: cargo test --test determinism_core_suite -- --test-threads=1 --nocapture
+      - name: Run determinism hardening tests
+        run: cargo test --test determinism_hardening_tests -- --nocapture
+      - name: Scan build for -ffast-math flags
+        run: |
+          set -euo pipefail
+          if [ ! -d target ]; then
+            cargo check --locked --all-features
+          fi
+          if rg "-ffast-math" target; then
+            echo "::error::-ffast-math detected in build outputs"
+            exit 1
+          fi
+          echo "No -ffast-math flags detected in build artifacts"
+
+  prod-gate:
+    name: Prod Gate
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+      - uses: dtolnay/rust-toolchain@stable
+      - name: Run prod gate
+        run: cargo test -p adapteros-e2e --features prod-gate
+      - name: Upload prod gate report
+        if: always()
+        uses: actions/upload-artifact@v4
+        with:
+          name: prod-gate-report
+          path: target/prod-gate/report.json
+
+  mlx-impl-matrix:
+    name: MLX Impl Matrix (${{ matrix.name }})
+    runs-on: ${{ matrix.os }}
+    strategy:
+      fail-fast: false
+      matrix:
+        include:
+          - name: no-mlx
+            os: ubuntu-latest
+            features: ""
+          - name: mlx-ffi
+            os: ubuntu-latest
+            features: "mlx"
+    steps:
+      - uses: actions/checkout@v4
+      - uses: dtolnay/rust-toolchain@stable
+      - name: Run MLX selection tests
+        run: |
+          if [ -n "${{ matrix.features }}" ]; then
+            cargo test -p adapteros-lora-mlx-ffi --features "${{ matrix.features }}"
+          else
+            cargo test -p adapteros-lora-mlx-ffi
+          fi
+
+  macos-mlx-ffi:
+    name: MLX FFI (macOS)
+    runs-on: macos-14
+    steps:
+      - uses: actions/checkout@v4
+      - uses: dtolnay/rust-toolchain@stable
+      - name: Install MLX dependencies
+        run: |
+          brew install mlx
+      - name: Build MLX FFI
+        run: |
+          cargo build -p adapteros-lora-mlx-ffi --features mlx
+      - name: Test MLX FFI
+        run: |
+          cargo test -p adapteros-lora-mlx-ffi --features mlx -- --nocapture
+
+  worker-gate:
+    name: Worker Gate
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+      - uses: dtolnay/rust-toolchain@stable
+      - name: Run worker gate
+        run: cargo test -p adapteros-e2e --features worker-gate --test worker_gate
+      - name: Upload worker gate report
+        if: always()
+        uses: actions/upload-artifact@v4
+        with:
+          name: worker-gate-report
+          path: target/worker-gate/report.json
+
+  sqlx-offline:
+    name: SQLx Offline Cache Check
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+      - uses: dtolnay/rust-toolchain@stable
+      - name: Install sqlx-cli
+        run: cargo install sqlx-cli --version 0.8.2 --no-default-features --features sqlite --locked
+      - name: Prepare SQLite path
+        run: mkdir -p var
+      - name: Run migrations (SQLite)
+        env:
+          DATABASE_URL: sqlite://./var/sqlx-ci.sqlite3
+        run: cargo sqlx migrate run
+      - name: Verify committed SQLx cache
+        env:
+          DATABASE_URL: sqlite://./var/sqlx-ci.sqlite3
+          SQLX_OFFLINE_DIR: crates/adapteros-db/.sqlx
+        run: cargo sqlx prepare --workspace --check
+      - name: Verify offline build (all SQLx crates)
+        env:
+          SQLX_OFFLINE: "1"
+          SQLX_OFFLINE_DIR: crates/adapteros-db/.sqlx
+        run: |
+          # Verify all crates with sqlx::query! macros compile offline
+          cargo check -p adapteros-db
+          cargo check -p adapteros-server-api
+          cargo check -p adapteros-server
+
+  cli-models-seed:
+    name: CLI Models Seed
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+      - uses: dtolnay/rust-toolchain@stable
+      - name: Build CLI
+        run: cargo build -p adapteros-cli
+      - name: Setup test environment
+        run: |
+          mkdir -p var/test-model
+          # Create a minimal mock model for testing (config.json required)
+          echo '{"model_type":"llama","hidden_size":256}' > var/test-model/config.json
+          echo '{}' > var/test-model/tokenizer.json
+          echo '{}' > var/test-model/tokenizer_config.json
+      - name: Run migrations
+        run: |
+          DATABASE_URL="sqlite://./var/test-cli.sqlite3" \
+            AOS_SKIP_MIGRATION_SIGNATURES=1 \
+            cargo sqlx migrate run
+      - name: Test models seed command
+        run: |
+          DATABASE_URL="sqlite://./var/test-cli.sqlite3" \
+            ./target/debug/aosctl models seed --model-path var/test-model
+      - name: Test models list command
+        run: |
+          DATABASE_URL="sqlite://./var/test-cli.sqlite3" \
+            ./target/debug/aosctl models list
+      - name: Verify model was seeded
+        run: |
+          DATABASE_URL="sqlite://./var/test-cli.sqlite3" \
+            ./target/debug/aosctl models list --json | jq -e '.count >= 1'
+
+  security-audit:
+    name: Security Audit
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+      - uses: dtolnay/rust-toolchain@stable
+      - name: Install cargo-audit
+        run: cargo install cargo-audit
+      - name: Run security audit
+        run: cargo audit --ignore RUSTSEC-2021-0139
+      - name: Generate SBOM
+        run: |
+          # Install cargo-sbom if available, or use basic dependency listing
+          cargo tree > sbom.txt || echo "cargo tree fallback used"
+          echo "Software Bill of Materials generated" >> sbom.txt
+      - name: Upload SBOM
+        uses: actions/upload-artifact@v3
+        with:
+          name: sbom
+          path: sbom.txt
+
+  license-check:
+    name: License Compliance
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+      - uses: dtolnay/rust-toolchain@stable
+      - name: Install cargo-license
+        run: cargo install cargo-license
+      - name: Check licenses
+        run: |
+          cargo license --json > licenses.json
+          # Check for unacceptable licenses
+          if jq -r '.[] | select(.license | test("^(GPL|LGPL|CDDL|CECILL|MPL)")) | .name' licenses.json | grep -q .; then
+            echo "::error::Unacceptable license found in dependencies"
+            jq -r '.[] | select(.license | test("^(GPL|LGPL|CDDL|CECILL|MPL)")) | "\(.name): \(.license)"' licenses.json
+            exit 1
+          else
+            echo "✅ All dependency licenses are acceptable"
+          fi
+      - name: Upload license report
+        uses: actions/upload-artifact@v3
+        with:
+          name: license-report
+          path: licenses.json
+
+  build:
+    name: Release Build
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+      - uses: dtolnay/rust-toolchain@stable
+      - name: Build release
+        run: cargo build --release --workspace --exclude adapteros-lora-mlx-ffi
+      - name: Install b3sum for provenance hashing
+        run: cargo install b3sum --locked
+      - name: Generate signed SBOM and provenance bundle
+        if: github.event_name != 'pull_request'
+        env:
+          RELEASE_SIGNING_KEY_PEM: ${{ secrets.RELEASE_SIGNING_KEY_PEM }}
+          RELEASE_SIGNING_PUBKEY_HEX: ${{ secrets.RELEASE_SIGNING_PUBKEY_HEX }}
+        run: bash scripts/release/sbom.sh
+      - name: Upload release provenance bundle
+        if: github.event_name != 'pull_request'
+        uses: actions/upload-artifact@v4
+        with:
+          name: release-provenance
+          path: target/release-bundle
+
+  openapi-spec-drift:
+    name: OpenAPI Spec Drift Check
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+      - uses: dtolnay/rust-toolchain@stable
+      - name: Check OpenAPI spec drift (utoipa version + spec content)
+        run: ./scripts/ci/check_openapi_drift.sh
+      - name: Check worker contract drift
+        run: ./scripts/ci/check_worker_contract_drift.sh
+      - name: Verify OpenAPI spec quality
+        run: |
+          if ! jq -e '.paths | length > 0' docs/api/openapi.json > /dev/null; then
+            echo "::error::OpenAPI spec has no paths defined"
+            exit 1
+          fi
+          if ! jq -e '.components.schemas | length > 0' docs/api/openapi.json > /dev/null; then
+            echo "::error::OpenAPI spec has no schemas defined"
+            exit 1
+          fi
+          echo "✓ OpenAPI spec structure is valid"
+          echo "  Paths: $(jq '.paths | length' docs/api/openapi.json)"
+          echo "  Schemas: $(jq '.components.schemas | length' docs/api/openapi.json)"
+
+  route-map-freshness:
+    name: Route Map Freshness Check
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+      - name: Generate route map and check for drift
+        run: |
+          ./scripts/dev/generate_route_map.sh
+
+          if git diff --exit-code docs/api/ROUTE_MAP.md; then
+            echo "✓ Route map is up to date"
+          else
+            echo "::error::Route map is out of date!"
+            echo ""
+            echo "The route map has drifted from the source."
+            echo "Please regenerate and commit:"
+            echo ""
+            echo "  ./scripts/dev/generate_route_map.sh"
+            echo "  git add docs/api/ROUTE_MAP.md"
+            echo "  git commit -m 'docs: regenerate route map'"
+            echo ""
+            git diff docs/api/ROUTE_MAP.md
+            exit 1
+          fi
+
+  fuzz:
+    name: Fuzz Smoke
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+      - uses: dtolnay/rust-toolchain@nightly
+      - name: Install cargo-fuzz
+        run: cargo install cargo-fuzz
+      - name: Seed corpora
+        run: |
+          mkdir -p fuzz/corpus/router_inputs fuzz/corpus/trace_encoding fuzz/corpus/receipt_verification
+          cp -r crates/adapteros-lora-router/fuzz/corpus/router_inputs/. fuzz/corpus/router_inputs/ || true
+          cp -r crates/adapteros-lora-router/fuzz/corpus/trace_encoding/. fuzz/corpus/trace_encoding/ || true
+          cp -r crates/adapteros-lora-router/fuzz/corpus/receipt_verification/. fuzz/corpus/receipt_verification/ || true
+      - name: Run router_inputs fuzz (60s cap)
+        run: cargo fuzz run router_inputs -- -max_total_time=60
+      - name: Run trace_encoding fuzz (60s cap)
+        run: cargo fuzz run trace_encoding -- -max_total_time=60
+      - name: Run receipt_verification fuzz (60s cap)
+        run: cargo fuzz run receipt_verification -- -max_total_time=60
+
+  leptos-wasm-build:
+    name: Leptos WASM Build
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+      - uses: dtolnay/rust-toolchain@stable
+        with:
+          targets: wasm32-unknown-unknown
+      - name: Install trunk
+        run: cargo install trunk --locked
+      - name: Install wasm-opt (binaryen)
+        run: sudo apt-get update && sudo apt-get install -y binaryen brotli
+      - name: Build UI (shared script)
+        run: ./scripts/build-ui.sh
+      - name: Measure and gate sizes
+        run: |
+          set -euo pipefail
+          WASM_FILE=$(ls crates/adapteros-server/static/adapteros-ui-*.wasm | head -1)
+          AFTER_SIZE=$(stat -c%s "$WASM_FILE")
+          echo "WASM size: $AFTER_SIZE bytes"
+
+          # PRD-UI-170: Assert WASM size < 3.5MB (target: 2.5MB, gate: 3.5MB)
+          MAX_SIZE=$((3500000))
+          if [ "$AFTER_SIZE" -gt "$MAX_SIZE" ]; then
+            echo "::error::WASM size ($AFTER_SIZE bytes) exceeds PRD-UI-170 gate (3.5MB)"
+            exit 1
+          fi
+          echo "✓ WASM size within PRD-UI-170 limits"
+
+          # PRD-UI-BOUNDARY: Assert brotli size < 1.2MB for network transfer budget
+          # Brotli is the primary compression format for modern browsers
+          sudo apt-get install -y brotli >/dev/null 2>&1 || true
+          brotli -9 -c "$WASM_FILE" > "${WASM_FILE}.br"
+          BROTLI_SIZE=$(stat -c%s "${WASM_FILE}.br")
+          echo "Brotli size: $BROTLI_SIZE bytes"
+
+          MAX_BROTLI=$((1200000))
+          if [ "$BROTLI_SIZE" -gt "$MAX_BROTLI" ]; then
+            echo "::error::Brotli WASM ($BROTLI_SIZE bytes) exceeds transfer budget (1.2MB)"
+            exit 1
+          fi
+          echo "✓ Brotli WASM within transfer budget"
+
+          # Stretch goal tracking (1.0 MB) - warning only, no fail
+          STRETCH_GOAL=$((1000000))
+          if [ "$BROTLI_SIZE" -gt "$STRETCH_GOAL" ]; then
+            echo "::warning::Brotli WASM ($BROTLI_SIZE bytes) exceeds stretch goal (1.0MB)"
+          fi
+
+          # Keep gzip for fallback comparison
+          GZIP_SIZE=$(gzip -9 -c "$WASM_FILE" | wc -c | tr -d ' ')
+          echo "Gzip size: $GZIP_SIZE bytes (fallback)"
+
+          # Record bundle sizes for trending (GitHub Actions Job Summary)
+          DIST_DIR="crates/adapteros-server/static"
+          JS_FILE=$(find "$DIST_DIR" -name "*.js" -type f | head -1)
+          JS_SIZE=$(stat -c%s "$JS_FILE" 2>/dev/null || echo "0")
+
+          echo "## Bundle Size Metrics" >> $GITHUB_STEP_SUMMARY
+          echo "| Asset | Size |" >> $GITHUB_STEP_SUMMARY
+          echo "|-------|------|" >> $GITHUB_STEP_SUMMARY
+          echo "| WASM (raw) | $(numfmt --to=iec $AFTER_SIZE) |" >> $GITHUB_STEP_SUMMARY
+          echo "| WASM (brotli) | $(numfmt --to=iec $BROTLI_SIZE) |" >> $GITHUB_STEP_SUMMARY
+          echo "| WASM (gzip) | $(numfmt --to=iec $GZIP_SIZE) |" >> $GITHUB_STEP_SUMMARY
+          echo "| JS glue | $(numfmt --to=iec $JS_SIZE) |" >> $GITHUB_STEP_SUMMARY
+      - name: Verify WASM artifacts exist
+        run: |
+          if [ ! -f crates/adapteros-server/static/index.html ]; then
+            echo "::error::index.html not found in static output"
+            exit 1
+          fi
+          if ! ls crates/adapteros-server/static/adapteros-ui-*.wasm 2>/dev/null; then
+            echo "::error::WASM file not found in static output"
+            exit 1
+          fi
+          echo "✓ Leptos WASM build artifacts verified"
+          ls -la crates/adapteros-server/static/
+      - name: PRD-UI-000 Asset integrity check
+        run: ./scripts/ci/check_ui_assets.sh
+      - name: Upload UI artifacts for TTI test
+        uses: actions/upload-artifact@v4
+        with:
+          name: leptos-wasm-build
+          path: crates/adapteros-server/static/
+          retention-days: 1
+
+  # ==========================================================================
+  # TTI Measurement (PRD-UI-170)
+  # ==========================================================================
+  tti-measurement:
+    name: TTI Measurement (PRD-UI-170)
+    runs-on: ubuntu-latest
+    needs: leptos-wasm-build
+    timeout-minutes: 10
+    env:
+      AOS_DEV_NO_AUTH: "1"
+      AOS_BACKEND: mock
+      AOS_SERVER_PORT: "8080"
+    steps:
+      - uses: actions/checkout@v4
+      - uses: dtolnay/rust-toolchain@stable
+      - uses: actions/setup-node@v4
+        with:
+          node-version: '20'
+      - name: Install sqlx-cli
+        run: cargo install sqlx-cli --version 0.8.2 --no-default-features --features sqlite --locked
+      - name: Download UI artifacts
+        uses: actions/download-artifact@v4
+        with:
+          name: leptos-wasm-build
+          path: crates/adapteros-server/static/
+      - name: Build server
+        run: cargo build -p adapteros-server --release
+      - name: Setup test database
+        run: |
+          mkdir -p var
+          touch var/tti-test.sqlite3
+          SQLX_DISABLE_STATEMENT_CHECKS=1 \
+          AOS_SKIP_MIGRATION_SIGNATURES=1 \
+          DATABASE_URL="sqlite://./var/tti-test.sqlite3" \
+            cargo sqlx migrate run
+      - name: Start server
+        run: |
+          AOS_SKIP_MIGRATION_SIGNATURES=1 \
+          SQLX_DISABLE_STATEMENT_CHECKS=1 \
+          DATABASE_URL="sqlite://./var/tti-test.sqlite3" \
+          AOS_DATABASE_URL="sqlite://./var/tti-test.sqlite3" \
+          RUST_LOG=warn \
+            ./target/release/adapteros-server \
+              --config configs/cp.toml &
+          SERVER_PID=$!
+          echo $SERVER_PID > var/server.pid
+
+          # Wait for server to be ready
+          for i in {1..30}; do
+            if curl -fsS --max-time 2 http://127.0.0.1:8080/healthz >/dev/null 2>&1; then
+              echo "Server ready after ${i}s"
+              break
+            fi
+            sleep 1
+          done
+
+          # Verify server is up
+          curl -fsS http://127.0.0.1:8080/healthz || (echo "Server failed to start"; exit 1)
+      - name: Measure TTI with Lighthouse
+        run: |
+          npx lighthouse http://127.0.0.1:8080 \
+            --only-categories=performance \
+            --output=json \
+            --output-path=./lighthouse.json \
+            --chrome-flags="--headless --no-sandbox --disable-gpu"
+
+          TTI=$(jq '.audits["interactive"].numericValue' lighthouse.json)
+          echo "TTI: ${TTI}ms"
+
+          # PRD-UI-170: Dashboard interactive in <2s
+          if (( $(echo "$TTI > 2000" | bc -l) )); then
+            echo "::error::TTI (${TTI}ms) exceeds 2s target (PRD-UI-170)"
+
+            # Show performance breakdown for debugging
+            echo ""
+            echo "=== Performance Breakdown ==="
+            jq -r '.audits | to_entries[] | select(.value.numericValue != null) | "\(.key): \(.value.numericValue)ms"' lighthouse.json | head -20
+
+            exit 1
+          fi
+
+          echo "::notice::TTI ${TTI}ms is within 2s target"
+
+          # Record to job summary
+          echo "## TTI Measurement (PRD-UI-170)" >> $GITHUB_STEP_SUMMARY
+          echo "| Metric | Value | Target |" >> $GITHUB_STEP_SUMMARY
+          echo "|--------|-------|--------|" >> $GITHUB_STEP_SUMMARY
+          echo "| Time to Interactive | ${TTI}ms | <2000ms |" >> $GITHUB_STEP_SUMMARY
+      - name: Stop server
+        if: always()
+        run: |
+          if [ -f var/server.pid ]; then
+            kill $(cat var/server.pid) 2>/dev/null || true
+          fi
+      - name: Upload Lighthouse report
+        if: always()
+        uses: actions/upload-artifact@v4
+        with:
+          name: lighthouse-report
+          path: lighthouse.json
+
+  leptos-wasm-check:
+    name: Leptos WASM Check
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+      - uses: dtolnay/rust-toolchain@stable
+        with:
+          targets: wasm32-unknown-unknown
+      - name: Check WASM compilation
+        run: cargo check -p adapteros-ui --target wasm32-unknown-unknown
+      - name: Verify WASM closure (no server-only crates)
+        run: |
+          # PRD-UI-BOUNDARY: Forbidden crates in WASM closure
+          # These crates are server-only and must NOT be compiled into the browser bundle
+          FORBIDDEN_CRATES="blake3 schemars sqlx rusqlite ring tokio reqwest"
+          FAILED=0
+
+          for crate in $FORBIDDEN_CRATES; do
+            if cargo tree -p adapteros-ui --target wasm32-unknown-unknown -i "$crate" 2>/dev/null | grep -q "$crate"; then
+              echo "::error::Forbidden crate '$crate' found in WASM dependency closure"
+              cargo tree -p adapteros-ui --target wasm32-unknown-unknown -i "$crate" 2>/dev/null | head -10
+              FAILED=1
+            fi
+          done
+
+          if [ "$FAILED" -eq 1 ]; then
+            echo ""
+            echo "::error::WASM boundary violation detected. Server-only crates must not leak into browser bundle."
+            echo "Fix: Ensure feature gates in adapteros-types/adapteros-api-types exclude server dependencies for WASM."
+            exit 1
+          fi
+
+          echo "✓ WASM closure is clean (no server-only crates)"
+      - name: Generate UI component similarity report (JSON)
+        run: |
+          mkdir -p var/reports/ui-similarity
+          python3 scripts/ui_component_similarity.py --threshold 0.80 --exclude-file-suffix components/icons.rs --json > var/reports/ui-similarity/report.json
+      - name: Check UI component similarity
+        run: bash scripts/ci/check_ui_component_similarity.sh
+      - name: Upload UI component similarity report
+        if: always()
+        uses: actions/upload-artifact@v4
+        with:
+          name: ui-component-similarity-report
+          path: var/reports/ui-similarity/report.json
+          if-no-files-found: warn
+
+  leptos-api-types-contract:
+    name: Leptos API Types Contract
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+      - uses: dtolnay/rust-toolchain@stable
+        with:
+          targets: wasm32-unknown-unknown
+      - name: Verify adapteros-api-types WASM compatibility
+        run: cargo check -p adapteros-api-types --target wasm32-unknown-unknown
+      - name: Verify types are used consistently
+        run: |
+          # Check that UI uses the shared api-types crate
+          if ! grep -q 'adapteros-api-types' crates/adapteros-ui/Cargo.toml; then
+            echo "::error::adapteros-ui must depend on adapteros-api-types for type consistency"
+            exit 1
+          fi
+          echo "✓ Leptos UI uses shared API types"
+      - name: Check for type mismatches
+        run: |
+          # Build both server-api and ui to ensure types align
+          cargo check -p adapteros-server-api
+          cargo check -p adapteros-ui --target wasm32-unknown-unknown
+          echo "✓ Server and UI types compile successfully"
+
+  # ==========================================================================
+  # MIRI Unsafe Code Verification (P0-4)
+  # ==========================================================================
+  miri:
+    name: MIRI Unsafe Code Analysis
+    runs-on: ubuntu-latest
+    timeout-minutes: 30
+    steps:
+      - uses: actions/checkout@v4
+      - uses: dtolnay/rust-toolchain@nightly
+        with:
+          components: miri
+      - name: Setup MIRI
+        run: cargo +nightly miri setup
+      - name: Run MIRI on kernel crate (MIRI-safe tests only)
+        run: |
+          # Run MIRI on the dedicated miri_safe_tests module
+          # These tests avoid FFI calls which MIRI cannot handle
+          cargo +nightly miri test -p adapteros-lora-kernel-mtl --test miri_safe_tests 2>&1 || {
+            echo "::warning::MIRI found issues in kernel crate unsafe code"
+            # Don't fail the build yet - this is informational
+            # TODO: Make this a hard failure once all issues are fixed
+            true
+          }
+      - name: Run MIRI on FFI crate (pure-Rust portions)
+        run: |
+          # Run MIRI on the miri_safe module in the FFI crate
+          # Excludes actual FFI calls which MIRI cannot verify
+          cargo +nightly miri test -p adapteros-lora-mlx-ffi --test miri_safe_tests 2>&1 || {
+            echo "::warning::MIRI found issues in MLX FFI crate unsafe code"
+            true
+          }
+      - name: Summarize MIRI coverage
+        run: |
+          echo "## MIRI Unsafe Code Analysis" >> "$GITHUB_STEP_SUMMARY"
+          echo "" >> "$GITHUB_STEP_SUMMARY"
+          echo "MIRI has analyzed the pure-Rust unsafe code in:" >> "$GITHUB_STEP_SUMMARY"
+          echo "- \`adapteros-lora-kernel-mtl\`: Metal kernel abstractions" >> "$GITHUB_STEP_SUMMARY"
+          echo "- \`adapteros-lora-mlx-ffi\`: MLX FFI wrappers" >> "$GITHUB_STEP_SUMMARY"
+          echo "" >> "$GITHUB_STEP_SUMMARY"
+          echo "**Note**: FFI calls to Metal/MLX cannot be verified by MIRI." >> "$GITHUB_STEP_SUMMARY"
+          echo "Those are documented with \`// SAFETY:\` comments instead." >> "$GITHUB_STEP_SUMMARY"
+
+  # ==========================================================================
+  # Loom Concurrency Tests
+  # ==========================================================================
+  loom-tests:
+    name: Loom Concurrency Tests
+    runs-on: ubuntu-latest
+    timeout-minutes: 30
+    # Run only on main/develop pushes, not on every PR (loom can be slow)
+    if: github.event_name == 'push' && (github.ref == 'refs/heads/main' || github.ref == 'refs/heads/develop')
+    env:
+      LOOM_MAX_PREEMPTIONS: 3  # Limit state explosion
+      RUSTFLAGS: "--cfg loom"
+    steps:
+      - uses: actions/checkout@v4
+      - uses: dtolnay/rust-toolchain@stable
+      - name: Run loom tests (adapteros-memory)
+        run: cargo test -p adapteros-memory --features loom --release -- loom_
+      - name: Run loom tests (adapteros-lora-worker)
+        run: cargo test -p adapteros-lora-worker --features loom --release -- loom_
+      - name: Summarize loom coverage
+        run: |
+          echo "## Loom Concurrency Tests" >> "$GITHUB_STEP_SUMMARY"
+          echo "" >> "$GITHUB_STEP_SUMMARY"
+          echo "Loom has verified the following lock-free data structures:" >> "$GITHUB_STEP_SUMMARY"
+          echo "- \`adapteros-memory\`: Lock-free memory pool (\`LockFreePool\`)" >> "$GITHUB_STEP_SUMMARY"
+          echo "- \`adapteros-lora-worker\`: Adapter table RCU (\`AdapterTable\`)" >> "$GITHUB_STEP_SUMMARY"
+          echo "" >> "$GITHUB_STEP_SUMMARY"
+          echo "**Configuration**: LOOM_MAX_PREEMPTIONS=3" >> "$GITHUB_STEP_SUMMARY"
+
+  # ==========================================================================
+  # Code Coverage (main branch only - too slow for PRs)
+  # ==========================================================================
+  coverage:
+    name: Code Coverage
+    runs-on: ubuntu-latest
+    timeout-minutes: 45
+    if: github.event_name == 'push' && github.ref == 'refs/heads/main'
+    steps:
+      - uses: actions/checkout@v4
+      - uses: dtolnay/rust-toolchain@stable
+      - name: Install tarpaulin
+        run: cargo install cargo-tarpaulin --locked
+      - name: Generate coverage report (critical crates)
+        run: |
+          cargo tarpaulin \
+            --packages adapteros-policy,adapteros-db,adapteros-lora-router,adapteros-server-api,adapteros-core \
+            --out Html --out Xml \
+            --output-dir coverage/ \
+            --timeout 600 \
+            --exclude-files "tests/*" \
+            --ignore-panics
+      - name: Upload coverage artifacts
+        uses: actions/upload-artifact@v4
+        with:
+          name: coverage-report
+          path: coverage/
+      - name: Upload to Codecov
+        uses: codecov/codecov-action@v4
+        with:
+          files: ./coverage/cobertura.xml
+          flags: unittests
+          fail_ci_if_error: false
+          token: ${{ secrets.CODECOV_TOKEN }}
+          name: adapteros-coverage
+          verbose: true

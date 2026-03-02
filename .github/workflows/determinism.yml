@@ -1,0 +1,177 @@
+# Patent 3535886.0002 Cross-Hardware Determinism CI
+#
+# Validates that inference produces identical results across different
+# macOS versions and Apple Silicon hardware generations.
+
+name: Cross-Hardware Determinism
+
+on:
+  push:
+    branches: [main]
+    paths:
+      - "crates/adapteros-lora-router/**"
+      - "crates/adapteros-core/src/seed.rs"
+      - "crates/adapteros-core/src/receipt_digest.rs"
+      - "metal/**"
+      - "tests/cross_platform_determinism.rs"
+      - "test_data/determinism/**"
+  pull_request:
+    branches: [main]
+    paths:
+      - "crates/adapteros-lora-router/**"
+      - "crates/adapteros-core/src/seed.rs"
+      - "crates/adapteros-core/src/receipt_digest.rs"
+      - "metal/**"
+      - "tests/cross_platform_determinism.rs"
+      - "test_data/determinism/**"
+  workflow_dispatch:
+    inputs:
+      generate_references:
+        description: "Generate new reference outputs"
+        required: false
+        default: "false"
+        type: boolean
+
+env:
+  CARGO_TERM_COLOR: always
+  RUSTFLAGS: -D warnings
+
+jobs:
+  # Run Q15 and HKDF determinism tests on all platforms
+  determinism-unit-tests:
+    name: Determinism Unit Tests
+    strategy:
+      fail-fast: false
+      matrix:
+        include:
+          - os: macos-14 # M1/M2 runner
+            name: "macOS 14 (Sonoma)"
+          - os: macos-13 # Intel runner
+            name: "macOS 13 (Ventura)"
+    runs-on: ${{ matrix.os }}
+    steps:
+      - uses: actions/checkout@v4
+
+      - name: Install Rust toolchain
+        uses: dtolnay/rust-toolchain@stable
+
+      - name: Cache cargo registry
+        uses: actions/cache@v4
+        with:
+          path: |
+            ~/.cargo/registry
+            ~/.cargo/git
+            target
+          key: ${{ runner.os }}-cargo-${{ hashFiles('**/Cargo.lock') }}
+
+      - name: Run determinism unit tests
+        run: |
+          cargo test --test cross_platform_determinism -- \
+            --test-threads=1 \
+            test_q15_quantization_deterministic \
+            test_q15_denominator_invariant \
+            test_hkdf_seed_derivation_deterministic \
+            test_tie_breaking_order \
+            test_total_cmp_nan_handling
+
+      - name: Check for fast-math flags
+        run: |
+          if [ -f scripts/check_fast_math_flags.sh ]; then
+            bash scripts/check_fast_math_flags.sh
+          fi
+
+  # Validate against reference outputs (requires baseline references to exist)
+  cross-platform-validation:
+    name: Cross-Platform Validation
+    needs: determinism-unit-tests
+    if: ${{ github.event.inputs.generate_references != 'true' }}
+    strategy:
+      fail-fast: false
+      matrix:
+        include:
+          - os: macos-14
+            name: "M-series (macos-14)"
+          - os: macos-13
+            name: "Intel (macos-13)"
+    runs-on: ${{ matrix.os }}
+    steps:
+      - uses: actions/checkout@v4
+
+      - name: Install Rust toolchain
+        uses: dtolnay/rust-toolchain@stable
+
+      - name: Check reference outputs exist
+        id: check-refs
+        run: |
+          if [ -f test_data/determinism/references.json ]; then
+            echo "refs_exist=true" >> $GITHUB_OUTPUT
+          else
+            echo "refs_exist=false" >> $GITHUB_OUTPUT
+            echo "::warning::Reference outputs not found. Run generate_reference_outputs first."
+          fi
+
+      - name: Run cross-platform validation
+        if: steps.check-refs.outputs.refs_exist == 'true'
+        run: |
+          cargo test --test cross_platform_determinism \
+            test_cross_platform_determinism -- --ignored --nocapture
+
+  # Generate reference outputs (manual trigger only)
+  generate-references:
+    name: Generate Reference Outputs
+    if: ${{ github.event.inputs.generate_references == 'true' }}
+    runs-on: macos-14 # Use M-series as baseline
+    steps:
+      - uses: actions/checkout@v4
+
+      - name: Install Rust toolchain
+        uses: dtolnay/rust-toolchain@stable
+
+      - name: Generate reference outputs
+        run: |
+          cargo test --test cross_platform_determinism \
+            generate_reference_outputs -- --ignored --nocapture
+
+      - name: Upload reference outputs
+        uses: actions/upload-artifact@v4
+        with:
+          name: determinism-references
+          path: test_data/determinism/references.json
+
+      - name: Commit reference outputs
+        if: github.ref == 'refs/heads/main'
+        run: |
+          git config --local user.email "github-actions[bot]@users.noreply.github.com"
+          git config --local user.name "github-actions[bot]"
+          git add test_data/determinism/references.json
+          git diff --staged --quiet || git commit -m "chore: update determinism reference outputs"
+
+  # Router determinism suite
+  router-determinism:
+    name: Router Determinism Suite
+    runs-on: macos-14
+    steps:
+      - uses: actions/checkout@v4
+
+      - name: Install Rust toolchain
+        uses: dtolnay/rust-toolchain@stable
+
+      - name: Run router determinism tests
+        run: |
+          cargo test -p adapteros-lora-router --test determinism -- --test-threads=1
+        env:
+          AOS_DEBUG_DETERMINISM: "1"
+
+  # Core determinism suite
+  core-determinism:
+    name: Core Determinism Suite
+    runs-on: macos-14
+    steps:
+      - uses: actions/checkout@v4
+
+      - name: Install Rust toolchain
+        uses: dtolnay/rust-toolchain@stable
+
+      - name: Run core determinism tests
+        run: |
+          cargo test --test determinism_core_suite -- --test-threads=8

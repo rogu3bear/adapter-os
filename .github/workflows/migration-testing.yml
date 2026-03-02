@@ -1,0 +1,226 @@
+name: Migration Testing
+
+on:
+  push:
+    branches: [main]
+    paths:
+      - 'migrations/**'
+      - 'scripts/check_migration_conflicts.sh'
+      - 'scripts/db/**'
+  pull_request:
+    branches: [main]
+    paths:
+      - 'migrations/**'
+      - 'scripts/check_migration_conflicts.sh'
+      - 'scripts/db/**'
+
+jobs:
+  migration-conflict-check:
+    name: Check Migration Conflicts
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+
+      - uses: actions/setup-python@v5
+        with:
+          python-version: '3.11'
+          cache: 'pip'
+
+      - name: Install blake3 for signature verification
+        run: python -m pip install --quiet blake3
+
+      - name: Run migration hygiene guardrail
+        run: bash scripts/db/check_migrations.sh
+
+      - name: Check migration conflicts
+        run: bash scripts/check_migration_conflicts.sh
+
+      - name: Verify migration signatures are current
+        run: python scripts/verify_migration_signatures.py
+
+  migration-signature-validation:
+    name: Validate Migration Signatures
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+
+      - name: Validate signatures
+        run: |
+          if [ ! -f "migrations/signatures.json" ]; then
+            echo "::error::Migration signatures file not found"
+            exit 1
+          fi
+
+          # Basic JSON validation
+          if ! jq empty migrations/signatures.json 2>/dev/null; then
+            echo "::error::Invalid JSON in signatures file"
+            exit 1
+          fi
+
+          echo "✅ Migration signatures file is valid JSON"
+
+  migration-rollback-testing:
+    name: Test Migration Rollbacks
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+
+      - name: Setup test database
+        run: |
+          # Create a test database with current schema
+          sqlite3 test_migration.db << 'EOF'
+          -- Basic schema setup for testing
+          CREATE TABLE IF NOT EXISTS schema_migrations (
+            version INTEGER PRIMARY KEY,
+            applied_at TEXT NOT NULL DEFAULT CURRENT_TIMESTAMP
+          );
+          EOF
+
+      - name: Test rollback procedures
+        run: |
+          # Test each rollback script (if they exist)
+          for rollback_file in migrations/rollbacks/*_rollback.sql; do
+            if [ -f "$rollback_file" ]; then
+              echo "Testing rollback: $(basename "$rollback_file")"
+
+              # Create a backup before testing
+              cp test_migration.db test_migration_backup.db
+
+              # Try to execute the rollback (should not fail even if tables don't exist)
+              if sqlite3 test_migration.db < "$rollback_file" 2>&1; then
+                echo "✅ Rollback script executed successfully"
+              else
+                echo "::warning::Rollback script had issues (may be expected)"
+              fi
+
+              # Restore backup for next test
+              mv test_migration_backup.db test_migration.db
+            fi
+          done
+
+      - name: Verify database integrity
+        run: |
+          if sqlite3 test_migration.db "PRAGMA integrity_check;" | grep -q "ok"; then
+            echo "✅ Database integrity maintained after rollbacks"
+          else
+            echo "::error::Database integrity check failed"
+            exit 1
+          fi
+
+      - name: Cleanup
+        run: rm -f test_migration.db test_migration_backup.db
+
+  migration-forward-testing:
+    name: Test Migration Forward Application
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+
+      - name: Setup test database
+        run: |
+          sqlite3 test_forward.db << 'EOF'
+          CREATE TABLE IF NOT EXISTS schema_migrations (
+            version INTEGER PRIMARY KEY,
+            applied_at TEXT NOT NULL DEFAULT CURRENT_TIMESTAMP
+          );
+          EOF
+
+      - name: Test forward migrations
+        run: |
+          # Test a few recent migrations to ensure they apply correctly
+          RECENT_MIGRATIONS=$(ls migrations/*.sql | sort -V | tail -3)
+
+          for migration_file in $RECENT_MIGRATIONS; do
+            echo "Testing forward migration: $(basename "$migration_file")"
+
+            if sqlite3 test_forward.db < "$migration_file" 2>&1; then
+              echo "✅ Migration applied successfully"
+            else
+              echo "::error::Migration failed: $(basename "$migration_file")"
+              exit 1
+            fi
+          done
+
+      - name: Verify schema integrity
+        run: |
+          if sqlite3 test_forward.db "PRAGMA integrity_check;" | grep -q "ok"; then
+            echo "✅ Schema integrity maintained after forward migrations"
+          else
+            echo "::error::Schema integrity check failed after forward migrations"
+            exit 1
+          fi
+
+      - name: Test rollback after forward migration
+        run: |
+          # Test that we can rollback what we just applied
+          for migration_file in $RECENT_MIGRATIONS; do
+            basename_file=$(basename "$migration_file" .sql)
+            rollback_file="migrations/rollbacks/${basename_file}_rollback.sql"
+
+            if [ -f "$rollback_file" ]; then
+              echo "Testing rollback for: $basename_file"
+
+              if sqlite3 test_forward.db < "$rollback_file" 2>&1; then
+                echo "✅ Rollback executed successfully"
+              else
+                echo "::error::Rollback failed for: $basename_file"
+                exit 1
+              fi
+            fi
+          done
+
+      - name: Final integrity check
+        run: |
+          if sqlite3 test_forward.db "PRAGMA integrity_check;" | grep -q "ok"; then
+            echo "✅ Database integrity maintained through migration cycle"
+          else
+            echo "::error::Final integrity check failed"
+            exit 1
+          fi
+
+      - name: Cleanup
+        run: rm -f test_forward.db
+
+  migration-dependency-check:
+    name: Check Migration Dependencies
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+
+      - name: Analyze migration dependencies
+        run: |
+          echo "Analyzing migration dependency chains..."
+
+          # Check for foreign key references that might create dependency issues
+          for migration_file in migrations/*.sql; do
+            if grep -q "REFERENCES\|FOREIGN KEY" "$migration_file" 2>/dev/null; then
+              echo "Migration $(basename "$migration_file") contains foreign key references"
+            fi
+          done
+
+          echo "✅ Migration dependency analysis completed"
+
+  migration-documentation-check:
+    name: Verify Migration Documentation
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+
+      - name: Check rollback documentation completeness
+        run: |
+          MIGRATION_COUNT=$(ls migrations/*.sql | wc -l)
+          ROLLBACK_COUNT=$(ls migrations/rollbacks/*_rollback.sql 2>/dev/null | wc -l || echo "0")
+
+          echo "Migrations: $MIGRATION_COUNT"
+          echo "Rollback procedures: $ROLLBACK_COUNT"
+
+          # Only recent migrations need rollbacks (last 20)
+          RECENT_MIGRATIONS=$(ls migrations/*.sql | sort -V | tail -20 | wc -l)
+
+          if [ "$ROLLBACK_COUNT" -lt "$RECENT_MIGRATIONS" ]; then
+            echo "::warning::Only $ROLLBACK_COUNT rollback procedures for $RECENT_MIGRATIONS recent migrations"
+            echo "Consider adding rollback procedures for critical migrations"
+          else
+            echo "✅ Adequate rollback coverage for recent migrations"
+          fi
+
