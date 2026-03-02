@@ -1268,7 +1268,128 @@ show_status() {
 }
 
 do_preflight() {
+    if ! check_start_dependencies "preflight"; then
+        return 1
+    fi
     freeze_preflight "$AOS_SERVER_PORT" "$AOS_VAR_DIR"
+}
+
+binary_exists() {
+    local path="$1"
+    [ -f "$path" ] && [ -x "$path" ]
+}
+
+require_binary_or_cargo() {
+    local label="$1"
+    local debug_bin="$2"
+    local release_bin="$3"
+
+    if binary_exists "$debug_bin" || binary_exists "$release_bin"; then
+        return 0
+    fi
+
+    if command -v cargo >/dev/null 2>&1; then
+        return 0
+    fi
+
+    fg_error "Missing dependency for $label startup: no built binary and 'cargo' not found."
+    echo "  Expected one of:"
+    echo "    - $debug_bin"
+    echo "    - $release_bin"
+    echo "  Install Rust toolchain (cargo) or build binaries before running ./start."
+    echo ""
+    return 1
+}
+
+check_start_dependencies() {
+    local mode="${1:-up}"
+    local failed=0
+
+    if ! command -v lsof >/dev/null 2>&1; then
+        fg_error "Missing required command: lsof"
+        echo "  ./start relies on lsof for deterministic port and process checks."
+        echo ""
+        failed=1
+    fi
+
+    case "$mode" in
+        up|start|backend)
+            if ! command -v curl >/dev/null 2>&1; then
+                fg_error "Missing required command: curl"
+                echo "  ./start uses curl for health and readiness checks."
+                echo ""
+                failed=1
+            fi
+            if [ ! -x scripts/service-manager.sh ]; then
+                fg_error "Missing required script: scripts/service-manager.sh"
+                echo ""
+                failed=1
+            fi
+            if ! require_binary_or_cargo \
+                "backend" \
+                "$SCRIPT_DIR/target/debug/aos-server" \
+                "$SCRIPT_DIR/target/release/aos-server"; then
+                failed=1
+            fi
+            if [ "${SKIP_WORKER:-0}" != "1" ]; then
+                if ! require_binary_or_cargo \
+                    "worker" \
+                    "$SCRIPT_DIR/target/debug/aos-worker" \
+                    "$SCRIPT_DIR/target/release/aos-worker"; then
+                    failed=1
+                fi
+            fi
+            ;;
+        worker)
+            if [ ! -x scripts/service-manager.sh ]; then
+                fg_error "Missing required script: scripts/service-manager.sh"
+                echo ""
+                failed=1
+            fi
+            if ! require_binary_or_cargo \
+                "worker" \
+                "$SCRIPT_DIR/target/debug/aos-worker" \
+                "$SCRIPT_DIR/target/release/aos-worker"; then
+                failed=1
+            fi
+            ;;
+        secd)
+            if [ ! -x scripts/service-manager.sh ]; then
+                fg_error "Missing required script: scripts/service-manager.sh"
+                echo ""
+                failed=1
+            fi
+            if ! require_binary_or_cargo \
+                "secd" \
+                "$SCRIPT_DIR/target/debug/aos-secd" \
+                "$SCRIPT_DIR/target/release/aos-secd"; then
+                failed=1
+            fi
+            ;;
+        node)
+            if [ ! -x scripts/service-manager.sh ]; then
+                fg_error "Missing required script: scripts/service-manager.sh"
+                echo ""
+                failed=1
+            fi
+            if ! require_binary_or_cargo \
+                "node" \
+                "$SCRIPT_DIR/target/debug/aos-node" \
+                "$SCRIPT_DIR/target/release/aos-node"; then
+                failed=1
+            fi
+            ;;
+        preflight|check)
+            # Port/process dependency checks only.
+            ;;
+    esac
+
+    if [ "$failed" -ne 0 ]; then
+        fg_error "Dependency preflight failed. Resolve missing items and retry."
+        return 1
+    fi
+
+    return 0
 }
 
 # Start backend with progress animation
@@ -2053,6 +2174,7 @@ main() {
 
     case "$cmd" in
         up|start|"")
+            check_start_dependencies "up"
             run_dev_log_hygiene
             start_all
             ;;
@@ -2063,10 +2185,12 @@ main() {
             show_status
             ;;
         backend)
+            check_start_dependencies "backend"
             run_dev_log_hygiene
             start_backend
             ;;
         worker)
+            check_start_dependencies "worker"
             run_dev_log_hygiene
             if [ -x scripts/service-manager.sh ]; then
                 scripts/service-manager.sh start worker
@@ -2076,6 +2200,7 @@ main() {
             fi
             ;;
         secd)
+            check_start_dependencies "secd"
             run_dev_log_hygiene
             if [ -x scripts/service-manager.sh ]; then
                 scripts/service-manager.sh start secd
@@ -2085,6 +2210,7 @@ main() {
             fi
             ;;
         node)
+            check_start_dependencies "node"
             run_dev_log_hygiene
             if [ -x scripts/service-manager.sh ]; then
                 scripts/service-manager.sh start node
