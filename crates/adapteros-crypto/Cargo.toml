@@ -65,5 +65,5 @@ aws-smithy-types = { version = "1.1", optional = true }
 aws-types = { version = "1.1", optional = true }
 [dev-dependencies]
 tempfile = { workspace = true }
-proptest = "1.4"
+proptest = "1.10"
 adapteros-config = { path = "../adapteros-config", features = ["testkit"] }

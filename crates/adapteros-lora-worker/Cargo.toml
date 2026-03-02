@@ -145,7 +145,7 @@ required-features = ["hardware-residency"]
 [dev-dependencies]
 loom = { version = "0.7", features = ["futures"] }
 criterion = { version = "0.5", features = ["html_reports"] }
-proptest = "1.0"
+proptest = "1.10"
 serial_test = "3.0"
 sysinfo = { workspace = true }
 adapteros-lora-mlx-ffi = { path = "../adapteros-lora-mlx-ffi", features = ["mlx"] }
