@@ -8,7 +8,9 @@ repository = "https://github.com/rogu3bear/adapter-os"
 
 [workspace]
 resolver = "2"
-exclude = []  # adapteros-server temporarily included for building
+exclude = [
+    "crates/adapteros-codegraph-viewer/src-tauri",
+]  # intentionally maintained outside workspace builds
 members = [
     "crates/adapteros-boot",  # Boot lifecycle management
     "crates/adapteros-auth",  # Centralized authentication
@@ -68,6 +70,8 @@ members = [
     "crates/adapteros-trace",
     "crates/adapteros-numerics",
     "crates/adapteros-memory",
+    "crates/adapteros-graph",
+    "crates/adapteros-sbom",
     "crates/adapteros-lint",
     "crates/adapteros-verify",
     "crates/adapteros-federation",

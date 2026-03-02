@@ -7,7 +7,9 @@ jobs:
       - uses: actions/checkout@v3
       - name: Check for conflict markers
         run: |
-          if git grep -E '<<<<<<< |=======$|>>>>>>> ' -- '*.rs' '*.ts' '*.tsx'; then
+          # Only flag real merge markers at the beginning of a line.
+          # Avoid matching comment separators like "// ========".
+          if git grep -n -E '^(<<<<<<< |=======|>>>>>>> )' -- '*.rs' '*.ts' '*.tsx'; then
             echo "Found merge conflict markers"
             exit 1
           fi
